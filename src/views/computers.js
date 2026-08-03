@@ -335,6 +335,8 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="graph-wrap glass">
           <div class="graph-crumb"></div>
           <div class="graph-hint glass">Graph is getting dense — select a bottom node to focus its branch</div>
+          <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
+          <div class="graph-edit-note">drag a bubble onto its new parent</div>
         </div>
         <aside class="rail glass">
           <div class="rail-page stats-page"></div>
@@ -351,6 +353,20 @@ export function computersView({ initialComputer = null, navigate }) {
   const railEl = root.querySelector('.rail')
   const statsPage = root.querySelector('.stats-page')
   const ctlPage = root.querySelector('.ctl-page')
+  const editBtn = root.querySelector('.graph-edit-btn')
+
+  // C8 — hierarchy edit mode: Edit locks the tree, Done melts it back
+  function syncEditBtn() {
+    const on = !!graph?.editMode
+    editBtn.textContent = on ? 'Done' : 'Edit'
+    editBtn.classList.toggle('on', on)
+    graphWrap.classList.toggle('editing', on)
+  }
+  editBtn.addEventListener('click', () => {
+    if (!graph) return
+    graph.setEditMode(!graph.editMode)
+    syncEditBtn()
+  })
 
   /* ---------- tabs ---------- */
   function renderTabs() {
@@ -394,6 +410,7 @@ export function computersView({ initialComputer = null, navigate }) {
     graph.onDensity = (dense) => hintEl.classList.toggle('show', dense)
     graph.updateDensity()
     renderCrumb(null)
+    syncEditBtn()                                  // a fresh graph mounts un-edited
     if (stagger) staggerNodesIn(graph)
   }
 

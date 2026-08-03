@@ -141,6 +141,13 @@ export class FleetGraph {
         const n = this.nodes.get(agent.id)
         if (n?.chip && !n.chatOpen) this.renderChipPreview(n)
       }),
+      sim.on('reparent', ({ comp, agent }) => {
+        if (comp !== this.computer) return
+        const n = this.nodes.get(agent.id)
+        if (n) n.el.dataset.parentId = agent.parentId || ''
+        this.refreshForces()
+        if (this.editMode) this._layoutTree(true)
+      }),
     )
   }
 
@@ -236,6 +243,8 @@ export class FleetGraph {
       _cx: null, _cy: null,                            // chip's eased slot position
     }
     nodeEl.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`
+    nodeEl.dataset.agentId = agent.id                  // C8: hierarchy is
+    nodeEl.dataset.parentId = agent.parentId || ''     // assertable in the DOM
     this.nodes.set(agent.id, rec)
 
     this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
@@ -340,6 +349,7 @@ export class FleetGraph {
     this.spawnNode(agent, false)
     this.refreshForces()
     this.updateDensity()
+    if (this.editMode) { this.simulation.stop(); this._layoutTree(true) }
   }
 
   removeAgent(id) {
@@ -349,6 +359,7 @@ export class FleetGraph {
     this.removeNode(rec, true)
     this.refreshForces()
     this.updateDensity()
+    if (this.editMode) { this.simulation.stop(); this._layoutTree(true) }
   }
 
   /* ---------- forces ---------- */
@@ -661,14 +672,23 @@ export class FleetGraph {
       if (!moved && Math.hypot(dx, dy) > 5) {
         moved = true
         elm.classList.add('dragging')
-        this._draggingNow = true
-        this.container.classList.add('interacting')   // immediate; tick() sustains it
-        this.simulation.alphaTarget(0.28).restart()
+        if (this.editMode) {
+          rec._editDragging = true                    // relayout keeps hands off
+        } else {
+          this._draggingNow = true
+          this.container.classList.add('interacting') // immediate; tick() sustains it
+          this.simulation.alphaTarget(0.28).restart()
+        }
       }
       if (moved) {
         const g = this._toGraph(e)                   // clamp in GRAPH coords
         rec.fx = Math.max(rec.r, Math.min(this.W - rec.r, g.x + offX))
         rec.fy = Math.max(rec.r, Math.min(this.H - rec.r, g.y + offY))
+        if (this.editMode) {
+          rec.x = rec.fx; rec.y = rec.fy             // sim is paused: render by hand
+          this._updateDropTarget(rec)
+          this.tick()
+        }
       }
     })
 
@@ -691,6 +711,11 @@ export class FleetGraph {
       pid = null
       if (moved) {
         elm.classList.remove('dragging')
+        if (this.editMode) {                           // C8: drop = re-parent
+          this._editDrop(rec)
+          samples = []
+          return
+        }
         this._draggingNow = false                      // tick() cools the canvas as alpha decays
         elm.classList.add('settling')                  // brief ~0.97 overshoot
         clearTimeout(rec._settleTimer)
@@ -721,6 +746,7 @@ export class FleetGraph {
         return
       }
       rec.fx = null; rec.fy = null
+      if (this.editMode) { this._layoutTree(false); return }  // clicks are inert while editing
       const t = performance.now()
       if (t - (rec._lastClick || 0) < 380) {          // manual dblclick detection —
         rec._lastClick = 0                             // e.detail is unreliable here
@@ -956,6 +982,7 @@ export class FleetGraph {
   }
 
   _wheel(e) {
+    if (this.editMode) return                    // zoom sleeps while editing
     // an open chat morph scrolls its own messages — never hijack that wheel
     if (e.target.closest?.('.chip.as-chat, .chat')) return
     e.preventDefault()
@@ -1102,10 +1129,166 @@ export class FleetGraph {
     this.fitEl = b
   }
 
+  /* ---------- C8: hierarchy edit mode ----------
+     Edit locks the fleet into a tidy tier tree (physics paused, every node
+     pinned), lets a drag re-parent an agent via sim.reparentAgent, and Done
+     melts the tree back into liquid physics with the new hierarchy live. */
+
+  setEditMode(on) {
+    if (this.editMode === !!on) return
+    this.editMode = !!on
+    if (on) {
+      this.container.setAttribute('data-edit-mode', 'true')
+      if (this._zt !== 1 || this.panX || this.panY) this.resetZoom()
+      for (const n of this.nodes.values()) {
+        if (n._flingRaf) { cancelAnimationFrame(n._flingRaf); n._flingRaf = null }
+      }
+      this.simulation.alphaTarget(0)
+      this.simulation.stop()
+      this._layoutTree(true)
+    } else {
+      this.container.removeAttribute('data-edit-mode')
+      this._clearTierGuides()
+      if (this._treeRaf) { cancelAnimationFrame(this._treeRaf); this._treeRaf = null }
+      for (const n of this.nodes.values()) {
+        n.fx = null; n.fy = null; n._editDragging = false
+        n.el.classList.remove('drop-ok', 'refuse')
+      }
+      this.simulation.alpha(0.85).restart()        // melt back into liquid
+    }
+  }
+
+  /** Tier slots: rows by hierarchy depth, children spread under their parents. */
+  _treeSlots() {
+    const nodes = [...this.nodes.values()]
+    const byId = new Map(nodes.map(n => [n.id, n]))
+    const depthOfNode = (n) => {
+      let d = 0, cur = n.agent
+      while (cur.parentId && byId.has(cur.parentId) && d < 9) { cur = byId.get(cur.parentId).agent; d++ }
+      return d
+    }
+    const tiers = new Map()
+    for (const n of nodes) {
+      const d = depthOfNode(n)
+      if (!tiers.has(d)) tiers.set(d, [])
+      tiers.get(d).push(n)
+    }
+    const tierKeys = [...tiers.keys()].sort((a, b) => a - b)
+    const rows = tierKeys.length
+    const padT = 104, padB = 92
+    const rowH = rows > 1 ? (this.H - padT - padB) / (rows - 1) : 0
+    const slots = new Map()
+    const rowYs = []
+    tierKeys.forEach((tk, ri) => {
+      const list = tiers.get(tk)
+      list.sort((a, b) => {                        // stable: under the parent, by name
+        const pa = slots.get(a.agent.parentId)?.x ?? this.W / 2
+        const pb = slots.get(b.agent.parentId)?.x ?? this.W / 2
+        return pa - pb || a.id.localeCompare(b.id)
+      })
+      const y = rows > 1 ? padT + ri * rowH : this.H / 2
+      rowYs.push(y)
+      const step = this.W / (list.length + 1)
+      list.forEach((n, i) => slots.set(n.id, {
+        x: Math.max(n.r + 44, Math.min(this.W - n.r - 44, step * (i + 1))),
+        y,
+      }))
+    })
+    return { slots, rowYs }
+  }
+
+  _layoutTree(animate = true) {
+    const { slots, rowYs } = this._treeSlots()
+    this._renderTierGuides(rowYs)
+    if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
+    const starts = new Map()
+    for (const n of this.nodes.values()) starts.set(n.id, { x: n.x, y: n.y })
+    const t0 = performance.now()
+    const D = (animate && !prefersCalm()) ? 680 : 0
+    const ease = (u) => 1 - Math.pow(1 - u, 3)
+    const step = (t) => {
+      const u = D ? Math.min(1, (t - t0) / D) : 1
+      const k = ease(u)
+      for (const n of this.nodes.values()) {
+        const s = slots.get(n.id)
+        if (!s || n._editDragging) continue        // hands off the grabbed bubble
+        const st = starts.get(n.id) || s
+        n.x = n.fx = st.x + (s.x - st.x) * k
+        n.y = n.fy = st.y + (s.y - st.y) * k
+      }
+      this.tick()
+      if (u < 1 && this.editMode) this._treeRaf = requestAnimationFrame(step)
+      else this._treeRaf = null
+    }
+    this._treeRaf = requestAnimationFrame(step)
+  }
+
+  _renderTierGuides(rowYs) {
+    this._clearTierGuides()
+    this._guides = rowYs.map(y => {
+      const g = document.createElement('div')
+      g.className = 'tier-guide'
+      g.style.top = `${Math.round(y)}px`
+      this.container.insertBefore(g, this.svg)
+      return g
+    })
+  }
+  _clearTierGuides() { (this._guides || []).forEach(g => g.remove()); this._guides = [] }
+
+  _isDescendantOf(n, anc) {
+    let cur = n.agent, hops = 0
+    while (cur?.parentId && hops++ < 10) {
+      if (cur.parentId === anc.id) return true
+      cur = this.nodes.get(cur.parentId)?.agent
+    }
+    return false
+  }
+
+  /** Highlight the valid parent under the dragged bubble, if any. */
+  _updateDropTarget(rec) {
+    let target = null
+    if (rec.agent.role !== 'coordinator') {        // the root never moves
+      for (const n of this.nodes.values()) {
+        if (n === rec) continue
+        if (Math.hypot(n.x - rec.x, n.y - rec.y) < n.r + rec.r * 0.5) { target = n; break }
+      }
+      if (target && (target.id === rec.agent.parentId || this._isDescendantOf(target, rec))) {
+        target = null
+      }
+    }
+    if (this._dropRec && this._dropRec !== target) this._dropRec.el.classList.remove('drop-ok')
+    if (target && this._dropRec !== target) target.el.classList.add('drop-ok')
+    this._dropRec = target
+  }
+
+  _editDrop(rec) {
+    rec._editDragging = false
+    const target = this._dropRec
+    if (this._dropRec) { this._dropRec.el.classList.remove('drop-ok'); this._dropRec = null }
+    rec.fx = null; rec.fy = null                   // relayout re-pins everything
+    if (target && sim.reparentAgent(this.computer, rec.agent.id, target.agent.id)) {
+      return                                       // 'reparent' handler relays out
+    }
+    // refused: released over an invalid perch (or tried to move the root)
+    let overNode = false
+    for (const n of this.nodes.values()) {
+      if (n === rec) continue
+      if (Math.hypot(n.x - rec.x, n.y - rec.y) < n.r + rec.r * 0.5) { overNode = true; break }
+    }
+    if (overNode || rec.agent.role === 'coordinator') {
+      rec.el.classList.add('refuse')
+      clearTimeout(rec._refuseTimer)
+      rec._refuseTimer = setTimeout(() => rec.el.classList.remove('refuse'), 520)
+    }
+    this._layoutTree(true)                         // glide home
+  }
+
   destroy() {
     this._destroyed = true
     this.simulation.stop()
     this.ro.disconnect()
+    if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
+    this._clearTierGuides()
     if (this._glideRaf) cancelAnimationFrame(this._glideRaf)
     if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
     if (this._zoomRaf) cancelAnimationFrame(this._zoomRaf)
