@@ -13,6 +13,13 @@ const CHIP_ROLES = new Set(['coordinator', 'helper', 'shadow'])
 const DENSE_AT = 12
 
 const prefersCalm = () => document.body.classList.contains('reduce-motion')
+// axis-aligned rect intersection area (px²) — chip avoidance scoring
+const rectOverlap = (ax, ay, aw, ah, bx, by, bw, bh) => {
+  const w = Math.min(ax + aw, bx + bw) - Math.max(ax, bx)
+  if (w <= 0) return 0
+  const h = Math.min(ay + ah, by + bh) - Math.max(ay, by)
+  return h > 0 ? w * h : 0
+}
 const hashStr = (s) => {
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
@@ -40,6 +47,10 @@ export class FleetGraph {
 
     this.W = container.clientWidth || 800
     this.H = container.clientHeight || 600
+    // the canvas is usually still detached here (so W/H are the 800×600
+    // fallbacks); the ResizeObserver's guaranteed initial delivery — after
+    // layout, before paint — re-settles the graph at the true size
+    this._bootResize = true
     this.ro = new ResizeObserver(() => this.resize())
     this.ro.observe(container)
 
@@ -71,7 +82,12 @@ export class FleetGraph {
 
     this.simulation = forceSimulation([])
       .velocityDecay(0.32)
-      .alphaDecay(0.015)
+      // 0.015 → 0.028: the old decay left the layout visibly untangling for
+      // 5-12s after every reheat — far too slow for the short agent canvas.
+      // Arrival is pre-settled before first paint (see _presettle), so the
+      // live decay only has to cover spawns/re-roots, which now cool in
+      // ~1.5s instead of ~4s.
+      .alphaDecay(0.028)
       .on('tick', () => this.tick())
 
     // dev perf probe — HONEST numbers. window.__graphFrameMs is a rolling
@@ -163,16 +179,40 @@ export class FleetGraph {
     }
     this.refreshForces(initial)
     this.updateDensity()
+    // first paint must be legible: settle the physics before the user ever
+    // sees it (re-roots keep their live cinematic — they reuse warm positions)
+    if (initial) this._presettle()
+  }
+
+  /** Run the simulation to (near) rest synchronously, then draw once.
+      Manual simulation.tick() dispatches no events, so this is a few ms of
+      pure math with no intermediate frames — the graph ARRIVES settled
+      instead of untangling itself in front of the user (the rejected
+      30-42px bubble-on-bubble overlaps still visible at t=8s). Called at
+      construction and again on the ResizeObserver's initial delivery. */
+  _presettle() {
+    let guard = 0
+    while (this.simulation.alpha() > 0.03 && guard++ < 360) this.simulation.tick()
+    this._snapChips = true                       // chips land, not glide, on reveal
+    this.tick()                                  // paint the resolved layout now
+    this._snapChips = false
   }
 
   spawnNode(agent, initial) {
     const r = RADII[agent.role] || 39
     const role = ROLES[agent.role]
     const parent = this.nodes.get(agent.parentId)
-    let cx = parent ? parent.x + (Math.random() - 0.5) * 160 : this.W / 2
-    let cy = parent ? parent.y + 90 + Math.random() * 60 : this.H / 2
-    cx = Math.max(r + 34, Math.min(this.W - r - 34, cx))
-    cy = Math.max(r + 64, Math.min(this.H - r - 58, cy))
+    // spawned bubbles used to drop straight onto occupied space (worker-13
+    // popping in on top of existing bubbles) — pick the clearest ring slot
+    const [cx, cy] = this._spawnSpot(r, parent)
+    // label-block metrics, estimated from text length (no forced reflow):
+    // the name/role rows hang ~41px below the bubble and are physical for
+    // both the label-avoid force and chip placement
+    const labelW = Math.max(
+      70,
+      agent.name.length * 7.6 + 18,                    // 12.5px/600 name + status dot
+      Math.min(role.label.length * 7.4, r * 2 + 68),   // role row is CSS-capped at --d+68
+    )
 
     const nodeEl = el(`
       <div class="node role-${agent.role} ${agent.state === 'spawning' ? 'spawning' : ''} ${initial ? '' : 'enter'}" style="--d:${r * 2}px">
@@ -192,6 +232,8 @@ export class FleetGraph {
       id: agent.id, agent, el: nodeEl, r,
       x: cx, y: cy, vx: 0, vy: 0,
       chip: null, chatOpen: false, chipW: 168, chipH: 44,
+      labelW, labelH: 41,
+      _cx: null, _cy: null,                            // chip's eased slot position
     }
     nodeEl.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`
     this.nodes.set(agent.id, rec)
@@ -217,6 +259,10 @@ export class FleetGraph {
     pv.innerHTML = rec.agent.context.map((c, i) =>
       `<div class="cl">${i === 0 ? `<b>${rec.agent.name}</b> · ` : ''}${c}</div>`).join('')
     rec.chipH = rec.chip.offsetHeight || 44
+    // context arrives while the sim sleeps too — without a live tick the
+    // grown preview would quietly expand over a neighbour (the rejected
+    // "persisting past t=8s" overlaps) or past the canvas edge; re-place now
+    if (this.simulation.alpha() < 0.02) this.tick()
   }
 
   openChat(rec) {
@@ -228,6 +274,7 @@ export class FleetGraph {
     chip.style.height = rec.prevH + 'px'
     void chip.offsetWidth
     chip.classList.add('as-chat')
+    if (rec._chipDim) { rec._chipDim = false; chip.classList.remove('chip-dim') }
     rec.chatOpen = true
     rec.chipW = 316; rec.chipH = 368
 
@@ -242,6 +289,12 @@ export class FleetGraph {
     chip.style.width = '316px'
     chip.style.height = '368px'
     rec._chipTimer = setTimeout(() => { if (rec.chatOpen) { chip.style.width = ''; chip.style.height = '' } }, 520)
+    // the sim may be asleep — re-place now (snapped: a lone tick's ease
+    // would strand the chat mid-glide) so the 316×368 chat is clamped and
+    // slotted for its real size instead of the old preview's
+    if (this.simulation.alpha() < 0.02) {
+      this._snapChips = true; this.tick(); this._snapChips = false
+    }
   }
 
   closeChat(rec) {
@@ -260,6 +313,9 @@ export class FleetGraph {
       this.renderChipPreview(rec)
     }, 500)
     rec.chipW = 168; rec.chipH = rec.prevH || 44
+    if (this.simulation.alpha() < 0.02) {             // asleep sim: re-place now
+      this._snapChips = true; this.tick(); this._snapChips = false
+    }
   }
 
   removeNode(rec, animate, delay = 0) {
@@ -312,9 +368,83 @@ export class FleetGraph {
       .force('link', forceLink(links).distance(l => l.source.r + l.target.r + 74).strength(0.55))
       .force('charge', forceManyBody().strength(-460).distanceMax(520))
       .force('collide', forceCollide().radius(n => n.r + 30).strength(0.95).iterations(2))
+      .force('labels', this._labelAvoidForce(nodes))
       .force('x', forceX(this.W / 2).strength(n => (this.isRoot(n) ? 0.16 : 0.045)))
       .force('y', forceY(n => (this.isRoot(n) ? this.H * 0.42 : this.H * 0.55)).strength(n => (this.isRoot(n) ? 0.16 : 0.05)))
-    this.simulation.alpha(hard ? 1 : 0.7).restart()
+    // soft reheat 0.7 → 0.55: with the faster alphaDecay this keeps spawn /
+    // re-root churn well under 2s while the glide cinematic (680ms) still
+    // has live ticks for its whole run
+    this.simulation.alpha(hard ? 1 : 0.55).restart()
+  }
+
+  /** Bubble collision only kept CIRCLES apart — the name/role block hanging
+      ~41px below each bubble had no physical presence, so neighbours settled
+      straight through label text ("SHADOW MANAGER" rendered through a
+      runtime clock). This pair force makes every label block solid: any
+      bubble intruding on the rectangle is pushed out along the closest-point
+      normal (and the label's owner nudged the other way). The correction is
+      alpha-independent, like forceCollide, so the separation holds all the
+      way to rest. O(n²) at n ≤ ~16 — negligible next to charge. */
+  _labelAvoidForce(nodes) {
+    return () => {
+      for (let i = 0; i < nodes.length; i++) {
+        const a = nodes[i]
+        const hw = (a.labelW || 100) / 2
+        const top = a.y + a.r + 2
+        const bot = a.y + a.r + (a.labelH || 41)
+        for (let j = 0; j < nodes.length; j++) {
+          if (j === i) continue
+          const b = nodes[j]
+          const px = Math.max(a.x - hw, Math.min(a.x + hw, b.x))
+          const py = Math.max(top, Math.min(bot, b.y))
+          let dx = b.x - px, dy = b.y - py
+          const min = b.r + 8
+          const d2 = dx * dx + dy * dy
+          if (d2 >= min * min) continue
+          let d = Math.sqrt(d2)
+          if (d < 1e-3) { dx = 0; dy = -1; d = 1 }
+          const push = ((min - d) / d) * 0.5
+          b.vx += dx * push * 0.6; b.vy += dy * push * 0.6
+          a.vx -= dx * push * 0.4; a.vy -= dy * push * 0.4
+        }
+      }
+    }
+  }
+
+  /** Landing spot for a new bubble: ring of candidates around the parent
+      (or the canvas centre for a rootless node), each scored against every
+      existing bubble AND its label block; the first clear slot — random
+      phase, so spawns stay lively — or failing that the least-crowded one.
+      Initial builds use it too, so _presettle starts from a sane spread. */
+  _spawnSpot(r, parent) {
+    const ax = parent ? parent.x : this.W / 2
+    const ay = parent ? parent.y : this.H / 2
+    const ring = (parent ? parent.r : 0) + r + 52
+    const phase = Math.random() * Math.PI * 2
+    const cands = parent ? [] : [[ax, ay]]
+    for (let k = 0; k < 14; k++) {
+      const ang = phase + (k / 14) * Math.PI * 2
+      cands.push([ax + Math.cos(ang) * ring, ay + Math.sin(ang) * ring * 0.9 + (parent ? 26 : 0)])
+    }
+    let best = cands[0], bestCost = Infinity
+    for (let [x, y] of cands) {
+      x = Math.max(r + 34, Math.min(this.W - r - 34, x))
+      y = Math.max(r + 64, Math.min(this.H - r - 58, y))
+      let cost = 0
+      for (const o of this.nodes.values()) {
+        const need = o.r + r + 30
+        const d = Math.hypot(x - o.x, y - o.y)
+        if (d < need) cost += (need - d) ** 2
+        const hw = (o.labelW || 100) / 2
+        const px = Math.max(o.x - hw, Math.min(o.x + hw, x))
+        const py = Math.max(o.y + o.r + 2, Math.min(o.y + o.r + (o.labelH || 41), y))
+        const dl = Math.hypot(x - px, y - py)
+        if (dl < r + 8) cost += (r + 8 - dl) ** 2
+      }
+      if (cost < bestCost) { bestCost = cost; best = [x, y] }
+      if (cost === 0 && parent) break
+    }
+    return best
   }
 
   isRoot(n) {
@@ -360,21 +490,7 @@ export class FleetGraph {
       n.x = Math.max(n.r + padX, Math.min(this.W - n.r - padX, n.x))
       n.y = Math.max(n.r + padTop, Math.min(this.H - n.r - padBot, n.y))
       n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
-      if (n.chip) {
-        // place the chip radially OUTWARD from the cluster so it never sits on
-        // top of inner nodes/labels
-        const dx = n.x - cx0, dy = n.y - cy0
-        const len = Math.hypot(dx, dy) || 1
-        const ux = dx / len, uy = dy / len
-        const cw = n.chatOpen ? 316 : n.chipW
-        const ch = n.chatOpen ? 368 : n.chipH
-        let px = n.x + ux * (n.r + 20)
-        if (ux < 0) px -= cw
-        let py = n.y + uy * (n.r + 20) - ch / 2
-        px = Math.max(8, Math.min(this.W - cw - 8, px))
-        py = Math.max(8, Math.min(this.H - ch - 8, py))
-        n.chip.style.transform = `translate(${px}px, ${py}px)`
-      }
+      if (n.chip) this._placeChip(n, cx0, cy0)
     }
     for (const l of this.links || []) {
       const s = l.source, t = l.target
@@ -395,6 +511,88 @@ export class FleetGraph {
       l.topEl?.setAttribute('d', d)
     }
     this._tickCost += performance.now() - _t0
+  }
+
+  /** Chip placement with avoidance. The old rule ("radially outward from
+      the cluster centre, clamp to canvas") wrote chips straight over
+      neighbouring bubbles and their own node's name/role rows (40-56px
+      measured overlap), and a clamp against a stale W could pin one off the
+      panel edge. Now every chip elects the least-occluding slot from a ring
+      of candidates around its bubble — scored against every bubble, every
+      label block, sibling chips and a live canvas-bounds clamp, all in
+      GRAPH coordinates so zoom keeps working — with hysteresis so it never
+      flip-flops, easing so a slot change glides, and a last-resort fade
+      (.chip-dim) when a crowded small canvas leaves no clear slot at all. */
+  _placeChip(n, cx0, cy0) {
+    const cw = n.chatOpen ? 316 : n.chipW
+    const ch = n.chatOpen ? 368 : n.chipH
+    const bx = (x) => Math.max(6, Math.min(this.W - cw - 6, x))
+    const by = (y) => Math.max(6, Math.min(this.H - ch - 6, y))
+    // slot 0 is the historical radially-outward anchor; the rest are compass
+    // fallbacks (the below slot clears the node's own label block)
+    const dx = n.x - cx0, dy = n.y - cy0
+    const len = Math.hypot(dx, dy) || 1
+    const ux = dx / len, uy = dy / len
+    let ox = n.x + ux * (n.r + 20)
+    if (ux < 0) ox -= cw
+    const lh = n.labelH || 41
+    const cands = [
+      [ox, n.y + uy * (n.r + 20) - ch / 2],
+      [n.x + n.r + 16, n.y - ch / 2],                  // right
+      [n.x - n.r - 16 - cw, n.y - ch / 2],             // left
+      [n.x - cw / 2, n.y - n.r - 14 - ch],             // above
+      [n.x - cw / 2, n.y + n.r + lh + 12],             // below own labels
+      [n.x + n.r * 0.55, n.y - n.r - 6 - ch],          // above-right
+      [n.x - n.r * 0.55 - cw, n.y - n.r - 6 - ch],     // above-left
+      [n.x + n.r + 16, n.y + n.r * 0.3],               // low-right
+    ]
+    // outer ring + edge parking: on a crowded small canvas the near anchors
+    // can ALL be occupied — a clear pocket a little further out (still
+    // role-tinted and hover-associated) beats writing over a neighbour
+    const ring = n.r + 106
+    for (let k = 0; k < 10; k++) {
+      const ang = (k / 10) * Math.PI * 2
+      cands.push([n.x + Math.cos(ang) * ring - cw / 2, n.y + Math.sin(ang) * ring - ch / 2])
+    }
+    cands.push([8, 8], [this.W - cw - 8, 8], [8, this.H - ch - 8], [this.W - cw - 8, this.H - ch - 8])
+    const clamped = cands.map(([x, y]) => [bx(x), by(y)])
+    const evals = clamped.map(([x, y]) => {
+      let s = 0, occ = 0
+      for (const o of this.nodes.values()) {
+        const bub = rectOverlap(x, y, cw, ch, o.x - o.r, o.y - o.r, o.r * 2, o.r * 2)
+        const hw = (o.labelW || 100) / 2
+        const lab = rectOverlap(x, y, cw, ch, o.x - hw, o.y + o.r + 2, hw * 2, o.labelH || 41)
+        if (o === n) s += bub * 0.6 + lab * 1.8        // own name/role weigh MOST
+        else { s += bub + lab * 1.1; occ += bub + lab }
+        if (o !== n && o.chip && o._cx != null) {
+          s += rectOverlap(x, y, cw, ch, o._cx, o._cy,
+            o.chatOpen ? 316 : o.chipW, o.chatOpen ? 368 : o.chipH) * 0.5
+        }
+      }
+      s += Math.hypot(x + cw / 2 - n.x, y + ch / 2 - n.y) * 2   // stay near the node
+      return { s, occ }
+    })
+    let bestI = 0
+    for (let i = 1; i < evals.length; i++) if (evals[i].s < evals[bestI].s) bestI = i
+    let slot = n._chipSlot
+    if (n.chatOpen) slot = slot ?? bestI               // an open chat never re-elects
+    else if (slot == null || evals[slot].s - evals[bestI].s > 900) slot = bestI
+    n._chipSlot = slot
+    const [tx, ty] = clamped[slot]
+    if (this._snapChips || prefersCalm() || n._cx == null) { n._cx = tx; n._cy = ty }
+    else {
+      n._cx += (tx - n._cx) * 0.35
+      n._cy += (ty - n._cy) * 0.35
+      if (Math.abs(tx - n._cx) < 1) n._cx = tx
+      if (Math.abs(ty - n._cy) < 1) n._cy = ty
+    }
+    n.chip.style.transform = `translate(${n._cx}px, ${n._cy}px)`
+    // fade only as a last resort, with a wide on/off band so it can't flicker
+    const dim = !n.chatOpen && (n._chipDim ? evals[slot].occ > 600 : evals[slot].occ > 1500)
+    if (dim !== !!n._chipDim) {
+      n._chipDim = dim
+      n.chip.classList.toggle('chip-dim', dim)
+    }
   }
 
   /** Dev-only (reached via window.__graphStress): raise the graph to `count`
@@ -698,8 +896,14 @@ export class FleetGraph {
   }
 
   resize() {
-    this.W = this.container.clientWidth || this.W
-    this.H = this.container.clientHeight || this.H
+    const w = this.container.clientWidth || this.W
+    const h = this.container.clientHeight || this.H
+    const boot = this._bootResize
+    this._bootResize = false
+    // the RO's initial delivery at an unchanged size must NOT reheat the
+    // just-settled sim (this refresh was part of the slow-arrival churn)
+    if (w === this.W && h === this.H) return
+    this.W = w; this.H = h
     for (const n of this.nodes.values()) {
       n.x = Math.max(n.r + 34, Math.min(this.W - n.r - 34, n.x))
       n.y = Math.max(n.r + 64, Math.min(this.H - n.r - 58, n.y))
@@ -707,6 +911,8 @@ export class FleetGraph {
     this._clampPan()
     this._applyZoom()
     this.refreshForces()
+    // first delivery = the true canvas size, still pre-paint: arrive settled
+    if (boot) this._presettle()
   }
 
   /* ---------- C3: wheel zoom + pan ---------- */

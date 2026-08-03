@@ -157,7 +157,13 @@
   display: flex; flex-direction: column; gap: 4px;
   font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
 }
-.foot-line { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.foot-line { display: flex; align-items: center; gap: 7px; white-space: nowrap; min-width: 0; }
+.foot-line .ft {                 /* flex child gets its own ellipsis — never a hard clip */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.foot-can { flex: none; margin-left: auto; }
 .foot-line .ok {
   flex: none;
   width: 6px; height: 6px; border-radius: 50%;
@@ -198,7 +204,11 @@
   min-height: 0;
   overflow-y: auto;
   padding: 12px 26px 18px;
+  display: flex;
+  flex-direction: column;
 }
+.ch-log::before { content: ""; flex: 1 0 0; } /* bottom-anchor short histories, Discord-style */
+.ch-log > * { flex: 0 0 auto; }               /* messages never squash in the column */
 
 /* day dividers */
 .day-div { display: flex; align-items: center; gap: 14px; margin: 14px 0 10px; }
@@ -283,8 +293,12 @@
   padding: 10px 24px;
   border-top: 1px solid var(--line);
   font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden;
 }
+/* flex children carry their own ellipsis (text-overflow on a flex row never
+   reaches its children); the note yields first, the headline fact last */
+.integ-main { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.integ-note { flex: 0 30 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .integ-dot {
   flex: none;
   width: 8px; height: 8px; border-radius: 50%;
@@ -314,4 +328,5 @@
   .ch-rail { width: 196px; }
   .head-meta { display: none; }
   .ch-mach { display: none; }
+  .integ-note { display: none; }
 }

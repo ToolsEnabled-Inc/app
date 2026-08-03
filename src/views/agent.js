@@ -42,6 +42,76 @@ function buildRim() {
   return wrap
 }
 
+// --- criterion 1 (C5 fix round): the revealed chip must never overlap ANY
+// other node's bubble or its name/role labels. graph.js's own per-tick
+// transform (read-only this wave) only reasons about the canvas edges, so
+// once a chip is revealed (agent.css opacity + the badge below) this module
+// re-anchors exactly that chip, every frame, to whichever candidate slot
+// around ITS OWN node clears every other node's footprint. Everything is
+// measured in the graph's own untransformed local coordinates — bubble
+// center/radius come straight from graph.nodes (never re-derived from a
+// transform string), label extents from offsetWidth/offsetTop (transform-
+// immune) — so this stays correct at any C3 zoom/pan level, not only at
+// rest. graph.js's own radial math is never edited; it just gets overwritten
+// for this one element while it is open.
+function rectsOverlap(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+/** Bubble + node-name + node-role footprint of one graph.nodes record, in
+ *  local graph-canvas coordinates. */
+function nodeFootprint(rec) {
+  let left = rec.x - rec.r, top = rec.y - rec.r, right = rec.x + rec.r, bottom = rec.y + rec.r
+  for (const sel of ['.node-name', '.node-role']) {
+    const label = rec.el.querySelector(sel)
+    const w = label && label.offsetWidth, h = label && label.offsetHeight
+    if (!w || !h) continue
+    // node-name/node-role are centered under the bubble via left:50% +
+    // translateX(-50%) — the translate is paint-only, so their true visual
+    // left edge is rec.x - w/2, not anything offsetLeft would report.
+    left = Math.min(left, rec.x - w / 2)
+    right = Math.max(right, rec.x + w / 2)
+    bottom = Math.max(bottom, top + label.offsetTop + h)
+  }
+  return { left, top, right, bottom }
+}
+
+/** Re-anchor one open chip to the first candidate slot (radially outward
+ *  first, matching graph.js's own default direction, then the remaining
+ *  compass points) that clears every rect in `others`; if every candidate
+ *  collides, keeps whichever overlaps least. */
+function placeOneChip(chipEl, rec, others, canvasW, canvasH) {
+  const cw = chipEl.offsetWidth || 168, ch = chipEl.offsetHeight || 44
+  const gap = 14
+  const { x: nx, y: ny, r: nr } = rec
+  const diag = (nr + gap) * Math.SQRT1_2
+  const candidates = [
+    { x: nx + nr + gap, y: ny - ch / 2 },        // right
+    { x: nx - nr - gap - cw, y: ny - ch / 2 },   // left
+    { x: nx - cw / 2, y: ny - nr - gap - ch },   // top
+    { x: nx - cw / 2, y: ny + nr + gap },        // bottom
+    { x: nx + diag, y: ny - diag - ch },         // top-right
+    { x: nx - diag - cw, y: ny - diag - ch },    // top-left
+    { x: nx + diag, y: ny + diag },              // bottom-right
+    { x: nx - diag - cw, y: ny + diag },         // bottom-left
+  ]
+  let best = null, bestOverlap = Infinity
+  for (const p0 of candidates) {
+    const x = Math.max(6, Math.min(canvasW - cw - 6, p0.x))
+    const y = Math.max(6, Math.min(canvasH - ch - 6, p0.y))
+    const box = { left: x, top: y, right: x + cw, bottom: y + ch }
+    let overlap = 0
+    for (const fp of others) {
+      if (!rectsOverlap(box, fp)) continue
+      overlap += (Math.min(box.right, fp.right) - Math.max(box.left, fp.left)) *
+                 (Math.min(box.bottom, fp.bottom) - Math.max(box.top, fp.top))
+    }
+    if (overlap < bestOverlap) { bestOverlap = overlap; best = { x, y } }
+    if (overlap === 0) break
+  }
+  if (best) chipEl.style.transform = `translate(${best.x.toFixed(1)}px, ${best.y.toFixed(1)}px)`
+}
+
 export function agentView({ compId, agentId, navigate }) {
   const { computer, agent } = sim.agentOf(compId, agentId)
   if (!computer || !agent) {
@@ -147,7 +217,10 @@ export function agentView({ compId, agentId, navigate }) {
   // independently. graph.js always appends a node then, synchronously
   // right after, that node's chip (nothing else appends to the canvas
   // in between — see graph.js spawnNode/makeChip), so a chip's previous
-  // DOM sibling reliably is the node to badge.
+  // DOM sibling reliably is the node to badge. Being visible is not
+  // enough on its own though — placeOpenChips() (below) re-anchors the
+  // revealed chip every frame so its own position also clears every
+  // other node's footprint, not just this page's canvas edges.
   function pairChip(chipEl) {
     const nodeEl = chipEl.previousElementSibling
     if (!nodeEl?.classList?.contains('node') || nodeEl.querySelector('.cx-badge')) return
@@ -171,6 +244,24 @@ export function agentView({ compId, agentId, navigate }) {
     chipEl.addEventListener('focusout', scheduleClose)
   }
   canvas.querySelectorAll('.chip').forEach(pairChip)
+
+  // Runs every frame (see loop() below); no-ops instantly whenever no chip
+  // is open, so it costs nothing outside an actual hover/focus reveal.
+  function placeOpenChips() {
+    const openChips = canvas.querySelectorAll('.chip.cx-open:not(.as-chat)')
+    if (!openChips.length) return
+    const canvasW = canvas.clientWidth, canvasH = canvas.clientHeight
+    if (!canvasW || !canvasH) return
+    const footprints = new Map()
+    for (const [id, rec] of graph.nodes) footprints.set(id, nodeFootprint(rec))
+    openChips.forEach((chipEl) => {
+      const ownId = chipEl.previousElementSibling?.dataset?.agentId
+      const rec = ownId ? graph.nodes.get(ownId) : null
+      if (!rec) return
+      const others = [...footprints].filter(([id]) => id !== ownId).map(([, fp]) => fp)
+      placeOneChip(chipEl, rec, others, canvasW, canvasH)
+    })
+  }
 
   const rimObserver = new MutationObserver((muts) => {
     for (const m of muts) {
@@ -250,7 +341,7 @@ export function agentView({ compId, agentId, navigate }) {
   }))
 
   let raf
-  const loop = () => { ring.update(); raf = requestAnimationFrame(loop) }
+  const loop = () => { ring.update(); placeOpenChips(); raf = requestAnimationFrame(loop) }
   raf = requestAnimationFrame(loop)
 
   return {

@@ -131,18 +131,20 @@
  * page's short strip (min-height 240px) a full 168px context-preview panel
  * can land squarely on a neighbouring node or its name/role labels.
  *
- * Strategy: fewer chips by default + hover reveal. Every chip is fully
- * invisible at rest — zero rendered pixels, so wherever graph.js's
- * outward-radial math happens to place it, there is nothing left to ever
- * collide with — and becomes visible, at its own unmodified size and
- * position (nothing about the placement math changes), only while the
- * small role-coloured "cx-badge" pinned to ITS OWN node's corner
- * (agent.js pairs them; lives inside .node exactly like the rim arcs, so
- * it always tracks that one bubble) is hovered or focused. At most one
- * chip is ever visible at a time, always by direct pointer/keyboard
- * intent. Click still opens the existing inline chat (graph.js-owned,
- * untouched). Scoped to .agentv-graph — the computers page's own graph
- * (.graph-wrap) never sees these rules. */
+ * Strategy: fewer chips by default + hover reveal + collision-avoiding
+ * placement. Every chip is fully invisible at rest — zero rendered pixels,
+ * so wherever graph.js's outward-radial math happens to place it, there is
+ * nothing left to ever collide with — and becomes visible only while the
+ * small role-coloured "cx-badge" pinned to ITS OWN node's corner (agent.js
+ * pairs them; lives inside .node exactly like the rim arcs, so it always
+ * tracks that one bubble) is hovered or focused. While open, agent.js's
+ * placeOpenChips() (not this file — graph.js's own math is untouched)
+ * re-anchors the chip every frame to a candidate slot that clears every
+ * OTHER node's bubble/labels, so the reveal is both rare (one at a time,
+ * always by direct pointer/keyboard intent) and always collision-free.
+ * Click still opens the existing inline chat (graph.js-owned, untouched).
+ * Scoped to .agentv-graph — the computers page's own graph (.graph-wrap)
+ * never sees these rules. */
 .agentv-graph .chip:not(.as-chat) {
   opacity: 0;
   pointer-events: none;
@@ -186,13 +188,29 @@
 .agentv-graph .node .node-name,
 .agentv-graph .node .node-role { font-size: 12.5px; }
 .agentv .scroll-cue { font-size: 12.5px; }
+/* the wheel-zoom readout (graph.js/graph.css, C3, read-only this wave) is
+   mono NUMERIC content ("1.00×"), not an uppercase micro-label — it needs
+   the 13px mono-content floor, not the 12px it ships with. Same pattern as
+   the overrides above: scope under .agentv-graph so only this page's own
+   instance of the shared graph-fit control is touched. */
+.agentv-graph .graph-fit .gf-z { font-size: 13px; }
 
-/* ---------- 7. (C5) type floor + breathing room: Chat/Controls panels --- */
-.agentv-panels .apanel { padding: 24px 26px; }
-.agentv .apanel-title { font-size: 12.5px; margin-bottom: 16px; }
-.agentv .agent-head { margin-bottom: 12px; }
+/* ---------- 7. (C5) type floor + breathing room: Chat/Controls panels --- *
+ * The vertical spacing ABOVE the runtime ring (apanel's own top padding,
+ * apanel-title's bottom margin, agent-head's bottom margin, agent-ring-wrap's
+ * top padding) is deliberately kept at its pre-sweep value: the Controls
+ * panel is short enough at the 1280x800 mandated size that any extra push-
+ * down there lands the ring's own bottom edge past the panel's visible
+ * height (a real clip, not just extra scroll) — verified by reverting only
+ * these four to get a non-clipped ring back at 1280x800 while everything
+ * BELOW the ring (which cannot affect its position) keeps the fuller
+ * breathing room; apanel's own side/bottom padding also stays fuller since
+ * neither affects where the ring lands. */
+.agentv-panels .apanel { padding: 20px 26px 24px; }
+.agentv .apanel-title { font-size: 12.5px; margin-bottom: 12px; }
+.agentv .agent-head { margin-bottom: 6px; }
 .agentv .agent-head .ar { font-size: 12.5px; }
-.agentv .agent-ring-wrap { padding: 16px 0 12px; }
+.agentv .agent-ring-wrap { padding: 10px 0 12px; }
 .agentv .rail-sub { font-size: 13px; }                 /* mono content */
 .agentv .rail-sec { font-size: 12.5px; margin: 26px 0 14px; }
 .agentv .ctl-grid { gap: 10px; }

@@ -153,6 +153,30 @@
     0 0 calc(16px * var(--glow)) rgba(69, 214, 255, calc(0.35 * var(--glow)));
 }
 
+/* ============================================================
+   C3 fix — context-chip occlusion fallback
+   graph.js's _placeChip() elects the least-occluding slot around each
+   bubble; when a crowded small canvas leaves NO clear slot, the chip
+   drops to a whisper instead of writing over another agent's bubble or
+   label. Hover (and the agent page's badge-open .cx-open state, whose
+   own rule keeps precedence there) restores it; the dense-mode inline
+   opacity from graph.js still outranks everything, as before.
+   ============================================================ */
+.graph-canvas .chip {
+  /* restates styles.css's .chip shorthand + opacity so the dim fade can
+     animate — the width/height/box-shadow/background values must keep
+     tracking styles.css */
+  transition: width .5s var(--ease), height .5s var(--ease),
+              box-shadow .4s var(--ease), background .4s var(--ease),
+              opacity .3s var(--ease);
+}
+/* deliberately LOW specificity (0,2,0)/(0,3,0): the agent page's chip
+   rules in agent.css (rest-hidden at (0,3,0), .cx-open reveal at (0,4,0))
+   must keep outranking the dim — there chips are invisible at rest anyway.
+   graph.js removes .chip-dim before a chip morphs to .as-chat. */
+.chip.chip-dim { opacity: 0.25; }
+.chip.chip-dim:hover { opacity: 1; }
+
 /* --- reduced motion: park every animation this layer introduces ---
    (zoom itself is applied instantly by graph.js under reduce-motion) --- */
 body.reduce-motion .node-ripple,
