@@ -122,6 +122,15 @@ export class FleetGraph {
 
     this.build(true)
 
+    // A label measured before the real webfont paints captures a fallback-
+    // font width, not the final one — force every node to re-measure once
+    // fonts are confirmed ready. Cheap (tick()'s pass just skips anything
+    // already flagged) and self-limiting; no-op if fonts were already ready.
+    document.fonts?.ready.then(() => {
+      if (this._destroyed) return
+      for (const n of this.nodes.values()) n._labelMeasured = false
+    })
+
     this.unsubs.push(
       sim.on('spawn', ({ comp, agent }) => { if (comp === this.computer) this.addAgent(agent) }),
       sim.on('reap', ({ comp, agent }) => { if (comp === this.computer) this.removeAgent(agent.id) }),
@@ -238,9 +247,17 @@ export class FleetGraph {
     // against the real rendered block it undershoots by 10-18px on longer
     // role labels ("Shadow Manager", "Coordinator's Helper") — enough that
     // the label-avoid force could settle for clearance narrower than what's
-    // actually on screen (QA-verified regression). One offsetWidth read
-    // right after mount corrects it to the true value; the heuristic stays
-    // as a floor for the rare frame where a webfont hasn't painted yet.
+    // actually on screen. An immediate offsetWidth read fixes it for a
+    // live spawn (this.container is already attached to the document by
+    // then) — but every INITIAL-BUILD node is constructed while the view is
+    // still detached (main.js appends the view to the document only after
+    // makeView() — and this constructor — return), so offsetWidth reads 0
+    // for the entire initial graph and silently falls back to the flawed
+    // heuristic forever (root-caused by QA's offline replay against frozen
+    // geometry, not guessed). The immediate read below stays as a fast path
+    // for the common already-mounted case; _labelMeasured marks whether it
+    // actually got a real number, and tick() below self-heals the rest the
+    // moment each node truly becomes connected — independent of when or how.
     const realLabelW = Math.max(
       nodeEl.querySelector('.node-name')?.offsetWidth || 0,
       nodeEl.querySelector('.node-role')?.offsetWidth || 0,
@@ -252,6 +269,7 @@ export class FleetGraph {
       x: cx, y: cy, vx: 0, vy: 0,
       chip: null, chatOpen: false, chipW: 168, chipH: 44,
       labelW: finalLabelW, labelH: 41,
+      _labelMeasured: realLabelW > 0,
       _cx: null, _cy: null,                            // chip's eased slot position
     }
     nodeEl.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`
@@ -526,6 +544,19 @@ export class FleetGraph {
     if (hot !== this._hot) {
       this._hot = hot
       this.container.classList.toggle('interacting', hot)
+    }
+    // Self-healing label measurement: catches every node the spawn-time
+    // read in spawnNode() missed because its container wasn't connected to
+    // the document yet (the whole initial graph, always — see the comment
+    // there). Cheap: each node is checked once until it succeeds, then never
+    // again — not a per-frame cost once the graph has settled.
+    for (const n of this.nodes.values()) {
+      if (n._labelMeasured || !n.el.isConnected) continue
+      const w = Math.max(
+        n.el.querySelector('.node-name')?.offsetWidth || 0,
+        n.el.querySelector('.node-role')?.offsetWidth || 0,
+      )
+      if (w > 0) { n.labelW = Math.max(n.labelW, w + 6); n._labelMeasured = true }
     }
     // padTop/padBot were tuned for aesthetic breathing room and never
     // re-examined against how little of it the agent page's short subtree
