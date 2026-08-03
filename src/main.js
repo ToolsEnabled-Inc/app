@@ -10,6 +10,7 @@ import { homeView } from './views/home.js'
 import { computersView } from './views/computers.js'
 import { agentView } from './views/agent.js'
 import { metricsView } from './views/metrics.js'
+import { commsView } from './views/comms.js'
 import { rangeFill } from './views/computers.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
@@ -20,7 +21,7 @@ const crumb = document.getElementById('crumb')
 const navEl = document.getElementById('tb-nav')
 
 let current = null           // { el(wrapper), view, route }
-const ORDER = ['home', 'computers', 'metrics']
+const ORDER = ['home', 'computers', 'metrics', 'comms']
 
 function parse() {
   const h = location.hash || '#/'
@@ -28,6 +29,7 @@ function parse() {
   if (parts[0] === 'computers') return { name: 'computers', comp: parts[1] || null }
   if (parts[0] === 'agent' && parts.length >= 3) return { name: 'agent', comp: parts[1], agent: parts[2] }
   if (parts[0] === 'metrics') return { name: 'metrics' }
+  if (parts[0] === 'comms') return { name: 'comms' }
   return { name: 'home' }
 }
 
@@ -37,6 +39,7 @@ function makeView(route) {
     case 'computers': return computersView({ initialComputer: route.comp, navigate })
     case 'agent': return agentView({ compId: route.comp, agentId: route.agent, navigate })
     case 'metrics': return metricsView()
+    case 'comms': return commsView()
     default: return homeView()
   }
 }
@@ -47,6 +50,7 @@ function crumbFor(route) {
     case 'computers': return `${base} / computers`
     case 'agent': return `${base} / agent / <b>${route.agent}</b>`
     case 'metrics': return `${base} / metrics`
+    case 'comms': return `${base} / comms`
     default: return `${base} / home`
   }
 }
