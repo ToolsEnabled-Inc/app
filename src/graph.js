@@ -48,28 +48,26 @@ export class FleetGraph {
       .alphaDecay(0.015)
       .on('tick', () => this.tick())
 
-    // dev perf probe — window.__graphFrameMs is a rolling average of the
-    // GRAPH'S OWN work per frame: ms spent inside tick() (physics render,
-    // chip placement, link geometry) between animation frames. The raw page
-    // rAF interval includes paint cost of every other surface (aurora,
-    // backdrop-filters) that this module does not own, so it is exposed
-    // separately as window.__pageFrameMs for context, with the live node
-    // count at window.__graphNodeCount. window.__graphStress(n, ms) raises
-    // the graph to n nodes with synthetic probe bubbles, samples, cleans up,
-    // and resolves { nodes, avgGraphMs } — so the 16-node number is
-    // demonstrable even while the live sim idles below 16.
-    this._frameAvg = 0
-    this._pageAvg = 16.7
+    // dev perf probe — HONEST numbers. window.__graphFrameMs is a rolling
+    // average of the REAL rAF frame interval while this graph is mounted —
+    // the number the 60fps criterion gates on. window.__graphTickMs is the
+    // JS cost of tick() alone (for attribution), __graphNodeCount the live
+    // node count. window.__graphStress(n, ms) raises the graph to n nodes
+    // with synthetic probe bubbles, samples, cleans up, and resolves
+    // { nodes, avgGraphMs }.
+    this._frameAvg = 16.7
+    this._tickAvg = 0
     this._tickCost = 0
     this._lastFrameT = 0
     const probe = (t) => {
       if (this._lastFrameT) {
         const dt = t - this._lastFrameT
         if (dt < 250) {                              // ignore tab-hidden gaps
-          this._frameAvg += (this._tickCost - this._frameAvg) * 0.1
+          this._frameAvg += (dt - this._frameAvg) * 0.1
           window.__graphFrameMs = Math.round(this._frameAvg * 100) / 100
-          this._pageAvg += (dt - this._pageAvg) * 0.1
-          window.__pageFrameMs = Math.round(this._pageAvg * 100) / 100
+          window.__pageFrameMs = window.__graphFrameMs
+          this._tickAvg += (this._tickCost - this._tickAvg) * 0.1
+          window.__graphTickMs = Math.round(this._tickAvg * 100) / 100
           window.__graphNodeCount = this.nodes.size
         }
       }
@@ -432,6 +430,7 @@ export class FleetGraph {
       if (!moved && Math.hypot(dx, dy) > 5) {
         moved = true
         elm.classList.add('dragging')
+        this.container.classList.add('interacting')   // frost off while hot
         this.simulation.alphaTarget(0.28).restart()
       }
       if (moved) {
@@ -460,6 +459,8 @@ export class FleetGraph {
       pid = null
       if (moved) {
         elm.classList.remove('dragging')
+        clearTimeout(this._interactTimer)
+        this._interactTimer = setTimeout(() => this.container.classList.remove('interacting'), 1200)
         elm.classList.add('settling')                  // brief ~0.97 overshoot
         clearTimeout(rec._settleTimer)
         rec._settleTimer = setTimeout(() => elm.classList.remove('settling'), 600)

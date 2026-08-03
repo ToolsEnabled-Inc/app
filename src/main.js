@@ -94,6 +94,10 @@ function render() {
   current = { el: wrap, view, route }
 
   crumb.innerHTML = crumbFor(route)
+  // aurora drift runs only where backdrop-filters are sparse (home); on the
+  // graph/metrics pages a moving backdrop re-rasters every glass surface
+  // every frame, which is what broke the 60fps gate
+  document.body.dataset.route = route.name
   const activeName = route.name === 'agent' ? 'computers' : route.name
   navEl.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.dataset.route === activeName))
 
