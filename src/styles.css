@@ -264,6 +264,10 @@ body[data-route="home"] .aur { animation-play-state: running; }
 }
 .uring.compact .uring-caption { margin-top: 6px; font-size: 9px; letter-spacing: 0.16em; }
 .uring.compact .uring-digits .u { display: none; }
+/* compact rings live inside ~370px rails — digits must scale to the ring,
+   not the viewport, or they escape the panel */
+.uring.compact .uring-digits .n { font-size: 27px; }
+.uring.compact .uring-digits .colon { font-size: 19px; padding: 0 3px; transform: translateY(-2px); }
 .uring-sub { margin-top: 6px; font-size: 12px; color: var(--ink-4); text-align: center; font-family: var(--font-mono); }
 
 /* greyed context feed, flanked by giant quiet braces */
