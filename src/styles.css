@@ -908,7 +908,10 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
    AGENT PAGE  (subtree · chat | controls, scroll-snap)
    ============================================================ */
 .agentv { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 0 clamp(14px, 2.5vw, 32px) 20px; }
-.agentv-graph { position: relative; flex: 1.05; min-height: 240px; border-radius: var(--r-lg); overflow: hidden; }
+/* min-height was 240px — QA measured the label-avoidance system running out
+   of geometric room at small viewports (a 63px clamp-band deficit at
+   1280x800); this floor gives it more to work with there specifically. */
+.agentv-graph { position: relative; flex: 1.05; min-height: 280px; border-radius: var(--r-lg); overflow: hidden; }
 .agentv-panels {
   flex: 1;
   min-height: 300px;

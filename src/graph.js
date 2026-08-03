@@ -432,7 +432,11 @@ export class FleetGraph {
           const px = Math.max(a.x - hw, Math.min(a.x + hw, b.x))
           const py = Math.max(top, Math.min(bot, b.y))
           let dx = b.x - px, dy = b.y - py
-          const min = b.r + 12          // matches _resolveClampedLabels' target margin
+          // round-4 QA measured this INCREASING margin as the actual cause
+          // of a bigger clamp-band deficit on the agent page's short canvas
+          // (the extra clearance target didn't fit in the room available,
+          // it just raised how much room was being demanded) — reverted.
+          const min = b.r + 8           // matches _resolveClampedLabels' target margin
           const d2 = dx * dx + dy * dy
           if (d2 >= min * min) continue
           let d = Math.sqrt(d2)
@@ -523,7 +527,14 @@ export class FleetGraph {
       this._hot = hot
       this.container.classList.toggle('interacting', hot)
     }
-    const padX = 34, padTop = 64, padBot = 58
+    // padTop/padBot were tuned for aesthetic breathing room and never
+    // re-examined against how little of it the agent page's short subtree
+    // canvas actually has — round-4 QA proved a clamp-to-clamp deficit as
+    // large as 17.5-29.8px (63px at 1280x800) between two label-avoiding
+    // nodes pinned at opposite Y clamps. Trimmed 10px off each edge: still
+    // ample air on the spacious Computers canvas, materially more room
+    // where it was actually short.
+    const padX = 34, padTop = 54, padBot = 48
     const cx0 = this.W / 2, cy0 = this.H / 2
     const nodesArr = [...this.nodes.values()]
 
@@ -531,7 +542,7 @@ export class FleetGraph {
       n.x = Math.max(n.r + padX, Math.min(this.W - n.r - padX, n.x))
       n.y = Math.max(n.r + padTop, Math.min(this.H - n.r - padBot, n.y))
     }
-    this._resolveClampedLabels(nodesArr, padX)
+    this._resolveClampedLabels(nodesArr, padX, padTop, padBot)
 
     for (const n of nodesArr) {
       n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
@@ -569,19 +580,33 @@ export class FleetGraph {
       (same closest-point math as _labelAvoidForce, X component only). Y is
       deliberately left alone here so this can't re-open the fight the clamp
       above just settled.
-      Round 2 (re-verified by QA, ~8-18x smaller but not zero): a multi-body
-      conflict on a crowded short canvas — e.g. a node clearing agent A's
-      label walks straight into agent B's — didn't always finish resolving
-      inside 3 passes, and the per-pass re-clamp to the FULL aesthetic
-      padX margin could cap a node right back at the edge, discarding the
-      correction that pass had just computed for it. Now: more passes (6, an
-      idle canvas has time to spare), a slightly larger target margin (+12
-      instead of +8, so small residual undershoot still lands with real
-      clearance), and the intra-loop clamp uses a relaxed edge bound — a
-      conflict may eat a little into the pure-aesthetic breathing room near
-      the edge rather than have that margin repeatedly erase real progress.
-      Nodes with no active conflict never reach the edge case at all. */
-  _resolveClampedLabels(nodesArr, padX) {
+      Round 2 (re-verified by QA, ~8-18x smaller but not zero): more passes,
+      a larger target margin, and a relaxed intra-loop edge bound.
+      Round 3 (re-verified by QA, WORSE at 1600x900 — root-caused by replaying
+      the exact frozen geometry offline, not guessed): two bugs, not one.
+      (a) The larger margin from round 2 *increased* the vertical clearance
+      two opposite-clamped nodes need — QA's own numbers: r+8 needed 148px of
+      clamp-to-clamp room, r+12 needed 152px, while only ~134.5px existed on
+      the agent page's short canvas. More margin demanded more room the
+      canvas didn't have; reverted to +8 (tick()'s padTop/padBot were also
+      trimmed 10px each — see above — which is the other side of that ledger:
+      actually free the room instead of asking for less of it).
+      (b) When the intruding node's centre sits INSIDE the label's horizontal
+      span, the old code did `ddx = tieBreak(±1)` and pushed by `ddx * pen` —
+      since |ddx| was forced to exactly 1 (a unit step), not the real
+      distance, the resulting move was ~0.26px per pass regardless of how far
+      the node actually had to travel; QA's offline replay showed a case
+      needing ~100px of clearance taking 200-2000 passes at that rate. Fixed
+      with the closed form: the exact escape position is the nearer label
+      edge plus whatever extra offset clears `min` at the current vertical
+      distance (`sqrt(min² - ddy²)`) — one step, not a crawl.
+      Remaining case QA proved real: true geometric impossibility (two nodes
+      pinned at opposite Y clamps, with no on-canvas X position wide enough
+      to clear a long label at all — deficits up to 63px measured). X alone
+      cannot solve what X-only math cannot reach; a small, hard-capped 2D
+      nudge runs once at the end as the genuine last resort, closing however
+      much of the residual it can within its cap rather than leaving 0. */
+  _resolveClampedLabels(nodesArr, padX, padTop, padBot) {
     const edgePad = Math.max(4, padX - 12)
     for (let pass = 0; pass < 6; pass++) {
       let moved = false
@@ -595,21 +620,63 @@ export class FleetGraph {
           const b = nodesArr[j]
           const px = Math.max(a.x - hw, Math.min(a.x + hw, b.x))
           const py = Math.max(top, Math.min(bot, b.y))
-          let ddx = b.x - px
+          const ddx = b.x - px
           const ddy = b.y - py
-          const min = b.r + 12
+          const min = b.r + 8
           const d2 = ddx * ddx + ddy * ddy
           if (d2 >= min * min) continue
-          let d = Math.sqrt(d2)
-          if (Math.abs(ddx) < 1) { ddx = i < j ? -1 : 1; d = Math.max(d, 1) }  // degenerate: deterministic horizontal tie-break
-          const pen = (min - d) / d
-          b.x += ddx * pen * 0.6
-          a.x -= ddx * pen * 0.4
+          if (Math.abs(ddx) < 0.5) {
+            // b's centre is inside a's label span — jump straight to the
+            // exact minimum escape position (nearer edge + clearance) rather
+            // than nudge by a fixed small step.
+            const s = Math.sqrt(Math.max(0, min * min - ddy * ddy))
+            const target = b.x >= a.x ? a.x + hw + s : a.x - hw - s
+            const deficit = target - b.x
+            b.x += deficit * 0.6
+            a.x -= deficit * 0.4
+          } else {
+            const d = Math.sqrt(d2)
+            const pen = (min - d) / d
+            b.x += ddx * pen * 0.6
+            a.x -= ddx * pen * 0.4
+          }
           moved = true
         }
       }
       if (!moved) break
       for (const n of nodesArr) n.x = Math.max(n.r + edgePad, Math.min(this.W - n.r - edgePad, n.x))
+    }
+
+    // Last resort: a hard-capped 2D nudge for whatever the X-only passes
+    // above genuinely could not reach. One pass, small ceiling — this closes
+    // the tail of an impossible layout, it does not re-open the fight the
+    // outer Y clamp already settled.
+    const YIELD_CAP = 14
+    for (let i = 0; i < nodesArr.length; i++) {
+      const a = nodesArr[i]
+      const hw = (a.labelW || 100) / 2
+      const top = a.y + a.r + 2
+      const bot = a.y + a.r + (a.labelH || 41)
+      for (let j = 0; j < nodesArr.length; j++) {
+        if (j === i) continue
+        const b = nodesArr[j]
+        const px = Math.max(a.x - hw, Math.min(a.x + hw, b.x))
+        const py = Math.max(top, Math.min(bot, b.y))
+        let dx = b.x - px, dy = b.y - py
+        const min = b.r + 8
+        const d2 = dx * dx + dy * dy
+        if (d2 >= min * min) continue
+        let d = Math.sqrt(d2)
+        if (d < 1e-3) { dx = 0; dy = -1; d = 1 }
+        const push = Math.min(YIELD_CAP, min - d)
+        const ux = dx / d, uy = dy / d
+        b.x += ux * push * 0.6; b.y += uy * push * 0.6
+        a.x -= ux * push * 0.4; a.y -= uy * push * 0.4
+      }
+    }
+    for (const n of nodesArr) {
+      n.x = Math.max(n.r + edgePad, Math.min(this.W - n.r - edgePad, n.x))
+      n.y = Math.max(n.r + padTop, Math.min(this.H - n.r - padBot, n.y))
     }
   }
 
