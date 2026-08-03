@@ -29,10 +29,33 @@
 .agentv { overflow-y: auto; }
 
 /* ---------- 2. Chat • Controls dot indicator, synced to scroll-snap ----- */
-.agentv-panels { position: relative; }
+/* .agentv-panels-wrap is the positioned, NON-scrolling box; the actual
+   scroll-snap row (.agentv-panels) fills it edge-to-edge. .scroll-cue is an
+   overlay child of the wrap, not of the scrolling row, so it stays put on
+   screen instead of being carried off with the scrolled content — and
+   because the wrap's box is exactly the visible viewport (not the full
+   scrollable width), a right/bottom-anchored overlay lands on the visible
+   edge of the row instead of in blank space past the last panel. */
+.agentv-panels-wrap { position: relative; flex: 1; min-height: 300px; }
+.agentv-panels-wrap > .agentv-panels { position: absolute; inset: 0; }
+
+/* Two panels must never both fit on screen at once at ANY viewport width —
+   otherwise there is nothing to scroll and the dot indicator/cue can never
+   engage. 74% + a 14px gap on each side always sums past 100% of the row's
+   width (2*0.74 = 1.48 > 1), independent of viewport, so .agentv-panels
+   always has real scrollable overflow and shows a peek of the next panel. */
+.agentv-panels .apanel { flex: 0 0 74%; }
+
+/* .panel-dots is its own normal-flow row above .agentv-panels-wrap (see
+   agent.js markup) rather than an overlay on top of the panels — it used
+   to float at top:12px directly over .apanel's title row (which starts at
+   padding-top:20px), guaranteeing a permanent visual collision regardless
+   of scroll position. As a normal flex child of .agentv it never overlaps
+   panel content, and align-self:center keeps the pill shrink-wrapped and
+   centered instead of stretching full width. */
 .panel-dots {
-  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-  z-index: 5;
+  flex: none;
+  align-self: center;
   display: flex; align-items: center; gap: 2px;
   padding: 4px; border-radius: 999px;
   background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.42));
@@ -63,9 +86,10 @@
 }
 .pdot:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(69,214,255,0.45); }
 
-/* scroll cue now overlays the panels themselves; hides for good the first
-   time the user scrolls (no more nudging once they've found it) */
-.agentv-panels > .scroll-cue { position: absolute; z-index: 4; }
+/* scroll cue overlays the fixed wrap (see above), landing on the visible
+   edge of the row next to the peeking panel; hides for good the first time
+   the user scrolls (no more nudging once they've found it) */
+.agentv-panels-wrap > .scroll-cue { position: absolute; right: 24px; bottom: 20px; z-index: 4; }
 .scroll-cue.gone {
   opacity: 0; transform: translateX(10px); pointer-events: none; animation: none;
   transition: opacity .35s var(--ease), transform .35s var(--ease);

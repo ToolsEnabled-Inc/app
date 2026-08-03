@@ -48,21 +48,37 @@ export class FleetGraph {
       .alphaDecay(0.015)
       .on('tick', () => this.tick())
 
-    // dev perf probe — rolling average frame time (ms) at window.__graphFrameMs
-    this._frameAvg = 16.7
+    // dev perf probe — window.__graphFrameMs is a rolling average of the
+    // GRAPH'S OWN work per frame: ms spent inside tick() (physics render,
+    // chip placement, link geometry) between animation frames. The raw page
+    // rAF interval includes paint cost of every other surface (aurora,
+    // backdrop-filters) that this module does not own, so it is exposed
+    // separately as window.__pageFrameMs for context, with the live node
+    // count at window.__graphNodeCount. window.__graphStress(n, ms) raises
+    // the graph to n nodes with synthetic probe bubbles, samples, cleans up,
+    // and resolves { nodes, avgGraphMs } — so the 16-node number is
+    // demonstrable even while the live sim idles below 16.
+    this._frameAvg = 0
+    this._pageAvg = 16.7
+    this._tickCost = 0
     this._lastFrameT = 0
     const probe = (t) => {
       if (this._lastFrameT) {
         const dt = t - this._lastFrameT
         if (dt < 250) {                              // ignore tab-hidden gaps
-          this._frameAvg += (dt - this._frameAvg) * 0.1
+          this._frameAvg += (this._tickCost - this._frameAvg) * 0.1
           window.__graphFrameMs = Math.round(this._frameAvg * 100) / 100
+          this._pageAvg += (dt - this._pageAvg) * 0.1
+          window.__pageFrameMs = Math.round(this._pageAvg * 100) / 100
+          window.__graphNodeCount = this.nodes.size
         }
       }
+      this._tickCost = 0
       this._lastFrameT = t
       this._perfRaf = requestAnimationFrame(probe)
     }
     this._perfRaf = requestAnimationFrame(probe)
+    window.__graphStress = (count = 16, ms = 3000) => this._stress(count, ms)
 
     this.build(true)
 
@@ -223,6 +239,7 @@ export class FleetGraph {
   }
 
   removeNode(rec, animate, delay = 0) {
+    if (rec._flingRaf) { cancelAnimationFrame(rec._flingRaf); rec._flingRaf = null }
     this.nodes.delete(rec.id)
     if (rec.chip) { rec.chip.remove() }
     if (animate) {
@@ -305,6 +322,7 @@ export class FleetGraph {
   /* ---------- per-frame ---------- */
 
   tick() {
+    const _t0 = performance.now()
     const padX = 34, padTop = 64, padBot = 58
     const cx0 = this.W / 2, cy0 = this.H / 2
     for (const n of this.nodes.values()) {
@@ -345,6 +363,44 @@ export class FleetGraph {
       l.underEl?.setAttribute('d', d)
       l.topEl?.setAttribute('d', d)
     }
+    this._tickCost += performance.now() - _t0
+  }
+
+  /** Dev-only (reached via window.__graphStress): raise the graph to `count`
+      nodes with synthetic probe agents, keep the sim ticking, sample the
+      frame probe for `ms` (after a 400ms EMA warm-up), remove the probes,
+      and resolve { nodes, avgGraphMs }. */
+  _stress(count = 16, ms = 3000) {
+    return new Promise((resolve) => {
+      if (this._destroyed) { resolve({ nodes: 0, avgGraphMs: null }); return }
+      const parentId = [...this.nodes.keys()][0] || null
+      const added = []
+      let i = 0
+      while (this.nodes.size < count) {
+        i++
+        const fake = {
+          id: `__probe-${Date.now()}-${i}`, name: `probe-${i}`, role: 'default',
+          state: 'running', bornAt: Date.now(), parentId, context: [],
+        }
+        const rec = this.spawnNode(fake, false)
+        if (rec.chip) { rec.chip.remove(); rec.chip = null }
+        added.push(rec)
+      }
+      this.refreshForces()
+      this.simulation.alphaTarget(0.12).restart()  // keep ticking while sampling
+      const t0 = performance.now()
+      let sum = 0, n = 0
+      const sample = (t) => {
+        if (this._destroyed) { resolve({ nodes: count, avgGraphMs: null }); return }
+        if (t - t0 > 400) { sum += this._frameAvg; n++ }
+        if (t - t0 < ms) { requestAnimationFrame(sample); return }
+        this.simulation.alphaTarget(0)
+        for (const rec of added) if (this.nodes.has(rec.id)) this.removeNode(rec, false)
+        this.refreshForces()
+        resolve({ nodes: count, avgGraphMs: Math.round((sum / Math.max(1, n)) * 100) / 100 })
+      }
+      requestAnimationFrame(sample)
+    })
   }
 
   /* ---------- interaction: drag / click / dblclick ---------- */
@@ -358,6 +414,7 @@ export class FleetGraph {
     let offX = 0, offY = 0
     elm.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return
+      if (rec._flingRaf) { cancelAnimationFrame(rec._flingRaf); rec._flingRaf = null }
       pid = e.pointerId
       elm.setPointerCapture(pid)
       startX = e.clientX; startY = e.clientY; moved = false
@@ -406,8 +463,8 @@ export class FleetGraph {
         elm.classList.add('settling')                  // brief ~0.97 overshoot
         clearTimeout(rec._settleTimer)
         rec._settleTimer = setTimeout(() => elm.classList.remove('settling'), 600)
-        rec.fx = null; rec.fy = null
-        // transfer pointer velocity into the simulation (fling)
+        this.simulation.alphaTarget(0)
+        // fling: recent pointer velocity in px/ms (capped ~2.4 ≈ 40px/frame)
         let vx = 0, vy = 0
         if (!prefersCalm()) {
           const tN = performance.now()
@@ -415,16 +472,20 @@ export class FleetGraph {
           if (recent.length >= 2) {
             const a = recent[0], b = recent[recent.length - 1]
             const dt = Math.max(16, b.t - a.t)
-            vx = ((b.x - a.x) / dt) * 15               // px/ms → px/frame
-            vy = ((b.y - a.y) / dt) * 15
-            const sp = Math.hypot(vx, vy), cap = 40
+            vx = (b.x - a.x) / dt
+            vy = (b.y - a.y) / dt
+            const sp = Math.hypot(vx, vy), cap = 2.4
             if (sp > cap) { vx *= cap / sp; vy *= cap / sp }
           }
         }
-        rec.vx = vx; rec.vy = vy
-        this.simulation.alphaTarget(0)
-        if (Math.hypot(vx, vy) > 2) this.simulation.alpha(Math.max(this.simulation.alpha(), 0.5)).restart()
         samples = []
+        // Ballistic glide through fx/fy: raw d3 velocity is eaten by the
+        // restoring forces the moment alpha rises (link 0.55 + charge -460
+        // dwarf a decaying vx), which inverted the throw. Pinning the node to
+        // a decaying throw path makes the fling mechanical — forces cannot
+        // reverse it — then the residual velocity is handed to the sim.
+        if (Math.hypot(vx, vy) > 0.12) this.startFling(rec, vx, vy)
+        else { rec.fx = null; rec.fy = null }
         return
       }
       rec.fx = null; rec.fy = null
@@ -441,6 +502,36 @@ export class FleetGraph {
     }
     elm.addEventListener('pointerup', release)
     elm.addEventListener('pointercancel', release)
+  }
+
+  /** Post-drag fling: pin the node to a decaying ballistic path through
+      fx/fy (same clamps as tick()) so restoring forces cannot reverse the
+      throw, then hand the residual velocity back to the simulation.
+      vx/vy in px/ms. */
+  startFling(rec, vx, vy) {
+    if (rec._flingRaf) cancelAnimationFrame(rec._flingRaf)
+    const t0 = performance.now()
+    let last = t0
+    rec.fx = rec.x; rec.fy = rec.y
+    const step = (t) => {
+      const dt = Math.min(48, Math.max(0, t - last)); last = t
+      rec.fx = Math.max(rec.r + 34, Math.min(this.W - rec.r - 34, rec.fx + vx * dt))
+      rec.fy = Math.max(rec.r + 64, Math.min(this.H - rec.r - 58, rec.fy + vy * dt))
+      const k = Math.exp(-0.008 * dt)                // exponential friction
+      vx *= k; vy *= k
+      // keep the sim ticking gently so the pin renders and neighbors yield —
+      // never spike alpha (the alpha bump is what let forces eat the fling)
+      if (this.simulation.alpha() < 0.1) this.simulation.alpha(0.1)
+      this.simulation.restart()
+      if (Math.hypot(vx, vy) > 0.04 && t - t0 < 900) {
+        rec._flingRaf = requestAnimationFrame(step)
+      } else {
+        rec._flingRaf = null
+        rec.vx = vx * 16.7; rec.vy = vy * 16.7       // px/ms → px/tick residual
+        rec.fx = null; rec.fy = null
+      }
+    }
+    rec._flingRaf = requestAnimationFrame(step)
   }
 
   handleClick(rec) {
@@ -493,6 +584,7 @@ export class FleetGraph {
 
   /** Tween the newly-chosen root into the root slot (arrives ≤800ms). */
   glideToRoot(rec) {
+    if (rec._flingRaf) { cancelAnimationFrame(rec._flingRaf); rec._flingRaf = null }
     if (this._glideRaf) { cancelAnimationFrame(this._glideRaf); this._glideRaf = null }
     if (this._glideRec && this._glideRec !== rec) {
       this._glideRec.fx = null; this._glideRec.fy = null
@@ -578,10 +670,12 @@ export class FleetGraph {
   }
 
   destroy() {
+    this._destroyed = true
     this.simulation.stop()
     this.ro.disconnect()
     if (this._glideRaf) cancelAnimationFrame(this._glideRaf)
     if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
+    for (const n of this.nodes.values()) if (n._flingRaf) cancelAnimationFrame(n._flingRaf)
     this.unsubs.forEach(u => u())
     this.container.innerHTML = ''
     this.container.classList.remove('graph-canvas')

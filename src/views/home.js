@@ -57,15 +57,20 @@ export function homeView() {
   })
 
   function setDigit(stack, value) {
+    // dedupe against the LAST appended span (the value already in flight),
+    // not the first '.n.cur' match -- the outgoing span keeps the 'cur'
+    // class for its whole fade-out, so matching on '.cur' re-fires every
+    // rAF of the crossfade window and leaks a '.n.next' span per frame.
+    const last = stack.lastElementChild
+    if (!last || last.textContent === value) return
     const cur = stack.querySelector('.n.cur')
-    if (!cur || cur.textContent === value) return
     const next = document.createElement('span')
     next.className = 'n next'
     next.textContent = value
     stack.appendChild(next)
-    cur.classList.add('out')
+    if (cur) cur.classList.add('out')
     requestAnimationFrame(() => requestAnimationFrame(() => next.classList.add('in')))
-    const finish = () => { cur.remove(); next.classList.remove('next', 'in'); next.classList.add('cur') }
+    const finish = () => { if (cur) cur.remove(); next.classList.remove('next', 'in'); next.classList.add('cur') }
     const tid = setTimeout(finish, 420)
     next.addEventListener('transitionend', () => { clearTimeout(tid); finish() }, { once: true })
   }
@@ -176,9 +181,15 @@ export function homeView() {
       },
       tall: true,
     })
-    // criterion 3: seed messages stagger-in rather than appearing at once
+    // criterion 3: seed messages stagger-in rather than appearing at once.
+    // .msg's `animation: msgIn .4s var(--ease-spring)` shorthand resolves
+    // fill-mode to 'none', so a delayed message renders at its settled
+    // (opacity:1) style for the whole delay, then jumps back to the 0%
+    // keyframe when the animation starts -- a flash, not a stagger. Force
+    // 'backwards' so the delay window holds the 0% keyframe instead.
     ;[...chatEl.querySelectorAll('.chat-log .msg')].forEach((m, i) => {
       m.style.animationDelay = `${i * 70}ms`
+      m.style.animationFillMode = 'backwards'
     })
     feedCard.appendChild(chatEl)
     feedCard.style.height = ''

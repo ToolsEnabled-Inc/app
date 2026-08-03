@@ -13,6 +13,11 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 // each pair is [startDeg, endDeg] measured from the box center (0deg = +x axis)
 const RIM_ARCS = [[-52, -30], [122, 144], [212, 234]]
 
+// Module-level (not per-view-instance) so once the user scrolls the panel
+// row once, the scroll cue stays gone across navigating away from and back
+// to any agent page — criterion 2 requires "permanently", not per-visit.
+let panelsCueDismissed = false
+
 function arcPath(cx, cy, r, a0, a1) {
   const rad = (d) => (d * Math.PI) / 180
   const sx = cx + r * Math.cos(rad(a0)), sy = cy + r * Math.sin(rad(a0))
@@ -57,34 +62,36 @@ export function agentView({ compId, agentId, navigate }) {
         <span class="as-sep">·</span><span>${agent.pool}</span>
         <span class="as-sep">·</span><span>${agent.model}</span>
       </div>
-      <div class="agentv-panels">
-        <div class="panel-dots">
-          <button type="button" class="pdot active" data-i="0"><span></span>Chat</button>
-          <button type="button" class="pdot" data-i="1"><span></span>Controls</button>
+      <div class="panel-dots">
+        <button type="button" class="pdot active" data-i="0"><span></span>Chat</button>
+        <button type="button" class="pdot" data-i="1"><span></span>Controls</button>
+      </div>
+      <div class="agentv-panels-wrap">
+        <div class="scroll-cue${panelsCueDismissed ? ' gone' : ''}">scroll<svg width="14" height="14" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <div class="agentv-panels">
+          <section class="apanel glass chat-panel"><div class="apanel-title">Chat</div></section>
+          <section class="apanel glass ctl-panel">
+            <div class="apanel-title">Controls</div>
+            <div class="rail-scroll">
+              <div class="agent-head">
+                <span class="role-dot" style="background:${role.hex};box-shadow:0 0 calc(10px*var(--glow)) ${role.glow}"></span>
+                <div><div class="an">${agent.name}</div><div class="ar">${role.label}</div></div>
+              </div>
+              <div class="agent-ring-wrap"></div>
+              <div class="rail-sub" style="text-align:center">model ${agent.model} · pool ${agent.pool}</div>
+              <div class="ctl-grid" style="margin-top:8px">
+                <button class="ctl-btn armed">Active</button>
+                <button class="ctl-btn">Pause</button>
+                <button class="ctl-btn">Respawn</button>
+                <button class="ctl-btn danger">Terminate</button>
+              </div>
+              <div class="rail-sec">Tuning</div>
+              <div class="ctl-row"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv">124k</span></div>
+              <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv">20m</span></div>
+              <div class="ctl-row"><span class="cl">Verbosity</span><input type="range" min="0" max="100" value="20"/><span class="cv">low</span></div>
+            </div>
+          </section>
         </div>
-        <div class="scroll-cue">scroll<svg width="14" height="14" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
-        <section class="apanel glass chat-panel"><div class="apanel-title">Chat</div></section>
-        <section class="apanel glass ctl-panel">
-          <div class="apanel-title">Controls</div>
-          <div class="rail-scroll">
-            <div class="agent-head">
-              <span class="role-dot" style="background:${role.hex};box-shadow:0 0 calc(10px*var(--glow)) ${role.glow}"></span>
-              <div><div class="an">${agent.name}</div><div class="ar">${role.label}</div></div>
-            </div>
-            <div class="agent-ring-wrap"></div>
-            <div class="rail-sub" style="text-align:center">model ${agent.model} · pool ${agent.pool}</div>
-            <div class="ctl-grid" style="margin-top:8px">
-              <button class="ctl-btn armed">Active</button>
-              <button class="ctl-btn">Pause</button>
-              <button class="ctl-btn">Respawn</button>
-              <button class="ctl-btn danger">Terminate</button>
-            </div>
-            <div class="rail-sec">Tuning</div>
-            <div class="ctl-row"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv">124k</span></div>
-            <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv">20m</span></div>
-            <div class="ctl-row"><span class="cl">Verbosity</span><input type="range" min="0" max="100" value="20"/><span class="cv">low</span></div>
-          </div>
-        </section>
       </div>
     </div>
   `)
@@ -147,10 +154,18 @@ export function agentView({ compId, agentId, navigate }) {
   })
 
   // --- criterion 2: Chat/Controls dot indicator + one-shot scroll cue ------
-  const panelsEl = root.querySelector('.agentv-panels')
+  // .panel-dots is its own normal-flow row above the panels (never overlaps
+  // panel content) and .scroll-cue lives in the non-scrolling
+  // .agentv-panels-wrap (a sibling of the scrolling .agentv-panels, not a
+  // descendant of it) so it stays fixed on screen instead of scrolling out
+  // of view with the panel content; see agent.css for the wrap/inset-fill +
+  // panel-width rules that guarantee .agentv-panels always has real
+  // overflow to scroll.
+  const panelsWrapEl = root.querySelector('.agentv-panels-wrap')
+  const panelsEl = panelsWrapEl.querySelector('.agentv-panels')
   const panelEls = [...panelsEl.querySelectorAll('.apanel')]
-  const dotEls = [...panelsEl.querySelectorAll('.pdot')]
-  const scrollCue = panelsEl.querySelector('.scroll-cue')
+  const dotEls = [...root.querySelectorAll('.panel-dots .pdot')]
+  const scrollCue = panelsWrapEl.querySelector('.scroll-cue')
 
   function syncDots() {
     const sl = panelsEl.scrollLeft
@@ -163,10 +178,9 @@ export function agentView({ compId, agentId, navigate }) {
   }
   syncDots()
 
-  let scrolledOnce = false
   panelsEl.addEventListener('scroll', () => {
     syncDots()
-    if (!scrolledOnce) { scrolledOnce = true; scrollCue.classList.add('gone') }
+    if (!panelsCueDismissed) { panelsCueDismissed = true; scrollCue.classList.add('gone') }
   }, { passive: true })
 
   dotEls.forEach((d, i) => d.addEventListener('click', () => {

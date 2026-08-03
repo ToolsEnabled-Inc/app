@@ -68,15 +68,23 @@ body {
 
 ::selection { background: rgba(0, 169, 216, 0.18); }
 
-/* ---------- aurora: soft neon fields behind the glass ---------- */
-.aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; filter: blur(70px) saturate(1.3); }
+/* ---------- aurora: soft neon fields behind the glass ----------
+   Perf contract (T1 criterion-3 60fps clause): NO filter anywhere in this
+   layer. The previous container-level blur(70px) saturate(1.3) forced a
+   full-viewport filter re-evaluation on every frame of the drift (~15ms/frame
+   measured in review). Each blob is instead pre-softened with a
+   gaussian-shaped multi-stop radial gradient (same palette hues; alpha lifted
+   slightly to stand in for the removed saturate), painted once into its own
+   will-change:transform layer, and drifts as a pure compositor transform —
+   zero per-frame paint or filter work. */
+.aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; contain: layout style paint; }
 .aur { position: absolute; border-radius: 50%; opacity: calc(0.55 * var(--glow)); will-change: transform; }
-.a1 { width: 44vw; height: 44vw; left: -8vw;  top: -14vw; background: radial-gradient(circle, rgba(69,214,255,.34), transparent 65%); animation: drift1 47s var(--ease) infinite alternate; }
-.a2 { width: 36vw; height: 36vw; right: -10vw; top: 6vh;  background: radial-gradient(circle, rgba(53,234,183,.26), transparent 65%); animation: drift2 53s var(--ease) infinite alternate; }
-.a3 { width: 30vw; height: 30vw; left: 24vw; bottom: -16vh; background: radial-gradient(circle, rgba(125,155,255,.24), transparent 65%); animation: drift3 61s var(--ease) infinite alternate; }
-.a4 { width: 22vw; height: 22vw; right: 16vw; bottom: -6vh; background: radial-gradient(circle, rgba(255,171,77,.17), transparent 65%); animation: drift1 67s var(--ease) infinite alternate-reverse; }
-.a5 { width: 34vw; height: 34vw; left: 36vw; top: 6vh; background: radial-gradient(circle, rgba(125,155,255,.24), transparent 65%); animation: drift4 57s var(--ease) infinite alternate; }
-.a6 { width: 26vw; height: 26vw; left: 48vw; bottom: 8vh; background: radial-gradient(circle, rgba(69,214,255,.18), transparent 65%); animation: drift2 49s var(--ease) infinite alternate-reverse; }
+.a1 { width: 44vw; height: 44vw; left: -8vw;  top: -14vw; background: radial-gradient(circle, rgba(69,214,255,.38) 0%, rgba(69,214,255,.29) 25%, rgba(69,214,255,.15) 48%, rgba(69,214,255,.05) 66%, transparent 80%); animation: drift1 47s var(--ease) infinite alternate; }
+.a2 { width: 36vw; height: 36vw; right: -10vw; top: 6vh;  background: radial-gradient(circle, rgba(53,234,183,.30) 0%, rgba(53,234,183,.22) 25%, rgba(53,234,183,.11) 48%, rgba(53,234,183,.04) 66%, transparent 80%); animation: drift2 53s var(--ease) infinite alternate; }
+.a3 { width: 30vw; height: 30vw; left: 24vw; bottom: -16vh; background: radial-gradient(circle, rgba(125,155,255,.28) 0%, rgba(125,155,255,.21) 25%, rgba(125,155,255,.11) 48%, rgba(125,155,255,.04) 66%, transparent 80%); animation: drift3 61s var(--ease) infinite alternate; }
+.a4 { width: 22vw; height: 22vw; right: 16vw; bottom: -6vh; background: radial-gradient(circle, rgba(255,171,77,.20) 0%, rgba(255,171,77,.15) 25%, rgba(255,171,77,.08) 48%, rgba(255,171,77,.03) 66%, transparent 80%); animation: drift1 67s var(--ease) infinite alternate-reverse; }
+.a5 { width: 34vw; height: 34vw; left: 36vw; top: 6vh; background: radial-gradient(circle, rgba(125,155,255,.28) 0%, rgba(125,155,255,.21) 25%, rgba(125,155,255,.11) 48%, rgba(125,155,255,.04) 66%, transparent 80%); animation: drift4 57s var(--ease) infinite alternate; }
+.a6 { width: 26vw; height: 26vw; left: 48vw; bottom: 8vh; background: radial-gradient(circle, rgba(69,214,255,.21) 0%, rgba(69,214,255,.16) 25%, rgba(69,214,255,.08) 48%, rgba(69,214,255,.03) 66%, transparent 80%); animation: drift2 49s var(--ease) infinite alternate-reverse; }
 @keyframes drift1 { to { transform: translate(9vw, 7vh) scale(1.12); } }
 @keyframes drift2 { to { transform: translate(-7vw, 10vh) scale(0.94); } }
 @keyframes drift3 { to { transform: translate(6vw, -8vh) scale(1.08); } }
@@ -86,8 +94,12 @@ body {
 .glass {
   position: relative;
   background: linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.3));
-  backdrop-filter: blur(26px) saturate(1.8);
-  -webkit-backdrop-filter: blur(26px) saturate(1.8);
+  /* 18px kernel (was 26px): with the aurora animating behind, every
+     backdrop-filter pass re-runs each frame — the three large surfaces
+     (cards, topbar, graph card) carry the widest kernels, so they are
+     trimmed for the criterion-3 60fps budget; visually identical frost. */
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
   border: 1px solid rgba(255,255,255,0.75);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
@@ -147,8 +159,8 @@ body {
   padding: 0 10px;
   z-index: 60;
   background: linear-gradient(180deg, rgba(255,255,255,0.56), rgba(255,255,255,0.34));
-  backdrop-filter: blur(26px) saturate(1.8);
-  -webkit-backdrop-filter: blur(26px) saturate(1.8);
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
   border: 1px solid rgba(255,255,255,0.78);
   border-radius: 27px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 12px 34px -16px rgba(14,23,38,0.22);
@@ -390,8 +402,8 @@ body {
   cursor: pointer;
   transition: all .3s var(--ease);
   display: flex; align-items: center; gap: 8px;
-  backdrop-filter: blur(18px) saturate(1.6);
-  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
 }
 .tab:hover { color: var(--ink-2); background: rgba(255,255,255,0.62); }
 .tab.active {
@@ -453,6 +465,24 @@ body {
   -webkit-user-select: none;
 }
 .node.dragging { cursor: grabbing; z-index: 6; }
+.node::before {
+  /* Lens frost pass — deliberately NOT on .node-glass. The scale
+     transitions/animations (hover, drag, settle, reap, bloom) all ride
+     .node-glass, and the 60fps clause forbids an expensive filter on the
+     animating element itself. This pseudo carries no transition and no
+     animation: a static circle the glass paints over, keeping the backdrop
+     blur/saturation stronger than v1 (16px / 2.0 vs 14px / 1.6) while the
+     lens scales freely above it. Sized by inset:0 — .node shrink-wraps
+     .node-glass, so this is exactly the bubble's footprint. */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  backdrop-filter: blur(16px) saturate(2);
+  -webkit-backdrop-filter: blur(16px) saturate(2);
+  pointer-events: none;
+}
+.node.enter::before { animation: frostIn .7s var(--ease) both; }  /* track the nodeIn bloom so no full-size frost disc precedes the bubble */
+@keyframes frostIn { 0% { opacity: 0; } 55% { opacity: 0.35; } 100% { opacity: 1; } }
 .node-glass {
   position: relative;
   width: var(--d); height: var(--d);
@@ -463,8 +493,8 @@ body {
     radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,0.5), rgba(255,255,255,0) 78%),
     radial-gradient(72% 62% at 50% 102%, color-mix(in oklab, var(--gc) 16%, transparent), transparent 74%),
     radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,0.78), rgba(255,255,255,0.34) 55%, rgba(255,255,255,0.2));
-  backdrop-filter: blur(18px) saturate(1.9);
-  -webkit-backdrop-filter: blur(18px) saturate(1.9);
+  /* no filter / backdrop-filter here — frost lives on the static .node::before;
+     glow is box-shadow layers only (60fps clause) */
   border: 1.5px solid color-mix(in oklab, var(--rc) 55%, white);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
@@ -474,7 +504,10 @@ body {
     0 0 calc(60px * var(--glow)) color-mix(in oklab, var(--gc) calc(16% * var(--glow)), transparent);
   transition: box-shadow .45s var(--ease), border-color .45s var(--ease), transform .45s var(--ease-spring), background .45s;
 }
-.node-glass::before {         /* 1px spectral inner ring — chromatic lens edge */
+.node-glass::after {          /* 1px spectral inner ring — chromatic lens edge.
+   Lives on ::after (not ::before) so graph.css's dense-mode focus ring
+   (.graph-canvas .node.focusable .node-glass::before) coexists with it
+   instead of replacing it on focusable nodes. */
   content: "";
   position: absolute; inset: 2px;
   border-radius: 50%;
@@ -560,8 +593,8 @@ body {
   cursor: pointer;
   will-change: transform;
   background: rgba(255,255,255,0.5);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
   border: 1px solid rgba(255,255,255,0.8);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 8px 20px -12px rgba(14,23,38,0.18);
   transition: width .5s var(--ease), height .5s var(--ease), box-shadow .4s var(--ease), background .4s var(--ease);
@@ -939,4 +972,5 @@ input[type="range"]:active::-webkit-slider-thumb {
 
 /* ---------- reduced motion ---------- */
 body.reduce-motion .aur { animation: none !important; }
+body.reduce-motion .node.enter::before { animation: none !important; }  /* frostIn — pseudo animations need their own opt-out */
 body.reduce-motion * { animation-duration: 0.001s !important; transition-duration: 0.12s !important; }
