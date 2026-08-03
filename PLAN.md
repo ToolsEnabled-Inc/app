@@ -136,6 +136,12 @@ scroll-wheel zoom mechanics on the graph.
 3. Every font on the page ≥13px; timestamps mono; day dividers.
 4. Alive: messages stream in with subtle entrances; pinned auto-scroll with a
    "jump to latest" chip when scrolled up. No popups.
+5. COHERENCE (owner directive): the page must read as THIS site in a calmer
+   register — existing tokens/fonts only, the shared topbar/aurora shell kept,
+   at least the page's container surface uses the site's glass language, role
+   colors identical to the graph's, motion uses the shared eases. A side-by-side
+   with the other pages must look like one product. Verified by the holistic
+   design reviewer as a blocking criterion.
 
 ### C2 Folded board
 1. The dblclick rail morph becomes the whiteboard board: agent title, runtime
