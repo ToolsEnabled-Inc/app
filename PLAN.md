@@ -211,3 +211,18 @@ this lens — a reviewer seeing a bespoke parallel box implementation instead of
 the shared component language FAILS criterion 1. (Territory unchanged:
 comms.js/comms.css may USE the global chip classes and components.js exports;
 graph.js and styles.css stay untouched.)
+
+#### C7 layout model (owner refinement — replaces any conflicting C7 wording)
+- Default state: the context boxes sit FIXED in a vertical stack you scroll
+  down through (they do not float or follow anything).
+- Dragging a box over another region shows quiet drop indicators on the target
+  halves: left/right → side-by-side split; top/bottom → up-and-down split.
+  Releasing performs the split smoothly (no popups, ghost follows the cursor).
+- Splits NEST and the operation is repeatable MULTIPLE times (verify ≥3
+  successive splits building a tiled layout); every tile is the same reused
+  context-box component (preview or expanded chat), individually scrollable.
+- Removing/dragging a box out of a split collapses that split smoothly and
+  returns the space. The size control from C7.2 still applies to stack mode;
+  inside splits, tiles share the pane.
+- Layout persists in memory while navigating within the session; reduce-motion
+  = instant snaps. The whole mechanism verified at 1600×900 and 1280×800.
