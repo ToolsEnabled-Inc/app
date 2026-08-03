@@ -20,10 +20,10 @@
 
    The Runtime Statistics page is deliberately NOT touched here: lane C4
    owns the site-wide type floor in styles.css and has already brought that
-   page up to it. This sheet only raises the two rules C4 keeps at its
-   11px uppercase micro-label tier but which this lane's board must carry
-   at 12.5px — and only inside .board-page, so the stats page keeps C4's
-   calibration.
+   page up to it. This sheet only lifts the rail chrome that C4 keeps at its
+   11px uppercase micro-label tier, which this lane's board must carry at
+   12.5px, and pulls the board's rail chrome from --ink-25 to --ink-2 — both
+   scoped to .board-page, so the stats page keeps C4's calibration exactly.
    ------------------------------------------------------------ */
 .board-page .rail-title { font-size: 12.5px; letter-spacing: 0.15em; color: var(--ink-2); }
 .board-page .rail-back { color: var(--ink-2); }
