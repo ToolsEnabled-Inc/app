@@ -1,0 +1,107 @@
+/* ============================================================
+   T2 — GRAPH MOTION (additive layer over styles.css)
+   Hover ripples, drag squash-stretch settle, spawn bloom burst,
+   reap deflate, re-root glide emphasis, dense focus ring.
+   ============================================================ */
+
+/* --- hover ripple: one ring expanding from the bubble edge --- */
+.node-ripple {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--gc, #45d6ff) 70%, white);
+  box-shadow:
+    0 0 calc(16px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(45% * var(--glow)), transparent),
+    inset 0 0 8px color-mix(in oklab, var(--gc, #45d6ff) 22%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: nodeRipple 0.7s var(--ease) forwards;
+}
+@keyframes nodeRipple {
+  0%   { opacity: 0.85; transform: scale(1); }
+  100% { opacity: 0;    transform: scale(1.6); }
+}
+
+/* --- drag release: brief squash-stretch settle (~0.97 overshoot) --- */
+.node.settling .node-glass {
+  animation: nodeSettle 0.5s var(--ease-spring) both;
+}
+@keyframes nodeSettle {
+  0%   { transform: scale(1.07, 1.03); }
+  55%  { transform: scale(0.965, 0.985); }
+  100% { transform: scale(1); }
+}
+
+/* --- spawn: graphite ring blooms into role color over ~900ms --- */
+.node.bloom .node-glass {
+  transition:
+    border-color 0.9s var(--ease),
+    background 0.9s var(--ease),
+    box-shadow 0.9s var(--ease),
+    transform 0.45s var(--ease-spring);
+}
+.node.bloom .node-glass::after {          /* one-time glow burst */
+  content: "";
+  position: absolute; inset: -5px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--gc, #45d6ff) 80%, white);
+  box-shadow:
+    0 0 calc(34px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(65% * var(--glow)), transparent),
+    inset 0 0 20px color-mix(in oklab, var(--gc, #45d6ff) 30%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: bloomBurst 0.9s var(--ease) forwards;
+}
+@keyframes bloomBurst {
+  0%   { opacity: 0;   transform: scale(0.94); }
+  30%  { opacity: 0.9; }
+  100% { opacity: 0;   transform: scale(1.24); }
+}
+
+/* --- reap: deflate + fade ~500ms (nodes are absolute — no layout shift) --- */
+.node.leave .node-glass {
+  animation: nodeReap 0.5s var(--ease) both;
+}
+@keyframes nodeReap {
+  0%   { opacity: 1; transform: scale(1); }
+  30%  { transform: scale(1.04, 0.94); }
+  100% { opacity: 0; transform: scale(0.45); }
+}
+
+/* --- re-root cinematic: the chosen node rides above with lifted glow --- */
+.node.rerooting { z-index: 7; }
+.node.rerooting .node-glass {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 18px 40px -14px rgba(14, 23, 38, 0.34),
+    0 0 calc(44px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(58% * var(--glow)), transparent),
+    0 0 calc(100px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(26% * var(--glow)), transparent);
+}
+
+/* --- dense-mode focus pulse: expanding ring that never clips labels ---
+   (name/role labels are siblings painted after .node-glass so they stay on
+   top; the ring fades out before it reaches the label text below) */
+.graph-canvas .node.focusable .node-glass { animation: none; }
+.graph-canvas .node.focusable .node-glass::before {
+  content: "";
+  position: absolute; inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--gc, #45d6ff) 70%, transparent);
+  box-shadow: 0 0 calc(14px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(35% * var(--glow)), transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: focusRing 1.9s ease-in-out infinite;
+}
+@keyframes focusRing {
+  0%   { opacity: 0;    transform: scale(0.97); }
+  45%  { opacity: 0.75; transform: scale(1.05); }
+  100% { opacity: 0;    transform: scale(1.09); }
+}
+
+/* --- reduced motion: park every animation this layer introduces --- */
+body.reduce-motion .node-ripple,
+body.reduce-motion .node.settling .node-glass,
+body.reduce-motion .node.bloom .node-glass::after,
+body.reduce-motion .node.leave .node-glass,
+body.reduce-motion .graph-canvas .node.focusable .node-glass::before {
+  animation: none !important;
+}

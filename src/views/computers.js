@@ -1,9 +1,15 @@
 // Computers — tabs per machine, the liquid agent graph, and the right rail
 // that morphs between Runtime Statistics and Agent Controls (dblclick a bubble).
+//
+// Lane T3 owns the continuity in here: the rail crossfades its blocks in a
+// top-to-bottom cascade while the Agent Count hero number FLIPs into the agent
+// runtime ring, tab switches dissolve the old graph and stagger the new bubbles
+// in by mount order, and "Open full view" hands the shell the node's screen
+// position so the outgoing view can scale straight into it.
 
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES } from '../vocab.js'
-import { el, uptimeRing, bindRuntime } from '../components.js'
+import { el, uptimeRing, bindRuntime, countUp, setViewMorph } from '../components.js'
 import { FleetGraph } from '../graph.js'
 
 const BAR_DEFS = [
@@ -13,11 +19,30 @@ const BAR_DEFS = [
   { key: 'disk', label: 'Disk', c: 'var(--c-manager)', g: 'var(--g-manager)' },
 ]
 
+/* ---------- morph constants (mirrored in morphs.css) ---------- */
+const MORPH_EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
+const STAGGER_MS = 80        // rail cascade step, top → bottom
+const ITEM_IN_MS = 340       // per-item fade in
+const ITEM_OUT_MS = 240      // per-item fade out
+const FLIP_MS = 460          // hero number ⇄ runtime ring
+const GRAPH_FADE_MS = 150    // outgoing graph dissolve
+const NODE_STAGGER_MS = 30   // incoming bubble cascade step
+
+const reduceMotion = () => document.body.classList.contains('reduce-motion')
+const rectCenter = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+
 export function computersView({ initialComputer = null, navigate }) {
   let computer = sim.computers.find(c => c.id === initialComputer) || sim.computers[0]
   let graph = null
-  let ringLoop = null
   const unsubs = []
+
+  // two timer pools: rail morph timers are cancelled whenever the rail morphs
+  // again; view timers only die with the view.
+  let railTimers = []
+  let viewTimers = []
+  const railTimeout = (fn, ms) => { railTimers.push(setTimeout(fn, ms)); }
+  const viewTimeout = (fn, ms) => { viewTimers.push(setTimeout(fn, ms)); }
+  const clearRailTimers = () => { railTimers.forEach(clearTimeout); railTimers = [] }
 
   const root = el(`
     <div class="computers">
@@ -39,6 +64,7 @@ export function computersView({ initialComputer = null, navigate }) {
   const graphWrap = root.querySelector('.graph-wrap')
   const crumbEl = root.querySelector('.graph-crumb')
   const hintEl = root.querySelector('.graph-hint')
+  const railEl = root.querySelector('.rail')
   const statsPage = root.querySelector('.stats-page')
   const ctlPage = root.querySelector('.ctl-page')
 
@@ -55,17 +81,22 @@ export function computersView({ initialComputer = null, navigate }) {
     tabsEl.appendChild(add)
   }
 
+  // Tab switch: dissolve the outgoing graph, cascade the incoming bubbles in,
+  // and count the Agent Count hero from the old machine's total to the new one.
   function switchComputer(c) {
     if (c === computer) return
+    const prevTotal = computer.spawnedTotal
     computer = c
     renderTabs()
-    mountGraph()
-    showStats(true)
+    swapGraph()
+    showStats({ countFrom: prevTotal })
   }
 
   /* ---------- graph ---------- */
   let canvas = null
-  function mountGraph() {
+  let fadingGraph = null       // the machine being dissolved out on a tab switch
+
+  function mountGraph({ stagger = false } = {}) {
     graph?.destroy()
     canvas?.remove()
     canvas = el(`<div style="position:absolute;inset:0"></div>`)
@@ -79,25 +110,258 @@ export function computersView({ initialComputer = null, navigate }) {
     graph.onDensity = (dense) => hintEl.classList.toggle('show', dense)
     graph.updateDensity()
     renderCrumb(null)
+    if (stagger) staggerNodesIn(graph)
+  }
+
+  // The outgoing graph fades for GRAPH_FADE_MS before the new one is built, so
+  // the two machines never occupy the same frame.
+  function swapGraph() {
+    const oldGraph = graph, oldCanvas = canvas
+    crumbEl.innerHTML = ''
+    // a dissolve already in flight will mount whatever machine is current
+    if (!canvas && fadingGraph) return
+    if (!oldCanvas) { mountGraph({ stagger: true }); return }
+    graph = null; canvas = null
+    fadingGraph = oldGraph
+    oldCanvas.classList.add('mc-graph-out')
+    viewTimeout(() => {
+      if (fadingGraph === oldGraph) fadingGraph = null
+      oldGraph?.destroy()
+      oldCanvas.remove()
+      mountGraph({ stagger: true })
+    }, GRAPH_FADE_MS)
+  }
+
+  // graph.js owns the bubble entry animation; this only drives WHEN each one
+  // plays, using the graph's own mount order (Map insertion order).
+  function staggerNodesIn(g) {
+    if (!g || reduceMotion()) return
+    const touched = []
+    let i = 0
+    for (const rec of g.nodes.values()) {
+      const d = i * NODE_STAGGER_MS
+      rec.el.style.setProperty('--mc-sd', `${d}ms`)
+      rec.el.classList.add('mc-stagger', 'enter')
+      const glass = rec.el.querySelector('.node-glass')
+      if (glass) { glass.style.animationDelay = `${d}ms`; glass.style.animationFillMode = 'backwards' }
+      if (rec.chip) {
+        rec.chip.style.setProperty('--mc-sd', `${d + 140}ms`)
+        rec.chip.classList.add('mc-stagger')
+      }
+      touched.push(rec)
+      i++
+    }
+    viewTimeout(() => {
+      for (const rec of touched) {
+        rec.el.classList.remove('mc-stagger')
+        rec.el.style.removeProperty('--mc-sd')
+        const glass = rec.el.querySelector('.node-glass')
+        if (glass) { glass.style.animationDelay = ''; glass.style.animationFillMode = '' }
+        rec.chip?.classList.remove('mc-stagger')
+        rec.chip?.style.removeProperty('--mc-sd')
+      }
+    }, i * NODE_STAGGER_MS + 900)
   }
 
   function renderCrumb(rootId) {
     crumbEl.innerHTML = ''
     if (!rootId) return
     const back = el(`<button>← ${computer.name}</button>`)
-    back.addEventListener('click', () => graph.clearRoot())
+    back.addEventListener('click', () => graph?.clearRoot())
     const agent = computer.agents.find(a => a.id === rootId)
     crumbEl.appendChild(back)
     crumbEl.appendChild(el(`<span class="sep">/</span>`))
     crumbEl.appendChild(el(`<span><b style="color:var(--ink-2)">${agent?.name || ''}</b></span>`))
   }
 
+  /* ---------- rail morph plumbing ---------- */
+
+  // Tag the rail page's blocks with a cascade group so they crossfade
+  // top-to-bottom one STAGGER_MS step apart instead of all at once.
+  function markStagger(page, exclude = null) {
+    const items = []
+    const title = page.querySelector('.rail-title')
+    if (title) items.push(title)
+    const scroll = page.querySelector('.rail-scroll')
+    if (scroll) items.push(...scroll.children)
+    let g = -1
+    items.forEach((node, i) => {
+      const starts = i === 0
+        || node.classList.contains('rail-sec')
+        || node.classList.contains('stat-hero')
+        || node.classList.contains('agent-head')
+      if (starts) g++
+      node.style.setProperty('--mi', String(g))
+      if (node !== exclude) node.classList.add('mc-stag')
+    })
+    return { items, groups: Math.max(0, g) }
+  }
+
+  const clearStagger = (page) =>
+    page.querySelectorAll('.mc-stag').forEach(n => n.classList.remove('mc-stag'))
+
+  // Class flip with the panel transition suppressed for that one frame, so the
+  // cascade is the only thing the eye sees (never a slab fade underneath it).
+  function snap(page, mutate) {
+    page.style.transition = 'none'
+    mutate()
+    void page.offsetWidth
+    page.style.transition = ''
+  }
+
+  function cascadeIn(page, exclude = null) {
+    const { groups } = markStagger(page, exclude)
+    snap(page, () => {
+      page.classList.remove('off-l', 'off-r', 'mc-out')
+      page.classList.add('mc-in')
+    })
+    railTimeout(() => {
+      page.classList.remove('mc-in')
+      clearStagger(page)
+    }, ITEM_IN_MS + STAGGER_MS * groups + 60)
+    return groups
+  }
+
+  // Hide a rail page with the same cascade — unless it is already parked off
+  // screen, in which case cascading it out would flash it back into view.
+  function hidePage(page, offClass, exclude = null) {
+    if (page.classList.contains(offClass)) {
+      page.classList.remove('mc-in', 'mc-out')
+      clearStagger(page)
+      return 0
+    }
+    return cascadeOut(page, offClass, exclude)
+  }
+
+  function cascadeOut(page, offClass, exclude = null) {
+    const { groups } = markStagger(page, exclude)
+    snap(page, () => {
+      page.classList.remove('mc-in')
+      page.classList.add('mc-out')
+    })
+    railTimeout(() => {
+      snap(page, () => {
+        page.classList.remove('mc-out')
+        page.classList.add(offClass)
+      })
+      clearStagger(page)
+    }, ITEM_OUT_MS + STAGGER_MS * groups + 40)
+    return groups
+  }
+
+  // A ghost of the hero figure, parked exactly over `rect` inside the rail.
+  function makeGhost(srcEl, rect) {
+    const railRect = railEl.getBoundingClientRect()
+    const cs = getComputedStyle(srcEl)
+    const ghost = el(`<div class="rail-morph-ghost"></div>`)
+    ghost.textContent = srcEl.textContent
+    // absolute children sit in the rail's padding box — discount its hairline
+    ghost.style.left = `${rect.left - railRect.left - railEl.clientLeft}px`
+    ghost.style.top = `${rect.top - railRect.top - railEl.clientTop}px`
+    ghost.style.width = `${rect.width}px`
+    ghost.style.height = `${rect.height}px`
+    ghost.style.fontSize = cs.fontSize
+    ghost.style.fontWeight = cs.fontWeight
+    ghost.style.color = cs.color
+    railEl.appendChild(ghost)
+    return ghost
+  }
+
+  // FLIP the ring so it *starts* life as the hero number (same place, same
+  // size) and expands into its slot while the ghost of the number rides the
+  // identical path and dissolves into it — continuous, no blank frame.
+  function flipHeroToRing({ heroEl, heroRect, ringEl }) {
+    const digits = ringEl?.querySelector('.uring-digits')
+    if (!ringEl || !digits) return
+    const ringRect = ringEl.getBoundingClientRect()
+    const dRect = digits.getBoundingClientRect()
+    if (!dRect.height || !heroRect.height || !ringRect.height) return
+
+    const H = rectCenter(heroRect), D = rectCenter(dRect), C = rectCenter(ringRect)
+    const ghost = makeGhost(heroEl, heroRect)
+    heroEl.style.opacity = '0'
+
+    const grow = dRect.height / heroRect.height
+    const flight = ghost.animate([
+      { transform: 'translate(0px, 0px) scale(1)', opacity: 1, offset: 0 },
+      { opacity: 0.85, offset: 0.45 },
+      { transform: `translate(${D.x - H.x}px, ${D.y - H.y}px) scale(${grow})`, opacity: 0, offset: 1 },
+    ], { duration: FLIP_MS, easing: MORPH_EASE, fill: 'both' })
+    flight.onfinish = () => ghost.remove()
+
+    // invert: ring pinned over the hero at the hero's scale, then played home
+    const k = heroRect.height / dRect.height
+    const tx = H.x - C.x - k * (D.x - C.x)
+    const ty = H.y - C.y - k * (D.y - C.y)
+    ringEl.animate([
+      { transform: `translate(${tx}px, ${ty}px) scale(${k})`, opacity: 0, offset: 0 },
+      { opacity: 1, offset: 0.55 },
+      { transform: 'none', opacity: 1, offset: 1 },
+    ], { duration: FLIP_MS, easing: MORPH_EASE })
+  }
+
+  // The same flight, reversed: the ring collapses toward the hero slot while
+  // the number grows out of it and lands as the real element.
+  function flipRingToHero({ ringEl, ringRect, digitsRect, heroEl, heroHost }) {
+    if (!ringEl || !heroEl || !ringRect || !digitsRect) return
+    const heroRect = heroEl.getBoundingClientRect()
+    if (!heroRect.height || !digitsRect.height) return
+
+    const H = rectCenter(heroRect), D = rectCenter(digitsRect), C = rectCenter(ringRect)
+    const ghost = makeGhost(heroEl, heroRect)
+    heroEl.style.opacity = '0'
+    // the block itself only fades — it must not move, the flight lands on it
+    heroHost?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: MORPH_EASE })
+
+    const grow = digitsRect.height / heroRect.height
+    const flight = ghost.animate([
+      { transform: `translate(${D.x - H.x}px, ${D.y - H.y}px) scale(${grow})`, opacity: 0, offset: 0 },
+      { opacity: 1, offset: 0.45 },
+      { transform: 'translate(0px, 0px) scale(1)', opacity: 1, offset: 1 },
+    ], { duration: FLIP_MS, easing: MORPH_EASE, fill: 'both' })
+    flight.onfinish = () => { heroEl.style.opacity = ''; ghost.remove() }
+
+    const k = heroRect.height / digitsRect.height
+    const tx = H.x - C.x - k * (D.x - C.x)
+    const ty = H.y - C.y - k * (D.y - C.y)
+    ringEl.animate([
+      { transform: 'none', opacity: 1, offset: 0 },
+      { opacity: 0, offset: 0.6 },
+      { transform: `translate(${tx}px, ${ty}px) scale(${k})`, opacity: 0, offset: 1 },
+    ], { duration: FLIP_MS, easing: MORPH_EASE, fill: 'forwards' })
+  }
+
   /* ---------- rail: runtime statistics ---------- */
-  function showStats(immediate = false) {
+  let heroCount = null       // cancel handle for the running count-up
+
+  function showStats({ flip = false, countFrom = null } = {}) {
+    clearRailTimers()
+
+    // measure the ring BEFORE anything re-renders, while it is still on screen
+    const ringEl = flip ? ctlPage.querySelector('.uring') : null
+    const digitsEl = ringEl?.querySelector('.uring-digits')
+    const ringRect = ringEl?.getBoundingClientRect()
+    const digitsRect = digitsEl?.getBoundingClientRect()
+
     renderStats()
-    statsPage.classList.remove('off-l')
-    ctlPage.classList.add('off-r')
-    if (immediate) { statsPage.style.transition = 'none'; void statsPage.offsetWidth; statsPage.style.transition = '' }
+    const heroEl = statsPage.querySelector('#agent-count')
+    const heroHost = statsPage.querySelector('.stat-hero')
+    const doFlip = flip && !reduceMotion() && !!ringEl && !!digitsRect?.height
+
+    // when the ring is flying home the hero block must sit at its resting
+    // position (the flight lands on it), so it sits out the cascade
+    cascadeIn(statsPage, doFlip ? heroHost : null)
+
+    if (heroEl && countFrom != null) {
+      heroCount?.()
+      heroCount = countUp(heroEl, countFrom, computer.spawnedTotal, 720)
+    }
+
+    // the controls page always leaves through the same cascade (the ring sits
+    // it out when it is flying back into the hero figure)
+    hidePage(ctlPage, 'off-r', doFlip ? ctlPage.querySelector('.agent-ring-wrap') : null)
+    if (doFlip) flipRingToHero({ ringEl, ringRect, digitsRect, heroEl, heroHost })
+    railTimeout(() => { ctlRing = null }, FLIP_MS + 120)
   }
 
   function renderStats() {
@@ -105,7 +369,7 @@ export function computersView({ initialComputer = null, navigate }) {
     statsPage.innerHTML = `
       <div class="rail-title">Runtime Statistics</div>
       <div class="rail-scroll">
-        <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agent Count</span></div>
+        <div class="stat-hero"><span class="v" id="agent-count" data-v="${computer.spawnedTotal}">${computer.spawnedTotal}</span><span class="l">Agent Count</span></div>
         <div class="rail-sub">${active} live now · ${computer.name.toLowerCase()} · ${computer.note}</div>
         <div class="rail-sec">Load</div>
         <div class="bars">
@@ -140,7 +404,14 @@ export function computersView({ initialComputer = null, navigate }) {
       row.querySelector('.bv').textContent = v + '%'
     }
     const ac = statsPage.querySelector('#agent-count')
-    if (ac) ac.textContent = computer.spawnedTotal
+    if (ac) {
+      const shown = Number(ac.dataset.v ?? ac.textContent) || 0
+      if (shown !== computer.spawnedTotal) {
+        ac.dataset.v = String(computer.spawnedTotal)
+        heroCount?.()
+        heroCount = countUp(ac, shown, computer.spawnedTotal, 700)
+      }
+    }
   }
 
   function updateTasks() {
@@ -156,7 +427,14 @@ export function computersView({ initialComputer = null, navigate }) {
   /* ---------- rail: agent controls (the morph) ---------- */
   let ctlRing = null
   function showControls(agent) {
+    clearRailTimers()
     const role = ROLES[agent.role]
+
+    // the shared element's starting geometry, measured before the swap
+    const heroEl = statsPage.querySelector('#agent-count')
+    const heroRect = (heroEl && !statsPage.classList.contains('off-l'))
+      ? heroEl.getBoundingClientRect() : null
+
     ctlPage.innerHTML = `
       <div class="rail-title">
         <button class="rail-back">‹ Statistics</button>
@@ -198,10 +476,16 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     ringWrap.appendChild(ctlRing.el)
 
-    ctlPage.querySelector('.rail-back').addEventListener('click', () => {
-      statsPage.classList.remove('off-l'); ctlPage.classList.add('off-r'); ctlRing = null
+    ctlPage.querySelector('.rail-back').addEventListener('click', () => showStats({ flip: true }))
+    ctlPage.querySelector('[data-a="open"]').addEventListener('click', () => {
+      // hand the shell the node's screen position so the outgoing view can
+      // scale straight into the bubble that was opened
+      const rec = graph?.nodes?.get(agent.id)
+      const target = rec?.el || ctlRing?.el || graphWrap
+      const r = target.getBoundingClientRect()
+      setViewMorph({ kind: 'zoom', x: r.left + r.width / 2, y: r.top + r.height / 2 })
+      navigate(`#/agent/${computer.id}/${agent.id}`)
     })
-    ctlPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     ctlPage.querySelectorAll('.ctl-btn[data-a]:not([data-a="open"])').forEach(btn => {
       btn.addEventListener('click', () => {
         ctlPage.querySelectorAll('.ctl-btn.armed').forEach(b => b.classList.remove('armed'))
@@ -210,14 +494,19 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     ctlPage.querySelectorAll('input[type="range"]').forEach(rangeFill)
 
-    statsPage.classList.add('off-l')
-    ctlPage.classList.remove('off-r')
+    // the ring is the shared element — the FLIP owns it, so it stays out of
+    // the cascade; everything else crossfades top-to-bottom around it
+    const doFlip = !!heroRect && heroRect.height > 0 && !reduceMotion()
+    cascadeIn(ctlPage, doFlip ? ringWrap : null)
+    if (doFlip) flipHeroToRing({ heroEl, heroRect, ringEl: ctlRing.el })
+
+    hidePage(statsPage, 'off-l')
   }
 
   /* ---------- boot ---------- */
   renderTabs()
   mountGraph()
-  showStats(true)
+  showStats()
 
   unsubs.push(sim.on('stats', updateBars))
   unsubs.push(sim.on('tasks', updateTasks))
@@ -231,7 +520,11 @@ export function computersView({ initialComputer = null, navigate }) {
     el: root,
     destroy() {
       cancelAnimationFrame(raf)
+      heroCount?.()
+      clearRailTimers()
+      viewTimers.forEach(clearTimeout); viewTimers = []
       graph?.destroy()
+      fadingGraph?.destroy()
       unsubs.forEach(u => u())
     },
   }

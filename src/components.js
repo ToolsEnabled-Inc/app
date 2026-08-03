@@ -162,6 +162,55 @@ export function makeTooltip(container) {
   }
 }
 
+/**
+ * Count a readout from one number to another, in place (no layout jump).
+ * Used by every morph that swaps a live figure — rail hero, metric tiles.
+ * Returns a cancel function; honours body.reduce-motion by snapping.
+ */
+export function countUp(el, from, to, ms = 700) {
+  if (!el) return () => {}
+  const a = Number(from), b = Number(to)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return () => {}
+  const decimals = Math.max(decimalsOf(a), decimalsOf(b))
+  const fmt = (v) => decimals ? v.toFixed(decimals) : String(Math.round(v))
+  if (a === b || !(ms > 0) || document.body.classList.contains('reduce-motion')) {
+    el.textContent = fmt(b)
+    return () => {}
+  }
+  let raf = 0
+  const t0 = performance.now()
+  const ease = (t) => 1 - Math.pow(1 - t, 3)          // out-cubic, settles quietly
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / ms)
+    el.textContent = fmt(a + (b - a) * ease(t))
+    if (t < 1) raf = requestAnimationFrame(step)
+    else el.textContent = fmt(b)
+  }
+  raf = requestAnimationFrame(step)
+  return () => cancelAnimationFrame(raf)
+}
+
+function decimalsOf(n) {
+  const s = String(n)
+  const i = s.indexOf('.')
+  return i < 0 ? 0 : Math.min(3, s.length - i - 1)
+}
+
+/**
+ * One-shot channel for shared-element view transitions: a view announces the
+ * screen point the next navigation should morph from, the shell consumes it.
+ * Nothing here changes a route — the hash router stays exactly as it was.
+ */
+let pendingViewMorph = null
+export function setViewMorph(morph) {
+  pendingViewMorph = morph ? { ...morph, at: performance.now() } : null
+}
+export function takeViewMorph() {
+  const m = pendingViewMorph
+  pendingViewMorph = null
+  return m
+}
+
 /** Runtime text updater registry — one central clock drives all timers. */
 const runtimeEls = new Set()
 export function bindRuntime(elm, bornAtFn) {

@@ -6,10 +6,18 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY
 import { sim, fmtRuntime } from './sim.js'
 import { ROLES } from './vocab.js'
 import { el, buildChat, bindRuntime } from './components.js'
+import './graph.css'
 
 const RADII = { coordinator: 62, helper: 52, shadow: 52, manager: 47, default: 39 }
 const CHIP_ROLES = new Set(['coordinator', 'helper', 'shadow'])
 const DENSE_AT = 12
+
+const prefersCalm = () => document.body.classList.contains('reduce-motion')
+const hashStr = (s) => {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
 
 export class FleetGraph {
   constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null }) {
@@ -40,6 +48,22 @@ export class FleetGraph {
       .alphaDecay(0.015)
       .on('tick', () => this.tick())
 
+    // dev perf probe — rolling average frame time (ms) at window.__graphFrameMs
+    this._frameAvg = 16.7
+    this._lastFrameT = 0
+    const probe = (t) => {
+      if (this._lastFrameT) {
+        const dt = t - this._lastFrameT
+        if (dt < 250) {                              // ignore tab-hidden gaps
+          this._frameAvg += (dt - this._frameAvg) * 0.1
+          window.__graphFrameMs = Math.round(this._frameAvg * 100) / 100
+        }
+      }
+      this._lastFrameT = t
+      this._perfRaf = requestAnimationFrame(probe)
+    }
+    this._perfRaf = requestAnimationFrame(probe)
+
     this.build(true)
 
     this.unsubs.push(
@@ -48,7 +72,13 @@ export class FleetGraph {
       sim.on('agent-state', ({ comp, agent }) => {
         if (comp !== this.computer) return
         const n = this.nodes.get(agent.id)
-        if (n) n.el.classList.remove('spawning')
+        if (!n) return
+        if (n.el.classList.contains('spawning')) {
+          n.el.classList.remove('spawning')
+          n.el.classList.add('bloom')              // graphite → role color, ~900ms + glow burst
+          clearTimeout(n._bloomTimer)
+          n._bloomTimer = setTimeout(() => n.el.classList.remove('bloom'), 950)
+        }
       }),
       sim.on('context', ({ comp, agent }) => {
         if (comp !== this.computer) return
@@ -86,7 +116,7 @@ export class FleetGraph {
     const wanted = new Set(agents.map(a => a.id))
 
     for (const [id, n] of [...this.nodes]) {
-      if (!wanted.has(id)) this.removeNode(n, true)
+      if (!wanted.has(id)) this.removeNode(n, true, this._staggerDelays?.get(id) || 0)
     }
     for (const a of agents) {
       if (!this.nodes.has(a.id)) this.spawnNode(a, initial)
@@ -192,12 +222,16 @@ export class FleetGraph {
     rec.chipW = 168; rec.chipH = rec.prevH || 44
   }
 
-  removeNode(rec, animate) {
+  removeNode(rec, animate, delay = 0) {
     this.nodes.delete(rec.id)
     if (rec.chip) { rec.chip.remove() }
     if (animate) {
-      rec.el.classList.add('leave')
-      setTimeout(() => rec.el.remove(), 500)
+      const go = () => {
+        rec.el.classList.add('leave')
+        setTimeout(() => rec.el.remove(), 520)
+      }
+      if (delay > 0) setTimeout(go, delay)
+      else go()
     } else rec.el.remove()
   }
 
@@ -251,6 +285,10 @@ export class FleetGraph {
     this.svg.innerHTML = ''
     for (const l of this.links) {
       const hex = ROLES[l.target.agent.role].hex
+      // deterministic per-link curvature so curves never flip between rebuilds
+      const hv = hashStr(`${l.source.id}→${l.target.id}`)
+      l.side = hv % 2 ? 1 : -1
+      l.bendMul = 0.85 + (hv % 8) * 0.04
       const under = document.createElementNS('http://www.w3.org/2000/svg', 'path')
       under.setAttribute('class', 'link-under')
       under.setAttribute('stroke', hex)
@@ -293,9 +331,17 @@ export class FleetGraph {
       const s = l.source, t = l.target
       const dx = t.x - s.x, dy = t.y - s.y
       const L = Math.hypot(dx, dy) || 1
-      const sx = s.x + (dx / L) * (s.r + 2), sy = s.y + (dy / L) * (s.r + 2)
-      const tx = t.x - (dx / L) * (t.r + 2), ty = t.y - (dy / L) * (t.r + 2)
-      const d = `M${sx.toFixed(1)} ${sy.toFixed(1)} L${tx.toFixed(1)} ${ty.toFixed(1)}`
+      // organic quadratic bend perpendicular to the chord, 12–24px by distance
+      const bendAbs = Math.max(12, Math.min(24, L * 0.11 * (l.bendMul || 1)))
+      const bend = bendAbs * (l.side || 1)
+      const qx = (s.x + t.x) / 2 + (-dy / L) * bend
+      const qy = (s.y + t.y) / 2 + (dx / L) * bend
+      // trim endpoints to the bubble edges along the curve's launch direction
+      const dsx = qx - s.x, dsy = qy - s.y, dsl = Math.hypot(dsx, dsy) || 1
+      const sx = s.x + (dsx / dsl) * (s.r + 2), sy = s.y + (dsy / dsl) * (s.r + 2)
+      const dtx = qx - t.x, dty = qy - t.y, dtl = Math.hypot(dtx, dty) || 1
+      const tx = t.x + (dtx / dtl) * (t.r + 2), ty = t.y + (dty / dtl) * (t.r + 2)
+      const d = `M${sx.toFixed(1)} ${sy.toFixed(1)} Q${qx.toFixed(1)} ${qy.toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)}`
       l.underEl?.setAttribute('d', d)
       l.topEl?.setAttribute('d', d)
     }
@@ -307,6 +353,7 @@ export class FleetGraph {
     const elm = rec.el
     let startX = 0, startY = 0, moved = false, pid = null
     let clickTimer = null
+    let samples = []                 // recent pointer positions for fling velocity
 
     let offX = 0, offY = 0
     elm.addEventListener('pointerdown', (e) => {
@@ -314,6 +361,7 @@ export class FleetGraph {
       pid = e.pointerId
       elm.setPointerCapture(pid)
       startX = e.clientX; startY = e.clientY; moved = false
+      samples = [{ x: e.clientX, y: e.clientY, t: performance.now() }]
       const cr = this.container.getBoundingClientRect()
       offX = rec.x - (e.clientX - cr.left)
       offY = rec.y - (e.clientY - cr.top)
@@ -321,6 +369,8 @@ export class FleetGraph {
 
     elm.addEventListener('pointermove', (e) => {
       if (pid === null) return
+      samples.push({ x: e.clientX, y: e.clientY, t: performance.now() })
+      if (samples.length > 6) samples.shift()
       const dx = e.clientX - startX, dy = e.clientY - startY
       if (!moved && Math.hypot(dx, dy) > 5) {
         moved = true
@@ -334,14 +384,47 @@ export class FleetGraph {
       }
     })
 
+    // hover: ONE self-removing ripple ring from the bubble edge
+    elm.addEventListener('pointerenter', () => {
+      if (prefersCalm()) return
+      rec._ripple?.remove()
+      const rip = document.createElement('span')
+      rip.className = 'node-ripple'
+      elm.appendChild(rip)
+      rec._ripple = rip
+      const gone = () => { rip.remove(); if (rec._ripple === rip) rec._ripple = null }
+      rip.addEventListener('animationend', gone, { once: true })
+      setTimeout(gone, 900)          // safety net — no element leaks
+    })
+
     const release = (e) => {
       if (pid === null) return
       try { elm.releasePointerCapture(pid) } catch {}
       pid = null
       if (moved) {
         elm.classList.remove('dragging')
-        this.simulation.alphaTarget(0)
+        elm.classList.add('settling')                  // brief ~0.97 overshoot
+        clearTimeout(rec._settleTimer)
+        rec._settleTimer = setTimeout(() => elm.classList.remove('settling'), 600)
         rec.fx = null; rec.fy = null
+        // transfer pointer velocity into the simulation (fling)
+        let vx = 0, vy = 0
+        if (!prefersCalm()) {
+          const tN = performance.now()
+          const recent = samples.filter(s => tN - s.t < 160)
+          if (recent.length >= 2) {
+            const a = recent[0], b = recent[recent.length - 1]
+            const dt = Math.max(16, b.t - a.t)
+            vx = ((b.x - a.x) / dt) * 15               // px/ms → px/frame
+            vy = ((b.y - a.y) / dt) * 15
+            const sp = Math.hypot(vx, vy), cap = 40
+            if (sp > cap) { vx *= cap / sp; vy *= cap / sp }
+          }
+        }
+        rec.vx = vx; rec.vy = vy
+        this.simulation.alphaTarget(0)
+        if (Math.hypot(vx, vy) > 2) this.simulation.alpha(Math.max(this.simulation.alpha(), 0.5)).restart()
+        samples = []
         return
       }
       rec.fx = null; rec.fy = null
@@ -391,20 +474,97 @@ export class FleetGraph {
   }
 
   setRoot(id) {
+    const fromRec = this.nodes.get(id)
     this.rootId = id
-    const rec = this.nodes.get(id)
-    if (rec) {
-      rec.fx = this.W / 2; rec.fy = this.H * 0.42
-      setTimeout(() => { rec.fx = null; rec.fy = null }, 900)
-    }
+    // stagger-fade the non-subtree nodes (~40ms apart, nearest first)
+    const keep = new Set(this.visibleAgents().map(a => a.id))
+    const outgoing = [...this.nodes.values()].filter(n => !keep.has(n.id))
+    if (fromRec) outgoing.sort((a, b) =>
+      Math.hypot(a.x - fromRec.x, a.y - fromRec.y) - Math.hypot(b.x - fromRec.x, b.y - fromRec.y))
+    const calm = prefersCalm()
+    this._staggerDelays = new Map(outgoing.map((n, i) => [n.id, calm ? 0 : Math.min(i * 40, 560)]))
     this.build()
-    this.onRootChange?.(id)
+    this._staggerDelays = null
+    const rec = this.nodes.get(id)
+    if (rec) this.glideToRoot(rec)
+    this.onRootChange?.(id, this.ancestryOf(id))   // extra arg is additive
+    this.renderAncestry()
+  }
+
+  /** Tween the newly-chosen root into the root slot (arrives ≤800ms). */
+  glideToRoot(rec) {
+    if (this._glideRaf) { cancelAnimationFrame(this._glideRaf); this._glideRaf = null }
+    if (this._glideRec && this._glideRec !== rec) {
+      this._glideRec.fx = null; this._glideRec.fy = null
+      this._glideRec.el.classList.remove('rerooting')
+    }
+    this._glideRec = rec
+    rec.el.classList.add('rerooting')
+    const tx = this.W / 2, ty = this.H * 0.42
+    const done = () => setTimeout(() => {
+      rec.fx = null; rec.fy = null
+      rec.el.classList.remove('rerooting')
+      if (this._glideRec === rec) this._glideRec = null
+    }, 220)
+    if (prefersCalm()) { rec.fx = tx; rec.fy = ty; done(); return }
+    const sx = rec.x, sy = rec.y, dur = 680, t0 = performance.now()
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / dur)
+      const e = 1 - Math.pow(1 - p, 3)               // ease-out cubic
+      rec.fx = sx + (tx - sx) * e
+      rec.fy = sy + (ty - sy) * e
+      if (p < 1) this._glideRaf = requestAnimationFrame(step)
+      else { this._glideRaf = null; done() }
+    }
+    this._glideRaf = requestAnimationFrame(step)
+  }
+
+  /** Parent chain (top ancestor → node) as [{ id, name }] — additive contract. */
+  ancestryOf(id) {
+    const byId = new Map(this.computer.agents.map(a => [a.id, a]))
+    const chain = []
+    let cur = byId.get(id), guard = 0
+    while (cur && guard++ < 12) {
+      chain.unshift({ id: cur.id, name: cur.name })
+      cur = cur.parentId ? byId.get(cur.parentId) : null
+    }
+    return chain
+  }
+
+  /** Rebuild the sibling .graph-crumb with the full clickable ancestry.
+      Runs after onRootChange so the host's own render stays working; every
+      ancestor re-roots, the machine name clears the root. */
+  renderAncestry() {
+    const crumbEl = this.container.parentElement?.querySelector('.graph-crumb')
+    if (!crumbEl || !this.rootId) return
+    const chain = this.ancestryOf(this.rootId)
+    if (!chain.length) return
+    crumbEl.innerHTML = ''
+    const back = el(`<button>← ${this.computer.name}</button>`)
+    back.addEventListener('click', () => this.clearRoot())
+    crumbEl.appendChild(back)
+    chain.forEach((hop, i) => {
+      crumbEl.appendChild(el(`<span class="sep">/</span>`))
+      if (i < chain.length - 1) {
+        const b = el(`<button class="crumb-hop">${hop.name}</button>`)
+        b.addEventListener('click', () => this.setRoot(hop.id))
+        crumbEl.appendChild(b)
+      } else {
+        crumbEl.appendChild(el(`<span><b style="color:var(--ink-2)">${hop.name}</b></span>`))
+      }
+    })
   }
 
   clearRoot() {
+    if (this._glideRaf) { cancelAnimationFrame(this._glideRaf); this._glideRaf = null }
+    if (this._glideRec) {
+      this._glideRec.fx = null; this._glideRec.fy = null
+      this._glideRec.el.classList.remove('rerooting')
+      this._glideRec = null
+    }
     this.rootId = null
     this.build()
-    this.onRootChange?.(null)
+    this.onRootChange?.(null, [])
   }
 
   resize() {
@@ -420,6 +580,8 @@ export class FleetGraph {
   destroy() {
     this.simulation.stop()
     this.ro.disconnect()
+    if (this._glideRaf) cancelAnimationFrame(this._glideRaf)
+    if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
     this.unsubs.forEach(u => u())
     this.container.innerHTML = ''
     this.container.classList.remove('graph-canvas')

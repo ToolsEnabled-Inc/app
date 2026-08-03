@@ -5,12 +5,15 @@ import '@fontsource-variable/jetbrains-mono'
 import './styles.css'
 
 import { sim, fmtRuntime } from './sim.js'
-import { tickRuntimes } from './components.js'
+import { tickRuntimes, takeViewMorph } from './components.js'
 import { homeView } from './views/home.js'
 import { computersView } from './views/computers.js'
 import { agentView } from './views/agent.js'
 import { metricsView } from './views/metrics.js'
 import { rangeFill } from './views/computers.js'
+
+// loaded last so the shared-element morph rules win over the base sheets
+import './morphs.css'
 
 const stage = document.getElementById('stage')
 const crumb = document.getElementById('crumb')
@@ -48,9 +51,16 @@ function crumbFor(route) {
   }
 }
 
+const VIEW_MORPH_MS = 500
+
 function render() {
   const route = parse()
   const old = current
+
+  // a view can hand us a shared element to morph through (e.g. the agent
+  // bubble behind "Open full view"); it only ever affects motion, never a route
+  const morph = takeViewMorph()
+  const zoom = !!(morph && old && morph.kind === 'zoom' && performance.now() - morph.at < 900)
 
   const view = makeView(route)
   const wrap = document.createElement('div')
@@ -58,11 +68,28 @@ function render() {
   wrap.appendChild(view.el)
   stage.appendChild(wrap)
 
-  requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.remove('enter')))
+  if (zoom) {
+    // incoming view fades up through the outgoing one — both are present for
+    // the whole move, so the page never blanks to the backdrop
+    wrap.classList.remove('enter')
+    wrap.classList.add('mc-zoom-enter')
+    setTimeout(() => wrap.classList.remove('mc-zoom-enter'), VIEW_MORPH_MS + 80)
+  } else {
+    requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.remove('enter')))
+  }
 
   if (old) {
-    old.el.classList.add('exit')
-    setTimeout(() => { old.view.destroy?.(); old.el.remove() }, 420)
+    if (zoom) {
+      const r = old.el.getBoundingClientRect()
+      const ox = Math.max(0, Math.min(r.width, morph.x - r.left))
+      const oy = Math.max(0, Math.min(r.height, morph.y - r.top))
+      old.el.style.transformOrigin = `${ox}px ${oy}px`   // the node's own position
+      old.el.classList.add('mc-zoom-exit')
+      setTimeout(() => { old.view.destroy?.(); old.el.remove() }, VIEW_MORPH_MS + 40)
+    } else {
+      old.el.classList.add('exit')
+      setTimeout(() => { old.view.destroy?.(); old.el.remove() }, 420)
+    }
   }
   current = { el: wrap, view, route }
 

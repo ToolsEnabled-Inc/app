@@ -1,0 +1,57 @@
+/* ============================================================
+   HOME polish (Lane T5) — additive only, scoped under .home /
+   .home-ring-wrap / .home-feed so nothing here leaks to other
+   pages that also use uptimeRing()/.brace/.feed-line markup.
+   ============================================================ */
+
+/* ---------- 1. ring breathes ---------- */
+.home-ring-wrap .uring .arc-glow {
+  animation: home-ring-breathe 6.2s ease-in-out infinite;
+}
+@keyframes home-ring-breathe {
+  0%, 100% { opacity: calc(0.78 * var(--glow)); filter: blur(7px); }
+  50%      { opacity: calc(1.1 * var(--glow)); filter: blur(11px); }
+}
+
+/* arc-tip glowing dot (positioned every frame from home.js) */
+.home-ring-wrap .uring-tip-dot {
+  filter:
+    drop-shadow(0 0 calc(7px * var(--glow)) rgba(69, 214, 255, 0.85))
+    drop-shadow(0 0 calc(3px * var(--glow)) rgba(255, 255, 255, 0.95));
+}
+
+/* fixed-width, crossfading digit segments (no layout shift, no jump) */
+.home-ring-wrap .uring-digits .n-stack {
+  position: relative;
+  display: inline-block;
+  min-width: 2ch;
+  height: 1.05em;
+  font-size: clamp(34px, 4.6vw, 58px);
+  text-align: center;
+}
+.home-ring-wrap .uring-digits .n {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  transition: opacity .32s var(--ease), transform .32s var(--ease);
+  will-change: opacity, transform;
+}
+.home-ring-wrap .uring-digits .n.next { opacity: 0; transform: translateY(9px); }
+.home-ring-wrap .uring-digits .n.next.in { opacity: 1; transform: translateY(0); }
+.home-ring-wrap .uring-digits .n.cur.out { opacity: 0; transform: translateY(-9px); }
+
+/* ---------- 3. feed lines + braces ---------- */
+
+/* oldest line fades out (instead of an instant remove) when the feed overflows */
+.home-feed .feed-line.leaving {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+/* giant braces flex subtly on each feed arrival */
+.brace.brace-pulse { animation: home-brace-pulse .3s var(--ease); }
+@keyframes home-brace-pulse {
+  0%   { transform: scaleY(1); }
+  40%  { transform: scaleY(1.02); }
+  100% { transform: scaleY(1); }
+}

@@ -1,0 +1,102 @@
+/* ============================================================
+   MORPHS — shared-element continuity (lane T3)
+   Every selector below is new; nothing existing is renamed or removed.
+   Loaded last so a delay/fill override always wins over the base sheets.
+   ============================================================ */
+
+:root {
+  --morph-stagger: 80ms;    /* rail content cascade step, top → bottom */
+  --morph-item: 340ms;      /* per-item crossfade inside the rail */
+  --morph-out: 240ms;       /* per-item fade of the outgoing rail page */
+  --morph-view: 500ms;      /* view → view shared-element morph */
+}
+
+/* ------------------------------------------------------------
+   1 · rail: Runtime Statistics ⇄ Agent Controls
+   The panel never slides as a slab any more: its blocks crossfade
+   in a top-to-bottom cascade while the hero figure flies to the ring.
+   ------------------------------------------------------------ */
+
+/* during a cascade the page itself stays fully present — the children carry
+   the motion (this is what makes it read as one panel morphing, not two) */
+.rail-page.mc-in,
+.rail-page.mc-out { opacity: 1; transform: none; }
+.rail-page.mc-out { pointer-events: none; }   /* leaving content is not clickable */
+
+.rail-page.mc-in .mc-stag {
+  animation: mcRailIn var(--morph-item) var(--ease) both;
+  animation-delay: calc(var(--mi, 0) * var(--morph-stagger));
+}
+.rail-page.mc-out .mc-stag {
+  animation: mcRailOut var(--morph-out) var(--ease) both;
+  animation-delay: calc(var(--mi, 0) * var(--morph-stagger));
+}
+@keyframes mcRailIn  { from { opacity: 0; transform: translateY(12px) scale(0.985); } }
+@keyframes mcRailOut { to   { opacity: 0; transform: translateY(-9px) scale(0.99); } }
+
+/* the flying hero number: a FLIP ghost that rides between the
+   Agent Count figure and the agent runtime ring, so neither end blanks */
+.rail-morph-ghost {
+  position: absolute; left: 0; top: 0; z-index: 14;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  user-select: none; -webkit-user-select: none;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--ink);
+  text-shadow: 0 0 calc(16px * var(--glow)) rgba(69, 214, 255, calc(0.3 * var(--glow)));
+}
+
+/* ------------------------------------------------------------
+   2 · tab switch: the outgoing graph dissolves, the incoming
+   bubbles cascade in (delay driven from computers.js mount order)
+   ------------------------------------------------------------ */
+.graph-canvas.mc-graph-out {
+  opacity: 0;
+  transition: opacity 150ms var(--ease);
+  pointer-events: none;
+}
+
+.node.mc-stagger,
+.chip.mc-stagger {
+  animation: mcFadeIn 420ms var(--ease) both;
+  animation-delay: var(--mc-sd, 0ms);
+}
+@keyframes mcFadeIn { from { opacity: 0; } }
+
+/* ------------------------------------------------------------
+   3 · "Open full view": the computers view scales into the node
+   that was opened (origin set inline by the shell), the agent
+   view fades up through it — one continuous ~500 ms move.
+   ------------------------------------------------------------ */
+.view.mc-zoom-exit {
+  animation: mcZoomExit var(--morph-view) var(--ease) both;
+  pointer-events: none;
+}
+@keyframes mcZoomExit {
+  0%   { opacity: 1; transform: scale(1); }
+  55%  { opacity: 0.34; }
+  100% { opacity: 0; transform: scale(2.3); }
+}
+
+.view.mc-zoom-enter { animation: mcZoomEnter var(--morph-view) var(--ease) both; }
+@keyframes mcZoomEnter {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.965); }
+  45%  { opacity: 0.72; }
+  100% { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------
+   reduced motion — the base sheet already collapses durations;
+   collapse the cascade delays too so nothing sits invisible.
+   ------------------------------------------------------------ */
+body.reduce-motion .mc-stag,
+body.reduce-motion .mc-stagger { animation-delay: 0ms !important; }
+body.reduce-motion .view.mc-zoom-enter { animation: none !important; }
+body.reduce-motion .view.mc-zoom-exit { animation: none !important; opacity: 0; }
+body.reduce-motion .rail-morph-ghost { display: none; }

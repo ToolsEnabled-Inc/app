@@ -1,7 +1,8 @@
 // /home — the giant uptime ring + greyed context feed (expands into a chat).
 
-import { sim } from '../sim.js'
+import { sim, uptimeParts } from '../sim.js'
 import { el, uptimeRing, buildChat } from '../components.js'
+import '../home.css'
 
 export function homeView() {
   const root = el(`
@@ -19,18 +20,103 @@ export function homeView() {
     </div>
   `)
 
+  /* ---- live totals for the sub-caption (criterion 2) ---- */
+  const agentTotal = () => sim.computers.reduce((n, c) => n + c.agents.length, 0)
+  const subText = () => {
+    const mc = sim.computers.length
+    const ac = agentTotal()
+    return `${mc} machine${mc === 1 ? '' : 's'} · ${ac} agent${ac === 1 ? '' : 's'} live`
+  }
+
   const ringSize = Math.min(520, Math.max(380, window.innerHeight - 300))
   const ring = uptimeRing({
     size: ringSize,
     epoch: sim.serverEpoch,
     colors: ['#35eab7', '#45d6ff'],
     caption: 'Server Uptime',
-    sub: '2 machines · fleet nominal',
+    sub: subText(),
   })
+
+  /* ---- criterion 1: fixed-width crossfading digits, driven from home.js
+     (bypasses ring.update()'s innerHTML-replace-on-every-second so the
+     minute rollover can crossfade instead of jump) ---- */
+  const showDays = true
+  const UNITS = showDays
+    ? [['d', 'Days'], ['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
+    : [['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
+  const partsToValues = (p) => (showDays ? [p.d, p.h, p.m, p.s] : [p.h, p.m, p.s])
+
+  const digitsEl = ring.el.querySelector('.uring-digits')
+  digitsEl.innerHTML = UNITS
+    .map(([, label]) => `<span class="seg"><span class="n-stack"><span class="n cur"></span></span><span class="u">${label}</span></span>`)
+    .join('<span class="colon">:</span>')
+
+  const stacks = [...digitsEl.querySelectorAll('.n-stack')]
+  partsToValues(uptimeParts(sim.serverEpoch)).forEach((v, i) => {
+    stacks[i].querySelector('.n.cur').textContent = v
+  })
+
+  function setDigit(stack, value) {
+    const cur = stack.querySelector('.n.cur')
+    if (!cur || cur.textContent === value) return
+    const next = document.createElement('span')
+    next.className = 'n next'
+    next.textContent = value
+    stack.appendChild(next)
+    cur.classList.add('out')
+    requestAnimationFrame(() => requestAnimationFrame(() => next.classList.add('in')))
+    const finish = () => { cur.remove(); next.classList.remove('next', 'in'); next.classList.add('cur') }
+    const tid = setTimeout(finish, 420)
+    next.addEventListener('transitionend', () => { clearTimeout(tid); finish() }, { once: true })
+  }
+
+  /* arc-tip glowing dot, riding the same <g> the arc/arc-glow circles rotate in */
+  const trackEl = ring.el.querySelector('.track')
+  const arcEls = [...ring.el.querySelectorAll('.arc, .arc-glow')]
+  const arcEl = ring.el.querySelector('circle.arc')
+  const rNum = parseFloat(trackEl.getAttribute('r'))
+  const cxNum = parseFloat(trackEl.getAttribute('cx'))
+  const cyNum = parseFloat(trackEl.getAttribute('cy'))
+  const circ = 2 * Math.PI * rNum
+  const strokeW = parseFloat(arcEl.getAttribute('stroke-width')) || 8
+  const gradId = ring.el.querySelector('linearGradient')?.id
+
+  const tipDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+  tipDot.setAttribute('class', 'uring-tip-dot')
+  tipDot.setAttribute('r', String(Math.max(3, strokeW * 0.85)))
+  if (gradId) tipDot.setAttribute('fill', `url(#${gradId})`)
+  arcEl.parentNode.appendChild(tipDot)
+
+  function renderTick() {
+    const p = uptimeParts(sim.serverEpoch)
+    const sweep = circ * p.frac
+    arcEls.forEach(a => a.setAttribute('stroke-dasharray', `${sweep} ${circ - sweep}`))
+
+    const t = (sweep / circ) * Math.PI * 2
+    tipDot.setAttribute('cx', (cxNum + rNum * Math.cos(t)).toFixed(2))
+    tipDot.setAttribute('cy', (cyNum + rNum * Math.sin(t)).toFixed(2))
+
+    partsToValues(p).forEach((v, i) => setDigit(stacks[i], v))
+  }
+  renderTick()
+
   root.querySelector('.home-ring-wrap').appendChild(ring.el)
 
+  /* ---- criterion 2: subscribe to live spawn/reap (+ machine count) ---- */
+  const subEl = ring.el.querySelector('.uring-sub')
+  const renderSub = () => { if (subEl) subEl.textContent = subText() }
+  const unsubSpawn = sim.on('spawn', renderSub)
+  const unsubReap = sim.on('reap', renderSub)
+  const unsubComputers = sim.on('computers', renderSub)
+
+  /* ---- criterion 3: feed lines + braces ---- */
   const feedCard = root.querySelector('.home-feed')
   const linesEl = root.querySelector('.feed-lines')
+  const braces = [...root.querySelectorAll('.brace')]
+  braces.forEach(b => b.addEventListener('animationend', () => b.classList.remove('brace-pulse')))
+  const pulseBraces = () => {
+    braces.forEach(b => { b.classList.remove('brace-pulse'); void b.offsetWidth; b.classList.add('brace-pulse') })
+  }
 
   const renderLines = () => {
     linesEl.innerHTML = ''
@@ -46,8 +132,18 @@ export function homeView() {
     const line = el(`<div class="feed-line fresh"><span class="agent">${l.agent}</span> · ${l.text}</div>`)
     linesEl.prepend(line)
     requestAnimationFrame(() => requestAnimationFrame(() => line.classList.remove('fresh')))
-    while (linesEl.children.length > 9) linesEl.lastElementChild.remove()
-    ;[...linesEl.children].forEach((c, i) => c.classList.toggle('old', i > 6))
+    pulseBraces()
+
+    // oldest fades out instead of being cut instantly
+    const active = [...linesEl.children].filter(c => !c.classList.contains('leaving'))
+    while (active.length > 9) {
+      const last = active.pop()
+      last.classList.add('leaving')
+      const done = () => last.remove()
+      const tid = setTimeout(done, 560)
+      last.addEventListener('transitionend', () => { clearTimeout(tid); done() }, { once: true })
+    }
+    ;[...linesEl.children].forEach((c, i) => c.classList.toggle('old', i > 6 && !c.classList.contains('leaving')))
   })
 
   // context box → chat window morph (in place, no popup)
@@ -80,16 +176,23 @@ export function homeView() {
       },
       tall: true,
     })
+    // criterion 3: seed messages stagger-in rather than appearing at once
+    ;[...chatEl.querySelectorAll('.chat-log .msg')].forEach((m, i) => {
+      m.style.animationDelay = `${i * 70}ms`
+    })
     feedCard.appendChild(chatEl)
     feedCard.style.height = ''
   })
 
   let raf
-  const loop = () => { ring.update(); raf = requestAnimationFrame(loop) }
+  const loop = () => { renderTick(); raf = requestAnimationFrame(loop) }
   raf = requestAnimationFrame(loop)
 
   return {
     el: root,
-    destroy() { cancelAnimationFrame(raf); unsubFeed() },
+    destroy() {
+      cancelAnimationFrame(raf)
+      unsubFeed(); unsubSpawn(); unsubReap(); unsubComputers()
+    },
   }
 }
