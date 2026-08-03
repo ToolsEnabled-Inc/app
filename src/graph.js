@@ -393,11 +393,22 @@ export class FleetGraph {
       straight through label text ("SHADOW MANAGER" rendered through a
       runtime clock). This pair force makes every label block solid: any
       bubble intruding on the rectangle is pushed out along the closest-point
-      normal (and the label's owner nudged the other way). The correction is
-      alpha-independent, like forceCollide, so the separation holds all the
-      way to rest. O(n²) at n ≤ ~16 — negligible next to charge. */
+      normal (and the label's owner nudged the other way).
+      A velocity-only nudge fades as alpha cools (velocityDecay eats it every
+      tick), so in a tight, short canvas — the agent page's subtree strip,
+      several siblings fighting for ~240px of height — the system could settle
+      at rest with a real, measured penetration (up to 25px) instead of a
+      resolved one: confirmed by direct QA measurement, not merely theoretical.
+      forceCollide avoids exactly this by correcting POSITION directly, not
+      only velocity; this force now does the same, in two Gauss-Seidel passes
+      per tick (matching forceCollide's own iterations(2) pattern above), so
+      the separation actually holds once motion stops, not just while it's
+      still moving. Position deltas mutate x/y inside d3's force-application
+      phase — before its own fx/fy snap-back and before tick() clamps/renders
+      — so pinned nodes (drag, fling, edit mode) are unaffected, same as every
+      other d3-force. O(n²) × 2 at n ≤ ~16 — still negligible next to charge. */
   _labelAvoidForce(nodes) {
-    return () => {
+    const resolve = () => {
       for (let i = 0; i < nodes.length; i++) {
         const a = nodes[i]
         const hw = (a.labelW || 100) / 2
@@ -414,12 +425,17 @@ export class FleetGraph {
           if (d2 >= min * min) continue
           let d = Math.sqrt(d2)
           if (d < 1e-3) { dx = 0; dy = -1; d = 1 }
-          const push = ((min - d) / d) * 0.5
+          const pen = (min - d) / d
+          const push = pen * 0.5
           b.vx += dx * push * 0.6; b.vy += dy * push * 0.6
           a.vx -= dx * push * 0.4; a.vy -= dy * push * 0.4
+          const corr = pen * 0.5                   // the part that actually guarantees rest-state clearance
+          b.x += dx * corr * 0.6; b.y += dy * corr * 0.6
+          a.x -= dx * corr * 0.4; a.y -= dy * corr * 0.4
         }
       }
     }
+    return () => { resolve(); resolve() }
   }
 
   /** Landing spot for a new bubble: ring of candidates around the parent
