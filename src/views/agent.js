@@ -258,7 +258,9 @@ export function agentView({ compId, agentId, navigate }) {
       const ownId = chipEl.previousElementSibling?.dataset?.agentId
       const rec = ownId ? graph.nodes.get(ownId) : null
       if (!rec) return
-      const others = [...footprints].filter(([id]) => id !== ownId).map(([, fp]) => fp)
+      // include the chip's OWN node too — its bubble and name/role labels are
+      // exactly what the bottom/clamped slots land on (C5 gate escalation)
+      const others = [...footprints].map(([, fp]) => fp)
       placeOneChip(chipEl, rec, others, canvasW, canvasH)
     })
   }
