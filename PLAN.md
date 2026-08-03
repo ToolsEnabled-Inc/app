@@ -179,3 +179,25 @@ Same as v2 (per-criterion PASS/FAIL with evidence, one fix round), plus one
 holistic design reviewer judging the whole site against: clinical, professional,
 white/black-first, tasteful neon, whiteboard fidelity, big readable type —
 returning a must-fix shortlist that feeds the fix round.
+
+### C7 Watch board (owner addition, follows C1)
+The comms page's centerpiece: "really smoothly useful for watching multiple
+chat faces… have the multi agent chat view revolve around the context boxes."
+1. A Watch mode (default) alongside the C1 channel timeline mode: a board of
+   live CONTEXT BOXES — one per active conversation (controller↔builder,
+   reviewer↔builder, cross-machine coordinator pair…), each streaming grey
+   context lines exactly in the graph chips' visual language, with the agent
+   pair + role dots in the header.
+2. Box size is user-settable on the page: a size control (S / M / L at minimum,
+   or continuous) that smoothly re-flows the whole board; per-box expand into a
+   full chat in place (no popups), collapse back.
+3. Branches: a conversation that has deeper sub-conversations shows a branch
+   affordance; opening it slides the child conversation in SIDE-BY-SIDE with
+   its parent, visually paired (shared accent tick/connector, dismiss returns
+   the space smoothly). At least two branch levels demonstrable.
+4. Smoothly useful for WATCHING: new activity gives a quiet pulse on the box,
+   auto-following scroll inside each box, a pause-on-hover so text never moves
+   under the cursor, and the board never reflows in a way that loses the box
+   you're reading (stable positions on stream updates).
+5. Coherence: same tokens/fonts/glass shell; white/black-first, tasteful neon
+   accents only; type floor respected (≥13px reading text).
