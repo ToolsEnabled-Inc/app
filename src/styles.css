@@ -496,8 +496,12 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .graph-wrap { position: relative; min-height: 0; border-radius: var(--r-lg); overflow: hidden; }
 .graph-canvas { position: absolute; inset: 0; }
 .graph-canvas svg.links { position: absolute; inset: 0; width: 100%; height: 100%; }
-.link-under { fill: none; stroke-linecap: round; opacity: calc(0.25 * var(--glow)); }
-.link-top { fill: none; stroke-linecap: round; opacity: 0.5; }
+/* professional-pass: the "under" stroke used to read as a colored halo
+   (wide + translucent = a glow, no filter needed to sell it); dropped to a
+   whisper so it now reads as depth, not neon. Top stroke toned down to match
+   a calm topology-diagram line rather than a bright candy curve. */
+.link-under { fill: none; stroke-linecap: round; opacity: calc(0.07 * var(--glow)); }
+.link-top { fill: none; stroke-linecap: round; opacity: 0.4; }
 
 .graph-hint {
   position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%) translateY(6px);
@@ -545,10 +549,8 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .graph-canvas.interacting .node-glass {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
-    0 10px 26px -12px rgba(14,23,38,0.28),
-    0 0 calc(17px * var(--glow)) color-mix(in oklab, var(--gc) calc(23% * var(--glow)), transparent);
+    0 9px 20px -13px rgba(14,23,38,0.22);
 }
-.graph-canvas.interacting .node-glass::after { display: none; }
 .graph-canvas.interacting .node.focusable .node-glass { animation: none; }
 .node::before {
   /* Lens frost pass — deliberately NOT on .node-glass. The scale
@@ -568,53 +570,44 @@ body[data-route="home"] .aur { animation-play-state: running; }
 }
 .node.enter::before { animation: frostIn .7s var(--ease) both; }  /* track the nodeIn bloom so no full-size frost disc precedes the bubble */
 @keyframes frostIn { 0% { opacity: 0; } 55% { opacity: 0.35; } 100% { opacity: 1; } }
+/* professional-pass (owner: "childish… neon glow does not scream
+   professional"). The bubble used to carry a permanent ambient bloom (two
+   `0 0 Npx` glow layers at rest, on every node, all the time) plus a rainbow
+   conic-gradient edge ring — the two biggest contributors to a "candy /
+   game" read. Both are gone: identity now lives in a confident but muted
+   border tint and a small flat status dot (see .node-name i below); depth
+   comes from a neutral elevation shadow, the way a real card casts a
+   shadow, not a colored halo. The frosted-glass material itself (backdrop
+   blur on .node::before, the soft white specular layers here) stays — that
+   register (macOS/Arc-style glass) reads as premium software, not a toy,
+   as long as nothing under it is glowing. */
 .node-glass {
   position: relative;
   width: var(--d); height: var(--d);
   border-radius: 50%;
   display: grid; place-items: center;
   background:
-    radial-gradient(42% 34% at 31% 22%, rgba(255,255,255,0.95), rgba(255,255,255,0) 72%),
-    radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,0.5), rgba(255,255,255,0) 78%),
-    radial-gradient(72% 62% at 50% 102%, color-mix(in oklab, var(--gc) 16%, transparent), transparent 74%),
-    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,0.78), rgba(255,255,255,0.34) 55%, rgba(255,255,255,0.2));
+    radial-gradient(42% 34% at 31% 22%, rgba(255,255,255,0.92), rgba(255,255,255,0) 72%),
+    radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,0.42), rgba(255,255,255,0) 78%),
+    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,0.74), rgba(255,255,255,0.32) 55%, rgba(255,255,255,0.19));
   /* no filter / backdrop-filter here — frost lives on the static .node::before;
      glow is box-shadow layers only (60fps clause) */
-  border: 1.5px solid color-mix(in oklab, var(--rc) 55%, white);
+  border: 1.5px solid color-mix(in oklab, var(--rc) 40%, white);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.95),
-    inset 0 -8px 18px -12px color-mix(in oklab, var(--rc) 46%, transparent),
-    0 10px 26px -12px rgba(14,23,38,0.28),
-    0 0 calc(20px * var(--glow)) color-mix(in oklab, var(--gc) calc(29% * var(--glow)), transparent),
-    0 0 calc(46px * var(--glow)) color-mix(in oklab, var(--gc) calc(12% * var(--glow)), transparent);
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
+    0 1px 2px rgba(14,23,38,0.05),
+    0 9px 20px -13px rgba(14,23,38,0.22);
   transition: box-shadow .45s var(--ease), border-color .45s var(--ease), transform .45s var(--ease-spring), background .45s;
 }
-.node-glass::after {          /* 1px spectral inner ring — chromatic lens edge.
-   Lives on ::after (not ::before) so graph.css's dense-mode focus ring
-   (.graph-canvas .node.focusable .node-glass::before) coexists with it
-   instead of replacing it on focusable nodes. */
-  content: "";
-  position: absolute; inset: 2px;
-  border-radius: 50%;
-  padding: 1px;
-  background: conic-gradient(from 210deg,
-    rgba(69,214,255,0.43), rgba(125,155,255,0.4), rgba(53,234,183,0.35),
-    rgba(255,216,77,0.25), rgba(255,171,77,0.3), rgba(69,214,255,0.43));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  opacity: 0.6;
-  pointer-events: none;
-}
-.node:hover .node-glass { transform: scale(1.045); }
+.node:hover .node-glass { transform: scale(1.03); border-color: color-mix(in oklab, var(--rc) 55%, white); }
 .node.dragging .node-glass {
-  transform: scale(1.07);
+  transform: scale(1.06);
+  border-color: var(--rc);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
-    0 22px 44px -16px rgba(14,23,38,0.38),
-    0 0 calc(29px * var(--glow)) color-mix(in oklab, var(--gc) calc(42% * var(--glow)), transparent),
-    0 0 calc(68px * var(--glow)) color-mix(in oklab, var(--gc) calc(18% * var(--glow)), transparent);
+    0 22px 44px -16px rgba(14,23,38,0.34),
+    0 3px 7px rgba(14,23,38,0.1);
 }
 /* Bubble type is derived from the bubble diameter, and the smallest role
    (r=39 → --d:78px) put the clock at 12.1px and the caps label at 6.9px —
@@ -625,8 +618,8 @@ body[data-route="home"] .aur { animation-play-state: running; }
    at 11px/0.08em is ~54px, so the floor stays inside the glass. */
 .node .rt {
   font-variant-numeric: tabular-nums;
-  font-weight: 640;
-  color: var(--ink);
+  font-weight: 610;
+  color: var(--ink-2);
   font-size: max(13px, calc(var(--d) * 0.155));
   letter-spacing: 0.01em;
   line-height: 1;
@@ -646,7 +639,6 @@ body[data-route="home"] .aur { animation-play-state: running; }
 }
 .node .node-name i {
   width: 6px; height: 6px; border-radius: 50%; background: var(--rc);
-  box-shadow: 0 0 calc(6px * var(--glow)) var(--gc);
 }
 /* +26px clears the 12.5px name line (≈15px tall from +7px) with a hairline
    of air, so the two label rows never touch at either test size */
@@ -658,13 +650,10 @@ body[data-route="home"] .aur { animation-play-state: running; }
      neighbouring labels can never meet, whatever the type size. */
   max-width: calc(var(--d) + 68px); overflow: hidden; text-overflow: ellipsis; text-align: center; }
 
-/* selection ring + focusable pulse */
+/* selection ring — the live "focusable" pulse animation is defined once,
+   in graph.css (.graph-canvas .node.focusable .node-glass::before), which
+   already outranks any rule here by specificity */
 .node.selected .node-glass { border-color: var(--rc); }
-.node.focusable .node-glass { animation: focusPulse 1.8s ease-in-out infinite; }
-@keyframes focusPulse {
-  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 10px 26px -12px rgba(14,23,38,0.28), 0 0 0 0 color-mix(in oklab, var(--gc) 42%, transparent); }
-  50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 10px 26px -12px rgba(14,23,38,0.28), 0 0 0 9px color-mix(in oklab, var(--gc) 0%, transparent), 0 0 calc(26px * var(--glow)) color-mix(in oklab, var(--gc) 45%, transparent); }
-}
 
 /* spawn: graphite → bloom into role color */
 .node.spawning .node-glass {
@@ -821,7 +810,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .leg i {
   width: 12px; height: 12px; border-radius: 4px; flex: none;
   background: linear-gradient(150deg, color-mix(in oklab, var(--lc) 70%, white), var(--lc));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 0 calc(7px * var(--glow)) color-mix(in oklab, var(--lg) calc(38% * var(--glow)), transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
 }
 /* the off entry steps down the ink ramp and dims only its swatch — the old
    blanket 0.45 opacity took the label itself to ~2.4:1 */

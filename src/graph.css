@@ -4,14 +4,13 @@
    reap deflate, re-root glide emphasis, dense focus ring.
    ============================================================ */
 
-/* --- hover ripple: one ring expanding from the bubble edge --- */
+/* --- hover ripple: one crisp ring expanding from the bubble edge ---
+   professional-pass: was a blurred colored halo; now a plain outline, no
+   glow — the shape of the ripple carries the affordance, not a bloom. */
 .node-ripple {
   position: absolute; inset: 0;
   border-radius: 50%;
-  border: 1.5px solid color-mix(in oklab, var(--gc, #45d6ff) 70%, white);
-  box-shadow:
-    0 0 calc(16px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(45% * var(--glow)), transparent),
-    inset 0 0 8px color-mix(in oklab, var(--gc, #45d6ff) 22%, transparent);
+  border: 1.5px solid color-mix(in oklab, var(--rc, #00a9d8) 50%, white);
   opacity: 0;
   pointer-events: none;
   animation: nodeRipple 0.7s var(--ease) forwards;
@@ -39,14 +38,12 @@
     box-shadow 0.9s var(--ease),
     transform 0.45s var(--ease-spring);
 }
-.node.bloom .node-glass::after {          /* one-time glow burst */
+.node.bloom .node-glass::after {          /* one-time arrival ring — a crisp
+   outline pulse, not an explosion of light (professional-pass) */
   content: "";
   position: absolute; inset: -5px;
   border-radius: 50%;
-  border: 2px solid color-mix(in oklab, var(--gc, #45d6ff) 80%, white);
-  box-shadow:
-    0 0 calc(34px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(65% * var(--glow)), transparent),
-    inset 0 0 20px color-mix(in oklab, var(--gc, #45d6ff) 30%, transparent);
+  border: 1.5px solid color-mix(in oklab, var(--rc, #00a9d8) 55%, white);
   opacity: 0;
   pointer-events: none;
   animation: bloomBurst 0.9s var(--ease) forwards;
@@ -67,14 +64,15 @@
   100% { opacity: 0; transform: scale(0.45); }
 }
 
-/* --- re-root cinematic: the chosen node rides above with lifted glow --- */
+/* --- re-root cinematic: the chosen node rides above on lifted elevation ---
+   professional-pass: the lift shadow itself already reads as "this one is
+   coming forward" — it no longer also needs a colored halo to sell it. */
 .node.rerooting { z-index: 7; }
 .node.rerooting .node-glass {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     0 18px 40px -14px rgba(14, 23, 38, 0.34),
-    0 0 calc(44px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(58% * var(--glow)), transparent),
-    0 0 calc(100px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(26% * var(--glow)), transparent);
+    0 3px 8px rgba(14, 23, 38, 0.1);
 }
 
 /* --- dense-mode focus pulse: expanding ring that never clips labels ---
@@ -82,19 +80,20 @@
    top; the ring fades out before it reaches the label text below) */
 .graph-canvas .node.focusable .node-glass { animation: none; }
 .graph-canvas .node.focusable .node-glass::before {
+  /* professional-pass: a quiet breathing outline (no blur) — still a real
+     affordance for "this node has a hidden branch," just not a glowing one */
   content: "";
   position: absolute; inset: -2px;
   border-radius: 50%;
-  border: 1.5px solid color-mix(in oklab, var(--gc, #45d6ff) 70%, transparent);
-  box-shadow: 0 0 calc(14px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(35% * var(--glow)), transparent);
+  border: 1.5px solid color-mix(in oklab, var(--rc, #00a9d8) 55%, transparent);
   opacity: 0;
   pointer-events: none;
   animation: focusRing 1.9s ease-in-out infinite;
 }
 @keyframes focusRing {
-  0%   { opacity: 0;    transform: scale(0.97); }
-  45%  { opacity: 0.75; transform: scale(1.05); }
-  100% { opacity: 0;    transform: scale(1.09); }
+  0%   { opacity: 0;   transform: scale(0.97); }
+  45%  { opacity: 0.55; transform: scale(1.05); }
+  100% { opacity: 0;   transform: scale(1.09); }
 }
 
 /* ============================================================
@@ -242,15 +241,15 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 .graph-canvas[data-edit-mode] .node.dragging { cursor: grabbing; }
 .graph-canvas[data-edit-mode] .node.focusable .node-glass { animation: none; }
 
-/* a valid new parent under the dragged bubble */
+/* a valid new parent under the dragged bubble — a crisp solid ring reads
+   the affordance clearly without a blur bloom (professional-pass) */
 .node.drop-ok .node-glass {
   border-color: var(--rc);
-  transform: scale(1.07);
+  transform: scale(1.06);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     0 10px 26px -12px rgba(14, 23, 38, 0.28),
-    0 0 0 6px color-mix(in oklab, var(--gc) 22%, transparent),
-    0 0 calc(30px * var(--glow)) color-mix(in oklab, var(--gc) calc(50% * var(--glow)), transparent);
+    0 0 0 3px color-mix(in oklab, var(--rc) 38%, transparent);
 }
 
 /* gentle refusal: the bubble shakes its head and glides home */
