@@ -234,12 +234,24 @@ export class FleetGraph {
       </div>
     `)
     this.container.appendChild(nodeEl)
+    // The estimate above avoids a forced reflow per spawn, but measured
+    // against the real rendered block it undershoots by 10-18px on longer
+    // role labels ("Shadow Manager", "Coordinator's Helper") — enough that
+    // the label-avoid force could settle for clearance narrower than what's
+    // actually on screen (QA-verified regression). One offsetWidth read
+    // right after mount corrects it to the true value; the heuristic stays
+    // as a floor for the rare frame where a webfont hasn't painted yet.
+    const realLabelW = Math.max(
+      nodeEl.querySelector('.node-name')?.offsetWidth || 0,
+      nodeEl.querySelector('.node-role')?.offsetWidth || 0,
+    )
+    const finalLabelW = realLabelW > 0 ? Math.max(labelW, realLabelW + 6) : labelW
 
     const rec = {
       id: agent.id, agent, el: nodeEl, r,
       x: cx, y: cy, vx: 0, vy: 0,
       chip: null, chatOpen: false, chipW: 168, chipH: 44,
-      labelW, labelH: 41,
+      labelW: finalLabelW, labelH: 41,
       _cx: null, _cy: null,                            // chip's eased slot position
     }
     nodeEl.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`
@@ -513,9 +525,15 @@ export class FleetGraph {
     }
     const padX = 34, padTop = 64, padBot = 58
     const cx0 = this.W / 2, cy0 = this.H / 2
-    for (const n of this.nodes.values()) {
+    const nodesArr = [...this.nodes.values()]
+
+    for (const n of nodesArr) {
       n.x = Math.max(n.r + padX, Math.min(this.W - n.r - padX, n.x))
       n.y = Math.max(n.r + padTop, Math.min(this.H - n.r - padBot, n.y))
+    }
+    this._resolveClampedLabels(nodesArr, padX)
+
+    for (const n of nodesArr) {
       n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
       if (n.chip) this._placeChip(n, cx0, cy0)
     }
@@ -538,6 +556,48 @@ export class FleetGraph {
       l.topEl?.setAttribute('d', d)
     }
     this._tickCost += performance.now() - _t0
+  }
+
+  /** The Y clamp above runs strictly AFTER _labelAvoidForce (d3 fires all
+      forces, then this listener), with no knowledge of label overlap — so it
+      can shove a node straight back into a label the force just cleared it
+      from. QA measured this reproducing at up to 41px on the agent page's
+      short subtree canvas, which can leave as little as ~78-109px of
+      vertical room versus 394-494px on the Computers page: nowhere for a
+      vertical correction to land. Resolve any surviving intrusion along X
+      instead — that axis still has room — in a few cheap relaxation passes
+      (same closest-point math as _labelAvoidForce, X component only), then
+      re-clamp X for whatever moved. Y is deliberately left alone here so
+      this can't re-open the fight the clamp above just settled. */
+  _resolveClampedLabels(nodesArr, padX) {
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false
+      for (let i = 0; i < nodesArr.length; i++) {
+        const a = nodesArr[i]
+        const hw = (a.labelW || 100) / 2
+        const top = a.y + a.r + 2
+        const bot = a.y + a.r + (a.labelH || 41)
+        for (let j = 0; j < nodesArr.length; j++) {
+          if (j === i) continue
+          const b = nodesArr[j]
+          const px = Math.max(a.x - hw, Math.min(a.x + hw, b.x))
+          const py = Math.max(top, Math.min(bot, b.y))
+          let ddx = b.x - px
+          const ddy = b.y - py
+          const min = b.r + 8
+          const d2 = ddx * ddx + ddy * ddy
+          if (d2 >= min * min) continue
+          let d = Math.sqrt(d2)
+          if (Math.abs(ddx) < 1) { ddx = i < j ? -1 : 1; d = Math.max(d, 1) }  // degenerate: deterministic horizontal tie-break
+          const pen = (min - d) / d
+          b.x += ddx * pen * 0.6
+          a.x -= ddx * pen * 0.4
+          moved = true
+        }
+      }
+      if (!moved) break
+      for (const n of nodesArr) n.x = Math.max(n.r + padX, Math.min(this.W - n.r - padX, n.x))
+    }
   }
 
   /** Chip placement with avoidance. The old rule ("radially outward from
