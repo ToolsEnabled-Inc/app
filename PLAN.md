@@ -201,3 +201,13 @@ chat faces… have the multi agent chat view revolve around the context boxes."
    you're reading (stable positions on stream updates).
 5. Coherence: same tokens/fonts/glass shell; white/black-first, tasteful neon
    accents only; type floor respected (≥13px reading text).
+
+#### C7 amendment (owner): reuse, don't rebuild
+The watch board is not a new widget system. It is the EXISTING context-box
+component reused: the same `.chip` / chip-preview / `.as-chat` classes and the
+shared `buildChat()` from components.js, laid out as a board. Same grey preview
+lines, same FLIP expand-to-chat, same close morph. C7.1–C7.4 are read through
+this lens — a reviewer seeing a bespoke parallel box implementation instead of
+the shared component language FAILS criterion 1. (Territory unchanged:
+comms.js/comms.css may USE the global chip classes and components.js exports;
+graph.js and styles.css stay untouched.)
