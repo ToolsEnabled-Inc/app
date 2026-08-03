@@ -64,10 +64,7 @@
   width: 0;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.92);
-  box-shadow:
-    inset 0 1px 0 #fff,
-    0 4px 12px -6px rgba(14, 23, 38, 0.28),
-    0 0 calc(14px * var(--glow)) rgba(69, 214, 255, calc(0.2 * var(--glow))); /* C6: quieter — 18px/.28 -> 14px/.20 */
+  box-shadow: inset 0 1px 0 #fff, 0 4px 12px -6px rgba(14, 23, 38, 0.28);
   transform: translateX(0);
   transition: transform .52s var(--ease-spring), width .52s var(--ease-spring), opacity .3s var(--ease);
   pointer-events: none;
@@ -96,9 +93,7 @@
 .pill:active { transform: scale(0.94); }
 .pill:focus-visible {
   outline: none;
-  box-shadow:
-    0 0 0 3px rgba(0, 169, 216, 0.2),
-    0 0 calc(16px * var(--glow)) rgba(69, 214, 255, calc(0.45 * var(--glow)));
+  box-shadow: 0 0 0 3px rgba(0, 169, 216, 0.32);
 }
 
 /* ---------- tiles: count-up bump + sparkline end-point pulse ---------- */
@@ -220,19 +215,10 @@
 .metrics .tooltip { font-size: 12.5px; }
 .metrics .tooltip .tt-title { font-size: 12.5px; }
 
-/* ---------- C6: quieter chip/tile/table glow, matching the site-wide
-   restraint pass — dots and meter fills stay legible but stop shouting.
-   Scoped with the same specificity trick since the base box-shadows
-   live in styles.css. Hues/behaviour unchanged, weight only. ---------- */
-.metrics .tile .tl i {
-  box-shadow: 0 0 calc(6px * var(--glow)) color-mix(in oklab, var(--tg, var(--g-coordinator)) 65%, transparent);
-}
-.metrics .mtable .aname i {
-  box-shadow: 0 0 calc(5px * var(--glow)) color-mix(in oklab, var(--gc) 65%, transparent);
-}
-.metrics .pool .meter .mf {
-  box-shadow: 0 0 calc(10px * var(--glow)) color-mix(in oklab, var(--pg) calc(38% * var(--glow)), transparent);
-}
+/* professional-pass: the C6 overrides that used to live here (quieter dot/
+   meter glow) are gone along with the base box-shadows in styles.css —
+   .tile .tl i, .mtable .aname i, and .meter .mf are flat now, so there is
+   nothing left to override. */
 
 /* ---------- reduced motion ---------- */
 body.reduce-motion .spark-halo,

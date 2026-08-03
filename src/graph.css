@@ -145,15 +145,13 @@
 .graph-fit:hover {
   background: rgba(255, 255, 255, 0.75);
   color: var(--ink);
-  box-shadow: inset 0 1px 0 #fff, 0 12px 26px -12px rgba(14, 23, 38, 0.24),
-    0 0 calc(18px * var(--glow)) rgba(69, 214, 255, calc(0.25 * var(--glow)));
+  box-shadow: inset 0 1px 0 #fff, 0 12px 26px -12px rgba(14, 23, 38, 0.24);
 }
 .graph-fit:active { transform: scale(0.95); }
 .graph-fit:focus-visible {
   outline: none;
   box-shadow: inset 0 1px 0 #fff, 0 8px 20px -12px rgba(14, 23, 38, 0.18),
-    0 0 0 3px rgba(0, 169, 216, 0.28),
-    0 0 calc(16px * var(--glow)) rgba(69, 214, 255, calc(0.35 * var(--glow)));
+    0 0 0 3px rgba(0, 169, 216, 0.28);
 }
 
 /* ============================================================

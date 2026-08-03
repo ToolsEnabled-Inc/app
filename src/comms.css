@@ -48,7 +48,6 @@
 .head-live i {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--c-shadow);
-  box-shadow: 0 0 calc(10px * var(--glow)) var(--g-shadow);
   animation: commsPulse 2.4s ease-in-out infinite;
 }
 @keyframes commsPulse {
@@ -108,12 +107,11 @@
   font-family: var(--font-ui);
   transition: background 0.22s var(--ease);
 }
-.ch::before {                    /* active accent — one thin neon tick */
+.ch::before {                    /* active accent — one thin solid tick */
   content: "";
   position: absolute; left: 2px; top: 7px; bottom: 7px; width: 2px;
   border-radius: 1px;
   background: var(--c-coordinator);
-  box-shadow: 0 0 calc(8px * var(--glow)) var(--g-coordinator);
   opacity: 0; transform: scaleY(0.4);
   transition: opacity 0.25s var(--ease), transform 0.3s var(--ease-spring);
 }
@@ -124,11 +122,10 @@
 .ch-hash { flex: none; width: 13px; font-size: 13.5px; font-weight: 600; color: var(--ink-4); }
 .ch-hash svg { width: 13px; height: 13px; display: block; transform: translateY(1px); }
 .ch-name { position: relative; font-size: 13.5px; font-weight: 560; color: var(--ink-2); white-space: nowrap; }
-.ch-name::after {                /* hover underline — hairline neon */
+.ch-name::after {                /* hover underline — hairline wipe, no glow */
   content: "";
   position: absolute; left: 0; right: 0; bottom: -2px; height: 1px;
   background: var(--c-coordinator);
-  box-shadow: 0 0 calc(6px * var(--glow)) var(--g-coordinator);
   transform: scaleX(0); transform-origin: left;
   transition: transform 0.3s var(--ease);
 }
@@ -144,7 +141,6 @@
   flex: none;
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--c-coordinator);
-  box-shadow: 0 0 calc(8px * var(--glow)) var(--g-coordinator);
   opacity: 0; transform: scale(0.4);
   transition: opacity 0.25s var(--ease), transform 0.3s var(--ease-spring);
 }
@@ -168,7 +164,6 @@
   flex: none;
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--c-shadow);
-  box-shadow: 0 0 calc(7px * var(--glow)) var(--g-shadow);
 }
 .foot-line b { color: var(--ink-2); font-weight: 620; }
 
@@ -221,7 +216,6 @@
   flex: none; align-self: stretch;
   width: 3px; border-radius: 2px; margin: 2px 0;
   background: color-mix(in oklab, var(--rc, var(--ink-4)) 78%, white);
-  box-shadow: 0 0 calc(7px * var(--glow)) color-mix(in oklab, var(--gc, transparent) calc(30% * var(--glow)), transparent);
 }
 .cmsg-main { flex: 1; min-width: 0; }
 .cmsg-top { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
@@ -270,17 +264,13 @@
   border-radius: 8px;
   padding: 7px 13px;
   cursor: pointer;
-  box-shadow:
-    0 8px 20px -10px rgba(14, 23, 38, 0.28),
-    0 0 calc(14px * var(--glow)) rgba(69, 214, 255, calc(0.16 * var(--glow)));
+  box-shadow: 0 8px 20px -10px rgba(14, 23, 38, 0.28);
   transition: opacity 0.25s var(--ease), transform 0.32s var(--ease-spring),
     box-shadow 0.25s var(--ease), color 0.2s;
 }
 .jump-chip:hover {
   color: var(--ink);
-  box-shadow:
-    0 10px 24px -10px rgba(14, 23, 38, 0.32),
-    0 0 calc(20px * var(--glow)) rgba(69, 214, 255, calc(0.26 * var(--glow)));
+  box-shadow: 0 12px 26px -10px rgba(14, 23, 38, 0.34);
 }
 .jump-chip:active { transform: translateX(-50%) scale(0.96); }
 .jump-chip.hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
@@ -314,14 +304,14 @@
   color: var(--ink-3);
 }
 
-/* neon focus ring — same recipe as the rest of the site */
+/* focus ring — same recipe as the rest of the site (professional-pass:
+   crisp double ring, no blur — see styles.css) */
 .comms .ch:focus-visible,
 .comms .jump-chip:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 1.5px rgba(255, 255, 255, 0.95),
-    0 0 0 3.5px rgba(0, 169, 216, 0.6),
-    0 0 calc(22px * var(--glow)) rgba(69, 214, 255, calc(0.65 * var(--glow)));
+    0 0 0 3.5px rgba(0, 169, 216, 0.6);
 }
 
 @media (max-width: 900px) {

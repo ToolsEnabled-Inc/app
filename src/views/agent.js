@@ -215,7 +215,7 @@ export function agentView({ compId, agentId, navigate }) {
             <div class="apanel-title">Controls</div>
             <div class="rail-scroll">
               <div class="agent-head">
-                <span class="role-dot" style="background:${role.hex};box-shadow:0 0 calc(10px*var(--glow)) ${role.glow}"></span>
+                <span class="role-dot" style="background:${role.hex}"></span>
                 <div><div class="an">${agent.name}</div><div class="ar">${role.label}</div></div>
               </div>
               <div class="agent-ring-wrap"></div>

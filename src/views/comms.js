@@ -865,9 +865,9 @@ export function commsView() {
            data-agent="${esc(SENDERS[dom].tag)}" data-importance="${impOf(d)}">
         <div class="wb-head">
           <span class="wb-pair">
-            <i class="wb-dot" style="background:${ra.hex};box-shadow:0 0 calc(7px * var(--glow)) ${ra.glow}"></i><span class="wb-name">${esc(shortName(d.a))}</span>
+            <i class="wb-dot" style="background:${ra.hex}"></i><span class="wb-name">${esc(shortName(d.a))}</span>
             <span class="wb-x">↔</span>
-            <i class="wb-dot" style="background:${rb.hex};box-shadow:0 0 calc(7px * var(--glow)) ${rb.glow}"></i><span class="wb-name">${esc(shortName(d.b))}</span>
+            <i class="wb-dot" style="background:${rb.hex}"></i><span class="wb-name">${esc(shortName(d.b))}</span>
           </span>
           <span class="wb-key">${esc(d.key)}</span>
           <span class="spacer"></span>

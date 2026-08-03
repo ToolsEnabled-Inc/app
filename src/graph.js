@@ -432,7 +432,7 @@ export class FleetGraph {
           const px = Math.max(a.x - hw, Math.min(a.x + hw, b.x))
           const py = Math.max(top, Math.min(bot, b.y))
           let dx = b.x - px, dy = b.y - py
-          const min = b.r + 8
+          const min = b.r + 12          // matches _resolveClampedLabels' target margin
           const d2 = dx * dx + dy * dy
           if (d2 >= min * min) continue
           let d = Math.sqrt(d2)
@@ -566,11 +566,24 @@ export class FleetGraph {
       vertical room versus 394-494px on the Computers page: nowhere for a
       vertical correction to land. Resolve any surviving intrusion along X
       instead — that axis still has room — in a few cheap relaxation passes
-      (same closest-point math as _labelAvoidForce, X component only), then
-      re-clamp X for whatever moved. Y is deliberately left alone here so
-      this can't re-open the fight the clamp above just settled. */
+      (same closest-point math as _labelAvoidForce, X component only). Y is
+      deliberately left alone here so this can't re-open the fight the clamp
+      above just settled.
+      Round 2 (re-verified by QA, ~8-18x smaller but not zero): a multi-body
+      conflict on a crowded short canvas — e.g. a node clearing agent A's
+      label walks straight into agent B's — didn't always finish resolving
+      inside 3 passes, and the per-pass re-clamp to the FULL aesthetic
+      padX margin could cap a node right back at the edge, discarding the
+      correction that pass had just computed for it. Now: more passes (6, an
+      idle canvas has time to spare), a slightly larger target margin (+12
+      instead of +8, so small residual undershoot still lands with real
+      clearance), and the intra-loop clamp uses a relaxed edge bound — a
+      conflict may eat a little into the pure-aesthetic breathing room near
+      the edge rather than have that margin repeatedly erase real progress.
+      Nodes with no active conflict never reach the edge case at all. */
   _resolveClampedLabels(nodesArr, padX) {
-    for (let pass = 0; pass < 3; pass++) {
+    const edgePad = Math.max(4, padX - 12)
+    for (let pass = 0; pass < 6; pass++) {
       let moved = false
       for (let i = 0; i < nodesArr.length; i++) {
         const a = nodesArr[i]
@@ -584,7 +597,7 @@ export class FleetGraph {
           const py = Math.max(top, Math.min(bot, b.y))
           let ddx = b.x - px
           const ddy = b.y - py
-          const min = b.r + 8
+          const min = b.r + 12
           const d2 = ddx * ddx + ddy * ddy
           if (d2 >= min * min) continue
           let d = Math.sqrt(d2)
@@ -596,7 +609,7 @@ export class FleetGraph {
         }
       }
       if (!moved) break
-      for (const n of nodesArr) n.x = Math.max(n.r + padX, Math.min(this.W - n.r - padX, n.x))
+      for (const n of nodesArr) n.x = Math.max(n.r + edgePad, Math.min(this.W - n.r - edgePad, n.x))
     }
   }
 

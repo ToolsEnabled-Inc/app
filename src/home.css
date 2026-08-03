@@ -5,19 +5,24 @@
    ============================================================ */
 
 /* ---------- 1. ring breathes ---------- */
+/* professional-pass: was an animated blur+opacity bloom (infinite, idle,
+   self-advertising — the strongest "candy" signal on the page). The ring
+   still breathes, just without any light: a whisper of depth on the
+   already-unblurred under-stroke (styles.css .uring .arc-glow). */
 .home-ring-wrap .uring .arc-glow {
   animation: home-ring-breathe 6.2s ease-in-out infinite;
 }
 @keyframes home-ring-breathe {
-  0%, 100% { opacity: calc(0.78 * var(--glow)); filter: blur(7px); }
-  50%      { opacity: calc(1.1 * var(--glow)); filter: blur(11px); }
+  0%, 100% { opacity: calc(0.08 * var(--glow)); }
+  50%      { opacity: calc(0.14 * var(--glow)); }
 }
 
-/* arc-tip glowing dot (positioned every frame from home.js) */
+/* arc-tip dot (positioned every frame from home.js) — a machined cap via a
+   crisp white stroke, not a light source (professional-pass) */
 .home-ring-wrap .uring-tip-dot {
-  filter:
-    drop-shadow(0 0 calc(7px * var(--glow)) rgba(69, 214, 255, 0.85))
-    drop-shadow(0 0 calc(3px * var(--glow)) rgba(255, 255, 255, 0.95));
+  stroke: #fff;
+  stroke-width: 2px;
+  paint-order: stroke;
 }
 
 /* fixed-width, crossfading digit segments (no layout shift, no jump) */
