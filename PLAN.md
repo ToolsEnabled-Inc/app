@@ -261,3 +261,48 @@ not modify sim.js.
    working correctly in edit mode or resets to fit and disables until Done
    (lane's choice, but it must be deliberate and smooth).
 6. Works on every computer tab; type floor respected; no console errors.
+
+---
+
+# v5 — Production-quality pass (owner: unlimited budget, staged waves)
+
+Owner directive: keep going toward production quality, but in staged,
+bounded waves (not one giant blast) — save progress (commit) after every
+stage. Model preference from here: Opus/Sonnet over Fable (Fable capacity is
+running low). Judgment on shape of the work is delegated to the controller.
+
+## Approach
+One section of the site at a time, each section closed out with: an audit
+(what's rough), fixes (direct or a small ≤5-agent batch), a rebuild+commit,
+and a verification pass (screenshot/interaction QA) before moving on. This
+mirrors the v2–v4 discipline that already worked, just continued further and
+without a hard stop.
+
+## Section queue (order, not rigid — re-prioritize on real findings)
+1. **Computers/graph polish closeout** — DONE (professional-pass + QA
+   closeout, commits 80cc88d/a85d234). Residual: none currently known.
+2. **Sitewide glow/coherence audit** — the graph got a deliberate redesign;
+   confirm the rest of the site (Home, Metrics, Comms, Agent page, chrome)
+   reads as the SAME calmer register, not a mismatched two-tone site. Fix
+   any leftover "loud" spots found, not a wholesale redesign elsewhere unless
+   evidence says otherwise.
+3. **Interaction correctness sweep** — click/drag/hover every control on
+   every page; edge cases (very long agent names, 0-agent state, many-agent
+   density, rapid double actions, resize mid-animation).
+4. **Cross-viewport + accessibility** — 1600x900, 1280x800, and a narrow
+   check; keyboard nav / focus-visible coverage; type floor still holds
+   after this wave's edits.
+5. **Performance pass** — frame budget re-measured after all visual changes
+   (glow removal should only help; confirm it does); no regressions from
+   Section 1's changes.
+6. **Final holistic gallery + written verdict** — full screenshot set, all
+   pages, both sizes; honest punch list of anything still short of
+   production quality.
+
+## Gate protocol (lighter than v2–v4)
+Given "efficiently, judgment-based": most fixes applied directly by the
+controller when scoped and well-understood (as in Section 1). Dispatch a
+small Opus batch (≤5 concurrent) specifically for: (a) fresh-eyes audits
+where controller bias is a risk, (b) real browser verification (standing
+order — controller does not drive the browser itself), (c) anything touching
+multiple files/territories at once. Every stage still ends in a commit.
