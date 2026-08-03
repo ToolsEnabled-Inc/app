@@ -226,3 +226,13 @@ graph.js and styles.css stay untouched.)
   inside splits, tiles share the pane.
 - Layout persists in memory while navigating within the session; reduce-motion
   = instant snaps. The whole mechanism verified at 1600×900 and 1280×800.
+
+#### C7 importance sizing (owner)
+In EVERY section/pane the user opens (the base stack and each split tile
+group), the context box of the MOST IMPORTANT agent present is the biggest
+panel in that section — visibly dominant (roughly 1.5–2× the area, e.g. full
+row width or the larger split share). Importance = role rank
+(coordinator > helper = shadow > manager > default); within a branch pairing
+the parent conversation dominates. The dominance re-computes smoothly whenever
+boxes are dragged between sections. Reviewer verifies by opening ≥2 different
+sections with mixed roles.
