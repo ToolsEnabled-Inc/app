@@ -103,3 +103,73 @@ Reviewer per lane: verify EVERY criterion → PASS/FAIL + one-line evidence
 (code cite or screenshot path). ACCEPT only if all PASS. REJECT → same-tier
 fixer gets the FAIL list, one round; rebuild; re-review failed criteria only.
 Still failing → escalate to the controller with evidence.
+
+---
+
+# v3 — Final quality pass (quality over quantity)
+
+Owner directives: swarm OK (~20 agents); agents' Discord channel gets a page
+("really cool clean minimalistic, slightly more professional, mostly
+white/black, tasteful neon — not too much"); the missed square-box board stays
+FOLDED in the rail but done properly; fonts big enough for vision issues;
+scroll-wheel zoom mechanics on the graph.
+
+## Lanes
+
+| Lane | Territory | Agent |
+|---|---|---|
+| C1 Comms page (Discord) | `src/views/comms.js`, new `src/comms.css` | fable · xhigh |
+| C2 Folded square-box board | `src/views/computers.js`, new `src/board.css` | opus · xhigh |
+| C3 Wheel zoom + pan | `src/graph.js`, `src/graph.css` | fable · xhigh |
+| C4 Design pass (type floor, contrast, neon restraint) | `src/styles.css`, `index.html` | opus · xhigh |
+| C5 Agent page sweep | `src/views/agent.js`, `src/agent.css` | sonnet · xhigh |
+| C6 Metrics polish | `src/views/metrics.js`, `src/metrics.css` | sonnet · xhigh |
+
+## Criteria
+
+### C1 Comms
+1. Faithful to the real mechanism (recon brief in the lane prompt): channel
+   identity, sender model, message shape rendered as a clean timeline.
+2. White/black-first professional design: flat white surfaces, hairline
+   separators, generous whitespace; neon only as tiny accents (live dot, role
+   markers, hover). Crisp corners (≤8px).
+3. Every font on the page ≥13px; timestamps mono; day dividers.
+4. Alive: messages stream in with subtle entrances; pinned auto-scroll with a
+   "jump to latest" chip when scrolled up. No popups.
+
+### C2 Folded board
+1. The dblclick rail morph becomes the whiteboard board: agent title, runtime
+   ring, per-agent Runtime Statistics mini-chart WITH axes, Agent Controls in a
+   SQUARE box (radius ≤4px, hairline border), legend with square swatches.
+2. Only the board's internal boxes go square; the rail card itself unchanged.
+3. Board fonts ≥12.5px, labels ≥ --ink-2 contrast.
+4. Morph continuity (FLIP/stagger) preserved; ring digits stay inside the panel.
+
+### C3 Zoom
+1. Wheel zoom 0.55–1.7× centered on cursor, smooth; zoom layer transform keeps
+   pointer math correct — drag/click/dblclick/chips work at every zoom.
+2. Zoomed-in empty-canvas drag pans; a "fit" reset appears when ≠1×.
+3. Works on both graph pages; reduce-motion = instant; no interaction
+   regressions (each verified explicitly).
+
+### C4 Design pass
+1. Type floor: nothing below 11px (uppercase micro-labels only); interface text
+   ≥12px; reading content ≥13px. Coherent scale bump, no layout breakage.
+2. Informational text ≥4.5:1 contrast on white (decorative grey stays allowed).
+3. Neon restraint: glow weight down ~20–25%, aurora slightly quieter; site
+   reads white/black-first. Hues unchanged.
+4. Screenshot-verified at 1600×900 and 1280×800 across all five pages.
+
+### C5 Agent page
+1. Chips never overlap bubbles/labels at both test sizes (strategy free).
+2. Type floor compliance; keep orange arcs, dots indicator; spacing polish.
+
+### C6 Metrics
+1. Type floor (ticks ≥11px, labels ≥12px); restraint aligned with C4.
+2. No clipped labels/legends at both test sizes; dataviz specs intact.
+
+## Gate protocol
+Same as v2 (per-criterion PASS/FAIL with evidence, one fix round), plus one
+holistic design reviewer judging the whole site against: clinical, professional,
+white/black-first, tasteful neon, whiteboard fidelity, big readable type —
+returning a must-fix shortlist that feeds the fix round.
