@@ -42,74 +42,145 @@ function buildRim() {
   return wrap
 }
 
-// --- criterion 1 (C5 fix round): the revealed chip must never overlap ANY
-// other node's bubble or its name/role labels. graph.js's own per-tick
-// transform (read-only this wave) only reasons about the canvas edges, so
-// once a chip is revealed (agent.css opacity + the badge below) this module
-// re-anchors exactly that chip, every frame, to whichever candidate slot
-// around ITS OWN node clears every other node's footprint. Everything is
-// measured in the graph's own untransformed local coordinates — bubble
-// center/radius come straight from graph.nodes (never re-derived from a
-// transform string), label extents from offsetWidth/offsetTop (transform-
-// immune) — so this stays correct at any C3 zoom/pan level, not only at
-// rest. graph.js's own radial math is never edited; it just gets overwritten
-// for this one element while it is open.
+// --- criterion 1 (ESC fix round): the revealed chip must never overlap ANY
+// node's bubble or its name/role labels — its own node very much included.
+// graph.js's own per-tick placement (read-only this wave) only reasons about
+// the canvas edges, so once a chip is revealed (agent.css opacity + the badge
+// below) this module places exactly that chip itself, every frame.
+//
+// The previous round fed every footprint — own node included — into a single
+// "whichever candidate overlaps least wins" score over eight compass slots.
+// In this page's ~240px-tall strip a 168x56 chip collides with all eight, so
+// it silently settled on a visibly overlapping slot (chips sitting on their
+// own COORDINATOR'S HELPER role row, or on a neighbour's name+role block).
+// Clearance is now a HARD constraint, never a cost: a candidate is only ever
+// accepted if it clears every bubble disc and every label rect outright, and
+// the search is wide enough to actually find one — a ring sweep outward from
+// the node first (nearest, still-attached slots), then an exhaustive 8px grid
+// pass over the whole canvas that cannot step past a narrow pocket.
+//
+// Everything is measured in the graph's own untransformed local coordinates —
+// bubble center/radius come straight from graph.nodes (never re-derived from
+// a transform string), label extents from offsetWidth/offsetTop (transform-
+// immune) — so this stays correct at any C3 zoom/pan level, not only at rest.
+// graph.js's own radial math is never edited; while a chip is open it is
+// simply positioned in left/top instead, and agent.css parks the transform
+// for that one element so the two writers cannot race within a frame.
 function rectsOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 }
 
-/** Bubble + node-name + node-role footprint of one graph.nodes record, in
- *  local graph-canvas coordinates. */
-function nodeFootprint(rec) {
-  let left = rec.x - rec.r, top = rec.y - rec.r, right = rec.x + rec.r, bottom = rec.y + rec.r
+// styles.css grows the PAINTED bubble under the pointer (.node:hover
+// .node-glass → scale(1.045), .node.dragging → 1.07) and revealing a chip
+// ALWAYS hovers its own node, since the .cx-badge lives inside .node — so
+// the disc to clear is the grown one, never the unscaled rec.r (that gap is
+// exactly the ~1.2px grazes the gate measured on otherwise clear slots).
+// CLEAR_PAD then keeps a hairline of air so "just touching" still reads as
+// clear at any device pixel ratio.
+const BUBBLE_SCALE = 1.07
+const CLEAR_PAD = 3
+const GRID_STEP = 8
+
+/** Bubble disc + node-name/node-role label rects of one graph.nodes record,
+ *  in local graph-canvas coordinates, each already inflated by the paint-time
+ *  scale and the safety pad. */
+function nodeObstacle(rec) {
+  const labels = []
   for (const sel of ['.node-name', '.node-role']) {
     const label = rec.el.querySelector(sel)
     const w = label && label.offsetWidth, h = label && label.offsetHeight
     if (!w || !h) continue
     // node-name/node-role are centered under the bubble via left:50% +
     // translateX(-50%) — the translate is paint-only, so their true visual
-    // left edge is rec.x - w/2, not anything offsetLeft would report.
-    left = Math.min(left, rec.x - w / 2)
-    right = Math.max(right, rec.x + w / 2)
-    bottom = Math.max(bottom, top + label.offsetTop + h)
+    // left edge is rec.x - w/2, not anything offsetLeft would report. .node
+    // shrink-wraps .node-glass, so offsetTop is measured from rec.y - rec.r.
+    const top = rec.y - rec.r + label.offsetTop
+    labels.push({
+      left: rec.x - w / 2 - CLEAR_PAD, right: rec.x + w / 2 + CLEAR_PAD,
+      top: top - CLEAR_PAD, bottom: top + h + CLEAR_PAD,
+    })
   }
-  return { left, top, right, bottom }
+  return { cx: rec.x, cy: rec.y, cr: rec.r * BUBBLE_SCALE + CLEAR_PAD, labels }
 }
 
-/** Re-anchor one open chip to the first candidate slot (radially outward
- *  first, matching graph.js's own default direction, then the remaining
- *  compass points) that clears every rect in `others`; if every candidate
- *  collides, keeps whichever overlaps least. */
-function placeOneChip(chipEl, rec, others, canvasW, canvasH) {
-  const cw = chipEl.offsetWidth || 168, ch = chipEl.offsetHeight || 44
-  const gap = 14
-  const { x: nx, y: ny, r: nr } = rec
-  const diag = (nr + gap) * Math.SQRT1_2
-  const candidates = [
-    { x: nx + nr + gap, y: ny - ch / 2 },        // right
-    { x: nx - nr - gap - cw, y: ny - ch / 2 },   // left
-    { x: nx - cw / 2, y: ny - nr - gap - ch },   // top
-    { x: nx - cw / 2, y: ny + nr + gap },        // bottom
-    { x: nx + diag, y: ny - diag - ch },         // top-right
-    { x: nx - diag - cw, y: ny - diag - ch },    // top-left
-    { x: nx + diag, y: ny + diag },              // bottom-right
-    { x: nx - diag - cw, y: ny + diag },         // bottom-left
-  ]
-  let best = null, bestOverlap = Infinity
-  for (const p0 of candidates) {
-    const x = Math.max(6, Math.min(canvasW - cw - 6, p0.x))
-    const y = Math.max(6, Math.min(canvasH - ch - 6, p0.y))
-    const box = { left: x, top: y, right: x + cw, bottom: y + ch }
-    let overlap = 0
-    for (const fp of others) {
-      if (!rectsOverlap(box, fp)) continue
-      overlap += (Math.min(box.right, fp.right) - Math.max(box.left, fp.left)) *
-                 (Math.min(box.bottom, fp.bottom) - Math.max(box.top, fp.top))
+/** True when `box` clears one obstacle: circle-aware against the painted
+ *  bubble disc (a rect corner may legitimately sit inside the disc's bounding
+ *  box), plain rect-vs-rect against the label rows. */
+function boxClearsObstacle(box, ob) {
+  const nx = Math.max(box.left, Math.min(ob.cx, box.right))
+  const ny = Math.max(box.top, Math.min(ob.cy, box.bottom))
+  const dx = ob.cx - nx, dy = ob.cy - ny
+  if (dx * dx + dy * dy < ob.cr * ob.cr) return false
+  for (const lb of ob.labels) if (rectsOverlap(box, lb)) return false
+  return true
+}
+
+function boxClearsAll(box, obstacles) {
+  for (const ob of obstacles) if (!boxClearsObstacle(box, ob)) return false
+  return true
+}
+
+/** Overlap area, used ONLY to rank the last-resort placement when a canvas
+ *  genuinely has no clear pocket left at all (bubble approximated by its
+ *  bounding box here — ranking only, never a clearance decision). */
+function boxOverlapArea(box, obstacles) {
+  let area = 0
+  for (const ob of obstacles) {
+    const rects = [{ left: ob.cx - ob.cr, top: ob.cy - ob.cr, right: ob.cx + ob.cr, bottom: ob.cy + ob.cr }, ...ob.labels]
+    for (const r of rects) {
+      if (!rectsOverlap(box, r)) continue
+      area += (Math.min(box.right, r.right) - Math.max(box.left, r.left)) *
+              (Math.min(box.bottom, r.bottom) - Math.max(box.top, r.top))
     }
-    if (overlap < bestOverlap) { bestOverlap = overlap; best = { x, y } }
-    if (overlap === 0) break
   }
-  if (best) chipEl.style.transform = `translate(${best.x.toFixed(1)}px, ${best.y.toFixed(1)}px)`
+  return area
+}
+
+const boxAt = (x, y, cw, ch) => ({ left: x, top: y, right: x + cw, bottom: y + ch })
+
+/** Find a slot for one open chip that clears EVERY obstacle. Ring sweep
+ *  outward from its own node first (so the chip stays visually attached),
+ *  then an exhaustive grid pass, nearest clear box wins. Returns
+ *  `{ x, y, clear }`; `clear:false` only when no box anywhere in the canvas
+ *  can clear everything at this chip size. */
+function findChipSlot(rec, cw, ch, obstacles, canvasW, canvasH) {
+  const minX = 6, minY = 6
+  const maxX = canvasW - cw - 6, maxY = canvasH - ch - 6
+  if (maxX < minX || maxY < minY) return null
+  // 1) ring sweep — nearest, still-attached slots first, angular resolution
+  //    kept at ~16px of arc so a wide ring cannot stride over a pocket
+  const start = rec.r + 14 + Math.min(cw, ch) / 2
+  const maxD = Math.hypot(canvasW, canvasH)
+  for (let d = start; d <= maxD; d += GRID_STEP) {
+    const steps = Math.max(24, Math.min(96, Math.round((2 * Math.PI * d) / 16)))
+    for (let k = 0; k < steps; k++) {
+      const a = (k / steps) * Math.PI * 2 - Math.PI / 2
+      const x = rec.x + Math.cos(a) * d - cw / 2
+      const y = rec.y + Math.sin(a) * d - ch / 2
+      if (x < minX || x > maxX || y < minY || y > maxY) continue
+      if (boxClearsAll(boxAt(x, y, cw, ch), obstacles)) return { x, y, clear: true }
+    }
+  }
+  // 2) exhaustive grid over the whole canvas — nearest clear box to the node
+  let best = null, bestD = Infinity
+  for (let y = minY; y <= maxY; y += GRID_STEP) {
+    for (let x = minX; x <= maxX; x += GRID_STEP) {
+      if (!boxClearsAll(boxAt(x, y, cw, ch), obstacles)) continue
+      const dist = Math.hypot(x + cw / 2 - rec.x, y + ch / 2 - rec.y)
+      if (dist < bestD) { bestD = dist; best = { x, y, clear: true } }
+    }
+  }
+  if (best) return best
+  // 3) nothing clears at this size — rank the least-bad box on a coarse pass
+  //    (the caller first tries again with the compact .cx-tight chip)
+  let fx = minX, fy = minY, fs = Infinity
+  for (let y = minY; y <= maxY; y += GRID_STEP * 2) {
+    for (let x = minX; x <= maxX; x += GRID_STEP * 2) {
+      const s = boxOverlapArea(boxAt(x, y, cw, ch), obstacles)
+      if (s < fs) { fs = s; fx = x; fy = y }
+    }
+  }
+  return { x: fx, y: fy, clear: false }
 }
 
 export function agentView({ compId, agentId, navigate }) {
@@ -245,23 +316,86 @@ export function agentView({ compId, agentId, navigate }) {
   }
   canvas.querySelectorAll('.chip').forEach(pairChip)
 
+  // chipEl -> { x, y, cw, ch, clear, sig, applied, closedAt }. Held across
+  // frames so an elected, still-clear slot is never re-searched (no jitter,
+  // and the wide search only ever runs when the geometry actually changed).
+  const placements = new Map()
+
   // Runs every frame (see loop() below); no-ops instantly whenever no chip
   // is open, so it costs nothing outside an actual hover/focus reveal.
   function placeOpenChips() {
+    const now = performance.now()
+    // hand positioning back to graph.js's own transform once a chip is no
+    // longer revealed — immediately if it morphed into the inline chat (which
+    // graph.js sizes and places itself), otherwise after the fade-out so the
+    // closing chip does not visibly jump mid-fade
+    for (const [chipEl, st] of placements) {
+      const revealed = chipEl.isConnected &&
+        chipEl.classList.contains('cx-open') && !chipEl.classList.contains('as-chat')
+      if (revealed) { st.closedAt = 0; continue }
+      if (!st.closedAt) st.closedAt = now
+      if (!chipEl.isConnected || chipEl.classList.contains('as-chat') || now - st.closedAt > 400) {
+        chipEl.style.left = ''
+        chipEl.style.top = ''
+        chipEl.classList.remove('cx-tight')
+        placements.delete(chipEl)
+      }
+    }
     const openChips = canvas.querySelectorAll('.chip.cx-open:not(.as-chat)')
     if (!openChips.length) return
     const canvasW = canvas.clientWidth, canvasH = canvas.clientHeight
     if (!canvasW || !canvasH) return
-    const footprints = new Map()
-    for (const [id, rec] of graph.nodes) footprints.set(id, nodeFootprint(rec))
+    // every node's bubble disc + name/role rows, own node included — the own
+    // footprint is a hard constraint here, not a weighted cost
+    const obstacles = []
+    let sig = `${canvasW}x${canvasH}`
+    for (const [, rec] of graph.nodes) {
+      obstacles.push(nodeObstacle(rec))
+      sig += `|${rec.x.toFixed(1)},${rec.y.toFixed(1)},${rec.r}`
+    }
     openChips.forEach((chipEl) => {
       const ownId = chipEl.previousElementSibling?.dataset?.agentId
       const rec = ownId ? graph.nodes.get(ownId) : null
       if (!rec) return
-      // include the chip's OWN node too — its bubble and name/role labels are
-      // exactly what the bottom/clamped slots land on (C5 gate escalation)
-      const others = [...footprints].map(([, fp]) => fp)
-      placeOneChip(chipEl, rec, others, canvasW, canvasH)
+      const cw = chipEl.offsetWidth || 168, ch = chipEl.offsetHeight || 44
+      // a sibling chip revealed at the same moment (the pointer travelling
+      // between badges) is an obstacle too — rect only, hence cr: 0
+      const around = obstacles.slice()
+      for (const [other, st] of placements) {
+        if (other === chipEl || !st.applied) continue
+        around.push({
+          cx: 0, cy: 0, cr: 0,
+          labels: [{
+            left: st.x - CLEAR_PAD, top: st.y - CLEAR_PAD,
+            right: st.x + st.cw + CLEAR_PAD, bottom: st.y + st.ch + CLEAR_PAD,
+          }],
+        })
+      }
+      const st = placements.get(chipEl)
+      const sameSize = st && st.cw === cw && st.ch === ch
+      const inBounds = st && st.x >= 6 && st.y >= 6 &&
+        st.x <= canvasW - cw - 6 && st.y <= canvasH - ch - 6
+      let slot
+      if (sameSize && st.applied && st.sig === sig) {
+        slot = { x: st.x, y: st.y, clear: st.clear }             // nothing moved
+      } else if (sameSize && st.applied && st.clear && inBounds &&
+                 boxClearsAll(boxAt(st.x, st.y, cw, ch), around)) {
+        slot = { x: st.x, y: st.y, clear: true }                 // still clear
+      } else {
+        slot = findChipSlot(rec, cw, ch, around, canvasW, canvasH)
+      }
+      if (!slot) return
+      // no pocket anywhere in the canvas fits the full preview: drop to the
+      // compact one-line chip (agent.css .cx-tight) and re-elect next frame
+      // at its real measured size instead of settling for a known overlap
+      const tight = chipEl.classList.contains('cx-tight')
+      if (!slot.clear && !tight) chipEl.classList.add('cx-tight')
+      const lx = `${slot.x.toFixed(1)}px`, ly = `${slot.y.toFixed(1)}px`
+      if (chipEl.style.left !== lx) chipEl.style.left = lx
+      if (chipEl.style.top !== ly) chipEl.style.top = ly
+      placements.set(chipEl, {
+        x: slot.x, y: slot.y, cw, ch, clear: slot.clear, sig, applied: true, closedAt: 0,
+      })
     })
   }
 

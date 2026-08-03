@@ -154,6 +154,23 @@
   opacity: 1;
   pointer-events: auto;
   z-index: 9;
+  /* While revealed, agent.js positions this ONE element itself, in left/top,
+     against every bubble disc and label row. graph.js keeps writing its own
+     per-tick transform (canvas-edge reasoning only) to the same element, and
+     whichever of the two wrote last within a frame is what paints — which is
+     how a chip could still land on a node even with the JS placement fixed.
+     Parking the transform for exactly this state ends that race: the inline
+     transform stays, is simply not applied while open, and comes straight
+     back for the rest state and for the .as-chat inline chat (excluded
+     above), both of which graph.js owns. */
+  transform: none !important;
+}
+/* Last resort, driven by agent.js: on a canvas so crowded that no pocket
+   anywhere fits the full preview, the chip keeps its first context line only
+   — a shorter box fits gaps a 2-line one cannot, and the reading text stays
+   at the 13px floor set below (nothing is scaled down). */
+.agentv-graph .chip.cx-open.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 2) {
+  display: none;
 }
 /* the corner badge — always exactly on its own bubble, so it can never
    itself be the thing overlapping a *different* node */
