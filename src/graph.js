@@ -321,6 +321,13 @@ export class FleetGraph {
 
   tick() {
     const _t0 = performance.now()
+    // hot-state switch: while the sim is energetic (spawns, re-roots, drags)
+    // the canvas runs in reduced-fidelity mode; it settles back automatically
+    const hot = this._draggingNow || this.simulation.alpha() > 0.04
+    if (hot !== this._hot) {
+      this._hot = hot
+      this.container.classList.toggle('interacting', hot)
+    }
     const padX = 34, padTop = 64, padBot = 58
     const cx0 = this.W / 2, cy0 = this.H / 2
     for (const n of this.nodes.values()) {
@@ -430,7 +437,8 @@ export class FleetGraph {
       if (!moved && Math.hypot(dx, dy) > 5) {
         moved = true
         elm.classList.add('dragging')
-        this.container.classList.add('interacting')   // frost off while hot
+        this._draggingNow = true
+        this.container.classList.add('interacting')   // immediate; tick() sustains it
         this.simulation.alphaTarget(0.28).restart()
       }
       if (moved) {
@@ -459,8 +467,7 @@ export class FleetGraph {
       pid = null
       if (moved) {
         elm.classList.remove('dragging')
-        clearTimeout(this._interactTimer)
-        this._interactTimer = setTimeout(() => this.container.classList.remove('interacting'), 1200)
+        this._draggingNow = false                      // tick() cools the canvas as alpha decays
         elm.classList.add('settling')                  // brief ~0.97 overshoot
         clearTimeout(rec._settleTimer)
         rec._settleTimer = setTimeout(() => elm.classList.remove('settling'), 600)

@@ -478,6 +478,17 @@ body[data-route="home"] .aur { animation-play-state: running; }
 /* while a drag is hot, the moving bubbles skip the backdrop pass — motion
    hides the frost, and re-sampling 16 lenses per frame is the fps killer */
 .graph-canvas.interacting .node::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* while the physics is hot every bubble is moving — drop the other expensive
+   per-node passes too (5-layer glow → 3, spectral ring, focus pulse). Motion
+   hides the difference; full fidelity returns the moment the graph settles. */
+.graph-canvas.interacting .node-glass {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 10px 26px -12px rgba(14,23,38,0.28),
+    0 0 calc(22px * var(--glow)) color-mix(in oklab, var(--gc) calc(30% * var(--glow)), transparent);
+}
+.graph-canvas.interacting .node-glass::after { display: none; }
+.graph-canvas.interacting .node.focusable .node-glass { animation: none; }
 .node::before {
   /* Lens frost pass — deliberately NOT on .node-glass. The scale
      transitions/animations (hover, drag, settle, reap, bloom) all ride
