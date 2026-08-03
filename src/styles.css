@@ -450,7 +450,9 @@ body[data-route="home"] .aur { animation-play-state: running; }
   display: grid; place-items: center;
   color: #fff;
   background: linear-gradient(160deg, #21b7e4, #0092c4);
-  box-shadow: 0 6px 16px -6px rgba(0,169,216,0.5), 0 0 calc(14px * var(--glow)) rgba(69,214,255, calc(0.3 * var(--glow)));
+  /* neutral lift, no aura (professional-pass — this button lives inside
+     every context-box chat on the graph) */
+  box-shadow: 0 6px 16px -6px rgba(0,169,216,0.5);
   transition: transform .15s var(--ease), box-shadow .25s;
 }
 .chat-send:hover { transform: translateY(-1px); }
@@ -600,7 +602,17 @@ body[data-route="home"] .aur { animation-play-state: running; }
     0 9px 20px -13px rgba(14,23,38,0.22);
   transition: box-shadow .45s var(--ease), border-color .45s var(--ease), transform .45s var(--ease-spring), background .45s;
 }
-.node:hover .node-glass { transform: scale(1.03); border-color: color-mix(in oklab, var(--rc) 55%, white); }
+/* durable hover signal — deepened neutral elevation + a darker border reads
+   clearly on its own, not left to the (fast, easy-to-miss) ripple flourish */
+.node:hover .node-glass {
+  transform: scale(1.03);
+  border-color: color-mix(in oklab, var(--rc) 55%, white);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
+    0 2px 4px rgba(14,23,38,0.07),
+    0 14px 28px -14px rgba(14,23,38,0.3);
+}
 .node.dragging .node-glass {
   transform: scale(1.06);
   border-color: var(--rc);
@@ -713,8 +725,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
   backdrop-filter: blur(30px) saturate(1.7);
   -webkit-backdrop-filter: blur(30px) saturate(1.7);
   background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.72));
-  box-shadow: inset 0 1px 0 #fff, 0 26px 60px -22px rgba(14,23,38,0.35),
-    0 0 calc(26px * var(--glow)) color-mix(in oklab, var(--gc, #45d6ff) calc(15% * var(--glow)), transparent);
+  box-shadow: inset 0 1px 0 #fff, 0 26px 60px -22px rgba(14,23,38,0.35);
   display: flex; flex-direction: column;
 }
 .chip.as-chat::before { display: none; }

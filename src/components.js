@@ -81,7 +81,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   const root = el(`
     <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
       <div class="chat-head">
-        <span class="role-dot" style="background:${role.hex};box-shadow:0 0 calc(9px * var(--glow)) ${role.glow}"></span>
+        <span class="role-dot" style="background:${role.hex}"></span>
         <div>
           <div class="t">${title}</div>
           ${subtitle ? `<div class="s">${subtitle}</div>` : ''}

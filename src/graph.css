@@ -13,7 +13,11 @@
   border: 1.5px solid color-mix(in oklab, var(--rc, #00a9d8) 50%, white);
   opacity: 0;
   pointer-events: none;
-  animation: nodeRipple 0.7s var(--ease) forwards;
+  /* linear, not var(--ease): the shared ease is heavily front-loaded, which
+     made this ripple invisible by ~170ms — a flicker, not a signal. Hover's
+     own durable elevation (above) is now the primary cue; this is a slower,
+     steady flourish on top of it. */
+  animation: nodeRipple 0.9s linear forwards;
 }
 @keyframes nodeRipple {
   0%   { opacity: 0.85; transform: scale(1); }
@@ -208,10 +212,11 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 .graph-edit-btn:hover { background: rgba(255, 255, 255, 0.85); color: var(--ink); }
 .graph-edit-btn:active { transform: scale(0.95); }
 .graph-edit-btn.on {
+  /* solid fill + neutral lift reads "active" fine without a bloom
+     (professional-pass — this pill sits directly on the graph) */
   color: #fff; border-color: transparent;
   background: linear-gradient(160deg, #21b7e4, #0092c4);
-  box-shadow: 0 6px 16px -6px rgba(0, 169, 216, 0.55),
-    0 0 calc(16px * var(--glow)) rgba(69, 214, 255, 0.35);
+  box-shadow: 0 6px 16px -6px rgba(0, 169, 216, 0.55);
 }
 
 /* quiet caption beside the button, only while editing */
