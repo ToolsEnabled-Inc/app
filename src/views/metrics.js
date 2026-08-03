@@ -478,7 +478,7 @@ export function metricsView() {
 
   /* ================= token stacked area ================= */
 
-  const TW = 640, TH = 210, TL = 34, TRr = 26, TT = 10, TB = 24
+  const TW = 640, TH = 210, TL = 36, TRr = 26, TT = 10, TB = 24     // C6: TL +2 for 11.5px tick-label margin
   const xTok = (i) => TL + (i / (N - 1)) * (TW - TL - TRr)
   const tok = {}
 
@@ -488,12 +488,12 @@ export function metricsView() {
     let grid = ''
     for (let g = 0; g <= 4; g++) {
       grid += `<line class="tk-grid" x1="${TL}" x2="${TW - TRr}" y1="0" y2="0" stroke="rgba(14,23,38,0.06)" stroke-width="1"/>` +
-        `<text class="tk-gl" x="${TL - 6}" y="0" font-size="9.5" fill="var(--ink-4)" text-anchor="end"></text>`
+        `<text class="tk-gl" x="${TL - 8}" y="0" font-size="11.5" fill="var(--ink-4)" text-anchor="end"></text>`
     }
     const areas = PROVIDERS.map(p => `<polygon class="tk-area" points="" fill="${p.color}" opacity="0.1"/>`).join('')
     const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`).join('')
     let xl = ''
-    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="9.5" fill="var(--ink-4)" text-anchor="middle"></text>`
+    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="11.5" fill="var(--ink-4)" text-anchor="middle"></text>`
 
     const svg = el(`<svg viewBox="0 0 ${TW} ${TH}" role="img" aria-label="Token flow by provider">
       ${grid}${areas}${lines}${xl}
@@ -558,7 +558,7 @@ export function metricsView() {
 
   /* ================= failure bars ================= */
 
-  const FW = 420, FROW = 30, FL = 118, FR = 44, FMAX = 10
+  const FW = 420, FROW = 30, FL = 118, FR = 50, FMAX = 10          // C6: FR +6 headroom for 12.5px value labels
   const fbars = []
 
   function buildFail() {
@@ -568,10 +568,10 @@ export function metricsView() {
     const rows = LANES.map((lane, i) => {
       const y = 6 + i * FROW
       return `<g class="f-row" data-i="${i}">
-        <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="11" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
+        <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="11.5" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
         <rect x="${FL}" y="${y + 3}" width="${FW - FL - FR}" height="14" rx="4" fill="rgba(14,23,38,0.05)"/>
         <path class="fbar" d="" data-lane="${lane}"/>
-        <text class="fval" x="${FL}" y="${y + 13.5}" font-size="11" fill="var(--ink-2)" font-weight="640" font-variant-numeric="tabular-nums"></text>
+        <text class="fval" x="${FL}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" font-weight="640" font-variant-numeric="tabular-nums"></text>
         <rect class="fhit" x="0" y="${y}" width="${FW}" height="${FROW - 2}" fill="transparent"/>
       </g>`
     }).join('')
@@ -616,8 +616,8 @@ export function metricsView() {
 
   /* ================= heatmap ================= */
 
-  const HCW = 17, HCH = 17, HGAP = 2, HL = 34, HT = 6
-  const HW = HL + 24 * (HCW + HGAP), HH = HT + 7 * (HCH + HGAP) + 20
+  const HCW = 17, HCH = 17, HGAP = 1, HL = 36, HT = 6, HR = 8        // C6: HL/HR margin for 11.5px labels, HGAP -1 to hold canvas width
+  const HW = HL + 24 * (HCW + HGAP) + HR, HH = HT + 7 * (HCH + HGAP) + 20
   const heatCells = []
 
   function buildHeat() {
@@ -625,13 +625,13 @@ export function metricsView() {
     host.innerHTML = ''
     let cells = ''
     for (let d = 0; d < 7; d++) {
-      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="9.5" fill="var(--ink-4)" text-anchor="end">${DAYS[d]}</text>`
+      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="11.5" fill="var(--ink-4)" text-anchor="end">${DAYS[d]}</text>`
       for (let h = 0; h < 24; h++) {
         cells += `<rect class="heat-cell" x="${HL + h * (HCW + HGAP)}" y="${HT + d * (HCH + HGAP)}" width="${HCW}" height="${HCH}" rx="3.5" fill="#edf6fa" data-d="${d}" data-h="${h}" data-v="0"/>`
       }
     }
     const xl = [0, 6, 12, 18, 23].map(h =>
-      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="9.5" fill="var(--ink-4)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
+      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="11.5" fill="var(--ink-4)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
     const svg = el(`<svg viewBox="0 0 ${HW} ${HH}" role="img" aria-label="Fleet activity heatmap">${cells}${xl}</svg>`)
     host.appendChild(svg)
     heatCells.length = 0
@@ -682,10 +682,10 @@ export function metricsView() {
           <svg width="${VS}" height="${VS}" viewBox="0 0 ${VS} ${VS}" role="img" aria-label="Review verdicts">${arcs}</svg>
           <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none">
             <div><div style="font-size:30px;font-weight:660;font-variant-numeric:tabular-nums" id="verdict-total">0</div>
-            <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-4);font-weight:600">verdicts</div></div>
+            <div style="font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4);font-weight:600">verdicts</div></div>
           </div>
         </div>
-        <div style="display:flex;gap:14px;margin-top:6px;font-size:11.5px;color:var(--ink-2)">
+        <div style="display:flex;gap:14px;margin-top:6px;font-size:12.5px;color:var(--ink-2)">
           ${VSEGS.map(s => `<span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:50%;background:${s.c}"></i>${s.k} <b class="vn-${s.key}" style="font-variant-numeric:tabular-nums">0</b></span>`).join('')}
         </div>
       </div>
@@ -738,7 +738,7 @@ export function metricsView() {
       const row = el(`
         <div style="display:flex;align-items:baseline;justify-content:space-between;padding:9px 2px;border-bottom:1px solid var(--line)">
           <div><div style="font-size:12.5px;font-weight:570;color:var(--ink-2)">${l}</div>
-          <div style="font-size:10.5px;color:var(--ink-4)">${s}</div></div>
+          <div style="font-size:12.5px;color:var(--ink-4)">${s}</div></div>
           <div class="opv" style="font-size:20px;font-weight:650;font-variant-numeric:tabular-nums">0</div>
         </div>`)
       host.appendChild(row)
@@ -785,8 +785,8 @@ export function metricsView() {
           <td><span class="aname" style="--rc:${role.hex};--gc:${role.glow}"><i></i>${a.name}</span></td>
           <td>${c.name}</td>
           <td>${role.label}</td>
-          <td style="font-family:var(--font-mono);font-size:11px">${a.pool}</td>
-          <td style="font-family:var(--font-mono);font-size:11px">${a.model}</td>
+          <td style="font-family:var(--font-mono);font-size:13px">${a.pool}</td>
+          <td style="font-family:var(--font-mono);font-size:13px">${a.model}</td>
           <td class="num">${a.tasksDone}</td>
           <td class="num ${failCls}">${a.failRate}%</td>
           <td class="num rt-cell">—</td>

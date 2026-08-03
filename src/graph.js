@@ -43,6 +43,32 @@ export class FleetGraph {
     this.ro = new ResizeObserver(() => this.resize())
     this.ro.observe(container)
 
+    // C3 — wheel zoom + pan. The container IS the dedicated zoom layer: it
+    // already wraps BOTH the svg link layer and the HTML node/chip layers,
+    // so one transform scales everything together. Nodes stay its direct
+    // children (agent.js's rim MutationObserver watches container childList).
+    // Wheel/pan listeners and the fit control live on the parent panel
+    // (.graph-wrap / .agentv-graph), which keeps its full hit area at any
+    // zoom and never scales. All sim/clamp math stays in GRAPH coordinates
+    // (0..W × 0..H — the container's untransformed layout box); pointer
+    // events convert through the transform via _toGraph().
+    this.zoom = 1; this.panX = 0; this.panY = 0
+    this._zt = 1                       // eased-toward target scale
+    this._zoomMode = 'anchor'          // 'anchor' (wheel) | 'fit' (reset)
+    container.classList.add('zoomable')
+    this.zoomHost = container.parentElement || container
+    this.zoomHost.classList.add('graph-zoom-host')
+    this._buildFitControl()
+    this._onWheel = (e) => this._wheel(e)
+    this._onHostDown = (e) => this._panStart(e)
+    this._onHostMove = (e) => this._panMove(e)
+    this._onHostUp = (e) => this._panEnd(e)
+    this.zoomHost.addEventListener('wheel', this._onWheel, { passive: false })
+    this.zoomHost.addEventListener('pointerdown', this._onHostDown)
+    this.zoomHost.addEventListener('pointermove', this._onHostMove)
+    this.zoomHost.addEventListener('pointerup', this._onHostUp)
+    this.zoomHost.addEventListener('pointercancel', this._onHostUp)
+
     this.simulation = forceSimulation([])
       .velocityDecay(0.32)
       .alphaDecay(0.015)
@@ -323,7 +349,7 @@ export class FleetGraph {
     const _t0 = performance.now()
     // hot-state switch: while the sim is energetic (spawns, re-roots, drags)
     // the canvas runs in reduced-fidelity mode; it settles back automatically
-    const hot = this._draggingNow || this.simulation.alpha() > 0.04
+    const hot = this._draggingNow || this._zoomHot || this.simulation.alpha() > 0.04
     if (hot !== this._hot) {
       this._hot = hot
       this.container.classList.toggle('interacting', hot)
@@ -424,9 +450,9 @@ export class FleetGraph {
       elm.setPointerCapture(pid)
       startX = e.clientX; startY = e.clientY; moved = false
       samples = [{ x: e.clientX, y: e.clientY, t: performance.now() }]
-      const cr = this.container.getBoundingClientRect()
-      offX = rec.x - (e.clientX - cr.left)
-      offY = rec.y - (e.clientY - cr.top)
+      const g = this._toGraph(e)                     // graph coords at any zoom
+      offX = rec.x - g.x
+      offY = rec.y - g.y
     })
 
     elm.addEventListener('pointermove', (e) => {
@@ -442,9 +468,9 @@ export class FleetGraph {
         this.simulation.alphaTarget(0.28).restart()
       }
       if (moved) {
-        const cr = this.container.getBoundingClientRect()
-        rec.fx = Math.max(rec.r, Math.min(this.W - rec.r, e.clientX - cr.left + offX))
-        rec.fy = Math.max(rec.r, Math.min(this.H - rec.r, e.clientY - cr.top + offY))
+        const g = this._toGraph(e)                   // clamp in GRAPH coords
+        rec.fx = Math.max(rec.r, Math.min(this.W - rec.r, g.x + offX))
+        rec.fy = Math.max(rec.r, Math.min(this.H - rec.r, g.y + offY))
       }
     })
 
@@ -480,8 +506,8 @@ export class FleetGraph {
           if (recent.length >= 2) {
             const a = recent[0], b = recent[recent.length - 1]
             const dt = Math.max(16, b.t - a.t)
-            vx = (b.x - a.x) / dt
-            vy = (b.y - a.y) / dt
+            vx = (b.x - a.x) / dt / this.zoom        // screen → graph velocity
+            vy = (b.y - a.y) / dt / this.zoom
             const sp = Math.hypot(vx, vy), cap = 2.4
             if (sp > cap) { vx *= cap / sp; vy *= cap / sp }
           }
@@ -584,6 +610,9 @@ export class FleetGraph {
     this._staggerDelays = new Map(outgoing.map((n, i) => [n.id, calm ? 0 : Math.min(i * 40, 560)]))
     this.build()
     this._staggerDelays = null
+    // the re-root cinematic targets the graph-space root slot — glide the
+    // viewport back to 1× alongside so the arrival is always on screen
+    if (this._zt !== 1 || this.panX || this.panY) this.resetZoom()
     const rec = this.nodes.get(id)
     if (rec) this.glideToRoot(rec)
     this.onRootChange?.(id, this.ancestryOf(id))   // extra arg is additive
@@ -664,6 +693,7 @@ export class FleetGraph {
     }
     this.rootId = null
     this.build()
+    if (this._zt !== 1 || this.panX || this.panY) this.resetZoom()
     this.onRootChange?.(null, [])
   }
 
@@ -674,7 +704,196 @@ export class FleetGraph {
       n.x = Math.max(n.r + 34, Math.min(this.W - n.r - 34, n.x))
       n.y = Math.max(n.r + 64, Math.min(this.H - n.r - 58, n.y))
     }
+    this._clampPan()
+    this._applyZoom()
     this.refreshForces()
+  }
+
+  /* ---------- C3: wheel zoom + pan ---------- */
+
+  /** Client → graph coordinates through the live zoom transform. The
+      container's rect already carries pan (transform-origin 0 0), so the
+      conversion is exact at every zoom/pan — drags, offsets and clamps all
+      keep operating on true graph coordinates. */
+  _toGraph(e) {
+    const cr = this.container.getBoundingClientRect()
+    return { x: (e.clientX - cr.left) / this.zoom, y: (e.clientY - cr.top) / this.zoom }
+  }
+
+  /** Keep the scaled canvas covering the viewport (zoom > 1) or fully inside
+      it (zoom < 1) — nothing can be dragged out of reach or clipped away. */
+  _clampPan() {
+    const bx = this.W * (1 - this.zoom)
+    const by = this.H * (1 - this.zoom)
+    this.panX = Math.max(Math.min(0, bx), Math.min(Math.max(0, bx), this.panX))
+    this.panY = Math.max(Math.min(0, by), Math.min(Math.max(0, by), this.panY))
+  }
+
+  _applyZoom() {
+    const idle = this.zoom === 1 && !this.panX && !this.panY
+    // identity clears the inline transform entirely — at 1× the canvas keeps
+    // its original (non-stacking-context) paint order and zero overhead
+    this.container.style.transform = idle ? '' :
+      `translate3d(${this.panX}px, ${this.panY}px, 0) scale(${this.zoom})`
+    this.zoomHost.classList.toggle('zoomed', Math.abs(this.zoom - 1) > 0.004)
+    this._syncFit()
+  }
+
+  _syncFit() {
+    if (!this.fitEl) return
+    const active = Math.abs(this.zoom - 1) > 0.004 || Math.abs(this._zt - 1) > 0.004
+      || !!this.panX || !!this.panY
+    this.fitEl.classList.toggle('show', active)
+    const z = this.fitEl.querySelector('.gf-z')
+    const txt = `${this.zoom.toFixed(2)}×`
+    if (z && z.textContent !== txt) z.textContent = txt
+  }
+
+  _wheel(e) {
+    // an open chat morph scrolls its own messages — never hijack that wheel
+    if (e.target.closest?.('.chip.as-chat, .chat')) return
+    e.preventDefault()
+    const cr = this.container.getBoundingClientRect()
+    // anchor: the graph point under the cursor + its host-space screen point
+    this._ax = (e.clientX - cr.left) / this.zoom
+    this._ay = (e.clientY - cr.top) / this.zoom
+    this._asx = e.clientX - cr.left + this.panX
+    this._asy = e.clientY - cr.top + this.panY
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * this.H : e.deltaY
+    this._zt = Math.max(0.55, Math.min(1.7, this._zt * Math.exp(-dy * 0.0022)))
+    this._zoomMode = 'anchor'
+    if (prefersCalm()) {                       // reduce-motion: land instantly
+      this.zoom = this._zt
+      this.panX = this._asx - this._ax * this.zoom
+      this.panY = this._asy - this._ay * this.zoom
+      this._clampPan(); this._applyZoom()
+      return
+    }
+    this._zoomHotOn()
+    this._startZoomAnim()
+  }
+
+  /** Ease zoom toward its target; keep the wheel's anchor point pinned under
+      the cursor ('anchor') or ease pan home too ('fit'). One rAF, self-ends. */
+  _startZoomAnim() {
+    if (this._zoomRaf) return
+    let last = performance.now()
+    const step = (t) => {
+      const dt = Math.min(48, Math.max(1, t - last)); last = t
+      const a = 1 - Math.exp(-dt / 90)           // frame-rate-independent ease
+      this.zoom += (this._zt - this.zoom) * a
+      if (this._zoomMode === 'fit') {
+        this.panX += (0 - this.panX) * a
+        this.panY += (0 - this.panY) * a
+      } else {
+        this.panX = this._asx - this._ax * this.zoom
+        this.panY = this._asy - this._ay * this.zoom
+      }
+      this._clampPan()
+      const zDone = Math.abs(this._zt - this.zoom) < 0.002
+      const pDone = this._zoomMode !== 'fit'
+        || (Math.abs(this.panX) < 0.5 && Math.abs(this.panY) < 0.5)
+      if (zDone && pDone) {
+        this.zoom = this._zt
+        if (this._zoomMode === 'fit') { this.panX = 0; this.panY = 0 }
+        this._clampPan(); this._applyZoom()
+        this._zoomRaf = null
+        this._zoomHotOff()
+        return
+      }
+      this._applyZoom()
+      this._zoomRaf = requestAnimationFrame(step)
+    }
+    this._zoomRaf = requestAnimationFrame(step)
+  }
+
+  /** Smoothly reset to 1× / no pan (the "fit" control). Additive API. */
+  resetZoom() {
+    this._zt = 1
+    this._zoomMode = 'fit'
+    if (prefersCalm()) {
+      this.zoom = 1; this.panX = 0; this.panY = 0
+      this._applyZoom()
+      return
+    }
+    this._zoomHotOn()
+    this._startZoomAnim()
+  }
+
+  /* pan: dragging empty canvas while zoomed moves the viewport (host-level
+     listeners; node/chip/button targets are left to their own handlers) */
+  _panStart(e) {
+    if (e.button !== 0) return
+    const t = e.target
+    // interactive things own their pointer; only truly empty canvas pans
+    if (t.closest?.('.node, .chip, .graph-fit, .graph-crumb, button')) return
+    const empty = t === this.zoomHost || t === this.container || t instanceof SVGElement
+    if (!empty) return
+    if (Math.abs(this.zoom - 1) < 0.001 && Math.abs(this._zt - 1) < 0.001) return
+    // a wheel ease in flight hands pan to the drag with zero jump
+    if (this._zoomRaf) {
+      cancelAnimationFrame(this._zoomRaf); this._zoomRaf = null
+      this._zt = this.zoom
+    }
+    e.preventDefault()
+    this._panPid = e.pointerId
+    try { this.zoomHost.setPointerCapture(e.pointerId) } catch {}
+    this._panSX = e.clientX; this._panSY = e.clientY
+    this._panX0 = this.panX; this._panY0 = this.panY
+    this._panning = true
+    this.zoomHost.classList.add('panning')
+    this._zoomHotOn()
+  }
+
+  _panMove(e) {
+    if (!this._panning || e.pointerId !== this._panPid) return
+    this.panX = this._panX0 + (e.clientX - this._panSX)
+    this.panY = this._panY0 + (e.clientY - this._panSY)
+    this._clampPan(); this._applyZoom()
+  }
+
+  _panEnd(e) {
+    if (!this._panning || e.pointerId !== this._panPid) return
+    this._panning = false; this._panPid = null
+    try { this.zoomHost.releasePointerCapture(e.pointerId) } catch {}
+    this.zoomHost.classList.remove('panning')
+    this._zoomHotOff()
+  }
+
+  /* zoom/pan share the drag's hot-state mechanism: reduced-fidelity canvas
+     while the transform animates, full fidelity back when it settles */
+  _zoomHotOn() {
+    clearTimeout(this._zoomHotTimer)
+    if (!this._zoomHot) {
+      this._zoomHot = true
+      this._hot = true
+      this.container.classList.add('interacting')
+    }
+  }
+
+  _zoomHotOff() {
+    clearTimeout(this._zoomHotTimer)
+    this._zoomHotTimer = setTimeout(() => {
+      this._zoomHot = false
+      if (!this._draggingNow && !this._panning && this.simulation.alpha() <= 0.04) {
+        this._hot = false
+        this.container.classList.remove('interacting')
+      }
+    }, 200)
+  }
+
+  _buildFitControl() {
+    const b = el(`
+      <button class="graph-fit" type="button" title="Reset zoom" aria-label="Reset zoom to fit">
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+          <path d="M4 9V6.5A2.5 2.5 0 0 1 6.5 4H9M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15"
+            fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg><span class="gf-z">1.00×</span>
+      </button>
+    `)
+    b.addEventListener('click', () => this.resetZoom())
+    this.zoomHost.appendChild(b)
+    this.fitEl = b
   }
 
   destroy() {
@@ -683,9 +902,19 @@ export class FleetGraph {
     this.ro.disconnect()
     if (this._glideRaf) cancelAnimationFrame(this._glideRaf)
     if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
+    if (this._zoomRaf) cancelAnimationFrame(this._zoomRaf)
+    clearTimeout(this._zoomHotTimer)
     for (const n of this.nodes.values()) if (n._flingRaf) cancelAnimationFrame(n._flingRaf)
     this.unsubs.forEach(u => u())
+    this.zoomHost.removeEventListener('wheel', this._onWheel)
+    this.zoomHost.removeEventListener('pointerdown', this._onHostDown)
+    this.zoomHost.removeEventListener('pointermove', this._onHostMove)
+    this.zoomHost.removeEventListener('pointerup', this._onHostUp)
+    this.zoomHost.removeEventListener('pointercancel', this._onHostUp)
+    this.zoomHost.classList.remove('graph-zoom-host', 'panning', 'zoomed')
+    this.fitEl?.remove()
+    this.container.style.transform = ''
     this.container.innerHTML = ''
-    this.container.classList.remove('graph-canvas')
+    this.container.classList.remove('graph-canvas', 'zoomable')
   }
 }

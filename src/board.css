@@ -1,0 +1,288 @@
+/* ============================================================
+   BOARD — the folded whiteboard page (lane C2)
+
+   The rail's dblclick target stops being "a second stats panel" and
+   becomes the board from the sketch: a role-coloured agent title with a
+   rule under it, the circled runtime, a real Runtime Statistics plot with
+   drawn x/y axes, the controls inside a square box, square legend swatches.
+
+   Two hard rules live in this sheet:
+     · only the board's INTERNAL boxes are square — the rail glass card
+       keeps its own radius, and the stats page keeps its own look;
+     · nothing on the board is smaller than 12.5px, and no informational
+       label is lighter than --ink-2.
+   Loaded from views/computers.js, after styles.css, before morphs.css.
+   Additive only: every selector below is new or a scoped override.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1 · type + contrast floor, board only
+
+   The Runtime Statistics page is deliberately NOT touched here: lane C4
+   owns the site-wide type floor in styles.css and has already brought that
+   page up to it. This sheet only raises the two rules C4 keeps at its
+   11px uppercase micro-label tier but which this lane's board must carry
+   at 12.5px — and only inside .board-page, so the stats page keeps C4's
+   calibration.
+   ------------------------------------------------------------ */
+.board-page .rail-title { font-size: 12.5px; letter-spacing: 0.15em; color: var(--ink-2); }
+.board-page .rail-back { color: var(--ink-2); }
+
+/* ------------------------------------------------------------
+   2 · the board surface
+   ------------------------------------------------------------ */
+.board-page {
+  --board-r: 3px;                       /* the square corner, everywhere inside */
+  --role: var(--c-coordinator);
+  --role-glow: var(--g-coordinator);
+  /* a marker-dark version of the role hue: same hue, ink-level contrast */
+  --role-ink: color-mix(in oklab, var(--role) 52%, var(--ink));
+}
+
+.board-page .rail-scroll { padding-right: 6px; }
+
+/* --- title: role-coloured name, role beneath, rule under the block --- */
+.board-page .agent-head {
+  gap: 11px;
+  padding-bottom: 12px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line-2);
+}
+.board-page .agent-head .role-dot {
+  width: 14px; height: 14px;
+  border-radius: 1px;                   /* square swatch, not a dot */
+  background: linear-gradient(150deg, color-mix(in oklab, var(--role) 72%, white), var(--role));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 calc(9px * var(--glow)) color-mix(in oklab, var(--role-glow) calc(60% * var(--glow)), transparent);
+}
+.board-page .agent-head .an {
+  font-size: 21px; line-height: 1.15;
+  color: var(--role-ink);
+  letter-spacing: -0.005em;
+}
+.board-page .agent-head .ar {
+  margin-top: 2px;
+  font-size: 12.5px; letter-spacing: 0.12em;
+  color: var(--ink-2); font-weight: 620;
+}
+
+/* --- circled runtime --- */
+.board-page .agent-ring-wrap { padding: 14px 0 8px; }
+.board-page .uring { max-width: 100%; }
+.board-page .uring .track { stroke: rgba(14, 23, 38, 0.075); }
+/* the ring caption is a label like any other: 12.5px, --ink-2 */
+.board-page .uring.compact .uring-caption {
+  margin-top: 8px;
+  font-size: 12.5px; letter-spacing: 0.2em;
+  color: var(--ink-2); font-weight: 600;
+}
+.board-page .uring.compact .uring-digits .colon { color: var(--ink-2); }
+
+/* --- meta strip under the ring --- */
+.board-page .board-meta {
+  display: flex; flex-direction: column; gap: 3px;
+  text-align: center;
+  font-size: 12.5px; color: var(--ink-2);
+  margin-bottom: 2px;
+}
+
+/* ------------------------------------------------------------
+   3 · the square boxes — the board's internal geometry
+   ------------------------------------------------------------ */
+.board-page .board-box {
+  position: relative;
+  margin-top: 14px;
+  padding: 12px 13px 14px;
+  border-radius: var(--board-r);
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.32));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),          /* inner top highlight */
+    0 1px 2px rgba(14, 23, 38, 0.035);
+}
+
+.board-page .board-box-h {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 650;
+}
+.board-page .board-box-h .bh-v {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 12.5px; font-weight: 600;
+  letter-spacing: 0; text-transform: none;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.board-page .board-box-h .bh-v i {
+  width: 9px; height: 9px; border-radius: 1px; flex: none;
+  background: var(--role);
+  box-shadow: 0 0 calc(8px * var(--glow)) color-mix(in oklab, var(--role-glow) calc(65% * var(--glow)), transparent);
+}
+.board-page .board-cap {
+  margin: 5px 0 10px;
+  font-size: 12.5px; color: var(--ink-2);
+}
+
+/* section rules inside a box */
+.board-page .board-box .rail-sec {
+  margin: 14px 0 9px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px; letter-spacing: 0.1em;
+  color: var(--ink-2); font-weight: 650;
+}
+
+/* ------------------------------------------------------------
+   4 · Runtime Statistics plot
+   Single series → no legend box; the box header names it. Hairline
+   axes drawn from the origin, recessive grid, one direct end label.
+   ------------------------------------------------------------ */
+.board-page .board-plot { position: relative; }
+.board-page .bchart { display: block; width: 100%; overflow: visible; }
+
+.board-page .bc-ax {
+  stroke: var(--ink-4); stroke-width: 1;
+  shape-rendering: crispEdges;
+  stroke-dasharray: var(--len);
+  /* the axes are drawn from the origin on this box's own step of the rail
+     cascade (--mi), so the board reads as one gesture, not two */
+  animation: bcDrawAxis 420ms var(--ease) both;
+  animation-delay: calc(var(--mi, 0) * var(--morph-stagger, 80ms) + 40ms);
+}
+@keyframes bcDrawAxis { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
+
+.board-page .bc-tick { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; }
+.board-page .bc-gl { stroke: var(--line-2); stroke-width: 1; shape-rendering: crispEdges; }
+.board-page .bc-t {
+  font-family: var(--font-mono); font-size: 12.5px;
+  fill: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+.board-page .bc-chrome {
+  animation: bcChromeIn 380ms var(--ease) both;
+  animation-delay: calc(var(--mi, 0) * var(--morph-stagger, 80ms) + 170ms);
+}
+@keyframes bcChromeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* a frame rebuilt after the board has already drawn in starts finished */
+.board-page .bc-static .bc-ax { animation: none; stroke-dasharray: none; }
+.board-page .bc-static .bc-chrome { animation: none; }
+
+.board-page .bc-area { fill: var(--role); fill-opacity: 0.1; stroke: none; }
+.board-page .bc-line {
+  fill: none; stroke: var(--role); stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.board-page .bc-end {
+  fill: var(--role);
+  stroke: rgba(255, 255, 255, 0.95); stroke-width: 2;     /* 2px surface ring */
+  transform-box: fill-box; transform-origin: center;
+  filter: drop-shadow(0 0 calc(5px * var(--glow)) color-mix(in oklab, var(--role-glow) calc(70% * var(--glow)), transparent));
+}
+.board-page .bc-pulse {
+  fill: none; stroke: var(--role); stroke-width: 1.5;
+  transform-box: fill-box; transform-origin: center;
+  opacity: 0; pointer-events: none;
+}
+.board-page .bc-cross { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; opacity: 0; }
+.board-page .bc-dot {
+  fill: var(--role); stroke: rgba(255, 255, 255, 0.95); stroke-width: 2;
+  opacity: 0;
+}
+.board-page .bc-cross, .board-page .bc-dot { transition: opacity .16s var(--ease); }
+.board-page .bc-hit { fill: transparent; pointer-events: all; cursor: crosshair; }
+
+/* the shared tooltip is part of the board — it obeys the type floor too */
+.board-page .tooltip { font-size: 12.5px; color: var(--ink-2); border-radius: var(--board-r); }
+.board-page .tooltip .tt-title { font-size: 12.5px; color: var(--ink-2); letter-spacing: 0.04em; }
+
+/* ------------------------------------------------------------
+   5 · Agent Controls — square box, square buttons
+   ------------------------------------------------------------ */
+.board-page .ctl-grid { gap: 7px; }
+.board-page .ctl-btn {
+  position: relative; overflow: hidden;
+  border-radius: var(--board-r);
+  border-color: var(--line-2);          /* the sketch's boxes have a drawn edge */
+}
+.board-page .ctl-btn:hover { border-color: color-mix(in oklab, var(--role) 32%, white); }
+/* armed reads as the agent's own colour, but stays ink-on-tint so the label
+   never loses contrast on the lighter role hues */
+.board-page .ctl-btn.armed {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--role) 42%, white);
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--role) 17%, white),
+    color-mix(in oklab, var(--role) 28%, white));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 calc(13px * var(--glow)) color-mix(in oklab, var(--role-glow) calc(32% * var(--glow)), transparent);
+}
+.board-page .ctl-btn.armed::before {
+  content: "";
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--role);
+}
+.board-page .ctl-btn.danger:hover {
+  color: var(--s-serious);
+  border-color: color-mix(in oklab, var(--s-serious) 32%, white);
+}
+
+.board-page .ctl-row { padding: 8px 0; gap: 12px; }
+.board-page .ctl-row .cv { color: var(--ink-2); }
+/* inside the box the row has ~26px less width than it does on the stats
+   page, so the slider gives that back instead of the row overflowing */
+.board-page .ctl-row input[type="range"] {
+  flex: 1 1 84px; min-width: 0; max-width: 118px; width: auto;
+}
+.board-page input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 1px;
+  background: linear-gradient(90deg,
+    var(--role) var(--fill, 50%), rgba(14, 23, 38, 0.1) var(--fill, 50%));
+}
+.board-page input[type="range"]::-webkit-slider-thumb {
+  box-shadow:
+    0 2px 7px rgba(14, 23, 38, 0.25),
+    0 0 calc(10px * var(--glow)) color-mix(in oklab, var(--role-glow) calc(45% * var(--glow)), transparent);
+}
+
+/* ------------------------------------------------------------
+   6 · legend — square swatches, the agent's own role called out
+   ------------------------------------------------------------ */
+.board-page .board-legend { gap: 9px 12px; margin-top: 2px; }
+.board-page .board-legend .leg { padding: 3px 0; border-radius: 2px; }
+.board-page .board-legend .leg i {
+  width: 13px; height: 13px; border-radius: 1px;        /* square swatch */
+}
+/* the agent's own role is called out with a tinted plate. The plate's
+   horizontal padding is drawn with box-shadow spread rather than real
+   padding, so the swatches stay flush with the box header and the row
+   never widens the grid past its column. */
+.board-page .board-legend .leg.is-self {
+  color: var(--ink); font-weight: 640;
+  background: color-mix(in oklab, var(--lc) 9%, transparent);
+  box-shadow:
+    0 0 0 5px color-mix(in oklab, var(--lc) 9%, transparent),
+    0 0 0 6px color-mix(in oklab, var(--lc) 24%, transparent);
+}
+.board-page .board-legend .leg.is-self i {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.95),
+    0 0 0 2px color-mix(in oklab, var(--lc) 55%, white),
+    0 0 calc(10px * var(--glow)) color-mix(in oklab, var(--lg) calc(55% * var(--glow)), transparent);
+}
+
+/* ------------------------------------------------------------
+   7 · narrow rail — the board still has to breathe at a 320px rail
+   ------------------------------------------------------------ */
+@media (max-width: 1180px) {
+  .board-page .board-box { padding: 11px 11px 13px; }
+}
+
+/* ------------------------------------------------------------
+   reduce-motion: the drawn-in axes and plot appear finished
+   ------------------------------------------------------------ */
+body.reduce-motion .board-page .bc-ax,
+body.reduce-motion .board-page .bc-chrome { animation-delay: 0ms !important; }
+body.reduce-motion .board-page .bc-pulse { display: none; }

@@ -79,7 +79,7 @@ export function agentView({ compId, agentId, navigate }) {
               </div>
               <div class="agent-ring-wrap"></div>
               <div class="rail-sub" style="text-align:center">model ${agent.model} · pool ${agent.pool}</div>
-              <div class="ctl-grid" style="margin-top:8px">
+              <div class="ctl-grid" style="margin-top:14px">
                 <button class="ctl-btn armed">Active</button>
                 <button class="ctl-btn">Pause</button>
                 <button class="ctl-btn">Respawn</button>
@@ -134,9 +134,51 @@ export function agentView({ compId, agentId, navigate }) {
     rimByAgent.set(id, rim)
   }
   canvas.querySelectorAll('.node').forEach(attachRim)
+
+  // --- criterion 1 (C5): chips must never collide with node bubbles/labels -
+  // Chip placement math lives in graph.js (read-only this wave) and only
+  // reasons about the canvas edges, not sibling bubbles — in this page's
+  // short strip a full context-preview panel can land on a neighbouring
+  // node. Fewer chips by default + hover reveal: every chip is invisible
+  // at rest (agent.css) — zero rendered pixels, so there is nothing left
+  // to ever overlap — and becomes visible only while a small role-coloured
+  // badge pinned to ITS OWN node's corner is hovered/focused, so the
+  // reveal trigger always tracks that exact bubble instead of floating
+  // independently. graph.js always appends a node then, synchronously
+  // right after, that node's chip (nothing else appends to the canvas
+  // in between — see graph.js spawnNode/makeChip), so a chip's previous
+  // DOM sibling reliably is the node to badge.
+  function pairChip(chipEl) {
+    const nodeEl = chipEl.previousElementSibling
+    if (!nodeEl?.classList?.contains('node') || nodeEl.querySelector('.cx-badge')) return
+    const badge = document.createElement('div')
+    badge.className = 'cx-badge'
+    badge.tabIndex = 0
+    badge.appendChild(document.createElement('span'))
+    nodeEl.appendChild(badge)
+    let closeT
+    const open = () => { clearTimeout(closeT); chipEl.classList.add('cx-open') }
+    const scheduleClose = () => { clearTimeout(closeT); closeT = setTimeout(() => chipEl.classList.remove('cx-open'), 260) }
+    badge.addEventListener('mouseenter', open)
+    badge.addEventListener('focus', open)
+    badge.addEventListener('mouseleave', scheduleClose)
+    badge.addEventListener('blur', scheduleClose)
+    // keep it open while the pointer travels the short gap onto the
+    // now-revealed chip itself, so it can actually be reached and clicked
+    chipEl.addEventListener('mouseenter', open)
+    chipEl.addEventListener('mouseleave', scheduleClose)
+    chipEl.addEventListener('focusin', open)
+    chipEl.addEventListener('focusout', scheduleClose)
+  }
+  canvas.querySelectorAll('.chip').forEach(pairChip)
+
   const rimObserver = new MutationObserver((muts) => {
     for (const m of muts) {
-      m.addedNodes.forEach((n) => { if (n.nodeType === 1) attachRim(n) })
+      m.addedNodes.forEach((n) => {
+        if (n.nodeType !== 1) return
+        attachRim(n)
+        if (n.classList.contains('chip')) pairChip(n)
+      })
       m.removedNodes.forEach((n) => {
         if (n.nodeType === 1 && n.dataset && n.dataset.agentId) rimByAgent.delete(n.dataset.agentId)
       })

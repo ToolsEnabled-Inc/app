@@ -128,6 +128,22 @@ class Sim {
     return a
   }
 
+  /** Re-parent an agent in the org tree. Refuses self, cycles, and unknown ids. */
+  reparentAgent(comp, agentId, newParentId) {
+    const a = comp.agents.find(x => x.id === agentId)
+    const p = comp.agents.find(x => x.id === newParentId)
+    if (!a || !p || a.id === p.id || a.parentId === p.id) return false
+    if (a.role === 'coordinator') return false        // the root stays the root
+    let cur = p                                       // no cycles: new parent must
+    while (cur) {                                     // not descend from the agent
+      if (cur.id === a.id) return false
+      cur = comp.agents.find(x => x.id === cur.parentId)
+    }
+    a.parentId = p.id
+    this.emit('reparent', { comp, agent: a, parent: p })
+    return true
+  }
+
   reapAgent(comp) {
     const leaves = comp.agents.filter(a => a.role === 'default' && this.childrenOf(comp, a.id).length === 0)
     if (leaves.length > 5) {

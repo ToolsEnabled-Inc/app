@@ -236,3 +236,28 @@ row width or the larger split share). Importance = role rank
 the parent conversation dominates. The dominance re-computes smoothly whenever
 boxes are dragged between sections. Reviewer verifies by opening ≥2 different
 sections with mixed roles.
+
+### C8 Hierarchy edit mode (owner addition — page 2)
+Territory: `src/graph.js`, `src/graph.css`, `src/views/computers.js` (+ may
+extend `src/board.css` only for the button). `sim.reparentAgent(comp, agentId,
+newParentId)` already exists (cycle-safe, coordinator immovable) — use it, do
+not modify sim.js.
+1. An Edit button on the computers graph card (quiet, near the crumb). Pressing
+   it smoothly animates EVERY bubble from its physics position into a LOCKED
+   tidy tree layout — tier rows by hierarchy depth (coordinator top; helper and
+   shadow beside it; managers; defaults), physics paused, links redrawn as calm
+   tree edges. Same locked-tree style language as the whiteboard.
+2. In edit mode drag-and-drop CHANGES THE ROLE HIERARCHY: dragging a bubble
+   ghosts it (with a subtle subtree indication), valid new parents highlight on
+   hover, dropping re-parents via sim.reparentAgent and the tree re-lays out
+   smoothly. Invalid drops (self, own descendant, moving the coordinator)
+   return the bubble with a gentle refusal shake — never an error popup.
+3. Repeatable: several re-parents in one edit session, smooth every time.
+4. The button becomes Done; exiting melts the locked tree back into liquid
+   physics with the NEW hierarchy live everywhere (graph links, rail, agent
+   page subtree, re-rooting all reflect it).
+5. Edit mode is signaled calmly (e.g. hairline tier guides / dashed drop
+   hints — clinical, not gamey); reduce-motion honored; zoom either keeps
+   working correctly in edit mode or resets to fit and disables until Done
+   (lane's choice, but it must be deliberate and smooth).
+6. Works on every computer tab; type floor respected; no console errors.

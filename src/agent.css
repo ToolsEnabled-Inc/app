@@ -1,7 +1,9 @@
 /* ============================================================
-   AGENT PAGE (Lane T6) — additive only, scoped under .agentv /
-   .node-rim / .panel-dots / .agent-strip so nothing here leaks
-   to other pages that also use .node / .glass / .apanel markup.
+   AGENT PAGE (Lane T6, swept in C5) — additive only, scoped under
+   .agentv / .agentv-graph / .node-rim / .panel-dots / .agent-strip
+   so nothing here leaks to other pages that also use .node / .glass /
+   .apanel / .chip markup (the computers page's graph lives under the
+   sibling class .graph-wrap, never .agentv-graph).
    ============================================================ */
 
 /* ---------- 4. grey mono header strip: name · role · pool · model ------- */
@@ -9,11 +11,11 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 4px;
+  gap: 10px;
+  padding: 3px 4px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.03em;
+  font-size: 13px;                  /* type floor: mono content >= 13px */
+  letter-spacing: 0.02em;
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -67,8 +69,8 @@
 .pdot {
   border: none; background: transparent; cursor: pointer;
   display: flex; align-items: center; gap: 6px;
-  padding: 5px 11px; border-radius: 999px;
-  font-family: var(--font-ui); font-size: 11px; font-weight: 610;
+  padding: 6px 12px; border-radius: 999px;
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 610;  /* type floor: interface text >= 12.5px */
   color: var(--ink-3);
   transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease), transform .15s var(--ease);
 }
@@ -119,8 +121,88 @@
 }
 
 @media (max-width: 640px) {
-  .panel-dots .pdot { padding: 5px 8px; font-size: 10px; }
+  /* narrow the pill, never the text — 12.5px stays the interface-text floor */
+  .panel-dots .pdot { padding: 6px 9px; gap: 5px; }
 }
+
+/* ---------- 5. (C5) chips must never collide with node bubbles/labels --- *
+ * Chip placement math lives in graph.js (read-only this wave) and only
+ * reasons about the canvas edges, not about sibling bubbles — in this
+ * page's short strip (min-height 240px) a full 168px context-preview panel
+ * can land squarely on a neighbouring node or its name/role labels.
+ *
+ * Strategy: fewer chips by default + hover reveal. Every chip is fully
+ * invisible at rest — zero rendered pixels, so wherever graph.js's
+ * outward-radial math happens to place it, there is nothing left to ever
+ * collide with — and becomes visible, at its own unmodified size and
+ * position (nothing about the placement math changes), only while the
+ * small role-coloured "cx-badge" pinned to ITS OWN node's corner
+ * (agent.js pairs them; lives inside .node exactly like the rim arcs, so
+ * it always tracks that one bubble) is hovered or focused. At most one
+ * chip is ever visible at a time, always by direct pointer/keyboard
+ * intent. Click still opens the existing inline chat (graph.js-owned,
+ * untouched). Scoped to .agentv-graph — the computers page's own graph
+ * (.graph-wrap) never sees these rules. */
+.agentv-graph .chip:not(.as-chat) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s var(--ease);
+}
+.agentv-graph .chip.cx-open:not(.as-chat) {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 9;
+}
+/* the corner badge — always exactly on its own bubble, so it can never
+   itself be the thing overlapping a *different* node */
+.agentv-graph .node .cx-badge {
+  position: absolute; top: -3px; right: -3px;
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  z-index: 3;
+}
+.agentv-graph .node .cx-badge span {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--rc);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 calc(7px * var(--glow)) var(--gc);
+  transition: transform .2s var(--ease-spring), box-shadow .2s var(--ease);
+}
+.agentv-graph .node .cx-badge:hover span { transform: scale(1.3); }
+.agentv-graph .node .cx-badge:focus-visible { outline: none; }
+.agentv-graph .node .cx-badge:focus-visible span {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px rgba(69,214,255,0.55);
+}
+/* the preview text is mono content — type floor >= 13px */
+.agentv-graph .chip .cl { font-size: 13px; line-height: 1.4; }
+
+/* ---------- 6. (C5) type floor: graph strip (crumb + bubble labels) ----- */
+.agentv-graph .graph-crumb,
+.agentv-graph .graph-crumb button,
+.agentv-graph .graph-crumb .sep { font-size: 12.5px; }
+.agentv-graph .node .rt { font-size: max(13px, calc(var(--d) * 0.155)); }
+.agentv-graph .node .rl { font-size: max(12.5px, calc(var(--d) * 0.088)); }
+.agentv-graph .node .node-name,
+.agentv-graph .node .node-role { font-size: 12.5px; }
+.agentv .scroll-cue { font-size: 12.5px; }
+
+/* ---------- 7. (C5) type floor + breathing room: Chat/Controls panels --- */
+.agentv-panels .apanel { padding: 24px 26px; }
+.agentv .apanel-title { font-size: 12.5px; margin-bottom: 16px; }
+.agentv .agent-head { margin-bottom: 12px; }
+.agentv .agent-head .ar { font-size: 12.5px; }
+.agentv .agent-ring-wrap { padding: 16px 0 12px; }
+.agentv .rail-sub { font-size: 13px; }                 /* mono content */
+.agentv .rail-sec { font-size: 12.5px; margin: 26px 0 14px; }
+.agentv .ctl-grid { gap: 10px; }
+.agentv .ctl-row { padding: 11px 2px; }
+.agentv .ctl-row .cl { font-size: 12.5px; }
+.agentv .ctl-row .cv { font-size: 13px; }               /* mono content */
+.agentv .uring.compact .uring-caption { font-size: 12.5px; }
+.agentv .chat-head .s { font-size: 13px; }              /* mono content */
+.agentv .msg { font-size: 13px; }                       /* chat content */
+.agentv .msg .who { font-size: 13px; }
 
 /* --- reduced motion: park every animation this layer introduces --- */
 body.reduce-motion .node-rim.pulse .rim-arc {
