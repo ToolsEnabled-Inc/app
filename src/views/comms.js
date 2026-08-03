@@ -7,12 +7,17 @@
 // integration is dormant — bot-token auth, no token in the vault, zero sends —
 // and is shown honestly as a footer row, never as live.
 //
+// C7 adds the WATCH BOARD as the page default: a board of live conversation
+// context boxes built from the shared chip component (.chip / .chip-preview /
+// .as-chat + buildChat from components.js) — the graph's boxes, laid out as a
+// scrollable stack that drag-splits into nested tiles.
+//
 // Everything here is a self-contained simulation: no credentials, no personal
 // data, values-as-JSON conventions only ever described, never transported.
 
 import { sim } from '../sim.js'
-import { el, countUp } from '../components.js'
-import { pick } from '../vocab.js'
+import { el, countUp, buildChat } from '../components.js'
+import { pick, ROLES } from '../vocab.js'
 import '../comms.css'
 
 const H = 3600e3
@@ -349,6 +354,191 @@ function pickChannelWeighted() {
   return 'status'
 }
 
+/* ============================================================
+   C7 — WATCH BOARD data. Conversation pairs reuse the sender
+   convention above; parent/child links give the branch chains
+   (coord-sync → ctl-build → lane-brief is two levels deep).
+   ============================================================ */
+
+const RANK = { coordinator: 4, helper: 3, shadow: 3, manager: 2, default: 1, spawned: 0 }
+const shortName = (k) => SENDERS[k].tag.split('/')[0]
+const domOf = (d) => RANK[SENDERS[d.a].role] >= RANK[SENDERS[d.b].role] ? d.a : d.b
+const impOf = (d) => Math.max(RANK[SENDERS[d.a].role], RANK[SENDERS[d.b].role])
+
+const CONV_DEFS = [
+  {
+    id: 'coord-sync', a: 'controller', b: 'codexb', key: 'coord/cross-machine', child: 'ctl-build',
+    lines: {
+      a: [
+        'directive rev 44 mirrored; fan B lanes out after your ack',
+        'gate sweep clean on A — 9/9 verified, queue unblocked',
+        'hold new spawns until the fix round lands; cap stays at 20',
+        'tunnel probe clean from A; take the bridge lane check',
+        'territory map re-pinned; C-lane files are disjoint this wave',
+        'owner inbox drained on wake; nothing outranks the queue',
+      ],
+      b: [
+        'ack rev 44 on B; lanes scoped and claimed',
+        'bridge :8788 probe OK from B; both lanes green',
+        'B preflight clean; two seats fanned out, territories disjoint',
+        'canonical checkout confirmed; ownership table matches preflight',
+        'stale lease swept on the B queue; claims proceeding',
+        'mirror check done — both machines read map rev 6',
+      ],
+    },
+  },
+  {
+    id: 'ctl-build', a: 'controller', b: 'luna', key: 'directive/lane-metrics', child: 'lane-brief',
+    lines: {
+      a: [
+        'claim the metrics lane; evidence paths mandatory in every packet',
+        'coherence pass is blocking — side-by-side must read as one product',
+        'fix rounds address rejected items only; no opportunistic refactors',
+        'screenshots at 1600×900 and 1280×800 are the only visual evidence',
+        'checkpoint before the phase fence; truncation is continuation',
+      ],
+      b: [
+        'claimed; preflight clean, no colliding session',
+        'phase 3 complete — 41/41 tests green, 2m18s. evidence: reports/q44-sweep.md',
+        'checkpoint written at phase 4 of 5; resuming after mission re-read',
+        'lease heartbeat fresh; FLIP row reorder underway',
+        'territory re-read before claim; metrics.css stays mine this wave',
+      ],
+    },
+  },
+  {
+    id: 'lane-brief', a: 'luna', b: 'sandbox', key: 'lane/fence-repro', child: null,
+    lines: {
+      a: [
+        'take the fence repro seat; remove-path test first',
+        'keep values ≤32KiB; split anything close before the store rejects',
+        'report evidence, not intent — packet template is in lane notes',
+        'snapshot the registry inside the fence window only',
+      ],
+      b: [
+        'seat claimed; repro flake narrowed to 1/20 runs',
+        'fence repro deterministic — 20/20 runs, 3m40s',
+        'artifacts pruned to the last 5 runs; quota freed',
+        'checkpoint at phase 2 of 4; registry snapshot taken',
+      ],
+    },
+  },
+  {
+    id: 'review-gem', a: 'terra', b: 'gem2', key: 'controller/review/15', child: 'fix-round',
+    lines: {
+      a: [
+        'review/15 pre-read: charter scope confirmed, evidence tree spot-checked',
+        'REJECT on criterion 3 — type floor: 11px ticks on metrics. one fix round',
+        're-review queued; failed criteria only',
+        'capture rig pinned to both sizes; verdict lands within one phase',
+        'ACCEPT — 17/17 criteria pass, 41s wall clock',
+      ],
+      b: [
+        'handback ready — ticks raised to 12px, floor verified at both sizes',
+        'evidence: reports/q45-filter-row.md; screenshots attached',
+        're-review requested; scope unchanged from the charter',
+        'packet linter added to the checklist to prevent repeats',
+      ],
+    },
+  },
+  {
+    id: 'fix-round', a: 'luna', b: 'gem2', key: 'builder/handback/9', child: null,
+    lines: {
+      a: [
+        'scope the fix to criterion 3 only; leave shared components alone',
+        'verify the floor at both test sizes before the handback',
+        'route the packet through builder/handback/9',
+      ],
+      b: [
+        'shared tick component untouched; change scoped to the metrics lane',
+        'both sizes re-captured; floor holds at 12px',
+        'handback 9 posted; re-review requested',
+      ],
+    },
+  },
+  {
+    id: 'helper-fanout', a: 'helperb', b: 'gem4', key: 'directive/fan-out-b', child: null,
+    lines: {
+      a: [
+        'lane 4: wheel-zoom slice is yours; graph tokens frozen for one phase',
+        'B-side mirror check first, then claim',
+        'monitor lanes stay read-only; heartbeats on your own lease only',
+        'directive fan-out done; re-read the map before claiming',
+      ],
+      b: [
+        'zoom pointer math verified at 0.55× and 1.7×',
+        'claim posted; fence respected on src/graph.js',
+        'phase 1 complete — 9/9 checks, 1m18s. evidence: reports/q53-zoom.md',
+        'bridge probe timed out once; retrying with backoff, tunnel OK',
+      ],
+    },
+  },
+  {
+    id: 'build-status', a: 'luna', b: 'gem4', key: 'builder/status', child: null,
+    lines: {
+      a: [
+        'status roll-up due at the next checkpoint; keep packets compact',
+        'collision check: nobody else on graph.css this phase',
+        'heartbeat before you sleep; stale leases get swept',
+      ],
+      b: [
+        'lease heartbeat fresh; phase 2 of 3 underway',
+        'checkpoint written; resuming after mission re-read',
+        'no colliding session in preflight; proceeding',
+      ],
+    },
+  },
+  {
+    id: 'fence-watch', a: 'gem2', b: 'sandbox', key: 'territory/fence', child: null,
+    lines: {
+      a: [
+        'worktree fence check: reports dir is reviewer territory',
+        'yielding config/agent-org.json to q38; re-claiming after checkpoint',
+        'junior lane yields on collision; that is the contract',
+      ],
+      b: [
+        'checkpoints ok in shared dir; reports stay reviewer-owned',
+        'fence re-verified; dirty file reverted before claim',
+        'quota freed; artifacts pruned to last 5 runs',
+      ],
+    },
+  },
+]
+
+function seedConv(d) {
+  const n = 15 + ri(0, 7)
+  const hist = []
+  let ago = 20 + Math.random() * 16
+  let side = Math.random() < 0.5 ? 'a' : 'b'
+  let last = ''
+  for (let i = 0; i < n; i++) {
+    let t = pick(d.lines[side])
+    if (t === last) t = pick(d.lines[side])
+    last = t
+    hist.push({ at: Date.now() - ago * H, s: side === 'a' ? d.a : d.b, t })
+    ago = Math.max(0.03, ago - (0.1 + Math.random() * (2 * ago / (n - i))))
+    if (Math.random() < 0.8) side = side === 'a' ? 'b' : 'a'
+  }
+  return hist
+}
+
+/* Board layout tree: { t:'leaf', c:convId } | { t:'split', dir, branch?, ch:[a,b] }.
+   Module-level so the whole board — histories, tiling, sizes, open chats —
+   persists across in-session navigation (C7 layout model). */
+const wbLeaf = (c) => ({ t: 'leaf', c })
+let WATCH = null
+function watchInit() {
+  if (WATCH) return WATCH
+  WATCH = {
+    convs: new Map(CONV_DEFS.map(d => [d.id, { ...d, hist: seedConv(d), side: 'a', _lastT: '' }])),
+    stack: ['coord-sync', 'review-gem', 'helper-fanout', 'build-status', 'fence-watch'].map(wbLeaf),
+    size: 'm',
+    mode: 'watch',
+    open: new Set(),
+  }
+  return WATCH
+}
+
 /* ---------- DOM builders ---------- */
 function msgEl(m, fresh = false) {
   const sender = SENDERS[m.s]
@@ -373,43 +563,60 @@ const dividerEl = (dk) => el(`<div class="day-div"><span>${dayLabel(dk)}</span><
 const PIN_SVG = `<svg viewBox="0 0 24 24"><path d="M15 3.5 20.5 9 14 12l-1.5 5.5-4-4L4 18l4.5-4.5-4-4L10 8l5-4.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>`
 
 export function commsView() {
+  const W = watchInit()
   const root = el(`
-    <div class="comms">
+    <div class="comms" data-mode="${W.mode}">
       <div class="comms-card glass">
         <header class="comms-head">
           <span class="head-hash">#</span><span class="head-name">directive</span>
           <span class="head-meta">agent-coord · cross-machine</span>
+          <span class="head-wt">watch board</span>
+          <span class="head-wt-meta">agent-coord · live conversations</span>
           <span class="spacer"></span>
+          <div class="wb-seg size-seg" role="group" aria-label="Box size">
+            <button type="button" data-size="s" title="Small boxes">S</button>
+            <button type="button" data-size="m" title="Medium boxes">M</button>
+            <button type="button" data-size="l" title="Large boxes">L</button>
+          </div>
+          <div class="wb-seg mode-seg" role="group" aria-label="Comms mode">
+            <button type="button" data-wmode="watch">Watch</button>
+            <button type="button" data-wmode="channels">Channels</button>
+          </div>
           <span class="head-live"><i></i>live</span>
           <span class="head-count"><b>0</b> agents</span>
         </header>
-        <div class="comms-sheet">
-          <aside class="ch-rail">
-            <div class="ch-rail-label">Channels</div>
-            <div class="ch-list"></div>
-            <div class="ch-rail-foot">
-              <span class="foot-line"><i class="ok"></i><span class="ft"><b>tunnel</b> :8787 · relay up</span></span>
-              <span class="foot-line"><i class="ok"></i><span class="ft"><b>bridge</b> :8788 · tools up</span></span>
-              <span class="foot-line"><span class="ft">A 192.168.214.2</span></span>
-              <span class="foot-line"><span class="ft">B 192.168.214.1</span><span class="foot-can">canonical</span></span>
-            </div>
-          </aside>
-          <section class="ch-main">
-            <div class="ch-view">
-              <div class="ch-topic"></div>
-              <div class="ch-log"></div>
-            </div>
-            <button class="jump-chip hidden">
-              <span class="jl">jump to latest</span>
-              <svg viewBox="0 0 24 24"><path d="M12 5v13m0 0 5.5-5.5M12 18l-5.5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <footer class="integ-row">
-              <i class="integ-dot"></i>
-              <span class="integ-main"><b>discord.send</b> · configured, no token · 0 messages sent</span>
-              <span class="integ-tag">dormant integration</span>
-              <span class="spacer"></span>
-              <span class="integ-note">writes via memory.set</span>
-            </footer>
+        <div class="comms-body">
+          <div class="watch-pane" data-size="${W.size}">
+            <div class="watch-stack"></div>
+          </div>
+          <section class="comms-sheet">
+            <aside class="ch-rail">
+              <div class="ch-rail-label">Channels</div>
+              <div class="ch-list"></div>
+              <div class="ch-rail-foot">
+                <span class="foot-line"><i class="ok"></i><span class="ft"><b>tunnel</b> :8787 · relay up</span></span>
+                <span class="foot-line"><i class="ok"></i><span class="ft"><b>bridge</b> :8788 · tools up</span></span>
+                <span class="foot-line"><span class="ft">A 192.168.214.2</span></span>
+                <span class="foot-line"><span class="ft">B 192.168.214.1</span><span class="foot-can">canonical</span></span>
+              </div>
+            </aside>
+            <section class="ch-main">
+              <div class="ch-view">
+                <div class="ch-topic"></div>
+                <div class="ch-log"></div>
+              </div>
+              <button class="jump-chip hidden">
+                <span class="jl">jump to latest</span>
+                <svg viewBox="0 0 24 24"><path d="M12 5v13m0 0 5.5-5.5M12 18l-5.5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <footer class="integ-row">
+                <i class="integ-dot"></i>
+                <span class="integ-main"><b>discord.send</b> · configured, no token · 0 messages sent</span>
+                <span class="integ-tag">dormant integration</span>
+                <span class="spacer"></span>
+                <span class="integ-note">writes via memory.set</span>
+              </footer>
+            </section>
           </section>
         </div>
       </div>
@@ -559,6 +766,571 @@ export function commsView() {
     sim.on('computers', renderCount),
   ]
 
+  /* ==========================================================
+     C7 — WATCH BOARD. Every box is the shared context-box chip
+     (.chip / .chip-preview / .as-chat + buildChat) laid out as
+     a fixed vertical stack that drag-splits into nested tiles.
+     ========================================================== */
+  const pane = root.querySelector('.watch-pane')
+  const stackEl = root.querySelector('.watch-stack')
+  const stackDrop = el(`<div class="wb-stackdrop"></div>`)
+  const wtMeta = root.querySelector('.head-wt-meta')
+  wtMeta.textContent = `agent-coord · ${W.convs.size} conversations`
+  const EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
+  const boxEls = new Map()            // convId -> chip element (this mount)
+  let dragTeardown = null
+
+  /* ----- tree helpers ----- */
+  function locate(target, list = W.stack, parentSplit = null) {
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i]
+      if (n === target) return { list, index: i, parentSplit }
+      if (n.t === 'split') { const r = locate(target, n.ch, n); if (r) return r }
+    }
+    return null
+  }
+  function findLeafByConv(cid, list = W.stack) {
+    for (const n of list) {
+      if (n.t === 'leaf' && n.c === cid) return n
+      if (n.t === 'split') { const r = findLeafByConv(cid, n.ch); if (r) return r }
+    }
+    return null
+  }
+  function eachSplit(fn, list = W.stack) {
+    for (const n of list) if (n.t === 'split') { fn(n); eachSplit(fn, n.ch) }
+  }
+  const primaryConv = (n) => n.t === 'leaf' ? n.c : primaryConv(n.ch[0])
+  function subtreeHas(rootN, target) {
+    if (rootN === target) return true
+    return rootN.t === 'split' && (subtreeHas(rootN.ch[0], target) || subtreeHas(rootN.ch[1], target))
+  }
+  function replaceNode(oldN, newN) {
+    const loc = locate(oldN)
+    if (loc) loc.list[loc.index] = newN
+  }
+  function detach(node) {
+    const loc = locate(node)
+    if (!loc) return
+    if (!loc.parentSplit) { loc.list.splice(loc.index, 1); return }
+    const P = loc.parentSplit
+    const sibling = P.ch[loc.index === 0 ? 1 : 0]
+    replaceNode(P, sibling)
+  }
+  /* the draggable unit for a box: a branch parent carries its whole pairing;
+     a branch child stays pinned to its parent */
+  function findDragNode(cid) {
+    let node = findLeafByConv(cid)
+    if (!node) return null
+    for (;;) {
+      const loc = locate(node)
+      if (!loc || !loc.parentSplit) return node
+      if (loc.parentSplit.branch) {
+        if (loc.parentSplit.ch[0] === node) { node = loc.parentSplit; continue }
+        return null
+      }
+      return node
+    }
+  }
+  const dropTargetNode = findDragNode      // same climb: split around branch pairs
+
+  const findBranchByParent = (cid) => {
+    let found = null
+    eachSplit(s => { if (!found && s.branch && s.ch[0].t === 'leaf' && s.ch[0].c === cid) found = s })
+    return found
+  }
+  const findBranchByChild = (cid) => {
+    let found = null
+    eachSplit(s => { if (!found && s.branch && primaryConv(s.ch[1]) === cid) found = s })
+    return found
+  }
+
+  /* ----- box construction (the reused chip component) ----- */
+  function previewLineEl(m) {
+    return el(`<div class="cl"><b>${esc(shortName(m.s))}</b> · ${esc(m.t)}</div>`)
+  }
+  function chatMsgEl(d, m) {
+    const side = m.s === d.a ? 'them' : 'me'
+    return el(`<div class="msg ${side}"><span class="who">${esc(shortName(m.s))}</span>${esc(m.t)}</div>`)
+  }
+
+  function boxOf(cid) {
+    let box = boxEls.get(cid)
+    if (box) return box
+    const d = W.convs.get(cid)
+    const dom = domOf(d)
+    const ra = ROLES[SENDERS[d.a].role]
+    const rb = ROLES[SENDERS[d.b].role]
+    box = el(`
+      <div class="chip wb-box role-${SENDERS[dom].role}" data-conv="${cid}"
+           data-agent="${esc(SENDERS[dom].tag)}" data-importance="${impOf(d)}">
+        <div class="wb-head">
+          <span class="wb-pair">
+            <i class="wb-dot" style="background:${ra.hex};box-shadow:0 0 calc(7px * var(--glow)) ${ra.glow}"></i><span class="wb-name">${esc(shortName(d.a))}</span>
+            <span class="wb-x">↔</span>
+            <i class="wb-dot" style="background:${rb.hex};box-shadow:0 0 calc(7px * var(--glow)) ${rb.glow}"></i><span class="wb-name">${esc(shortName(d.b))}</span>
+          </span>
+          <span class="wb-key">${esc(d.key)}</span>
+          <span class="spacer"></span>
+          <button type="button" class="wb-btn wb-branch" title="Open sub-conversation" aria-pressed="false" ${d.child ? '' : 'hidden'}>
+            <svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="1.7" fill="currentColor"/><path d="M7 7v6a4 4 0 0 0 4 4h5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="m13.5 14 3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="wb-btn wb-restack" title="Return to stack">
+            <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h8M5 17h8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M17.5 17.5v-6m0 0L15 14m2.5-2.5L20 14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="wb-btn wb-dismiss" title="Close sub-conversation">
+            <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="chip-preview"></div>
+        <div class="wb-drop"><i></i></div>
+      </div>
+    `)
+    const pv = box.querySelector('.chip-preview')
+    for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(m))
+    requestAnimationFrame(() => { pv.scrollTop = pv.scrollHeight })
+
+    box._pvFollow = true
+    box._chatFollow = true
+    pv.addEventListener('scroll', () => {
+      box._pvFollow = pv.scrollHeight - pv.scrollTop - pv.clientHeight < 36
+    })
+    // pause-on-hover: text never moves under the cursor
+    box.addEventListener('mouseenter', () => { box._hover = true })
+    box.addEventListener('mouseleave', () => {
+      box._hover = false
+      if (box._pvFollow) pv.scrollTop = pv.scrollHeight
+      const log = box.querySelector('.chat-log')
+      if (log && box._chatFollow) log.scrollTop = log.scrollHeight
+    })
+    box.addEventListener('animationend', (e) => {
+      if (e.animationName === 'wbPulse') box.classList.remove('pulse')
+    })
+
+    box.querySelector('.wb-branch').addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggleBranch(cid)
+    })
+    box.querySelector('.wb-restack').addEventListener('click', (e) => {
+      e.stopPropagation()
+      const node = findDragNode(cid)
+      if (!node) return
+      const loc = locate(node)
+      if (!loc || !loc.parentSplit) return
+      flipBoard(() => { detach(node); W.stack.push(node) })
+    })
+    box.querySelector('.wb-dismiss').addEventListener('click', (e) => {
+      e.stopPropagation()
+      const s = findBranchByChild(cid)
+      if (s) flipBoard(() => replaceNode(s, s.ch[0]))
+    })
+    box.addEventListener('pointerdown', (e) => onBoxPointerDown(e, box))
+
+    boxEls.set(cid, box)
+    if (W.open.has(cid)) openChatBox(cid, true)
+    return box
+  }
+
+  /* ----- expand ↔ collapse: the graph chips' FLIP morph, verbatim ----- */
+  const stackChatPx = () => Math.min(Math.round(window.innerHeight * 0.48), 460)
+  function openChatBox(cid, instant = false) {
+    const box = boxEls.get(cid)
+    const d = W.convs.get(cid)
+    if (!box || box.classList.contains('as-chat')) return
+    W.open.add(cid)
+    clearTimeout(box._t)
+    box.querySelector('.chat')?.remove()
+    const inStack = box.classList.contains('stack-leaf')
+    if (inStack && !instant && !reduced()) {
+      box.style.height = box.offsetHeight + 'px'
+      void box.offsetWidth
+    }
+    box.classList.add('as-chat')
+    const chat = buildChat({
+      title: `${shortName(d.a)} ↔ ${shortName(d.b)}`,
+      subtitle: d.key,
+      roleKey: SENDERS[domOf(d)].role,
+      seed: 2,
+      onClose: () => closeChatBox(cid),
+    })
+    box.appendChild(chat)
+    const log = chat.querySelector('.chat-log')
+    for (const m of d.hist.slice(-6)) log.appendChild(chatMsgEl(d, m))
+    log.scrollTop = log.scrollHeight
+    box._chatFollow = true
+    log.addEventListener('scroll', () => {
+      box._chatFollow = log.scrollHeight - log.scrollTop - log.clientHeight < 36
+    })
+    if (inStack && !instant && !reduced()) {
+      box.style.height = stackChatPx() + 'px'
+      box._t = setTimeout(() => { box.style.height = '' }, 520)
+      timers.push(box._t)
+    }
+  }
+  function closeChatBox(cid) {
+    const box = boxEls.get(cid)
+    if (!box || !box.classList.contains('as-chat')) return
+    W.open.delete(cid)
+    clearTimeout(box._t)
+    const inStack = box.classList.contains('stack-leaf')
+    if (inStack && !reduced()) {
+      box.style.height = box.offsetHeight + 'px'
+      void box.offsetWidth
+    }
+    box.classList.remove('as-chat')
+    if (inStack && !reduced()) requestAnimationFrame(() => { box.style.height = '' })
+    box._t = setTimeout(() => {
+      box.querySelector('.chat')?.remove()
+      const pv = box.querySelector('.chip-preview')
+      if (box._pvFollow) pv.scrollTop = pv.scrollHeight
+    }, 520)
+    timers.push(box._t)
+  }
+
+  /* ----- board rendering ----- */
+  function renderNode(node, top) {
+    if (node.t === 'leaf') {
+      const box = boxOf(node.c)
+      if (top) {
+        box.classList.add('stack-leaf')
+        box.classList.remove('in-split')
+        node._el = box
+        return box
+      }
+      const cell = el(`<div class="wb-cell"></div>`)
+      box.classList.add('in-split')
+      box.classList.remove('stack-leaf', 'dominant')
+      box.style.height = ''
+      cell.appendChild(box)
+      node._el = cell
+      return cell
+    }
+    const s = el(`<div class="wb-split ${node.dir}${node.branch ? ' branch' : ''}${top ? ' top-split' : ''}"></div>`)
+    if (node.branch) {
+      const pd = W.convs.get(primaryConv(node))
+      s.style.setProperty('--pair', ROLES[SENDERS[domOf(pd)].role].hex)
+    }
+    const c0 = renderNode(node.ch[0], false)
+    const c1 = renderNode(node.ch[1], false)
+    if (node.branch) c1.classList.add('pair-b')
+    s.append(c0, c1)
+    node._el = s
+    return s
+  }
+
+  function applyMarks() {
+    for (const box of boxEls.values()) {
+      box.classList.remove('branch-child', 'can-restack', 'dominant')
+      const btn = box.querySelector('.wb-branch')
+      btn.classList.remove('on')
+      btn.setAttribute('aria-pressed', 'false')
+    }
+    eachSplit((s) => {
+      if (!s.branch) return
+      const child = boxEls.get(primaryConv(s.ch[1]))
+      child?.classList.add('branch-child')
+      const parent = boxEls.get(s.ch[0].c)
+      const btn = parent?.querySelector('.wb-branch')
+      if (btn) { btn.classList.add('on'); btn.setAttribute('aria-pressed', 'true') }
+    })
+    for (const cid of boxEls.keys()) {
+      const box = boxEls.get(cid)
+      if (!box.isConnected) continue
+      const node = findDragNode(cid)
+      if (node) {
+        const loc = locate(node)
+        if (loc && loc.parentSplit) box.classList.add('can-restack')
+      }
+    }
+    // base-stack dominance: the most important agent's box reads biggest
+    let best = null, bestImp = -1
+    for (const entry of W.stack) {
+      if (entry.t !== 'leaf') continue
+      const imp = impOf(W.convs.get(entry.c))
+      if (imp > bestImp) { bestImp = imp; best = entry }
+    }
+    if (best) boxEls.get(best.c)?.classList.add('dominant')
+  }
+
+  function applyWeights() {
+    // per split: the side holding the most important agent takes the larger
+    // share (~1.7×); a branch pairing always favours the parent conversation
+    const childEl = (n) => n._el
+    function weigh(node) {
+      if (node.t === 'leaf') return impOf(W.convs.get(node.c))
+      const ia = weigh(node.ch[0])
+      const ib = weigh(node.ch[1])
+      let wa = 1, wb = 1
+      if (node.branch) wa = 1.65
+      else if (ia > ib) wa = 1.7
+      else if (ib > ia) wb = 1.7
+      childEl(node.ch[0])?.style.setProperty('--w', wa)
+      childEl(node.ch[1])?.style.setProperty('--w', wb)
+      return Math.max(ia, ib)
+    }
+    for (const entry of W.stack) if (entry.t === 'split') weigh(entry)
+  }
+
+  function saveScrolls() {
+    const out = []
+    for (const [cid, box] of boxEls) {
+      if (!box.isConnected) continue
+      const pv = box.querySelector('.chip-preview')
+      const log = box.querySelector('.chat-log')
+      out.push([cid, pv?.scrollTop ?? 0, log?.scrollTop ?? null])
+    }
+    return out
+  }
+  function restoreScrolls(saved) {
+    for (const [cid, pvTop, logTop] of saved) {
+      const box = boxEls.get(cid)
+      if (!box?.isConnected) continue
+      const pv = box.querySelector('.chip-preview')
+      const log = box.querySelector('.chat-log')
+      if (pv) pv.scrollTop = box._pvFollow ? pv.scrollHeight : pvTop
+      if (log && logTop != null) log.scrollTop = box._chatFollow ? log.scrollHeight : logTop
+    }
+  }
+
+  function renderBoard() {
+    const saved = saveScrolls()
+    stackEl.textContent = ''
+    for (const entry of W.stack) stackEl.appendChild(renderNode(entry, true))
+    stackEl.appendChild(stackDrop)
+    applyMarks()
+    applyWeights()
+    restoreScrolls(saved)
+  }
+
+  /* FLIP the whole board through a structural change: measure every box,
+     mutate the tree, re-render, then glide each box from where it was. */
+  function flipBoard(mutate) {
+    if (reduced()) { mutate(); renderBoard(); return }
+    const first = new Map()
+    for (const [cid, b] of boxEls) if (b.isConnected) first.set(cid, b.getBoundingClientRect())
+    pane.classList.add('no-trans')
+    mutate()
+    renderBoard()
+    for (const [cid, b] of boxEls) {
+      if (!b.isConnected) continue
+      const l = b.getBoundingClientRect()
+      const f = first.get(cid)
+      if (!f) {
+        b.animate([{ opacity: 0, transform: 'scale(0.96)' }, { opacity: 1, transform: 'none' }], { duration: 340, easing: EASE })
+        continue
+      }
+      const dx = f.left - l.left, dy = f.top - l.top
+      const sx = f.width / Math.max(1, l.width), sy = f.height / Math.max(1, l.height)
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.02 && Math.abs(sy - 1) < 0.02) continue
+      b.animate(
+        [{ transformOrigin: '0 0', transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` },
+         { transformOrigin: '0 0', transform: 'none' }],
+        { duration: 460, easing: EASE },
+      )
+    }
+    requestAnimationFrame(() => pane.classList.remove('no-trans'))
+  }
+
+  /* ----- branches: child conversation slides in beside its parent ----- */
+  function toggleBranch(cid) {
+    const d = W.convs.get(cid)
+    if (!d.child) return
+    const open = findBranchByParent(cid)
+    if (open) {
+      flipBoard(() => replaceNode(open, open.ch[0]))
+      return
+    }
+    const L = findLeafByConv(cid)
+    if (!L) return
+    flipBoard(() => replaceNode(L, { t: 'split', dir: 'row', branch: true, ch: [L, wbLeaf(d.child)] }))
+  }
+
+  /* ----- drag-to-split tiling ----- */
+  let drag = null
+  function onBoxPointerDown(e, box) {
+    if (e.button !== 0 || drag) return
+    if (e.target.closest('.wb-btn, .chat-close, .chat-log, .chat-input, input, .wb-seg')) return
+    const cid = box.dataset.conv
+    const sx = e.clientX, sy = e.clientY
+    let started = false
+    let denied = false
+    const move = (ev) => {
+      if (started) { dragMove(ev); return }
+      if (denied || Math.hypot(ev.clientX - sx, ev.clientY - sy) < 7) return
+      const node = findDragNode(cid)
+      if (!node) { denied = true; return }
+      beginDrag(cid, node, box, ev)
+      started = true
+    }
+    const up = (ev) => {
+      if (started) endDrag(ev)
+      else if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 7 &&
+               !box.classList.contains('as-chat')) openChatBox(cid)
+      cleanup()
+    }
+    const cancel = () => { if (started) abortDrag(); cleanup() }
+    function cleanup() {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      dragTeardown = null
+    }
+    dragTeardown = () => { if (started) abortDrag(); cleanup() }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+  }
+
+  function beginDrag(cid, node, box, ev) {
+    const ghost = box.cloneNode(true)
+    ghost.querySelector('.chat')?.remove()
+    ghost.classList.remove('as-chat', 'pulse', 'dominant', 'stack-leaf', 'in-split', 'branch-child', 'can-restack')
+    ghost.classList.add('wb-ghost')
+    const r = box.getBoundingClientRect()
+    ghost.style.width = Math.min(r.width, 320) + 'px'
+    ghost.style.height = Math.min(r.height, 180) + 'px'
+    document.body.appendChild(ghost)
+    const srcEl = node.t === 'leaf' ? box : node._el
+    srcEl?.classList.add('drag-src')
+    document.body.classList.add('wb-dragging')
+    drag = { cid, node, box, srcEl, ghost, pending: null, lastDrop: null }
+    dragMove(ev)
+  }
+
+  function dragMove(ev) {
+    ev.preventDefault()
+    const g = drag.ghost
+    g.style.transform = `translate(${ev.clientX + 14}px, ${ev.clientY + 12}px)`
+    if (drag.lastDrop) { drag.lastDrop.classList.remove('show'); drag.lastDrop = null }
+    stackDrop.classList.remove('show')
+    drag.pending = null
+
+    const under = document.elementFromPoint(ev.clientX, ev.clientY)
+    const tbox = under?.closest('.wb-box')
+    if (tbox && tbox !== drag.box && tbox.closest('.watch-pane')) {
+      const tnode = dropTargetNode(tbox.dataset.conv)
+      if (tnode && tnode !== drag.node &&
+          !subtreeHas(drag.node, tnode) && !subtreeHas(tnode, drag.node)) {
+        const r = tbox.getBoundingClientRect()
+        const dx = (ev.clientX - (r.left + r.width / 2)) / r.width
+        const dy = (ev.clientY - (r.top + r.height / 2)) / r.height
+        const half = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'top' : 'bottom')
+        const overlay = tbox.querySelector('.wb-drop')
+        overlay.dataset.half = half
+        overlay.classList.add('show')
+        drag.lastDrop = overlay
+        drag.pending = { type: 'split', tnode, half }
+        return
+      }
+    }
+    if (under?.closest('.watch-pane')) {
+      stackDrop.classList.add('show')
+      drag.pending = { type: 'stack' }
+    }
+  }
+
+  function endDrag() {
+    const p = drag.pending
+    settleGhost()
+    if (p) {
+      const node = drag.node
+      flipBoard(() => {
+        detach(node)
+        if (p.type === 'split') {
+          const dir = (p.half === 'left' || p.half === 'right') ? 'row' : 'col'
+          const s = {
+            t: 'split', dir,
+            ch: (p.half === 'left' || p.half === 'top') ? [node, p.tnode] : [p.tnode, node],
+          }
+          replaceNode(p.tnode, s)
+        } else {
+          W.stack.push(node)
+        }
+      })
+    }
+    drag = null
+  }
+  function abortDrag() { settleGhost(); drag = null }
+  function settleGhost() {
+    const { ghost, srcEl, lastDrop } = drag
+    lastDrop?.classList.remove('show')
+    stackDrop.classList.remove('show')
+    srcEl?.classList.remove('drag-src')
+    document.body.classList.remove('wb-dragging')
+    if (reduced()) { ghost.remove(); return }
+    ghost.animate([{ opacity: 0.9 }, { opacity: 0 }], { duration: 150, easing: 'ease-out' })
+      .finished.then(() => ghost.remove()).catch(() => ghost.remove())
+  }
+
+  /* ----- live conversation stream: pulse + auto-follow ----- */
+  function genLine(d) {
+    if (Math.random() < 0.8) d.side = d.side === 'a' ? 'b' : 'a'
+    const s = d.side === 'a' ? d.a : d.b
+    let t = pick(d.lines[d.side])
+    if (t === d._lastT) t = pick(d.lines[d.side])
+    d._lastT = t
+    return { at: Date.now(), s, t }
+  }
+  function pickConv() {
+    const pool = []
+    for (const d of W.convs.values()) {
+      const visible = boxEls.get(d.id)?.isConnected
+      pool.push([d, visible ? 3 + impOf(d) : 1])
+    }
+    const total = pool.reduce((n, [, w]) => n + w, 0)
+    let r = Math.random() * total
+    for (const [d, w] of pool) { r -= w; if (r < 0) return d }
+    return pool[0][0]
+  }
+  function watchArrive() {
+    const d = pickConv()
+    const line = genLine(d)
+    d.hist.push(line)
+    if (d.hist.length > 80) d.hist.splice(0, d.hist.length - 80)
+    const box = boxEls.get(d.id)
+    if (!box?.isConnected) return
+    const pv = box.querySelector('.chip-preview')
+    pv.appendChild(previewLineEl(line))
+    while (pv.children.length > 34) pv.firstElementChild.remove()
+    if (!box._hover && box._pvFollow) pv.scrollTop = pv.scrollHeight
+    if (box.classList.contains('as-chat')) {
+      const log = box.querySelector('.chat-log')
+      if (log) {
+        log.appendChild(chatMsgEl(d, line))
+        while (log.children.length > 40) log.firstElementChild.remove()
+        if (!box._hover && box._chatFollow) log.scrollTop = log.scrollHeight
+      }
+    }
+    box.classList.remove('pulse')
+    void box.offsetWidth
+    box.classList.add('pulse')
+  }
+  let watchT = 0
+  const watchSchedule = () => {
+    watchT = setTimeout(() => { watchArrive(); watchSchedule() }, 3600 + Math.random() * 5200)
+    timers.push(watchT)
+  }
+  watchSchedule()
+
+  /* ----- mode + size controls ----- */
+  const modeBtns = [...root.querySelectorAll('.mode-seg button')]
+  const sizeBtns = [...root.querySelectorAll('.size-seg button')]
+  function setMode(m) {
+    W.mode = m
+    root.dataset.mode = m
+    modeBtns.forEach(b => b.classList.toggle('on', b.dataset.wmode === m))
+  }
+  function setSize(s) {
+    W.size = s
+    pane.dataset.size = s
+    sizeBtns.forEach(b => b.classList.toggle('on', b.dataset.size === s))
+  }
+  modeBtns.forEach(b => b.addEventListener('click', () => setMode(b.dataset.wmode)))
+  sizeBtns.forEach(b => b.addEventListener('click', () => setSize(b.dataset.size)))
+  modeBtns.forEach(b => b.classList.toggle('on', b.dataset.wmode === W.mode))
+  sizeBtns.forEach(b => b.classList.toggle('on', b.dataset.size === W.size))
+
+  renderBoard()
+
   /* ---- initial channel ---- */
   railItems.get('directive').classList.add('active')
   headName.textContent = 'directive'
@@ -567,6 +1339,7 @@ export function commsView() {
   return {
     el: root,
     destroy() {
+      dragTeardown?.()
       timers.forEach(clearTimeout)
       unsubs.forEach(fn => fn())
     },
