@@ -330,3 +330,157 @@
   .ch-mach { display: none; }
   .integ-note { display: none; }
 }
+
+/* ============================================================
+   C7 — WATCH BOARD (completes the salvaged watch-board JS)
+   The boxes ARE the shared chip component; these rules only
+   re-seat it in a scrollable, tileable board.
+   ============================================================ */
+
+.comms-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------- mode switching (data-mode on .comms) ---------- */
+.comms[data-mode="watch"] .comms-sheet { display: none; }
+.comms[data-mode="channels"] .watch-pane { display: none; }
+.comms[data-mode="channels"] .size-seg { display: none; }
+.comms .head-wt, .comms .head-wt-meta { display: none; }
+.comms[data-mode="watch"] .head-hash,
+.comms[data-mode="watch"] .head-name,
+.comms[data-mode="watch"] .head-meta { display: none; }
+.comms[data-mode="watch"] .head-wt { display: inline; font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }
+.comms[data-mode="watch"] .head-wt-meta { display: inline; font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+.watch-pane, .comms-sheet { animation: wbIn 0.32s var(--ease); }
+@keyframes wbIn { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---------- segmented controls in the header ---------- */
+.wb-seg { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: rgba(14, 23, 38, 0.05); flex: none; }
+.wb-seg button {
+  border: none; background: transparent; font-family: var(--font-ui);
+  font-size: 12.5px; font-weight: 620; color: var(--ink-3);
+  padding: 4px 11px; border-radius: 8px; cursor: pointer;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.wb-seg button:hover { color: var(--ink-2); }
+.wb-seg button.on {
+  background: #fff; color: var(--ink);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 8px -3px rgba(14, 23, 38, 0.25);
+}
+
+/* ---------- the board itself ---------- */
+.watch-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 22px; }
+.watch-stack { display: flex; flex-direction: column; gap: 12px; max-width: 1060px; margin: 0 auto; }
+.watch-pane.no-trans * { transition: none !important; }
+
+/* preview height scale — the size control; dominant boxes read ~1.7× */
+.watch-pane[data-size="s"] { --pv-h: 92px; --pv-dom: 158px; }
+.watch-pane[data-size="m"] { --pv-h: 152px; --pv-dom: 258px; }
+.watch-pane[data-size="l"] { --pv-h: 232px; --pv-dom: 392px; }
+
+/* ---------- the reused chip, re-seated as a board tile ---------- */
+.watch-pane .chip {
+  position: relative; width: auto; z-index: auto;
+  cursor: grab;
+}
+.watch-pane .chip:active { cursor: grabbing; }
+.wb-box { display: flex; flex-direction: column; min-height: 0; }
+.wb-box .chip-preview {
+  overflow-y: auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 3px;
+  max-height: var(--pv-h, 152px);
+  transition: max-height 0.45s var(--ease);
+  scrollbar-width: thin;
+}
+.wb-box.dominant .chip-preview { max-height: var(--pv-dom, 258px); }
+.wb-box.dominant { background: rgba(255, 255, 255, 0.62); }
+.wb-box.dominant .wb-name { font-size: 14.5px; }
+/* readable, wrapping context lines — the board is for reading, 13px floor */
+.watch-pane .chip .cl {
+  font-size: 13px; line-height: 1.55;
+  white-space: normal; overflow: visible; text-overflow: clip;
+}
+.watch-pane .chip .cl b { font-weight: 640; }
+
+/* box header: pair · key · actions */
+.wb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; min-width: 0; }
+.wb-pair { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; }
+.wb-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.wb-name { font-size: 13.5px; font-weight: 650; color: var(--ink); white-space: nowrap; }
+.wb-x { color: var(--ink-4); font-size: 12.5px; flex: none; }
+.wb-key {
+  font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.wb-btn {
+  width: 27px; height: 27px; border-radius: 8px; border: none; flex: none;
+  background: transparent; color: var(--ink-3); cursor: pointer;
+  display: grid; place-items: center;
+  transition: background 0.2s, color 0.2s;
+}
+.wb-btn svg { width: 15px; height: 15px; }
+.wb-btn:hover { background: rgba(14, 23, 38, 0.06); color: var(--ink); }
+.wb-btn.wb-branch.on { color: var(--c-coordinator); }
+.wb-restack, .wb-dismiss { display: none; }
+.wb-box.can-restack .wb-restack { display: grid; }
+.wb-box.branch-child .wb-dismiss { display: grid; }
+
+/* expanded chat inside the board (chip.as-chat sizes are graph-specific) */
+.watch-pane .chip.as-chat { width: auto; cursor: default; }
+.watch-pane .wb-box.as-chat.stack-leaf { height: min(48vh, 460px); }
+.watch-pane .chip.as-chat .wb-head { margin-bottom: 4px; }
+.wb-cell .chip.as-chat { height: 100%; }
+
+/* ---------- splits: nested tiles ---------- */
+.wb-split { display: flex; gap: 12px; min-height: 0; min-width: 0; flex: var(--w, 1); }
+.wb-split.row { flex-direction: row; }
+.wb-split.col { flex-direction: column; }
+.watch-stack > .wb-split { min-height: 340px; max-height: 64vh; }
+.watch-stack > .wb-split.col { min-height: 420px; }
+.wb-cell { flex: var(--w, 1); min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.wb-cell > .chip { flex: 1; min-height: 0; }
+.wb-cell .chip-preview { max-height: none; flex: 1; }
+
+/* branch pairing: a thin role-tinted spine joins parent and child */
+.wb-split.branch { position: relative; padding-left: 11px; }
+.wb-split.branch::before {
+  content: ""; position: absolute; left: 0; top: 10%; bottom: 10%; width: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--pair, var(--c-coordinator)) 55%, white);
+}
+.wb-split.branch > .pair-b .chip {
+  border-color: color-mix(in oklab, var(--pair, var(--c-coordinator)) 32%, white);
+}
+
+/* ---------- drag: ghost, sources, drop indicators ---------- */
+body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+.drag-src { opacity: 0.45; }
+.wb-ghost {
+  position: fixed; left: 0; top: 0; z-index: 220;
+  pointer-events: none; opacity: 0.92; overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 60px -20px rgba(14, 23, 38, 0.45);
+  transform: translate(-500px, -500px);
+}
+.wb-drop { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity 0.16s var(--ease); }
+.wb-drop.show { opacity: 1; }
+.wb-drop i {
+  position: absolute; inset: 6px; border-radius: 10px;
+  background: color-mix(in oklab, var(--c-coordinator) 13%, transparent);
+  border: 1.5px solid color-mix(in oklab, var(--c-coordinator) 45%, white);
+  transition: inset 0.15s var(--ease);
+}
+.wb-drop[data-half="left"] i { right: 50%; }
+.wb-drop[data-half="right"] i { left: 50%; }
+.wb-drop[data-half="top"] i { bottom: 50%; }
+.wb-drop[data-half="bottom"] i { top: 50%; }
+.wb-stackdrop {
+  display: none; height: 62px; margin-top: 2px; border-radius: 14px;
+  border: 1.5px dashed var(--line-2);
+  background: rgba(255, 255, 255, 0.4);
+}
+.wb-stackdrop.show { display: block; animation: wbIn 0.18s var(--ease); }
+
+/* ---------- activity pulse (quiet, self-clearing) ---------- */
+.wb-box.pulse { animation: wbPulse 0.9s var(--ease); }
+@keyframes wbPulse {
+  0%, 100% { outline: 1.5px solid transparent; outline-offset: 3px; }
+  35% { outline: 1.5px solid color-mix(in oklab, var(--gc, #45d6ff) 55%, transparent); outline-offset: 3px; }
+}
