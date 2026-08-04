@@ -258,8 +258,15 @@ export function agentView({ compId, agentId, navigate }) {
 
   // subtree graph, rooted at this agent, chips on every bubble
   const canvas = el(`<div style="position:absolute;inset:0"></div>`)
+  // A context box placed clear of every bubble can end up far from the agent
+  // it describes, which makes "which box is whose" a puzzle. One hairline
+  // from the box back to its own bubble answers that instantly, and costs
+  // nothing at rest — the layer is empty until a chip is placed.
+  const cxLinks = document.createElementNS(SVG_NS, 'svg')
+  cxLinks.setAttribute('class', 'cx-links')
   const gwrap = root.querySelector('.agentv-graph')
   gwrap.insertBefore(canvas, gwrap.firstChild)
+  canvas.appendChild(cxLinks)
   const graph = new FleetGraph(canvas, {
     computer,
     rootId: agent.id,
@@ -357,15 +364,18 @@ export function agentView({ compId, agentId, navigate }) {
     // the badge's own open/close handlers) plus the placements map together
     // say whether any work can possibly exist, so the resting cost is now two
     // integer reads instead of a DOM query.
-    if (!openHint.size && !placements.size) return
+    // Chips are visible at rest now (the owner wants the grey context boxes
+    // on this page so an agent is identifiable and chattable at a glance),
+    // so the loop always has work while any chip exists. The placements map
+    // still short-circuits the expensive search when nothing has moved.
+    if (!canvas.querySelector('.chip:not(.as-chat)') && !placements.size) return
     const now = performance.now()
     // hand positioning back to graph.js's own transform once a chip is no
     // longer revealed — immediately if it morphed into the inline chat (which
     // graph.js sizes and places itself), otherwise after the fade-out so the
     // closing chip does not visibly jump mid-fade
     for (const [chipEl, st] of placements) {
-      const revealed = chipEl.isConnected &&
-        chipEl.classList.contains('cx-open') && !chipEl.classList.contains('as-chat')
+      const revealed = chipEl.isConnected && !chipEl.classList.contains('as-chat')
       if (revealed) { st.closedAt = 0; continue }
       if (!st.closedAt) st.closedAt = now
       if (!chipEl.isConnected || chipEl.classList.contains('as-chat') || now - st.closedAt > 400) {
@@ -375,7 +385,7 @@ export function agentView({ compId, agentId, navigate }) {
         placements.delete(chipEl)
       }
     }
-    const openChips = canvas.querySelectorAll('.chip.cx-open:not(.as-chat)')
+    const openChips = canvas.querySelectorAll('.chip:not(.as-chat)')
     // the DOM is the authority: if nothing is actually revealed, drop the hint
     // (this is what clears an entry whose chip was removed or morphed to chat
     // while still open) and let the loop go back to resting
@@ -433,7 +443,34 @@ export function agentView({ compId, agentId, navigate }) {
       placements.set(chipEl, {
         x: slot.x, y: slot.y, cw, ch, clear: slot.clear, sig, applied: true, closedAt: 0,
       })
+      drawLink(chipEl, rec, slot.x, slot.y, cw, ch)
     })
+    // drop connectors whose chip is gone
+    for (const [key, line] of cxLine) {
+      if (!key.isConnected || !placements.has(key)) { line.remove(); cxLine.delete(key) }
+    }
+  }
+
+  /** One hairline from the box's nearest edge to the bubble's rim. */
+  const cxLine = new Map()
+  function drawLink(chipEl, rec, x, y, cw, ch) {
+    let line = cxLine.get(chipEl)
+    if (!line) {
+      line = document.createElementNS(SVG_NS, 'line')
+      line.setAttribute('class', 'cx-link')
+      cxLinks.appendChild(line)
+      cxLine.set(chipEl, line)
+    }
+    // start at the point on the box nearest the bubble, end on the bubble rim
+    const bx = Math.max(x, Math.min(rec.x, x + cw))
+    const by = Math.max(y, Math.min(rec.y, y + ch))
+    const dx = rec.x - bx, dy = rec.y - by
+    const d = Math.hypot(dx, dy) || 1
+    line.setAttribute('x1', bx.toFixed(1))
+    line.setAttribute('y1', by.toFixed(1))
+    line.setAttribute('x2', (rec.x - (dx / d) * (rec.r + 3)).toFixed(1))
+    line.setAttribute('y2', (rec.y - (dy / d) * (rec.r + 3)).toFixed(1))
+    line.style.stroke = getComputedStyle(rec.el).getPropertyValue('--rc') || 'currentColor'
   }
 
   const rimObserver = new MutationObserver((muts) => {
