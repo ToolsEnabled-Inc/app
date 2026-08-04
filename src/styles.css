@@ -122,6 +122,12 @@
   --r-md: 3px;
   --r-sm: 2px;
 
+  /* PAGE COLUMN — the one content measure. Every route's outermost container
+     and the topbar share this column (home's 1360 box − 2×60 padding lands on
+     the same 1240), so the content edge never moves on navigation. */
+  --page-max: 1240px;
+  --page-gutter: 16px;
+
   --font-ui: "Inter Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
 
@@ -479,7 +485,8 @@ body {
    shadow: the controls simply float. */
 .topbar {
   position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-  width: min(1240px, calc(100vw - 32px));
+  /* same box as before, now stated in the shared page-column tokens */
+  width: min(var(--page-max), calc(100vw - 2 * var(--page-gutter)));
   height: 44px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 2px;
@@ -545,7 +552,9 @@ body {
 .view.exit  { opacity: 0; transform: translateY(-10px) scale(0.995); pointer-events: none; }
 /* 40px bottom gutter is 4px off every step in both directions, so it stays
    literal rather than being forced to 24px or 48px */
-.view-pad { height: 100%; overflow-y: auto; padding: var(--s2) clamp(16px, 4vw, 48px) 40px; }
+/* side padding = the page gutter, not a wider clamp: below ~1336px the old
+   48px inset left the content 32px shy of the topbar's edge */
+.view-pad { height: 100%; overflow-y: auto; padding: var(--s2) var(--page-gutter) 40px; }
 
 /* ============================================================
    HOME
@@ -821,7 +830,9 @@ body {
 /* ============================================================
    COMPUTERS
    ============================================================ */
-.computers { height: 100%; display: flex; flex-direction: column; padding: 0 clamp(14px, 2.5vw, 32px) 20px; gap: var(--s3); }
+/* adopt the shared page column: gutters live OUTSIDE the box (width + auto
+   margins), never as inner padding, so box edge == content edge == topbar */
+.computers { height: 100%; display: flex; flex-direction: column; padding: 0 0 20px; width: min(var(--page-max), calc(100% - 2 * var(--page-gutter))); margin-inline: auto; gap: var(--s3); }
 
 .tabs { display: flex; gap: var(--s2); align-items: center; flex: none; padding: 2px; }
 .tab {
@@ -1382,7 +1393,8 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 /* ============================================================
    AGENT PAGE  (subtree · chat | controls, scroll-snap)
    ============================================================ */
-.agentv { height: 100%; display: flex; flex-direction: column; gap: var(--s3); padding: 0 clamp(14px, 2.5vw, 32px) 20px; }
+/* same page-column adoption as .computers — see the comment there */
+.agentv { height: 100%; display: flex; flex-direction: column; gap: var(--s3); padding: 0 0 20px; width: min(var(--page-max), calc(100% - 2 * var(--page-gutter))); margin-inline: auto; }
 /* min-height was 240px — QA measured the label-avoidance system running out
    of geometric room at small viewports (a 63px clamp-band deficit at
    1280x800); this floor gives it more to work with there specifically. */
@@ -1416,7 +1428,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 /* ============================================================
    METRICS
    ============================================================ */
-.metrics { display: flex; flex-direction: column; gap: var(--s3); max-width: 1240px; margin: 0 auto; }
+.metrics { display: flex; flex-direction: column; gap: var(--s3); max-width: var(--page-max); margin: 0 auto; }
 .m-row { display: grid; gap: var(--s3); }
 .m-tiles { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 /* auto-fit knows the tile minimum but not the tile COUNT: with six tiles it

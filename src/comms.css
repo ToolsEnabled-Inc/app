@@ -16,10 +16,12 @@
 
 .comms {
   height: 100%;
-  width: 100%;
-  max-width: 1240px;
+  /* the shared page column (styles.css tokens): gutters sit outside the box,
+     not as inner padding — the old inner clamp put comms 32px inside the
+     column every other route's content edge sits on */
+  width: min(var(--page-max), calc(100% - 2 * var(--page-gutter)));
   margin: 0 auto;
-  padding: 0 clamp(14px, 2.5vw, 32px) 20px;
+  padding: 0 0 20px;
   display: flex;
   flex-direction: column;
 }
