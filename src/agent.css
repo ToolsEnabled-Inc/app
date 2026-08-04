@@ -225,15 +225,63 @@
      above), both of which graph.js owns. */
   transform: none !important;
 }
-/* Last resort, driven by agent.js: on a canvas so crowded that no pocket
+/* Last resort, driven by agent.js: on a canvas so crowded that no lane
    anywhere fits the full preview, the chip keeps its name and first context
-   line only — a shorter box fits gaps a 3-line one cannot, and the reading
+   line only — a shorter box fits gaps a taller one cannot, and the reading
    text stays at the 13px floor set below (nothing is scaled down).
    n+3, not n+2: the agent name is its own .cl now (it used to be a prefix on
    the first context line), so the old selector would drop the name row's
-   companion and leave a chip that says who but not what. */
-.agentv-graph .chip.cx-open.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 3) {
+   companion and leave a chip that says who but not what.
+   No .cx-open in the selector any more, and that was not cosmetic: the boxes
+   are visible at rest on this page, so requiring the hover-reveal state meant
+   the whole escalation was inert. agent.js would set .cx-tight, the box would
+   not get one pixel shorter, and the placement that was supposed to fit the
+   shorter box was re-attempted against the same height it had just failed —
+   which is why the 1280 canvas showed 3 of 5 boxes and quietly stayed there. */
+.agentv-graph .chip.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 3) {
   display: none;
+}
+/* ...and the line that survives is allowed to WRAP.
+
+   Measured on the placed boxes: every context line was ellipsised, at every
+   width — 5 of 5 at 1600, 10 of 10 at 1920 — because the vocabulary runs to
+   374px of text through a 202px reading column, an 85% overflow. Ellipsis
+   cannot fix an overflow that large; it just decides which fragment you get
+   ("regenerating per-namespa...", "staging refresh task for..."). Widening the
+   box cannot fix it either: five boxes at the ~396px needed would want 1980px
+   of strip.
+   So the box stops trying to fit a line and starts fitting a THOUGHT. Two
+   wrapped rows carry the whole sentence, which is what the box is for — a
+   reader who can see "regenerating per-namespace tool digest" knows what that
+   agent is doing, and a reader who can see "regenerating per-namespa..." does
+   not. Clamped at 2 so the box's height stays bounded and the placement
+   solver's lanes stay predictable; agent.js measures the real offsetHeight
+   every pass, so it adapts to whatever this costs. */
+.agentv-graph .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: clip;
+}
+/* The PREVIOUS activity line goes, at every width, not just the crowded ones.
+   Two context lines were never both readable here — that is what the 5-of-5
+   and 10-of-10 ellipsis counts were measuring — and between "what this agent
+   is doing, in full" and "two halves of two different sentences", the first is
+   the whole reason the box is on the page. */
+.agentv-graph .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) ~ .cl:not(.cl-name) {
+  display: none;
+}
+/* ...which is what gives the tight form a lever again. Wrapping had cost
+   .cx-tight its entire purpose: dropping a line saved 19px while wrapping the
+   survivor added 19px, so the "compact" box was exactly as tall as the full
+   one and the solver had nothing to trade. Tight now means one row of activity
+   instead of two — a genuine 74px -> 55px — so it can still buy back a box on
+   a canvas that truly cannot hold five full ones. */
+.agentv-graph .chip.cx-tight:not(.as-chat) .chip-preview .cl:not(.cl-name) {
+  -webkit-line-clamp: 1;
+  text-overflow: ellipsis;
 }
 /* the corner badge — always exactly on its own bubble, so it can never
    itself be the thing overlapping a *different* node */

@@ -54,11 +54,9 @@ function buildRim() {
 // In this page's ~240px-tall strip a 168x56 chip collides with all eight, so
 // it silently settled on a visibly overlapping slot (chips sitting on their
 // own COORDINATOR'S HELPER role row, or on a neighbour's name+role block).
-// Clearance is now a HARD constraint, never a cost: a candidate is only ever
-// accepted if it clears every bubble disc and every label rect outright, and
-// the search is wide enough to actually find one — a ring sweep outward from
-// the node first (nearest, still-attached slots), then an exhaustive 8px grid
-// pass over the whole canvas that cannot step past a narrow pocket.
+// Clearance became a HARD constraint, never a cost, and stays one here: a
+// candidate is only ever accepted if it clears every bubble disc and every
+// label rect outright.
 //
 // Everything is measured in the graph's own untransformed local coordinates —
 // bubble center/radius come straight from graph.nodes (never re-derived from
@@ -80,13 +78,21 @@ function rectsOverlap(a, b) {
 // clear at any device pixel ratio.
 const BUBBLE_SCALE = 1.07
 const CLEAR_PAD = 3
-const GRID_STEP = 8
 
 /** Bubble disc + node-name/node-role label rects of one graph.nodes record,
  *  in local graph-canvas coordinates, each already inflated by the paint-time
  *  scale and the safety pad. */
 function nodeObstacle(rec) {
-  const labels = []
+  // The bubble's own SQUARE box as well as its disc. .node shrink-wraps
+  // .node-glass, so that square is the element's real hit box — the corners
+  // outside the circle are still part of the bubble as far as anything reading
+  // the DOM is concerned, and a box tucked into one reads as touching even
+  // when the painted circle is technically clear. The disc stays because it is
+  // wider than the square at the midpoints once the hover scale is applied.
+  const labels = [{
+    left: rec.x - rec.r - CLEAR_PAD, right: rec.x + rec.r + CLEAR_PAD,
+    top: rec.y - rec.r - CLEAR_PAD, bottom: rec.y + rec.r + CLEAR_PAD,
+  }]
   for (const sel of ['.node-name', '.node-role']) {
     const label = rec.el.querySelector(sel)
     const w = label && label.offsetWidth, h = label && label.offsetHeight
@@ -121,67 +127,224 @@ function boxClearsAll(box, obstacles) {
   return true
 }
 
-/** Overlap area, used ONLY to rank the last-resort placement when a canvas
- *  genuinely has no clear pocket left at all (bubble approximated by its
- *  bounding box here — ranking only, never a clearance decision). */
-function boxOverlapArea(box, obstacles) {
-  let area = 0
-  for (const ob of obstacles) {
-    const rects = [{ left: ob.cx - ob.cr, top: ob.cy - ob.cr, right: ob.cx + ob.cr, bottom: ob.cy + ob.cr }, ...ob.labels]
-    for (const r of rects) {
-      if (!rectsOverlap(box, r)) continue
-      area += (Math.min(box.right, r.right) - Math.max(box.left, r.left)) *
-              (Math.min(box.bottom, r.bottom) - Math.max(box.top, r.top))
-    }
-  }
-  return area
-}
-
 const boxAt = (x, y, cw, ch) => ({ left: x, top: y, right: x + cw, bottom: y + ch })
 
-/** Find a slot for one open chip that clears EVERY obstacle. Ring sweep
- *  outward from its own node first (so the chip stays visually attached),
- *  then an exhaustive grid pass, nearest clear box wins. Returns
- *  `{ x, y, clear }`; `clear:false` only when no box anywhere in the canvas
- *  can clear everything at this chip size. */
-function findChipSlot(rec, cw, ch, obstacles, canvasW, canvasH) {
-  const minX = 6, minY = 6
-  const maxX = canvasW - cw - 6, maxY = canvasH - ch - 6
-  if (maxX < minX || maxY < minY) return null
-  // 1) ring sweep — nearest, still-attached slots first, angular resolution
-  //    kept at ~16px of arc so a wide ring cannot stride over a pocket
-  const start = rec.r + 14 + Math.min(cw, ch) / 2
-  const maxD = Math.hypot(canvasW, canvasH)
-  for (let d = start; d <= maxD; d += GRID_STEP) {
-    const steps = Math.max(24, Math.min(96, Math.round((2 * Math.PI * d) / 16)))
-    for (let k = 0; k < steps; k++) {
-      const a = (k / steps) * Math.PI * 2 - Math.PI / 2
-      const x = rec.x + Math.cos(a) * d - cw / 2
-      const y = rec.y + Math.sin(a) * d - ch / 2
-      if (x < minX || x > maxX || y < minY || y > maxY) continue
-      if (boxClearsAll(boxAt(x, y, cw, ch), obstacles)) return { x, y, clear: true }
+/* ---------------------------------------------------------------------------
+   BAND placement.
+
+   The search this replaces was a ring sweep outward from each node, then an
+   exhaustive grid, first-clear-wins, one box at a time in left-to-right node
+   order. It was collision-correct and spatially poor, for two reasons that are
+   both about the SHAPE of the free space rather than about the search:
+
+     · A ring sweep asks "how far from my bubble is the nearest hole", so an
+       early box happily takes a hole in the middle of a run and cuts that run
+       in two — leaving two 100px gaps where one 224px box would have fit. At
+       1440 and 1280 the last two boxes then had nowhere to go at all and were
+       withheld: 3 of 5 shown, which is the visible symptom.
+     · Greedy in order cannot trade. The box that reaches a hole first keeps
+       it even when a later box needed it far more, so total leader length was
+       whatever the arrival order happened to produce — 244px mean, 482px max.
+
+   This is a TREE layout, and that is worth exploiting. Every bubble sits on
+   one of a handful of tier rows, so the canvas's free space is not a scatter
+   of pockets: it is a few horizontal BANDS, each interrupted at known x by the
+   bubbles and labels of the rows it passes. Measured on this page the only
+   band tall enough for a 224x74 box is the one above the top tier — roughly
+   6..134 at every viewport — and the boxes are competing for lanes inside it.
+
+   So: scan the canvas as horizontal lanes, solve each lane's free x-runs in
+   closed form, and choose all the boxes' slots TOGETHER, minimising total
+   leader length. Since the free space is described as runs rather than sampled
+   points, boxes pack against each other instead of stranding gaps, and a box
+   is only withheld when the arithmetic says no arrangement fits it.
+   --------------------------------------------------------------------------- */
+const EDGE = 6           // canvas margin no box crosses
+const LANE_STEP = 6      // vertical resolution of the lane scan
+const CHIP_GAP = 10      // air between two boxes sharing a lane
+// A run's edge is, by construction, the exact point where a box grazes an
+// obstacle — and `sqrt` then square does not round-trip, so a slot clamped to
+// that edge can fail the very clearance test that produced it. Half a pixel of
+// slack on every blocked span keeps the closed-form answer on the safe side of
+// the check that ultimately decides whether a box paints.
+const SPAN_EPS = 0.5
+// Withholding a box is a legal move, not a failure state — it has to be, on a
+// canvas with four pockets and five boxes. Priced above any real leader the
+// 360px-tall strip can produce, so the solver spends it only when it must.
+const WITHHOLD_COST = 4000
+// Past roughly its own width, a box stops reading as attached to a bubble and
+// starts being something you have to trace a line to. Used as the bar the full
+// preview has to clear before the strip is allowed to keep it (see below).
+/* The leader length past which a box counts as stranded from its bubble and
+   the strip is better off compact. Deliberately NOT CHIP_W any more.
+   At CHIP_W (224) this fired at every width below 1920, and measured against
+   what the box is for that was the wrong trade: it bought a mean leader of
+   117px and paid for it by cutting EVERY activity line to about half
+   ("probing tunnel lan...", "indexing memory namespac..."), while letting it
+   ride cost mean 174 and cut none. A reader who can see the whole sentence
+   knows what the agent is doing; 174px of hairline to the bubble directly
+   below is not a hunt. 1.6x still catches a genuinely stranded box, and the
+   other trigger — a box withheld entirely — is untouched, so a canvas that
+   really cannot hold five full boxes still compacts rather than losing one. */
+const ATTACHED_REACH = Math.round(CHIP_W * 1.6)
+
+/** The x-interval of box LEFT edges that `ob` forbids for a row spanning
+ *  [y, y+ch]. The box width is folded in, so the result is directly a
+ *  forbidden range for x. null when the row misses the obstacle entirely.
+ *  The bubble term is the exact circle-vs-row chord, not the disc's bounding
+ *  box: near the top of the band the root bubble only steals about half the
+ *  width its bbox would claim, and that half is the difference between three
+ *  boxes fitting to the left of it and two. */
+function blockedSpan(ob, y, ch, cw) {
+  let lo = Infinity, hi = -Infinity
+  if (ob.cr > 0) {
+    const dv = Math.max(0, y - ob.cy, ob.cy - (y + ch))
+    if (dv < ob.cr) {
+      const hx = Math.sqrt(ob.cr * ob.cr - dv * dv)
+      lo = ob.cx - hx - cw
+      hi = ob.cx + hx
     }
   }
-  // 2) exhaustive grid over the whole canvas — nearest clear box to the node
-  let best = null, bestD = Infinity
-  for (let y = minY; y <= maxY; y += GRID_STEP) {
-    for (let x = minX; x <= maxX; x += GRID_STEP) {
-      if (!boxClearsAll(boxAt(x, y, cw, ch), obstacles)) continue
-      const dist = Math.hypot(x + cw / 2 - rec.x, y + ch / 2 - rec.y)
-      if (dist < bestD) { bestD = dist; best = { x, y, clear: true } }
+  for (const lb of ob.labels) {
+    if (lb.bottom <= y || lb.top >= y + ch) continue
+    lo = Math.min(lo, lb.left - cw)
+    hi = Math.max(hi, lb.right)
+  }
+  return hi > lo ? [lo - SPAN_EPS, hi + SPAN_EPS] : null
+}
+
+/** Free left-edge runs for a box row at `y`: [a, b] means every x in [a, b]
+ *  puts a cw x ch box clear of every obstacle at that height. */
+function laneRuns(y, cw, ch, obstacles, minX, maxX) {
+  const spans = []
+  for (const ob of obstacles) {
+    const s = blockedSpan(ob, y, ch, cw)
+    if (s) spans.push(s)
+  }
+  spans.sort((a, b) => a[0] - b[0])
+  const runs = []
+  let cur = minX
+  for (const [lo, hi] of spans) {
+    if (cur > maxX) break
+    if (lo > cur) runs.push([cur, Math.min(lo, maxX)])
+    if (hi > cur) cur = hi
+  }
+  if (cur <= maxX) runs.push([cur, maxX])
+  return runs
+}
+
+/** Every lane that can hold a box of this height, top to bottom. */
+function buildLanes(cw, ch, obstacles, canvasW, canvasH) {
+  const minX = EDGE, maxX = canvasW - cw - EDGE
+  const lanes = []
+  if (maxX < minX) return lanes
+  for (let y = EDGE; y <= canvasH - ch - EDGE; y += LANE_STEP) {
+    const runs = laneRuns(y, cw, ch, obstacles, minX, maxX)
+    if (runs.length) lanes.push({ y, runs })
+  }
+  return lanes
+}
+
+/** Runs minus the shadow an already-chosen box casts on this lane. */
+function subtractSpan(runs, lo, hi) {
+  const out = []
+  for (const [a, b] of runs) {
+    if (hi <= a || lo >= b) { out.push([a, b]); continue }
+    if (lo > a) out.push([a, lo])
+    if (hi < b) out.push([hi, b])
+  }
+  return out
+}
+
+/** The slots worth trying for one box, given what is already placed.
+ *  Three per (lane, run): the position nearest its own bubble, and both ends
+ *  of the run. The ends matter more than they look — "shove up against the end
+ *  of the run so the next box still has somewhere to go" is a move a
+ *  nearest-point-only candidate set cannot express at all, and without it a
+ *  box that could have shared the row gets exiled to a far corner that happens
+ *  to be free. Deduped and truncated to `limit`, so the branching stays a
+ *  handful of genuinely different options rather than a dozen near-copies from
+ *  adjacent lanes. */
+function slotCandidates(item, lanes, taken, cw, limit, mayWithhold) {
+  const out = []
+  const seen = new Set()
+  for (const lane of lanes) {
+    let runs = lane.runs
+    for (const t of taken) {
+      if (!t.box || t.box.y + t.box.ch <= lane.y || t.box.y >= lane.y + item.ch) continue
+      runs = subtractSpan(runs, t.box.x - cw - CHIP_GAP, t.box.x + cw + CHIP_GAP)
+      if (!runs.length) break
+    }
+    for (const [a, b] of runs) {
+      for (const x of [Math.min(Math.max(item.idealX, a), b), a, b]) {
+        const tag = `${Math.round(x / 8)}:${Math.round(lane.y / 12)}`
+        if (seen.has(tag)) continue
+        seen.add(tag)
+        out.push({
+          box: { x, y: lane.y, ch: item.ch },
+          cost: Math.hypot(x + cw / 2 - item.rec.x, lane.y + item.ch / 2 - item.rec.y),
+        })
+      }
     }
   }
-  if (best) return best
-  // 3) nothing clears at this size — rank the least-bad box on a coarse pass
-  //    (the caller first tries again with the compact .cx-tight chip)
-  let fx = minX, fy = minY, fs = Infinity
-  for (let y = minY; y <= maxY; y += GRID_STEP * 2) {
-    for (let x = minX; x <= maxX; x += GRID_STEP * 2) {
-      const s = boxOverlapArea(boxAt(x, y, cw, ch), obstacles)
-      if (s < fs) { fs = s; fx = x; fy = y }
-    }
+  out.sort((p, q) => p.cost - q.cost)
+  const picked = []
+  for (const c of out) {
+    if (picked.some(p => Math.abs(p.box.x - c.box.x) < cw * 0.25 &&
+                         Math.abs(p.box.y - c.box.y) < item.ch * 0.5)) continue
+    picked.push(c)
+    if (picked.length >= limit) break
   }
-  return { x: fx, y: fy, clear: false }
+  if (mayWithhold) picked.push({ box: null, cost: WITHHOLD_COST })
+  return picked
+}
+
+/** Choose slots for every box at once, minimising total leader length.
+ *  Depth-first over the boxes in left-to-right node order (so the packing
+ *  inside a run reads in the same order as the bubbles it describes), bounded
+ *  by each box's conflict-free floor cost — an admissible bound, so the first
+ *  complete arrangement it cannot beat ends the search rather than merely
+ *  ranking below it.
+ *
+ *  Run twice, and in this order deliberately. Withholding is priced high but
+ *  it is still a branch, and a branch that constrains nothing below it: with
+ *  it available from the start the tree is wide enough that the walk can spend
+ *  its whole budget in arrangements that give a box up, and return one of
+ *  those. So the first pass simply forbids it — every complete arrangement it
+ *  finds shows all five boxes — and only a canvas where that is arithmetically
+ *  impossible pays for the second, wider search. */
+function solveBands(items, lanesFor, cw) {
+  const floors = items.map((it) => {
+    let best = WITHHOLD_COST
+    for (const lane of lanesFor(it.ch)) {
+      for (const [a, b] of lane.runs) {
+        const x = Math.min(Math.max(it.idealX, a), b)
+        best = Math.min(best, Math.hypot(x + cw / 2 - it.rec.x, lane.y + it.ch / 2 - it.rec.y))
+      }
+    }
+    return best
+  })
+  const tail = new Array(items.length + 1).fill(0)
+  for (let i = items.length - 1; i >= 0; i--) tail[i] = tail[i + 1] + floors[i]
+
+  const search = (mayWithhold, limit) => {
+    let bestCost = Infinity, best = null, budget = 8000
+    const chosen = []
+    const walk = (i, total) => {
+      if (total + tail[i] >= bestCost) return
+      if (i === items.length) { bestCost = total; best = chosen.map(c => c.box); return }
+      if (budget-- <= 0) return
+      for (const c of slotCandidates(items[i], lanesFor(items[i].ch), chosen, cw, limit, mayWithhold)) {
+        if (total + c.cost + tail[i + 1] >= bestCost) break
+        chosen.push(c)
+        walk(i + 1, total + c.cost)
+        chosen.pop()
+      }
+    }
+    walk(0, 0)
+    return best
+  }
+  return search(false, 6) || search(true, 5) || items.map(() => null)
 }
 
 export function agentView({ compId, agentId, navigate }) {
@@ -360,10 +523,16 @@ export function agentView({ compId, agentId, navigate }) {
   }
   canvas.querySelectorAll('.chip').forEach(pairChip)
 
-  // chipEl -> { x, y, cw, ch, clear, sig, applied, closedAt }. Held across
-  // frames so an elected, still-clear slot is never re-searched (no jitter,
-  // and the wide search only ever runs when the geometry actually changed).
+  // chipEl -> { x, y, cw, ch, applied, closedAt }. Held across frames so a
+  // decided slot is never re-searched (no jitter, and the solve only ever runs
+  // when the geometry or a box's own size actually changed).
   const placements = new Map()
+  // The whole arrangement is one decision, not five, so it is cached as one:
+  // `solvedKey` is the geometry plus every box's measured size, and any change
+  // to either re-solves all of them together.
+  let solvedKey = ''
+  let lastGeomSig = ''
+  let solvedBoxes = new Map()
 
   // Runs every frame (see loop() below); no-ops instantly whenever no chip
   // is open, so it costs nothing outside an actual hover/focus reveal.
@@ -431,63 +600,112 @@ export function agentView({ compId, agentId, navigate }) {
       obstacles.push(nodeObstacle(rec))
       sig += `|${rec.x.toFixed(1)},${rec.y.toFixed(1)},${rec.r}`
     }
-    /* Placement is greedy -- each box takes the nearest slot still free -- so
-       the ORDER decides how far the last one has to travel. In DOM order that
-       is node creation order (root, then children as the sim lists them),
-       which has nothing to do with where they sit: luna-02 was placed last and
-       ended up 690px to the right of its own bubble, with a leader line across
-       the whole graph. Left-to-right by node x, each box competes only with
-       its actual neighbours and lands beside the bubble it describes. */
-    const ordered = [...openChips]
+    /* Left-to-right by node x. The solver is not order-greedy any more, so
+       this is no longer about which box gets first pick — it is about the
+       packing READING right: boxes sharing a lane come out in the same order
+       as the bubbles they describe, so their leader lines run parallel
+       instead of crossing each other on the way to their nodes. */
+    const items = [...openChips]
       .map(chipEl => ({ chipEl, rec: graph.nodes.get(chipEl.previousElementSibling?.dataset?.agentId) }))
       .filter(o => o.rec)
       .sort((a, b) => a.rec.x - b.rec.x)
-    ordered.forEach(({ chipEl, rec }) => {
-      const cw = chipEl.offsetWidth || CHIP_W, ch = chipEl.offsetHeight || CHIP_H
-      // a sibling chip revealed at the same moment (the pointer travelling
-      // between badges) is an obstacle too — rect only, hence cr: 0
-      const around = obstacles.slice()
-      for (const [other, st] of placements) {
-        if (other === chipEl || !st.applied) continue
-        around.push({
-          cx: 0, cy: 0, cr: 0,
-          labels: [{
-            left: st.x - CLEAR_PAD, top: st.y - CLEAR_PAD,
-            right: st.x + st.cw + CLEAR_PAD, bottom: st.y + st.ch + CLEAR_PAD,
-          }],
+    if (!items.length) return
+    /* A box only ever escalates to the compact form, so without this it would
+       stay compact for the rest of the session — the 1280 viewport that forced
+       it would keep costing the box a context line at 1920. Any change to the
+       geometry is a fresh question, so every box re-asks it at full height. */
+    if (sig !== lastGeomSig) {
+      lastGeomSig = sig
+      for (const it of items) it.chipEl.classList.remove('cx-tight')
+    }
+    const cw = items[0].chipEl.offsetWidth || CHIP_W
+    for (const it of items) it.idealX = it.rec.x - cw / 2   // vertical-leader slot
+    const measure = () => { for (const it of items) it.ch = it.chipEl.offsetHeight || CHIP_H }
+    const keyOf = () => items.reduce((k, it) => `${k}|${it.rec.id}:${it.ch}`, `${sig}|w${cw}`)
+    /* Density is uniform across the strip or it reads as a fault, and one box
+       can fall out of step on its own: opening the inline chat hands that chip
+       back to graph.js, which drops its .cx-tight, so closing the chat returns
+       one full-height box to a row of compact ones. Re-asking the question
+       from a level start is both the fix and the whole rule — the answer below
+       is then a property of the canvas, never of what happened to it. */
+    const tight = items.filter(it => it.chipEl.classList.contains('cx-tight')).length
+    if (tight && tight < items.length) {
+      for (const it of items) it.chipEl.classList.remove('cx-tight')
+    }
+    measure()
+    if (keyOf() !== solvedKey) {
+      let laneCache = new Map()
+      const lanesFor = (ch) => {
+        if (!laneCache.has(ch)) laneCache.set(ch, buildLanes(cw, ch, obstacles, canvasW, canvasH))
+        return laneCache.get(ch)
+      }
+      const solveNow = () => { laneCache = new Map(); return solveBands(items, lanesFor, cw) }
+      /* Rank an arrangement the way a reader does: a box that is not shown at
+         all is the worst outcome, and after that the one that has to be hunted
+         for is. Total length is only the tie-break — five tidy boxes and one
+         stranded one is a worse strip than five slightly-longer leaders. */
+      const rank = (boxes) => {
+        let held = 0, worst = 0, total = 0
+        boxes.forEach((b, i) => {
+          if (!b) { held++; return }
+          const d = Math.hypot(b.x + cw / 2 - items[i].rec.x, b.y + items[i].ch / 2 - items[i].rec.y)
+          worst = Math.max(worst, d); total += d
         })
+        return [held, worst, total]
       }
-      const st = placements.get(chipEl)
-      const sameSize = st && st.cw === cw && st.ch === ch
-      const inBounds = st && st.x >= 6 && st.y >= 6 &&
-        st.x <= canvasW - cw - 6 && st.y <= canvasH - ch - 6
-      let slot
-      if (sameSize && st.applied && st.sig === sig) {
-        slot = { x: st.x, y: st.y, clear: st.clear }             // nothing moved
-      } else if (sameSize && st.applied && st.clear && inBounds &&
-                 boxClearsAll(boxAt(st.x, st.y, cw, ch), around)) {
-        slot = { x: st.x, y: st.y, clear: true }                 // still clear
-      } else {
-        slot = findChipSlot(rec, cw, ch, around, canvasW, canvasH)
+      const better = (a, b) => a[0] !== b[0] ? a[0] < b[0] : a[1] !== b[1] ? a[1] < b[1] : a[2] < b[2]
+
+      let boxes = solveNow()
+      /* DENSITY IS A WHOLE-STRIP DECISION, not a per-box rescue. The old
+         escalation tightened whichever single box happened to lose, which left
+         one 55px box in a row of 74px ones — reading as a rendering fault
+         rather than as a choice — and, worse, it was decided by DFS order
+         rather than by which box could most afford the line.
+         Every box carries a name plus two independent activity lines; the
+         compact form keeps the name and the current line and drops the
+         previous one. That is a real cost, so it is only paid when the full
+         box cannot do its job: a box is withheld, or its leader is longer than
+         the box itself, at which point the eye has to hunt for which bubble it
+         belongs to and a shorter box that is actually beside its bubble says
+         more than a taller one stranded across the strip. */
+      let score = rank(boxes)
+      if (score[0] > 0 || score[1] > ATTACHED_REACH) {
+        const fullBoxes = boxes
+        for (const it of items) it.chipEl.classList.add('cx-tight')
+        measure()                                   // one forced reflow, on change only
+        const tightBoxes = solveNow()
+        if (better(rank(tightBoxes), score)) { boxes = tightBoxes; score = rank(tightBoxes) }
+        else {
+          for (const it of items) it.chipEl.classList.remove('cx-tight')
+          measure()
+          boxes = fullBoxes
+        }
       }
-      if (!slot) return
-      // no pocket anywhere in the canvas fits the full preview: drop to the
-      // compact one-line chip (agent.css .cx-tight) and re-elect next frame
-      // at its real measured size instead of settling for a known overlap
-      const tight = chipEl.classList.contains('cx-tight')
-      if (!slot.clear && !tight) chipEl.classList.add('cx-tight')
-      /* Still nothing clear even at the compact size: withhold the box rather
-         than print it through a bubble. A context box exists to say which
-         agent this is; one drawn across a node says that less well than not
-         drawing it at all, and at 1280 the strip genuinely has no fifth
-         pocket. It re-elects on the next tick, so this is a frame-by-frame
+      solvedBoxes = new Map(items.map((it, i) => [it.chipEl, boxes[i]]))
+      solvedKey = keyOf()
+    }
+    /* The lane arithmetic is a proposal, not a licence to paint. Every chosen
+       box is re-tested against the real obstacle set (exact circle test for
+       bubbles) and against the boxes already accepted this frame, so a bug in
+       the closed-form span math can only ever cost a box its slot — it can
+       never put one through a bubble. */
+    const accepted = []
+    for (const { chipEl, rec, ch } of items) {
+      const slot = solvedBoxes.get(chipEl)
+      const box = slot && boxAt(slot.x, slot.y, cw, ch)
+      const clear = !!box && boxClearsAll(box, obstacles) && !accepted.some(a => rectsOverlap(a, box))
+      /* No lane anywhere fits this box, even compact: withhold it rather than
+         print it through a bubble. A context box exists to say which agent
+         this is; one drawn across a node says that less well than not drawing
+         it at all. It re-solves on the next tick, so this is a frame-by-frame
          decision, not a permanent removal. */
-      if (!slot.clear && tight) {
+      if (!clear) {
         chipEl.classList.remove('cx-placed')
         cxLine.get(chipEl)?.setAttribute('opacity', '0')
-        placements.set(chipEl, { x: slot.x, y: slot.y, cw, ch, clear: false, sig, applied: false, closedAt: 0 })
-        return
+        placements.set(chipEl, { x: 0, y: 0, cw, ch, applied: false, closedAt: 0 })
+        continue
       }
+      accepted.push(box)
       const lx = `${slot.x.toFixed(1)}px`, ly = `${slot.y.toFixed(1)}px`
       if (chipEl.style.left !== lx) chipEl.style.left = lx
       if (chipEl.style.top !== ly) chipEl.style.top = ly
@@ -497,11 +715,9 @@ export function agentView({ compId, agentId, navigate }) {
          the first placement pass. */
       chipEl.classList.add('cx-placed')
       cxLine.get(chipEl)?.removeAttribute('opacity')
-      placements.set(chipEl, {
-        x: slot.x, y: slot.y, cw, ch, clear: slot.clear, sig, applied: true, closedAt: 0,
-      })
+      placements.set(chipEl, { x: slot.x, y: slot.y, cw, ch, applied: true, closedAt: 0 })
       drawLink(chipEl, rec, slot.x, slot.y, cw, ch)
-    })
+    }
     // drop connectors whose chip is gone
     for (const [key, line] of cxLine) {
       if (!key.isConnected || !placements.has(key)) { line.remove(); cxLine.delete(key) }
