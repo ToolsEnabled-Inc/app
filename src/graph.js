@@ -77,6 +77,18 @@ const hashStr = (s) => {
 // forge ownership and so it dies with the module.
 let probeOwner = null
 
+/* The context chip's resting width. It lived as a bare 168 in five places
+   (three in here, the CSS rule, and agent.js's placement fallback) and every
+   one of them had to agree or the collision placement drifted from the box it
+   was placing. It is a constant here and nowhere else -- graph.js writes it
+   onto the element, so CSS no longer states a width at all.
+   224, not 168, because of what the box is FOR: it has to say which agent
+   this is and roughly what it is doing. At 168 with the name and the task
+   sharing one line, the task truncated to "promotin..." / "watc..." /
+   "matchi..." and the box read as broken rather than terse. */
+export const CHIP_W = 224
+export const CHIP_H = 44
+
 export class FleetGraph {
   constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null }) {
     this.chipPredicate = chipPredicate
@@ -333,7 +345,7 @@ export class FleetGraph {
     const rec = {
       id: agent.id, agent, el: nodeEl, r,
       x: cx, y: cy, vx: 0, vy: 0,
-      chip: null, chatOpen: false, chipW: 168, chipH: 44,
+      chip: null, chatOpen: false, chipW: CHIP_W, chipH: CHIP_H,
       // this._labelH — NOT a hardcoded 41: on a compact canvas the role row
       // is hidden, and a node spawned after the mode flipped would otherwise
       // keep reserving the full-label height forever (the flip loop only
@@ -362,6 +374,9 @@ export class FleetGraph {
 
   makeChip(rec) {
     const chip = el(`<div class="chip role-${rec.agent.role}"><div class="chip-preview"></div></div>`)
+    // CSS states no width for .chip (see CHIP_W) -- without this the box would
+    // shrink to its text and every placement rectangle would be a fiction
+    chip.style.width = CHIP_W + 'px'
     this.container.appendChild(chip)
     rec.chip = chip
     this.renderChipPreview(rec)
@@ -370,9 +385,14 @@ export class FleetGraph {
 
   renderChipPreview(rec) {
     const pv = rec.chip.querySelector('.chip-preview')
-    pv.innerHTML = rec.agent.context.map((c, i) =>
-      `<div class="cl">${i === 0 ? `<b>${rec.agent.name}</b> · ` : ''}${c}</div>`).join('')
-    rec.chipH = rec.chip.offsetHeight || 44
+    /* The name is its own row, not a prefix on the first context line. It is
+       the thing the box exists to tell you -- "which agent is this" -- and
+       sharing a line meant the ellipsis ate the task instead of the name:
+       `claude · promotin...` where the task is the part you cannot guess.
+       Split, the name always reads in full and the task gets the whole width. */
+    pv.innerHTML = `<div class="cl cl-name"><b>${rec.agent.name}</b></div>`
+      + rec.agent.context.map(c => `<div class="cl">${c}</div>`).join('')
+    rec.chipH = rec.chip.offsetHeight || CHIP_H
     // context arrives while the sim sleeps too — without a live tick the
     // grown preview would quietly expand over a neighbour (the rejected
     // "persisting past t=8s" overlaps) or past the canvas edge; re-place now
@@ -419,14 +439,14 @@ export class FleetGraph {
     void chip.offsetWidth
     chip.classList.remove('as-chat')
     rec.chatOpen = false
-    chip.style.width = '168px'
-    chip.style.height = (rec.prevH || 44) + 'px'
+    chip.style.width = CHIP_W + 'px'
+    chip.style.height = (rec.prevH || CHIP_H) + 'px'
     rec._chipTimer = setTimeout(() => {
       chip.querySelector('.chat')?.remove()
       chip.style.width = ''; chip.style.height = ''
       this.renderChipPreview(rec)
     }, 500)
-    rec.chipW = 168; rec.chipH = rec.prevH || 44
+    rec.chipW = CHIP_W; rec.chipH = rec.prevH || CHIP_H
     if (this.simulation.alpha() < 0.02) {             // asleep sim: re-place now
       this._snapChips = true; this.tick(); this._snapChips = false
     }

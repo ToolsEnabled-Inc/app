@@ -14,6 +14,7 @@
 // square — the rail glass card keeps its own shape (see board.css).
 
 import { ticks as d3ticks } from 'd3-array'
+import { readLayout, writeLayout } from '../layout-pref.js'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES } from '../vocab.js'
 import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip } from '../components.js'
@@ -403,17 +404,9 @@ export function computersView({ initialComputer = null, navigate }) {
   const editBtn = root.querySelector('.graph-edit-btn')
   const layoutSeg = root.querySelector('.graph-layout-seg')
 
-  // Layout preference is sticky across sessions. Tree is the default: it
-  // reads as an org diagram rather than a mobile, which is what this graph
-  // is actually communicating. localStorage can throw (private mode, quota),
-  // so every access is guarded — a failure just means "use the default".
-  const LAYOUT_KEY = 'mc.graph.layout'
-  const readLayout = () => {
-    try { return localStorage.getItem(LAYOUT_KEY) === 'force' ? 'force' : 'tree' }
-    catch { return 'tree' }
-  }
+  // Sticky across sessions AND across pages — see layout-pref.js for why it
+  // no longer lives here.
   let layoutPref = readLayout()
-  const writeLayout = (v) => { try { localStorage.setItem(LAYOUT_KEY, v) } catch {} }
 
   function syncLayoutSeg() {
     for (const b of layoutSeg.querySelectorAll('button')) {

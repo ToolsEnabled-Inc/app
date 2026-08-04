@@ -1036,11 +1036,9 @@ body {
 /* --- context chips → chat morph --- */
 .chip {
   position: absolute; top: 0; left: 0;
-  /* width stays 168px on purpose: graph.js carries it as a layout constant
-     (rec.chipW / the collapse-back inline width), so the radial placement
-     math only stays correct while CSS agrees with it. The 13px reading
-     floor is paid for out of the padding instead. */
-  width: 168px;
+  /* No width here. It is graph.js's CHIP_W, written onto the element -- the
+     collision placement reasons about a box it also has to size, and the two
+     were previously the same number typed in five separate places. */
   /* asymmetric on purpose — the 12px left clears the ::before accent bar.
      The 10px right rounds DOWN to --s2 like every other tie in this sheet,
      which happens to hand the reading line 2px back inside that fixed
@@ -1073,6 +1071,10 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .chip .cl b { color: var(--ink-2); font-weight: 640; }
+/* the identity row: slightly tighter to the context under it than the context
+   lines are to each other, so the box reads as "this agent, doing this" rather
+   than as three equal-weight lines */
+.chip .cl-name { margin-bottom: 1px; }
 .chip.as-chat {
   width: 316px; height: 368px;
   padding: var(--s3) var(--s4);

@@ -200,12 +200,18 @@
    placeOpenChips() below hard-places every one of them against every bubble
    and label, dimming any it genuinely cannot clear. */
 .agentv-graph .chip:not(.as-chat) {
-  opacity: 1;
-  pointer-events: auto;
+  /* ...but not until placeOpenChips() has actually found it a slot. Without
+     the .cx-placed gate every box painted at the canvas origin -- all five
+     stacked on each other and across the breadcrumb -- for every frame
+     between mount and the first placement pass, and again for any frame where
+     the only slot left would have crossed a bubble. */
+  opacity: 0;
+  pointer-events: none;
   z-index: 5;
   transition: opacity .18s var(--ease);
   transform: none !important;
 }
+.agentv-graph .chip.cx-placed:not(.as-chat) { opacity: 1; pointer-events: auto; }
 .agentv-graph .chip.cx-open:not(.as-chat) {
   z-index: 9;
   /* While revealed, agent.js positions this ONE element itself, in left/top,
@@ -220,10 +226,13 @@
   transform: none !important;
 }
 /* Last resort, driven by agent.js: on a canvas so crowded that no pocket
-   anywhere fits the full preview, the chip keeps its first context line only
-   — a shorter box fits gaps a 2-line one cannot, and the reading text stays
-   at the 13px floor set below (nothing is scaled down). */
-.agentv-graph .chip.cx-open.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 2) {
+   anywhere fits the full preview, the chip keeps its name and first context
+   line only — a shorter box fits gaps a 3-line one cannot, and the reading
+   text stays at the 13px floor set below (nothing is scaled down).
+   n+3, not n+2: the agent name is its own .cl now (it used to be a prefix on
+   the first context line), so the old selector would drop the name row's
+   companion and leave a chip that says who but not what. */
+.agentv-graph .chip.cx-open.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 3) {
   display: none;
 }
 /* the corner badge — always exactly on its own bubble, so it can never

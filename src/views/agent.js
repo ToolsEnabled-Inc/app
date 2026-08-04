@@ -4,7 +4,8 @@
 import { sim } from '../sim.js'
 import { ROLES } from '../vocab.js'
 import { el, uptimeRing, buildChat } from '../components.js'
-import { FleetGraph } from '../graph.js'
+import { FleetGraph, CHIP_W, CHIP_H } from '../graph.js'
+import { readLayout } from '../layout-pref.js'
 import { rangeFill } from './computers.js'
 import '../agent.css'
 
@@ -274,6 +275,15 @@ export function agentView({ compId, agentId, navigate }) {
     onOpenControls: () => {},
     onRootChange: (id) => { if (id && id !== agent.id) navigate(`#/agent/${computer.id}/${id}`) },
   })
+  /* Honour the same sticky Tree/Physics preference the computers page writes.
+     This view never called setLayout() at all, so it sat on graph.js's 'force'
+     default no matter what the toggle said: you picked Tree, drilled into a
+     bubble, and got the tangle back. The links crossed each other and each
+     other's labels, which is most of what "the graph styling needs huge work"
+     was looking at. animate:false because the view is still off-screen during
+     construction -- an animated settle here plays to nobody and lands the
+     first paint mid-transition. */
+  graph.setLayout(readLayout(), { animate: false })
 
   const crumb = root.querySelector('.graph-crumb')
   const back = el(`<button>← ${computer.name}</button>`)
@@ -396,15 +406,44 @@ export function agentView({ compId, agentId, navigate }) {
     // footprint is a hard constraint here, not a weighted cost
     const obstacles = []
     let sig = `${canvasW}x${canvasH}`
+    /* ...and the panel's own chrome. The breadcrumb is an absolutely
+       positioned overlay that is a SIBLING of the canvas, so it was invisible
+       to a search that only knew about nodes: a chip would happily take the
+       top-left pocket and print "claude / heartbeating claimed tas..." straight
+       through "← Computer 1 / codex". Anything overlaid on this panel counts,
+       not just the crumb, so the reservation is taken from the DOM rather than
+       from a list of class names that the next overlay would not be on. */
+    const cbox = canvas.getBoundingClientRect()
+    for (const ov of gwrap.children) {
+      if (ov === canvas) continue
+      const r = ov.getBoundingClientRect()
+      if (!r.width || !r.height) continue
+      obstacles.push({
+        cx: 0, cy: 0, cr: 0,
+        labels: [{
+          left: r.left - cbox.left - CLEAR_PAD, top: r.top - cbox.top - CLEAR_PAD,
+          right: r.right - cbox.left + CLEAR_PAD, bottom: r.bottom - cbox.top + CLEAR_PAD,
+        }],
+      })
+      sig += `|ov${Math.round(r.width)}x${Math.round(r.height)}`
+    }
     for (const [, rec] of graph.nodes) {
       obstacles.push(nodeObstacle(rec))
       sig += `|${rec.x.toFixed(1)},${rec.y.toFixed(1)},${rec.r}`
     }
-    openChips.forEach((chipEl) => {
-      const ownId = chipEl.previousElementSibling?.dataset?.agentId
-      const rec = ownId ? graph.nodes.get(ownId) : null
-      if (!rec) return
-      const cw = chipEl.offsetWidth || 168, ch = chipEl.offsetHeight || 44
+    /* Placement is greedy -- each box takes the nearest slot still free -- so
+       the ORDER decides how far the last one has to travel. In DOM order that
+       is node creation order (root, then children as the sim lists them),
+       which has nothing to do with where they sit: luna-02 was placed last and
+       ended up 690px to the right of its own bubble, with a leader line across
+       the whole graph. Left-to-right by node x, each box competes only with
+       its actual neighbours and lands beside the bubble it describes. */
+    const ordered = [...openChips]
+      .map(chipEl => ({ chipEl, rec: graph.nodes.get(chipEl.previousElementSibling?.dataset?.agentId) }))
+      .filter(o => o.rec)
+      .sort((a, b) => a.rec.x - b.rec.x)
+    ordered.forEach(({ chipEl, rec }) => {
+      const cw = chipEl.offsetWidth || CHIP_W, ch = chipEl.offsetHeight || CHIP_H
       // a sibling chip revealed at the same moment (the pointer travelling
       // between badges) is an obstacle too — rect only, hence cr: 0
       const around = obstacles.slice()
@@ -437,9 +476,27 @@ export function agentView({ compId, agentId, navigate }) {
       // at its real measured size instead of settling for a known overlap
       const tight = chipEl.classList.contains('cx-tight')
       if (!slot.clear && !tight) chipEl.classList.add('cx-tight')
+      /* Still nothing clear even at the compact size: withhold the box rather
+         than print it through a bubble. A context box exists to say which
+         agent this is; one drawn across a node says that less well than not
+         drawing it at all, and at 1280 the strip genuinely has no fifth
+         pocket. It re-elects on the next tick, so this is a frame-by-frame
+         decision, not a permanent removal. */
+      if (!slot.clear && tight) {
+        chipEl.classList.remove('cx-placed')
+        cxLine.get(chipEl)?.setAttribute('opacity', '0')
+        placements.set(chipEl, { x: slot.x, y: slot.y, cw, ch, clear: false, sig, applied: false, closedAt: 0 })
+        return
+      }
       const lx = `${slot.x.toFixed(1)}px`, ly = `${slot.y.toFixed(1)}px`
       if (chipEl.style.left !== lx) chipEl.style.left = lx
       if (chipEl.style.top !== ly) chipEl.style.top = ly
+      /* Only now is the box allowed to paint. Chips are visible at rest, so
+         without this gate all five rendered at the canvas origin -- stacked on
+         each other and on the breadcrumb -- for every frame between mount and
+         the first placement pass. */
+      chipEl.classList.add('cx-placed')
+      cxLine.get(chipEl)?.removeAttribute('opacity')
       placements.set(chipEl, {
         x: slot.x, y: slot.y, cw, ch, clear: slot.clear, sig, applied: true, closedAt: 0,
       })
