@@ -67,6 +67,17 @@ const CHART_INTRO_MS = 620
 // resting activity per role — a coordinator is simply busier than a leaf
 const ROLE_LOAD = { coordinator: 68, helper: 57, shadow: 41, manager: 52, default: 34, spawned: 22 }
 
+/* Each tuning readout speaks its own unit. The slider itself only knows 0–100;
+   without these maps the .cv froze at its markup literal while the fill
+   tracked the thumb — the one place on the board where a control admitted it
+   was scenery. The glow slider in the settings drawer is the feel to match:
+   the readout moves in the same input event as the drag. */
+const TUNING = {
+  ctx: (v) => `${Math.round(40 + v * 1.6)}k`,
+  wake: (v) => `${Math.max(1, Math.round(v * 0.6))}m`,
+  auto: (v) => (v < 34 ? 'low' : v < 67 ? 'med' : 'high'),
+}
+
 // One series per agent, kept for the life of the session so re-opening the
 // same bubble continues its own history instead of inventing a new one.
 const agentSeries = new Map()
@@ -807,7 +818,16 @@ export function computersView({ initialComputer = null, navigate }) {
   function updateTasks() {
     const list = statsPage.querySelector('.task-list')
     if (!list) return
-    const want = computer.tasks.slice(0, 8)
+    // The sim draws task texts with replacement, so the queue routinely holds
+    // the same sentence as two distinct objects — and two chips reading
+    // "Promote pending system cards" side by side breaks the fiction faster
+    // than any missing feature. The queue itself is left alone; the rail just
+    // shows each text once. Tasks arrive by unshift, so the first occurrence
+    // in queue order is the newest and is the one that keeps its chip.
+    const seen = new Set()
+    const want = computer.tasks
+      .filter(t => !seen.has(t.text) && seen.add(t.text))
+      .slice(0, 8)
     const have = new Map()
     for (const node of list.children) have.set(node.dataset.taskId, node)
     let prev = null
@@ -875,9 +895,9 @@ export function computersView({ initialComputer = null, navigate }) {
               <svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Terminate</button>
           </div>
           <div class="rail-sec">Tuning</div>
-          <div class="ctl-row"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv">124k</span></div>
-          <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv">20m</span></div>
-          <div class="ctl-row"><span class="cl">Autonomy</span><input type="range" min="0" max="100" value="80"/><span class="cv">high</span></div>
+          <div class="ctl-row" data-t="ctx"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv">124k</span></div>
+          <div class="ctl-row" data-t="wake"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv">20m</span></div>
+          <div class="ctl-row" data-t="auto"><span class="cl">Autonomy</span><input type="range" min="0" max="100" value="80"/><span class="cv">high</span></div>
           <div class="rail-sec">Session</div>
           <button class="ctl-btn" style="width:100%" data-a="open">
             <svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -929,6 +949,17 @@ export function computersView({ initialComputer = null, navigate }) {
       })
     })
     ctlPage.querySelectorAll('input[type="range"]').forEach(rangeFill)
+    ctlPage.querySelectorAll('.ctl-row[data-t]').forEach(row => {
+      const input = row.querySelector('input')
+      const cv = row.querySelector('.cv')
+      const fmt = TUNING[row.dataset.t]
+      // 'input' fires for drags AND arrow keys, so one listener covers both;
+      // run it once now so the resting readout agrees with the same map the
+      // drag will use instead of the markup's hand-written literal
+      const set = () => { cv.textContent = fmt(+input.value) }
+      input.addEventListener('input', set)
+      set()
+    })
 
     // the ring is the shared element — the FLIP owns it, so it stays out of
     // the cascade; everything else crossfades top-to-bottom around it

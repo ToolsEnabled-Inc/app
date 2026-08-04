@@ -241,44 +241,20 @@
 .agentv-graph .chip.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 3) {
   display: none;
 }
-/* ...and the line that survives is allowed to WRAP.
-
-   Measured on the placed boxes: every context line was ellipsised, at every
-   width — 5 of 5 at 1600, 10 of 10 at 1920 — because the vocabulary runs to
-   374px of text through a 202px reading column, an 85% overflow. Ellipsis
-   cannot fix an overflow that large; it just decides which fragment you get
-   ("regenerating per-namespa...", "staging refresh task for..."). Widening the
-   box cannot fix it either: five boxes at the ~396px needed would want 1980px
-   of strip.
-   So the box stops trying to fit a line and starts fitting a THOUGHT. Two
-   wrapped rows carry the whole sentence, which is what the box is for — a
-   reader who can see "regenerating per-namespace tool digest" knows what that
-   agent is doing, and a reader who can see "regenerating per-namespa..." does
-   not. Clamped at 2 so the box's height stays bounded and the placement
-   solver's lanes stay predictable; agent.js measures the real offsetHeight
-   every pass, so it adapts to whatever this costs. */
-.agentv-graph .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) {
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  text-overflow: clip;
-}
-/* The PREVIOUS activity line goes, at every width, not just the crowded ones.
-   Two context lines were never both readable here — that is what the 5-of-5
-   and 10-of-10 ellipsis counts were measuring — and between "what this agent
-   is doing, in full" and "two halves of two different sentences", the first is
-   the whole reason the box is on the page. */
-.agentv-graph .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) ~ .cl:not(.cl-name) {
-  display: none;
-}
-/* ...which is what gives the tight form a lever again. Wrapping had cost
-   .cx-tight its entire purpose: dropping a line saved 19px while wrapping the
-   survivor added 19px, so the "compact" box was exactly as tall as the full
-   one and the solver had nothing to trade. Tight now means one row of activity
-   instead of two — a genuine 74px -> 55px — so it can still buy back a box on
-   a canvas that truly cannot hold five full ones. */
+/* The wrap-the-survivor treatment (two clamped rows fitting a THOUGHT, and
+   the previous-line hide that makes room for them) used to live here, born on
+   this page's 202px reading column. The computers page measured the identical
+   85% overflow through the identical column, and two copies of one reading
+   policy drift apart — so it moved to the shared .graph-canvas chip rules in
+   styles.css. Only the tight-mode escalation stays page-local, because only
+   this page's placement solver drives .cx-tight. */
+/* Under those shared rules the tight form keeps a real lever. Wrapping had
+   cost .cx-tight its entire purpose: dropping a line saved 19px while wrapping
+   the survivor added 19px, so the "compact" box was exactly as tall as the
+   full one and the solver had nothing to trade. With the previous line gone
+   everywhere, tight means one row of activity instead of two — a genuine
+   74px -> 55px — so it can still buy back a box on a canvas that truly cannot
+   hold five full ones. */
 .agentv-graph .chip.cx-tight:not(.as-chat) .chip-preview .cl:not(.cl-name) {
   -webkit-line-clamp: 1;
   text-overflow: ellipsis;

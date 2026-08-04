@@ -47,6 +47,23 @@ const SENDERS = {
   sandbox:    { tag: 'sandbox-w1/builder', role: 'default',    mach: 'B' },
   assistant:  { tag: 'assistant',          role: 'spawned',    mach: 'A' },
 }
+
+/* "role hues = the graph's" was a promise the literals above quietly broke:
+   claude is a helper on the graph and metrics table but wore coordinator cyan
+   here, terra likewise. One agent, two colours, three pages — the exact tell
+   that these views don't share a world. So the sim roster is the authority:
+   each sender adopts the role of its sim twin (exact name first, then the
+   numbered-lane prefix, e.g. terra → terra-01), and the literal survives only
+   as the fallback for senders with no twin (the [assistant] system voice). */
+{
+  const roster = sim.computers.flatMap(c => c.agents)
+  for (const s of Object.values(SENDERS)) {
+    const name = s.tag.split('/')[0]
+    const twin = roster.find(a => a.name === name)
+      || roster.find(a => a.name.startsWith(name + '-'))
+    if (twin) s.role = twin.role
+  }
+}
 const BUILDERS = ['luna', 'gem2', 'gem4', 'sandbox']
 
 /* ---------- channels = the real stable keys ---------- */
