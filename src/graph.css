@@ -264,3 +264,13 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
   60% { transform: translateX(-3px); }
   80% { transform: translateX(3px); }
 }
+
+/* ============================================================
+   Compact labels — short canvas (see FleetGraph.tick())
+   Below ~340px of canvas height the geometry cannot host two
+   labelled bubbles in a vertical stack at all (QA-verified:
+   every radius pair came up short), so the redundant role row
+   steps aside. The name row and its role-coloured dot still
+   carry identity, and the legend still spells the roles out.
+   ============================================================ */
+.graph-canvas.labels-compact .node-role { display: none; }

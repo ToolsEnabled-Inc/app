@@ -269,6 +269,7 @@ export class FleetGraph {
       x: cx, y: cy, vx: 0, vy: 0,
       chip: null, chatOpen: false, chipW: 168, chipH: 44,
       labelW: finalLabelW, labelH: 41,
+      _labelWHeur: labelW,                 // pre-measurement floor, for re-measure
       _labelMeasured: realLabelW > 0,
       _cx: null, _cy: null,                            // chip's eased slot position
     }
@@ -545,6 +546,28 @@ export class FleetGraph {
       this._hot = hot
       this.container.classList.toggle('interacting', hot)
     }
+    // Compact-label mode. QA proved (offline replay on frozen 16-node
+    // geometry) that a 294px-tall canvas is GEOMETRICALLY unable to host
+    // two labelled bubbles in a vertical stack: separating them needs
+    // r_top + labelH + r_bot + 8, and even the smallest radius pair came up
+    // 13px short — every pair on that canvas is impossible, so no amount of
+    // solver iteration converges. The honest fix is to stop demanding room
+    // that doesn't exist: below the threshold the (redundant) role row is
+    // dropped, which shrinks the label block on BOTH axes — ~21px less
+    // height to clear, and labels roughly half as wide, since the role
+    // strings are the long ones. Identity survives on the name row and its
+    // role-coloured dot, exactly as the legend already reads them.
+    const compact = this.H < 340
+    if (compact !== this._compactLabels) {
+      this._compactLabels = compact
+      this.container.classList.toggle('labels-compact', compact)
+      this._labelH = compact ? 24 : 41
+      for (const n of this.nodes.values()) {   // widths must be re-measured
+        n.labelH = this._labelH
+        n.labelW = n._labelWHeur || n.labelW
+        n._labelMeasured = false
+      }
+    }
     // Self-healing label measurement: catches every node the spawn-time
     // read in spawnNode() missed because its container wasn't connected to
     // the document yet (the whole initial graph, always — see the comment
@@ -554,18 +577,24 @@ export class FleetGraph {
       if (n._labelMeasured || !n.el.isConnected) continue
       const w = Math.max(
         n.el.querySelector('.node-name')?.offsetWidth || 0,
-        n.el.querySelector('.node-role')?.offsetWidth || 0,
+        n.el.querySelector('.node-role')?.offsetWidth || 0,   // 0 when compact hides it
       )
-      if (w > 0) { n.labelW = Math.max(n.labelW, w + 6); n._labelMeasured = true }
+      if (w > 0) {
+        n.labelW = Math.max(n._labelWHeur || 0, w + 6)
+        n.labelH = this._labelH || 41
+        n._labelMeasured = true
+      }
     }
     // padTop/padBot were tuned for aesthetic breathing room and never
     // re-examined against how little of it the agent page's short subtree
     // canvas actually has — round-4 QA proved a clamp-to-clamp deficit as
     // large as 17.5-29.8px (63px at 1280x800) between two label-avoiding
-    // nodes pinned at opposite Y clamps. Trimmed 10px off each edge: still
-    // ample air on the spacious Computers canvas, materially more room
-    // where it was actually short.
-    const padX = 34, padTop = 54, padBot = 48
+    // nodes pinned at opposite Y clamps. Trimmed 10px off each edge, and
+    // trimmed harder still on a short canvas where the room is what's
+    // actually scarce: aesthetic breathing room is worth less than legible,
+    // non-overlapping labels.
+    const padX = 34
+    const padTop = compact ? 40 : 54, padBot = compact ? 34 : 48
     const cx0 = this.W / 2, cy0 = this.H / 2
     const nodesArr = [...this.nodes.values()]
 
@@ -705,9 +734,18 @@ export class FleetGraph {
         a.x -= ux * push * 0.4; a.y -= uy * push * 0.4
       }
     }
+    // The Y bound here is deliberately RELAXED, not the full aesthetic
+    // padTop/padBot. QA caught the strict version cancelling the very nudge
+    // above: measured 20.29px deficit → 10.12px after the nudge → 21.19px
+    // after this clamp, i.e. the only stage that helped was thrown away on
+    // the next line — the same "clamp runs after the fix" bug round 5
+    // documented for _labelAvoidForce, reintroduced here. The nudge is
+    // capped at YIELD_CAP, so letting Y eat that much aesthetic padding is
+    // bounded, and the node stays comfortably on canvas either way.
+    const yPad = Math.max(6, YIELD_CAP)
     for (const n of nodesArr) {
       n.x = Math.max(n.r + edgePad, Math.min(this.W - n.r - edgePad, n.x))
-      n.y = Math.max(n.r + padTop, Math.min(this.H - n.r - padBot, n.y))
+      n.y = Math.max(n.r + Math.min(padTop, yPad), Math.min(this.H - n.r - Math.min(padBot, yPad), n.y))
     }
   }
 
