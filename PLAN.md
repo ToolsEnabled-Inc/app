@@ -306,3 +306,53 @@ small Opus batch (≤5 concurrent) specifically for: (a) fresh-eyes audits
 where controller bias is a risk, (b) real browser verification (standing
 order — controller does not drive the browser itself), (c) anything touching
 multiple files/territories at once. Every stage still ends in a commit.
+
+---
+
+# v6 — Final two polish waves (owner: "/loop 2 more times to polish it")
+
+Owner authorizations for this phase: up to 10 Opus + 10 Sol Ultra per wave;
+ToolsEnabled dispatch authorized ("you should be able to use toolsenabled,
+i authorize you"). Practical note recorded honestly: Sol dispatch runs
+through ToolsEnabled's Codex launch machinery, whose mechanical backstop
+(config/agent-org.json + resolveTarget) currently only admits Sol under the
+R240 game scope — using it here means updating that scope under the owner's
+live authorization. Wave 1 is already in flight on harness Opus lanes;
+ToolsEnabled/Sol lanes, if used, join in wave 2 so they never collide with
+wave 1's file territories.
+
+## Wave 1 — full-pass craft polish (RUNNING, 7 Opus lanes + integrator)
+Applies the craft-research findings, territory-disjoint:
+1. tokens (styles.css): duration/space/elevation scales; collapse 18 font
+   weights → 3, 16 micro-label trackings → 1; look must stay 99% identical.
+2. metrics: split the triple-duty palette (provider ≠ role hues); donut →
+   100% stacked bar + hero total; differentiated stack alphas; d3 ticks
+   everywhere an axis exists; theme-change re-reads the heat ramp; honest
+   tile deltas.
+3. comms: idle pulses become event-driven (still at rest); watch-board box
+   audit after the chip-transparency change; mono/tabular consistency;
+   -soft glow tokens only at arrival moments.
+4. graph: fling-scaled settle; easing differentiated by weight; focus pulse
+   rests after ~3 cycles; tier guides keyed to layout settle; solid-tree /
+   dashed-edit preserved.
+5. home: feed uses its width; per-theme crescent state colours; load
+   hysteresis; focus-visible on the feed.
+6. agent/board/rail: board chart ticks; rim-arc contrast per theme; spacing
+   scale; no idle loops.
+7. shell: View Transitions API behind a feature check; stable chat seeds;
+   sparkline shared-scale baseline; drawer inert preserved.
+Integrator: build + 5-route × 3-theme behavioural smoke (zero console
+errors) + one commit.
+
+## Wave 2 — adversarial verify + final gallery (after wave 1 lands)
+Up to 10 lanes: per-page reviewers at 1600×900 AND 1280×800 across ALL
+THREE themes, a keyboard/a11y pass, a perf re-check (frame budget after all
+visual changes), and a holistic judge. Fix round for anything found, re-run
+the smoke, commit, and produce the final screenshot gallery (every page ×
+every theme). If ToolsEnabled Sol lanes are mechanically reachable by then,
+they take the heaviest review briefs; otherwise Opus carries them and the
+report says so plainly.
+
+## Exit
+Loop stops after wave 2's commit + gallery. Remaining known debt at that
+point gets listed honestly in the final report rather than silently dropped.
