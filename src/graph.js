@@ -268,7 +268,15 @@ export class FleetGraph {
       id: agent.id, agent, el: nodeEl, r,
       x: cx, y: cy, vx: 0, vy: 0,
       chip: null, chatOpen: false, chipW: 168, chipH: 44,
-      labelW: finalLabelW, labelH: 41,
+      // this._labelH — NOT a hardcoded 41: on a compact canvas the role row
+      // is hidden, and a node spawned after the mode flipped would otherwise
+      // keep reserving the full-label height forever (the flip loop only
+      // touches nodes that exist at that instant, and the self-heal loop
+      // skips anything already measured). QA measured exactly that: every
+      // post-flip spawn stuck at 41 against a real 22px block. It only ever
+      // over-reserved, so it never caused overlap — but it silently withheld
+      // half the vertical relief compact mode is supposed to deliver.
+      labelW: finalLabelW, labelH: this._labelH || 41,
       _labelWHeur: labelW,                 // pre-measurement floor, for re-measure
       _labelMeasured: realLabelW > 0,
       _cx: null, _cy: null,                            // chip's eased slot position
