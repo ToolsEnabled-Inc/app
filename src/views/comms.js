@@ -707,6 +707,11 @@ export function commsView() {
 
   function updateChip() {
     chip.classList.toggle('hidden', state.pinnedToBottom)
+    /* .hidden only fades it out; a faded-out control is still a tab stop whose
+       focus ring paints at opacity 0. Take it out of the tab order and the a11y
+       tree while it is hidden — the fade transition is unaffected. */
+    chip.inert = state.pinnedToBottom
+    chip.tabIndex = state.pinnedToBottom ? -1 : 0
     chipLabel.textContent = state.newCount > 0
       ? `${state.newCount} new — jump to latest`
       : 'jump to latest'
@@ -1345,17 +1350,35 @@ export function commsView() {
   function setMode(m) {
     W.mode = m
     root.dataset.mode = m
-    modeBtns.forEach(b => b.classList.toggle('on', b.dataset.wmode === m))
+    modeBtns.forEach(b => {
+      const on = b.dataset.wmode === m
+      b.classList.toggle('on', on)
+      b.setAttribute('aria-pressed', String(on))   // which one is chosen is state, not paint
+    })
+    /* The sheet is display:none in watch mode, so the log has no height and
+       renderLog's anchor scroll is a no-op — the view would open at the OLDEST
+       message with the chip suppressed, then yank to the bottom on the next
+       packet. Re-anchor on the frame the sheet actually has a box. */
+    if (m === 'channels') {
+      requestAnimationFrame(() => {
+        if (state.pinnedToBottom) logEl.scrollTop = logEl.scrollHeight
+        else updateChip()
+      })
+    }
   }
   function setSize(s) {
     W.size = s
     pane.dataset.size = s
-    sizeBtns.forEach(b => b.classList.toggle('on', b.dataset.size === s))
+    sizeBtns.forEach(b => {
+      const on = b.dataset.size === s
+      b.classList.toggle('on', on)
+      b.setAttribute('aria-pressed', String(on))
+    })
   }
   modeBtns.forEach(b => b.addEventListener('click', () => setMode(b.dataset.wmode)))
   sizeBtns.forEach(b => b.addEventListener('click', () => setSize(b.dataset.size)))
-  modeBtns.forEach(b => b.classList.toggle('on', b.dataset.wmode === W.mode))
-  sizeBtns.forEach(b => b.classList.toggle('on', b.dataset.size === W.size))
+  setMode(W.mode)      // initial paint goes through the same path, aria included
+  setSize(W.size)
 
   renderBoard()
 

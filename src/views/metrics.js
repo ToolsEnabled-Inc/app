@@ -19,7 +19,21 @@ const N = 24                                  // buckets on the token chart
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v))
 const lerp = (a, b, t) => a + (b - a) * t
 const easeInOut = (p) => p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2
-const reduced = () => document.body.classList.contains('reduce-motion')
+/* The OS preference counts, not just the Settings toggle.
+   Every JS motion gate on the site reads body.reduce-motion, and the only
+   writer of that class is the Settings checkbox — the media query never sets
+   it. So under prefers-reduced-motion: reduce the CSS half stopped (the
+   @media block in styles.css) while the JS half kept running: the tile
+   count-up still stepped through 8 intermediate values instead of snapping,
+   and every tween ran full length. Read the query directly here so this
+   view is honest on its own; the site-wide fix is one line in main.js
+   (sync the class from the query OR the checkbox), which is another lane's
+   file this wave — this OR matches that semantic exactly, so the two
+   compose rather than fight. */
+const motionQuery = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : null
+const reduced = () => document.body.classList.contains('reduce-motion') || !!motionQuery?.matches
 
 /** Stable 0..1 hash noise so a filter combination always regenerates the same shape. */
 function noise(key) {
@@ -109,6 +123,48 @@ function sparkGeom(points, w, h) {
    rather than transparent. */
 const provInk = (id) => `var(--prov-${id}, var(--ink-3))`
 
+/* ---------------- viewport-clamped tooltip ----------------
+   makeTooltip() in src/components.js clamps a tip against its CONTAINER's
+   right edge and its container's top — never against the window — so at
+   1280x800 the two extreme tips in this view leave the screen. The pool
+   meter tip is the widest in the app (272 px): it flips left and lands at
+   x = −44, eating the first ~5 characters of 'jpinckard21 · subscription'.
+   The token-flow tip is the tallest (120 px, a title plus four provider
+   rows): when it will not fit above the cursor it is forced below and lands
+   at bottom = 808 in an 800 px viewport, cutting the 'Local' row. Both are
+   clean at 1920x1080, which is why a container-relative clamp looked right.
+
+   The real fix is four lines inside makeTooltip.show, but components.js is
+   another lane's file this wave, so this wrapper re-clamps after the shared
+   code has positioned the element: same math it uses (container rect +
+   offsetWidth/offsetHeight, so the reveal's translateY does not perturb the
+   reading), just measured against the window. It is idempotent — when that
+   lane lands the same clamp, every branch here becomes a no-op. */
+const EDGE = 8
+function viewportTooltip(container) {
+  const tip = makeTooltip(container)
+  const node = container.querySelector(':scope > .tooltip')
+  return {
+    show(html, x, y) {
+      tip.show(html, x, y)
+      if (!node) return
+      const r = container.getBoundingClientRect()
+      const tw = node.offsetWidth, th = node.offsetHeight
+      let lx = parseFloat(node.style.left) || 0
+      let ly = parseFloat(node.style.top) || 0
+      lx = Math.max(EDGE - r.left, Math.min(lx, innerWidth - EDGE - tw - r.left))
+      if (r.top + ly + th > innerHeight - EDGE) {
+        const above = y - r.top - th - 10                  // flip back above the cursor
+        ly = r.top + above >= EDGE ? above : innerHeight - EDGE - th - r.top
+      }
+      ly = Math.max(EDGE - r.top, ly)
+      node.style.left = `${lx}px`
+      node.style.top = `${ly}px`
+    },
+    hide() { tip.hide() },
+  }
+}
+
 /* ---------------- filter vocabulary ---------------- */
 
 const RANGES = [['24h', '24h'], ['7d', '7d'], ['30d', '30d']]
@@ -164,6 +220,18 @@ const MACHINE_META = {
 
 /* ---------------- tile definitions ---------------- */
 
+/* TILE ACCENT — one neutral, not six hues.
+   The six dots were drawing from the five ROLE hexes, which the agent table
+   500 px below spends on role identity, so a cyan tile dot and a cyan role
+   dot claimed a relationship that does not exist. They did not even identify
+   within their own row: 'Tasks closed' and 'Checkpoints' were both #00bd8a.
+   A tile is already labelled in words, so the dot is a bullet and the
+   sparkline's end point is a position marker — neither encodes a category,
+   and neither should spend a hue. --tile-mark (metrics.css) is the ink ramp,
+   which keeps the end point clearly stronger than the --chart-spark line it
+   sits on, on every theme. */
+const TILE_MARK = 'var(--tile-mark, currentColor)'
+
 /* Every tile's delta row is a MEASURED comparison, never a caption.
    `period`  — this period's value against the previous equivalent period,
                built by the same generator one period back in the seed
@@ -182,34 +250,34 @@ const MACHINE_META = {
    above it. */
 const TILE_DEFS = [
   {
-    id: 'agents', l: 'Agents live', tc: '#00a9d8', tg: '#45d6ff', spark: true,
+    id: 'agents', l: 'Agents live', spark: true,
     val: (d) => d.tiles.agents, fmt: (v) => String(Math.round(v)),
     unit: (d) => `of ${Math.round(d.tiles.spawned)} spawned`,
     delta: { kind: 'session', noun: 'live', signed: false },
   },
   {
-    id: 'tasks', l: 'Tasks closed', tc: '#00bd8a', tg: '#35eab7', spark: true,
+    id: 'tasks', l: 'Tasks closed', spark: true,
     val: (d) => d.tiles.tasksClosed, fmt: (v) => Math.round(v).toLocaleString('en-US'),
     unit: (d, meta) => meta.word.replace('last ', ''),
     delta: { kind: 'period', mode: 'pct', signed: true },
   },
   {
-    id: 'fail', l: 'Failure rate', tc: '#f57b00', tg: '#ffab4d', spark: true,
+    id: 'fail', l: 'Failure rate', spark: true,
     val: (d) => d.tiles.failAvg, fmt: (v) => v.toFixed(1), unit: () => '%',
     delta: { kind: 'period', mode: 'pts', signed: true, lowerIsBetter: true },
   },
   {
-    id: 'tokens', l: 'Token flow', tc: '#3e63f0', tg: '#7d9bff', spark: true,
+    id: 'tokens', l: 'Token flow', spark: true,
     val: (d) => d.tiles.tokTotal, fmt: (v) => fmtK(Math.round(v)), unit: (d, meta) => meta.unit,
     delta: { kind: 'period', mode: 'pct', signed: false },
   },
   {
-    id: 'ckpt', l: 'Checkpoints', tc: '#00bd8a', tg: '#35eab7',
+    id: 'ckpt', l: 'Checkpoints',
     val: (d) => d.tiles.checkpoints, fmt: (v) => String(Math.round(v)), unit: () => 'recorded',
     delta: { kind: 'session', noun: 'new', signed: false },
   },
   {
-    id: 'gates', l: 'Gate blocks', tc: '#dba400', tg: '#ffd84d',
+    id: 'gates', l: 'Gate blocks',
     val: (d) => d.tiles.gateBlocks, fmt: (v) => String(Math.round(v)), unit: () => 'held safely',
     delta: { kind: 'session', noun: 'held', signed: false },
   },
@@ -434,6 +502,16 @@ export function metricsView() {
       tokens: Object.fromEntries(PROVIDERS.map(p => [p.id, arr(a.tokens[p.id], b.tokens[p.id])])),
       tokMax: L(a.tokMax, b.tokMax),
       tokTotal: L(a.tokTotal, b.tokTotal),
+      /* Carried, not interpolated — and NOT omitted, which is what it was.
+         applyTokens reads `d.tokTicks || []` and hides every gridline and
+         every label it has no tick for, so an interpolated frame without
+         this key blanked the whole y axis for the length of the tween: 45 of
+         272 sampled frames over a 14 s idle window (16.5% of wall clock) in
+         blackouts of 420–769 ms, once per sim retarget, plus 780 ms on every
+         filter click and 900 ms at mount. The ticks belong to the dataset
+         being travelled TO; holding them fixed while tokMax lerps is what
+         makes the gridlines slide into place instead of vanishing. */
+      tokTicks: b.tokTicks,
       fail: a.fail.map((f, i) => ({ lane: f.lane, rate: L(f.rate, b.fail[i].rate) })),
       heat: a.heat.map((row, d) => arr(row, b.heat[d])),
       verdicts: obj(a.verdicts, b.verdicts),
@@ -458,7 +536,7 @@ export function metricsView() {
     tilesEl.innerHTML = ''
     for (const t of TILE_DEFS) {
       const tile = el(`
-        <div class="tile glass" style="--tc:${t.tc};--tg:${t.tg}" data-tile="${t.id}">
+        <div class="tile glass" style="--tc:${TILE_MARK}" data-tile="${t.id}">
           <div class="tl"><i></i>${t.l}</div>
           <div class="tv"><span class="tvn">—</span><span class="unit"></span></div>
           <div class="td flat"></div>
@@ -466,13 +544,13 @@ export function metricsView() {
       `)
       const ref = { def: t, el: tile, num: tile.querySelector('.tvn'), unit: tile.querySelector('.unit'), tv: tile.querySelector('.tv'), delta: tile.querySelector('.td') }
       if (t.spark) {
-        const svg = sparkline({ points: [1, 2, 3], color: t.tc })
+        const svg = sparkline({ points: [1, 2, 3], color: TILE_MARK })
         const tip = svg.querySelector('circle')
         tip.setAttribute('class', 'spark-tip')
         const halo = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
         halo.setAttribute('class', 'spark-halo')
         halo.setAttribute('r', '5.5')
-        halo.setAttribute('fill', t.tc)
+        halo.setAttribute('fill', TILE_MARK)
         svg.insertBefore(halo, tip)
         tile.appendChild(svg)
         ref.path = svg.querySelector('path')
@@ -585,11 +663,19 @@ export function metricsView() {
   function buildPools() {
     poolsEl.innerHTML = ''
     POOLS.forEach((p) => {
+      /* p.color / p.glow are deliberately NOT read (same rule the provider
+         series follow above): POOLS in src/vocab.js carries the ROLE hexes
+         verbatim — jpinckard21 IS the Coordinator dot, jpinckard95 the
+         Manager, jpinc005 the Shadow Manager — and both sets are on screen
+         in one scroll. Colour follows one entity; a pool card is identified
+         by its mono account name and its kind badge, so it takes the single
+         neutral --pool-accent and the collision is gone by construction.
+         The fill is scaleX, not width: see .metrics .meter .mf. */
       const card = el(`
-        <div class="pool glass" style="--pc:${p.color};--pg:${p.glow}">
+        <div class="pool glass" style="--pc:var(--pool-accent)">
           <div class="pool-head"><span class="pn">${p.id}</span><span class="pt">${p.kind}</span></div>
           <div class="pool-sub">${p.desc}</div>
-          <div class="meter"><div class="mf" style="width:0%;transition:width .3s var(--ease)"></div></div>
+          <div class="meter"><div class="mf" style="transform:scaleX(0)"></div></div>
           <div class="meter-caption"><b>0% used</b><span class="pcap"></span></div>
           <div class="pool-stats">
             <div class="pool-stat"><div class="v pa">—</div><div class="l">active</div></div>
@@ -599,7 +685,7 @@ export function metricsView() {
         </div>
       `)
       poolsEl.appendChild(card)
-      const tip = makeTooltip(card)
+      const tip = viewportTooltip(card)
       const meter = card.querySelector('.meter')
       const ref = {
         pool: p, el: card, meter,
@@ -619,7 +705,8 @@ export function metricsView() {
     const comps = machineComputers()
     poolRefs.forEach((ref, i) => {
       const pct = d.pools[i]
-      ref.fill.style.width = `${pct.toFixed(1)}%`
+      /* composited: scaleX on a full-width fill, never an animated width */
+      ref.fill.style.transform = `scaleX(${(pct / 100).toFixed(4)})`
       ref.pct.textContent = `${Math.round(pct)}% used`
       const lanes = comps.reduce((s, c) => s + c.agents.filter(x => x.pool === ref.pool.id).length, 0)
       if (i === 0) {
@@ -642,7 +729,13 @@ export function metricsView() {
 
   /* ================= token stacked area ================= */
 
-  const TW = 640, TH = 210, TL = 36, TRr = 26, TT = 10, TB = 24     // C6: TL +2 for 11.5px tick-label margin
+  /* Chart text is 12.5px throughout this view — the interface floor, and one
+     of the three sizes styles.css declares (11px uppercase micro-labels /
+     12.5px interface / 13px reading). The y ticks, hour labels and lane names
+     were an invented 11.5px; the failure axis matched them, so the page
+     carried 11.5 next to 12.5 next to 13.5. TL gains the 2px the wider tick
+     labels need to keep the same gap to the axis. */
+  const TW = 640, TH = 210, TL = 38, TRr = 26, TT = 10, TB = 24
   const xTok = (i) => TL + (i / (N - 1)) * (TW - TL - TRr)
   const tok = {}
 
@@ -652,7 +745,7 @@ export function metricsView() {
     let grid = ''
     for (let g = 0; g < 8; g++) {                       // pool; only ticks.length are shown
       grid += `<line class="tk-grid" x1="${TL}" x2="${TW - TRr}" y1="0" y2="0" stroke="var(--chart-grid)" stroke-width="1"/>` +
-        `<text class="tk-gl" x="${TL - 8}" y="0" font-size="11.5" fill="var(--ink-3)" text-anchor="end"></text>`
+        `<text class="tk-gl" x="${TL - 8}" y="0" font-size="12.5" fill="var(--ink-3)" text-anchor="end"></text>`
     }
     /* STACK ORDER — fixed, and the legend is printed in the same order:
          band 0  codex   (sits on the baseline, strongest fill)
@@ -667,7 +760,7 @@ export function metricsView() {
     const areas = PROVIDERS.map((p, i) => `<polygon class="tk-area" data-band="${i}" points="" fill="${provInk(p.id)}"/>`).join('')
     const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${provInk(p.id)}" stroke-width="2" stroke-linejoin="round"/>`).join('')
     let xl = ''
-    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle"></text>`
+    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="12.5" fill="var(--ink-3)" text-anchor="middle"></text>`
 
     const svg = el(`<svg viewBox="0 0 ${TW} ${TH}" role="img" aria-label="Token flow by provider">
       ${grid}${areas}${lines}${xl}
@@ -683,7 +776,7 @@ export function metricsView() {
     tok.xl = [...svg.querySelectorAll('.tk-xl')]
     tok.xh = svg.querySelector('#xh')
 
-    const tip = makeTooltip(host)
+    const tip = viewportTooltip(host)
     svg.addEventListener('pointermove', (e) => {
       const r = svg.getBoundingClientRect()
       const px = ((e.clientX - r.left) / r.width) * TW
@@ -698,6 +791,7 @@ export function metricsView() {
   }
 
   function applyTokens(d) {
+    if (!tok.grid) return                 // built on the frame after mount
     const maxY = d.tokMax
     const y = (v) => TT + (1 - v / maxY) * (TH - TT - TB)
     const tv = d.tokTicks || []
@@ -726,6 +820,7 @@ export function metricsView() {
   }
 
   function applyTokenChrome() {
+    if (!tok.xl) return                   // built on the frame after mount
     const R = meta()
     tok.xl.forEach((t, k) => {
       const i = R.ticks[k]
@@ -764,11 +859,11 @@ export function metricsView() {
     const grid = FTICKS.map(t =>
       `<line x1="${fx(t).toFixed(1)}" x2="${fx(t).toFixed(1)}" y1="${gridTop}" y2="${gridBot}" stroke="var(--chart-grid)" stroke-width="1"/>`).join('')
     const axis = FTICKS.map(t =>
-      `<text x="${fx(t).toFixed(1)}" y="${H - 6}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle">${t === FMAX ? `${t}%` : t}</text>`).join('')
+      `<text x="${fx(t).toFixed(1)}" y="${H - 6}" font-size="12.5" fill="var(--ink-3)" text-anchor="middle">${t === FMAX ? `${t}%` : t}</text>`).join('')
     const rows = LANES.map((lane, i) => {
       const y = 6 + i * FROW
       return `<g class="f-row" data-i="${i}">
-        <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="11.5" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
+        <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
         <path class="fbar" d="" data-lane="${lane}"/>
         <text class="fval" x="${FL}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" font-weight="640" font-variant-numeric="tabular-nums"></text>
         <rect class="fhit" x="0" y="${y}" width="${FW}" height="${FROW - 2}" fill="transparent"/>
@@ -783,7 +878,7 @@ export function metricsView() {
       fbars.push({ g, i, bar: g.querySelector('.fbar'), val: g.querySelector('.fval') })
     })
 
-    const tip = makeTooltip(host)
+    const tip = viewportTooltip(host)
     let hot = -1
     svg.addEventListener('pointermove', (e) => {
       const g = e.target.closest('.f-row')
@@ -826,7 +921,7 @@ export function metricsView() {
     host.innerHTML = ''
     let cells = ''
     for (let d = 0; d < 7; d++) {
-      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="11.5" fill="var(--ink-3)" text-anchor="end">${DAYS[d]}</text>`
+      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="12.5" fill="var(--ink-3)" text-anchor="end">${DAYS[d]}</text>`
       for (let h = 0; h < 24; h++) {
         /* seed fill from the ramp's own low stop, not a light-theme literal —
            applyHeat overwrites it immediately, but a hardcoded near-white was
@@ -837,13 +932,13 @@ export function metricsView() {
     /* Band axis over 24 hour cells — canonical 6-hour clock stops, not
        d3ticks (see the AXIS RULE beside RANGE_META). */
     const xl = HOUR_TICKS.map(h =>
-      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
+      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="12.5" fill="var(--ink-3)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
     const svg = el(`<svg viewBox="0 0 ${HW} ${HH}" role="img" aria-label="Fleet activity heatmap">${cells}${xl}</svg>`)
     host.appendChild(svg)
     heatCells.length = 0
     svg.querySelectorAll('.heat-cell').forEach(r => heatCells.push(r))
 
-    const tip = makeTooltip(host)
+    const tip = viewportTooltip(host)
     let hot = null
     svg.addEventListener('pointermove', (e) => {
       const t = e.target
@@ -925,7 +1020,7 @@ export function metricsView() {
     verdict.pcts = VSEGS.map(s => wrap.querySelector(`.vp-${s.key}`))
 
     const bar = wrap.querySelector('.vbar')
-    const tip = makeTooltip(host)
+    const tip = viewportTooltip(host)
     let hot = null
     bar.addEventListener('pointermove', (e) => {
       const t = e.target.closest('.vseg')
@@ -942,6 +1037,7 @@ export function metricsView() {
   }
 
   function applyVerdicts(d) {
+    if (!verdict.total) return            // built on the frame after mount
     const v = d.verdicts
     const total = v.accept + v.retry + v.reject
     let acc = 0
@@ -964,6 +1060,10 @@ export function metricsView() {
 
   const opsRefs = []
 
+  /* The sub-caption is --ink-25, not --ink-4: it carries the row's meaning
+     ("continuation, never completion" is what makes 'Truncations resumed' a
+     discipline rather than a count), and styles.css documents --ink-4 as
+     decoration only — it measured 3.19:1 on white, below the text floor. */
   function buildOps() {
     const host = root.querySelector('#ops-body')
     host.innerHTML = ''
@@ -971,7 +1071,7 @@ export function metricsView() {
       const row = el(`
         <div style="display:flex;align-items:baseline;justify-content:space-between;padding:9px 2px;border-bottom:1px solid var(--line)">
           <div><div style="font-size:12.5px;font-weight:570;color:var(--ink-2)">${l}</div>
-          <div style="font-size:12.5px;color:var(--ink-4)">${s}</div></div>
+          <div style="font-size:12.5px;color:var(--ink-25)">${s}</div></div>
           <div class="opv" style="font-size:20px;font-weight:650;font-variant-numeric:tabular-nums">0</div>
         </div>`)
       host.appendChild(row)
@@ -1236,14 +1336,36 @@ export function metricsView() {
      applied and the stylesheet being injected. Re-read before the key and the
      first cells are painted. */
   readHeatRamp()
-  buildTiles(); buildPools(); buildTokens(); buildFail(); buildHeat(); buildVerdicts(); buildOps(); buildTable()
-  syncHeatKey()
+
+  /* TWO-STAGE MOUNT — the top strip in this task, the rest on the next frame.
+     Every route swap stalled the main thread for 100–190 ms building the
+     incoming view, and #/metrics is the worst of them: 3713 DOM nodes against
+     1962 on #/comms. It is not View Transitions — removing the API entirely
+     measured the same or slightly worse (6891 ms of cumulative stall vs 6645
+     with it) — it is one long synchronous construction task.
+     So stage 1 builds only what the reader lands on: the filter row (static
+     markup), the tile row and the pool row. Stage 2 builds the four chart
+     cards, the 7x24 = 168-cell heatmap and the agent table in a post-paint
+     rAF. Every apply*() below is a no-op until its own refs exist, so a sim
+     retarget landing inside that one-frame window is harmless. */
+  buildTiles(); buildPools()
   captureSessionBase(current)
   applyChrome()
   const settled = current
   current = flattened(settled)
   applyAll(current)
-  requestAnimationFrame(() => { syncIndicators(); tweenTo(settled, 900) })
+
+  let bootRaf = requestAnimationFrame(() => {
+    bootRaf = 0
+    buildTokens(); buildFail(); buildHeat(); buildVerdicts(); buildOps(); buildTable()
+    syncHeatKey()
+    applyTokenChrome()
+    applyAll(current)                  // paint the late panels at the frame the tiles are on
+    syncIndicators()
+    /* if a sim event already retargeted inside the gap, that tween owns the
+       data now — do not restart the arrival one on top of it */
+    if (target === settled) tweenTo(settled, 900)
+  })
 
   /* Theme switch: re-read the per-theme --heat-* stops, drop the paint cache
      so every cell is forced through the new ramp, and regenerate the key. */
@@ -1262,6 +1384,7 @@ export function metricsView() {
     el: root,
     destroy() {
       cancelAnimationFrame(rafId)
+      if (bootRaf) cancelAnimationFrame(bootRaf)     // a route swap inside the mount gap
       timers.forEach(t => clearTimeout(t))
       timers.clear()
       unsubs.forEach(u => u())

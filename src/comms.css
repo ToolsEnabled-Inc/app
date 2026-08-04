@@ -197,9 +197,13 @@
 }
 .ch:hover .ch-name::after { transform: scaleX(1); }
 .ch.active .ch-name { color: var(--ink); font-weight: 660; }
+/* the machine tag is information, so it takes the informational ink the same
+   tag already uses in .cmsg-mach / .integ-tag / the rail footer. It was on
+   --ink-4, which styles.css reserves for decorative grey only, and read at
+   3.4–4.3:1 — the one place on the page this token fell under 4.5:1. */
 .ch-mach {
   margin-left: auto;
-  color: var(--ink-4);
+  color: var(--ink-3);
   flex: none;
 }
 /* Unread dot: FLAT at rest. A channel can sit unread for an hour, and a
@@ -363,6 +367,9 @@
   box-shadow: 0 12px 26px -10px rgba(14, 23, 38, 0.34);
 }
 .jump-chip:active { transform: translateX(-50%) scale(0.96); }
+/* fades out only — being unreachable by keyboard is done in JS (updateChip sets
+   inert + tabindex="-1"), so the transition survives and the invisible chip is
+   not a tab stop */
 .jump-chip.hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
 .jump-chip svg { width: 13px; height: 13px; display: block; }
 

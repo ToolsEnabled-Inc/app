@@ -32,12 +32,19 @@
    roles' cyan 227 / orange 53 / mint 165 / blue 268 / yellow 84).
 
    Values are computed, not eyeballed — validated with the dataviz palette
-   validator against every theme surface:
-     light on #ffffff  · adjacent CVD ΔE 15.3 · normal-vision 23.9 · all >= 3:1
-     light on #fbf1c7  · adjacent CVD ΔE 15.3 · normal-vision 23.9 · all >= 3:1
-     dark  on #14171b  · adjacent CVD ΔE 12.0 · normal-vision 20.9 · all >= 3:1
-   Nearest role hue is ΔE 11.3–20.9 away in every theme, so no provider band
-   can be mistaken for a role dot.
+   validator against every theme surface. The surfaces are the PAGE
+   backgrounds, not --sheet: the flat-background pass means a chart card
+   composites to --bg exactly, so a card is #f7f8fa / #f2e5bc / #0d0f12 and
+   the earlier #ffffff / #fbf1c7 / #14171b claim was validating a surface
+   that is no longer painted. Re-measured stroke contrast on the real one:
+     white #f7f8fa  codex 4.86 · claude 3.32 · gemini 7.13 · local 3.37
+     tan   #f2e5bc  codex 4.11 · claude 3.91 · gemini 6.02 · local 4.11
+     black #0d0f12  codex 3.70 · claude 6.26 · gemini 3.48 · local 5.89
+   The tan theme needed its own step for claude and local — on #f2e5bc the
+   light values measured 2.81 and 2.85, under the 3:1 non-text floor, and
+   they are the two topmost 2px strokes in the stack (read against the sky,
+   not against a neighbouring band). Nearest role hue is ΔE 11.3–20.9 away in
+   every theme, so no provider band can be mistaken for a role dot.
 
    Scoped to .metrics rather than added to src/styles.css because that file
    belongs to another lane this wave.
@@ -56,6 +63,30 @@
   --area-a1: 0.22;
   --area-a2: 0.16;
   --area-a3: 0.11;
+
+  /* ---------- pool + tile accents: DELIBERATELY NOT CATEGORICAL ----------
+     Wave 1 split PROVIDERS off the role hexes but left POOLS and the tile
+     dots carrying them, so pool jpinckard21 (#00a9d8) was the Coordinator
+     dot, jpinckard95 (#3e63f0) the Manager and jpinc005 (#00bd8a) the Shadow
+     Manager — the same three hexes, ~500 px apart in one scroll. The tile
+     row was worse: six dots off five role hexes, two of them ('Tasks closed'
+     and 'Checkpoints') the SAME hex, so colour did not identify even within
+     the row it lived in.
+
+     A fourth categorical set was not the answer — roles, providers, verdict
+     statuses, failure severities and the heat ramp already spend this page's
+     colour budget. Neither dimension needs a hue: every pool card is
+     labelled with its mono account name plus a kind badge, and every tile
+     carries its own text label. So both resolve to ONE neutral and the
+     collision disappears by construction rather than by re-tuning.
+
+     --pool-accent is a fixed slate on every theme on purpose: the meter
+     track is color-mix(--pc 12%, white) in styles.css, i.e. light on ALL
+     themes, so a theme-flipping ink would leave a pale fill in a pale track
+     on black. 3.15:1 fill-vs-track, 7.6:1 badge text. --tile-mark sits on
+     the card and does flip, so it takes the ink ramp. */
+  --pool-accent: #5c6b7a;
+  --tile-mark: var(--ink-2);
 }
 :root[data-theme="black"] .metrics {
   --prov-codex:  #9b5392;   /* dark-band steps: re-selected against #14171b, */
@@ -67,6 +98,13 @@
   --area-a2: 0.14;
   --area-a3: 0.10;
 }
+/* tan re-steps only the two strokes that failed on #f2e5bc; codex and gemini
+   already clear the floor there and stay on the light values so the four
+   series keep one family across themes. 3.91 (claude) and 4.11 (local). */
+:root[data-theme="tan"] .metrics {
+  --prov-claude: #5c7a2b;
+  --prov-local:  #7c5fa9;
+}
 
 /* ---------- glass filter row ---------- */
 .m-filter {
@@ -77,11 +115,18 @@
   padding: 10px 14px;
   border-radius: var(--r-md);
 }
+/* --ink-4 is documented in styles.css as DECORATION ONLY — separators and
+   off-state marks, never a fact on its own — and measures 3.19 (white) /
+   3.87 (tan) / 4.05 (black) against the composited card. Everything below
+   is informational text at 12.5px: the filter's own labels, the status note,
+   the heat key's low/high (the only thing saying which end of the ramp is
+   busy), and the verdict hero's caption. They take --ink-25, the token whose
+   documented job is exactly this tier: 5.38 / 7.02 / 8.43. */
 .m-filter .mf-label {
   font-size: 12.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-4);
+  color: var(--ink-25);
   font-weight: 650;
 }
 .m-filter .mf-sep {
@@ -95,7 +140,7 @@
 .m-filter .mf-note {
   font-family: var(--font-mono);
   font-size: 12.5px;
-  color: var(--ink-4);
+  color: var(--ink-25);
   white-space: nowrap;
 }
 .m-filter .mf-note b { color: var(--ink-3); font-weight: 600; }
@@ -144,9 +189,25 @@
 .pill:hover { color: var(--ink-2); }
 .pill.on { color: var(--ink); }
 .pill:active { transform: scale(0.94); }
+/* SHARED FOCUS RECIPE, not a bespoke one.
+   The pill and the sortable table header each carried their own weak ring
+   (0.32 and 0.25 alpha), measuring 1.39–1.73 and 1.44–2.30 focused-vs-
+   unfocused — 14 of this page's 18 tab stops below 2:1. The site recipe
+   lives in the shared selector list in src/styles.css, which belongs to
+   another lane this wave, so it is replicated here rather than joined:
+   same geometry (1.5px surface halo + 3.5px ring), read through
+   --focus-ring so that if that lane lands a ring token these two follow it
+   instead of freezing a copy of today's value.
+   The fallback is deliberately NOT today's rgba(0,169,216,0.72): that cyan
+   composites to 2.02:1 on the white page and 1.82 on tan, i.e. the shared
+   ring itself is the thing the other lane is fixing. #0079a8 is the same
+   hue darkened until it clears 3:1 unaided on all three page surfaces —
+   4.60 white / 3.89 tan / 3.95 black. */
 .pill:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(0, 169, 216, 0.32);
+  box-shadow:
+    0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
+    0 0 0 3.5px var(--focus-ring, #0079a8);
 }
 
 /* ---------- tiles: count-up bump + sparkline end-point pulse ---------- */
@@ -159,16 +220,23 @@
 }
 .tile .td { transition: color .3s var(--ease); }
 
+/* The halo is a STATE MARK, not a resting decoration.
+   It used to run `sparkBreath` — an infinite transform: scale() keyframe on
+   four SVG <circle>s. SVG transforms are not composited in Chromium, so each
+   of those frames re-laid-out the sparkline SVGs, permanently, at rest,
+   forever: cancelling only those four animations on an idle #/metrics took
+   CPU 25.5% -> 8.1%, layouts 54.3/s -> 11.2/s, layout time 44.1 -> 19.4
+   ms/s, p95 frame 27.7 -> 11.0 ms, and long frames (>=40 ms in 5 s) 8 -> 1.
+   It was also a permanent coloured pulse at rest, which the settled
+   direction rules out on its own — so it is gone rather than converted to
+   an opacity-only breath, and the resting opacity goes to 0 with it. What
+   remains is the one-shot .ping, fired only when a tile's value actually
+   moves: a genuine state moment. */
 .spark-halo {
   transform-box: fill-box;
   transform-origin: center;
-  opacity: 0.18;
-  animation: sparkBreath 3.4s var(--ease) infinite;
+  opacity: 0;
   pointer-events: none;
-}
-@keyframes sparkBreath {
-  0%, 100% { transform: scale(1);    opacity: 0.18; }
-  50%      { transform: scale(1.5);  opacity: 0.05; }
 }
 .spark-halo.ping { animation: sparkPing .8s var(--ease) 1; }
 @keyframes sparkPing {
@@ -176,7 +244,38 @@
   100% { transform: scale(3.2); opacity: 0; }
 }
 
+/* ---------- tiles: one baseline grid across the row ----------
+   'Agents live' is the only tile whose value suffix can wrap ('of 107
+   spawned'), and at 1280x800 it does: 27px instead of 14px, which pushed
+   that tile's delta row 10px and its sparkline 10px below the five tiles
+   beside it. Six boxes on one shared top edge, one of them laddering down,
+   reads as unfinished rather than as data. Reserve the second line so the
+   row cannot ladder whatever the copy or the digit count does — a fix in
+   the layout rather than in the wording, which would only hold until the
+   spawned count reached four digits. */
+.metrics .tile .tv .unit {
+  min-height: 27px;      /* two 13.5px lines — fallback for no `lh` support */
+  min-height: 2lh;
+}
+
 /* ---------- pool meters: hoverable ---------- */
+/* Composited fill, not an animated `width`.
+   styles.css tweens `.meter .mf` width for 1.2s and this view rewrites it on
+   every frame of every tween, so the quota meters ran a full layout per
+   frame — the same defect as .bar-fill on #/computers, where removing the
+   width transition took layout from 89.3/s to 23.8/s during a drag. The fill
+   is absolutely positioned inside an overflow:hidden track, so a left-origin
+   scaleX is a drop-in: the gradient already spanned the fill's own width, so
+   scaling it looks identical. transform is composited; width is not.
+   The duration is the .3s this view was already applying inline, not the
+   1.2s in styles.css: the value here is rewritten every frame by the tween
+   engine, so the transition is a damping filter on top of it, and 1.2s of
+   damping would leave the meter visibly trailing its own tween. */
+.metrics .meter .mf {
+  width: 100%;
+  transform-origin: left center;
+  transition: transform .3s var(--ease);
+}
 .pool .meter { cursor: default; transition: box-shadow .3s var(--ease); }
 .pool .meter:hover {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--pc) 14%, transparent);
@@ -212,7 +311,7 @@
 .vhero .vh-l {
   margin-top: 5px;
   font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--ink-4); font-weight: 600;
+  color: var(--ink-25); font-weight: 600;
 }
 .vsplit { flex: 1 1 180px; min-width: 0; }
 /* No track behind it: a 100% stacked bar has no empty remainder, so the 2px
@@ -245,7 +344,7 @@
   font-size: 12.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-4);
+  color: var(--ink-25);
   font-weight: 600;
 }
 .heat-key i {
@@ -265,10 +364,17 @@
 /* ---------- sortable agent table ---------- */
 .mtable th.sortable { cursor: pointer; user-select: none; transition: color .22s var(--ease); }
 .mtable th.sortable:hover { color: var(--ink-2); }
+/* Same ring, drawn as an INSET outline rather than the shared box-shadow:
+   these are cells in a border-collapse table inside an overflow-x:auto
+   scroller, so an outer ring on the first/last column would be clipped by
+   the scroller and an outer box-shadow has to fight the collapsed border
+   model. An outline ignores both, and outline-offset keeps it inside the
+   cell. Full strength, not the old 0.25 alpha. `color` stays as the
+   secondary cue it always was. */
 .mtable th.sortable:focus-visible {
-  outline: none;
+  outline: 3px solid var(--focus-ring, #0079a8);
+  outline-offset: -3px;
   color: var(--ink);
-  box-shadow: inset 0 0 0 2px rgba(0, 169, 216, 0.25);
   border-radius: 3px;
 }
 .mtable th .th-in { display: inline-flex; align-items: center; gap: 5px; }
@@ -292,9 +398,14 @@
 .mtable tbody tr.flip { position: relative; z-index: 1; }
 
 /* ---------- C6: type floor for text owned by src/styles.css ----------
-   Ticks live at 11.5px in the SVG markup itself (metrics.js, next to the
-   chart geometry). These cover the labels/legends (>=12.5px) and table
-   cells (>=13px) tiers for elements whose base rule is in styles.css. */
+   Chart text lives in the SVG markup itself (metrics.js, next to the chart
+   geometry it is sized against) and is now 12.5px throughout — the axis
+   ticks, hour labels and failure-lane names were an invented 11.5px, below
+   both the owner's 12.5px interface floor and the three-tier scale this
+   sheet's own header declares (11px uppercase micro-labels only / 12.5px
+   interface / 13px reading). These rules cover the labels/legends (>=12.5px)
+   and table cells (>=13px) tiers for elements whose base rule is in
+   styles.css. */
 .metrics .chart-head { flex-wrap: wrap; row-gap: 4px; }
 .metrics .chart-head .cs { font-size: 12.5px; }
 .metrics .chart-legend { font-size: 12.5px; }
@@ -316,7 +427,7 @@
 
 /* ---------- reduced motion ---------- */
 body.reduce-motion .spark-halo,
-body.reduce-motion .spark-halo.ping { animation: none; opacity: 0.18; }
+body.reduce-motion .spark-halo.ping { animation: none; opacity: 0; }
 body.reduce-motion .pill-group .pg-ind { transition-duration: 0.12s; }
 body.reduce-motion .tile .tv.bump { animation: none; }
 body.reduce-motion .vseg { transition-duration: 0.12s; }

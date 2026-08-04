@@ -86,7 +86,50 @@
 @media (min-width: 901px) {
   .home { grid-template-columns: 1fr minmax(420px, 600px); }
 }
-.home-feed-wrap .brace { font-size: 156px; }
+/* ...and the 600px cap was still one step short on a wide screen. Measured at
+   1600x900: the feed track sat pinned at 600, .feed-line resolved to 421px of
+   text, and 6 of 54 sampled lines (11%) ellipsised mid-phrase — the ordinary
+   vocabulary runs to 491px ("gem-lane-3 · searching help-request tags in
+   coordination memory"). Meanwhile the ring column was 840px holding a 520px
+   ring, so 200px of page sat empty between the ring's right edge and the left
+   brace. Raising the cap to 700 at >=1500px takes truncation to 0/54 with
+   521px of text and still leaves a ~150px ring-to-brace gap. Below 1500px the
+   600px cap is honest — at 1280x800 the left column has only ~45px of slack,
+   so widening there would crush the ring instead of the whitespace. */
+@media (min-width: 1500px) {
+  .home { grid-template-columns: 1fr minmax(420px, 700px); }
+}
+
+/* ---- the braces have to BRACKET the context, not stand next to it ----
+   font-size was the only lever on brace height, and it is the wrong one: at
+   156px the glyph paints a fixed ~122px shape while the block it is supposed
+   to enclose (nine feed lines plus the hint) is ~252px, so 71px of context
+   hung above the brace and 59px below it. Two decorations parked beside the
+   middle third, not a bracket — the sketch draws the context lines BETWEEN
+   the braces.
+   Sizing it up via font-size does not work either: the brace is ~0.39em wide,
+   so the ~322px font-size needed to span 252px of ink would add ~130px of
+   glyph width, taking back everything the 1500px track step above just gave
+   the text (and then some — the longest ordinary line is 491px). Height and
+   width have to be decoupled, which is exactly what the "stretch an SVG brace
+   with preserveAspectRatio=none" idea buys; scaleY buys the same thing on the
+   real typeface, with no second drawing of a glyph the font already has and
+   no layout cost at all. --brace-stretch is measured per element in home.js
+   from the actual painted ink box, so it re-fits on resize and after webfont
+   swap rather than trusting a constant. */
+.home-feed-wrap .brace {
+  font-size: 156px;
+  transform: translateY(var(--brace-shift, 0px)) scaleY(var(--brace-stretch, 1));
+}
+/* a zero-height inline-block aligns its bottom margin edge to the baseline, so
+   this empty strut IS the baseline as the browser laid it out — home.js reads
+   its offsetTop to place the glyph's ink instead of reconstructing the line
+   box from font metrics. It has no size, no content and no ink of its own. */
+.home-feed-wrap .brace .brace-strut {
+  display: inline-block;
+  width: 0; height: 0;
+  vertical-align: baseline;
+}
 
 /* ---- the tail of the log dies away instead of stopping on a cut ----
    The nine lines ended on a hard edge: the ninth sat at full --ink-3 and then
@@ -109,13 +152,29 @@
    while someone may still be reading it. The text underneath is painted over,
    not composited, so its antialiasing is untouched. .leaving already exits
    downward into exactly this band, so departures now recede into the fade
-   instead of dropping off a ledge. */
-.home-feed .feed-lines { position: relative; }
+   instead of dropping off a ledge.
+
+   BUT the band was 34px over an unpadded column, and a 13px/1.35 line is
+   17.55px — so it covered the ninth line whole (alpha 0.43 at its vertical
+   mid) and dropped live informational text to 2.17:1 white / 2.30 tan / 2.91
+   black. All nine lines paint at once on arrival at #/, so that line had
+   never been legible in the session. Lowering the terminal alpha cannot fix
+   it while the band still covers a whole line — swept: 0.40 -> 2.70:1, 0.30
+   -> 3.07, 0.20 -> 3.51, 0.12 -> 3.91, all under 4.5:1 — and rendering eight
+   lines instead of nine does nothing at all, because the column is auto-height
+   (content ~300px inside a 460px max-height) so bottom:0 simply re-lands the
+   same band on whichever line is now last.
+   The fix is to give the band somewhere to be that is not glyphs: 22px of
+   padding under the column, and a 26px band, so the gradient occupies the
+   descender zone and the empty strip below it. The last line keeps its full
+   4.64 / 5.18 / 6.64:1 (peak alpha over its descenders is ~0.06), the column
+   still ends on a wash rather than a cut, and .leaving still exits into it. */
+.home-feed .feed-lines { position: relative; padding-bottom: 22px; }
 .home-feed .feed-lines::after {
   content: '';
   position: absolute;
   left: 0; right: 0; bottom: 0;
-  height: 34px;
+  height: 26px;
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 58%, transparent));
 }
@@ -150,18 +209,43 @@
   background: rgba(127, 127, 127, 0.05);
   box-shadow:
     0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
-    0 0 0 3.5px rgba(0, 169, 216, 0.72);
+    0 0 0 3.5px var(--focus-ring, rgba(0, 169, 216, 0.72));
   transition:
     box-shadow .12s var(--ease), background .12s var(--ease),
     transform .45s var(--ease), height .5s var(--ease), max-height .5s var(--ease);
 }
+/* ...and that recipe only clears WCAG 1.4.11's 3:1 on the black sheet. The
+   ring is the only thing that marks this control when focused, and the two
+   layers do not add up on a light page: rgba(0,169,216,0.72) composites to
+   rgb(69,191,226) = 2.01:1 on white and rgb(68,186,208) = 1.82:1 on tan
+   (black: 4.11:1, fine), while the inner halo is a dark-theme device that
+   contributes 1.06:1 / 1.15:1 — i.e. nothing — so the indicator really is one
+   under-strength 2px band. Pixel-sampled across the focused card's left edge
+   at deviceScaleFactor 1; identical at 1280x800 and 1600x900.
+   Light sheets need a darker hue, not a heavier one: #006b8a at 0.95 measures
+   5.17:1 on #f7f8fa and 4.44:1 on #f2e5bc. (#0091b8 tops out at 3.24 / 2.78
+   and still fails tan, so this is not a small nudge.) Both rules read
+   --focus-ring first so that if the site-wide token lands in styles.css — the
+   same defect is duplicated at styles.css:1319/1372, graph.css:429 and
+   comms.css:395 — home follows it instead of drifting from it. */
+:root[data-theme="white"] .home-feed:focus-visible:not(.as-chat),
+:root[data-theme="tan"] .home-feed:focus-visible:not(.as-chat) {
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
+    0 0 0 3.5px var(--focus-ring, rgba(0, 107, 138, 0.95));
+}
 
-/* giant braces flex subtly on each feed arrival */
+/* giant braces flex subtly on each feed arrival.
+   Stated relative to --brace-stretch (see above) rather than to 1: an
+   animation's keyframes REPLACE the base transform outright, so a literal
+   scaleY(1) here would snap the brace back to its unstretched 122px for the
+   300ms of every arrival — a brace collapsing to a third of its height on
+   each new line, which is the loudest thing on the page. */
 .brace.brace-pulse { animation: home-brace-pulse .3s var(--ease); }
 @keyframes home-brace-pulse {
-  0%   { transform: scaleY(1); }
-  40%  { transform: scaleY(1.02); }
-  100% { transform: scaleY(1); }
+  0%   { transform: translateY(var(--brace-shift, 0px)) scaleY(var(--brace-stretch, 1)); }
+  40%  { transform: translateY(var(--brace-shift, 0px)) scaleY(calc(var(--brace-stretch, 1) * 1.02)); }
+  100% { transform: translateY(var(--brace-shift, 0px)) scaleY(var(--brace-stretch, 1)); }
 }
 
 /* ============================================================

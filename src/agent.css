@@ -267,21 +267,16 @@
 
 /* ---------- 7. (C5) type floor + breathing room: Chat/Controls panels --- *
  * The vertical spacing ABOVE the runtime ring (apanel's own top padding,
- * apanel-title's bottom margin, agent-head's bottom margin, agent-ring-wrap's
- * top padding) is deliberately kept at its pre-sweep value: the Controls
- * panel is short enough at the 1280x800 mandated size that any extra push-
- * down there lands the ring's own bottom edge past the panel's visible
- * height (a real clip, not just extra scroll) — verified by reverting only
- * these four to get a non-clipped ring back at 1280x800 while everything
- * BELOW the ring (which cannot affect its position) keeps the fuller
- * breathing room; apanel's own side/bottom padding also stays fuller since
- * neither affects where the ring lands. */
+ * apanel-title's bottom margin, agent-ring-wrap's top padding) is
+ * deliberately kept at its pre-sweep value: the Controls panel is short
+ * enough at the 1280x800 mandated size that any extra push-down there costs
+ * the ring visible height it does not have.
+ * The .agent-head and .rail-sub rules that used to sit here went with the
+ * elements themselves (see views/agent.js): both repeated the .agent-strip
+ * that sits directly above the panels. */
 .agentv-panels .apanel { padding: 20px 26px 24px; }
 .agentv .apanel-title { font-size: 12.5px; margin-bottom: 12px; }
-.agentv .agent-head { margin-bottom: 6px; }
-.agentv .agent-head .ar { font-size: 12.5px; }
 .agentv .agent-ring-wrap { padding: 10px 0 12px; }
-.agentv .rail-sub { font-size: 13px; }                 /* mono content */
 .agentv .rail-sec { font-size: 12.5px; margin: 26px 0 14px; }
 .agentv .ctl-grid { gap: 10px; }
 .agentv .ctl-row { padding: 11px 2px; }
@@ -301,6 +296,14 @@
   font-variant-numeric: tabular-nums;
 }
 .agentv .uring.compact .uring-caption { font-size: 12.5px; }
+/* The short-viewport runtime dial (views/agent.js drops it to 132px below
+   960px of viewport height so the panel does not become "a dial and
+   nothing else"). The compact step's 27px digits measure 128px, which is
+   wider than a 132px ring's ~100px inner chord, so the digits step with the
+   ring rather than escaping the disc. */
+.agentv .uring.ctl-ring-sm .uring-digits .n { font-size: 20px; }
+.agentv .uring.ctl-ring-sm .uring-digits .colon { font-size: 15px; padding: 0 2px; transform: translateY(-1px); }
+.agentv .uring.ctl-ring-sm .uring-caption { font-size: 11px; margin-top: var(--s1, 4px); }
 .agentv .chat-head .s { font-size: 13px; }              /* mono content */
 .agentv .msg { font-size: 13px; }                       /* chat content */
 .agentv .msg .who { font-size: 13px; }
@@ -341,7 +344,60 @@ body.reduce-motion .node-rim.pulse .rim-arc {
 /* each panel scrolls its own content instead of the row scrolling sideways */
 .agentv-panels .apanel > .rail-scroll,
 .agentv-panels .chat-panel .chat { min-height: 0; }
-.agentv-panels .ctl-panel .rail-scroll { overflow-y: auto; padding-right: var(--s1, 4px); }
+
+/* ------------------------------------------------------------
+   Controls: a scroller that admits it is one, plus a pinned action row.
+   The panel is 389px tall at 1600x900 and 300px at 1280x800 (the graph
+   above it holds a hard 362px floor, so the panel gets what is left), and
+   its content is taller than that at every shipping viewport — it scrolls,
+   and that is a fact of the layout rather than something to hide. It was
+   doing it silently: overflow-y:auto with no scrollbar drawn, no mask, and
+   .scroll-cue already (correctly) display:none since both panels are on
+   screen — so at 1600x900 Respawn and Terminate rendered 7px of their 40px
+   as a stripe on the panel's bottom edge, and at 1280x800 all four buttons
+   sat entirely below the panel. Two changes fix that:
+     · the four primary actions leave the scroller (see views/agent.js) and
+       become a pinned row, so a control is never half-visible — measured
+       40/40px shown for all four at 1280x800, 1600x900 and 1920x1080;
+     · what is left (341px of dial + Tuning against a 201px / 112px window)
+       scrolls behind a themed thin scrollbar where the platform draws one,
+       and behind a bottom fade that lifts at the end of the scroll
+       (.at-end, set from the real scroll position in views/agent.js).
+   ------------------------------------------------------------ */
+.agentv-panels .ctl-panel .rail-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--s2, 8px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-4) transparent;
+  /* the same bottom fade Home already ships; 28px is the fade band, not
+     spacing, so it stays literal */
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+}
+/* mask-image cannot tween between a gradient and none, so this snaps on
+   purpose rather than pretending to animate */
+.agentv-panels .ctl-panel .rail-scroll.at-end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+/* Chromium still needs the -webkit- pseudo-elements to draw a themed bar */
+.agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar { width: 6px; }
+.agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-track { background: transparent; }
+.agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb {
+  background: var(--ink-4); border-radius: 3px;
+}
+.agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+
+/* the pinned action row — outside the scroller, so all four buttons are
+   whole at every viewport instead of straddling the panel's bottom edge */
+.agentv-panels .ctl-panel > .ctl-actions {
+  flex: none;
+  margin-top: var(--s3, 12px);
+  padding-top: var(--s3, 12px);
+  border-top: 1px solid var(--line);
+}
 
 /* both panels are on screen, so the wayfinding for a hidden one is noise */
 .panel-dots, .agentv-panels-wrap > .scroll-cue { display: none; }

@@ -165,6 +165,22 @@ function swapView(route, morph, zoom, snapshotted) {
   const label = (n) => (n === 'home' ? 'home' : n)
   back.dataset.dest = route.name === 'agent' ? 'computers' : (idx > 0 ? label(ORDER[idx - 1]) : '')
   next.dataset.dest = idx < ORDER.length - 1 ? label(ORDER[idx + 1]) : ''
+
+  /* …and the same destination has to reach a screen reader, which the CSS
+     ::after caption never could: it is generated content, and the static
+     aria-label ("Back"/"Next") outranked it in the accessible name anyway.
+     With the tab strip and the breadcrumb both gone, these two labels plus
+     the document title are ALL the wayfinding the page has left, so both are
+     written from the same data-dest the caption reads. */
+  const backName = back.dataset.dest ? `Back to ${back.dataset.dest}` : 'Back'
+  const nextName = next.dataset.dest ? `Forward to ${next.dataset.dest}` : 'Forward'
+  // title and aria-label are written from the same string so the tooltip can
+  // never disagree with the accessible name (WCAG 2.5.3); the visible ::after
+  // caption is just the destination word, which both of them contain.
+  back.setAttribute('aria-label', backName); back.setAttribute('title', backName)
+  next.setAttribute('aria-label', nextName); next.setAttribute('title', nextName)
+  const routeName = route.name === 'agent' ? `agent ${route.agent}` : route.name
+  document.title = `${routeName} · Mission Control`
 }
 
 window.addEventListener('hashchange', render)
@@ -223,11 +239,31 @@ function enforceDrawerFocusGuard() {
   }
 }
 
+/* The OPEN drawer is the mirror image of the closed one: it covers the page,
+   so everything behind it has to leave the tab order too. Without this, Tab
+   from the gear walked 16 stops through the page before reaching the drawer,
+   and two of those stops (#nav-next, fully; the "Sort by Runtime" header,
+   58%) were underneath the open drawer — focus you cannot see, which is
+   WCAG 2.2 SC 2.4.11. Same `inert` mechanism as the closed-drawer guard,
+   pointed the other way; where inert is unsupported the browser simply keeps
+   its old behaviour rather than us re-implementing a trap by hand. */
+const behindDrawer = [document.querySelector('header.topbar'), document.getElementById('stage')].filter(Boolean)
+function enforcePageGuard() {
+  if (!supportsInert) return
+  for (const node of behindDrawer) {
+    if (node.hasAttribute('inert') !== drawerOpen) node.toggleAttribute('inert', drawerOpen)
+  }
+}
+
 const setDrawer = (open) => {
   drawerOpen = open
   drawer.classList.toggle('open', open)
   drawer.setAttribute('aria-hidden', open ? 'false' : 'true')
+  openSettingsBtn.setAttribute('aria-expanded', open ? 'true' : 'false')
   enforceDrawerFocusGuard()
+  // order matters on the way OUT: the header has to stop being inert before
+  // closeDrawer() can hand focus back to the gear inside it
+  enforcePageGuard()
 }
 // childList/subtree + the inert attribute only: the fallback path writes
 // tabindex, which is deliberately outside the filter so it cannot loop.
@@ -237,15 +273,45 @@ new MutationObserver(enforceDrawerFocusGuard).observe(drawer, {
 
 const closeDrawer = () => {
   // an inert drawer cannot hold focus; hand it back to the control that
-  // opened it instead of dropping the user at the top of the document
-  const hadFocus = drawer.contains(document.activeElement)
+  // opened it instead of dropping the user at the top of the document. Focus
+  // that has already fallen off the document (body/null — where Tab past the
+  // drawer's last control leaves it) counts too, or the keyboard user is left
+  // restarting the tab order from the top of the page.
+  const a = document.activeElement
+  const hadFocus = drawer.contains(a) || !a || a === document.body
   setDrawer(false)
   if (hadFocus) openSettingsBtn.focus()
 }
-openSettingsBtn.addEventListener('click', () => setDrawer(true))
+const openDrawer = () => {
+  setDrawer(true)
+  // focus follows the surface that just covered the page — the close button
+  // is the drawer's first stop, so Tab continues through Theme/Glow/Pace/
+  // Reduce motion from there instead of starting back at the top of the page
+  document.getElementById('close-settings').focus()
+}
+openSettingsBtn.addEventListener('click', openDrawer)
 document.getElementById('close-settings').addEventListener('click', closeDrawer)
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && drawerOpen) closeDrawer()
+  if (!drawerOpen) return
+  if (e.key === 'Escape') { closeDrawer(); return }
+  /* aria-modal="true" is a promise that focus stays inside, and `inert`
+     alone only keeps it out of the PAGE — Tab past the last drawer control
+     still walked off into the browser chrome and came back at the top of an
+     inert document, i.e. nowhere. Wrap it. */
+  if (e.key !== 'Tab') return
+  const stops = [...drawer.querySelectorAll(FOCUSABLE)]
+    .filter(n => !n.hasAttribute('disabled') && n.tabIndex !== -1 && n.offsetParent !== null)
+  if (!stops.length) return
+  const first = stops[0], last = stops[stops.length - 1]
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+})
+/* The drawer has no scrim, so with the page now inert behind it a click on
+   the page would otherwise do nothing at all and read as a frozen app.
+   Pointer-down outside dismisses instead. (The gear itself sits underneath
+   the open drawer, so it is not a toggle — the drawer takes that hit.) */
+document.addEventListener('pointerdown', (e) => {
+  if (drawerOpen && !drawer.contains(e.target)) closeDrawer()
 })
 setDrawer(false)
 

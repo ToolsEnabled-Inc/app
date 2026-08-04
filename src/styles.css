@@ -90,10 +90,29 @@
   --g-manager:     #7d9bff;
   --g-default:     #ffd84d;
 
-  /* status (reserved) */
-  --s-good: #0f8a4d;
-  --s-warn: #c77d00;
-  --s-serious: #d24317;
+  /* STATUS. Re-stepped per theme exactly the way --ink-*, --heat-*, --chart-*
+     and --prov-* already are — this trio was the one palette still declared
+     once and then drawn on three different grounds. It is not decoration: it
+     carries the Fail column's 13px numbers, the failure bars, the legend keys
+     and the verdict bar's segments, so it needs 4.5:1 as text and 3:1 as a
+     mark on EVERY ground it lands on.
+
+     These are the light values (white + tan). Measured on the real composited
+     surfaces — the page/card (cards are flat, so card == --bg) and the chart
+     track the bars are drawn on:
+
+       --s-good    #0a6d3c   white 6.05 card / 5.48 track · tan 5.12 / 4.52
+       --s-warn    #8f5902   white 5.49 / 4.97           · tan 4.64 / 4.10
+       --s-serious #b23811   white 5.70 / 5.16           · tan 4.82 / 4.26
+
+     The old trio (#0f8a4d / #c77d00 / #d24317) is the BLACK step and moves
+     there intact — see :root[data-theme="black"] — because those values were
+     only ever tuned against a dark ground. On tan, #c77d00 measured 2.63:1
+     against the page and 2.32:1 against the track: below the 3:1 mark floor,
+     let alone the 4.5:1 it needed as a number. */
+  --s-good: #0a6d3c;
+  --s-warn: #8f5902;
+  --s-serious: #b23811;
   --s-critical: #b3123e;
 
   --glow: 1;                  /* glow multiplier (settings) */
@@ -188,10 +207,33 @@
      re-tunes all frosted surfaces from one number instead of hundreds of
      hand-edited rgba()s. --sheet is the one opaque surface. */
   --wa: 1;
+
+  /* --sheen scales the card's top-to-bottom WASH — the extra white the
+     .glass gradient puts at the top of a card plus the ::before specular —
+     without touching how light the card is overall (its bottom stop, the
+     one that sets the surface level, is outside this knob on purpose).
+     --wa alone could not fix this: it scales BOTH stops, so dialling it
+     down flattens the wash by dissolving the card into the page.
+
+     Why a second knob exists at all: the same fixed white ramp lands on
+     three very different grounds. On white the ground is already near-white
+     and on black the alphas are tiny, so both stay flat — but tan's
+     mid-luminance bg0_s takes the full ramp and resolves into a visible
+     cream-to-tan diagonal, so tan was the only theme with washed cards
+     (measured maxChannelSpan across a chart card: white 15, black 15,
+     tan 31). 1 is a byte-for-byte no-op (0.3 + 0.24 == the old 0.54). */
+  --sheen: 1;
   --sheet: #fff;
   --brace: rgba(14, 23, 38, 0.10);
   --node-a: 1;
   --ring-track: rgba(14, 23, 38, 0.09);
+
+  /* the OWN-message chat bubble: the one surface in the set that is dark on
+     every theme, so it carries its own pair rather than riding the sheet
+     ramp. It has to be themed for the same reason the shadow ink is — a
+     fixed navy reads cold against tan's warm bg0_s. */
+  --bub-me-1: #1e2c3d;
+  --bub-me-2: #0e1726;
 }
 
 /* ============================================================
@@ -217,6 +259,10 @@
 :root[data-theme="tan"] {
   --bg: #f2e5bc;  --bg-2: #ebdbb2;  --surface: #f2e5bc;
   --sheet: #fbf1c7;  --wa: 0.62;
+  /* the only theme whose ground is far enough from white for the card ramp
+     to show as a wash — 0.4 brings a chart card's corner-to-corner span from
+     31 down to ~15, the band white (14) and black (15) already sit in */
+  --sheen: 0.4;
   --brace: rgba(40, 40, 40, 0.13);
   --node-a: 0.72;
   --ring-track: rgba(40, 40, 40, 0.12);
@@ -231,6 +277,11 @@
      against a warm bg0_s */
   --shadow-rgb: 40, 40, 40;
   --shadow-k: 1;
+  /* and the own-message bubble for exactly the same reason: the shared navy
+     was the single cold slab on an otherwise entirely warm page. Gruvbox
+     fg2/fg0, the same published ramp --ink already draws from. */
+  --bub-me-1: #504945;
+  --bub-me-2: #282828;
 }
 
 /* BLACK — clinical dark. The ink ramp inverts; --wa drops so the same
@@ -241,6 +292,12 @@
   --brace: rgba(255, 255, 255, 0.13);
   --node-a: 0.2;
   --ring-track: rgba(255, 255, 255, 0.13);
+  /* the shared pair's bottom stop (#0e1726) is DARKER than this theme's
+     sheet (#14171b), so an own-message bubble sank into the log across its
+     lower half instead of sitting on it. Same hue, lifted so both stops
+     clear the sheet. */
+  --bub-me-1: #24354a;
+  --bub-me-2: #172333;
   --ink:    #eef2f6;
   --ink-2:  #b7c0ca;
   --ink-25: #a3adb8;
@@ -254,6 +311,15 @@
      read at all against a near-black surface. */
   --shadow-rgb: 0, 0, 0;
   --shadow-k: 1.7;
+  /* status re-stepped for a dark ground (see the :root block). Against the
+     page #0d0f12 / the sheet #14171b:
+       --s-good    #19a05e   5.69 / 5.33
+       --s-warn    #c77d00   5.81 / 5.45
+       --s-serious #e35733   5.19 / 4.86
+     The light trio would have read 2.98 / 3.29 / 3.17 here. */
+  --s-good: #19a05e;
+  --s-warn: #c77d00;
+  --s-serious: #e35733;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -281,7 +347,12 @@ body {
 /* ---------- liquid glass primitives ---------- */
 .glass {
   position: relative;
-  background: linear-gradient(180deg, rgba(255,255,255,calc(0.54 * var(--wa))), rgba(255,255,255,calc(0.3 * var(--wa))));
+  /* the bottom stop is the surface level and is NOT scaled by --sheen; only
+     the extra 0.24 the top stop adds over it is, so a theme can flatten the
+     wash without dissolving the card. 0.3 + 0.24 * 1 == the old 0.54. */
+  background: linear-gradient(180deg,
+    rgba(255,255,255,calc((0.3 + 0.24 * var(--sheen)) * var(--wa))),
+    rgba(255,255,255,calc(0.3 * var(--wa))));
   /* 18px kernel (was 26px): with the aurora animating behind, every
      backdrop-filter pass re-runs each frame — the three large surfaces
      (cards, topbar, graph card) carry the widest kernels, so they are
@@ -301,7 +372,7 @@ body {
   content: "";
   position: absolute; inset: 0;
   border-radius: inherit;
-  background: linear-gradient(165deg, rgba(255,255,255,calc(0.55 * var(--wa))) 0%, rgba(255,255,255,calc(0 * var(--wa))) 38%);
+  background: linear-gradient(165deg, rgba(255,255,255,calc(0.55 * var(--wa) * var(--sheen))) 0%, rgba(255,255,255,calc(0 * var(--wa))) 38%);
   pointer-events: none;
 }
 .glass::after {               /* hover specular sweep */
@@ -359,8 +430,14 @@ body {
   pointer-events: none;              /* only the controls take the pointer */
 }
 .topbar > *, .topbar button, .topbar a { pointer-events: auto; }
+/* One of the three pieces the owner kept in the strip, so it is content, not
+   chrome: it reads at full strength for everyone. It used to sit at
+   opacity .7 over --ink-3 (2.69:1 on the white page) and the only lift was a
+   :hover on the right-hand side, which a keyboard or touch user never
+   reaches. --ink-25 is this sheet's token for informational text at 12.5px
+   and measures 5.31:1 on the white page. */
 .tb-settings-label {
-  font-size: 12.5px; color: var(--ink-3); letter-spacing: 0.02em;
+  font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.02em;
   margin-right: -2px;
 }
 .tb-side { display: flex; align-items: center; gap: var(--s2); min-width: 200px; }
@@ -597,11 +674,15 @@ body {
 .msg.me {
   align-self: flex-end;
   color: #fff;
-  background: linear-gradient(160deg, #1e2c3d, #0e1726);
+  background: linear-gradient(160deg, var(--bub-me-1), var(--bub-me-2));
   box-shadow: 0 6px 18px -8px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-k)));
 }
 .msg .who { display: block; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; font-weight: 640; color: var(--ink-25); margin-bottom: var(--s1); }
-.msg.me .who { color: rgba(255,255,255,calc(0.66 * var(--wa))); }
+/* NOT scaled by --wa. --wa is the multiplier for white glass laid over the
+   page sheet; this label sits on the own-message bubble, which is dark on
+   every theme. Riding --wa resolved it to 5% white on black (~1.1:1 against
+   its own bubble — the sender name was simply absent) and 41% on tan. */
+.msg.me .who { color: rgba(255,255,255,0.66); }
 .chat-input {
   margin-top: var(--s2);
   display: flex; gap: var(--s2); align-items: center; flex: none;
@@ -1074,9 +1155,18 @@ body {
 .ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
   box-shadow: inset 0 1px 0 #fff, var(--elev-2); }
 .ctl-btn:active { transform: scale(0.97); }
-.ctl-btn.armed { color: #fff; border-color: transparent;
-  background: linear-gradient(160deg, #21b7e4, #0092c4);
-  box-shadow: 0 6px 16px -6px rgba(0,169,216,0.45); }
+/* armed is the DEFAULT state of the first control, so it is what loads —
+   and white-on-cyan measured 2.58:1, identical on all three themes because
+   both the text and the gradient were hardcoded. board.css already fixed
+   exactly this for .board-page .ctl-btn.armed; the base rule was left
+   behind, so it gets the same ink-on-tint recipe mixed toward the THEME's
+   surface (identical on white, where --sheet is #fff). */
+.ctl-btn.armed { color: var(--ink);
+  border-color: color-mix(in oklab, var(--c-coordinator) 42%, var(--sheet));
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--c-coordinator) 17%, var(--sheet)),
+    color-mix(in oklab, var(--c-coordinator) 28%, var(--sheet)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))); }
 .ctl-btn.danger:hover { color: var(--s-serious); border-color: color-mix(in oklab, var(--s-serious) 30%, white); }
 
 .ctl-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) 2px; }
@@ -1192,11 +1282,30 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .pool { padding: 20px var(--s5) var(--s4); }
 .pool-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
 .pool-head .pn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 640; color: var(--ink); }
+/* Both of these mixed toward the LITERAL `white`/`black` rather than the
+   theme's surface, so the badge and the meter track rendered the same
+   near-white slab on all three themes. On black that made an empty meter the
+   brightest object on the page (17.3:1 against #0d0f12 — brighter than any
+   data mark, so the UNUSED remainder out-shouted its own coloured fill);
+   on white and tan the same track measured 1.04–1.14:1, i.e. the meter lost
+   its 100% reference in the other direction. Mixing toward --sheet/--ink
+   makes both follow the surface the way the rest of the card does.
+   10%, not more: --pc is a fixed mid slate (metrics.css --pool-accent), so
+   every extra point of it pulls the track toward the FILL's own lightness
+   from whichever side the theme sits on. At 10% the fill/track boundary —
+   the one WCAG 1.4.11 cares about — measures 4.16–4.75 (white), 3.70–4.23
+   (tan) and 3.06–3.50 (black); at 14% black fell to 2.93. */
 .pool-head .pt { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; padding: var(--s1) var(--s2); border-radius: 2px; font-weight: 640;
-  background: color-mix(in oklab, var(--pc) 12%, white); color: color-mix(in oklab, var(--pc) 75%, black); }
+  background: color-mix(in oklab, var(--pc) 10%, var(--sheet)); color: color-mix(in oklab, var(--pc) 70%, var(--ink)); }
 .pool-sub { font-size: 12.5px; color: var(--ink-3); margin-bottom: var(--s3); }
+/* the hairline is the meter's 100% reference. A 10% slate tint reads at
+   1.03–1.15:1 against the card on every theme — quiet enough not to fight
+   the fill, too quiet to show the bar's full extent on its own — so the
+   extent is DRAWN rather than tinted in. This is what makes the low tint
+   above affordable. */
 .meter { height: 12px; border-radius: 2px; position: relative; overflow: hidden;
-  background: color-mix(in oklab, var(--pc) 12%, white); }
+  background: color-mix(in oklab, var(--pc) 10%, var(--sheet));
+  box-shadow: inset 0 0 0 1px var(--line-2); }
 .meter .mf {
   position: absolute; inset: 0 auto 0 0; border-radius: 2px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--pc) 70%, white), var(--pc));
@@ -1459,8 +1568,5 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
 #open-settings:hover svg { transform: rotate(45deg); }
 
 .topbar .icon-btn[disabled] { opacity: 0.2; }
-.tb-settings-label {
-  opacity: 0.7;
-  transition: opacity var(--dur-2, 240ms) var(--ease);
-}
-.tb-side.tb-right:hover .tb-settings-label { opacity: 1; }
+/* the 0.7 rest opacity + :hover lift that used to live here is gone — see
+   .tb-settings-label above; the word now reads at full strength at rest */

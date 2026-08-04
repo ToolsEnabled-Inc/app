@@ -211,25 +211,44 @@ export function agentView({ compId, agentId, navigate }) {
         <div class="scroll-cue${panelsCueDismissed ? ' gone' : ''}">scroll<svg width="14" height="14" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
         <div class="agentv-panels">
           <section class="apanel glass chat-panel"><div class="apanel-title">Chat</div></section>
+          <!-- CONTROLS. The panel is ~316px tall at 1600x900 and ~227px at
+               1280x800; its content needs 561px, so this panel scrolls at
+               every viewport the app ships on — that is a fact of the layout,
+               not something to hide. What was broken was that the scroll was
+               INVISIBLE: no scrollbar, no mask, no cue, so at 1600x900
+               Respawn/Terminate showed 7px of their 40px on the panel's
+               bottom edge and at 1280x800 all four buttons sat entirely below
+               it — the panel read as a title, a ring and 90px of nothing.
+               So the four primary actions leave the scroller and become a
+               pinned action row (always whole, never straddling the fold),
+               and what remains scrolls behind a thin themed scrollbar and a
+               bottom fade. The name/role header and the "model · pool" line
+               went with them (82px of the 561): the .agent-strip immediately
+               above already reads "name · role · pool · model" and the chat
+               panel beside it repeats the name again, so the tightest panel
+               on the site was spending a third of its visible height on its
+               fourth copy of the same four words. -->
           <section class="apanel glass ctl-panel">
             <div class="apanel-title">Controls</div>
             <div class="rail-scroll">
-              <div class="agent-head">
-                <span class="role-dot" style="background:${role.hex}"></span>
-                <div><div class="an">${agent.name}</div><div class="ar">${role.label}</div></div>
-              </div>
               <div class="agent-ring-wrap"></div>
-              <div class="rail-sub" style="text-align:center">model ${agent.model} · pool ${agent.pool}</div>
-              <div class="ctl-grid" style="margin-top:14px">
-                <button class="ctl-btn armed">Active</button>
-                <button class="ctl-btn">Pause</button>
-                <button class="ctl-btn">Respawn</button>
-                <button class="ctl-btn danger">Terminate</button>
-              </div>
               <div class="rail-sec">Tuning</div>
-              <div class="ctl-row"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv">124k</span></div>
-              <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv">20m</span></div>
-              <div class="ctl-row"><span class="cl">Verbosity</span><input type="range" min="0" max="100" value="20"/><span class="cv">low</span></div>
+              <!-- The visible name of each slider is a SIBLING span, not a
+                   label, so all three reported no accessible name at all —
+                   a screen reader announced "slider, 62 / 35 / 20" three
+                   times with nothing to tell them apart. A wrapping <label>
+                   (the drawer's pattern) would swallow the trailing value
+                   span into the name too, so these carry the name outright
+                   and leave the value to the slider itself. -->
+              <div class="ctl-row"><span class="cl">Context budget</span><input type="range" aria-label="Context budget" min="0" max="100" value="62"/><span class="cv">124k</span></div>
+              <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" aria-label="Wake interval" min="0" max="100" value="35"/><span class="cv">20m</span></div>
+              <div class="ctl-row"><span class="cl">Verbosity</span><input type="range" aria-label="Verbosity" min="0" max="100" value="20"/><span class="cv">low</span></div>
+            </div>
+            <div class="ctl-grid ctl-actions">
+              <button class="ctl-btn armed">Active</button>
+              <button class="ctl-btn">Pause</button>
+              <button class="ctl-btn">Respawn</button>
+              <button class="ctl-btn danger">Terminate</button>
             </div>
           </section>
         </div>
@@ -485,9 +504,30 @@ export function agentView({ compId, agentId, navigate }) {
   })
   root.querySelector('.chat-panel').appendChild(chat)
 
-  // controls ring
-  const ring = uptimeRing({ size: 180, epoch: agent.bornAt, colors: [role.glow, role.hex], caption: 'Runtime', showDays: false })
+  // Controls ring. The panel's height is dictated by the viewport (the graph
+  // above it has a hard 362px floor, so the panel gets whatever is left), and
+  // a 180px dial is taller than the whole scroll window below ~960px of
+  // viewport height. The ring cannot simply be scaled: "hh:mm:ss" measures
+  // 128px at the compact 27px digit step, so anything under a 160px ring puts
+  // the digits outside the disc — the small ring gets its own digit step
+  // (.ctl-ring-sm in agent.css, ~95px of digits inside a 100px chord).
+  const smallRing = window.innerHeight < 960
+  const ring = uptimeRing({ size: smallRing ? 132 : 180, epoch: agent.bornAt, colors: [role.glow, role.hex], caption: 'Runtime', showDays: false })
+  if (smallRing) ring.el.classList.add('ctl-ring-sm')
   root.querySelector('.agent-ring-wrap').appendChild(ring.el)
+
+  // The Controls scroller keeps a bottom fade while there is more below it
+  // (agent.css) — a cue is only honest if it goes away at the end of the
+  // scroll, so the class is driven from the real scroll position, and from a
+  // ResizeObserver as well because the panel's height moves with the window.
+  const ctlScroll = root.querySelector('.ctl-panel .rail-scroll')
+  const syncScrollEnd = () => {
+    const atEnd = ctlScroll.scrollTop + ctlScroll.clientHeight >= ctlScroll.scrollHeight - 2
+    ctlScroll.classList.toggle('at-end', atEnd)
+  }
+  ctlScroll.addEventListener('scroll', syncScrollEnd, { passive: true })
+  const ctlResize = new ResizeObserver(syncScrollEnd)
+  ctlResize.observe(ctlScroll)
   root.querySelectorAll('input[type="range"]').forEach(rangeFill)
   root.querySelectorAll('.ctl-grid .ctl-btn').forEach(btn => btn.addEventListener('click', () => {
     root.querySelectorAll('.ctl-grid .ctl-btn.armed').forEach(b => b.classList.remove('armed'))
@@ -517,6 +557,7 @@ export function agentView({ compId, agentId, navigate }) {
     destroy() {
       cancelAnimationFrame(raf)
       rimObserver.disconnect()
+      ctlResize.disconnect()
       unsubContext()
       graph.destroy()
     },

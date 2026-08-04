@@ -205,9 +205,21 @@
   color: var(--ink-2);
   font-size: 12px; font-weight: 600; line-height: 1;
   cursor: pointer;
+  /* visibility, not opacity alone. opacity:0 + pointer-events:none hides this
+     from the eye and the mouse but NOT from the tab order, so at 1× zoom —
+     the state every page loads in — Tab landed on a control that paints
+     literally nothing (focused-vs-unfocused diff over its box: 0 changed
+     pixels), losing the focus indicator for a whole stop on both the
+     Computers and Agent routes. visibility:hidden removes it from the tab
+     order too, so it becomes focusable exactly when it becomes visible.
+     Transitioning `visibility` keeps the fade: the property is discrete but
+     stays at `visible` for the whole duration whenever either endpoint is
+     visible, so the fade-out still plays before it goes away. */
   opacity: 0; transform: translateY(6px) scale(0.96);
+  visibility: hidden;
   pointer-events: none;
   transition: opacity .35s var(--ease), transform .35s var(--ease),
+              visibility .35s var(--ease),
               background .25s var(--ease), box-shadow .25s var(--ease), color .2s;
 }
 .graph-fit .gf-z {
@@ -216,7 +228,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
 }
-.graph-fit.show { opacity: 1; transform: none; pointer-events: auto; }
+.graph-fit.show { opacity: 1; transform: none; visibility: visible; pointer-events: auto; }
 .graph-fit:hover {
   background: rgba(255,255,255,calc(0.75 * var(--wa)));
   color: var(--ink);
@@ -262,7 +274,10 @@ body.reduce-motion .node.leave .node-glass,
 body.reduce-motion .graph-canvas .node.focusable .node-glass::before {
   animation: none !important;
 }
-body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none; }
+/* keeps `visibility` in the list — this shorthand replaces the base
+   transition wholesale, and without it the fade-out would be cut off by an
+   instant visibility:hidden rather than shortened */
+body.reduce-motion .graph-fit { transition: opacity .2s linear, visibility .2s linear; transform: none; }
 /* The tier guides' draw-in delay is written inline by graph.js from the live
    layout duration. Under reduced motion there is no layout animation to wait
    for, so the hairlines must be present immediately rather than sit
@@ -305,10 +320,20 @@ body.reduce-motion .graph-canvas .tier-guide {
 .graph-edit-btn:active { transform: scale(0.95); }
 .graph-edit-btn.on {
   /* solid fill + neutral lift reads "active" fine without a bloom
-     (professional-pass — this pill sits directly on the graph) */
+     (professional-pass — this pill sits directly on the graph).
+     The gradient is DARKER than the accent's resting hue: #21b7e4 → #0092c4
+     composites to rgb(14,161,209), which carries #fff at 2.98:1 on every
+     theme, and this label is 12.5px/640 — not WCAG "large", so 4.5:1 applies.
+     #0b7ea8 → #05607f composites to rgb(8,113,150) = 5.51:1 and still reads
+     unmistakably as the armed accent.
+     The resting shadow was rgba(0,169,216,0.55) — a permanent coloured glow
+     sitting under an armed control for the whole of edit mode, which is what
+     the comment two lines up already says this pill does not need, and which
+     on the darkened fill would have been LIGHTER than the button it lifts.
+     Now the same neutral, theme-scaled lift the rest of the chrome uses. */
   color: #fff; border-color: transparent;
-  background: linear-gradient(160deg, #21b7e4, #0092c4);
-  box-shadow: 0 6px 16px -6px rgba(0, 169, 216, 0.55);
+  background: linear-gradient(160deg, #0b7ea8, #05607f);
+  box-shadow: 0 6px 16px -6px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-k)));
 }
 
 /* quiet caption beside the button, only while editing */
@@ -421,9 +446,21 @@ body.reduce-motion .graph-canvas .tier-guide {
   transition: background 0.22s var(--ease), color 0.2s var(--ease), box-shadow 0.22s var(--ease);
 }
 .graph-layout-seg button:hover { color: var(--ink-2); }
+/* var(--sheet), NOT a literal #fff. A hardcoded white fill put --ink
+   (#eef2f6) on #ffffff under the black theme — 1.12:1 — and Tree is the
+   DEFAULT layout, so the control naming the current view was unreadable on
+   every black-theme page load; on tan it painted a pure-white chip on a
+   #fbf1c7 sheet, off-palette against the identical comms control. This is
+   exactly the recipe the product's other selected pills already resolve to
+   (comms.css .wb-seg button.on, the drawer's .theme-seg button.on). The top
+   sheen loses its literal #fff for the same reason it did there: on black a
+   hard white hairline is a lit edge on a dark pill, so --wa scales it to a
+   film of light per theme, and the drop shadow moves onto the themed
+   --shadow-rgb/--shadow-k pair instead of a baked light-theme navy. */
 .graph-layout-seg button.on {
-  background: #fff; color: var(--ink);
-  box-shadow: inset 0 1px 0 #fff, 0 2px 8px -3px rgba(14, 23, 38, 0.28);
+  background: var(--sheet); color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))),
+    0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
 }
 .graph-layout-seg button:active { transform: scale(0.96); }
 .graph-layout-seg button:focus-visible {

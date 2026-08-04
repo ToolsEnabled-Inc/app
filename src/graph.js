@@ -72,6 +72,11 @@ const hashStr = (s) => {
   return Math.abs(h)
 }
 
+// The graph instance that currently owns the window.__graph*/__pageFrameMs
+// perf globals. Module-scoped rather than a window key so a page script can't
+// forge ownership and so it dies with the module.
+let probeOwner = null
+
 export class FleetGraph {
   constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null }) {
     this.chipPredicate = chipPredicate
@@ -156,6 +161,12 @@ export class FleetGraph {
     this._tickAvg = 0
     this._tickCost = 0
     this._lastFrameT = 0
+    // Whoever wrote the globals last owns them; destroy() only clears them if
+    // it is still the owner. The router mounts the incoming view BEFORE it
+    // retires the outgoing one (main.js swapView: destroy runs on a timeout),
+    // so a graph→graph navigation would otherwise have the OLD graph erase
+    // the NEW graph's readings on its way out.
+    probeOwner = this
     const probe = (t) => {
       if (this._lastFrameT) {
         const dt = t - this._lastFrameT
@@ -1634,7 +1645,17 @@ export class FleetGraph {
         n.x = n.fx = st.x + (s.x - st.x) * k
         n.y = n.fy = st.y + (s.y - st.y) * k
       }
+      // Land the chips ON the slot _placeChip elected, on the last frame.
+      // In tree mode this tween is the ONLY thing calling tick() — the sim is
+      // parked — so when the final frame runs, each chip is still easing
+      // toward its slot at 0.35/frame and nothing ever moves it again: it
+      // parks wherever the ease happened to stop, which is routinely straight
+      // over its own node's name/role rows. Bare-text chip on bare-text label
+      // is unreadable mush, and it is the graph's DEFAULT view.
+      // Same snap idiom openChat/closeChat already use for an asleep sim.
+      if (u >= 1) this._snapChips = true
       this.tick()
+      if (u >= 1) this._snapChips = false
       if (u < 1 && this._treeActive()) this._treeRaf = requestAnimationFrame(step)
       else this._treeRaf = null
     }
@@ -1722,6 +1743,18 @@ export class FleetGraph {
     this._clearTierGuides()
     if (this._glideRaf) cancelAnimationFrame(this._glideRaf)
     if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
+    // Cancelling the probe rAF stopped the WRITES but left the last values
+    // standing, so #/metrics, #/comms and #/ — routes with no graph at all —
+    // each reported the graph's final frame time as their own. Measured: a
+    // frozen 7.21 read identically on three consecutive graph-less routes
+    // whose real frame intervals were 15.24 / 7.01 / 6.91ms, and a frozen 5.55
+    // against a measured 20.45ms on #/metrics — 3.7x optimistic. A route with
+    // no graph must report NOTHING, not a stale flattering number.
+    if (probeOwner === this) {
+      probeOwner = null
+      window.__graphFrameMs = window.__pageFrameMs =
+        window.__graphTickMs = window.__graphNodeCount = undefined
+    }
     if (this._zoomRaf) cancelAnimationFrame(this._zoomRaf)
     clearTimeout(this._zoomHotTimer)
     for (const n of this.nodes.values()) {
