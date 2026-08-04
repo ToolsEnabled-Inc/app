@@ -1171,3 +1171,48 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
   outline: none;
   box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px rgba(0,169,216,0.72);
 }
+
+/* ---------- chart chrome tokens ----------
+   These were hardcoded light-theme ink inside the SVG (gridlines, crosshair,
+   bar tracks, sparkline strokes), which the theme layer could never reach —
+   on the black theme they rendered as near-invisible ink-on-ink. */
+:root {
+  --chart-grid:  rgba(14, 23, 38, 0.07);
+  --chart-cross: rgba(14, 23, 38, 0.24);
+  --chart-track: rgba(14, 23, 38, 0.05);
+  --chart-spark: rgba(14, 23, 38, 0.20);
+}
+:root[data-theme="tan"] {
+  --chart-grid:  rgba(40, 40, 40, 0.10);
+  --chart-cross: rgba(40, 40, 40, 0.30);
+  --chart-track: rgba(40, 40, 40, 0.07);
+  --chart-spark: rgba(40, 40, 40, 0.26);
+}
+:root[data-theme="black"] {
+  --chart-grid:  rgba(255, 255, 255, 0.09);
+  --chart-cross: rgba(255, 255, 255, 0.34);
+  --chart-track: rgba(255, 255, 255, 0.07);
+  --chart-spark: rgba(255, 255, 255, 0.26);
+}
+
+/* ---------- tabular figures on numerals that change or align ----------
+   The two largest live numbers on the site re-tween off sim drift; without
+   tabular figures the digits change width as they count, so the number
+   visibly jitters. Chart text aligns in columns for the same reason. */
+.stat-hero .v,
+.tile .tv,
+.chart-body svg text { font-variant-numeric: tabular-nums; }
+
+/* ---------- respect the OS-level motion preference ----------
+   The site had a Settings toggle but never honoured prefers-reduced-motion,
+   so a user who set it system-wide still got every animation. The toggle
+   still works; this makes the OS preference the default rather than the
+   thing you have to go find. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.12s !important;
+    scroll-behavior: auto !important;
+  }
+}

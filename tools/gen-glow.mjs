@@ -15,7 +15,7 @@
  * Output is static CSS custom properties — culori stays a devDependency and
  * never ships to the browser.
  */
-import { formatRgb, oklch, converter } from 'culori'
+import { formatRgb, formatHex, oklch, converter } from 'culori'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -57,6 +57,22 @@ function glow(baseHex, { steps = 3, base = 6, growth = 2.6, peak = 0.5 } = {}) {
   return out
 }
 
+/* Sequential heatmap ramps, one per theme. Each runs from a step that is
+   barely distinguishable from that theme's own background up to a fully
+   saturated accent, so "more" always reads as "more contrast" — the light
+   ramp inverted on the dark theme when it was a single hardcoded list. */
+function heatRamp(bgHex, hueHex, steps = 6) {
+  const bg = toOklch(bgHex), hue = toOklch(hueHex)
+  const out = []
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1)
+    const L = bg.l + (hue.l - bg.l) * (0.18 + 0.82 * t)
+    const C = hue.c * (0.06 + 0.94 * Math.pow(t, 0.85))
+    out.push(formatHex(oklch({ mode: 'oklch', l: L, c: C, h: hue.h })))
+  }
+  return out
+}
+
 const css = (layers, { inset = false } = {}) =>
   layers
     .map(l => `${inset ? 'inset ' : ''}0 0 ${l.blur}px ${l.color.replace('rgb(', 'rgba(').replace(')', `, ${l.alpha})`)}`)
@@ -92,5 +108,21 @@ const header = `/* ============================================================
 :root {
 `
 
-writeFileSync(join(here, '..', 'src', 'glow.css'), header + blocks.join('\n') + '\n}\n')
-console.log(`wrote src/glow.css — ${Object.keys(ROLES).length} hues x 3 intensities`)
+// heatmap ramps: [theme background, the theme's saturated end]
+const THEMES = {
+  white: ['#f7f8fa', '#00a9d8'],
+  tan:   ['#f2e5bc', '#0b7285'],
+  black: ['#0d0f12', '#45d6ff'],
+}
+const heatBlocks = Object.entries(THEMES).map(([name, [bg, hue]]) => {
+  const vars = heatRamp(bg, hue).map((c, i) => `  --heat-${i}: ${c};`).join('\n')
+  return name === 'white'
+    ? `:root,\n:root[data-theme="white"] {\n${vars}\n}`
+    : `:root[data-theme="${name}"] {\n${vars}\n}`
+}).join('\n')
+
+writeFileSync(
+  join(here, '..', 'src', 'glow.css'),
+  header + blocks.join('\n') + '\n}\n\n/* heatmap ramps — per theme, always low→high contrast\n   against that theme\'s own background */\n' + heatBlocks + '\n',
+)
+console.log(`wrote src/glow.css — ${Object.keys(ROLES).length} hues x 3 intensities + ${Object.keys(THEMES).length} heat ramps`)

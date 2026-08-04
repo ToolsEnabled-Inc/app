@@ -6,6 +6,7 @@
 // with a FLIP reorder; tooltips cover every mark.
 
 import '../metrics.css'
+import { ticks as d3ticks } from 'd3-array'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
 import { el, sparkline, makeTooltip, bindRuntime } from '../components.js'
@@ -39,9 +40,25 @@ function smoothArr(a, k) {
   return out
 }
 
-/* sequential single-hue ramp for the heatmap — interpolated so it can tween */
-const HEAT_STOPS = ['#edf6fa', '#d3ecf5', '#a8dcec', '#6ec4de', '#35a8cc', '#0b86ab']
-  .map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)])
+/* Sequential single-hue ramp for the heatmap, read from CSS so it follows
+   the theme. The previous hardcoded light ramp INVERTED on the black theme:
+   its low end (#edf6fa, near-white) became the brightest mark on a #0d0f12
+   page, so an idle hour out-glowed a saturated one. Ramps are generated per
+   theme in src/glow.css (tools/gen-glow.mjs) and always run low-contrast ->
+   high-contrast against that theme's own background. */
+const hexToRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
+let HEAT_STOPS = []
+function readHeatRamp() {
+  const cs = getComputedStyle(document.documentElement)
+  const out = []
+  for (let i = 0; i < 6; i++) {
+    const v = cs.getPropertyValue(`--heat-${i}`).trim()
+    if (/^#[0-9a-f]{6}$/i.test(v)) out.push(hexToRgb(v))
+  }
+  HEAT_STOPS = out.length === 6 ? out
+    : ['#edf6fa', '#d3ecf5', '#a8dcec', '#6ec4de', '#35a8cc', '#0b86ab'].map(hexToRgb)
+}
+readHeatRamp()
 function heatShade(v) {
   const t = clamp(0, 1, v) * (HEAT_STOPS.length - 1)
   const i = Math.min(HEAT_STOPS.length - 2, Math.floor(t)), f = t - i
@@ -235,7 +252,12 @@ export function metricsView() {
     }
     let peak = 0
     for (let i = 0; i < N; i++) peak = Math.max(peak, PROVIDERS.reduce((s, p) => s + tokens[p.id][i], 0))
-    const tokMax = Math.max(50, Math.ceil((peak * 1.06) / 50) * 50)
+    // d3-array picks human-canonical ticks (1/2/5 x 10^n). The old rule
+    // (round the peak up to a multiple of 50, then cut it in four) printed
+    // labels that were NOT the gridline's value whenever tokMax/50 was odd —
+    // e.g. peak 42 rendered "0,13,25,38,50" for true stops 0,12.5,25,37.5,50.
+    const tokTicks = d3ticks(0, Math.max(50, peak * 1.06), 5)
+    const tokMax = Math.max(tokTicks[tokTicks.length - 1], Math.max(50, peak * 1.06))
     const tokTotal = PROVIDERS.reduce((s, p) => s + tokens[p.id].reduce((a, b) => a + b, 0), 0)
 
     /* failure rates (live sim drift is the base, so bars keep breathing) */
@@ -305,7 +327,7 @@ export function metricsView() {
       tokens: sparkFor('tokens', tiles.tokTotal / 24),
     }
 
-    return { tokens, tokMax, tokTotal, fail, heat, verdicts, pools, ops, tiles, spark }
+    return { tokens, tokMax, tokTicks, tokTotal, fail, heat, verdicts, pools, ops, tiles, spark }
   }
 
   function lerpData(a, b, t) {
@@ -486,18 +508,18 @@ export function metricsView() {
     const host = root.querySelector('#tokens-chart')
     host.innerHTML = ''
     let grid = ''
-    for (let g = 0; g <= 4; g++) {
-      grid += `<line class="tk-grid" x1="${TL}" x2="${TW - TRr}" y1="0" y2="0" stroke="rgba(14,23,38,0.06)" stroke-width="1"/>` +
-        `<text class="tk-gl" x="${TL - 8}" y="0" font-size="11.5" fill="var(--ink-4)" text-anchor="end"></text>`
+    for (let g = 0; g < 8; g++) {                       // pool; only ticks.length are shown
+      grid += `<line class="tk-grid" x1="${TL}" x2="${TW - TRr}" y1="0" y2="0" stroke="var(--chart-grid)" stroke-width="1"/>` +
+        `<text class="tk-gl" x="${TL - 8}" y="0" font-size="11.5" fill="var(--ink-3)" text-anchor="end"></text>`
     }
     const areas = PROVIDERS.map(p => `<polygon class="tk-area" points="" fill="${p.color}" opacity="0.1"/>`).join('')
-    const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`).join('')
+    const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round"/>`).join('')
     let xl = ''
-    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="11.5" fill="var(--ink-4)" text-anchor="middle"></text>`
+    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle"></text>`
 
     const svg = el(`<svg viewBox="0 0 ${TW} ${TH}" role="img" aria-label="Token flow by provider">
       ${grid}${areas}${lines}${xl}
-      <line id="xh" y1="${TT}" y2="${TH - TB}" stroke="rgba(14,23,38,0.22)" stroke-width="1" opacity="0"/>
+      <line id="xh" y1="${TT}" y2="${TH - TB}" stroke="var(--chart-cross)" stroke-width="1" opacity="0"/>
     </svg>`)
     host.appendChild(svg)
 
@@ -526,12 +548,17 @@ export function metricsView() {
   function applyTokens(d) {
     const maxY = d.tokMax
     const y = (v) => TT + (1 - v / maxY) * (TH - TT - TB)
-    for (let g = 0; g <= 4; g++) {
-      const val = (maxY / 4) * g
+    const tv = d.tokTicks || []
+    for (let g = 0; g < tok.grid.length; g++) {
+      const on = g < tv.length
+      tok.grid[g].style.display = on ? '' : 'none'
+      tok.glabels[g].style.display = on ? '' : 'none'
+      if (!on) continue
+      const val = tv[g]
       const gy = y(val)
       tok.grid[g].setAttribute('y1', gy.toFixed(1)); tok.grid[g].setAttribute('y2', gy.toFixed(1))
       tok.glabels[g].setAttribute('y', (gy + 3.5).toFixed(1))
-      tok.glabels[g].textContent = String(Math.round(val))
+      tok.glabels[g].textContent = String(val)     // the label IS the gridline
     }
     const stacked = []
     for (let i = 0; i < N; i++) {
@@ -569,7 +596,7 @@ export function metricsView() {
       const y = 6 + i * FROW
       return `<g class="f-row" data-i="${i}">
         <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="11.5" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
-        <rect x="${FL}" y="${y + 3}" width="${FW - FL - FR}" height="14" rx="4" fill="rgba(14,23,38,0.05)"/>
+        <rect x="${FL}" y="${y + 3}" width="${FW - FL - FR}" height="14" rx="2" fill="var(--chart-track)"/>
         <path class="fbar" d="" data-lane="${lane}"/>
         <text class="fval" x="${FL}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" font-weight="640" font-variant-numeric="tabular-nums"></text>
         <rect class="fhit" x="0" y="${y}" width="${FW}" height="${FROW - 2}" fill="transparent"/>
@@ -625,13 +652,13 @@ export function metricsView() {
     host.innerHTML = ''
     let cells = ''
     for (let d = 0; d < 7; d++) {
-      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="11.5" fill="var(--ink-4)" text-anchor="end">${DAYS[d]}</text>`
+      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="11.5" fill="var(--ink-3)" text-anchor="end">${DAYS[d]}</text>`
       for (let h = 0; h < 24; h++) {
-        cells += `<rect class="heat-cell" x="${HL + h * (HCW + HGAP)}" y="${HT + d * (HCH + HGAP)}" width="${HCW}" height="${HCH}" rx="3.5" fill="#edf6fa" data-d="${d}" data-h="${h}" data-v="0"/>`
+        cells += `<rect class="heat-cell" x="${HL + h * (HCW + HGAP)}" y="${HT + d * (HCH + HGAP)}" width="${HCW}" height="${HCH}" rx="2" fill="#edf6fa" data-d="${d}" data-h="${h}" data-v="0"/>`
       }
     }
     const xl = [0, 6, 12, 18, 23].map(h =>
-      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="11.5" fill="var(--ink-4)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
+      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
     const svg = el(`<svg viewBox="0 0 ${HW} ${HH}" role="img" aria-label="Fleet activity heatmap">${cells}${xl}</svg>`)
     host.appendChild(svg)
     heatCells.length = 0
@@ -675,7 +702,7 @@ export function metricsView() {
     const host = root.querySelector('#verdict-chart')
     host.innerHTML = ''
     const arcs = VSEGS.map(s => `<circle class="dseg" data-k="${s.key}" cx="${VCX}" cy="${VCY}" r="${VR}" fill="none" stroke="${s.c}" stroke-width="16"
-      stroke-dasharray="0 ${VCIRC}" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 ${VCX} ${VCY})"/>`).join('')
+      stroke-dasharray="0 ${VCIRC}" stroke-dashoffset="0" transform="rotate(-90 ${VCX} ${VCY})"/>`).join('')
     const wrap = el(`
       <div style="display:flex;flex-direction:column;align-items:center">
         <div style="position:relative">
@@ -793,7 +820,14 @@ export function metricsView() {
           <td></td>
         </tr>`)
         unsubs.push(bindRuntime(tr.querySelector('.rt-cell'), () => a.bornAt))
-        tr.lastElementChild.appendChild(sparkline({ points: Array.from({ length: 10 }, () => 20 + Math.random() * 60), w: 90, h: 24, color: role.hex }))
+        // A per-render Math.random() series is decoration wearing a chart's
+        // clothes — it moves every repaint and represents nothing. Derive a
+        // stable series from the agent's own simulated figures instead, and
+        // hold every row to ONE shared scale so a flat agent looks flat and
+        // a busy one looks busy (self-scaling made all rows equally dramatic).
+        tr.lastElementChild.appendChild(sparkline({
+          points: agentSeries(a), w: 90, h: 24, color: role.hex, scaleMax: seriesCeiling,
+        }))
         tbody.appendChild(tr)
         tableRows.push({
           tr,

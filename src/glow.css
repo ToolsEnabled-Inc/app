@@ -92,3 +92,31 @@
     0 0 38px rgba(95, 205, 245, 0.172),
     0 0 94px rgba(33, 183, 228, 0.09);
 }
+
+/* heatmap ramps — per theme, always low→high contrast
+   against that theme's own background */
+:root,
+:root[data-theme="white"] {
+  --heat-0: #e1e8eb;
+  --heat-1: #bdddeb;
+  --heat-2: #9ad0e8;
+  --heat-3: #77c4e3;
+  --heat-4: #4fb7de;
+  --heat-5: #00a9d8;
+}
+:root[data-theme="tan"] {
+  --heat-0: #c9cecf;
+  --heat-1: #a5bcc2;
+  --heat-2: #84aab3;
+  --heat-3: #6397a4;
+  --heat-4: #408494;
+  --heat-5: #0b7285;
+}
+:root[data-theme="black"] {
+  --heat-0: #262b2d;
+  --heat-1: #2c4a54;
+  --heat-2: #336b7d;
+  --heat-3: #398da7;
+  --heat-4: #3fb1d2;
+  --heat-5: #45d6ff;
+}

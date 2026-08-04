@@ -171,15 +171,19 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
 }
 
 /** Tiny sparkline (single series, de-emphasis hue, accent on last point). */
-export function sparkline({ points, w = 150, h = 34, color = '#00a9d8' }) {
-  const min = Math.min(...points), max = Math.max(...points)
+export function sparkline({ points, w = 150, h = 34, color = '#00a9d8', scaleMax = null }) {
+  // scaleMax lets a set of sparklines share one ceiling. Without it every
+  // spark normalises to its own extremes, so a flat series and a volatile
+  // one render identical amplitude — shape without magnitude.
+  const min = scaleMax != null ? 0 : Math.min(...points)
+  const max = scaleMax != null ? scaleMax : Math.max(...points)
   const nx = (i) => (i / (points.length - 1)) * (w - 8) + 4
   const ny = (v) => h - 5 - ((v - min) / (max - min || 1)) * (h - 10)
   const d = points.map((v, i) => `${i ? 'L' : 'M'}${nx(i).toFixed(1)} ${ny(v).toFixed(1)}`).join(' ')
   const lx = nx(points.length - 1), ly = ny(points[points.length - 1])
   return el(`
     <svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-      <path d="${d}" fill="none" stroke="rgba(14,23,38,0.18)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${d}" fill="none" stroke="var(--chart-spark)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="${lx}" cy="${ly}" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2"/>
     </svg>
   `)
