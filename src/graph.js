@@ -87,7 +87,11 @@ let probeOwner = null
    sharing one line, the task truncated to "promotin..." / "watc..." /
    "matchi..." and the box read as broken rather than terse. */
 export const CHIP_W = 224
-export const CHIP_H = 44
+/* The fallback height, used only until the real one can be measured. 74, not
+   44: the box is three rows now (name, then two context lines) and this number
+   is what the placement reserves. Over-reserving only pushes a box further
+   from its node; under-reserving draws it through one. */
+export const CHIP_H = 74
 
 export class FleetGraph {
   constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null }) {
@@ -392,7 +396,10 @@ export class FleetGraph {
        Split, the name always reads in full and the task gets the whole width. */
     pv.innerHTML = `<div class="cl cl-name"><b>${rec.agent.name}</b></div>`
       + rec.agent.context.map(c => `<div class="cl">${c}</div>`).join('')
-    rec.chipH = rec.chip.offsetHeight || CHIP_H
+    const h = rec.chip.offsetHeight
+    rec.chipH = h || CHIP_H
+    // a 0 here means "not laid out yet", not "44px tall" — tick() re-measures
+    rec._chipHMeasured = h > 0
     // context arrives while the sim sleeps too — without a live tick the
     // grown preview would quietly expand over a neighbour (the rejected
     // "persisting past t=8s" overlaps) or past the canvas edge; re-place now
@@ -679,6 +686,27 @@ export class FleetGraph {
         n.labelW = Math.max(n._labelWHeur || 0, w + 6)
         n.labelH = this._labelH || 41
         n._labelMeasured = true
+      }
+    }
+    /* The context box needs exactly the same treatment, for exactly the same
+       reason. renderChipPreview() reads offsetHeight the moment it writes the
+       preview, which for the whole initial graph happens while the view is
+       still detached -- so the read returns 0, the box falls back to CHIP_H,
+       and _placeChip() then reasons about a 44px rectangle for a box that
+       renders 74px tall. That is a 30px overhang, and it is why codex's box
+       printed its last line through the top of codex's own bubble. Checked
+       once per chip until it succeeds, like the labels above. */
+    for (const n of this.nodes.values()) {
+      if (n._chipHMeasured || !n.chip || n.chatOpen || !n.chip.isConnected) continue
+      const h = n.chip.offsetHeight
+      if (h > 0) {
+        // Re-elect: _placeChip keeps its chosen slot unless a rival beats it by
+        // 900, which is deliberate hysteresis against flicker but also means a
+        // slot chosen against the wrong height would simply persist. Dropping
+        // the slot is what actually converts a corrected measurement into a
+        // corrected position.
+        if (h !== n.chipH) n._chipSlot = null
+        n.chipH = h; n.prevH = h; n._chipHMeasured = true
       }
     }
     // padTop/padBot were tuned for aesthetic breathing room and never
