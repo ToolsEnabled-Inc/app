@@ -450,7 +450,17 @@ export class FleetGraph {
     chip.style.height = (rec.prevH || CHIP_H) + 'px'
     rec._chipTimer = setTimeout(() => {
       chip.querySelector('.chat')?.remove()
-      chip.style.width = ''; chip.style.height = ''
+      /* Back to CHIP_W, not to nothing. Clearing the inline width is the right
+         move for .as-chat, which has a 316px width in CSS to fall back on --
+         but the RESTING chip deliberately has no CSS width at all (see CHIP_W
+         above), so clearing it here let the box grow to whatever its text
+         happened to measure. Observed: 224 -> 316 on open -> 342 on close, and
+         drifting further on every context update, while placement went on
+         reasoning about a 224px rectangle. That is how a closed chat left a
+         box printed through the codex bubble and another hanging 26px past the
+         panel edge. Height stays cleared -- renderChipPreview re-measures it. */
+      chip.style.width = CHIP_W + 'px'
+      chip.style.height = ''
       this.renderChipPreview(rec)
     }, 500)
     rec.chipW = CHIP_W; rec.chipH = rec.prevH || CHIP_H
@@ -660,7 +670,27 @@ export class FleetGraph {
     // height to clear, and labels roughly half as wide, since the role
     // strings are the long ones. Identity survives on the name row and its
     // role-coloured dot, exactly as the legend already reads them.
-    const compact = this.H < 340
+    /* ...and the same escalation when the canvas is too NARROW, which a height
+       test cannot see at all. The agent page's canvas is 360px tall at 1024,
+       1280 and 1440 alike -- identical, all three clear of the height
+       threshold -- yet only the narrow ones collide, because what runs out is
+       horizontal room for nine full labels. Measured on #/agent at 1024x768:
+       bubbles interpenetrating by up to 36px and role labels overlapping by up
+       to 47px, worsening as the sim spawns (28 of 28 consecutive samples at
+       twelve agents). 1280 (canvas 1214) is marginal, overlapping once the
+       fleet passes ten; 1440 (canvas 1374) and up are clean.
+       What is tested is therefore demand against supply: the labels sharing a
+       row need a certain width, and the canvas either has it or does not. Two
+       simpler rules were tried and both were wrong in a way worth recording.
+       A residual-overlap detector grades a layout that lives in model
+       coordinates while the collision happens in rendered ones, and the two
+       disagree in BOTH directions -- it missed the real overlap at 1024 and
+       fired on a clean canvas at 1600. A bare width threshold ignores how many
+       labels are actually competing, so it compacted the computers page at
+       1600, where four labels in its 1130px canvas fit with room to spare.
+       Row demand is the thing that genuinely runs out, and it falls as the
+       fleet shrinks and rises as it grows, which is the behaviour observed. */
+    const compact = this.H < 340 || this._rowDemandExceedsWidth()
     if (compact !== this._compactLabels) {
       this._compactLabels = compact
       this.container.classList.toggle('labels-compact', compact)
@@ -790,6 +820,41 @@ export class FleetGraph {
       cannot solve what X-only math cannot reach; a small, hard-capped 2D
       nudge runs once at the end as the genuine last resort, closing however
       much of the residual it can within its cap rather than leaving 0. */
+  /** True when the widest row of nodes needs more horizontal space for its
+      labels than the canvas has. Rows are found by clustering y, which is
+      exact in tree layout (nodes are placed on shared row Ys) and a fair
+      approximation under the force layout, where nodes still band loosely.
+      Each node claims the greater of its label width and its own diameter,
+      since a bubble occupies space whether or not its label is the wider of
+      the two. Measured against the drawable width less the same 34px of edge
+      padding the clamp below uses, so this asks precisely the question the
+      layout is about to fail to answer. */
+  _rowDemandExceedsWidth() {
+    /* Bucketing y was the obvious way to find rows and it is not reliable
+       here: the label resolver nudges nodes off their tier's exact Y, so two
+       bubbles plainly sitting side by side landed in different buckets and
+       each row's demand read as half of what it was. What actually matters is
+       not "same row" but "must fit beside each other", which is an overlap of
+       vertical extents -- so that is what is tested, per node, against every
+       other node whose bubble-plus-label band intersects its own. */
+    const arr = [...this.nodes.values()]
+    const top = (n) => n.y - n.r
+    const bot = (n) => n.y + n.r + (n.labelH || 41)
+    const span = (n) => Math.max(n.labelW || 100, n.r * 2)
+    let worst = 0
+    for (const a of arr) {
+      let need = 0
+      // +8 per node because labels that merely TOUCH are already a defect --
+      // the layout needs a gap between them, and without that allowance the
+      // test sat exactly on the boundary at 1280 with eleven agents, firing on
+      // some frames and letting 4.7px of bubble interpenetration through on
+      // others.
+      for (const b of arr) if (top(b) < bot(a) && top(a) < bot(b)) need += span(b) + 8
+      if (need > worst) worst = need
+    }
+    return worst > this.W - 68
+  }
+
   _resolveClampedLabels(nodesArr, padX, padTop, padBot) {
     const edgePad = Math.max(4, padX - 12)
     for (let pass = 0; pass < 6; pass++) {
