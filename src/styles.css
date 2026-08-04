@@ -1090,7 +1090,18 @@ body {
   z-index: 8;
   backdrop-filter: blur(30px) saturate(1.7);
   -webkit-backdrop-filter: blur(30px) saturate(1.7);
-  background: linear-gradient(180deg, rgba(255,255,255,calc(0.86 * var(--wa))), rgba(255,255,255,calc(0.72 * var(--wa))));
+  /* An OVERLAY needs a floor, not a wash. The fill was white at 0.86 scaled by
+     --wa, which is the right idiom for a surface sitting flush on the page and
+     the wrong one for a panel floating over the graph: on the black theme --wa
+     is 0.075, so 0.86 resolved to 6.3% white and the graph read straight
+     through the panel — node circles, link curves and "SHADOW MANAGER"
+     colliding with the chat text behind every message. The opaque --sheet is
+     the floor; the white gradient stays on top of it as the sheen it was
+     always meant to be, and now scales with --wa without taking the panel's
+     opacity down with it. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,calc(0.10 * var(--wa))), rgba(255,255,255,calc(0.03 * var(--wa)))),
+    var(--sheet);
   border-color: var(--line-2);
   /* overlay, not a step: this panel floats above the whole graph, above
      --elev-3's ceiling */

@@ -86,6 +86,14 @@ let probeOwner = null
    this is and roughly what it is doing. At 168 with the name and the task
    sharing one line, the task truncated to "promotin..." / "watc..." /
    "matchi..." and the box read as broken rather than terse. */
+/* Open chat panels stack in the order they were raised. They are 316x368 on a
+   canvas that often cannot hold two of them apart, so overlap is not a bug to
+   be placed away -- but every panel carrying the same z-index is, because then
+   DOM order decides and an earlier chat can sit on top of a later one's
+   message input. Measured at 1280: the second panel opened had an input that
+   elementFromPoint did not return, i.e. it could not be clicked at all. */
+let chatZ = 8
+
 export const CHIP_W = 224
 /* The fallback height, used only until the real one can be measured. 74, not
    44: the box is three rows now (name, then two context lines) and this number
@@ -385,6 +393,11 @@ export class FleetGraph {
     rec.chip = chip
     this.renderChipPreview(rec)
     chip.addEventListener('click', () => { if (!rec.chatOpen) this.openChat(rec) })
+    // raise on the way DOWN, so the click that follows lands on this panel and
+    // not on whatever was covering it
+    chip.addEventListener('pointerdown', () => {
+      if (rec.chatOpen) chip.style.zIndex = String(++chatZ)
+    })
   }
 
   renderChipPreview(rec) {
@@ -417,7 +430,15 @@ export class FleetGraph {
     chip.classList.add('as-chat')
     if (rec._chipDim) { rec._chipDim = false; chip.classList.remove('chip-dim') }
     rec.chatOpen = true
-    rec.chipW = 316; rec.chipH = 368
+    chip.style.zIndex = String(++chatZ)
+    /* 368 is the design height, not a promise the canvas can keep. The
+       computers graph is ~338px tall at 1280x800, so a fixed 368 panel could
+       not fit however it was placed: the clamp put it as high as it could and
+       it still hung past the bottom, with its message input measured 104px
+       BELOW the viewport -- unclickable, and not because anything covered it.
+       Fit the panel to the canvas it lives in and it stays whole. */
+    const chatH = Math.max(240, Math.min(368, this.H - 12))
+    rec.chipW = 316; rec.chipH = chatH
 
     const chat = buildChat({
       title: rec.agent.name,
@@ -428,7 +449,7 @@ export class FleetGraph {
     chip.appendChild(chat)
 
     chip.style.width = '316px'
-    chip.style.height = '368px'
+    chip.style.height = chatH + 'px'
     rec._chipTimer = setTimeout(() => { if (rec.chatOpen) { chip.style.width = ''; chip.style.height = '' } }, 520)
     // the sim may be asleep — re-place now (snapped: a lone tick's ease
     // would strand the chat mid-glide) so the 316×368 chat is clamped and
@@ -445,6 +466,7 @@ export class FleetGraph {
     chip.style.height = chip.offsetHeight + 'px'
     void chip.offsetWidth
     chip.classList.remove('as-chat')
+    chip.style.zIndex = ''        // back to the resting chip's own stacking
     rec.chatOpen = false
     chip.style.width = CHIP_W + 'px'
     chip.style.height = (rec.prevH || CHIP_H) + 'px'
@@ -758,6 +780,8 @@ export class FleetGraph {
     }
     this._resolveClampedLabels(nodesArr, padX, padTop, padBot)
 
+    // once per tick, not once per chip — every chip reasons about the same set
+    this._uiRects = this._uiObstacles()
     for (const n of nodesArr) {
       n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
       if (n.chip) this._placeChip(n, cx0, cy0)
@@ -948,9 +972,44 @@ export class FleetGraph {
       GRAPH coordinates so zoom keeps working — with hysteresis so it never
       flip-flops, easing so a slot change glides, and a last-resort fade
       (.chip-dim) when a crowded small canvas leaves no clear slot at all. */
+  /** The panel chrome overlaid on this canvas, in canvas coordinates.
+
+      The context boxes were placed against nodes and against each other and
+      against nothing else, so on #/computers a box would take the top-right
+      pocket and print its name and activity line underneath the Tree/Physics
+      segment and the Edit button — unreadable, and the toolbar swallowed the
+      click that was supposed to open its chat.
+      Taken from the DOM rather than from a list of class names, so the next
+      overlay someone adds is reserved without anyone remembering to. Divided
+      by the zoom because these elements are siblings of the canvas and so sit
+      outside its transform, while the boxes are placed inside it. */
+  _uiObstacles() {
+    const host = this.container.parentElement
+    if (!host) return []
+    const cb = this.container.getBoundingClientRect()
+    const z = this.zoom || 1
+    const out = []
+    for (const ov of host.children) {
+      if (ov === this.container) continue
+      const cs = getComputedStyle(ov)
+      if (cs.visibility === 'hidden' || cs.pointerEvents === 'none' && cs.opacity === '0') continue
+      if (parseFloat(cs.opacity) < 0.05) continue
+      const r = ov.getBoundingClientRect()
+      if (r.width < 1 || r.height < 1) continue
+      // 6px of clearance, so a box parks BELOW the toolbar rather than with its
+      // top edge grazing it -- without the pad the solver was content to leave
+      // a 1px overlap, which reads as a misalignment even though nothing is
+      // actually hidden
+      const pad = 6
+      out.push({ x: (r.left - cb.left) / z - pad, y: (r.top - cb.top) / z - pad,
+                 w: r.width / z + pad * 2, h: r.height / z + pad * 2 })
+    }
+    return out
+  }
+
   _placeChip(n, cx0, cy0) {
     const cw = n.chatOpen ? 316 : n.chipW
-    const ch = n.chatOpen ? 368 : n.chipH
+    const ch = n.chipH        // chatOpen already carries the fitted chat height
     const bx = (x) => Math.max(6, Math.min(this.W - cw - 6, x))
     const by = (y) => Math.max(6, Math.min(this.H - ch - 6, y))
     // slot 0 is the historical radially-outward anchor; the rest are compass
@@ -982,7 +1041,7 @@ export class FleetGraph {
     cands.push([8, 8], [this.W - cw - 8, 8], [8, this.H - ch - 8], [this.W - cw - 8, this.H - ch - 8])
     const clamped = cands.map(([x, y]) => [bx(x), by(y)])
     const evals = clamped.map(([x, y]) => {
-      let s = 0, occ = 0
+      let s = 0, occ = 0, ui = 0
       for (const o of this.nodes.values()) {
         const bub = rectOverlap(x, y, cw, ch, o.x - o.r, o.y - o.r, o.r * 2, o.r * 2)
         const hw = (o.labelW || 100) / 2
@@ -991,11 +1050,19 @@ export class FleetGraph {
         else { s += bub + lab * 1.1; occ += bub + lab }
         if (o !== n && o.chip && o._cx != null) {
           s += rectOverlap(x, y, cw, ch, o._cx, o._cy,
-            o.chatOpen ? 316 : o.chipW, o.chatOpen ? 368 : o.chipH) * 0.5
+            o.chatOpen ? 316 : o.chipW, o.chipH) * 0.5
         }
       }
+      // the panel's own chrome is weighted above a neighbouring bubble: a box
+      // under a node is merely ugly, a box under the toolbar is unreadable AND
+      // unclickable, because the toolbar takes the pointer
+      for (const u of this._uiRects || []) {
+        const hit = rectOverlap(x, y, cw, ch, u.x, u.y, u.w, u.h)
+        s += hit * 6; occ += hit
+        ui += hit
+      }
       s += Math.hypot(x + cw / 2 - n.x, y + ch / 2 - n.y) * 2   // stay near the node
-      return { s, occ }
+      return { s, occ, ui }
     })
     let bestI = 0
     for (let i = 1; i < evals.length; i++) if (evals[i].s < evals[bestI].s) bestI = i
@@ -1012,6 +1079,18 @@ export class FleetGraph {
       if (Math.abs(ty - n._cy) < 1) n._cy = ty
     }
     n.chip.style.transform = `translate(${n._cx}px, ${n._cy}px)`
+    /* On a canvas with no pocket clear of the toolbar — #/computers at
+       1024x768 is one — the least-bad slot is still underneath it. Dimming is
+       not the answer there: the chrome paints over the box and takes its
+       pointer, so what is left is an illegible smear that cannot even be
+       clicked. Withhold it instead. visibility rather than display so the box
+       keeps its measured size, and it comes straight back the moment the
+       layout offers a slot that clears. */
+    const buried = !n.chatOpen && evals[slot].ui > 240
+    if (buried !== !!n._chipBuried) {
+      n._chipBuried = buried
+      n.chip.style.visibility = buried ? 'hidden' : ''
+    }
     // fade only as a last resort, with a wide on/off band so it can't flicker
     const dim = !n.chatOpen && (n._chipDim ? evals[slot].occ > 600 : evals[slot].occ > 1500)
     if (dim !== !!n._chipDim) {
