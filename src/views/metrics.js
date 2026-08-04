@@ -603,16 +603,6 @@ export function metricsView() {
      figures, so a delta row does not shift when its sign flips. */
   const signed = (v, digits = 0) => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(digits)}`
 
-  /** How long the session baseline has been standing — printed, so the claim
-      is bounded rather than an open-ended "since open" that a filter change
-      would quietly falsify. */
-  function fmtWindow(ms) {
-    const s = Math.max(0, Math.round(ms / 1000))
-    if (s < 60) return `${s}s`
-    const mn = Math.round(s / 60)
-    return mn < 60 ? `${mn}m` : `${Math.floor(mn / 60)}h${String(mn % 60).padStart(2, '0')}`
-  }
-
   /** Delta rows, measured. `d` is the settled dataset the tiles are heading to. */
   function applyTileDeltas(d) {
     const R = meta()
@@ -643,11 +633,28 @@ export function metricsView() {
         /* Nothing to diff until the first settled dataset lands, and a filter
            change rebaselines — otherwise switching machines would report the
            difference between two fleets as if agents had spawned. */
-        const base = sessionBase ? sessionBase.vals[ref.def.id] : now
-        const win = fmtWindow(sessionBase ? Date.now() - sessionBase.at : 0)
-        const n = Math.round(now - base)
-        text = n === 0 ? `no change · ${win}` : `${signed(n)} ${spec.noun} · ${win}`
-        if (spec.signed && n !== 0) cls = n > 0 ? 'up' : 'down'
+        if (!sessionBase) {
+          /* Before the first settled dataset there is genuinely nothing to
+             diff, and the old wording said so in the least legible way it
+             could: three tiles reading "no change · 0s" at once, which is a
+             true statement that looks exactly like a stalled widget. Name the
+             state instead — the number above is the reading, this is the note
+             that a comparison does not exist yet. */
+          text = `session baseline`
+        } else {
+          /* "this session", not an elapsed count. The count was a stuck clock:
+             this caption is only re-rendered when the tile's VALUE changes, so
+             on a metric that is holding steady — which is exactly the metric
+             showing this branch — the number froze at whatever it read on the
+             last update. Sampled at 0.6s / 2.4s / 4.2s after load it went
+             0s, 2s, 2s. A frozen timer is worse than no timer: it invites the
+             reader to trust a number that stopped being true, and the tile
+             already carries its own live reading directly above. */
+          const base = sessionBase.vals[ref.def.id]
+          const n = Math.round(now - base)
+          text = n === 0 ? `no change · this session` : `${signed(n)} ${spec.noun} · this session`
+          if (spec.signed && n !== 0) cls = n > 0 ? 'up' : 'down'
+        }
       }
 
       ref.delta.textContent = text
