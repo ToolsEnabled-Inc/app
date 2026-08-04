@@ -39,6 +39,8 @@ export class FleetGraph {
     this.nodes = new Map()          // id -> node record
     this.selectedId = null
     this.unsubs = []
+    this.layout = 'force'           // callers opt into 'tree' via setLayout()
+    this.editMode = false
 
     container.classList.add('graph-canvas')
     this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -155,7 +157,7 @@ export class FleetGraph {
         const n = this.nodes.get(agent.id)
         if (n) n.el.dataset.parentId = agent.parentId || ''
         this.refreshForces()
-        if (this.editMode) this._layoutTree(true)
+        if (this._treeActive()) this._layoutTree(true)
       }),
     )
   }
@@ -388,7 +390,7 @@ export class FleetGraph {
     this.spawnNode(agent, false)
     this.refreshForces()
     this.updateDensity()
-    if (this.editMode) { this.simulation.stop(); this._layoutTree(true) }
+    if (this._treeActive()) { this.simulation.stop(); this._layoutTree(true) }
   }
 
   removeAgent(id) {
@@ -398,7 +400,7 @@ export class FleetGraph {
     this.removeNode(rec, true)
     this.refreshForces()
     this.updateDensity()
-    if (this.editMode) { this.simulation.stop(); this._layoutTree(true) }
+    if (this._treeActive()) { this.simulation.stop(); this._layoutTree(true) }
   }
 
   /* ---------- forces ---------- */
@@ -905,7 +907,7 @@ export class FleetGraph {
       if (!moved && Math.hypot(dx, dy) > 5) {
         moved = true
         elm.classList.add('dragging')
-        if (this.editMode) {
+        if (this._treeActive()) {
           rec._editDragging = true                    // relayout keeps hands off
         } else {
           this._draggingNow = true
@@ -917,9 +919,9 @@ export class FleetGraph {
         const g = this._toGraph(e)                   // clamp in GRAPH coords
         rec.fx = Math.max(rec.r, Math.min(this.W - rec.r, g.x + offX))
         rec.fy = Math.max(rec.r, Math.min(this.H - rec.r, g.y + offY))
-        if (this.editMode) {
+        if (this._treeActive()) {
           rec.x = rec.fx; rec.y = rec.fy             // sim is paused: render by hand
-          this._updateDropTarget(rec)
+          if (this.editMode) this._updateDropTarget(rec)
           this.tick()
         }
       }
@@ -947,6 +949,13 @@ export class FleetGraph {
         if (this.editMode) {                           // C8: drop = re-parent
           this._editDrop(rec)
           samples = []
+          return
+        }
+        if (this.layout === 'tree') {                  // tidy view: glide home
+          rec._editDragging = false
+          rec.fx = null; rec.fy = null
+          samples = []
+          this._layoutTree(true)
           return
         }
         this._draggingNow = false                      // tick() cools the canvas as alpha decays
@@ -1362,10 +1371,46 @@ export class FleetGraph {
     this.fitEl = b
   }
 
-  /* ---------- C8: hierarchy edit mode ----------
-     Edit locks the fleet into a tidy tier tree (physics paused, every node
-     pinned), lets a drag re-parent an agent via sim.reparentAgent, and Done
-     melts the tree back into liquid physics with the new hierarchy live. */
+  /* ---------- layout mode + hierarchy edit mode ----------
+     Two independent axes, deliberately separated:
+       layout   'tree' = tidy tier rows, physics paused, nodes pinned;
+                'force' = the liquid force-directed simulation.
+       editMode adds drag-to-re-parent ON TOP of the tree layout.
+     Tree is the default view: it reads as an org diagram rather than a
+     mobile, which is what the layout is actually communicating. Edit mode
+     still forces tree while it's active, and restores whatever layout the
+     user had chosen when it exits. */
+
+  /** True whenever nodes should be sitting in tier slots rather than physics. */
+  _treeActive() { return this.layout === 'tree' || this.editMode }
+
+  setLayout(mode, { animate = true } = {}) {
+    const next = mode === 'tree' ? 'tree' : 'force'
+    if (this.layout === next) return
+    this.layout = next
+    this.container.setAttribute('data-layout', next)
+    if (this.editMode) return                    // edit pins tree regardless
+    this._applyLayout(animate)
+  }
+
+  _applyLayout(animate = true) {
+    if (this._treeActive()) {
+      for (const n of this.nodes.values()) {
+        if (n._flingRaf) { cancelAnimationFrame(n._flingRaf); n._flingRaf = null }
+      }
+      this.simulation.alphaTarget(0)
+      this.simulation.stop()
+      this._layoutTree(animate)
+    } else {
+      this._clearTierGuides()
+      if (this._treeRaf) { cancelAnimationFrame(this._treeRaf); this._treeRaf = null }
+      for (const n of this.nodes.values()) {
+        n.fx = null; n.fy = null; n._editDragging = false
+        n.el.classList.remove('drop-ok', 'refuse')
+      }
+      this.simulation.alpha(0.85).restart()      // melt back into liquid
+    }
+  }
 
   setEditMode(on) {
     if (this.editMode === !!on) return
@@ -1373,21 +1418,14 @@ export class FleetGraph {
     if (on) {
       this.container.setAttribute('data-edit-mode', 'true')
       if (this._zt !== 1 || this.panX || this.panY) this.resetZoom()
-      for (const n of this.nodes.values()) {
-        if (n._flingRaf) { cancelAnimationFrame(n._flingRaf); n._flingRaf = null }
-      }
-      this.simulation.alphaTarget(0)
-      this.simulation.stop()
-      this._layoutTree(true)
+      this._applyLayout(true)                    // _treeActive() is now true
     } else {
       this.container.removeAttribute('data-edit-mode')
-      this._clearTierGuides()
-      if (this._treeRaf) { cancelAnimationFrame(this._treeRaf); this._treeRaf = null }
       for (const n of this.nodes.values()) {
-        n.fx = null; n.fy = null; n._editDragging = false
+        n._editDragging = false
         n.el.classList.remove('drop-ok', 'refuse')
       }
-      this.simulation.alpha(0.85).restart()        // melt back into liquid
+      this._applyLayout(true)                    // back to the chosen layout
     }
   }
 
@@ -1450,7 +1488,7 @@ export class FleetGraph {
         n.y = n.fy = st.y + (s.y - st.y) * k
       }
       this.tick()
-      if (u < 1 && this.editMode) this._treeRaf = requestAnimationFrame(step)
+      if (u < 1 && this._treeActive()) this._treeRaf = requestAnimationFrame(step)
       else this._treeRaf = null
     }
     this._treeRaf = requestAnimationFrame(step)

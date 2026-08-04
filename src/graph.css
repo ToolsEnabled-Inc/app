@@ -237,8 +237,13 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 @keyframes tierIn { to { opacity: 1; } }
 
 /* edit-mode canvas: dashed tree edges, chips asleep, grab cursors */
-.graph-canvas[data-edit-mode] .link-top { stroke-dasharray: 5 7; }
-.graph-canvas[data-edit-mode] .link-under { opacity: 0.12; }
+/* the tidy-tree LOOK belongs to the layout, not to editing — edit mode just
+   happens to force that layout. Both selectors, one visual language. */
+.graph-canvas[data-edit-mode] .link-top,
+.graph-canvas[data-layout="tree"] .link-top { stroke-dasharray: 5 7; }
+.graph-canvas[data-edit-mode] .link-under,
+.graph-canvas[data-layout="tree"] .link-under { opacity: 0.12; }
+.graph-canvas[data-layout="tree"] .node.focusable .node-glass::before { animation: none; }
 .graph-canvas[data-edit-mode] .chip { opacity: 0 !important; pointer-events: none !important; }
 .graph-canvas[data-edit-mode] .node { cursor: grab; }
 .graph-canvas[data-edit-mode] .node.dragging { cursor: grabbing; }
@@ -274,3 +279,35 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
    carry identity, and the legend still spells the roles out.
    ============================================================ */
 .graph-canvas.labels-compact .node-role { display: none; }
+
+/* --- layout toggle: Tree | Physics (sticky preference) --- */
+.graph-layout-seg {
+  position: absolute; top: 14px; right: 94px; z-index: 7;
+  display: flex; gap: 2px; padding: 3px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
+  transition: opacity 0.3s var(--ease);
+}
+.graph-layout-seg button {
+  border: none; background: transparent; cursor: pointer;
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 620; line-height: 1;
+  color: var(--ink-3);
+  padding: 6px 12px; border-radius: 2px;
+  transition: background 0.22s var(--ease), color 0.2s var(--ease), box-shadow 0.22s var(--ease);
+}
+.graph-layout-seg button:hover { color: var(--ink-2); }
+.graph-layout-seg button.on {
+  background: #fff; color: var(--ink);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 8px -3px rgba(14, 23, 38, 0.28);
+}
+.graph-layout-seg button:active { transform: scale(0.96); }
+.graph-layout-seg button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.95), 0 0 0 3.5px rgba(0, 169, 216, 0.72);
+}
+/* editing forces the tree — show the control as inert rather than lying */
+.graph-layout-seg.locked { opacity: 0.45; pointer-events: none; }

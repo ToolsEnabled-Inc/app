@@ -335,6 +335,10 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="graph-wrap glass">
           <div class="graph-crumb"></div>
           <div class="graph-hint glass">Graph is getting dense — select a bottom node to focus its branch</div>
+          <div class="graph-layout-seg" role="group" aria-label="Graph layout">
+            <button type="button" data-layout="tree" title="Tidy hierarchy view">Tree</button>
+            <button type="button" data-layout="force" title="Live force-directed view">Physics</button>
+          </div>
           <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
           <div class="graph-edit-note">drag a bubble onto its new parent</div>
         </div>
@@ -354,13 +358,45 @@ export function computersView({ initialComputer = null, navigate }) {
   const statsPage = root.querySelector('.stats-page')
   const ctlPage = root.querySelector('.ctl-page')
   const editBtn = root.querySelector('.graph-edit-btn')
+  const layoutSeg = root.querySelector('.graph-layout-seg')
 
-  // C8 — hierarchy edit mode: Edit locks the tree, Done melts it back
+  // Layout preference is sticky across sessions. Tree is the default: it
+  // reads as an org diagram rather than a mobile, which is what this graph
+  // is actually communicating. localStorage can throw (private mode, quota),
+  // so every access is guarded — a failure just means "use the default".
+  const LAYOUT_KEY = 'mc.graph.layout'
+  const readLayout = () => {
+    try { return localStorage.getItem(LAYOUT_KEY) === 'force' ? 'force' : 'tree' }
+    catch { return 'tree' }
+  }
+  let layoutPref = readLayout()
+  const writeLayout = (v) => { try { localStorage.setItem(LAYOUT_KEY, v) } catch {} }
+
+  function syncLayoutSeg() {
+    for (const b of layoutSeg.querySelectorAll('button')) {
+      const on = b.dataset.layout === layoutPref
+      b.classList.toggle('on', on)
+      b.setAttribute('aria-pressed', on ? 'true' : 'false')
+    }
+    // while editing, the tree is forced — say so instead of showing a lie
+    layoutSeg.classList.toggle('locked', !!graph?.editMode)
+  }
+  layoutSeg.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-layout]')
+    if (!btn || !graph || graph.editMode) return
+    layoutPref = btn.dataset.layout === 'force' ? 'force' : 'tree'
+    writeLayout(layoutPref)
+    graph.setLayout(layoutPref)
+    syncLayoutSeg()
+  })
+
+  // C8 — hierarchy edit mode: Edit locks the tree, Done restores the choice
   function syncEditBtn() {
     const on = !!graph?.editMode
     editBtn.textContent = on ? 'Done' : 'Edit'
     editBtn.classList.toggle('on', on)
     graphWrap.classList.toggle('editing', on)
+    syncLayoutSeg()
   }
   editBtn.addEventListener('click', () => {
     if (!graph) return
@@ -409,6 +445,9 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     graph.onDensity = (dense) => hintEl.classList.toggle('show', dense)
     graph.updateDensity()
+    // apply the sticky layout preference to every freshly-mounted graph
+    // (initial mount and each tab switch), un-animated so it arrives settled
+    if (layoutPref === 'tree') graph.setLayout('tree', { animate: false })
     renderCrumb(null)
     syncEditBtn()                                  // a fresh graph mounts un-edited
     if (stagger) staggerNodesIn(graph)
