@@ -237,12 +237,18 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 @keyframes tierIn { to { opacity: 1; } }
 
 /* edit-mode canvas: dashed tree edges, chips asleep, grab cursors */
-/* the tidy-tree LOOK belongs to the layout, not to editing — edit mode just
-   happens to force that layout. Both selectors, one visual language. */
-.graph-canvas[data-edit-mode] .link-top,
-.graph-canvas[data-layout="tree"] .link-top { stroke-dasharray: 5 7; }
-.graph-canvas[data-edit-mode] .link-under,
-.graph-canvas[data-layout="tree"] .link-under { opacity: 0.12; }
+/* Dashes mean "you are editing", nothing else. The tidy Tree VIEW draws
+   solid connectors — a settled org chart — and only edit mode breaks them
+   into dashes to signal the structure is currently movable. */
+.graph-canvas[data-edit-mode] .link-top { stroke-dasharray: 5 7; }
+.graph-canvas[data-edit-mode] .link-under { opacity: 0.12; }
+/* tree view: a touch more presence than the physics view's airy curves */
+.graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-top {
+  stroke-dasharray: none;
+  opacity: 0.62;
+  stroke-width: 1.9;
+}
+.graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-under { opacity: 0.1; }
 .graph-canvas[data-layout="tree"] .node.focusable .node-glass::before { animation: none; }
 .graph-canvas[data-edit-mode] .chip { opacity: 0 !important; pointer-events: none !important; }
 .graph-canvas[data-edit-mode] .node { cursor: grab; }
