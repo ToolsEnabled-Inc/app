@@ -224,7 +224,14 @@
      tan 31). 1 is a byte-for-byte no-op (0.3 + 0.24 == the old 0.54). */
   --sheen: 1;
   --sheet: #fff;
-  --brace: rgba(14, 23, 38, 0.10);
+  /* Solved, not picked: the bracket is decoration, so it has no WCAG floor of
+     its own -- but it has to weigh the SAME on all three themes, and equal
+     alpha does not give equal weight over three different backgrounds. Each
+     value below is the alpha that puts this theme's composited bracket at a
+     2.10 contrast ratio against its own page colour, so the drawing reads as
+     one light-grey hairline everywhere instead of near-invisible on tan and
+     heavy on black (measured: 1.74 / 1.76 / 2.65 at flat alpha). */
+  --brace: rgba(14, 23, 38, 0.33);
   --node-a: 1;
   --ring-track: rgba(14, 23, 38, 0.09);
 
@@ -246,7 +253,14 @@
 :root[data-theme="white"] {
   --bg: #f7f8fa;  --bg-2: #eef1f5;  --surface: #f7f8fa;
   --sheet: #ffffff;  --wa: 1;
-  --brace: rgba(14, 23, 38, 0.10);
+  /* Solved, not picked: the bracket is decoration, so it has no WCAG floor of
+     its own -- but it has to weigh the SAME on all three themes, and equal
+     alpha does not give equal weight over three different backgrounds. Each
+     value below is the alpha that puts this theme's composited bracket at a
+     2.10 contrast ratio against its own page colour, so the drawing reads as
+     one light-grey hairline everywhere instead of near-invisible on tan and
+     heavy on black (measured: 1.74 / 1.76 / 2.65 at flat alpha). */
+  --brace: rgba(14, 23, 38, 0.33);
   --node-a: 1;
   --ring-track: rgba(14, 23, 38, 0.09);
 }
@@ -263,7 +277,7 @@
      to show as a wash — 0.4 brings a chart card's corner-to-corner span from
      31 down to ~15, the band white (14) and black (15) already sit in */
   --sheen: 0.4;
-  --brace: rgba(40, 40, 40, 0.13);
+  --brace: rgba(60, 48, 32, 0.39);
   --node-a: 0.72;
   --ring-track: rgba(40, 40, 40, 0.12);
   --ink:    #282828;
@@ -289,7 +303,7 @@
 :root[data-theme="black"] {
   --bg: #0d0f12;  --bg-2: #131519;  --surface: #0d0f12;
   --sheet: #14171b;  --wa: 0.075;
-  --brace: rgba(255, 255, 255, 0.13);
+  --brace: rgba(255, 255, 255, 0.238);
   --node-a: 0.2;
   --ring-track: rgba(255, 255, 255, 0.13);
   /* the shared pair's bottom stop (#0e1726) is DARKER than this theme's
@@ -558,21 +572,64 @@ body {
 /* greyed context feed, flanked by giant quiet braces */
 .home-feed-wrap {
   position: relative;
-  display: flex; align-items: center; gap: var(--s1);
-  min-height: 420px;
+  /* stretch, not center: it is what makes `align-self: stretch` on the braces
+     resolve to the feed's own height. The 420px min-height that used to sit
+     here fought exactly that -- it held the row open to 420 around a 323px
+     feed, so a stretched brace overhung the text it bracketed by ~97px. The
+     row's height is set by the 520px ring opposite anyway, so nothing below
+     moves; the feed keeps its own max-height for the chat morph. */
+  display: flex; align-items: stretch; gap: var(--s1);
 }
+/* A drawn bracket, not a typeface glyph. The brace has exactly one job --
+   span the block beside it -- and a glyph cannot: its height is welded to
+   font-size, which also sets its width.
+   It is five pieces, not one stretched path, and that is the whole trick. A
+   single path scaled with preserveAspectRatio="none" stretches its CURLS too:
+   at 323px tall a 13-unit hook becomes ~21px vertically while staying ~5px
+   across, so the hooks smear into long soft bends and the bracket stops
+   looking drawn. Here the three curl pieces are fixed-size SVG at 1:1 px and
+   only the two arms between them flex, so every brace from 190px to 460px is
+   the same crisp drawing with a longer or shorter reach. The arms are a
+   border, which lands on the pixel grid better than a stroked line does. */
 .brace {
-  /* 100 is the fourth weight this sheet keeps: the braces are a hairline
-     drawing, and the 400/550/640 text ladder has nothing that thin */
-  font-size: 190px; font-weight: 100; line-height: 0.9;
+  display: flex; flex-direction: column; align-items: stretch;
+  width: 22px; flex: none; align-self: stretch;
   /* themed: the fixed dark ink was invisible on the black theme, where the
      braces have to be drawn in LIGHT to read against #0d0f12 at all */
   color: var(--brace);
-  user-select: none; flex: none;
-  font-family: var(--font-ui);
+  user-select: none;
+  /* the mirror for '}' rides in a custom property so the arrival pulse and
+     the chat-open collapse can multiply through it instead of clobbering it */
+  --bx: 1;
+  transform: scaleX(var(--bx));
   transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
 }
-.home-feed-wrap.chat-open .brace { opacity: 0; transform: scaleX(0.6); }
+.brace.is-right { --bx: -1; }
+/* the three curl pieces hold their drawn size; only the arms flex.
+   Both selectors are written at the same specificity on purpose -- as
+   `.brace > svg` vs `.brace-arm` the first won, the arms sat at their 10px
+   intrinsic viewBox height, and the whole bracket drew 114px tall inside a
+   323px box. */
+.brace > svg { display: block; flex: none; overflow: visible; }
+.brace > svg.brace-arm { flex: 1 1 0; }
+/* The arm is a stroked line, not a border, and that is deliberate: a border
+   is rounded to whole device pixels, so a 1.5px one painted at 1px next to
+   the caps' 1.5px stroke made the bracket visibly thin out between its
+   curls. vector-effect="non-scaling-stroke" holds the line at exactly the
+   caps' weight however far the viewBox stretches, and x=8 in a 22-wide box
+   is where every cap path parks its own stroke -- the join has to land
+   exactly or the bracket shows a step at each of its four seams. */
+.brace-arm { min-height: 0; width: 22px; }
+/* Every piece overlaps its neighbour by 1px. The four seams are joins between
+   separately-rasterised boxes, so a fractional layout position can leave a
+   sub-pixel light row across the bracket; 1px of overlap in solid currentColor
+   is invisible and makes the gap impossible. The arms flex, so the 4px this
+   takes off the total comes back out of them and the bracket still spans the
+   feed exactly. */
+.brace > svg + svg,
+.brace > svg + .brace-arm,
+.brace > .brace-arm + svg { margin-top: -1px; }
+.home-feed-wrap.chat-open .brace { opacity: 0; transform: scaleX(calc(var(--bx) * 0.6)); }
 .home-feed {
   flex: 1;
   cursor: pointer;

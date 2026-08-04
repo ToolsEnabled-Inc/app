@@ -99,37 +99,42 @@
 @media (min-width: 1500px) {
   .home { grid-template-columns: 1fr minmax(420px, 700px); }
 }
+/* ---- and then centre the pair, because 1fr does not ----
+   The grid itself was always centred; the ROW inside it was not. The ring
+   column is 1fr, so every pixel a wide screen adds lands in it: at 1600 the
+   column held a 520px ring in 740px and the feed's right edge finished 60px
+   from the page edge while the ring's left edge started 170px from it. The
+   composition read as shoved right, and it got worse as the screen grew
+   (270px of gutter difference at 1920).
+   Capping the row and centring it fixes the balance without moving the ring:
+   the start offset grows by exactly half of what the ring column loses, so
+   the ring stays at x=170 at 1600 for every cap in this range and only the
+   feed travels inward. 1360 is the cap that leaves the ring-to-brace gap
+   readable (~90px) while bringing the gutters to 170/120 -- taking them to
+   dead level would force the cap to 1260, which is the ring column shrunk
+   flush to the ring and only 40px between the ring and the bracket.
+   The text track is untouched at 700, so the truncation measured above
+   stays at 0/54. */
+@media (min-width: 1420px) {
+  .home { max-width: 1360px; margin-inline: auto; }
+}
 
 /* ---- the braces have to BRACKET the context, not stand next to it ----
-   font-size was the only lever on brace height, and it is the wrong one: at
-   156px the glyph paints a fixed ~122px shape while the block it is supposed
-   to enclose (nine feed lines plus the hint) is ~252px, so 71px of context
-   hung above the brace and 59px below it. Two decorations parked beside the
-   middle third, not a bracket — the sketch draws the context lines BETWEEN
-   the braces.
-   Sizing it up via font-size does not work either: the brace is ~0.39em wide,
-   so the ~322px font-size needed to span 252px of ink would add ~130px of
-   glyph width, taking back everything the 1500px track step above just gave
-   the text (and then some — the longest ordinary line is 491px). Height and
-   width have to be decoupled, which is exactly what the "stretch an SVG brace
-   with preserveAspectRatio=none" idea buys; scaleY buys the same thing on the
-   real typeface, with no second drawing of a glyph the font already has and
-   no layout cost at all. --brace-stretch is measured per element in home.js
-   from the actual painted ink box, so it re-fits on resize and after webfont
-   swap rather than trusting a constant. */
-.home-feed-wrap .brace {
-  font-size: 156px;
-  transform: translateY(var(--brace-shift, 0px)) scaleY(var(--brace-stretch, 1));
-}
-/* a zero-height inline-block aligns its bottom margin edge to the baseline, so
-   this empty strut IS the baseline as the browser laid it out — home.js reads
-   its offsetTop to place the glyph's ink instead of reconstructing the line
-   box from font metrics. It has no size, no content and no ink of its own. */
-.home-feed-wrap .brace .brace-strut {
-  display: inline-block;
-  width: 0; height: 0;
-  vertical-align: baseline;
-}
+   The bracket is drawn (home.js emits the path), not typeset. A glyph could
+   never do this job: '{' paints a fixed ~122px shape at the 156px it used to
+   be set at, while the block it encloses -- nine feed lines plus the hint --
+   is ~252px, so 71px of context hung above the brace and 59px below. Two
+   decorations parked beside the middle third, not a bracket.
+   font-size is the wrong lever for the same reason it was the only one: the
+   glyph is ~0.39em wide, so the ~322px needed to span 252px of ink would add
+   ~130px of width and take back everything the 1500px track step above just
+   gave the text. The path decouples the two -- height comes from
+   `align-self: stretch` (i.e. from the feed, exactly), width stays 22px --
+   and because it is laid out rather than measured it re-fits on resize, on
+   theme change and after the webfont swap with no JS in the loop at all. */
+/* caps 26 + point 56 + cap 26 = 108px of fixed drawing; the floor keeps a
+   usable arm on either side of the point at the narrow breakpoint */
+.home-feed-wrap .brace { min-height: 190px; }
 
 /* ---- the tail of the log dies away instead of stopping on a cut ----
    The nine lines ended on a hard edge: the ninth sat at full --ink-3 and then
@@ -235,17 +240,16 @@
     0 0 0 3.5px var(--focus-ring, rgba(0, 107, 138, 0.95));
 }
 
-/* giant braces flex subtly on each feed arrival.
-   Stated relative to --brace-stretch (see above) rather than to 1: an
-   animation's keyframes REPLACE the base transform outright, so a literal
-   scaleY(1) here would snap the brace back to its unstretched 122px for the
-   300ms of every arrival — a brace collapsing to a third of its height on
-   each new line, which is the loudest thing on the page. */
+/* giant braces flex subtly on each feed arrival. Plain scale factors now:
+   the brace's height is layout, not a transform, so there is no fitted
+   baseline for the keyframes to preserve. The flex is horizontal -- a bracket
+   widening a hair as a line lands reads as the bracket reacting, where a
+   vertical squash would read as the text block itself resizing. */
 .brace.brace-pulse { animation: home-brace-pulse .3s var(--ease); }
 @keyframes home-brace-pulse {
-  0%   { transform: translateY(var(--brace-shift, 0px)) scaleY(var(--brace-stretch, 1)); }
-  40%  { transform: translateY(var(--brace-shift, 0px)) scaleY(calc(var(--brace-stretch, 1) * 1.02)); }
-  100% { transform: translateY(var(--brace-shift, 0px)) scaleY(var(--brace-stretch, 1)); }
+  0%   { transform: scaleX(var(--bx, 1)); }
+  40%  { transform: scaleX(calc(var(--bx, 1) * 1.16)); }
+  100% { transform: scaleX(var(--bx, 1)); }
 }
 
 /* ============================================================

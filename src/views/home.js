@@ -9,12 +9,12 @@ export function homeView() {
     <div class="home">
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
-        <span class="brace">{<i class="brace-strut" aria-hidden="true"></i></span>
+        <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <div class="home-feed" tabindex="0" role="button" aria-expanded="false" aria-label="Open fleet chat">
           <div class="feed-lines"></div>
           <div class="feed-hint">click to open fleet chat</div>
         </div>
-        <span class="brace">}<i class="brace-strut" aria-hidden="true"></i></span>
+        <span class="brace is-right" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
   `)
@@ -297,93 +297,11 @@ export function homeView() {
     chatEl.querySelector('.chat-input input')?.focus({ preventScroll: true })
   })
 
-  /* ---- brace fitting: the bracket has to span the thing it brackets ----
-     .brace's height came entirely from font-size, which paints a FIXED ink
-     shape (~122px at the 156px set in home.css) regardless of how tall the
-     context block underneath it is — so the braces enclosed the middle third
-     of the feed and nothing else. home.css explains why the fix is scaleY
-     rather than a bigger font-size (width) or an SVG path (a second drawing
-     of a glyph the font already ships).
-     The stretch factor is measured, not assumed: canvas actualBoundingBox*
-     gives the real painted ink extents of '{' in whatever font actually
-     resolved, so this stays correct across the webfont swap, a theme change,
-     and both breakpoints instead of encoding one screenshot's ratio. */
-  const feedHint = root.querySelector('.feed-hint')
-  let inkCtx
-  const INK_FALLBACK = { asc: 0.76, desc: 0.02 }   // '{' ink extents in em, if the UA has no ink metrics
-  const braceInk = (b) => {
-    const cs = getComputedStyle(b)
-    const size = parseFloat(cs.fontSize) || 0
-    if (!size) return null
-    try {
-      inkCtx = inkCtx || document.createElement('canvas').getContext('2d')
-      inkCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
-      const m = inkCtx.measureText(b.textContent || '{')
-      const asc = m.actualBoundingBoxAscent, desc = m.actualBoundingBoxDescent
-      // sanity-gate the reading rather than trusting it blind: a font still
-      // loading, or a UA without actualBoundingBox*, must not be allowed to
-      // stretch the brace across the page on the strength of a bad number
-      if (asc > size * 0.3 && asc < size * 1.5 && Math.abs(desc) < size) return { asc, desc }
-    } catch { /* no 2d context — fall through to the em ratios */ }
-    return { asc: size * INK_FALLBACK.asc, desc: size * INK_FALLBACK.desc }
-  }
-  let braceFitted = false
-  const fitBraces = () => {
-    // while the card is a chat the lines are display:none (offsets 0) and the
-    // braces are hidden anyway — measuring then would only record a zero
-    if (chatOpen || !feedHint) return
-    // a departing line is still in flow for its 560ms fade, so on every single
-    // arrival the column is briefly ten lines tall. Re-fitting to that would
-    // stretch both braces a step and let them relax back once a second — a
-    // breathing bracket, which is exactly the kind of idle motion this page
-    // has been stripping out. Sit the transient out; removing the line fires
-    // the observer again and the fit lands on the settled height.
-    if (linesEl.querySelector('.feed-line.leaving')) return
-    const top = feedCard.offsetTop + linesEl.offsetTop
-    const bottom = feedCard.offsetTop + feedHint.offsetTop + feedHint.offsetHeight
-    if (bottom - top <= 0) return
-    braces.forEach(b => {
-      const strut = b.querySelector('.brace-strut')
-      const ink = braceInk(b)
-      if (!strut || !ink) return
-      /* Where the ink actually sits is taken from the DOM and the font, not
-         re-derived from font tables: .brace-strut is a zero-height
-         inline-block, so it sits exactly ON the baseline and its offsetTop IS
-         the baseline; canvas supplies the ink extents either side of it. Doing
-         it the other way (half-leading arithmetic from fontBoundingBox*) put
-         the answer 7px out against the measured screenshot, which is the whole
-         defect in miniature. */
-      const baseline = strut.offsetTop
-      const inkTop = baseline - ink.asc
-      const inkH = ink.asc + ink.desc
-      if (inkH <= 0) return
-      const k = Math.max(1, Math.min(6, (bottom - top) / inkH))
-      // transform-origin stays 50% 50% (the chat-open scaleX in styles.css
-      // shares it), so the residual offset after scaling is solved for
-      const c = b.offsetTop + b.offsetHeight / 2
-      const shift = top - (c + k * (inkTop - c))
-      const nextK = k.toFixed(3), nextShift = `${Math.round(shift)}px`
-      if (b.style.getPropertyValue('--brace-stretch') === nextK &&
-          b.style.getPropertyValue('--brace-shift') === nextShift) return
-      // the very first fit lands after mount, and .brace transitions transform
-      // at --dur-3 — without this the braces would visibly unfurl on every
-      // arrival at #/, an entrance animation nobody asked for
-      if (!braceFitted) b.style.transition = 'none'
-      b.style.setProperty('--brace-stretch', nextK)
-      b.style.setProperty('--brace-shift', nextShift)
-    })
-    if (!braceFitted) {
-      void braces[0]?.offsetWidth
-      braces.forEach(b => { b.style.transition = '' })
-      braceFitted = true
-    }
-  }
-  fitBraces()
-  // re-fit on anything that moves the block: viewport resize, the webfont
-  // swapping in under the measurement, the chat collapsing back to a feed
-  const fitObserver = new ResizeObserver(fitBraces)
-  fitObserver.observe(feedCard)
-  document.fonts?.ready.then(fitBraces).catch(() => {})
+  /* The braces are SVG now, stretched by the layout to exactly the height
+     of the content they bracket — so the glyph-metric fitter that used to
+     live here (canvas ink extents, a baseline strut, a solved-for translate)
+     is gone. It was also wrong: it mixed offsetTop coordinate spaces and put
+     the braces ~259px below the text they were meant to enclose. */
 
   let raf
   /* Throttled to ~12Hz, the gate computers.js and agent.js already carry and
