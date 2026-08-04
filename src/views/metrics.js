@@ -9,7 +9,7 @@ import '../metrics.css'
 import { ticks as d3ticks } from 'd3-array'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
-import { el, sparkline, makeTooltip, bindRuntime } from '../components.js'
+import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../components.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
 
@@ -330,9 +330,10 @@ export function metricsView() {
   /* lane display order is fixed once (severity-descending) so bars can tween in place */
   const LANES = [...m.failureByLane].sort((a, b) => b.rate - a.rate).map(l => l.lane)
 
+  /* .seg is the shared skin + indicator (styles.css / attachSeg); .pill-group
+     and .pill stay in the markup as this view's click-delegation hooks. */
   const pillGroup = (name, items, label) => `
-    <div class="pill-group" data-group="${name}" role="group" aria-label="${label}">
-      <span class="pg-ind"></span>
+    <div class="seg pill-group" data-group="${name}" role="group" aria-label="${label}">
       ${items.map(([id, txt], i) => `<button type="button" class="pill${i === 0 ? ' on' : ''}" data-v="${id}" aria-pressed="${i === 0}">${txt}</button>`).join('')}
     </div>`
 
@@ -1273,23 +1274,10 @@ export function metricsView() {
 
   const filterEl = root.querySelector('#m-filter')
 
-  function syncIndicators() {
-    filterEl.querySelectorAll('.pill-group').forEach(group => {
-      const on = group.querySelector('.pill.on')
-      const ind = group.querySelector('.pg-ind')
-      if (!on || !ind) return
-      /* Measure against the group's padding edge (the indicator's own containing
-         block) and undo any ancestor transform still running on the view. */
-      const gr = group.getBoundingClientRect()
-      if (!gr.width) return
-      const br = on.getBoundingClientRect()
-      const bw = parseFloat(getComputedStyle(group).borderLeftWidth) || 0
-      const inv = group.offsetWidth / gr.width
-      ind.style.width = `${on.offsetWidth}px`
-      ind.style.transform = `translateX(${((br.left - gr.left) * inv - bw).toFixed(2)}px)`
-      ind.classList.add('ready')
-    })
-  }
+  /* the shared helper owns indicator geometry now — its MutationObserver
+     follows the .on toggles below, and its ResizeObserver replaces the old
+     window-resize + RO + boot-frame syncIndicators() plumbing */
+  filterEl.querySelectorAll('.seg').forEach(g => unsubs.push(attachSeg(g)))
 
   filterEl.addEventListener('click', (e) => {
     const btn = e.target.closest('.pill')
@@ -1304,23 +1292,11 @@ export function metricsView() {
       p.classList.toggle('on', on)
       p.setAttribute('aria-pressed', String(on))
     })
-    syncIndicators()
     sessionBase = null                 // a new filter is a new baseline, not a jump
     applyChrome()
     if (key === 'machine') relayoutRows(() => { applyTableFilter(); applySortOrder() })
     retarget(780)
   })
-
-  const onResize = () => syncIndicators()
-  window.addEventListener('resize', onResize)
-  unsubs.push(() => window.removeEventListener('resize', onResize))
-
-  let ro = null
-  if (typeof ResizeObserver !== 'undefined') {
-    ro = new ResizeObserver(() => syncIndicators())
-    ro.observe(filterEl)
-    unsubs.push(() => ro.disconnect())
-  }
 
   /* ================= boot ================= */
 
@@ -1368,7 +1344,6 @@ export function metricsView() {
     syncHeatKey()
     applyTokenChrome()
     applyAll(current)                  // paint the late panels at the frame the tiles are on
-    syncIndicators()
     /* if a sim event already retargeted inside the gap, that tween owns the
        data now — do not restart the arrival one on top of it */
     if (target === settled) tweenTo(settled, 900)

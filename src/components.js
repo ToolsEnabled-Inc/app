@@ -263,6 +263,52 @@ export function makeTooltip(container) {
   }
 }
 
+/* Segmented-control indicator. Idempotent; call once per .seg after mount.
+   Uses offsetLeft/offsetWidth (layout values, immune to the view-enter
+   transform that forced metrics' old getBoundingClientRect inverse math).
+   Returns a detach() for the view's cleanup list. */
+export function attachSeg(group) {
+  let ind = group.querySelector(':scope > .seg-ind')
+  if (!ind) {
+    ind = document.createElement('span')
+    ind.className = 'seg-ind'
+    ind.setAttribute('aria-hidden', 'true')
+    group.prepend(ind)
+  }
+  /* The 'ready' writes are guarded because the indicator itself sits inside
+     the observed subtree and a same-value classList.add/remove still queues a
+     mutation record (measured in Chromium), so an unguarded write here is a
+     MutationObserver feeding itself — an infinite microtask loop that hangs
+     the page. Written only on actual change, the observer goes quiet once
+     the indicator is settled. (style.width/transform are exempt: the
+     observer filters on 'class' alone.) */
+  const sync = () => {
+    if (!group.offsetWidth) return       // hidden (comms size-seg in channels
+                                         // mode): re-syncs via RO on show
+    const on = group.querySelector(':scope > button.on')
+    if (!on) {
+      if (ind.classList.contains('ready')) ind.classList.remove('ready')
+      return
+    }
+    /* offsetLeft, with NO clientLeft correction: measured in Chromium, a
+       button 4px from the group's border edge (1px border + 3px padding)
+       reports offsetLeft 3 — i.e. the value is already relative to the
+       padding edge, which is exactly where the absolutely-positioned
+       indicator's left:0 sits. Subtracting the border again shifted every
+       indicator 1px left of its button. */
+    ind.style.width = `${on.offsetWidth}px`
+    ind.style.transform = `translateX(${on.offsetLeft}px)`
+    if (!ind.classList.contains('ready')) ind.classList.add('ready')
+  }
+  const mo = new MutationObserver(sync)
+  mo.observe(group, { attributes: true, attributeFilter: ['class'], subtree: true })
+  const ro = new ResizeObserver(sync)
+  ro.observe(group)
+  document.fonts?.ready?.then(sync)
+  sync()
+  return () => { mo.disconnect(); ro.disconnect() }
+}
+
 /**
  * Count a readout from one number to another, in place (no layout jump).
  * Used by every morph that swaps a live figure — rail hero, metric tiles.

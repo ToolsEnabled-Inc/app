@@ -17,7 +17,7 @@ import { ticks as d3ticks } from 'd3-array'
 import { readLayout, writeLayout } from '../layout-pref.js'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES } from '../vocab.js'
-import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip } from '../components.js'
+import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip, attachSeg } from '../components.js'
 import { FleetGraph } from '../graph.js'
 import '../board.css'
 
@@ -390,7 +390,7 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="graph-wrap glass">
           <div class="graph-crumb"></div>
           <div class="graph-hint glass">Graph is getting dense — select a bottom node to focus its branch</div>
-          <div class="graph-layout-seg" role="group" aria-label="Graph layout">
+          <div class="seg graph-layout-seg" role="group" aria-label="Graph layout">
             <button type="button" data-layout="tree" title="Tidy hierarchy view">Tree</button>
             <button type="button" data-layout="force" title="Live force-directed view">Physics</button>
           </div>
@@ -414,6 +414,9 @@ export function computersView({ initialComputer = null, navigate }) {
   const ctlPage = root.querySelector('.ctl-page')
   const editBtn = root.querySelector('.graph-edit-btn')
   const layoutSeg = root.querySelector('.graph-layout-seg')
+  /* shared seg indicator (styles.css .seg); syncLayoutSeg keeps toggling .on
+     below and the helper's MutationObserver follows it */
+  unsubs.push(attachSeg(layoutSeg))
 
   // Sticky across sessions AND across pages — see layout-pref.js for why it
   // no longer lives here.

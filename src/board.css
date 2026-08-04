@@ -320,37 +320,25 @@
 /* ------------------------------------------------------------
    9 · the two floating graph controls — Tree|Physics and Edit
 
-   Both pills sit on the same top edge of the graph card, side by side, and
-   were built independently: the segment was padding 3px around 6/12px
-   buttons at radius 4px, the Edit button padding 8/16px at radius 3px. That
-   arithmetic lands them at 32.5px and 30.5px tall, so two adjacent controls
-   on a shared top:14px were visibly off by 2px along their bottom edges,
-   and the segment's 4px corner was the one box on this page still off the
-   settled 3px square register.
+   Both pills sit on the same top edge of the graph card, so they must also
+   share a bottom edge — built independently they came out 32.5px and 30.5px
+   tall, visibly off by 2px along their bottoms. The segment's geometry now
+   comes entirely from the shared .seg control (styles.css, height
+   --seg-h: 32px); --gc-h below keeps the Edit button and its caption on
+   that same 32px register, and MUST move with --seg-h if that token ever
+   changes — the two tokens agreeing numerically is what keeps the two
+   controls bottom-aligned.
 
    Fixed here rather than in graph.css because that sheet belongs to the
    graph lane this wave; every selector below is scoped to .computers, so
-   the agent page's own graph strip is untouched. Interior spacing reads
-   from the tokens lane's space scale (--s1..--s5) with literal fallbacks,
-   so the rules stand on their own if load order or a rename ever loses the
-   tokens. The two horizontal paddings stay literal on purpose: these pills
-   are positioned by fixed right: offsets, so their WIDTHS are the only
-   thing keeping them from colliding, and width is not a dimension to hand
-   to a variable that another sheet owns.
+   the agent page's own graph strip is untouched. The Edit button's
+   horizontal padding stays literal on purpose: these pills are positioned
+   by fixed right: offsets, so their WIDTHS are the only thing keeping them
+   from colliding, and width is not a dimension to hand to a variable that
+   another sheet owns.
    ------------------------------------------------------------ */
 .computers .graph-wrap {
   --gc-h: 32px;                     /* one height for both floating controls */
-}
-.computers .graph-layout-seg {
-  height: var(--gc-h);
-  padding: var(--s1, 4px);
-  gap: var(--s1, 4px);
-  border-radius: var(--r-md, 3px);
-}
-.computers .graph-layout-seg button {
-  display: inline-flex; align-items: center;
-  padding: 0 12px;
-  border-radius: var(--r-sm, 2px);
 }
 .computers .graph-edit-btn {
   height: var(--gc-h);

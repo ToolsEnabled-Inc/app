@@ -145,73 +145,10 @@
 }
 .m-filter .mf-note b { color: var(--ink-3); font-weight: 600; }
 
-.pill-group {
-  position: relative;
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 3px;
-  background: rgba(14, 23, 38, 0.035);
-  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
-}
-.pill-group .pg-ind {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 0;
-  width: 0;
-  border-radius: 3px;
-  background: rgba(255,255,255,calc(0.92 * var(--wa)));
-  box-shadow: inset 0 1px 0 #fff, 0 4px 12px -6px rgba(14, 23, 38, 0.28);
-  transform: translateX(0);
-  transition: transform .52s var(--ease-spring), width .52s var(--ease-spring), opacity .3s var(--ease);
-  pointer-events: none;
-  opacity: 0;
-}
-.pill-group .pg-ind.ready { opacity: 1; }
-
-.pill {
-  position: relative;
-  z-index: 1;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 7px 14px;
-  border-radius: 3px;
-  font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 570;
-  letter-spacing: 0.01em;
-  /* --ink-25, not --ink-3: on the pill-group's tinted track the composite
-     measured 4.48:1 on white — under AA for 12.5px text. --ink-25 is the
-     token the sheet reserves for small text needing headroom (5.19 here). */
-  color: var(--ink-25);
-  white-space: nowrap;
-  transition: color .28s var(--ease), transform .16s var(--ease);
-}
-.pill:hover { color: var(--ink-2); }
-.pill.on { color: var(--ink); }
-.pill:active { transform: scale(0.94); }
-/* SHARED FOCUS RECIPE, not a bespoke one.
-   The pill and the sortable table header each carried their own weak ring
-   (0.32 and 0.25 alpha), measuring 1.39–1.73 and 1.44–2.30 focused-vs-
-   unfocused — 14 of this page's 18 tab stops below 2:1. The site recipe
-   lives in the shared selector list in src/styles.css, which belongs to
-   another lane this wave, so it is replicated here rather than joined:
-   same geometry (1.5px surface halo + 3.5px ring), read through
-   --focus-ring so that if that lane lands a ring token these two follow it
-   instead of freezing a copy of today's value.
-   The fallback is deliberately NOT today's rgba(0,169,216,0.72): that cyan
-   composites to 2.02:1 on the white page and 1.82 on tan, i.e. the shared
-   ring itself is the thing the other lane is fixing. #0079a8 is the same
-   hue darkened until it clears 3:1 unaided on all three page surfaces —
-   4.60 white / 3.89 tan / 3.95 black. */
-.pill:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 0 0 3.5px var(--focus-ring, #0079a8);
-}
+/* The range/machine pills are the shared .seg control now (styles.css) —
+   trough, indicator, label colours (--ink-25 → --ink) and the site focus
+   recipe all come from there; .pill-group / .pill remain in the markup only
+   as this view's click-delegation hooks. */
 
 /* ---------- tiles: count-up bump + sparkline end-point pulse ---------- */
 .tile .tv { transition: color .3s var(--ease); }
@@ -431,6 +368,5 @@
 /* ---------- reduced motion ---------- */
 body.reduce-motion .spark-halo,
 body.reduce-motion .spark-halo.ping { animation: none; opacity: 0; }
-body.reduce-motion .pill-group .pg-ind { transition-duration: 0.12s; }
 body.reduce-motion .tile .tv.bump { animation: none; }
 body.reduce-motion .vseg { transition-duration: 0.12s; }

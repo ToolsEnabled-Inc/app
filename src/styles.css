@@ -251,6 +251,17 @@
      value serves every theme and no per-theme override is needed. */
   --focus-ring: #0079a8;
 
+  /* SEGMENTED CONTROL — one height and one trough for the five call sites
+     (metrics range/machine, computers Tree/Physics, comms S/M/L and
+     Watch/Channels) that used to carry three hand-built copies at 37/32/29px.
+     --seg-h matches --gc-h in board.css (32px) so the graph's seg stays
+     bottom-aligned with its Edit button. --seg-bg is theme-correct by
+     construction: --ink and --wa both flip per theme, so the trough is an
+     ink-tinted glass on every ground without per-theme overrides. */
+  --seg-h: 32px;
+  --seg-bg: color-mix(in oklab, var(--ink) 6%, rgba(255,255,255,calc(0.45 * var(--wa))));
+  --seg-border: rgba(255,255,255,calc(0.7 * var(--wa)));
+
   /* The reduce-motion toggle's OFF track and the scrollbar thumb were both
      hardcoded light-theme navy, i.e. invisible ink on the black theme
      (1.01:1 measured on both). Each value below is SOLVED, not picked: the
@@ -1389,6 +1400,80 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 }
 .toggle input:checked + i { background: #21b7e4; }
 .toggle input:checked + i::after { transform: translateX(18px); }
+
+/* ---------- segmented control — ONE build, five call sites ----------
+   JS contract: buttons toggle .on / aria-pressed (unchanged in every view);
+   components.js attachSeg() injects .seg-ind and keeps it glued via
+   MutationObserver + ResizeObserver. Until the indicator has measured once
+   (.ready), the .on button carries a bg-swap fallback, so there is no
+   unpainted state on first frame or without the helper.
+
+   The active chip (indicator + fallback) is the selected-pill recipe the old
+   copies already converged on: var(--sheet) fill, never a literal #fff (that
+   put #eef2f6 ink on white under the black theme — 1.12:1 — and an
+   off-palette pure-white chip on tan), a --wa-scaled sheen instead of a hard
+   white hairline (on black a literal white line reads as a lit edge), and
+   the drop shadow on the themed --shadow-rgb/--shadow-k pair rather than a
+   baked light-theme navy.
+
+   The container rule is guarded by :where(:has(> button)) because the
+   uptime ring's digit groups ALSO carry class .seg (components.js seg());
+   unguarded, this trough would draw glass boxes behind the home/agent
+   clocks. :where() keeps specificity at the bare (0,1,0) so the views'
+   later-in-bundle positioning rules (e.g. graph.css .graph-layout-seg
+   position:absolute) still win their ties exactly as they would against an
+   unguarded .seg. */
+.seg:where(:has(> button)) {
+  position: relative;
+  display: inline-flex; align-items: stretch;
+  height: var(--seg-h); box-sizing: border-box;
+  gap: 2px; padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--seg-bg);
+  border: 1px solid var(--seg-border);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+}
+.seg > button {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center;
+  border: none; background: transparent; cursor: pointer;
+  padding: 0 12px; border-radius: var(--r-md);
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; line-height: 1;
+  color: var(--ink-25); white-space: nowrap;
+  transition: color var(--dur-2) var(--ease), transform var(--dur-1) var(--ease);
+}
+.seg > button:hover { color: var(--ink-2); }
+.seg > button.on { color: var(--ink); }   /* weight stays 600: a weight change
+  would resize the button under the indicator */
+.seg > button:active { transform: scale(0.96); }
+/* site halo+band focus recipe; the band consumes --focus-ring */
+.seg > button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
+              0 0 0 3.5px var(--focus-ring);
+}
+.seg-ind {
+  position: absolute; top: 3px; bottom: 3px; left: 0; width: 0;
+  border-radius: var(--r-md);
+  background: var(--sheet);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))),
+    0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
+  transform: translateX(0);
+  /* .52s spring: kept from the metrics build this mechanic is promoted from.
+     No bespoke reduce-motion rule — the global clamps at the foot of this
+     sheet (body.reduce-motion * and the prefers-reduced-motion block) cap
+     every transition-duration at 0.12s, this one included. */
+  transition: transform .52s var(--ease-spring), width .52s var(--ease-spring),
+              opacity var(--dur-2) var(--ease);
+  opacity: 0; pointer-events: none;
+}
+.seg-ind.ready { opacity: 1; }
+.seg:not(:has(> .seg-ind.ready)) > button.on {
+  background: var(--sheet);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))),
+    0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
+}
 
 /* ============================================================
    AGENT PAGE  (subtree · chat | controls, scroll-snap)

@@ -16,7 +16,7 @@
 // data, values-as-JSON conventions only ever described, never transported.
 
 import { sim } from '../sim.js'
-import { el, countUp, buildChat } from '../components.js'
+import { el, countUp, buildChat, attachSeg } from '../components.js'
 import { pick, ROLES } from '../vocab.js'
 import '../comms.css'
 
@@ -689,12 +689,12 @@ export function commsView() {
           <span class="head-wt">watch board</span>
           <span class="head-wt-meta">agent-coord · live conversations</span>
           <span class="spacer"></span>
-          <div class="wb-seg size-seg" role="group" aria-label="Box size">
+          <div class="seg wb-seg size-seg" role="group" aria-label="Box size">
             <button type="button" data-size="s" title="Small boxes">S</button>
             <button type="button" data-size="m" title="Medium boxes">M</button>
             <button type="button" data-size="l" title="Large boxes">L</button>
           </div>
-          <div class="wb-seg mode-seg" role="group" aria-label="Comms mode">
+          <div class="seg wb-seg mode-seg" role="group" aria-label="Comms mode">
             <button type="button" data-wmode="watch">Watch</button>
             <button type="button" data-wmode="channels">Channels</button>
           </div>
@@ -1460,6 +1460,10 @@ export function commsView() {
   /* ----- mode + size controls ----- */
   const modeBtns = [...root.querySelectorAll('.mode-seg button')]
   const sizeBtns = [...root.querySelectorAll('.size-seg button')]
+  /* shared seg indicators (styles.css .seg / attachSeg). The size-seg is
+     display:none in channels mode; the helper's ResizeObserver re-places its
+     indicator on the frame it gets a box back. */
+  root.querySelectorAll('.wb-seg').forEach(g => unsubs.push(attachSeg(g)))
   function setMode(m) {
     W.mode = m
     root.dataset.mode = m
