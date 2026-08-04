@@ -182,7 +182,10 @@
   font-size: 12.5px;
   font-weight: 570;
   letter-spacing: 0.01em;
-  color: var(--ink-3);
+  /* --ink-25, not --ink-3: on the pill-group's tinted track the composite
+     measured 4.48:1 on white — under AA for 12.5px text. --ink-25 is the
+     token the sheet reserves for small text needing headroom (5.19 here). */
+  color: var(--ink-25);
   white-space: nowrap;
   transition: color .28s var(--ease), transform .16s var(--ease);
 }

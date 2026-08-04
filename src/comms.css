@@ -404,7 +404,9 @@
   outline: none;
   box-shadow:
     0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 0 0 3.5px rgba(0, 169, 216, 0.6);
+    /* band reads --focus-ring: this copy's 0.6-alpha cyan was even weaker
+       than the shared recipe's (1.80:1 on white) */
+    0 0 0 3.5px var(--focus-ring);
 }
 
 @media (max-width: 900px) {
@@ -439,7 +441,10 @@
 .wb-seg { display: flex; gap: 2px; padding: 3px; border-radius: 3px; background: rgba(127, 127, 127, 0.10); flex: none; }
 .wb-seg button {
   border: none; background: transparent; font-family: var(--font-ui);
-  font-size: 12.5px; font-weight: 620; color: var(--ink-3);
+  /* --ink-25, not --ink-3: on the seg's grey track the composite eats the
+     AA margin (--ink-3 measured 4.40:1 on white). Small text needing
+     headroom is exactly the --ink-25 lane. */
+  font-size: 12.5px; font-weight: 620; color: var(--ink-25);
   padding: 4px 11px; border-radius: 3px; cursor: pointer;
   transition: background 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }

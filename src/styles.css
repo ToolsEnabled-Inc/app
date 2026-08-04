@@ -235,6 +235,28 @@
   --node-a: 1;
   --ring-track: rgba(14, 23, 38, 0.09);
 
+  /* FOCUS RING — one token for every :focus-visible recipe in the set
+     (metrics.css and home.css already read it and fall back to a literal).
+     The old literal rgba(0,169,216,.72) composited to 2.01:1 on the white
+     page and 1.82 on tan — under the 3:1 WCAG 1.4.11 floor for the ONE
+     indicator keyboard focus has (black passed at 4.11). #0079a8 is the
+     same hue darkened until it clears 3:1 SOLID against all three page
+     surfaces — measured 4.60 white / 3.89 tan / 3.93 black — so a single
+     value serves every theme and no per-theme override is needed. */
+  --focus-ring: #0079a8;
+
+  /* The reduce-motion toggle's OFF track and the scrollbar thumb were both
+     hardcoded light-theme navy, i.e. invisible ink on the black theme
+     (1.01:1 measured on both). Each value below is SOLVED, not picked: the
+     lowest alpha of this theme's ink base that clears the floor against the
+     real sampled pixel the mark sits on — the drawer's composited glass
+     rgb(252,252,254) for the track (3.2:1, headroom over the 3:1 non-text
+     floor), the page for the thumb (2.2:1 base / 3:1 hover — an affordance,
+     so the 2:1 floor applies, and hover still steps visibly up). */
+  --toggle-track: rgba(14, 23, 38, 0.479);
+  --scrollbar-thumb: rgba(14, 23, 38, 0.348);
+  --scrollbar-thumb-hover: rgba(14, 23, 38, 0.46);
+
   /* the OWN-message chat bubble: the one surface in the set that is dark on
      every theme, so it carries its own pair rather than riding the sheet
      ramp. It has to be themed for the same reason the shadow ink is — a
@@ -263,6 +285,11 @@
   --brace: rgba(14, 23, 38, 0.33);
   --node-a: 1;
   --ring-track: rgba(14, 23, 38, 0.09);
+  /* solved against this theme's sampled drawer glass rgb(252,252,254) and
+     page — see the :root block for the method */
+  --toggle-track: rgba(14, 23, 38, 0.479);
+  --scrollbar-thumb: rgba(14, 23, 38, 0.348);
+  --scrollbar-thumb-hover: rgba(14, 23, 38, 0.46);
 }
 
 /* TAN — Gruvbox Light SOFT, the owner's Zed terminal theme (the third
@@ -296,6 +323,12 @@
      fg2/fg0, the same published ramp --ink already draws from. */
   --bub-me-1: #504945;
   --bub-me-2: #282828;
+  /* same warm neutral the hairlines/shadows use; alphas solved against the
+     sampled tan drawer glass rgb(252,239,196) and page — navy read cold AND
+     under-weighted here (track 1.28:1 before) */
+  --toggle-track: rgba(40, 40, 40, 0.531);
+  --scrollbar-thumb: rgba(40, 40, 40, 0.39);
+  --scrollbar-thumb-hover: rgba(40, 40, 40, 0.517);
 }
 
 /* BLACK — clinical dark. The ink ramp inverts; --wa drops so the same
@@ -334,6 +367,17 @@
   --s-good: #19a05e;
   --s-warn: #c77d00;
   --s-serious: #e35733;
+  /* the ink ramp inverts, so these must too: the navy literals they replace
+     were 1.01:1 here — invisible. White-ink alphas solved against the
+     sampled black drawer glass rgb(23,26,31) and the #0d0f12 page. The
+     scrollbar pair is then re-solved against HEADED pixel measurements: the
+     gutter's real backdrop on this theme runs darker than the page
+     (rgb(12,13,16) sampled on #/metrics) and the paint lands ~11% dimmer
+     than flat math predicts, so the page-solved 0.251 measured only 1.96:1
+     on screen — these two alphas are what actually measure 2.2:1 / ~3:1. */
+  --toggle-track: rgba(255, 255, 255, 0.348);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.29);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.38);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1320,7 +1364,10 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .toggle input { opacity: 0; width: 0; height: 0; }
 .toggle i {
   position: absolute; inset: 0; border-radius: 13px;   /* a switch is a capsule, not a box */
-  background: rgba(14,23,38,0.12);
+  /* themed: the old flat navy rgba(14,23,38,.12) measured 1.01:1 against the
+     black drawer — a control with an invisible track. Token is solved per
+     theme against the sampled drawer glass (see :root). */
+  background: var(--toggle-track);
   transition: background var(--dur-2) var(--ease);
 }
 .toggle i::after {
@@ -1558,13 +1605,19 @@ input[type="range"]:active::-webkit-slider-thumb {
      changed here once. */
   box-shadow:
     0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 0 0 3.5px rgba(0,169,216,0.72);
+    /* the colour band consumes the token: the old rgba(0,169,216,.72)
+       composited to 2.01:1 on white / 1.82 on tan — failing the very
+       affordance this recipe was strengthened for */
+    0 0 0 3.5px var(--focus-ring);
 }
 
-/* ---------- scrollbars (clinical thin) ---------- */
+/* ---------- scrollbars (clinical thin) ----------
+   themed: the navy literal was 1.01:1 on the black page — no visible thumb,
+   so nothing said "this scrolls". Tokens are per-theme ink solved to 2.2:1
+   (affordance floor is 2:1) with hover stepping to 3:1 — see :root. */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: rgba(14,23,38,0.14); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(14,23,38,0.24); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------- reduced motion ----------
@@ -1601,7 +1654,8 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
 .theme-seg button:active { transform: scale(0.96); }
 .theme-seg button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px rgba(0,169,216,0.72);
+  /* same halo+band recipe as the shared rule above; band reads the token */
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px var(--focus-ring);
 }
 
 /* ---------- chart chrome tokens ----------

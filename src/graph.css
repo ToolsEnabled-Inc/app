@@ -237,8 +237,10 @@
 .graph-fit:active { transform: scale(0.95); }
 .graph-fit:focus-visible {
   outline: none;
+  /* --focus-ring at full strength: the old 0.28-alpha cyan composited to
+     1.32:1 on white — a focus indicator in name only */
   box-shadow: inset 0 1px 0 #fff, 0 8px 20px -12px rgba(14, 23, 38, 0.18),
-    0 0 0 3px rgba(0, 169, 216, 0.28);
+    0 0 0 3px var(--focus-ring);
 }
 
 /* ============================================================
@@ -465,7 +467,9 @@ body.reduce-motion .graph-canvas .tier-guide {
 .graph-layout-seg button:active { transform: scale(0.96); }
 .graph-layout-seg button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px rgba(0, 169, 216, 0.72);
+  /* site halo+band recipe; the band consumes --focus-ring (the literal it
+     replaces failed 3:1 on white and tan) */
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px var(--focus-ring);
 }
 /* editing forces the tree — show the control as inert rather than lying */
 .graph-layout-seg.locked { opacity: 0.45; pointer-events: none; }
