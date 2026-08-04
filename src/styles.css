@@ -25,6 +25,20 @@
    20/46px, tabs 22px → 17px, and so on) with the hues untouched. The one
    deliberate exception is the :focus-visible ring, whose solid part is an
    accessibility affordance and was strengthened, not dimmed.
+
+   TOKEN SCALES. The type doctrine above was the only scale this sheet
+   actually had. Everything else was per-rule invention: 18 font weights,
+   16 letter-spacings inside the single 11px caps role, 14 gap values, 35
+   transition durations written in two spellings (.25s and 0.25s), and ~28
+   elevation shadows that are all the same recipe with hand-tuned numbers.
+   Nobody can see the difference between 610 and 620, or between 0.22s and
+   0.25s — but every new rule has to guess which one to copy, so the sheet
+   drifts further apart with each addition. The scales now live in :root
+   (see --dur-*, --s1..--s5, --track-caps, --elev-*) and the rules below
+   spend them. Values that were genuinely load-bearing — a measured label
+   stack, a width graph.js also knows, a choreographed entrance — were left
+   literal and are commented where they sit. When adding a rule, spend a
+   step; do not invent 0.19s.
    ============================================================ */
 
 :root {
@@ -95,6 +109,81 @@
   --ease: cubic-bezier(0.22, 0.9, 0.26, 1);
   --ease-spring: cubic-bezier(0.34, 1.3, 0.4, 1);
 
+  /* MOTION SCALE — three steps, and no fourth. The two easing curves above
+     are unchanged; only the durations are normalised.
+       --dur-1  micro       press/scale feedback, tooltip appear
+       --dur-2  standard    hover tints, colour and background swaps
+       --dur-3  structural  surfaces moving, resizing, entering
+     Assignment is by role, not by arithmetic, so the two genuinely
+     ambiguous old values (.18s, .2s) land where they belong rather than
+     where rounding puts them: a transform response is micro, a colour
+     response is standard.
+
+     NOT on this scale, on purpose, each commented at its rule: the
+     choreographed one-shot entrances (nodeIn / frostIn at .7s and the .7s
+     specular sweep — showpiece timing, not UI response), the data tweens
+     (1.1s / 1.2s bar and meter fills, which read as a value travelling),
+     and the ambient loops (2s–2.6s). The reduced-motion clamps at the foot
+     of the sheet stay literal too — they are a ceiling, not a step. */
+  --dur-1: 120ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+
+  /* SPACE SCALE. Rule used when converting: nearest step, and only where
+     the old value was within 2px of one; on an exact tie (6, 10, 14) round
+     DOWN, because a box that loses 2px of gap can never overflow its
+     container while one that gains 2px can. 20px and 40px are 4px from
+     every step, so they stay literal — as do sub-step hairlines (2px, 3px
+     optical nudges) and every positional offset (top/left/inset), which
+     are not spacing. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+
+  /* CAPS TRACKING — one value for the whole 11px uppercase micro-label
+     role, which carried sixteen different letter-spacings between 0.06em
+     and 0.2em with no rule behind any of them. 0.12em sits mid-range, so
+     the widest labels tighten and the tightest widen by 1–3px; every
+     affected label is ellipsised, nowrap inside an auto-width box, or
+     measured at runtime by the graph's label-avoidance pass, so none of
+     them can overflow. Tracking that is NOT this role keeps its own value:
+     .uring-caption's 0.3em is a 12.5px display treatment where the spacing
+     IS the design, and the 0.01–0.04em optical nudges on lowercase text
+     are not micro-labels at all. */
+  --track-caps: 0.12em;
+
+  /* ELEVATION. Every shadow in the sheet was hardcoded rgba(14,23,38,·) —
+     light-theme navy — which on the black theme is invisible ink drawn over
+     a #0d0f12 page. Colour now comes from a per-theme base and every alpha
+     is scaled by --shadow-k, the same trick --wa plays on the glass, so a
+     theme re-tunes all depth from two numbers.
+
+     The three steps are lifted verbatim from the recipes the sheet already
+     used most, so adopting them is a visual no-op where they apply:
+       --elev-1  controls        (from .icon-btn:hover / .ctl-btn)
+       --elev-2  bubbles, tiles  (from .node-glass, exact)
+       --elev-3  large cards     (from .glass, exact)
+     They share one contact layer, which is what makes them a ladder rather
+     than three unrelated shadows. Shadows that are genuinely bespoke — an
+     overlay (drawer, popover chat), a perf-reduced drag state, the
+     deliberately deepened node hover — stay written out, but on the themed
+     base. Note the alphas do not climb monotonically: this sheet scales a
+     shadow to the size of the surface casting it, so a big card gets a
+     wider, softer, *lighter* pool than a small bubble. */
+  --shadow-rgb: 14, 23, 38;
+  --shadow-k: 1;
+  --elev-1:
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 4px 12px -6px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k)));
+  --elev-2:
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 9px 20px -13px rgba(var(--shadow-rgb), calc(0.22 * var(--shadow-k)));
+  --elev-3:
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 18px 44px -18px rgba(var(--shadow-rgb), calc(0.16 * var(--shadow-k)));
+
   /* --wa scales every white-glass alpha in the whole sheet set, so a theme
      re-tunes all frosted surfaces from one number instead of hundreds of
      hand-edited rgba()s. --sheet is the one opaque surface. */
@@ -129,6 +218,10 @@
   --ink-4:  #7c6f64;
   --line:   rgba(40, 40, 40, 0.10);
   --line-2: rgba(40, 40, 40, 0.17);
+  /* same neutral the hairlines already use — navy shadows read cold
+     against a warm bg0_s */
+  --shadow-rgb: 40, 40, 40;
+  --shadow-k: 1;
 }
 
 /* BLACK — clinical dark. The ink ramp inverts; --wa drops so the same
@@ -143,6 +236,12 @@
   --ink-4:  #6b7480;
   --line:   rgba(255, 255, 255, 0.08);
   --line-2: rgba(255, 255, 255, 0.14);
+  /* #0e1726 shadow on a #0d0f12 page is the same lightness as the page —
+     literally invisible ink, so every card on this theme was flat. Pure
+     black still has somewhere to go, and the alphas need the headroom to
+     read at all against a near-black surface. */
+  --shadow-rgb: 0, 0, 0;
+  --shadow-k: 1.7;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -181,11 +280,10 @@ body {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
     inset 0 0 0 1px rgba(255,255,255,calc(0.35 * var(--wa))),
-    inset 0 -14px 26px -18px rgba(14,23,38,0.16),
-    0 1px 2px rgba(14,23,38,0.04),
-    0 18px 44px -18px rgba(14,23,38,0.16);
+    inset 0 -14px 26px -18px rgba(var(--shadow-rgb), calc(0.16 * var(--shadow-k))),
+    var(--elev-3);           /* this rule is where --elev-3 came from */
   border-radius: var(--r-lg);
-  transition: box-shadow .45s var(--ease), border-color .45s var(--ease);
+  transition: box-shadow var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease);
 }
 .glass::before {              /* specular top sheen */
   content: "";
@@ -209,21 +307,27 @@ body {
   background-repeat: no-repeat;
   background-position: 115% 0;
   opacity: 0;
-  transition: opacity .3s var(--ease), background-position 0s .3s;
+  /* the delay must equal the fade so the sweep resets off-screen after it
+     finishes, never during — same token on both keeps that true */
+  transition: opacity var(--dur-2) var(--ease), background-position 0s var(--dur-2);
 }
 .glass:hover::after {
   opacity: 0.75;
   background-position: -15% 0;
-  transition: background-position .7s var(--ease), opacity .18s var(--ease);
+  /* .7s stays literal: this is the specular travel, a showpiece gesture
+     whose slowness is the point. Its fade-in is ordinary micro response. */
+  transition: background-position .7s var(--ease), opacity var(--dur-1) var(--ease);
 }
 .glass:hover {                /* crisp rim light + lifted depth */
   border-color: rgba(255,255,255,calc(0.95 * var(--wa)));
   box-shadow:
     inset 0 1px 0 #fff,
     inset 0 0 0 1px rgba(255,255,255,calc(0.55 * var(--wa))),
-    inset 0 -14px 26px -18px rgba(14,23,38,0.18),
-    0 1px 2px rgba(14,23,38,0.05),
-    0 24px 54px -20px rgba(14,23,38,0.2),
+    inset 0 -14px 26px -18px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k))),
+    /* bespoke: a wider, deeper pool than --elev-3 — this is the lift, and
+       the whole point of the hover is that it is not the resting step */
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))),
+    0 24px 54px -20px rgba(var(--shadow-rgb), calc(0.2 * var(--shadow-k))),
     0 0 calc(20px * var(--glow)) rgba(69,214,255, calc(0.11 * var(--glow)));
 }
 
@@ -247,17 +351,17 @@ body {
   font-size: 12.5px; color: var(--ink-3); letter-spacing: 0.02em;
   margin-right: -2px;
 }
-.tb-side { display: flex; align-items: center; gap: 8px; min-width: 200px; }
+.tb-side { display: flex; align-items: center; gap: var(--s2); min-width: 200px; }
 .tb-right { justify-content: flex-end; }
 .crumb { font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
-.crumb b { color: var(--ink-2); font-weight: 600; }
+.crumb b { color: var(--ink-2); font-weight: 640; }
 
-.tb-nav { display: flex; gap: 4px; }
+.tb-nav { display: flex; gap: var(--s1); }
 .tb-nav a {
   font-size: 13.5px; font-weight: 550; text-decoration: none;
   color: var(--ink-25);
-  padding: 7px 14px; border-radius: 3px;
-  transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease);
+  padding: var(--s2) var(--s3); border-radius: 3px;
+  transition: color var(--dur-2) var(--ease), background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
 .tb-nav a:hover { color: var(--ink-2); }
 /* current page reads as ink weight + a hairline, not a filled pill —
@@ -273,24 +377,28 @@ body {
   display: grid; place-items: center;
   border: 1px solid transparent; background: transparent;
   color: var(--ink-2); cursor: pointer;
-  transition: background .25s var(--ease), box-shadow .25s var(--ease), color .2s, transform .15s var(--ease);
+  transition: background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), color var(--dur-2), transform var(--dur-1) var(--ease);
 }
 .icon-btn svg { width: 20px; height: 20px; }
-.icon-btn:hover { background: rgba(255,255,255,calc(0.8 * var(--wa))); color: var(--ink); box-shadow: 0 4px 12px -6px rgba(14,23,38,0.25), inset 0 1px 0 #fff; }
+.icon-btn:hover { background: rgba(255,255,255,calc(0.8 * var(--wa))); color: var(--ink); box-shadow: inset 0 1px 0 #fff, var(--elev-1); }
 .icon-btn:active { transform: scale(0.93); }
 .icon-btn[disabled] { opacity: 0.42; pointer-events: none; }
 
 /* ---------- stage & view transitions ---------- */
+/* 82px is not spacing — it is the topbar's height plus its offset, and .view
+   below repeats it as an inset. The two must agree, so both stay literal. */
 #stage { position: relative; z-index: 1; height: 100vh; padding-top: 82px; }
 .view {
   position: absolute; inset: 82px 0 0 0;
   overflow: hidden;
   opacity: 1; transform: none;
-  transition: opacity .38s var(--ease), transform .38s var(--ease);
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
 }
 .view.enter { opacity: 0; transform: translateY(14px) scale(0.992); }
 .view.exit  { opacity: 0; transform: translateY(-10px) scale(0.995); pointer-events: none; }
-.view-pad { height: 100%; overflow-y: auto; padding: 8px clamp(16px, 4vw, 48px) 40px; }
+/* 40px bottom gutter is 4px off every step in both directions, so it stays
+   literal rather than being forced to 24px or 48px */
+.view-pad { height: 100%; overflow-y: auto; padding: var(--s2) clamp(16px, 4vw, 48px) 40px; }
 
 /* ============================================================
    HOME
@@ -324,57 +432,66 @@ body {
 .uring-inner { text-align: center; }
 .uring-digits {
   display: flex; align-items: baseline; justify-content: center;
-  font-weight: 620;
+  font-weight: 640;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.01em;      /* optical, on numerals — not the caps role */
 }
 .uring-digits .seg { display: flex; flex-direction: column; align-items: center; }
 .uring-digits .n { font-size: clamp(34px, 4.6vw, 58px); color: var(--ink); line-height: 1.05; }
 .uring-digits .colon { font-size: clamp(26px, 3.6vw, 44px); color: var(--ink-4); padding: 0 clamp(4px, 0.7vw, 10px); transform: translateY(-4px); animation: colonPulse 2s ease-in-out infinite; }
 @keyframes colonPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 .uring-digits .u {
-  margin-top: 8px;
-  font-size: 11px; font-weight: 560; letter-spacing: 0.14em; text-transform: uppercase;
+  margin-top: var(--s2);
+  font-size: 11px; font-weight: 550; letter-spacing: var(--track-caps); text-transform: uppercase;
   color: var(--ink-25);
 }
 .uring-caption {
-  margin-top: 18px;
+  margin-top: var(--s4);
+  /* 0.3em is deliberate display tracking on a 12.5px line, not the 11px
+     micro-label role — the spacing IS the treatment here, so it keeps its
+     own value rather than collapsing to --track-caps */
   font-size: 12.5px; letter-spacing: 0.3em; text-transform: uppercase;
-  color: var(--ink-25); font-weight: 560;
+  color: var(--ink-25); font-weight: 550;
   text-align: center;
 }
 /* compact rings live at 180–190px: 11px is the floor for a caps micro-label,
-   and the tightened tracking keeps "RUNTIME" (~60px) well inside the ~144px
-   chord available at that height, so nothing escapes the disc */
-.uring.compact .uring-caption { margin-top: 7px; font-size: 11px; letter-spacing: 0.13em; }
+   and dropping to the house caps tracking keeps "RUNTIME" (~57px at
+   --track-caps) well inside the ~144px chord available at that height, so
+   nothing escapes the disc */
+.uring.compact .uring-caption { margin-top: var(--s2); font-size: 11px; letter-spacing: var(--track-caps); }
 .uring.compact .uring-digits .u { display: none; }
 /* compact rings live inside ~370px rails — digits must scale to the ring,
    not the viewport, or they escape the panel */
 .uring.compact .uring-digits .n { font-size: 27px; }
 .uring.compact .uring-digits .colon { font-size: 19px; padding: 0 3px; transform: translateY(-2px); }
-.uring-sub { margin-top: 7px; font-size: 12.5px; color: var(--ink-25); text-align: center; font-family: var(--font-mono); }
+.uring-sub { margin-top: var(--s2); font-size: 12.5px; color: var(--ink-25); text-align: center; font-family: var(--font-mono); }
 
 /* greyed context feed, flanked by giant quiet braces */
 .home-feed-wrap {
   position: relative;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: var(--s1);
   min-height: 420px;
 }
 .brace {
+  /* 100 is the fourth weight this sheet keeps: the braces are a hairline
+     drawing, and the 400/550/640 text ladder has nothing that thin */
   font-size: 190px; font-weight: 100; line-height: 0.9;
   color: rgba(14,23,38,0.06);
   user-select: none; flex: none;
   font-family: var(--font-ui);
-  transition: opacity .5s var(--ease), transform .5s var(--ease);
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
 }
 .home-feed-wrap.chat-open .brace { opacity: 0; transform: scaleX(0.6); }
 .home-feed {
   flex: 1;
   cursor: pointer;
-  padding: 26px 22px;
+  padding: var(--s5);
   border-radius: var(--r-lg);
-  transition: transform .45s var(--ease), box-shadow .45s var(--ease), background .45s var(--ease),
-    height .5s var(--ease), max-height .5s var(--ease);
+  /* one step for the whole morph: the box, its surface and its shadow used
+     to move on .45s while its height moved on .5s, which is a 50ms tail
+     nobody asked for */
+  transition: transform var(--dur-3) var(--ease), box-shadow var(--dur-3) var(--ease), background var(--dur-3) var(--ease),
+    height var(--dur-3) var(--ease), max-height var(--dur-3) var(--ease);
   overflow: hidden;
   position: relative;
   max-height: 460px;
@@ -389,25 +506,25 @@ body {
   backdrop-filter: blur(18px) saturate(1.8);
   -webkit-backdrop-filter: blur(18px) saturate(1.8);
   border: 1px solid var(--line-2);
-  box-shadow: 0 18px 44px -18px rgba(14,23,38,0.16);
+  box-shadow: var(--elev-3);
 }
 .feed-title {
-  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
-  color: var(--ink-25); font-weight: 620; margin-bottom: 14px;
-  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640; margin-bottom: var(--s3);
+  display: flex; align-items: center; gap: var(--s2);
 }
 .feed-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-shadow);
   animation: livePulse 2.4s ease-in-out infinite; }
 @keyframes livePulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.7); opacity: 0.5; } }
-.feed-lines { display: flex; flex-direction: column; gap: 8px; }
+.feed-lines { display: flex; flex-direction: column; gap: var(--s2); }
 .feed-line {
   font-family: var(--font-mono);
   font-size: 13px; line-height: 1.35; color: var(--ink-25);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   opacity: 1; transform: none;
-  transition: opacity .5s var(--ease), transform .5s var(--ease), color .5s var(--ease);
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease), color var(--dur-3) var(--ease);
 }
-.feed-line .agent { color: var(--ink-2); font-weight: 600; }
+.feed-line .agent { color: var(--ink-2); font-weight: 640; }
 .feed-line.fresh { opacity: 0; transform: translateY(-8px); }
 /* older lines recede by stepping DOWN the ink ramp instead of by going
    translucent — 0.45 opacity put live feed text at ~1.9:1, unreadable for
@@ -416,7 +533,7 @@ body {
 .feed-line.old { color: var(--ink-3); }
 /* the feed has no card behind it — it floats straight on the aurora — so
    its supporting text takes the --ink-25 step rather than --ink-3 */
-.feed-hint { margin-top: 16px; font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.04em; }
+.feed-hint { margin-top: var(--s4); font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.04em; }
 
 /* expanded: context feed becomes a chat window (FLIP morph, in place) */
 .home-feed.as-chat { cursor: default; max-height: min(72vh, 640px); height: min(72vh, 640px); display: flex; flex-direction: column; }
@@ -428,8 +545,8 @@ body {
    ============================================================ */
 .chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .chat-head {
-  display: flex; align-items: center; gap: 10px;
-  padding-bottom: 12px; margin-bottom: 10px;
+  display: flex; align-items: center; gap: var(--s2);
+  padding-bottom: var(--s3); margin-bottom: var(--s2);
   border-bottom: 1px solid var(--line);
 }
 .chat-head .role-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
@@ -439,50 +556,54 @@ body {
 .chat-close {
   width: 26px; height: 26px; border-radius: 3px; border: none; cursor: pointer;
   display: grid; place-items: center; color: var(--ink-25); background: transparent;
-  transition: background .2s, color .2s;
+  transition: background var(--dur-2), color var(--dur-2);
 }
 .chat-close:hover { background: rgba(14,23,38,0.06); color: var(--ink); }
 .chat-close svg { width: 14px; height: 14px; }
-.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+/* the 2px side padding is a hairline nudge that keeps the scrollbar off the
+   bubbles — below the scale's floor, so it stays literal */
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) 2px; }
 .msg {
   max-width: 88%;
-  padding: 8px 12px;
+  padding: var(--s2) var(--s3);
   border-radius: 3px;
   font-size: 13px; line-height: 1.45;
-  animation: msgIn .4s var(--ease-spring);
+  animation: msgIn var(--dur-3) var(--ease-spring);
 }
 @keyframes msgIn { from { opacity: 0; transform: translateY(8px) scale(0.96); } }
 .msg.them {
   align-self: flex-start;
   background: rgba(255,255,255,calc(0.72 * var(--wa)));
   border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
-  box-shadow: 0 2px 8px -4px rgba(14,23,38,0.12);
+  /* bespoke and deliberately below --elev-1: a chat bubble sits ON the log,
+     it does not float above it */
+  box-shadow: 0 2px 8px -4px rgba(var(--shadow-rgb), calc(0.12 * var(--shadow-k)));
   color: var(--ink-2);
 }
 .msg.me {
   align-self: flex-end;
   color: #fff;
   background: linear-gradient(160deg, #1e2c3d, #0e1726);
-  box-shadow: 0 6px 18px -8px rgba(14,23,38,0.5);
+  box-shadow: 0 6px 18px -8px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-k)));
 }
-.msg .who { display: block; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 650; color: var(--ink-25); margin-bottom: 3px; }
+.msg .who { display: block; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; font-weight: 640; color: var(--ink-25); margin-bottom: var(--s1); }
 .msg.me .who { color: rgba(255,255,255,calc(0.66 * var(--wa))); }
 .chat-input {
-  margin-top: 10px;
-  display: flex; gap: 8px; align-items: center; flex: none;
+  margin-top: var(--s2);
+  display: flex; gap: var(--s2); align-items: center; flex: none;
 }
 .chat-input input {
   flex: 1; height: 38px;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
   background: rgba(255,255,255,calc(0.75 * var(--wa)));
-  box-shadow: inset 0 1px 3px rgba(14,23,38,0.05);
-  padding: 0 14px;
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k)));
+  padding: 0 var(--s3);
   font-family: var(--font-ui); font-size: 13.5px; color: var(--ink);
   outline: none;
-  transition: box-shadow .25s var(--ease);
+  transition: box-shadow var(--dur-2) var(--ease);
 }
-.chat-input input:focus { box-shadow: inset 0 1px 3px rgba(14,23,38,0.05), 0 0 0 3px rgba(0,169,216,0.2); }
+.chat-input input:focus { box-shadow: inset 0 1px 3px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))), 0 0 0 3px rgba(0,169,216,0.2); }
 .chat-input input::placeholder { color: var(--ink-3); }
 .chat-send {
   height: 38px; width: 38px; flex: none;
@@ -492,8 +613,10 @@ body {
   background: linear-gradient(160deg, #21b7e4, #0092c4);
   /* neutral lift, no aura (professional-pass — this button lives inside
      every context-box chat on the graph) */
+  /* accent-tinted on purpose (it is the one send affordance), so it is not
+     an --elev-* step even though it shares their geometry */
   box-shadow: 0 6px 16px -6px rgba(0,169,216,0.5);
-  transition: transform .15s var(--ease), box-shadow .25s;
+  transition: transform var(--dur-1) var(--ease), box-shadow var(--dur-2);
 }
 .chat-send:hover { transform: translateY(-1px); }
 .chat-send:active { transform: scale(0.92); }
@@ -502,19 +625,19 @@ body {
 /* ============================================================
    COMPUTERS
    ============================================================ */
-.computers { height: 100%; display: flex; flex-direction: column; padding: 0 clamp(14px, 2.5vw, 32px) 20px; gap: 14px; }
+.computers { height: 100%; display: flex; flex-direction: column; padding: 0 clamp(14px, 2.5vw, 32px) 20px; gap: var(--s3); }
 
-.tabs { display: flex; gap: 8px; align-items: center; flex: none; padding: 2px; }
+.tabs { display: flex; gap: var(--s2); align-items: center; flex: none; padding: 2px; }
 .tab {
   position: relative;
-  padding: 9px 18px;
+  padding: var(--s2) var(--s4);
   border-radius: 3px;
-  font-size: 13.5px; font-weight: 570; color: var(--ink-25);
+  font-size: 13.5px; font-weight: 550; color: var(--ink-25);
   background: rgba(255,255,255,calc(0.42 * var(--wa)));
   border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
   cursor: pointer;
-  transition: all .3s var(--ease);
-  display: flex; align-items: center; gap: 8px;
+  transition: all var(--dur-2) var(--ease);
+  display: flex; align-items: center; gap: var(--s2);
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
 }
@@ -522,12 +645,12 @@ body {
 .tab.active {
   color: var(--ink);
   background: rgba(255,255,255,calc(0.8 * var(--wa)));
-  box-shadow: inset 0 1px 0 #fff, 0 8px 22px -10px rgba(14,23,38,0.25);
+  box-shadow: inset 0 1px 0 #fff, var(--elev-2);
 }
-.tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 450; }
-.tab.add { padding: 9px 14px; font-size: 16px; color: var(--ink-25); }
+.tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 400; }
+.tab.add { padding: var(--s2) var(--s3); font-size: 16px; color: var(--ink-25); }
 
-.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, 400px); gap: 14px; }
+.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, 400px); gap: var(--s3); }
 @media (max-width: 1080px) {
   .comp-body { grid-template-columns: 1fr; grid-template-rows: minmax(340px, 1fr) minmax(440px, auto); }
   .rail { min-height: 440px; }
@@ -554,10 +677,10 @@ body {
 .graph-hint {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%) translateY(-6px);
   z-index: 4;
-  padding: 9px 16px; border-radius: 3px;
+  padding: var(--s2) var(--s4); border-radius: 3px;
   font-size: 12.5px; color: var(--ink-2);
   opacity: 0; pointer-events: none;
-  transition: opacity .4s var(--ease), transform .4s var(--ease);
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
   white-space: nowrap;
   max-width: calc(100% - 220px);
   overflow: hidden; text-overflow: ellipsis;
@@ -566,15 +689,15 @@ body {
 
 .graph-crumb {
   position: absolute; top: 14px; left: 16px;
-  display: flex; gap: 6px; align-items: center;
+  display: flex; gap: var(--s1); align-items: center;
   font-size: 12.5px; color: var(--ink-25);
   z-index: 5;
 }
 .graph-crumb button {
   border: none; background: none; cursor: pointer;
-  font-size: 12.5px; color: var(--ink-2); font-weight: 600;
-  padding: 4px 8px; border-radius: 3px;
-  transition: background .2s;
+  font-size: 12.5px; color: var(--ink-2); font-weight: 640;
+  padding: var(--s1) var(--s2); border-radius: 3px;
+  transition: background var(--dur-2);
 }
 .graph-crumb button:hover { background: rgba(255,255,255,calc(0.7 * var(--wa))); }
 .graph-crumb .sep { color: var(--ink-4); }
@@ -598,9 +721,12 @@ body {
    per-node passes too (5-layer glow → 3, spectral ring, focus pulse). Motion
    hides the difference; full fidelity returns the moment the graph settles. */
 .graph-canvas.interacting .node-glass {
+  /* deliberately NOT var(--elev-2): this is --elev-2 with its contact layer
+     stripped, because the whole rule exists to paint fewer shadow layers
+     per frame. Same numbers, one fewer pass. */
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 9px 20px -13px rgba(14,23,38,0.22);
+    0 9px 20px -13px rgba(var(--shadow-rgb), calc(0.22 * var(--shadow-k)));
 }
 .graph-canvas.interacting .node.focusable .node-glass { animation: none; }
 .node::before {
@@ -619,6 +745,8 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(2);
   pointer-events: none;
 }
+/* .7s is choreography, not UI response: it is pinned to nodeIn's staged
+   keyframes below, so it stays literal rather than moving to --dur-3 */
 .node.enter::before { animation: frostIn .7s var(--ease) both; }  /* track the nodeIn bloom so no full-size frost disc precedes the bubble */
 @keyframes frostIn { 0% { opacity: 0; } 55% { opacity: 0.35; } 100% { opacity: 1; } }
 /* professional-pass (owner: "childish… neon glow does not scream
@@ -647,28 +775,30 @@ body {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
     inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
-    0 1px 2px rgba(14,23,38,0.05),
-    0 9px 20px -13px rgba(14,23,38,0.22);
-  transition: box-shadow .45s var(--ease), border-color .45s var(--ease), transform .45s var(--ease-spring), background .45s;
+    var(--elev-2);           /* this rule is where --elev-2 came from */
+  transition: box-shadow var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease), transform var(--dur-3) var(--ease-spring), background var(--dur-3);
 }
 /* durable hover signal — deepened neutral elevation + a darker border reads
-   clearly on its own, not left to the (fast, easy-to-miss) ripple flourish */
+   clearly on its own, not left to the (fast, easy-to-miss) ripple flourish.
+   Bespoke on purpose: tighter and darker than --elev-2 rather than one step
+   up the ladder, because "deepened" is the signal. Layer count matches
+   .node-glass exactly so box-shadow interpolates instead of snapping. */
 .node:hover .node-glass {
   transform: scale(1.03);
   border-color: color-mix(in oklab, var(--rc) 55%, white);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
     inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
-    0 2px 4px rgba(14,23,38,0.07),
-    0 14px 28px -14px rgba(14,23,38,0.3);
+    0 2px 4px rgba(var(--shadow-rgb), calc(0.07 * var(--shadow-k))),
+    0 14px 28px -14px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
 }
 .node.dragging .node-glass {
   transform: scale(1.06);
   border-color: var(--rc);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 22px 44px -16px rgba(14,23,38,0.34),
-    0 3px 7px rgba(14,23,38,0.1);
+    0 22px 44px -16px rgba(var(--shadow-rgb), calc(0.34 * var(--shadow-k))),
+    0 3px 7px rgba(var(--shadow-rgb), calc(0.1 * var(--shadow-k)));
 }
 /* Bubble type is derived from the bubble diameter, and the smallest role
    (r=39 → --d:78px) put the clock at 12.1px and the caps label at 6.9px —
@@ -676,27 +806,30 @@ body {
    flattening the size hierarchy on the bigger roles (coordinator --d:124px
    still gets a 19px clock). Measured against the chord available at the
    text's own height: at --d:78px the label band is ~72px wide and "RUNTIME"
-   at 11px/0.08em is ~54px, so the floor stays inside the glass. */
+   at 11px/--track-caps is ~57px, so the floor stays inside the glass. */
 .node .rt {
   font-variant-numeric: tabular-nums;
-  font-weight: 610;
+  font-weight: 640;
   color: var(--ink-2);
   font-size: max(13px, calc(var(--d) * 0.155));
-  letter-spacing: 0.01em;
+  letter-spacing: 0.01em;      /* optical, on numerals — not the caps role */
   line-height: 1;
 }
 .node .rl {
-  margin-top: 3px;
+  margin-top: 3px;             /* hairline, below the space scale's floor */
   font-size: max(11px, calc(var(--d) * 0.088));
-  font-weight: 560; letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: 550; letter-spacing: var(--track-caps); text-transform: uppercase;
   color: var(--ink-25);
   line-height: 1.1;
 }
+/* +7px / +26px below are a measured label stack, not spacing: the graph's
+   label-avoidance pass in graph.js reads these two rows' extents. They stay
+   literal — moving either to a step would silently retune that geometry. */
 .node .node-name {
   position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
-  font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  font-size: 12.5px; font-weight: 640; color: var(--ink-2);
   white-space: nowrap;
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: var(--s1);
 }
 .node .node-name i {
   width: 6px; height: 6px; border-radius: 50%; background: var(--rc);
@@ -704,7 +837,7 @@ body {
 /* +26px clears the 12.5px name line (≈15px tall from +7px) with a hairline
    of air, so the two label rows never touch at either test size */
 .node .node-role { position: absolute; top: calc(100% + 26px); left: 50%; transform: translateX(-50%);
-  font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-25); white-space: nowrap; font-weight: 560;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); white-space: nowrap; font-weight: 550;
   /* the role label is the one string that can outgrow its bubble (the
      longest is "Coordinator's Helper"). The force layout keeps centres
      ≥ r+30 apart, so bounding the label to the bubble + 56px guarantees two
@@ -718,18 +851,19 @@ body {
   border-color: var(--rc);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
-    0 9px 20px -13px rgba(14,23,38,0.22),
+    var(--elev-2),
     var(--rg-soft);
 }
 
 /* spawn: graphite → bloom into role color */
 .node.spawning .node-glass {
   border-color: color-mix(in oklab, var(--c-spawned) 60%, white);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -10px rgba(14,23,38,0.4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -10px rgba(var(--shadow-rgb), calc(0.4 * var(--shadow-k)));
 }
+/* .7s again: nodeIn's 0/40/100 staging is choreography, not UI response */
 .node.enter .node-glass { animation: nodeIn .7s var(--ease-spring); }
 @keyframes nodeIn { 0% { opacity: 0; transform: scale(0.15); } 40% { opacity: 1; } 100% { transform: scale(1); } }
-.node.leave { opacity: 0; transition: opacity .5s var(--ease); }
+.node.leave { opacity: 0; transition: opacity var(--dur-3) var(--ease); }
 .node.leave .node-glass { transform: scale(0.4); }
 
 /* role color bindings */
@@ -755,7 +889,11 @@ body {
      math only stays correct while CSS agrees with it. The 13px reading
      floor is paid for out of the padding instead. */
   width: 168px;
-  padding: 9px 10px 9px 12px;
+  /* asymmetric on purpose — the 12px left clears the ::before accent bar.
+     The 10px right rounds DOWN to --s2 like every other tie in this sheet,
+     which happens to hand the reading line 2px back inside that fixed
+     168px, exactly the direction the note above wants. */
+  padding: var(--s2) var(--s2) var(--s2) var(--s3);
   border-radius: 3px;
   z-index: 1;
   cursor: pointer;
@@ -765,7 +903,10 @@ body {
      brings a faint tint for affordance; .as-chat earns a real panel. */
   background: transparent;
   border: 1px solid transparent;
-  transition: width .5s var(--ease), height .5s var(--ease), box-shadow .4s var(--ease), background .4s var(--ease);
+  /* all four on one step: the box used to resize on .5s while its surface
+     and shadow settled on .4s, so the panel finished arriving before it
+     finished growing */
+  transition: width var(--dur-3) var(--ease), height var(--dur-3) var(--ease), box-shadow var(--dur-3) var(--ease), background var(--dur-3) var(--ease);
   overflow: hidden;
 }
 .chip::before {
@@ -779,91 +920,96 @@ body {
   font-size: 13px; line-height: 1.4; color: var(--ink-25);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.chip .cl b { color: var(--ink-2); font-weight: 600; }
+.chip .cl b { color: var(--ink-2); font-weight: 640; }
 .chip.as-chat {
   width: 316px; height: 368px;
-  padding: 14px 16px;
+  padding: var(--s3) var(--s4);
   cursor: default;
   z-index: 8;
   backdrop-filter: blur(30px) saturate(1.7);
   -webkit-backdrop-filter: blur(30px) saturate(1.7);
   background: linear-gradient(180deg, rgba(255,255,255,calc(0.86 * var(--wa))), rgba(255,255,255,calc(0.72 * var(--wa))));
   border-color: var(--line-2);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(1 * var(--wa))), 0 26px 60px -22px rgba(14,23,38,0.35);
+  /* overlay, not a step: this panel floats above the whole graph, above
+     --elev-3's ceiling */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(1 * var(--wa))), 0 26px 60px -22px rgba(var(--shadow-rgb), calc(0.35 * var(--shadow-k)));
   display: flex; flex-direction: column;
 }
 .chip.as-chat::before { display: none; }
 .chip.as-chat .chip-preview { display: none; }
 .chip .chat { display: none; }
-.chip.as-chat .chat { display: flex; animation: chatIn .45s var(--ease) both; }
+.chip.as-chat .chat { display: flex; animation: chatIn var(--dur-3) var(--ease) both; }
 @keyframes chatIn { from { opacity: 0; } }
 
 /* --- right rail: runtime statistics / agent controls morph --- */
 .rail { position: relative; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .rail-page {
   position: absolute; inset: 0;
-  padding: 22px 22px 16px;
+  padding: var(--s5) var(--s5) var(--s4);
   display: flex; flex-direction: column;
   min-height: 0;
-  transition: opacity .4s var(--ease), transform .45s var(--ease);
+  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
 }
 .rail-page.off-r { opacity: 0; transform: translateX(26px) scale(0.985); pointer-events: none; }
 .rail-page.off-l { opacity: 0; transform: translateX(-26px) scale(0.985); pointer-events: none; }
 
 .rail-title {
-  font-size: 11.5px; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink-25); font-weight: 650;
-  display: flex; align-items: center; gap: 8px;
-  margin-bottom: 14px; flex: none;
+  font-size: 11.5px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640;
+  display: flex; align-items: center; gap: var(--s2);
+  margin-bottom: var(--s3); flex: none;
 }
 .rail-title .spacer { flex: 1; }
 .rail-back {
   border: none; background: none; cursor: pointer;
-  font-size: 12.5px; color: var(--ink-25); font-weight: 600;
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 8px; border-radius: 3px; letter-spacing: 0.03em;
-  transition: background .2s, color .2s;
+  font-size: 12.5px; color: var(--ink-25); font-weight: 640;
+  display: flex; align-items: center; gap: var(--s1);
+  padding: var(--s1) var(--s2); border-radius: 3px; letter-spacing: 0.03em;
+  transition: background var(--dur-2), color var(--dur-2);
 }
 .rail-back:hover { background: rgba(14,23,38,0.05); color: var(--ink); }
-.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: var(--s1); }
 
-.stat-hero { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
-.stat-hero .v { font-size: 46px; font-weight: 660; color: var(--ink); line-height: 1; }
+.stat-hero { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s1); }
+.stat-hero .v { font-size: 46px; font-weight: 640; color: var(--ink); line-height: 1; }
 .stat-hero .l { font-size: 12.5px; color: var(--ink-25); font-weight: 550; }
 .stat-hero .delta { font-size: 12.5px; font-weight: 640; color: var(--s-good); }
-.rail-sub { font-size: 12.5px; line-height: 1.45; color: var(--ink-3); margin-bottom: 18px; font-family: var(--font-mono); }
+.rail-sub { font-size: 12.5px; line-height: 1.45; color: var(--ink-3); margin-bottom: var(--s4); font-family: var(--font-mono); }
 
 .rail-sec {
-  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
-  color: var(--ink-25); font-weight: 650; margin: 18px 0 10px;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640; margin: var(--s4) 0 var(--s2);
 }
 
 /* mini bar chart (CPU/GPU/...) */
-.bars { display: flex; flex-direction: column; gap: 10px; }
+.bars { display: flex; flex-direction: column; gap: var(--s2); }
 /* label column widened 58 → 64px so the longest label ("Network", ~48px at
-   12.5px) keeps its old breathing room after the bump */
-.bar-row { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: 10px; }
-.bar-row .bl { font-size: 12.5px; color: var(--ink-2); font-weight: 560; }
-.bar-row .bv { font-size: 12.5px; color: var(--ink-2); font-weight: 620; font-variant-numeric: tabular-nums; text-align: right; }
+   12.5px) keeps its old breathing room after the bump. The two fixed track
+   widths are measured, not spacing — they stay literal. */
+.bar-row { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: var(--s2); }
+.bar-row .bl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.bar-row .bv { font-size: 12.5px; color: var(--ink-2); font-weight: 640; font-variant-numeric: tabular-nums; text-align: right; }
 .bar-track { height: 10px; border-radius: 2px; background: rgba(14,23,38,0.055); overflow: hidden; position: relative; }
 .bar-fill {
   position: absolute; inset: 0 auto 0 0; width: 40%;
   border-radius: 2px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--bc) 82%, white), var(--bc));
+  /* 1.1s is a data tween — the bar reads as a value travelling to its new
+     level, which is a different job from a UI response */
   transition: width 1.1s var(--ease);
 }
 
 /* task chips */
-.task-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.task-list { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .task-chip {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 11px;
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: var(--s1) var(--s3);
   border-radius: 3px;
   background: rgba(255,255,255,calc(0.6 * var(--wa)));
   border: 1px solid color-mix(in oklab, var(--tc) 38%, white);
   box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa)));
   font-size: 13px; color: var(--ink-25);
-  animation: chipIn .5s var(--ease-spring) both;
+  animation: chipIn var(--dur-3) var(--ease-spring) both;
   white-space: nowrap;
 }
 @keyframes chipIn { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
@@ -878,8 +1024,8 @@ body {
    ("Coordinator's Helper", ~128px + swatch) no longer fits a half-column in
    a narrow rail, so the grid drops to one column there instead of wrapping
    every second entry onto two lines */
-.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 8px 14px; margin-top: 4px; }
-.leg { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 540; }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: var(--s2) var(--s3); margin-top: var(--s1); }
+.leg { display: flex; align-items: center; gap: var(--s2); font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
 .leg i {
   width: 12px; height: 12px; border-radius: 4px; flex: none;
   background: linear-gradient(150deg, color-mix(in oklab, var(--lc) 70%, white), var(--lc));
@@ -892,40 +1038,44 @@ body {
 .leg .ln { color: var(--ink-3); font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; }
 
 /* --- agent controls (rail morph target) --- */
-.agent-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.agent-head { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s1); }
 .agent-head .role-dot { width: 10px; height: 10px; border-radius: 50%; }
-.agent-head .an { font-size: 20px; font-weight: 660; color: var(--ink); }
-.agent-head .ar { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-25); font-weight: 620; margin-top: 2px; }
-.agent-ring-wrap { display: grid; place-items: center; padding: 10px 0 6px; }
+.agent-head .an { font-size: 20px; font-weight: 640; color: var(--ink); }
+.agent-head .ar { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-top: 2px; }
+.agent-ring-wrap { display: grid; place-items: center; padding: var(--s2) 0 var(--s1); }
 
-.ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); }
 .ctl-btn {
   height: 40px;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
   background: rgba(255,255,255,calc(0.62 * var(--wa)));
-  box-shadow: inset 0 1px 0 #fff, 0 4px 12px -6px rgba(14,23,38,0.14);
-  font-family: var(--font-ui); font-size: 13px; font-weight: 600; color: var(--ink-2);
+  box-shadow: inset 0 1px 0 #fff, var(--elev-1);   /* --elev-1's source recipe */
+  font-family: var(--font-ui); font-size: 13px; font-weight: 640; color: var(--ink-2);
   cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  transition: all .25s var(--ease);
+  display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  transition: all var(--dur-2) var(--ease);
 }
 .ctl-btn svg { width: 15px; height: 15px; }
 .ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 #fff, 0 8px 18px -8px rgba(14,23,38,0.22); }
+  box-shadow: inset 0 1px 0 #fff, var(--elev-2); }
 .ctl-btn:active { transform: scale(0.97); }
 .ctl-btn.armed { color: #fff; border-color: transparent;
   background: linear-gradient(160deg, #21b7e4, #0092c4);
   box-shadow: 0 6px 16px -6px rgba(0,169,216,0.45); }
 .ctl-btn.danger:hover { color: var(--s-serious); border-color: color-mix(in oklab, var(--s-serious) 30%, white); }
 
-.ctl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 2px; }
+.ctl-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) 2px; }
 .ctl-row .cl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; white-space: nowrap; }
 .ctl-row .cv { font-size: 12.5px; color: var(--ink-25); font-variant-numeric: tabular-nums; font-family: var(--font-mono); flex: none; }
 /* 130 → 118px: the label ("Context budget") and the mono value both grew,
    and the slider is the one element in the row that can give width back.
-   At the rail's narrowest (320px card → 272px of content) the row now
-   measures ~257px, so nothing wraps at 1280×800 either. */
+   At the rail's narrowest the row measures ~253px against ~268px of content
+   (320px card − 2×--s5 padding − the scroll gutter), so nothing wraps at
+   1280×800 either. Both figures moved by 4px when the rail padding went to
+   --s5 and this row's gap came down to --s2 — the slack is unchanged, but
+   the arithmetic is written out because the next person will need it. 118px
+   is measured, so it stays literal. */
 .ctl-row input[type="range"] { width: 118px; flex: none; }
 
 /* sliders */
@@ -943,8 +1093,9 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: -6px;
   background: #fff;
   border: 1px solid rgba(14,23,38,0.08);
-  box-shadow: 0 2px 7px rgba(14,23,38,0.25);
-  transition: transform .15s var(--ease);
+  /* bespoke: a 17px thumb needs a tight contact shadow, not a card's pool */
+  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k)));
+  transition: transform var(--dur-1) var(--ease);
 }
 input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 
@@ -954,13 +1105,13 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .toggle i {
   position: absolute; inset: 0; border-radius: 13px;   /* a switch is a capsule, not a box */
   background: rgba(14,23,38,0.12);
-  transition: background .3s var(--ease);
+  transition: background var(--dur-2) var(--ease);
 }
 .toggle i::after {
   content: ""; position: absolute; top: 2px; left: 2px;
   width: 20px; height: 20px; border-radius: 50%;
-  background: #fff; box-shadow: 0 2px 6px rgba(14,23,38,0.3);
-  transition: transform .3s var(--ease-spring);
+  background: #fff; box-shadow: 0 2px 6px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
+  transition: transform var(--dur-2) var(--ease-spring);
 }
 .toggle input:checked + i { background: #21b7e4; }
 .toggle input:checked + i::after { transform: translateX(18px); }
@@ -968,7 +1119,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 /* ============================================================
    AGENT PAGE  (subtree · chat | controls, scroll-snap)
    ============================================================ */
-.agentv { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 0 clamp(14px, 2.5vw, 32px) 20px; }
+.agentv { height: 100%; display: flex; flex-direction: column; gap: var(--s3); padding: 0 clamp(14px, 2.5vw, 32px) 20px; }
 /* min-height was 240px — QA measured the label-avoidance system running out
    of geometric room at small viewports (a 63px clamp-band deficit at
    1280x800); this floor gives it more to work with there specifically. */
@@ -976,7 +1127,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .agentv-panels {
   flex: 1;
   min-height: 300px;
-  display: flex; gap: 14px;
+  display: flex; gap: var(--s3);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
@@ -986,14 +1137,15 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .apanel {
   flex: 0 0 min(560px, 88%);
   scroll-snap-align: start;
-  padding: 20px 22px;
+  padding: 20px var(--s5);
   display: flex; flex-direction: column; min-height: 0;
 }
-.apanel-title { font-size: 11.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-25); font-weight: 650; margin-bottom: 12px; }
+.apanel-title { font-size: 11.5px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-bottom: var(--s3); }
 .scroll-cue {
   position: absolute; right: 24px; bottom: 24px;
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--ink-25); display: flex; align-items: center; gap: 6px;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); display: flex; align-items: center; gap: var(--s1);
+  /* 2.6s ambient loop — a heartbeat, not a response */
   animation: cueSlide 2.6s ease-in-out infinite;
 }
 @keyframes cueSlide { 0%,100% { transform: translateX(0); opacity: .7; } 50% { transform: translateX(6px); opacity: 1; } }
@@ -1001,49 +1153,55 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 /* ============================================================
    METRICS
    ============================================================ */
-.metrics { display: flex; flex-direction: column; gap: 14px; max-width: 1240px; margin: 0 auto; }
-.m-row { display: grid; gap: 14px; }
+.metrics { display: flex; flex-direction: column; gap: var(--s3); max-width: 1240px; margin: 0 auto; }
+.m-row { display: grid; gap: var(--s3); }
 .m-tiles { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .m-pools { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .m-charts2 { grid-template-columns: 3fr 2fr; }
 .m-charts3 { grid-template-columns: 2fr 1.2fr 1fr; }
 @media (max-width: 1000px) { .m-charts2, .m-charts3 { grid-template-columns: 1fr; } }
 
-.tile { padding: 18px 20px 16px; }
-.tile .tl { font-size: 12.5px; color: var(--ink-25); font-weight: 560; margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+/* 20px is 4px from both --s4 and --s5, i.e. outside the 2px conversion
+   tolerance in either direction, so the card padding's horizontal (tiles)
+   or vertical (pools, charts, panels) 20px stays literal */
+.tile { padding: var(--s4) 20px var(--s4); }
+.tile .tl { font-size: 12.5px; color: var(--ink-25); font-weight: 550; margin-bottom: var(--s2); display: flex; align-items: center; gap: var(--s2); }
 .tile .tl i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc, var(--c-coordinator)); }
-.tile .tv { font-size: 30px; font-weight: 660; color: var(--ink); line-height: 1.05; display: flex; align-items: baseline; gap: 8px; }
+.tile .tv { font-size: 30px; font-weight: 640; color: var(--ink); line-height: 1.05; display: flex; align-items: baseline; gap: var(--s2); }
 .tile .tv .unit { font-size: 13px; color: var(--ink-25); font-weight: 550; }
-.tile .td { margin-top: 6px; font-size: 12.5px; font-weight: 600; }
-.tile .td.up { color: var(--s-good); } .tile .td.down { color: var(--s-serious); } .tile .td.flat { color: var(--ink-3); font-weight: 500; }
-.tile .spark { margin-top: 10px; }
+.tile .td { margin-top: var(--s1); font-size: 12.5px; font-weight: 640; }
+/* flat stays a step below the up/down deltas — 500 and 600 were the same
+   two-step relationship, just off the ladder */
+.tile .td.up { color: var(--s-good); } .tile .td.down { color: var(--s-serious); } .tile .td.flat { color: var(--ink-3); font-weight: 550; }
+.tile .spark { margin-top: var(--s2); }
 
-.pool { padding: 20px 22px 18px; }
-.pool-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.pool { padding: 20px var(--s5) var(--s4); }
+.pool-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
 .pool-head .pn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 640; color: var(--ink); }
-.pool-head .pt { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; padding: 3px 8px; border-radius: 2px; font-weight: 650;
+.pool-head .pt { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; padding: var(--s1) var(--s2); border-radius: 2px; font-weight: 640;
   background: color-mix(in oklab, var(--pc) 12%, white); color: color-mix(in oklab, var(--pc) 75%, black); }
-.pool-sub { font-size: 12.5px; color: var(--ink-3); margin-bottom: 14px; }
+.pool-sub { font-size: 12.5px; color: var(--ink-3); margin-bottom: var(--s3); }
 .meter { height: 12px; border-radius: 2px; position: relative; overflow: hidden;
   background: color-mix(in oklab, var(--pc) 12%, white); }
 .meter .mf {
   position: absolute; inset: 0 auto 0 0; border-radius: 2px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--pc) 70%, white), var(--pc));
+  /* data tween, like .bar-fill — the quota reads as travelling to its level */
   transition: width 1.2s var(--ease);
 }
-.meter-caption { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.meter-caption { display: flex; justify-content: space-between; gap: var(--s3); margin-top: var(--s2); font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .meter-caption b { color: var(--ink-2); font-weight: 640; }
-.pool-stats { display: flex; gap: 16px; margin-top: 14px; }
-.pool-stat .v { font-size: 16px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
-.pool-stat .l { font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-25); font-weight: 600; margin-top: 2px; }
+.pool-stats { display: flex; gap: var(--s4); margin-top: var(--s3); }
+.pool-stat .v { font-size: 16px; font-weight: 640; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pool-stat .l { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-top: 2px; }
 
-.chart-card { padding: 20px 22px 14px; min-width: 0; }
-.chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
-.chart-head .ct { font-size: 13.5px; font-weight: 650; color: var(--ink); }
+.chart-card { padding: 20px var(--s5) var(--s3); min-width: 0; }
+.chart-head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s1); }
+.chart-head .ct { font-size: 13.5px; font-weight: 640; color: var(--ink); }
 .chart-head .cs { font-size: 12.5px; color: var(--ink-3); }
 .chart-head .spacer { flex: 1; }
-.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
-.chart-legend .ck { display: flex; align-items: center; gap: 6px; }
+.chart-legend { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.chart-legend .ck { display: flex; align-items: center; gap: var(--s1); }
 .chart-legend .ck i { width: 8px; height: 8px; border-radius: 50%; background: var(--kc); }
 .chart-body { position: relative; }
 .chart-body svg { display: block; width: 100%; height: auto; }
@@ -1052,66 +1210,70 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .tooltip {
   position: absolute; z-index: 10;
   pointer-events: none;
-  padding: 8px 11px;
+  padding: var(--s2) var(--s3);
   border-radius: 3px;
   background: rgba(255,255,255,calc(0.86 * var(--wa)));
   backdrop-filter: blur(16px) saturate(1.5);
   -webkit-backdrop-filter: blur(16px) saturate(1.5);
   border: 1px solid rgba(255,255,255,calc(0.95 * var(--wa)));
-  box-shadow: 0 10px 26px -10px rgba(14,23,38,0.3);
+  /* overlay, not a step — it tracks the cursor above everything */
+  box-shadow: 0 10px 26px -10px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
   font-size: 12.5px; color: var(--ink-2);
   opacity: 0; transform: translateY(4px);
-  transition: opacity .18s var(--ease), transform .18s var(--ease);
+  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
   white-space: nowrap;
 }
 .tooltip.show { opacity: 1; transform: translateY(0); }
 .tooltip b { color: var(--ink); font-variant-numeric: tabular-nums; }
-.tooltip .tt-title { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-25); font-weight: 650; margin-bottom: 3px; }
+.tooltip .tt-title { font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); font-weight: 640; margin-bottom: var(--s1); }
 
 /* agent metrics table */
 .mtable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mtable th {
-  text-align: left; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--ink-25); font-weight: 650; padding: 8px 10px;
+  text-align: left; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640; padding: var(--s2);
   border-bottom: 1px solid var(--line-2);
 }
-.mtable td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mtable td { padding: var(--s2); border-bottom: 1px solid var(--line); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .mtable tr:last-child td { border-bottom: none; }
-.mtable tr { transition: background .2s; }
+.mtable tr { transition: background var(--dur-2); }
 .mtable tbody tr:hover { background: rgba(255,255,255,calc(0.55 * var(--wa))); }
-.mtable .aname { display: flex; align-items: center; gap: 8px; font-weight: 620; color: var(--ink); }
+.mtable .aname { display: flex; align-items: center; gap: var(--s2); font-weight: 640; color: var(--ink); }
 .mtable .aname i { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); flex: none; }
 .mtable .num { text-align: right; }
-.mtable .fail-ok { color: var(--s-good); font-weight: 620; }
-.mtable .fail-warn { color: var(--s-warn); font-weight: 620; }
-.mtable .fail-bad { color: var(--s-serious); font-weight: 620; }
+.mtable .fail-ok { color: var(--s-good); font-weight: 640; }
+.mtable .fail-warn { color: var(--s-warn); font-weight: 640; }
+.mtable .fail-bad { color: var(--s-serious); font-weight: 640; }
 
 /* ---------- settings drawer ---------- */
 .drawer {
   position: fixed; top: 14px; bottom: 14px; right: 14px;
   width: 320px;
   z-index: 80;
-  transform: translateX(calc(100% + 22px));
-  transition: transform .5s var(--ease);
+  transform: translateX(calc(100% + 22px));   /* offstage parking, not spacing */
+  transition: transform var(--dur-3) var(--ease);
   background: linear-gradient(180deg, rgba(255,255,255,calc(0.68 * var(--wa))), rgba(255,255,255,calc(0.5 * var(--wa))));
   backdrop-filter: blur(30px) saturate(1.7);
   -webkit-backdrop-filter: blur(30px) saturate(1.7);
   border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
   border-radius: var(--r-lg);
-  box-shadow: inset 0 1px 0 #fff, 0 30px 70px -25px rgba(14,23,38,0.4);
+  /* overlay: a full-height sheet over the whole app, above --elev-3 */
+  box-shadow: inset 0 1px 0 #fff, 0 30px 70px -25px rgba(var(--shadow-rgb), calc(0.4 * var(--shadow-k)));
   display: flex; flex-direction: column;
 }
 .drawer.open { transform: translateX(0); }
 .drawer-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 20px 14px;
-  font-size: 13.5px; font-weight: 650; letter-spacing: 0.06em; color: var(--ink);
+  padding: var(--s4) 20px var(--s3);
+  /* 0.06em on a 13.5px mixed-case title is an optical nudge, not the caps
+     micro-label role */
+  font-size: 13.5px; font-weight: 640; letter-spacing: 0.06em; color: var(--ink);
   border-bottom: 1px solid var(--line);
 }
-.drawer-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 18px; }
-.set-row { display: flex; flex-direction: column; gap: 8px; }
+.drawer-body { padding: var(--s4) 20px; display: flex; flex-direction: column; gap: var(--s4); }
+.set-row { display: flex; flex-direction: column; gap: var(--s2); }
 .set-row.set-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
-.set-label { font-size: 13px; font-weight: 570; color: var(--ink-2); }
+.set-label { font-size: 13px; font-weight: 550; color: var(--ink-2); }
 .drawer-note { margin-top: auto; font-size: 12.5px; color: var(--ink-3); line-height: 1.65; font-family: var(--font-mono); }
 
 /* ---------- liquid press + neon focus (every interactive element) ----------
@@ -1124,7 +1286,8 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   transform: scale(0.96);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.85 * var(--wa))),
-    0 2px 8px -4px rgba(14,23,38,0.2),
+    /* pressed sits BELOW --elev-1 by design — the control is going down */
+    0 2px 8px -4px rgba(var(--shadow-rgb), calc(0.2 * var(--shadow-k))),
     0 0 0 2px rgba(0,169,216,0.28);
 }
 .chat-input input:active { transform: scale(0.99); }
@@ -1132,7 +1295,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 /* slider press: thumb grows under the pointer, neutral shadow only */
 input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.18);
-  box-shadow: 0 2px 7px rgba(14,23,38,0.25), 0 0 0 4px rgba(0,169,216,0.16);
+  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k))), 0 0 0 4px rgba(0,169,216,0.16);
 }
 
 /* toggle press: liquid thumb stretch, no bloom */
@@ -1160,13 +1323,18 @@ input[type="range"]:active::-webkit-slider-thumb {
 ::-webkit-scrollbar-thumb:hover { background: rgba(14,23,38,0.24); }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* ---------- reduced motion ---------- */
+/* ---------- reduced motion ----------
+   These two numbers are a ceiling clamped over everything, not a step on the
+   motion scale, so they stay literal: the whole point is that they sit below
+   --dur-1 and override it. */
 body.reduce-motion .node.enter::before { animation: none !important; }  /* frostIn — pseudo animations need their own opt-out */
 body.reduce-motion * { animation-duration: 0.001s !important; transition-duration: 0.12s !important; }
 
 /* ---------- theme selector (settings drawer) ---------- */
 .theme-seg {
-  display: flex; gap: 2px; padding: 3px;
+  /* 2px inter-segment hairline is below the scale floor and stays literal;
+     the 3px inset rounds to --s1 */
+  display: flex; gap: 2px; padding: var(--s1);
   border-radius: 3px;
   background: rgba(127, 127, 127, 0.12);
   border: 1px solid var(--line-2);
@@ -1174,15 +1342,17 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
 .theme-seg button {
   flex: 1;
   border: none; background: transparent; cursor: pointer;
-  font-family: var(--font-ui); font-size: 12.5px; font-weight: 620; line-height: 1;
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 640; line-height: 1;
   color: var(--ink-3);
-  padding: 7px 6px; border-radius: 2px;
-  transition: background .22s var(--ease), color .2s var(--ease), box-shadow .22s var(--ease);
+  padding: var(--s2) var(--s1); border-radius: 2px;
+  transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
 .theme-seg button:hover { color: var(--ink-2); }
 .theme-seg button.on {
   background: var(--sheet); color: var(--ink);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 2px 8px -3px rgba(14,23,38,0.28);
+  /* bespoke: a segment lifting inside its own track wants a tighter, darker
+     shadow than --elev-1's control lift */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 2px 8px -3px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k)));
 }
 .theme-seg button:active { transform: scale(0.96); }
 .theme-seg button:focus-visible {

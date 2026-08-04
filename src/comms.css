@@ -3,7 +3,15 @@
    rendered as a calm, white/black-first channel view.
    Glass frame = the site's language; the message surface = flat white.
    Neon appears only as tiny accents: live dot, role bars, unread dots,
-   hover underline, jump chip. Internal corners ≤8px. All type ≥13px.
+   hover underline, jump chip. Corners are 3px square. All type ≥13px.
+
+   Two rules govern everything below:
+   · NOTHING animates at rest. Every animation on this page is a one-shot
+     tied to an event (a packet landing, a tile moving); the steady state of
+     a quiet board is a completely still board.
+   · Every machine-readable token — timestamp, memory key, port, machine tag
+     — shares one mono treatment with tabular figures, so digits line up in a
+     column whether they are in the rail, the log or a board tile.
    ============================================================ */
 
 .comms {
@@ -29,6 +37,53 @@
 /* role binding the graph never needed — the system voice ([assistant]) */
 .comms .role-spawned { --rc: var(--c-spawned); --gc: var(--ink-3); }
 
+/* ---------- the ONE machine-token treatment ----------
+   Everything on this page that is machine-readable rather than written —
+   timestamps, memory keys, ports, IPs, machine tags — is the same mono face
+   at the same 13px with the same tabular figures, so digits stack in a true
+   column down the rail, the log and the board. Before this the treatment was
+   redeclared in eight places and had already drifted: .ch-mach carried a
+   private -0.02em tracking that made the same machine tag narrower in the
+   rail than in a message, only .cmsg-time had tabular figures (so the log's
+   one aligned column sat beside ports and IPs that wobbled), and the tag
+   boxes sat at 4px radius, off the settled 3px-square register. */
+.comms .head-meta,
+.comms .ch-mach,
+.comms .ch-topic,
+.comms .ch-rail-foot,
+.comms .cmsg-mach,
+.comms .cmsg-time,
+.comms .cmsg-pin,
+.comms .wb-key,
+.comms .integ-row,
+.comms .integ-tag {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* the three boxed tags share one box: same hairline, same square, same pad */
+.comms .cmsg-mach,
+.comms .cmsg-pin,
+.comms .integ-tag {
+  flex: none;
+  line-height: 1.45;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm, 2px);
+  padding: 0 5px;
+}
+/* pinned is the one tag that carries a hue. It used to be a near-WHITE pill
+   (color-mix against literal white/black), which on the black theme burned a
+   bright slab into the log; mixing against --ink and transparent instead
+   lets it re-read correctly in all three themes. */
+.comms .cmsg-pin {
+  font-weight: 620;
+  color: color-mix(in oklab, var(--c-coordinator) 55%, var(--ink));
+  border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent);
+}
+
 /* ---------- header: channel name · agent-coord · live · count ---------- */
 .comms-head {
   flex: none;
@@ -39,20 +94,27 @@
 }
 .head-hash { font-size: 17px; font-weight: 600; color: var(--ink-4); }
 .head-name { font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }
-.head-meta { font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+.head-meta { color: var(--ink-3); white-space: nowrap; }  /* mono from the machine-token rule */
 .head-live {
   display: flex; align-items: center; gap: 7px;
   font-size: 13px; font-weight: 590; color: var(--ink-2);
   white-space: nowrap;
 }
+/* The relay indicator rests STILL. It used to breathe on a 2.4s infinite
+   loop, which put permanent motion in the corner of a page whose whole job
+   is to be read — the eye kept getting recalled to a dot that was reporting
+   nothing new. "Live" is a fact, not an animation: the dot states it, and
+   the one thing that IS news — a packet landing — spends a single beat.
+   (JS adds .beat per arrival and clears it on animationend.) */
 .head-live i {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--c-shadow);
-  animation: commsPulse 2.4s ease-in-out infinite;
 }
-@keyframes commsPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50%      { transform: scale(0.72); opacity: 0.55; }
+.head-live i.beat { animation: commsBeat 0.85s var(--ease); }
+@keyframes commsBeat {              /* a genuine state moment — glow, then gone */
+  0%   { transform: none;         box-shadow: none; }
+  22%  { transform: scale(1.38);  box-shadow: var(--glow-shadow-soft); }
+  100% { transform: none;         box-shadow: none; }
 }
 .head-count { font-size: 13px; color: var(--ink-3); white-space: nowrap; }
 .head-count b { color: var(--ink); font-weight: 660; font-variant-numeric: tabular-nums; }
@@ -115,8 +177,12 @@
   opacity: 0; transform: scaleY(0.4);
   transition: opacity 0.25s var(--ease), transform 0.3s var(--ease-spring);
 }
-.ch:hover { background: rgba(14, 23, 38, 0.03); }
-.ch.active { background: rgba(14, 23, 38, 0.045); }
+/* neutral-grey tints, not ink tints: rgba(14,23,38,…) is invisible against
+   the black theme's #14171b sheet, so the rail lost hover and selection
+   feedback entirely there. Grey reads on all three sheets (same recipe as
+   .chip:hover in styles.css). */
+.ch:hover { background: rgba(127, 127, 127, 0.07); }
+.ch.active { background: rgba(127, 127, 127, 0.11); }
 .ch.active::before { opacity: 1; transform: none; }
 
 .ch-hash { flex: none; width: 13px; font-size: 13.5px; font-weight: 600; color: var(--ink-4); }
@@ -133,10 +199,13 @@
 .ch.active .ch-name { color: var(--ink); font-weight: 660; }
 .ch-mach {
   margin-left: auto;
-  font-family: var(--font-mono); font-size: 13px;
-  color: var(--ink-4); letter-spacing: -0.02em;
+  color: var(--ink-4);
   flex: none;
 }
+/* Unread dot: FLAT at rest. A channel can sit unread for an hour, and a
+   dot that glowed the whole time would be a permanent bloom pretending to
+   be an event. The arrival is the event, so the arrival gets the light —
+   one shot of --glow-*-soft, then back to a plain dot. */
 .ch-dot {
   flex: none;
   width: 6px; height: 6px; border-radius: 50%;
@@ -145,13 +214,19 @@
   transition: opacity 0.25s var(--ease), transform 0.3s var(--ease-spring);
 }
 .ch.has-unread .ch-dot { opacity: 1; transform: none; }
+.ch.has-unread .ch-dot.ping { animation: chDotPing 0.8s var(--ease); }
+@keyframes chDotPing {
+  0%   { box-shadow: none;                       transform: scale(0.4); }
+  30%  { box-shadow: var(--glow-coordinator-soft); transform: scale(1.3); }
+  100% { box-shadow: none;                       transform: none; }
+}
 
 .ch-rail-foot {
   flex: none;
   border-top: 1px solid var(--line);
-  padding: 11px 16px 13px;
-  display: flex; flex-direction: column; gap: 4px;
-  font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
+  padding: var(--s3, 12px) var(--s4, 16px);
+  display: flex; flex-direction: column; gap: var(--s1, 4px);
+  color: var(--ink-3);        /* mono + tabular from the machine-token rule */
 }
 .foot-line { display: flex; align-items: center; gap: 7px; white-space: nowrap; min-width: 0; }
 .foot-line .ft {                 /* flex child gets its own ellipsis — never a hard clip */
@@ -168,6 +243,11 @@
 .foot-line b { color: var(--ink-2); font-weight: 620; }
 
 /* ---------- timeline column ---------- */
+/* One gutter for the whole reading column. The topic bar, the log and the
+   footer used to sit at 24 / 26 / 24px, so the log's left edge stepped 2px
+   out of line with the two hairline rows that bracket it. --cg reads the
+   shared space scale (--s5 = 24px) with a literal fallback, so the column
+   holds one gutter whether or not the token sheet is present. */
 .ch-main {
   flex: 1;
   min-width: 0;
@@ -175,6 +255,7 @@
   flex-direction: column;
   position: relative;
   background: var(--sheet);
+  --cg: var(--s5, 24px);
 }
 .ch-view {
   flex: 1;
@@ -187,9 +268,9 @@
 
 .ch-topic {
   flex: none;
-  padding: 10px 24px;
+  padding: var(--s2, 8px) var(--cg);
   border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
+  color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ch-topic b { color: var(--ink-2); font-weight: 620; }
@@ -198,17 +279,28 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 26px 18px;
+  padding: var(--s3, 12px) var(--cg) var(--s4, 16px);
   display: flex;
   flex-direction: column;
 }
 .ch-log::before { content: ""; flex: 1 0 0; } /* bottom-anchor short histories, Discord-style */
 .ch-log > * { flex: 0 0 auto; }               /* messages never squash in the column */
 
-/* day dividers */
-.day-div { display: flex; align-items: center; gap: 14px; margin: 14px 0 10px; }
+/* day dividers — on the space scale (was gap 14 / margin 14·10, which
+   belonged to no rhythm the rest of the column used). Converted by the space
+   scale's own rule: nearest step, ties (6/10/14) round DOWN, which keeps the
+   original relationship of more air above the rule than below it. */
+.day-div {
+  display: flex; align-items: center;
+  gap: var(--s3, 12px);
+  margin: var(--s3, 12px) 0 var(--s2, 8px);
+}
 .day-div::before, .day-div::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
-.day-div span { font-size: 13px; font-weight: 620; color: var(--ink-3); letter-spacing: 0.04em; }
+.day-div span {
+  font-size: 13px; font-weight: 620; color: var(--ink-3);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;   /* "Aug 3" sits on the same figures as the stamps */
+}
 
 /* messages */
 .cmsg { display: flex; gap: 12px; padding: 6px 0; }
@@ -221,26 +313,9 @@
 .cmsg-top { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
 .cmsg-au { font-size: 13.5px; font-weight: 660; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cmsg-au .br { color: var(--ink-4); font-weight: 480; }
-.cmsg-mach {
-  flex: none;
-  font-family: var(--font-mono); font-size: 13px; line-height: 1.4;
-  color: var(--ink-3);
-  border: 1px solid var(--line-2); border-radius: 4px;
-  padding: 0 5px;
-}
-.cmsg-pin {
-  flex: none;
-  font-size: 13px; font-weight: 620; line-height: 1.45;
-  color: color-mix(in oklab, var(--c-coordinator) 78%, black);
-  background: color-mix(in oklab, var(--c-coordinator) 7%, white);
-  border: 1px solid color-mix(in oklab, var(--c-coordinator) 24%, white);
-  border-radius: 4px;
-  padding: 0 6px;
-}
 .cmsg-time {
   margin-left: auto; padding-left: 10px; flex: none;
-  font-family: var(--font-mono); font-size: 13px;
-  color: var(--ink-3); font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
 }
 .cmsg-text {
   margin-top: 3px;
@@ -250,10 +325,24 @@
 }
 .cmsg.fresh { animation: cmsgIn 0.5s var(--ease) both; }
 @keyframes cmsgIn { from { opacity: 0; transform: translateY(9px); } }
+/* The role tick is the only thing that lights when a packet lands — and only
+   while it lands. One pass of that role's own soft glow stack, no fill mode,
+   so it settles back to a flat 3px bar and stays flat. Older messages in the
+   log never carry it, which is what makes the newest one findable. */
+.cmsg.fresh .cmsg-bar { animation: cmsgTick 0.9s var(--ease); }
+@keyframes cmsgTick {
+  0%   { box-shadow: none; }
+  28%  { box-shadow: var(--rg-soft, none); }
+  100% { box-shadow: none; }
+}
 
 /* jump-to-latest chip (in place, above the footer — never a popup) */
 .jump-chip {
-  position: absolute; left: 50%; bottom: 58px;
+  /* retuned from 58px: this offset clears the dormant-integration footer by a
+     fixed gap, and the footer lost 4px of height when it went onto the space
+     scale — a positional offset stays literal, but it still has to follow the
+     thing it was measured against */
+  position: absolute; left: 50%; bottom: 54px;
   transform: translateX(-50%);
   z-index: 5;
   display: flex; align-items: center; gap: 7px;
@@ -261,6 +350,7 @@
   background: var(--sheet);
   color: var(--ink-2);
   font-family: var(--font-ui); font-size: 13px; font-weight: 620;
+  font-variant-numeric: tabular-nums;   /* the "N new" count must not jitter the chip */
   border-radius: 3px;
   padding: 7px 13px;
   cursor: pointer;
@@ -276,13 +366,15 @@
 .jump-chip.hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
 .jump-chip svg { width: 13px; height: 13px; display: block; }
 
-/* honest footer: the real Discord integration, dormant */
+/* honest footer: the real Discord integration, dormant — on the same scale
+   and the same gutter as the topic bar it mirrors, so the two hairline rows
+   bracket the log evenly instead of by eye */
 .integ-row {
   flex: none;
-  display: flex; align-items: center; gap: 9px;
-  padding: 10px 24px;
+  display: flex; align-items: center; gap: var(--s2, 8px);
+  padding: var(--s2, 8px) var(--cg);
   border-top: 1px solid var(--line);
-  font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
+  color: var(--ink-3);
   white-space: nowrap; overflow: hidden;
 }
 /* flex children carry their own ellipsis (text-overflow on a flex row never
@@ -296,13 +388,7 @@
   background: transparent;      /* hollow — no token, no glow, no lie */
 }
 .integ-row b { color: var(--ink-2); font-weight: 630; }
-.integ-tag {
-  flex: none;
-  font-size: 13px; line-height: 1.45;
-  border: 1px solid var(--line-2); border-radius: 4px;
-  padding: 0 6px;
-  color: var(--ink-3);
-}
+/* .integ-tag's box comes from the shared machine-token rule above */
 
 /* focus ring — same recipe as the rest of the site (professional-pass:
    crisp double ring, no blur — see styles.css) */
@@ -338,12 +424,12 @@
 .comms[data-mode="watch"] .head-name,
 .comms[data-mode="watch"] .head-meta { display: none; }
 .comms[data-mode="watch"] .head-wt { display: inline; font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }
-.comms[data-mode="watch"] .head-wt-meta { display: inline; font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+.comms[data-mode="watch"] .head-wt-meta { display: inline; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-3); white-space: nowrap; }
 .watch-pane, .comms-sheet { animation: wbIn 0.32s var(--ease); }
 @keyframes wbIn { from { opacity: 0; transform: translateY(6px); } }
 
 /* ---------- segmented controls in the header ---------- */
-.wb-seg { display: flex; gap: 2px; padding: 3px; border-radius: 3px; background: rgba(14, 23, 38, 0.05); flex: none; }
+.wb-seg { display: flex; gap: 2px; padding: 3px; border-radius: 3px; background: rgba(127, 127, 127, 0.10); flex: none; }
 .wb-seg button {
   border: none; background: transparent; font-family: var(--font-ui);
   font-size: 12.5px; font-weight: 620; color: var(--ink-3);
@@ -353,12 +439,15 @@
 .wb-seg button:hover { color: var(--ink-2); }
 .wb-seg button.on {
   background: var(--sheet); color: var(--ink);
-  box-shadow: inset 0 1px 0 #fff, 0 2px 8px -3px rgba(14, 23, 38, 0.25);
+  /* the top sheen was a hard #fff — a literal white line across a dark pill
+     on the black theme; --wa scales it back to a film of light per theme */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(0.9 * var(--wa))),
+    0 2px 8px -3px rgba(14, 23, 38, 0.25);
 }
 
 /* ---------- the board itself ---------- */
 .watch-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 22px; }
-.watch-stack { display: flex; flex-direction: column; gap: 12px; max-width: 1060px; margin: 0 auto; }
+.watch-stack { display: flex; flex-direction: column; gap: var(--s3, 12px); max-width: 1060px; margin: 0 auto; }
 .watch-pane.no-trans * { transition: none !important; }
 
 /* preview height scale — the size control; dominant boxes read ~1.7× */
@@ -366,12 +455,41 @@
 .watch-pane[data-size="m"] { --pv-h: 152px; --pv-dom: 258px; }
 .watch-pane[data-size="l"] { --pv-h: 232px; --pv-dom: 392px; }
 
-/* ---------- the reused chip, re-seated as a board tile ---------- */
+/* ---------- the reused chip, re-seated as a board tile ----------
+   The shared .chip is now transparent at rest — on the graph that is right,
+   because the sketch draws context as grey text held inside giant braces, so
+   the braces ARE the box. This page has no braces: the board is a grid of
+   tiles that abut each other and scroll as one field, and with the frame
+   gone the tiles bled together — two conversations' preview lines read as
+   one list, and a drag ghost was a shadow around nothing. So the BOARD (and
+   only the board) re-earns the frame the graph gave up: one hairline, one
+   flat sheet fill, 3px square, no shadow, no glow. */
 .watch-pane .chip {
   position: relative; width: auto; z-index: auto;
   cursor: grab;
 }
 .watch-pane .chip:active { cursor: grabbing; }
+/* :not(.as-chat) throughout — an EXPANDED tile is the shared chat panel and
+   must keep the surface styles.css gives it; only the collapsed tile takes
+   the board frame. */
+.watch-pane .chip.wb-box:not(.as-chat) {
+  background: var(--sheet);
+  border-color: var(--line-2);
+}
+/* hover: a whisper of tint and nothing else — the hairline is deliberately
+   left alone so a branch-paired tile keeps its role-tinted border under the
+   cursor. Mixing toward --ink rather than toward black keeps the direction
+   right in every theme (--ink inverts with the sheet, so dark themes lift
+   instead of muddying). */
+.watch-pane .chip.wb-box:not(.as-chat):hover {
+  background: color-mix(in oklab, var(--sheet) 95%, var(--ink));
+}
+/* the drag ghost is a clone of a tile, so it inherited the transparent rest
+   state and floated as a shadow with no body */
+.chip.wb-ghost {
+  background: var(--sheet);
+  border-color: var(--line-2);
+}
 .wb-box { display: flex; flex-direction: column; min-height: 0; }
 .wb-box .chip-preview {
   overflow-y: auto; min-height: 0;
@@ -381,12 +499,18 @@
   scrollbar-width: thin;
 }
 .wb-box.dominant .chip-preview { max-height: var(--pv-dom, 258px); }
-.wb-box.dominant { background: rgba(255,255,255,calc(0.62 * var(--wa))); }
+/* dominance is size plus a firmer hairline — the old white-alpha fill was
+   invisible once the tile itself became an opaque sheet (and near-invisible
+   on the black theme's --wa 0.075 regardless) */
+.watch-pane .chip.wb-box.dominant:not(.as-chat) {
+  border-color: color-mix(in oklab, var(--ink-4) 42%, transparent);
+}
 .wb-box.dominant .wb-name { font-size: 14.5px; }
 /* readable, wrapping context lines — the board is for reading, 13px floor */
 .watch-pane .chip .cl {
   font-size: 13px; line-height: 1.55;
   white-space: normal; overflow: visible; text-overflow: clip;
+  font-variant-numeric: tabular-nums;   /* run counts and timings align down the box */
 }
 .watch-pane .chip .cl b { font-weight: 640; }
 
@@ -396,8 +520,8 @@
 .wb-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .wb-name { font-size: 13.5px; font-weight: 650; color: var(--ink); white-space: nowrap; }
 .wb-x { color: var(--ink-4); font-size: 12.5px; flex: none; }
-.wb-key {
-  font-family: var(--font-mono); font-size: 13px; color: var(--ink-3);
+.wb-key {                       /* mono + tabular from the machine-token rule */
+  color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .wb-btn {
@@ -407,7 +531,7 @@
   transition: background 0.2s, color 0.2s;
 }
 .wb-btn svg { width: 15px; height: 15px; }
-.wb-btn:hover { background: rgba(14, 23, 38, 0.06); color: var(--ink); }
+.wb-btn:hover { background: rgba(127, 127, 127, 0.13); color: var(--ink); }
 .wb-btn.wb-branch.on { color: var(--c-coordinator); }
 .wb-restack, .wb-dismiss { display: none; }
 .wb-box.can-restack .wb-restack { display: grid; }
@@ -420,7 +544,7 @@
 .wb-cell .chip.as-chat { height: 100%; }
 
 /* ---------- splits: nested tiles ---------- */
-.wb-split { display: flex; gap: 12px; min-height: 0; min-width: 0; flex: var(--w, 1); }
+.wb-split { display: flex; gap: var(--s3, 12px); min-height: 0; min-width: 0; flex: var(--w, 1); }
 .wb-split.row { flex-direction: row; }
 .wb-split.col { flex-direction: column; }
 .watch-stack > .wb-split { min-height: 340px; max-height: 64vh; }
@@ -436,8 +560,12 @@
   border-radius: 2px;
   background: color-mix(in oklab, var(--pair, var(--c-coordinator)) 55%, white);
 }
-.wb-split.branch > .pair-b .chip {
-  border-color: color-mix(in oklab, var(--pair, var(--c-coordinator)) 32%, white);
+/* the paired child's hairline carries the pair hue. Mixed against white it
+   was paler than --line-2, so once tiles got their frame back the CHILD of a
+   pairing would have read as the least-framed box on the board; mixed against
+   transparent it lands at the same weight in every theme. */
+.watch-pane .wb-split.branch > .pair-b .chip:not(.as-chat) {
+  border-color: color-mix(in oklab, var(--pair, var(--c-coordinator)) 48%, transparent);
 }
 
 /* ---------- drag: ghost, sources, drop indicators ---------- */

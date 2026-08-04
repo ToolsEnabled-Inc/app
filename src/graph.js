@@ -12,6 +12,52 @@ const RADII = { coordinator: 62, helper: 52, shadow: 52, manager: 47, default: 3
 const CHIP_ROLES = new Set(['coordinator', 'helper', 'shadow'])
 const DENSE_AT = 12
 
+/* ---------- motion weight (see the header block in graph.css) ----------
+   Two registers, deliberately not one. The motion audit found a single
+   front-loaded curve doing 88% of the work on this surface, so a whole
+   subtree re-rooting carried the same weight as a hover. MICRO feedback
+   (hover, press, drop-ok) stays on the shared --ease / --ease-spring at
+   short durations, in CSS. STRUCTURAL moves — the re-root glide and the
+   tree relayout, the two rAF tweens that move fx/fy and therefore cannot
+   use a CSS transition at all — run on the ONE curve this lane adds,
+   --ease-structural: cubic-bezier(0.42, 0, 0.18, 1). Zero initial velocity
+   (mass has to be got moving), then a long settled approach.
+   EASE_STRUCTURAL below is that identical curve evaluated in JS. The four
+   numbers are duplicated in graph.css by necessity — change both or
+   neither. */
+const cubicBezierEase = (x1, y1, x2, y2) => {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by
+  const solveX = (t) => ((ax * t + bx) * t + cx) * t
+  const slopeX = (t) => (3 * ax * t + 2 * bx) * t + cx
+  return (u) => {
+    if (!(u > 0)) return 0
+    if (u >= 1) return 1
+    let t = u                                  // Newton — these curves are
+    for (let i = 0; i < 6; i++) {               // monotonic in x, ~3 iterations
+      const err = solveX(t) - u
+      if (Math.abs(err) < 1e-5) break
+      const d = slopeX(t)
+      if (Math.abs(d) < 1e-6) break
+      t -= err / d
+    }
+    return ((ay * t + by) * t + cy) * t
+  }
+}
+const EASE_STRUCTURAL = cubicBezierEase(0.42, 0, 0.18, 1)
+const STRUCTURAL_MS = 680          // re-root glide == tree relayout: one event class
+const TIER_GUIDE_BEAT_MS = 60      // guides state a row only after it exists
+
+/* Drag-release settle, scaled by the throw that produced it. FLING_CAP is
+   the same px/ms ceiling the ballistic fling clamps to, so "1.0 energy"
+   means the same thing to both. */
+const FLING_CAP = 2.4
+const SETTLE_MIN_MS = 260, SETTLE_MAX_MS = 560
+const SETTLE_MIN_AMP = 0.18        // a set-down still ticks; it does not bounce
+
+/* Dense-mode focus ring: a bounded attractor, not an idle loop. */
+const FOCUS_PULSE_MS = 1900, FOCUS_PULSES = 3
+
 const prefersCalm = () => document.body.classList.contains('reduce-motion')
 // axis-aligned rect intersection area (px²) — chip avoidance scoring
 const rectOverlap = (ax, ay, aw, ah, bx, by, bw, bh) => {
@@ -43,6 +89,13 @@ export class FleetGraph {
     this.editMode = false
 
     container.classList.add('graph-canvas')
+    // State the layout in the DOM from frame one. graph.css keys the tree's
+    // SOLID connectors off [data-layout="tree"] and edit mode's DASHED ones
+    // off [data-edit-mode], but setLayout() only wrote the attribute when the
+    // mode CHANGED — so a canvas that was never toggled carried no attribute
+    // at all and the two rules were selecting against an absence. Writing the
+    // initial value keeps that distinction assertable at every moment.
+    container.setAttribute('data-layout', this.layout)
     this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     this.svg.setAttribute('class', 'links')
     container.appendChild(this.svg)
@@ -370,6 +423,8 @@ export class FleetGraph {
 
   removeNode(rec, animate, delay = 0) {
     if (rec._flingRaf) { cancelAnimationFrame(rec._flingRaf); rec._flingRaf = null }
+    clearTimeout(rec._ringTimer)                   // bounded pulse / settle timers
+    clearTimeout(rec._settleTimer)                 // must not outlive the node
     this.nodes.delete(rec.id)
     if (rec.chip) { rec.chip.remove() }
     if (animate) {
@@ -930,6 +985,9 @@ export class FleetGraph {
     // hover: ONE self-removing ripple ring from the bubble edge
     elm.addEventListener('pointerenter', () => {
       if (prefersCalm()) return
+      // a rested focus ring wakes for the hover: the pulse no longer loops
+      // forever, so this is where the "hidden branch" affordance gets re-said
+      if (elm.classList.contains('focusable')) this._wakeFocusRing(rec)
       rec._ripple?.remove()
       const rip = document.createElement('span')
       rip.className = 'node-ripple'
@@ -959,9 +1017,6 @@ export class FleetGraph {
           return
         }
         this._draggingNow = false                      // tick() cools the canvas as alpha decays
-        elm.classList.add('settling')                  // brief ~0.97 overshoot
-        clearTimeout(rec._settleTimer)
-        rec._settleTimer = setTimeout(() => elm.classList.remove('settling'), 600)
         this.simulation.alphaTarget(0)
         // fling: recent pointer velocity in px/ms (capped ~2.4 ≈ 40px/frame)
         let vx = 0, vy = 0
@@ -973,11 +1028,16 @@ export class FleetGraph {
             const dt = Math.max(16, b.t - a.t)
             vx = (b.x - a.x) / dt / this.zoom        // screen → graph velocity
             vy = (b.y - a.y) / dt / this.zoom
-            const sp = Math.hypot(vx, vy), cap = 2.4
-            if (sp > cap) { vx *= cap / sp; vy *= cap / sp }
+            const sp = Math.hypot(vx, vy)
+            if (sp > FLING_CAP) { vx *= FLING_CAP / sp; vy *= FLING_CAP / sp }
           }
         }
         samples = []
+        // The squash-stretch settle rides that SAME measurement (it used to
+        // be a fixed 500ms / fixed overshoot, so a careful set-down rebounded
+        // exactly as hard as a two-handed throw). Must run after the velocity
+        // is known — hence moved below the block above, not before it.
+        this._settleRelease(rec, Math.hypot(vx, vy))
         // Ballistic glide through fx/fy: raw d3 velocity is eaten by the
         // restoring forces the moment alpha rises (link 0.55 + charge -460
         // dwarf a decaying vx), which inverted the throw. Pinning the node to
@@ -1002,6 +1062,71 @@ export class FleetGraph {
     }
     elm.addEventListener('pointerup', release)
     elm.addEventListener('pointercancel', release)
+  }
+
+  /** Release settle, scaled by the throw that caused it.
+      The audit finding: `.settling` fired a fixed 500ms animation with a
+      fixed ~0.97 overshoot on every single release, so the one moment on
+      this surface that is genuinely about physics reported the same number
+      whether the bubble was placed or hurled. `speed` is the px/ms release
+      velocity already measured for the fling; against FLING_CAP it gives a
+      0..1 energy that drives BOTH how far the glass over/undershoots
+      (--settle-amp) and how long it takes to stop ringing (--settle-dur) —
+      the two things that actually differ between a set-down and a throw.
+      graph.css consumes both, with defaults matching the old fixed values.
+      Deliberately NOT a class-only change: a duration is not expressible in
+      a class without a fresh rule per bucket. */
+  _settleRelease(rec, speed) {
+    const elm = rec.el
+    clearTimeout(rec._settleTimer)
+    if (prefersCalm()) { elm.classList.remove('settling'); return }
+    const e = Math.max(0, Math.min(1, (speed || 0) / FLING_CAP))
+    const dur = Math.round(SETTLE_MIN_MS + (SETTLE_MAX_MS - SETTLE_MIN_MS) * e)
+    elm.style.setProperty('--settle-dur', `${dur}ms`)
+    elm.style.setProperty('--settle-amp',
+      (SETTLE_MIN_AMP + (1 - SETTLE_MIN_AMP) * e).toFixed(3))
+    // The duration now varies per release, so a still-running settle must be
+    // restarted rather than left to finish on its old timing. The forced
+    // reflow is paid ONLY in that re-grab-and-release case — the usual path
+    // (class already gone) just adds it, which starts the animation anyway.
+    if (elm.classList.contains('settling')) {
+      elm.classList.remove('settling')
+      void elm.offsetWidth
+    }
+    elm.classList.add('settling')
+    rec._settleTimer = setTimeout(() => elm.classList.remove('settling'), dur + 90)
+  }
+
+  /** Dense-mode focus ring: attract, then rest.
+      The audit finding: the ring animated `infinite`, i.e. every focusable
+      bubble pulsed forever on a canvas that was otherwise completely still.
+      Permanent motion is not an attractor, it is wallpaper — and it keeps
+      the compositor awake on an idle page. It now runs FOCUS_PULSES cycles
+      from the moment a node BECOMES focusable, then stops; pointerenter
+      re-arms it, which is precisely when "does this bubble hide a branch?"
+      is the question being asked. Re-adding the class after a forced reflow
+      restarts the animation instead of resuming a finished one. */
+  _wakeFocusRing(rec) {
+    if (prefersCalm()) return
+    clearTimeout(rec._ringTimer)
+    // Only an ALREADY-armed ring needs the remove/reflow/re-add restart
+    // dance. The common path — a node that has rested, or a whole graph
+    // becoming dense at once — just adds the class, which starts the
+    // animation on its own; forcing a synchronous layout per node there
+    // would thrash the mount frame for no behavioural gain.
+    if (rec.el.classList.contains('ring-awake')) {
+      rec.el.classList.remove('ring-awake')
+      void rec.el.offsetWidth
+    }
+    rec.el.classList.add('ring-awake')
+    rec._ringTimer = setTimeout(() => rec.el.classList.remove('ring-awake'),
+      FOCUS_PULSE_MS * FOCUS_PULSES + 80)
+  }
+
+  _sleepFocusRing(rec) {
+    clearTimeout(rec._ringTimer)
+    rec._ringTimer = null
+    rec.el.classList.remove('ring-awake')
   }
 
   /** Post-drag fling: pin the node to a decaying ballistic path through
@@ -1057,7 +1182,15 @@ export class FleetGraph {
     for (const rec of this.nodes.values()) {
       const hasKids = [...this.nodes.values()].some(o => o.agent.parentId === rec.id)
       const deep = this.depthOf(rec.agent) >= 1
-      rec.el.classList.toggle('focusable', dense && hasKids && deep)
+      const focusable = dense && hasKids && deep
+      const was = rec.el.classList.contains('focusable')
+      rec.el.classList.toggle('focusable', focusable)
+      // The ring is armed on the TRANSITION into focusable, not held on for
+      // as long as the state lasts — updateDensity() runs on every spawn and
+      // reap, so re-arming unconditionally would restore the old permanent
+      // loop by another route.
+      if (focusable && !was) this._wakeFocusRing(rec)
+      else if (!focusable && was) this._sleepFocusRing(rec)
       if (rec.chip) rec.chip.style.opacity = (n >= DENSE_AT && !rec.chatOpen) ? '0' : ''
       if (rec.chip) rec.chip.style.pointerEvents = (n >= DENSE_AT && !rec.chatOpen) ? 'none' : ''
     }
@@ -1102,10 +1235,13 @@ export class FleetGraph {
       if (this._glideRec === rec) this._glideRec = null
     }, 220)
     if (prefersCalm()) { rec.fx = tx; rec.fy = ty; done(); return }
-    const sx = rec.x, sy = rec.y, dur = 680, t0 = performance.now()
+    const sx = rec.x, sy = rec.y, dur = STRUCTURAL_MS, t0 = performance.now()
     const step = (t) => {
       const p = Math.min(1, (t - t0) / dur)
-      const e = 1 - Math.pow(1 - p, 3)               // ease-out cubic
+      // STRUCTURAL register, not the shared front-loaded ease-out cubic this
+      // used to share with every micro interaction: a re-root re-arranges the
+      // whole graph, and it should read as mass moving, not as a UI response.
+      const e = EASE_STRUCTURAL(p)
       rec.fx = sx + (tx - sx) * e
       rec.fy = sy + (ty - sy) * e
       if (p < 1) this._glideRaf = requestAnimationFrame(step)
@@ -1475,16 +1611,22 @@ export class FleetGraph {
 
   _layoutTree(animate = true) {
     const { slots, rowYs } = this._treeSlots()
-    this._renderTierGuides(rowYs)
     if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
     const starts = new Map()
     for (const n of this.nodes.values()) starts.set(n.id, { x: n.x, y: n.y })
     const t0 = performance.now()
-    const D = (animate && !prefersCalm()) ? 680 : 0
-    const ease = (u) => 1 - Math.pow(1 - u, 3)
+    const D = (animate && !prefersCalm()) ? STRUCTURAL_MS : 0
+    // The guides used to fade in on a hardcoded 0.15s delay — i.e. WHILE the
+    // bubbles were still flying to the rows the guides were claiming. Keyed
+    // to this run's real duration they arrive as a consequence of the layout
+    // settling, which is what a tier guide actually means.
+    this._renderTierGuides(rowYs, D ? D + TIER_GUIDE_BEAT_MS : 0)
     const step = (t) => {
       const u = D ? Math.min(1, (t - t0) / D) : 1
-      const k = ease(u)
+      // STRUCTURAL register (see EASE_STRUCTURAL): a tree relayout is the
+      // heaviest move on this surface — every bubble at once — so it must not
+      // share the snappy curve a hover uses.
+      const k = EASE_STRUCTURAL(u)
       for (const n of this.nodes.values()) {
         const s = slots.get(n.id)
         if (!s || n._editDragging) continue        // hands off the grabbed bubble
@@ -1499,12 +1641,25 @@ export class FleetGraph {
     this._treeRaf = requestAnimationFrame(step)
   }
 
-  _renderTierGuides(rowYs) {
+  /** @param afterMs delay before the hairlines draw in — the caller's live
+      layout duration, so the guides state a row only once it exists. */
+  _renderTierGuides(rowYs, afterMs = 0) {
+    const prev = this._guides || []
+    // A relayout that keeps the same number of tiers (the common case: a
+    // re-parent inside an unchanged hierarchy depth) should MOVE its guides,
+    // not blink them out and re-draw them. Blinking was tolerable at the old
+    // fixed 0.15s delay; at a delay keyed to the 680ms layout it would leave
+    // the rows unmarked for the whole move. .tier-guide transitions `top`.
+    if (prev.length && prev.length === rowYs.length) {
+      rowYs.forEach((y, i) => { prev[i].style.top = `${Math.round(y)}px` })
+      return
+    }
     this._clearTierGuides()
     this._guides = rowYs.map(y => {
       const g = document.createElement('div')
       g.className = 'tier-guide'
       g.style.top = `${Math.round(y)}px`
+      g.style.animationDelay = `${Math.round(afterMs)}ms`
       this.container.insertBefore(g, this.svg)
       return g
     })
@@ -1569,7 +1724,10 @@ export class FleetGraph {
     if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
     if (this._zoomRaf) cancelAnimationFrame(this._zoomRaf)
     clearTimeout(this._zoomHotTimer)
-    for (const n of this.nodes.values()) if (n._flingRaf) cancelAnimationFrame(n._flingRaf)
+    for (const n of this.nodes.values()) {
+      if (n._flingRaf) cancelAnimationFrame(n._flingRaf)
+      clearTimeout(n._ringTimer); clearTimeout(n._settleTimer)
+    }
     this.unsubs.forEach(u => u())
     this.zoomHost.removeEventListener('wheel', this._onWheel)
     this.zoomHost.removeEventListener('pointerdown', this._onHostDown)

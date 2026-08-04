@@ -5,9 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mission Control</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='38' fill='none' stroke='%2300a9d8' stroke-width='9'/><circle cx='50' cy='50' r='12' fill='%2300bd8a'/></svg>" />
+  <!-- theme before first paint: /src/main.js is a module (deferred), so
+       reading the stored theme there alone flashed the white page at every
+       tan/black user. Same key and same guarded read as main.js. -->
+  <script>
+    try {
+      var t = localStorage.getItem('mc.theme')
+      document.documentElement.dataset.theme = (t === 'tan' || t === 'black') ? t : 'white'
+    } catch (e) { document.documentElement.dataset.theme = 'white' }
+  </script>
 </head>
 <body>
-
   <header class="topbar">
     <div class="tb-side tb-left">
       <button class="icon-btn" id="nav-back" title="Back" aria-label="Back">

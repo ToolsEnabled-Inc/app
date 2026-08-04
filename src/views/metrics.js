@@ -59,6 +59,26 @@ function readHeatRamp() {
     : ['#edf6fa', '#d3ecf5', '#a8dcec', '#6ec4de', '#35a8cc', '#0b86ab'].map(hexToRgb)
 }
 readHeatRamp()
+
+/* The ramp is read ONCE per theme, into JS, because the cells are painted with
+   interpolated rgb() values rather than a CSS variable — a tween between two
+   stops has no CSS expression. That made the read a snapshot: switching theme
+   left every cell on the previous theme's ramp until the view was rebuilt, so
+   the black theme kept painting the near-white light ramp and an idle hour
+   out-glowed a saturated one all over again. Re-read on the attribute the
+   theme switch actually writes (main.js sets documentElement.dataset.theme);
+   each mounted view registers a repaint here and unregisters on destroy. */
+const heatSubscribers = new Set()
+function onHeatRampChange(fn) {
+  heatSubscribers.add(fn)
+  return () => heatSubscribers.delete(fn)
+}
+if (typeof MutationObserver !== 'undefined') {
+  new MutationObserver(() => {
+    readHeatRamp()
+    heatSubscribers.forEach(fn => fn())
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+}
 function heatShade(v) {
   const t = clamp(0, 1, v) * (HEAT_STOPS.length - 1)
   const i = Math.min(HEAT_STOPS.length - 2, Math.floor(t)), f = t - i
@@ -77,6 +97,18 @@ function sparkGeom(points, w, h) {
   }
 }
 
+/* ---------------- provider series colour ----------------
+   PROVIDERS in src/vocab.js carry the same five hexes as ROLES and POOLS, so
+   the token chart's bands and the agent table's role dots were literally the
+   same cyan/orange/blue/green. Colour has to follow ONE entity. The role and
+   pool palettes stay as they are (they are the shell's shared identity
+   system); the provider series get their own muted categorical set, defined
+   as --prov-* on .metrics in src/metrics.css and resolved through the
+   cascade so the black theme can re-step them. p.color is deliberately not
+   read here. The fallback keeps a provider added to vocab.js later visible
+   rather than transparent. */
+const provInk = (id) => `var(--prov-${id}, var(--ink-3))`
+
 /* ---------------- filter vocabulary ---------------- */
 
 const RANGES = [['24h', '24h'], ['7d', '7d'], ['30d', '30d']]
@@ -84,10 +116,28 @@ const MACHINES = [['all', 'All'], ['c1', 'Computer 1'], ['c2', 'Computer 2']]
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+/* AXIS RULE, applied everywhere a scale is drawn in this view:
+     · continuous QUANTITATIVE domain → d3-array ticks(), which picks the
+       canonical 1/2/5×10ⁿ stops. Used for the token chart's y axis, the
+       failure chart's x axis, and the '30d' elapsed-time x axis below.
+     · clock / weekday BAND axis → that unit's own canonical stops, because
+       d3ticks targets continuous domains and would answer 0,5,10,15,20 for a
+       24-hour day — not clock stops. Hours therefore step by 6 (00/06/12/18)
+       and weekdays label all seven bands.
+   The trailing `23` the hour axes used to carry is gone with that: it sat 5
+   cells after 18 where every other stop was 6 apart, so the axis metered
+   itself irregularly. */
+const HOUR_TICKS = [0, 6, 12, 18]
+/* '30d' IS continuous (days elapsed), so d3 picks the stops — 30/20/10/0 days
+   ago — and each is mapped back to its bucket position. The old rule labelled
+   five evenly-spaced buckets with whatever day number they happened to land
+   on: −30, −22, −15, −7, now. */
+const idxForDaysAgo = (a) => (1 - a / 30) * (N - 1)
+
 const RANGE_META = {
   '24h': {
     word: 'last 24 h', unit: '24 h', prev: 'vs yesterday',
-    ticks: [0, 6, 12, 18, 23], xlab: (i) => `${String(i).padStart(2, '0')}:00`,
+    ticks: HOUR_TICKS, xlab: (i) => `${String(Math.round(i)).padStart(2, '0')}:00`,
     failSub: 'rolling 24 h', verdictSub: 'last 24 h', heatSub: 'by hour · 7 days', opsSub: 'counters · 24 h',
     vol: 1, smooth: 0, fail: 1, heat: 1.05, verdicts: 0.16, pool: 0.86, ops: 0.22,
   },
@@ -99,7 +149,8 @@ const RANGE_META = {
   },
   '30d': {
     word: 'last 30 days', unit: '30 d', prev: 'vs last month',
-    ticks: [0, 6, 12, 18, 23], xlab: (i) => i === N - 1 ? 'now' : `−${Math.round((1 - i / (N - 1)) * 30)} d`,
+    ticks: d3ticks(0, 30, 3).slice().reverse().map(idxForDaysAgo),
+    xlab: (i) => i >= N - 1 ? 'now' : `−${Math.round((1 - i / (N - 1)) * 30)} d`,
     failSub: 'rolling 30 days', verdictSub: 'this month', heatSub: 'by hour · weekday mean', opsSub: 'counters · 30 d',
     vol: 1.33, smooth: 0.7, fail: 0.79, heat: 0.9, verdicts: 4.1, pool: 1.12, ops: 3.6,
   },
@@ -113,32 +164,54 @@ const MACHINE_META = {
 
 /* ---------------- tile definitions ---------------- */
 
+/* Every tile's delta row is a MEASURED comparison, never a caption.
+   `period`  — this period's value against the previous equivalent period,
+               built by the same generator one period back in the seed
+               (buildData(1)); the printed number is (cur − prev).
+   `session` — the change observed live since the baseline was taken, printed
+               WITH the length of that window so the claim stays true when a
+               filter change rebaselines it. Used where the figure comes
+               straight off sim state and is therefore identical in both
+               periods by construction, so a period delta would be a
+               fabricated one.
+   `signed`  — colour the row good/bad. Only where direction genuinely means
+               better/worse; `false` prints the same signed number in neutral
+               ink instead of asserting a judgement the data doesn't carry.
+   The previous version printed `+${Math.round(4 + n*18)}%` from a hash of the
+   filter name: a plausible-looking number with no relationship to the value
+   above it. */
 const TILE_DEFS = [
   {
     id: 'agents', l: 'Agents live', tc: '#00a9d8', tg: '#45d6ff', spark: true,
     val: (d) => d.tiles.agents, fmt: (v) => String(Math.round(v)),
     unit: (d) => `of ${Math.round(d.tiles.spawned)} spawned`,
+    delta: { kind: 'session', noun: 'live', signed: false },
   },
   {
     id: 'tasks', l: 'Tasks closed', tc: '#00bd8a', tg: '#35eab7', spark: true,
     val: (d) => d.tiles.tasksClosed, fmt: (v) => Math.round(v).toLocaleString('en-US'),
     unit: (d, meta) => meta.word.replace('last ', ''),
+    delta: { kind: 'period', mode: 'pct', signed: true },
   },
   {
     id: 'fail', l: 'Failure rate', tc: '#f57b00', tg: '#ffab4d', spark: true,
     val: (d) => d.tiles.failAvg, fmt: (v) => v.toFixed(1), unit: () => '%',
+    delta: { kind: 'period', mode: 'pts', signed: true, lowerIsBetter: true },
   },
   {
     id: 'tokens', l: 'Token flow', tc: '#3e63f0', tg: '#7d9bff', spark: true,
     val: (d) => d.tiles.tokTotal, fmt: (v) => fmtK(Math.round(v)), unit: (d, meta) => meta.unit,
+    delta: { kind: 'period', mode: 'pct', signed: false },
   },
   {
     id: 'ckpt', l: 'Checkpoints', tc: '#00bd8a', tg: '#35eab7',
     val: (d) => d.tiles.checkpoints, fmt: (v) => String(Math.round(v)), unit: () => 'recorded',
+    delta: { kind: 'session', noun: 'new', signed: false },
   },
   {
     id: 'gates', l: 'Gate blocks', tc: '#dba400', tg: '#ffd84d',
     val: (d) => d.tiles.gateBlocks, fmt: (v) => String(Math.round(v)), unit: () => 'held safely',
+    delta: { kind: 'session', noun: 'held', signed: false },
   },
 ]
 
@@ -213,7 +286,7 @@ export function metricsView() {
           <div class="chart-card glass" id="tokens-card">
             <div class="chart-head"><span class="ct">Token flow</span><span class="cs" id="tokens-sub">last 24 h · thousands</span>
               <span class="spacer"></span>
-              <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${p.color}"><i></i>${p.label}</span>`).join('')}</span>
+              <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
             </div>
             <div class="chart-body" id="tokens-chart"></div>
           </div>
@@ -233,7 +306,7 @@ export function metricsView() {
           <div class="chart-card glass">
             <div class="chart-head"><span class="ct">Fleet activity</span><span class="cs" id="heat-sub">by hour · 7 days</span>
               <span class="spacer"></span>
-              <span class="heat-key"><em>low</em>${HEAT_STOPS.map((_, i) => `<i style="background:${heatShade(i / (HEAT_STOPS.length - 1))}"></i>`).join('')}<em>high</em></span>
+              <span class="heat-key" id="heat-key"></span>
             </div>
             <div class="chart-body" id="heat-chart"></div>
           </div>
@@ -256,8 +329,13 @@ export function metricsView() {
 
   /* ================= dataset generation ================= */
 
-  function buildData() {
-    const key = `${state.range}|${state.machine}`
+  /* `back` shifts the seed one equivalent period into the past, so the tile
+     delta rows can print a comparison the generator actually produced rather
+     than a decorative string. Same range, same machine, same live sim
+     figures — only the period differs, which is exactly what "vs last week"
+     claims to be measuring. */
+  function buildData(back = 0) {
+    const key = `${state.range}|${state.machine}${back ? `|back${back}` : ''}`
     const R = meta(), M = MACHINE_META[state.machine]
 
     /* token flow — 24 buckets whatever the range, so shapes can interpolate */
@@ -368,6 +446,8 @@ export function metricsView() {
 
   let current = buildData()
   let target = current
+  let prevPeriod = buildData(1)          // the same period, one period back
+  let sessionBase = null                 // tile values at mount / last filter change
 
   /* ================= tiles ================= */
 
@@ -437,19 +517,63 @@ export function metricsView() {
     }
   }
 
-  function applyTileChrome() {
-    const R = meta(), key = `${state.range}|${state.machine}`
+  function captureSessionBase(d) {
+    sessionBase = { at: Date.now(), vals: Object.fromEntries(TILE_DEFS.map(t => [t.id, t.val(d)])) }
+  }
+
+  /* `−` is U+2212, not a hyphen: it is the same width as `+` in tabular
+     figures, so a delta row does not shift when its sign flips. */
+  const signed = (v, digits = 0) => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(digits)}`
+
+  /** How long the session baseline has been standing — printed, so the claim
+      is bounded rather than an open-ended "since open" that a filter change
+      would quietly falsify. */
+  function fmtWindow(ms) {
+    const s = Math.max(0, Math.round(ms / 1000))
+    if (s < 60) return `${s}s`
+    const mn = Math.round(s / 60)
+    return mn < 60 ? `${mn}m` : `${Math.floor(mn / 60)}h${String(mn % 60).padStart(2, '0')}`
+  }
+
+  /** Delta rows, measured. `d` is the settled dataset the tiles are heading to. */
+  function applyTileDeltas(d) {
+    const R = meta()
     for (const ref of tileRefs) {
-      const n = noise(`${key}|delta|${ref.def.id}`)
-      let text, dir
-      if (ref.def.id === 'fail') { text = `−${(0.2 + n * 1.4).toFixed(1)} pts ${R.prev}`; dir = 'up' }
-      else if (ref.def.id === 'gates') { text = `0 overridden`; dir = 'flat' }
-      else if (ref.def.id === 'tokens') { text = n > 0.55 ? `steady ${R.prev}` : `+${Math.round(3 + n * 14)}% ${R.prev}`; dir = n > 0.55 ? 'flat' : 'up' }
-      else if (ref.def.id === 'ckpt') { text = `+${Math.max(1, Math.round(1 + n * 9))} today`; dir = 'up' }
-      else if (ref.def.id === 'agents') { text = `+${Math.max(1, Math.round(1 + n * 5))} ${R.prev}`; dir = 'up' }
-      else { text = `+${Math.round(4 + n * 18)}% ${R.prev}`; dir = 'up' }
+      const spec = ref.def.delta
+      const now = ref.def.val(d)
+      let text, cls = 'flat'
+
+      if (spec.kind === 'period') {
+        const then = ref.def.val(prevPeriod)
+        if (spec.mode === 'pts') {
+          const diff = now - then
+          text = Math.abs(diff) < 0.05
+            ? `level ${R.prev}`
+            : `${signed(diff, 1)} pts ${R.prev}`
+          if (spec.signed && Math.abs(diff) >= 0.05) {
+            const better = spec.lowerIsBetter ? diff < 0 : diff > 0
+            cls = better ? 'up' : 'down'
+          }
+        } else {
+          const pct = then ? ((now - then) / then) * 100 : 0
+          text = Math.abs(pct) < 0.5
+            ? `steady ${R.prev}`
+            : `${signed(pct)}% ${R.prev}`
+          if (spec.signed && Math.abs(pct) >= 0.5) cls = pct > 0 ? 'up' : 'down'
+        }
+      } else {
+        /* Nothing to diff until the first settled dataset lands, and a filter
+           change rebaselines — otherwise switching machines would report the
+           difference between two fleets as if agents had spawned. */
+        const base = sessionBase ? sessionBase.vals[ref.def.id] : now
+        const win = fmtWindow(sessionBase ? Date.now() - sessionBase.at : 0)
+        const n = Math.round(now - base)
+        text = n === 0 ? `no change · ${win}` : `${signed(n)} ${spec.noun} · ${win}`
+        if (spec.signed && n !== 0) cls = n > 0 ? 'up' : 'down'
+      }
+
       ref.delta.textContent = text
-      ref.delta.className = `td ${dir}`
+      ref.delta.className = `td ${cls}`
     }
   }
 
@@ -530,8 +654,18 @@ export function metricsView() {
       grid += `<line class="tk-grid" x1="${TL}" x2="${TW - TRr}" y1="0" y2="0" stroke="var(--chart-grid)" stroke-width="1"/>` +
         `<text class="tk-gl" x="${TL - 8}" y="0" font-size="11.5" fill="var(--ink-3)" text-anchor="end"></text>`
     }
-    const areas = PROVIDERS.map(p => `<polygon class="tk-area" points="" fill="${p.color}" opacity="0.1"/>`).join('')
-    const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${p.color}" stroke-width="2" stroke-linejoin="round"/>`).join('')
+    /* STACK ORDER — fixed, and the legend is printed in the same order:
+         band 0  codex   (sits on the baseline, strongest fill)
+         band 1  claude
+         band 2  gemini
+         band 3  local   (rides the total, faintest fill)
+       Order is PROVIDERS' own order in src/vocab.js, so it never depends on
+       the data and a filtered series never repaints its neighbours. The
+       per-band alphas live in metrics.css (--area-a0..a3) so the black theme
+       can re-tune them; four uniform 0.1 washes left every boundary to be
+       carried by the 2px topline alone. */
+    const areas = PROVIDERS.map((p, i) => `<polygon class="tk-area" data-band="${i}" points="" fill="${provInk(p.id)}"/>`).join('')
+    const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${provInk(p.id)}" stroke-width="2" stroke-linejoin="round"/>`).join('')
     let xl = ''
     for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle"></text>`
 
@@ -557,7 +691,7 @@ export function metricsView() {
       tok.xh.setAttribute('x1', xTok(i)); tok.xh.setAttribute('x2', xTok(i)); tok.xh.setAttribute('opacity', '1')
       /* series identity carried by the swatch, never by coloured text */
       tip.show(`<div class="tt-title">${meta().xlab(i)}</div>` +
-        PROVIDERS.map(p => `<div class="tt-row"><i class="tt-key" style="background:${p.color}"></i>${p.label} <b>${Math.round(current.tokens[p.id][i])}k</b></div>`).join(''),
+        PROVIDERS.map(p => `<div class="tt-row"><i class="tt-key" style="background:${provInk(p.id)}"></i>${p.label} <b>${Math.round(current.tokens[p.id][i])}k</b></div>`).join(''),
         e.clientX, e.clientY)
     })
     svg.addEventListener('pointerleave', () => { tok.xh.setAttribute('opacity', '0'); tip.hide() })
@@ -603,24 +737,46 @@ export function metricsView() {
 
   /* ================= failure bars ================= */
 
-  const FW = 420, FROW = 30, FL = 118, FR = 50, FMAX = 10          // C6: FR +6 headroom for 12.5px value labels
+  const FW = 420, FROW = 30, FL = 118, FR = 50                     // C6: FR +6 headroom for 12.5px value labels
+  const FAXH = 19                                                  // bottom band for the x-axis labels
+  /* The bar chart had a domain (0–10, the clamp ceiling on a lane's rate) but
+     no axis: the reader had only the printed value, so bar LENGTH — the thing
+     the chart is made of — meant nothing. Same rule as the token chart's y
+     axis: d3-array picks the canonical 1/2/5×10ⁿ stops, and the domain is the
+     LAST STOP rather than a hand-rounded number, so every gridline is a real
+     labelled value. Fixed rather than data-driven on purpose — bars must not
+     rescale under the reader when the filter changes. */
+  const FTICKS = d3ticks(0, 10, 5)
+  const FMAX = FTICKS[FTICKS.length - 1]
+  const fx = (v) => FL + (v / FMAX) * (FW - FL - FR)
   const fbars = []
 
   function buildFail() {
     const host = root.querySelector('#fail-chart')
     host.innerHTML = ''
-    const H = LANES.length * FROW + 8
+    const H = LANES.length * FROW + 8 + FAXH
+    const gridTop = 6, gridBot = 6 + LANES.length * FROW
+    /* Three explicit layers so the hairline grid sits ON the recessive track
+       but UNDER the bars — a gridline crossing a data mark reads as a tick on
+       the mark itself. */
+    const tracks = LANES.map((_, i) =>
+      `<rect x="${FL}" y="${6 + i * FROW + 3}" width="${FW - FL - FR}" height="14" rx="2" fill="var(--chart-track)"/>`).join('')
+    const grid = FTICKS.map(t =>
+      `<line x1="${fx(t).toFixed(1)}" x2="${fx(t).toFixed(1)}" y1="${gridTop}" y2="${gridBot}" stroke="var(--chart-grid)" stroke-width="1"/>`).join('')
+    const axis = FTICKS.map(t =>
+      `<text x="${fx(t).toFixed(1)}" y="${H - 6}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle">${t === FMAX ? `${t}%` : t}</text>`).join('')
     const rows = LANES.map((lane, i) => {
       const y = 6 + i * FROW
       return `<g class="f-row" data-i="${i}">
         <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="11.5" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
-        <rect x="${FL}" y="${y + 3}" width="${FW - FL - FR}" height="14" rx="2" fill="var(--chart-track)"/>
         <path class="fbar" d="" data-lane="${lane}"/>
         <text class="fval" x="${FL}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" font-weight="640" font-variant-numeric="tabular-nums"></text>
         <rect class="fhit" x="0" y="${y}" width="${FW}" height="${FROW - 2}" fill="transparent"/>
       </g>`
     }).join('')
-    const svg = el(`<svg viewBox="0 0 ${FW} ${H}" role="img" aria-label="Failure rate by lane">${rows}</svg>`)
+    const svg = el(`<svg viewBox="0 0 ${FW} ${H}" role="img" aria-label="Failure rate by lane, percent">
+      <g class="f-tracks">${tracks}</g><g class="f-grid">${grid}</g>${rows}<g class="f-axis">${axis}</g>
+    </svg>`)
     host.appendChild(svg)
     fbars.length = 0
     svg.querySelectorAll('.f-row').forEach((g, i) => {
@@ -650,7 +806,7 @@ export function metricsView() {
     for (const ref of fbars) {
       const rate = d.fail[ref.i].rate
       const y = 6 + ref.i * FROW
-      const w = Math.max(3, ((FW - FL - FR) * rate) / FMAX)
+      const w = Math.max(3, fx(rate) - FL)
       /* square baseline at x=FL, rounded data-end; bar height 14 px (<= 24) */
       ref.bar.setAttribute('d', `M${FL} ${y + 3} h${Math.max(0, w - 4)} a4 4 0 0 1 4 4 v6 a4 4 0 0 1 -4 4 h-${Math.max(0, w - 4)} z`)
       ref.bar.setAttribute('fill', sev(rate))
@@ -672,10 +828,15 @@ export function metricsView() {
     for (let d = 0; d < 7; d++) {
       cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="11.5" fill="var(--ink-3)" text-anchor="end">${DAYS[d]}</text>`
       for (let h = 0; h < 24; h++) {
-        cells += `<rect class="heat-cell" x="${HL + h * (HCW + HGAP)}" y="${HT + d * (HCH + HGAP)}" width="${HCW}" height="${HCH}" rx="2" fill="#edf6fa" data-d="${d}" data-h="${h}" data-v="0"/>`
+        /* seed fill from the ramp's own low stop, not a light-theme literal —
+           applyHeat overwrites it immediately, but a hardcoded near-white was
+           the exact bug the per-theme ramp exists to prevent */
+        cells += `<rect class="heat-cell" x="${HL + h * (HCW + HGAP)}" y="${HT + d * (HCH + HGAP)}" width="${HCW}" height="${HCH}" rx="2" fill="var(--heat-0)" data-d="${d}" data-h="${h}" data-v="0"/>`
       }
     }
-    const xl = [0, 6, 12, 18, 23].map(h =>
+    /* Band axis over 24 hour cells — canonical 6-hour clock stops, not
+       d3ticks (see the AXIS RULE beside RANGE_META). */
+    const xl = HOUR_TICKS.map(h =>
       `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="11.5" fill="var(--ink-3)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
     const svg = el(`<svg viewBox="0 0 ${HW} ${HH}" role="img" aria-label="Fleet activity heatmap">${cells}${xl}</svg>`)
     host.appendChild(svg)
@@ -694,6 +855,14 @@ export function metricsView() {
     svg.addEventListener('pointerleave', () => { hot?.classList.remove('hot'); hot = null; tip.hide() })
   }
 
+  /* The sequential key is generated from the same stops the cells interpolate,
+     so it re-renders with them on a theme change instead of advertising the
+     previous theme's ramp. */
+  function syncHeatKey() {
+    root.querySelector('#heat-key').innerHTML =
+      `<em>low</em>${HEAT_STOPS.map((_, i) => `<i style="background:${heatShade(i / (HEAT_STOPS.length - 1))}"></i>`).join('')}<em>high</em>`
+  }
+
   const heatLast = []
   function applyHeat(d) {
     for (let i = 0; i < heatCells.length; i++) {
@@ -706,46 +875,61 @@ export function metricsView() {
     }
   }
 
-  /* ================= verdict donut ================= */
+  /* ================= verdict split =================
+     Was a donut. Three parts of a whole encoded as arc angle, with the total
+     hidden in the hole and an arc solver (circumference, dasharray, running
+     dashoffset, a fudge subtracted from every arc length to fake the gaps)
+     doing the work. Angle is the least accurately judged visual channel, and
+     the two small slices — the ones a review dashboard exists to show — were
+     the ones it degraded most.
 
-  const VS = 190, VR = 66, VCX = VS / 2, VCY = VS / 2 - 4, VCIRC = 2 * Math.PI * VR
+     One horizontal 100% stacked bar instead: parts of a whole on a common
+     baseline, compared by LENGTH. The total stops being a hole and becomes
+     the hero number beside it. No trigonometry survives — a segment is
+     `left: acc%` / `width: frac%`, which is also what makes it tween for
+     free. Status colours are unchanged (a verdict IS a good/warn/serious
+     state, so it wears the reserved status scale, not categorical hues), and
+     each one ships with a label and its value, never colour alone. */
+
   const VSEGS = [
     { k: 'Accept', key: 'accept', c: 'var(--s-good)' },
     { k: 'Retry', key: 'retry', c: 'var(--s-warn)' },
     { k: 'Reject', key: 'reject', c: 'var(--s-serious)' },
   ]
-  const donut = { segs: [], legs: [] }
+  const VGAP = 2                 // px of bare surface between segments
+  const verdict = { segs: [], vals: [], pcts: [] }
 
   function buildVerdicts() {
     const host = root.querySelector('#verdict-chart')
     host.innerHTML = ''
-    const arcs = VSEGS.map(s => `<circle class="dseg" data-k="${s.key}" cx="${VCX}" cy="${VCY}" r="${VR}" fill="none" stroke="${s.c}" stroke-width="16"
-      stroke-dasharray="0 ${VCIRC}" stroke-dashoffset="0" transform="rotate(-90 ${VCX} ${VCY})"/>`).join('')
     const wrap = el(`
-      <div style="display:flex;flex-direction:column;align-items:center">
-        <div style="position:relative">
-          <svg width="${VS}" height="${VS}" viewBox="0 0 ${VS} ${VS}" role="img" aria-label="Review verdicts">${arcs}</svg>
-          <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none">
-            <div><div style="font-size:30px;font-weight:660;font-variant-numeric:tabular-nums" id="verdict-total">0</div>
-            <div style="font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4);font-weight:600">verdicts</div></div>
-          </div>
+      <div class="vwrap">
+        <div class="vhero">
+          <div class="vh-n" id="verdict-total">0</div>
+          <div class="vh-l">verdicts</div>
         </div>
-        <div style="display:flex;gap:14px;margin-top:6px;font-size:12.5px;color:var(--ink-2)">
-          ${VSEGS.map(s => `<span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:50%;background:${s.c}"></i>${s.k} <b class="vn-${s.key}" style="font-variant-numeric:tabular-nums">0</b></span>`).join('')}
+        <div class="vsplit">
+          <div class="vbar" role="img" aria-label="Review verdict split">
+            ${VSEGS.map(s => `<div class="vseg" data-k="${s.key}" style="background:${s.c};left:0;width:0"></div>`).join('')}
+          </div>
+          <div class="vlegend">
+            ${VSEGS.map(s => `<span class="vk" style="--vc:${s.c}"><i></i>${s.k} <b class="vn-${s.key}">0</b> <em class="vp-${s.key}">0%</em></span>`).join('')}
+          </div>
         </div>
       </div>
     `)
     host.appendChild(wrap)
-    donut.total = wrap.querySelector('#verdict-total')
-    donut.segs = [...wrap.querySelectorAll('.dseg')]
-    donut.legs = VSEGS.map(s => wrap.querySelector(`.vn-${s.key}`))
+    verdict.total = wrap.querySelector('#verdict-total')
+    verdict.segs = [...wrap.querySelectorAll('.vseg')]
+    verdict.vals = VSEGS.map(s => wrap.querySelector(`.vn-${s.key}`))
+    verdict.pcts = VSEGS.map(s => wrap.querySelector(`.vp-${s.key}`))
 
-    const svg = wrap.querySelector('svg')
+    const bar = wrap.querySelector('.vbar')
     const tip = makeTooltip(host)
     let hot = null
-    svg.addEventListener('pointermove', (e) => {
-      const t = e.target
-      if (t.classList && t.classList.contains('dseg')) {
+    bar.addEventListener('pointermove', (e) => {
+      const t = e.target.closest('.vseg')
+      if (t) {
         if (hot !== t) { hot?.classList.remove('hot'); hot = t; t.classList.add('hot') }
         const key = t.dataset.k
         const v = current.verdicts
@@ -754,22 +938,26 @@ export function metricsView() {
         tip.show(`<div class="tt-title">${s.k}</div><b>${Math.round(v[key])}</b> of ${Math.round(total)} · <b>${((v[key] / total) * 100).toFixed(1)}%</b>`, e.clientX, e.clientY)
       } else { hot?.classList.remove('hot'); hot = null; tip.hide() }
     })
-    svg.addEventListener('pointerleave', () => { hot?.classList.remove('hot'); hot = null; tip.hide() })
+    bar.addEventListener('pointerleave', () => { hot?.classList.remove('hot'); hot = null; tip.hide() })
   }
 
   function applyVerdicts(d) {
     const v = d.verdicts
     const total = v.accept + v.retry + v.reject
-    let off = 0
+    let acc = 0
     VSEGS.forEach((s, i) => {
-      const frac = v[s.key] / total
-      const len = Math.max(0, frac * VCIRC - 3)
-      donut.segs[i].setAttribute('stroke-dasharray', `${len.toFixed(2)} ${(VCIRC - len).toFixed(2)}`)
-      donut.segs[i].setAttribute('stroke-dashoffset', (-off).toFixed(2))
-      donut.legs[i].textContent = String(Math.round(v[s.key]))
-      off += frac * VCIRC
+      const frac = total ? v[s.key] / total : 0
+      const last = i === VSEGS.length - 1
+      const seg = verdict.segs[i]
+      seg.style.left = `${(acc * 100).toFixed(3)}%`
+      /* The gap comes out of each segment's trailing edge, so the segments
+         still tile the full 100% and the last one lands flush on the right. */
+      seg.style.width = last ? `${(frac * 100).toFixed(3)}%` : `calc(${(frac * 100).toFixed(3)}% - ${VGAP}px)`
+      verdict.vals[i].textContent = Math.round(v[s.key]).toLocaleString('en-US')
+      verdict.pcts[i].textContent = `${(frac * 100).toFixed(1)}%`
+      acc += frac
     })
-    donut.total.textContent = String(Math.round(total))
+    verdict.total.textContent = Math.round(total).toLocaleString('en-US')
   }
 
   /* ================= discipline counters ================= */
@@ -939,7 +1127,7 @@ export function metricsView() {
     root.querySelector('#table-sub').textContent = `${machineName()} · live`
     root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <b>live</b>`
     applyTokenChrome()
-    applyTileChrome()
+    applyTileDeltas(target)
   }
 
   /* ================= tween engine ================= */
@@ -967,8 +1155,11 @@ export function metricsView() {
 
   function retarget(dur) {
     const next = buildData()
+    prevPeriod = buildData(1)
+    if (!sessionBase) captureSessionBase(next)      // first settle, or post-filter rebaseline
     pulseTiles(target, next)
     tweenTo(next, dur)
+    applyTileDeltas(next)
   }
 
   /* ================= filter row wiring ================= */
@@ -1007,6 +1198,7 @@ export function metricsView() {
       p.setAttribute('aria-pressed', String(on))
     })
     syncIndicators()
+    sessionBase = null                 // a new filter is a new baseline, not a jump
     applyChrome()
     if (key === 'machine') relayoutRows(() => { applyTableFilter(); applySortOrder() })
     retarget(780)
@@ -1040,12 +1232,26 @@ export function metricsView() {
     }
   }
 
+  /* The ramp was read at module load, which can predate both the theme being
+     applied and the stylesheet being injected. Re-read before the key and the
+     first cells are painted. */
+  readHeatRamp()
   buildTiles(); buildPools(); buildTokens(); buildFail(); buildHeat(); buildVerdicts(); buildOps(); buildTable()
+  syncHeatKey()
+  captureSessionBase(current)
   applyChrome()
   const settled = current
   current = flattened(settled)
   applyAll(current)
   requestAnimationFrame(() => { syncIndicators(); tweenTo(settled, 900) })
+
+  /* Theme switch: re-read the per-theme --heat-* stops, drop the paint cache
+     so every cell is forced through the new ramp, and regenerate the key. */
+  unsubs.push(onHeatRampChange(() => {
+    heatLast.length = 0
+    syncHeatKey()
+    applyHeat(current)
+  }))
 
   /* live drift keeps every mark breathing — a short tween, never a snap */
   unsubs.push(sim.on('metrics', () => retarget(420)))

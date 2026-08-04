@@ -1,4 +1,5 @@
-// Shell: hash router with smooth view morphs, settings drawer, central clock.
+// Shell: hash router with smooth view morphs (native View Transitions where
+// the browser has them), settings drawer, central clock.
 
 import '@fontsource-variable/inter'
 import '@fontsource-variable/jetbrains-mono'
@@ -58,22 +59,65 @@ function crumbFor(route) {
 
 const VIEW_MORPH_MS = 500
 
+/* The plain route change is a crossfade, which is exactly what the native
+   View Transitions API does better than we can: the browser snapshots the
+   outgoing stage, so nothing has to keep two live views (two graph canvases,
+   two rAF loops) on screen at once. It is a progressive enhancement —
+   feature-detected, with the existing class-driven .enter/.exit crossfade
+   as the fallback on browsers without it. */
+const supportsViewTransition = typeof document.startViewTransition === 'function'
+const motionQuery = typeof window.matchMedia === 'function'
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : null
+/* The ::view-transition pseudo-elements live on the document root, outside
+   any selector body.reduce-motion can reach, so the runtime toggle has to be
+   honoured here in JS rather than in the sheet. */
+const motionReduced = () =>
+  document.body.classList.contains('reduce-motion') || !!motionQuery?.matches
+
 function render() {
   const route = parse()
-  const old = current
 
   // a view can hand us a shared element to morph through (e.g. the agent
   // bubble behind "Open full view"); it only ever affects motion, never a route
   const morph = takeViewMorph()
-  const zoom = !!(morph && old && morph.kind === 'zoom' && performance.now() - morph.at < 900)
+  const zoom = !!(morph && current && morph.kind === 'zoom' && performance.now() - morph.at < 900)
 
+  // The zoom morph needs both views genuinely on screen (the outgoing one
+  // scales into the node the incoming one fades up through), so it keeps the
+  // class path; so does the first paint, which has nothing to fade from.
+  if (supportsViewTransition && current && !zoom && !motionReduced()) {
+    const vt = document.startViewTransition(() => swapView(route, morph, zoom, true))
+    // Navigating again mid-transition SKIPS the running one, which rejects
+    // all three promises. Verified in headless Chromium: leaving `ready`
+    // unhandled threw "AbortError: Transition was skipped" at the page on
+    // every fast double navigation. The route swap itself still completes.
+    vt.ready?.catch(() => {})
+    vt.finished?.catch(() => {})
+    vt.updateCallbackDone?.catch(() => {})
+    return
+  }
+  swapView(route, morph, zoom, false)
+}
+
+/**
+ * Mount the view for `route` and retire the previous one.
+ * `snapshotted` = the browser is already crossfading a captured frame for us,
+ * so the swap itself must be instant and unanimated.
+ */
+function swapView(route, morph, zoom, snapshotted) {
+  const old = current
   const view = makeView(route)
   const wrap = document.createElement('div')
   wrap.className = 'view enter'
   wrap.appendChild(view.el)
   stage.appendChild(wrap)
 
-  if (zoom) {
+  if (snapshotted) {
+    // the pseudo-elements carry the motion; the real DOM must already be at
+    // its resting state when the browser captures the "new" frame
+    wrap.classList.remove('enter')
+  } else if (zoom) {
     // incoming view fades up through the outgoing one — both are present for
     // the whole move, so the page never blanks to the backdrop
     wrap.classList.remove('enter')
@@ -84,7 +128,10 @@ function render() {
   }
 
   if (old) {
-    if (zoom) {
+    if (snapshotted) {
+      old.view.destroy?.()
+      old.el.remove()
+    } else if (zoom) {
       const r = old.el.getBoundingClientRect()
       const ox = Math.max(0, Math.min(r.width, morph.x - r.left))
       const oy = Math.max(0, Math.min(r.height, morph.y - r.top))
@@ -99,9 +146,9 @@ function render() {
   current = { el: wrap, view, route }
 
   crumb.innerHTML = crumbFor(route)
-  // aurora drift runs only where backdrop-filters are sparse (home); on the
-  // graph/metrics pages a moving backdrop re-rasters every glass surface
-  // every frame, which is what broke the 60fps gate
+  // Route stamp on <body>. It was added to gate the aurora drift to Home;
+  // the aurora is gone and no sheet reads it today, but it stays as the
+  // one hook a per-route rule can hang off without touching the router.
   document.body.dataset.route = route.name
   const activeName = route.name === 'agent' ? 'computers' : route.name
   navEl.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.dataset.route === activeName))
@@ -128,21 +175,76 @@ document.getElementById('nav-next').addEventListener('click', () => {
 
 /* ---------- settings drawer ---------- */
 const drawer = document.getElementById('drawer')
+const openSettingsBtn = document.getElementById('open-settings')
+
 /* `inert` (not just aria-hidden) keeps the CLOSED drawer out of the tab
    order — without it Tab walked through four off-screen controls, one of
-   them a 0x0 checkbox where Space silently toggled Reduce Motion. */
+   them a 0x0 checkbox where Space silently toggled Reduce Motion.
+
+   The guard is derived from the drawer's own state and applied to the
+   drawer ROOT, and a MutationObserver re-applies it whenever the drawer's
+   markup or its `inert` attribute changes — so adding, reordering or
+   replacing controls inside the drawer (another lane's edit, a future
+   setting) cannot quietly re-open that hole. Where `inert` is unsupported,
+   the same state is enforced by parking every focusable descendant at
+   tabindex="-1" and restoring whatever it had on the way back out. */
+const supportsInert = typeof HTMLElement !== 'undefined' && 'inert' in HTMLElement.prototype
+const FOCUSABLE = 'a[href], area[href], button, input, select, textarea, iframe, summary, [tabindex], [contenteditable]'
+let drawerOpen = false
+
+function enforceDrawerFocusGuard() {
+  const closed = !drawerOpen
+  if (supportsInert) {
+    // compare first: an unconditional write would re-trigger the observer
+    if (drawer.hasAttribute('inert') !== closed) drawer.toggleAttribute('inert', closed)
+    return
+  }
+  for (const node of drawer.querySelectorAll(FOCUSABLE)) {
+    if (closed) {
+      if (node.dataset.mcTabindex === undefined) {
+        node.dataset.mcTabindex = node.getAttribute('tabindex') ?? ''
+        node.setAttribute('tabindex', '-1')
+      }
+    } else if (node.dataset.mcTabindex !== undefined) {
+      const prev = node.dataset.mcTabindex
+      if (prev === '') node.removeAttribute('tabindex')
+      else node.setAttribute('tabindex', prev)
+      delete node.dataset.mcTabindex
+    }
+  }
+}
+
 const setDrawer = (open) => {
+  drawerOpen = open
   drawer.classList.toggle('open', open)
   drawer.setAttribute('aria-hidden', open ? 'false' : 'true')
-  if (open) drawer.removeAttribute('inert')
-  else drawer.setAttribute('inert', '')
+  enforceDrawerFocusGuard()
 }
-document.getElementById('open-settings').addEventListener('click', () => setDrawer(true))
-document.getElementById('close-settings').addEventListener('click', () => setDrawer(false))
+// childList/subtree + the inert attribute only: the fallback path writes
+// tabindex, which is deliberately outside the filter so it cannot loop.
+new MutationObserver(enforceDrawerFocusGuard).observe(drawer, {
+  childList: true, subtree: true, attributes: true, attributeFilter: ['inert'],
+})
+
+const closeDrawer = () => {
+  // an inert drawer cannot hold focus; hand it back to the control that
+  // opened it instead of dropping the user at the top of the document
+  const hadFocus = drawer.contains(document.activeElement)
+  setDrawer(false)
+  if (hadFocus) openSettingsBtn.focus()
+}
+openSettingsBtn.addEventListener('click', () => setDrawer(true))
+document.getElementById('close-settings').addEventListener('click', closeDrawer)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && drawerOpen) closeDrawer()
+})
 setDrawer(false)
 
 /* ---------- theme: white | tan (Gruvbox Light Soft) | black ----------
-   Applied to <html> before first paint below, and sticky across sessions.
+   Sticky across sessions. This module is deferred, so the *first paint* copy
+   of this read lives inline in index.html (same key, same guard) — without it
+   a tan/black user got a white flash on every load. Here it re-reads the same
+   value to sync the segmented control.
    localStorage can throw (private mode, quota), so every access is guarded
    and a failure simply means "use the default". */
 const THEME_KEY = 'mc.theme'

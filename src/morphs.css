@@ -9,6 +9,10 @@
   --morph-item: 340ms;      /* per-item crossfade inside the rail */
   --morph-out: 240ms;       /* per-item fade of the outgoing rail page */
   --morph-view: 500ms;      /* view → view shared-element morph */
+  /* plain route crossfade. Same role as .view's own .38s transition —
+     a whole surface entering — so it spends the structural motion step
+     when the scale is present, and mirrors .view exactly when it is not. */
+  --morph-route: var(--dur-3, 380ms);
 }
 
 /* ------------------------------------------------------------
@@ -89,6 +93,73 @@
   45%  { opacity: 0.72; }
   100% { opacity: 1; transform: none; }
 }
+
+/* ------------------------------------------------------------
+   4 · native View Transitions for the plain route crossfade
+   main.js feature-detects document.startViewTransition and, when it
+   exists, performs the route swap inside one — the browser crossfades a
+   snapshot of the old stage, so two live views (two graph canvases, two
+   rAF loops) never run at once. The .view.enter/.exit rules above stay
+   as the fallback and still own the zoom morph, which needs both views
+   genuinely on screen. Same curve and same displacement as .view.enter /
+   .view.exit, so the two paths are indistinguishable to the eye.
+   ------------------------------------------------------------ */
+@supports (view-transition-name: none) {
+  #stage { view-transition-name: mc-stage; }
+
+  /* The shell (topbar, crumb, drawer) is not what moves — crossfading its
+     near-identical pixels only adds a flicker, so the root snapshot swaps
+     outright. The old half must be taken out of the paint, not merely left
+     unanimated: the UA sheet blends old over new with plus-lighter, and two
+     fully opaque copies added together blow the topbar out to white. */
+  ::view-transition-old(root) { animation: none; display: none; }
+  ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+
+  ::view-transition-group(mc-stage) { animation-duration: var(--morph-route); }
+  ::view-transition-old(mc-stage) {
+    animation: mcRouteOut var(--morph-route) var(--ease, ease) both;
+  }
+  ::view-transition-new(mc-stage) {
+    animation: mcRouteIn var(--morph-route) var(--ease, ease) both;
+  }
+  /* the default plus-lighter blend is kept: the pair sums to opacity 1, so
+     there is no grey dip halfway through the fade */
+}
+@keyframes mcRouteOut { to   { opacity: 0; transform: translateY(-10px) scale(0.995); } }
+@keyframes mcRouteIn  { from { opacity: 0; transform: translateY(14px) scale(0.992); } }
+
+/* The OS-level preference, belt-and-braces — main.js also refuses to start a
+   transition when either the media query or body.reduce-motion is set (these
+   pseudo-elements hang off the document root, where no body.* selector can
+   reach them, so the runtime toggle has to be handled in JS). */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ------------------------------------------------------------
+   5 · settings drawer + theme segment on the space scale
+   These two carried hand-picked pixels (18 / 14 / 8 / 7 / 6) while the
+   rest of the shell moved onto --s1..--s5. Converted by the scale's own
+   rule: nearest step when within 2px, exact ties round DOWN, and 20px
+   stays literal because it is 4px from every step — as do the segment's
+   2px gap and 3px inset, which are the square-corner language rather
+   than spacing. Each declaration keeps the shipped value as its fallback,
+   so the sheet still renders standalone. Nothing renamed, nothing removed.
+   ------------------------------------------------------------ */
+.drawer-head { padding: var(--s4, 18px) 20px var(--s3, 14px); }
+.drawer-body {
+  padding: var(--s4, 18px) 20px;
+  gap: var(--s4, 18px);
+}
+.set-row { gap: var(--s2, 8px); }
+.theme-seg button { padding: var(--s2, 7px) var(--s1, 6px); }
+
+/* buildChat has no timestamp today; if one lands it must not jitter the row
+   as the seconds tick (the Comms sheet already does this for .cmsg-time). */
+.chat-log .msg time,
+.chat-log .msg .ts { font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------
    reduced motion — the base sheet already collapses durations;

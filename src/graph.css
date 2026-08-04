@@ -4,6 +4,52 @@
    reap deflate, re-root glide emphasis, dense focus ring.
    ============================================================ */
 
+/* ============================================================
+   MOTION WEIGHT — two registers, deliberately not one
+   Motion research finding: on this surface ONE front-loaded curve
+   (--ease, cubic-bezier(0.22,0.9,0.26,1)) was doing 88% of the work, so a
+   whole subtree re-rooting read with exactly the same weight as a bubble
+   being hovered. Nothing in the motion told you which of the two was the
+   big event. Two registers now:
+
+     MICRO — hover, press, drag lift, drop-ok. The shared --ease /
+       --ease-spring, on SHORTER durations inside the canvas (below). Micro
+       feedback should be over before you think about it; front-loaded is
+       exactly right for it.
+
+     STRUCTURAL — the re-root glide and the tree relayout: a whole
+       arrangement moving. --ease-structural is the one curve this lane
+       adds. cubic-bezier(0.42, 0, 0.18, 1): y1 = 0, i.e. ZERO initial
+       velocity — mass has to be got moving — then a long, settled approach.
+       Measured against the shared curve: at u=0.20 it has covered 12% of
+       the distance where --ease has covered 68%, and at u=0.33, 45% vs 86%.
+       That first third is where the extra weight is actually felt. (It is
+       the same family as the Material "emphasized" standard, 0.4/0/0.2/1 —
+       a known-good structural curve, not an invented one.)
+
+   graph.js mirrors the same four numbers in EASE_STRUCTURAL for the two
+   structural moves that are rAF tweens on fx/fy rather than CSS
+   transitions. If this curve changes, change those too — it is one curve.
+   ============================================================ */
+.graph-zoom-host, .graph-canvas {
+  --ease-structural: cubic-bezier(0.42, 0, 0.18, 1);
+}
+
+/* MICRO register. styles.css gives .node-glass a 0.45s var(--ease) /
+   var(--ease-spring) transition — a genuinely structural duration spent on
+   hover and press. Inside the graph the same states resolve in ~0.2s so
+   they read as *response*, not as *movement*; the structural moves keep the
+   long durations. Additive: same properties, same easings, shorter times.
+   (.node.bloom and .node.rerooting below restate their own longer
+   transitions at higher specificity and are unaffected.) */
+.graph-canvas .node-glass {
+  transition:
+    box-shadow 0.22s var(--ease),
+    border-color 0.22s var(--ease),
+    transform 0.19s var(--ease-spring),
+    background 0.3s var(--ease);
+}
+
 /* --- hover ripple: one crisp ring expanding from the bubble edge ---
    professional-pass: was a blurred colored halo; now a plain outline, no
    glow — the shape of the ripple carries the affordance, not a bloom. */
@@ -24,13 +70,25 @@
   100% { opacity: 0;    transform: scale(1.6); }
 }
 
-/* --- drag release: brief squash-stretch settle (~0.97 overshoot) --- */
+/* --- drag release: squash-stretch settle, keyed to the ACTUAL throw ---
+   Motion research finding: this settle was a fixed 500ms with a fixed
+   ~0.97 overshoot regardless of throw energy, so setting a bubble down
+   gently rebounded exactly as hard as flinging it across the canvas — the
+   surface's one genuinely physical moment was reporting the same number
+   every time. graph.js already measures release velocity for the fling; it
+   now writes that same measurement here before adding .settling:
+     --settle-amp  0.18 (a barely-there tick) … 1 (the full old bounce)
+     --settle-dur  260ms (gentle) … 560ms (capped fling)
+   Both carry defaults so the old feel survives if the vars are ever absent
+   (e.g. a settle triggered from outside wireInteractions). */
 .node.settling .node-glass {
-  animation: nodeSettle 0.5s var(--ease-spring) both;
+  animation: nodeSettle var(--settle-dur, 0.5s) var(--ease-spring) both;
 }
 @keyframes nodeSettle {
-  0%   { transform: scale(1.07, 1.03); }
-  55%  { transform: scale(0.965, 0.985); }
+  0%   { transform: scale(calc(1 + 0.070 * var(--settle-amp, 1)),
+                          calc(1 + 0.030 * var(--settle-amp, 1))); }
+  55%  { transform: scale(calc(1 - 0.035 * var(--settle-amp, 1)),
+                          calc(1 - 0.015 * var(--settle-amp, 1))); }
   100% { transform: scale(1); }
 }
 
@@ -73,6 +131,11 @@
    coming forward" — it no longer also needs a colored halo to sell it. */
 .node.rerooting { z-index: 7; }
 .node.rerooting .node-glass {
+  /* STRUCTURAL register: the lift must rise with the glide it belongs to
+     (graph.js: STRUCTURAL_MS, ease EASE_STRUCTURAL), not snap in at the
+     micro speed the rest of this bubble's states now use. */
+  transition: box-shadow 0.68s var(--ease-structural),
+              border-color 0.68s var(--ease-structural);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
     0 18px 40px -14px rgba(14, 23, 38, 0.34),
@@ -90,9 +153,21 @@
   position: absolute; inset: -2px;
   border-radius: 50%;
   border: 1.5px solid color-mix(in oklab, var(--rc, #00a9d8) 55%, transparent);
-  opacity: 0;
+  opacity: 0;                        /* RESTING state — present, silent */
   pointer-events: none;
-  animation: focusRing 1.9s ease-in-out infinite;
+}
+/* Motion research finding: this pulse was `infinite` — an idle loop running
+   forever on an otherwise resting canvas, on every focusable bubble at once.
+   An attractor that never stops stops being an attractor; it becomes
+   wallpaper (and keeps compositing work alive on a still page). It now runs
+   FOCUS_PULSES cycles — enough to be caught in peripheral vision, short
+   enough to end — driven by graph.js adding .ring-awake at the moment a node
+   BECOMES focusable, and re-arming it on pointerenter, which is exactly when
+   "does this bubble hide a branch?" is the live question. Rest is the
+   default; motion is the exception. Keep this rule ABOVE the tree-mode and
+   reduced-motion overrides below — they tie on specificity and win on order. */
+.graph-canvas .node.focusable.ring-awake .node-glass::before {
+  animation: focusRing 1.9s ease-in-out 3;
 }
 @keyframes focusRing {
   0%   { opacity: 0;   transform: scale(0.97); }
@@ -188,6 +263,23 @@ body.reduce-motion .graph-canvas .node.focusable .node-glass::before {
   animation: none !important;
 }
 body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none; }
+/* The tier guides' draw-in delay is written inline by graph.js from the live
+   layout duration. Under reduced motion there is no layout animation to wait
+   for, so the hairlines must be present immediately rather than sit
+   invisible through a delay that no longer corresponds to anything. The
+   stylesheet !important beats the (non-important) inline animation-delay.
+   The OS-level query is covered too: styles.css zeroes durations there but
+   graph.js's prefersCalm() only reads the body toggle, so the inline delay
+   would still be written. */
+body.reduce-motion .tier-guide,
+body.reduce-motion .graph-canvas .tier-guide {
+  animation-delay: 0ms !important;
+  transition: none !important;
+  transform: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tier-guide { animation-delay: 0ms !important; transform: none !important; }
+}
 
 /* ============================================================
    C8 — hierarchy edit mode
@@ -227,14 +319,31 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 }
 .graph-wrap.editing .graph-edit-note { opacity: 1; transform: none; }
 
-/* tier guides: calm dashed hairlines under the locked rows */
+/* tier guides: calm dashed hairlines under the locked rows.
+   Motion research finding: these drew in on a FIXED 0.15s delay, so the
+   hairlines were arriving while the bubbles were still flying to their
+   slots — the guide claimed a row that did not exist yet, and the two
+   motions competed for the same moment. The delay is now written inline by
+   graph.js from the layout tween's REAL duration (_layoutTree's D, plus a
+   short beat), so the rows are stated only once the arrangement they
+   describe has actually settled. Consequence, not accompaniment.
+   The draw-in is a genuine draw (a hairline widening from its centre) on
+   the structural curve, since this is part of the same structural event;
+   `both` holds it at the 0% frame for the whole inline delay.
+   `transition: top` lets a relayout that keeps the same number of tiers
+   MOVE its guides instead of blinking them out (see _renderTierGuides). */
 .tier-guide {
   position: absolute; left: 28px; right: 28px; height: 0; z-index: 0;
   border-top: 1px dashed var(--line-2);
-  opacity: 0; animation: tierIn 0.55s var(--ease) 0.15s forwards;
+  opacity: 0; transform: scaleX(0.55); transform-origin: 50% 50%;
+  animation: tierIn 0.5s var(--ease-structural) both;
+  transition: top 0.62s var(--ease-structural);
   pointer-events: none;
 }
-@keyframes tierIn { to { opacity: 1; } }
+@keyframes tierIn {
+  from { opacity: 0; transform: scaleX(0.55); }
+  to   { opacity: 1; transform: scaleX(1); }
+}
 
 /* edit-mode canvas: dashed tree edges, chips asleep, grab cursors */
 /* Dashes mean "you are editing", nothing else. The tidy Tree VIEW draws

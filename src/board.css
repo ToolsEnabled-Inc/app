@@ -235,7 +235,19 @@
 }
 
 .board-page .ctl-row { padding: 8px 0; gap: 12px; }
-.board-page .ctl-row .cv { color: var(--ink-2); }
+/* The value column decided its own width, so the three rows ended their
+   sliders at three different x positions ("124k" is four mono characters,
+   "20m" three, "high" four). Reserving the widest value's advance — 4ch,
+   which in a monospaced face is exactly four character widths — locks the
+   values and the slider ends onto one vertical edge. Tabular figures are
+   inherited from styles.css and restated because the alignment now depends
+   on the fixed advance rather than merely reading better for it. */
+.board-page .ctl-row .cv {
+  color: var(--ink-2);
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 /* inside the box the row has ~26px less width than it does on the stats
    page, so the slider gives that back instead of the row overflowing */
 .board-page .ctl-row input[type="range"] {
@@ -281,6 +293,76 @@
    ------------------------------------------------------------ */
 @media (max-width: 1180px) {
   .board-page .board-box { padding: 11px 11px 13px; }
+}
+
+/* ------------------------------------------------------------
+   8 · task chips: completion is now a moment, not a re-render
+
+   computers.js used to rebuild the whole chip list on every sim tick, so a
+   task being ticked off arrived as eight elements being destroyed and eight
+   new ones springing in. Now the chip that completed keeps its identity and
+   only gains .done, which means the change can finally be shown as a
+   change: the label crosses out and steps down the ink ramp over one
+   standard duration instead of the row blinking. Role colour is untouched —
+   chips are the identity half of the palette and stay so.
+   ------------------------------------------------------------ */
+.computers .task-chip {
+  transition: color var(--dur-2, 240ms) var(--ease);
+}
+.computers .task-chip i {
+  transition: opacity var(--dur-2, 240ms) var(--ease);
+}
+
+/* ------------------------------------------------------------
+   9 · the two floating graph controls — Tree|Physics and Edit
+
+   Both pills sit on the same top edge of the graph card, side by side, and
+   were built independently: the segment was padding 3px around 6/12px
+   buttons at radius 4px, the Edit button padding 8/16px at radius 3px. That
+   arithmetic lands them at 32.5px and 30.5px tall, so two adjacent controls
+   on a shared top:14px were visibly off by 2px along their bottom edges,
+   and the segment's 4px corner was the one box on this page still off the
+   settled 3px square register.
+
+   Fixed here rather than in graph.css because that sheet belongs to the
+   graph lane this wave; every selector below is scoped to .computers, so
+   the agent page's own graph strip is untouched. Interior spacing reads
+   from the tokens lane's space scale (--s1..--s5) with literal fallbacks,
+   so the rules stand on their own if load order or a rename ever loses the
+   tokens. The two horizontal paddings stay literal on purpose: these pills
+   are positioned by fixed right: offsets, so their WIDTHS are the only
+   thing keeping them from colliding, and width is not a dimension to hand
+   to a variable that another sheet owns.
+   ------------------------------------------------------------ */
+.computers .graph-wrap {
+  --gc-h: 32px;                     /* one height for both floating controls */
+}
+.computers .graph-layout-seg {
+  height: var(--gc-h);
+  padding: var(--s1, 4px);
+  gap: var(--s1, 4px);
+  border-radius: var(--r-md, 3px);
+}
+.computers .graph-layout-seg button {
+  display: inline-flex; align-items: center;
+  padding: 0 12px;
+  border-radius: var(--r-sm, 2px);
+}
+.computers .graph-edit-btn {
+  height: var(--gc-h);
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 16px;
+  border-radius: var(--r-md, 3px);
+}
+/* The edit caption was parked at top:22px / right:96px and the segment at
+   top:14px / right:94px — the same rectangle. Because edit mode forces the
+   tree, the segment is only dimmed to .locked rather than removed, so for
+   the whole of edit mode a ~200px nowrap caption was drawn straight through
+   a still-visible control. The caption moves to its own line under the
+   buttons, right-aligned to the Edit button it belongs to. */
+.computers .graph-edit-note {
+  top: calc(14px + var(--gc-h) + var(--s2, 8px));
+  right: 16px;
 }
 
 /* ------------------------------------------------------------

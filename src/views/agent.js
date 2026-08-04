@@ -292,6 +292,7 @@ export function agentView({ compId, agentId, navigate }) {
   // enough on its own though — placeOpenChips() (below) re-anchors the
   // revealed chip every frame so its own position also clears every
   // other node's footprint, not just this page's canvas edges.
+  const openHint = new Set()
   function pairChip(chipEl) {
     const nodeEl = chipEl.previousElementSibling
     if (!nodeEl?.classList?.contains('node') || nodeEl.querySelector('.cx-badge')) return
@@ -301,8 +302,15 @@ export function agentView({ compId, agentId, navigate }) {
     badge.appendChild(document.createElement('span'))
     nodeEl.appendChild(badge)
     let closeT
-    const open = () => { clearTimeout(closeT); chipEl.classList.add('cx-open') }
-    const scheduleClose = () => { clearTimeout(closeT); closeT = setTimeout(() => chipEl.classList.remove('cx-open'), 260) }
+    // openHint is only a "there may be work" flag for the frame loop below —
+    // the authoritative set is still the live DOM query in placeOpenChips(),
+    // so a chip that is removed or morphed while revealed self-heals rather
+    // than pinning the loop awake.
+    const open = () => { clearTimeout(closeT); chipEl.classList.add('cx-open'); openHint.add(chipEl) }
+    const scheduleClose = () => {
+      clearTimeout(closeT)
+      closeT = setTimeout(() => { chipEl.classList.remove('cx-open'); openHint.delete(chipEl) }, 260)
+    }
     badge.addEventListener('mouseenter', open)
     badge.addEventListener('focus', open)
     badge.addEventListener('mouseleave', scheduleClose)
@@ -324,6 +332,13 @@ export function agentView({ compId, agentId, navigate }) {
   // Runs every frame (see loop() below); no-ops instantly whenever no chip
   // is open, so it costs nothing outside an actual hover/focus reveal.
   function placeOpenChips() {
+    // "no-ops instantly" was not quite true: the function still ran a full
+    // querySelectorAll over the graph canvas on every one of the sixty frames
+    // a second in which nothing at all was revealed. openHint (maintained by
+    // the badge's own open/close handlers) plus the placements map together
+    // say whether any work can possibly exist, so the resting cost is now two
+    // integer reads instead of a DOM query.
+    if (!openHint.size && !placements.size) return
     const now = performance.now()
     // hand positioning back to graph.js's own transform once a chip is no
     // longer revealed — immediately if it morphed into the inline chat (which
@@ -342,7 +357,10 @@ export function agentView({ compId, agentId, navigate }) {
       }
     }
     const openChips = canvas.querySelectorAll('.chip.cx-open:not(.as-chat)')
-    if (!openChips.length) return
+    // the DOM is the authority: if nothing is actually revealed, drop the hint
+    // (this is what clears an entry whose chip was removed or morphed to chat
+    // while still open) and let the loop go back to resting
+    if (!openChips.length) { openHint.clear(); return }
     const canvasW = canvas.clientWidth, canvasH = canvas.clientHeight
     if (!canvasW || !canvasH) return
     // every node's bubble disc + name/role rows, own node included — the own
@@ -476,8 +494,22 @@ export function agentView({ compId, agentId, navigate }) {
     btn.classList.add('armed')
   }))
 
-  let raf
-  const loop = () => { ring.update(); placeOpenChips(); raf = requestAnimationFrame(loop) }
+  // The runtime ring is a live clock, so this loop legitimately has to keep a
+  // heartbeat — but it does not need sixty of them a second. The sweep
+  // advances 6° per minute, so at ~12Hz the arc tip still moves well under a
+  // pixel between updates while the two SVG attribute writes per frame drop by
+  // five sixths; the digits only change once a second and update() already
+  // short-circuits when the second has not rolled. Chip placement, which does
+  // need every frame, now only asks for one while a chip is genuinely open
+  // (see placeOpenChips) — so at rest this loop does a subtraction and two
+  // size checks and nothing else.
+  let raf = 0
+  let lastRingAt = 0
+  const loop = (ts) => {
+    if (ts - lastRingAt >= 80) { lastRingAt = ts; ring.update() }
+    placeOpenChips()
+    raf = requestAnimationFrame(loop)
+  }
   raf = requestAnimationFrame(loop)
 
   return {

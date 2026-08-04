@@ -645,6 +645,28 @@ export function commsView() {
   const chipLabel = chip.querySelector('.jl')
   const reduced = () => document.body.classList.contains('reduce-motion')
 
+  /* ---- one-shot event animations ----
+     Nothing on this page animates at rest. Anything that moves is reporting
+     that something just happened, so every animation is a class added at the
+     moment of the event and cleared when it ends — restartable if the event
+     repeats mid-flight, and leaving no state behind that could keep moving. */
+  function oneShot(node, cls) {
+    if (!node) return
+    node.classList.remove(cls)
+    void node.offsetWidth              // force restart when it fires again
+    node.classList.add(cls)
+  }
+  const liveDot = root.querySelector('.head-live i')
+  liveDot.addEventListener('animationend', () => liveDot.classList.remove('beat'))
+  let lastBeat = 0
+  function beatLive(forMode) {
+    if (W.mode !== forMode) return      // the indicator reports the feed being read
+    const now = performance.now()
+    if (now - lastBeat < 1600) return   // a burst coalesces into one beat, never a strobe
+    lastBeat = now
+    oneShot(liveDot, 'beat')
+  }
+
   /* ---- channel rail (pinned entry on top, then the working channels) ---- */
   const railItems = new Map()
   CHANNELS.forEach((def, i) => {
@@ -657,6 +679,8 @@ export function commsView() {
       </button>
     `)
     item.addEventListener('click', () => switchChannel(def.id))
+    const dot = item.querySelector('.ch-dot')
+    dot.addEventListener('animationend', () => dot.classList.remove('ping'))
     listEl.appendChild(item)
     railItems.set(def.id, item)
     if (i === 0) listEl.appendChild(el(`<div class="ch-rail-sep"></div>`))
@@ -716,6 +740,8 @@ export function commsView() {
     history[id].push(m)
     if (history[id].length > 80) history[id].splice(0, history[id].length - 80)
 
+    beatLive('channels')
+
     if (id === state.active) {
       const dk = dayKeyOf(m.at)
       if (dk !== state.lastDayKey) { logEl.appendChild(dividerEl(dk)); state.lastDayKey = dk }
@@ -728,7 +754,10 @@ export function commsView() {
       }
     } else {
       state.unread.add(id)
-      railItems.get(id).classList.add('has-unread')
+      const item = railItems.get(id)
+      item.classList.add('has-unread')
+      // the arrival gets the light; the unread dot itself rests flat
+      oneShot(item.querySelector('.ch-dot'), 'ping')
     }
   }
 
@@ -1300,9 +1329,8 @@ export function commsView() {
         if (!box._hover && box._chatFollow) log.scrollTop = log.scrollHeight
       }
     }
-    box.classList.remove('pulse')
-    void box.offsetWidth
-    box.classList.add('pulse')
+    oneShot(box, 'pulse')
+    beatLive('watch')
   }
   let watchT = 0
   const watchSchedule = () => {

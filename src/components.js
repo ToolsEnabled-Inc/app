@@ -12,6 +12,21 @@ export const el = (html) => {
 let gradSeq = 0
 
 /**
+ * FNV-1a — a small, stable string hash. Used where a value has to be
+ * *arbitrary but the same every time* (see buildChat's seeded history):
+ * Math.random() there produced a different past for the same conversation
+ * on every open, which reads as data being invented in front of the user.
+ */
+function hashString(s) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+/**
  * Big glowing uptime ring. Returns { el, update, destroy }.
  * update() re-renders digits + arc from the epoch.
  */
@@ -145,7 +160,12 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
 
   const log = root.querySelector('.chat-log')
   const input = root.querySelector('input')
-  const start = Math.floor(Math.random() * (CHAT.length - seed))
+  // The seeded excerpt is the conversation's *past*, so it must not change
+  // between opens: the title is the conversation's identity, so the window
+  // into CHAT is derived from it rather than re-rolled with Math.random().
+  // Re-opening the same agent's chat now replays the same history.
+  const span = Math.max(1, CHAT.length - seed)
+  const start = hashString(String(title ?? '')) % span
   const history = CHAT.slice(start, start + seed)
 
   const addMsg = (from, text, who) => {
@@ -175,12 +195,29 @@ export function sparkline({ points, w = 150, h = 34, color = '#00a9d8', scaleMax
   // scaleMax lets a set of sparklines share one ceiling. Without it every
   // spark normalises to its own extremes, so a flat series and a volatile
   // one render identical amplitude — shape without magnitude.
-  const min = scaleMax != null ? 0 : Math.min(...points)
-  const max = scaleMax != null ? scaleMax : Math.max(...points)
-  const nx = (i) => (i / (points.length - 1)) * (w - 8) + 4
-  const ny = (v) => h - 5 - ((v - min) / (max - min || 1)) * (h - 10)
-  const d = points.map((v, i) => `${i ? 'L' : 'M'}${nx(i).toFixed(1)} ${ny(v).toFixed(1)}`).join(' ')
-  const lx = nx(points.length - 1), ly = ny(points[points.length - 1])
+  const DOT_R = 4, DOT_RING = 2                    // end marker radius + its ring
+  const series = (Array.isArray(points) ? points : [])
+    .map(v => (Number.isFinite(v) ? v : 0))
+  if (!series.length) series.push(0)
+  const min = scaleMax != null ? 0 : Math.min(...series)
+  const max = scaleMax != null ? scaleMax : Math.max(...series)
+  const spread = (max - min) || 1
+  // Vertical padding is the end marker's own footprint, not a magic 5. On a
+  // shared ceiling a quiet series sits on the baseline (t≈0) and its marker
+  // used to reach exactly h — the outer half of the ring fell off the bottom
+  // of the viewBox (SVG clips by default), so the flattest agent in the table
+  // looked like a shaved dot rather than a low line. Same at the top for the
+  // series that defines the ceiling.
+  const padY = Math.min(h / 2, DOT_R + DOT_RING / 2 + 0.5)
+  const nx = (i) => (series.length > 1 ? (i / (series.length - 1)) * (w - 8) : (w - 8) / 2) + 4
+  const ny = (v) => {
+    // clamp so a point above scaleMax (or below a zero floor) bends to the
+    // edge of the box instead of drawing outside it and being cut off
+    const t = Math.min(1, Math.max(0, (v - min) / spread))
+    return h - padY - t * (h - padY * 2)
+  }
+  const d = series.map((v, i) => `${i ? 'L' : 'M'}${nx(i).toFixed(1)} ${ny(v).toFixed(1)}`).join(' ')
+  const lx = nx(series.length - 1), ly = ny(series[series.length - 1])
   return el(`
     <svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
       <path d="${d}" fill="none" stroke="var(--chart-spark)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>

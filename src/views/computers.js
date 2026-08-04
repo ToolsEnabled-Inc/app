@@ -13,18 +13,35 @@
 // square box, and square legend swatches. Only the board's internal boxes are
 // square — the rail glass card keeps its own shape (see board.css).
 
+import { ticks as d3ticks } from 'd3-array'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES } from '../vocab.js'
 import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip } from '../components.js'
 import { FleetGraph } from '../graph.js'
 import '../board.css'
 
+/* The Load bars used to be painted in ROLE hues — CPU in --c-coordinator,
+   GPU in --c-helper, Network in --c-shadow, Disk in --c-manager — while the
+   Legend forty pixels further down the same rail spells out that those exact
+   four hues mean Coordinator / Helper / Shadow / Manager. One palette was
+   carrying two unrelated meanings in one scroll, which is the same
+   triple-duty collision the metrics lane is splitting.
+
+   Resolution, consistent with that split: colour stays reserved for IDENTITY
+   (task chips and the legend keep their role hues, deliberately), and the
+   four load bars — which are four samples of one quantity, already told
+   apart by their labels — move to the neutral ink ramp. The value comes
+   through a --m-* token so that if the metrics lane lands a dedicated
+   provider/metric palette the rail joins it by defining one variable,
+   without another edit here; until then the fallback is what paints. */
 const BAR_DEFS = [
-  { key: 'cpu', label: 'CPU', c: 'var(--c-coordinator)', g: 'var(--g-coordinator)' },
-  { key: 'gpu', label: 'GPU', c: 'var(--c-helper)', g: 'var(--g-helper)' },
-  { key: 'net', label: 'Network', c: 'var(--c-shadow)', g: 'var(--g-shadow)' },
-  { key: 'disk', label: 'Disk', c: 'var(--c-manager)', g: 'var(--g-manager)' },
+  { key: 'cpu', label: 'CPU' },
+  { key: 'gpu', label: 'GPU' },
+  { key: 'net', label: 'Network' },
+  { key: 'disk', label: 'Disk' },
 ]
+const BAR_C = 'var(--m-load, var(--ink-2))'
+const BAR_G = 'var(--m-load-soft, var(--ink-3))'
 
 /* ---------- morph constants (mirrored in morphs.css) ---------- */
 const MORPH_EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
@@ -150,12 +167,28 @@ function agentChartBox(agent) {
       <line class="bc-tick" x1="${x0 - 3.5}" y1="${g.y(v)}" x2="${x0}" y2="${g.y(v)}"/>
       <text class="bc-t" x="${x0 - 8}" y="${g.y(v) + 4.5}" text-anchor="end">${v}</text>`
 
+    // The value axis' stops used to be three hand-written calls — yTick(0),
+    // yTick(50), yTick(100) — and the single gridline was separately hardcoded
+    // at 50, so the label set and the grid were two facts that merely happened
+    // to agree, and neither knew how tall the plot actually was. d3-array's
+    // ticks() picks canonical 1/2/5 stops for the 0–100 domain, and the count
+    // is derived from the real plot height at ~34px per label so the labels can
+    // never crowd below the 12.5px type floor (a shorter box now drops a stop
+    // instead of overlapping its neighbours). Every gridline is now literally
+    // one of the labelled stops, so the grid cannot mean something the axis
+    // does not say. At today's 74px plot this still resolves to 0 / 50 / 100.
+    const yVals = d3ticks(0, 100, Math.max(1, Math.min(5, Math.round((yBot - yTop) / 34))))
+    const gridLines = yVals
+      .filter(v => v > 0 && v < 100)
+      .map(v => `<line class="bc-gl bc-chrome" x1="${x0}" y1="${g.y(v)}" x2="${x1}" y2="${g.y(v)}"/>`)
+      .join('')
+
     // once the board has drawn itself in, a later resize rebuilds the frame
     // finished — the axes must not re-draw every frame of a window drag
     canvas.innerHTML = `
       <svg class="bchart ${introDone ? 'bc-static' : ''}" width="${w}" height="${CHART_H}" viewBox="0 0 ${w} ${CHART_H}"
            role="img" aria-label="${agent.name} activity over the last ${CHART_SPAN_MIN} minutes">
-        <line class="bc-gl bc-chrome" x1="${x0}" y1="${g.y(50)}" x2="${x1}" y2="${g.y(50)}"/>
+        ${gridLines}
         <path class="bc-area" d=""/>
         <path class="bc-line" d=""/>
         <circle class="bc-pulse" r="5" cx="${x1}" cy="${g.y(50)}"/>
@@ -165,7 +198,7 @@ function agentChartBox(agent) {
         <line class="bc-ax bc-ax-y" x1="${x0}" y1="${yBot}" x2="${x0}" y2="${yTop}" style="--len:${(yBot - yTop).toFixed(1)}px"/>
         <line class="bc-ax bc-ax-x" x1="${x0}" y1="${yBot}" x2="${x1}" y2="${yBot}" style="--len:${(x1 - x0).toFixed(1)}px"/>
         <g class="bc-chrome">
-          ${yTick(0)}${yTick(50)}${yTick(100)}
+          ${yVals.map(yTick).join('')}
           <text class="bc-t" x="${x0 - 2}" y="${yBot + 20}" text-anchor="start">-${CHART_SPAN_MIN}m</text>
           <text class="bc-t" x="${(x0 + x1) / 2}" y="${yBot + 20}" text-anchor="middle">-${CHART_SPAN_MIN / 2}m</text>
           <text class="bc-t" x="${x1}" y="${yBot + 20}" text-anchor="end">now</text>
@@ -718,7 +751,7 @@ export function computersView({ initialComputer = null, navigate }) {
           ${BAR_DEFS.map(b => `
             <div class="bar-row" data-k="${b.key}">
               <span class="bl">${b.label}</span>
-              <div class="bar-track"><div class="bar-fill" style="--bc:${b.c};--bg-glow:${b.g};width:0%"></div></div>
+              <div class="bar-track"><div class="bar-fill" style="--bc:${BAR_C};--bg-glow:${BAR_G};width:0%"></div></div>
               <span class="bv">0%</span>
             </div>`).join('')}
         </div>
@@ -756,14 +789,41 @@ export function computersView({ initialComputer = null, navigate }) {
     }
   }
 
+  // Task chips stay ROLE-coloured — they are the identity half of the palette
+  // split above, and that is deliberate, not an oversight.
+  //
+  // What changed is the churn: this used to do `list.innerHTML = ''` and
+  // rebuild all eight chips on every 'tasks' event (~5s), so styles.css's
+  // chipIn spring entrance — which is declared on .task-chip itself and
+  // therefore plays once per ELEMENT — replayed on every chip every time,
+  // making the whole block hop on a timer even when the only thing that had
+  // happened was one task being ticked off. Reconciling by task id makes the
+  // entrance event-driven again: a new element exists only when a genuinely
+  // new task arrives, a completed task just gains .done in place, and a tick
+  // where nothing moved touches no DOM at all.
   function updateTasks() {
     const list = statsPage.querySelector('.task-list')
     if (!list) return
-    list.innerHTML = ''
-    for (const t of computer.tasks.slice(0, 8)) {
-      const r = ROLES[t.role]
-      list.appendChild(el(`<span class="task-chip ${t.done ? 'done' : ''}" style="--tc:${r.hex};--tg:${r.glow}"><i></i>${t.text}</span>`))
+    const want = computer.tasks.slice(0, 8)
+    const have = new Map()
+    for (const node of list.children) have.set(node.dataset.taskId, node)
+    let prev = null
+    for (const t of want) {
+      let node = have.get(t.id)
+      if (node) {
+        have.delete(t.id)
+      } else {
+        const r = ROLES[t.role] || ROLES.default
+        node = el(`<span class="task-chip" data-task-id="${t.id}" style="--tc:${r.hex};--tg:${r.glow}"><i></i>${t.text}</span>`)
+      }
+      node.classList.toggle('done', !!t.done)
+      // a no-op when the chip is already in position, so an unchanged tick
+      // performs zero insertions
+      const at = prev ? prev.nextSibling : list.firstChild
+      if (node !== at) list.insertBefore(node, at)
+      prev = node
     }
+    for (const node of have.values()) node.remove()
   }
 
   /* ---------- rail: the board (the morph target) ---------- */
@@ -879,6 +939,7 @@ export function computersView({ initialComputer = null, navigate }) {
     chart.intro(mi * STAGGER_MS + 110)
 
     hidePage(statsPage, 'off-l')
+    startLoop()          // the board is the only thing that needs a frame loop
   }
 
   /* ---------- boot ---------- */
@@ -890,9 +951,27 @@ export function computersView({ initialComputer = null, navigate }) {
   unsubs.push(sim.on('tasks', updateTasks))
   unsubs.push(sim.on('spawn', ({ comp }) => { if (comp === computer) updateBars() }))
 
-  let raf
-  const loop = (ts) => { ctlRing?.update(); chart?.tick(ts); raf = requestAnimationFrame(loop) }
-  raf = requestAnimationFrame(loop)
+  // The rAF used to be started at boot and never stopped, so on the DEFAULT
+  // rail state — Runtime Statistics, where both ctlRing and chart are null —
+  // it woke sixty times a second, forever, to do exactly nothing. It now runs
+  // only while the board is genuinely mounted, and parks itself on the first
+  // frame after the board is torn down; showControls() restarts it.
+  //
+  // The runtime ring is additionally throttled to ~12Hz: its sweep advances
+  // 6° per minute, so rewriting two SVG stroke-dasharray attributes every
+  // frame bought no visible smoothness (at 12Hz the arc tip moves well under
+  // a pixel per step). The chart is deliberately NOT throttled — its easing is
+  // a per-frame fraction, so dropping frames there would change the animation
+  // itself and not merely its cost.
+  let raf = 0
+  let lastRingAt = 0
+  const loop = (ts) => {
+    if (!ctlRing && !chart) { raf = 0; return }             // rest, don't spin
+    if (ctlRing && ts - lastRingAt >= 80) { lastRingAt = ts; ctlRing.update() }
+    chart?.tick(ts)
+    raf = requestAnimationFrame(loop)
+  }
+  const startLoop = () => { if (!raf) raf = requestAnimationFrame(loop) }
 
   return {
     el: root,

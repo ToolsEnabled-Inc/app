@@ -15,6 +15,59 @@
    metrics.js next to the geometry they belong to.
    ------------------------------------------------------------ */
 
+/* ------------------------------------------------------------
+   PROVIDER SERIES PALETTE — scoped to .metrics on purpose.
+
+   The research finding: one palette was doing THREE jobs at once. The four
+   PROVIDER series in the token chart, the six ROLE dots in the agent table,
+   and the three account POOLS all drew from the same five hexes in
+   src/vocab.js, so a cyan band in the stacked area and a cyan dot in the
+   table below implied a relationship that does not exist. Colour must
+   follow one entity, never three.
+
+   Roles keep the saturated set (they are the shell's identity system and are
+   shared by every view). Providers move here, to a MUTED categorical set —
+   lower chroma, wider lightness spread, and four hue families the role
+   palette does not occupy (plum 332, moss 128, brick 28, indigo 302 vs the
+   roles' cyan 227 / orange 53 / mint 165 / blue 268 / yellow 84).
+
+   Values are computed, not eyeballed — validated with the dataviz palette
+   validator against every theme surface:
+     light on #ffffff  · adjacent CVD ΔE 15.3 · normal-vision 23.9 · all >= 3:1
+     light on #fbf1c7  · adjacent CVD ΔE 15.3 · normal-vision 23.9 · all >= 3:1
+     dark  on #14171b  · adjacent CVD ΔE 12.0 · normal-vision 20.9 · all >= 3:1
+   Nearest role hue is ΔE 11.3–20.9 away in every theme, so no provider band
+   can be mistaken for a role dot.
+
+   Scoped to .metrics rather than added to src/styles.css because that file
+   belongs to another lane this wave.
+   ------------------------------------------------------------ */
+.metrics {
+  --prov-codex:  #98568f;   /* plum   L .550 C .115 h 332 */
+  --prov-claude: #719340;   /* moss   L .619 C .118 h 128 */
+  --prov-gemini: #90372f;   /* brick  L .460 C .122 h  28 */
+  --prov-local:  #9779c5;   /* indigo L .635 C .115 h 301 */
+
+  /* Stacked-area fill alphas, band 0 (baseline) → band 3 (top).
+     Four identical washes at 0.1 muddied every boundary; a descending ramp
+     gives the stack an implied light direction and keeps the band that is
+     read against the axis the most substantial one. */
+  --area-a0: 0.30;
+  --area-a1: 0.22;
+  --area-a2: 0.16;
+  --area-a3: 0.11;
+}
+:root[data-theme="black"] .metrics {
+  --prov-codex:  #9b5392;   /* dark-band steps: re-selected against #14171b, */
+  --prov-claude: #7f9e37;   /* not an automatic lightening of the light set  */
+  --prov-gemini: #ac4a41;
+  --prov-local:  #9f80cd;
+  --area-a0: 0.26;
+  --area-a1: 0.19;
+  --area-a2: 0.14;
+  --area-a3: 0.10;
+}
+
 /* ---------- glass filter row ---------- */
 .m-filter {
   display: flex;
@@ -135,14 +188,55 @@
 .f-row.hot .fbar { opacity: 0.82; }
 .f-row.hot .flabel { fill: var(--ink); }
 
-.dseg {
-  cursor: default;
-  transition: stroke-width .3s var(--ease), opacity .25s var(--ease);
+/* stacked-area bands — differentiated alphas, deepest band strongest */
+.tk-area[data-band="0"] { fill-opacity: var(--area-a0, 0.30); }
+.tk-area[data-band="1"] { fill-opacity: var(--area-a1, 0.22); }
+.tk-area[data-band="2"] { fill-opacity: var(--area-a2, 0.16); }
+.tk-area[data-band="3"] { fill-opacity: var(--area-a3, 0.11); }
+/* a 5th provider added to vocab.js later would have no band rule; keep it
+   visible at the faintest step rather than fully opaque */
+.tk-area { fill-opacity: var(--area-a3, 0.11); }
+
+/* ---------- verdict split: one 100% stacked bar + a hero total ----------
+   Replaced the donut. An arc solver spent ~40 lines of trigonometry to make
+   three numbers harder to compare than a bar does for free: angle is the
+   least accurately judged visual channel, and the ring pushed its own total
+   into a hole in the middle. Length on a common baseline is the accurate
+   channel, and the total gets to be what it actually is — a hero number. */
+.vwrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 10px 0 4px; }
+.vhero { flex: none; }
+.vhero .vh-n {
+  font-size: 34px; font-weight: 660; line-height: 1;
+  color: var(--ink); font-variant-numeric: tabular-nums;
 }
-.dseg.hot { stroke-width: 19; }
+.vhero .vh-l {
+  margin-top: 5px;
+  font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-4); font-weight: 600;
+}
+.vsplit { flex: 1 1 180px; min-width: 0; }
+/* No track behind it: a 100% stacked bar has no empty remainder, so the 2px
+   inter-segment gaps read as bare surface rather than a second grey. */
+.vbar { position: relative; height: 22px; }
+.vseg {
+  position: absolute; top: 0; bottom: 0;
+  border-radius: var(--r-sm);
+  min-width: 3px;
+  transition: box-shadow .22s var(--ease);
+}
+.vseg.hot { box-shadow: inset 0 0 0 2px var(--sheet); }
+.vlegend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 11px; }
+.vlegend .vk {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--ink-2); white-space: nowrap;
+}
+.vlegend .vk i { width: 8px; height: 8px; border-radius: 50%; background: var(--vc); flex: none; }
+.vlegend .vk b { font-weight: 640; color: var(--ink); font-variant-numeric: tabular-nums; }
+.vlegend .vk em { font-style: normal; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .heat-cell { transition: none; }
-.heat-cell.hot { stroke: rgba(14, 23, 38, 0.35); stroke-width: 1.2; }
+/* was a hardcoded near-black stroke, invisible on the black theme */
+.heat-cell.hot { stroke: var(--chart-cross); stroke-width: 1.2; }
 
 /* sequential scale key for the heatmap (single-hue ramp) */
 .heat-key { display: flex; align-items: center; gap: 5px; }
@@ -225,3 +319,4 @@ body.reduce-motion .spark-halo,
 body.reduce-motion .spark-halo.ping { animation: none; opacity: 0.18; }
 body.reduce-motion .pill-group .pg-ind { transition-duration: 0.12s; }
 body.reduce-motion .tile .tv.bump { animation: none; }
+body.reduce-motion .vseg { transition-duration: 0.12s; }

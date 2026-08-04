@@ -34,23 +34,126 @@
   font-size: clamp(34px, 4.6vw, 58px);
   text-align: center;
 }
+/* Width audit (brief item 3), recorded so the next lane does not re-derive it:
+   every .n is position:absolute, so the stack has no in-flow content and its
+   width is the `min-width` above and nothing else — one constant, identical
+   for "00" and "59", for the fade-out span and the fade-in span. There is no
+   per-value measurement anywhere in the path, so the seconds column cannot
+   jitter by construction; the digits themselves take tabular figures, made
+   explicit below rather than left to inheritance from .uring-digits.
+   A hidden in-flow sizer (::before { content: attr(...) }) would make the box
+   an exact fit instead of a 2ch approximation, but it was tried and dropped:
+   it hands the inline-block a real text baseline where it currently
+   synthesises one from the margin edge, which moves every colon in the
+   readout ~3px against the digits. Not worth it for a box that is already
+   stable. */
 .home-ring-wrap .uring-digits .n {
   position: absolute;
   left: 0; right: 0; top: 0;
+  font-variant-numeric: tabular-nums;
   transition: opacity .32s var(--ease), transform .32s var(--ease);
   will-change: opacity, transform;
 }
 .home-ring-wrap .uring-digits .n.next { opacity: 0; transform: translateY(9px); }
 .home-ring-wrap .uring-digits .n.next.in { opacity: 1; transform: translateY(0); }
-.home-ring-wrap .uring-digits .n.cur.out { opacity: 0; transform: translateY(-9px); }
+/* The outgoing digit is the element the crossfade actually has to move, and it
+   stops being `.cur` the instant the fade begins — setDigit strips the class
+   so a fade interrupted by the next tick cannot re-capture the same span and
+   leak it. But the rule here still REQUIRED .cur, so the outgoing span matched
+   nothing except the base .n block: it held full opacity, directly on top of
+   the incoming digit, for the whole 420ms window and then disappeared. That is
+   a double-printed digit followed by a pop, i.e. the exact artefact the
+   crossfade exists to remove. Key off `.out` alone. */
+.home-ring-wrap .uring-digits .n.out { opacity: 0; transform: translateY(-9px); }
 
 /* ---------- 3. feed lines + braces ---------- */
+
+/* ---- give the log the width that is already on the page ----
+   At 1600x900 the feed track resolved to its 500px cap, and the two 190px
+   braces plus the card inset took ~185px of it back — leaving roughly 40
+   monospace characters for lines that routinely run 50-62 ("watching
+   heartbeat freshness on fleet supervisor" is 47 before the agent prefix).
+   So the majority of lines ellipsised mid-phrase with a third of the column
+   still empty to their right, which is what made the panel read as a clipped
+   list. Two levers, both here: widen the track a step, and bring the braces
+   down one (156px is still ~12x the type size, so the sketch's giant quiet
+   braces still read as giant). Text gains ~125px, about 16 characters, and
+   the long tail of the vocabulary now lands inside the column.
+   The 13px mono size is NOT a lever — it is the reading floor.
+   Scoped to the desktop breakpoint on purpose: styles.css's <=900px
+   single-column rule has the same specificity and sits earlier in the
+   cascade, so an unscoped override here would silently undo it. */
+@media (min-width: 901px) {
+  .home { grid-template-columns: 1fr minmax(420px, 600px); }
+}
+.home-feed-wrap .brace { font-size: 156px; }
+
+/* ---- the tail of the log dies away instead of stopping on a cut ----
+   The nine lines ended on a hard edge: the ninth sat at full --ink-3 and then
+   the tenth simply was not there, which is what a truncated list looks like.
+   A log should thin out at the point it runs past the frame.
+
+   Not another ink step — styles.css records why "older = translucent" was
+   wrong (0.45 opacity put live feed text at ~1.9:1) and --ink-3 is the last
+   step on the ramp that still holds 4.5:1, so colour has nowhere left to go.
+   Not mask-image either: masking pushes the element onto its own render
+   surface, and Chrome drops LCD subpixel antialiasing inside one — every
+   line in the column would have gone quietly softer to fade the last one,
+   which is a bad trade on 13px monospace.
+
+   So: the page colour itself is drawn back over the tail. body is
+   `background: var(--bg)` — clinically flat, one colour — so a gradient to
+   var(--bg) is literally the page reclaiming the bottom 34px, and it follows
+   data-theme for free. It stops at 58% rather than reaching full --bg, so the
+   last line dims to a little under half strength instead of being erased
+   while someone may still be reading it. The text underneath is painted over,
+   not composited, so its antialiasing is untouched. .leaving already exits
+   downward into exactly this band, so departures now recede into the fade
+   instead of dropping off a ledge. */
+.home-feed .feed-lines { position: relative; }
+.home-feed .feed-lines::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 34px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 58%, transparent));
+}
 
 /* oldest line fades out (instead of an instant remove) when the feed overflows */
 .home-feed .feed-line.leaving {
   opacity: 0;
   transform: translateY(10px);
   pointer-events: none;
+}
+
+/* ---- keyboard affordance ----
+   .home-feed is a real control (tabindex=0, role=button, Enter/Space bound)
+   but it is bare text at rest, so a keyboard user tabbing onto it previously
+   got the UA default outline at best and, once :focus-visible rules elsewhere
+   set `outline: none` expectations, effectively nothing. This is the site ring
+   recipe verbatim (styles.css .icon-btn:focus-visible et al) — white halo
+   scaled by --wa so it reads on all three sheets, then the full-strength
+   accent ring — plus the hover tint, so focus states the same "this opens"
+   the pointer state does. The base .home-feed transition runs box-shadow at
+   .45s, far too slow for a focus indicator, so the appearance is re-timed
+   here; removal falls back to the base timing on blur, which is fine.
+   Excluded once expanded: at that point the card is a chat surface with its
+   own elevation, not a button.
+   The transition list restates transform/height/max-height at their base
+   timings rather than declaring box-shadow alone — the shorthand REPLACES the
+   base list, and returning focus to this card while the chat collapses (which
+   onClose now does) would otherwise drop `height` out of the transition
+   mid-flight and snap the morph shut. */
+.home-feed:focus-visible:not(.as-chat) {
+  outline: none;
+  background: rgba(127, 127, 127, 0.05);
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
+    0 0 0 3.5px rgba(0, 169, 216, 0.72);
+  transition:
+    box-shadow .12s var(--ease), background .12s var(--ease),
+    transform .45s var(--ease), height .5s var(--ease), max-height .5s var(--ease);
 }
 
 /* giant braces flex subtly on each feed arrival */
@@ -67,25 +170,64 @@
    edge: an offset shadow made of light, not a progress sweep.
    Colour = live fleet load, three states.
    ============================================================ */
+.uring.crescent { --cres-halo-o: 0.85; }
 .uring.crescent .uring-rim { stroke: var(--ink-4); }
 .uring.crescent .cres-halo,
 .uring.crescent .cres-core {
   stroke: var(--load-col, var(--s-good));
   transition: stroke 1.4s var(--ease);
 }
-.uring.crescent .cres-halo { opacity: calc(0.85 * var(--glow)); }
+.uring.crescent .cres-halo { opacity: calc(var(--cres-halo-o) * var(--glow)); }
 .uring.crescent .cres-core { opacity: calc(0.95 * var(--glow)); }
 
-/* the three load states, shared with the caption readout */
-.uring.crescent[data-load="idle"] { --load-col: #2fa36b; }
-.uring.crescent[data-load="busy"] { --load-col: #e08a1e; }
-.uring.crescent[data-load="peak"] { --load-col: #d6452b; }
+/* ---- the three load states, shared with the caption readout ----
+   These were one hardcoded triple for all three themes, and two thirds of it
+   did not survive contact with a light background. The crescent core and the
+   8px dot in .home-load are non-text graphical objects carrying the only
+   status this page reports, so 3:1 against the sheet is the floor. Measured
+   at the painted alpha (core is 0.95) against each theme's --bg:
 
-/* a peak fleet breathes — the only motion the hero carries */
+     old idle #2fa36b   white 2.85   tan 2.44   black 5.54    FAIL / FAIL
+     old busy #e08a1e   white 2.40   tan 2.05   black 6.53    FAIL / FAIL
+     old peak #d6452b   white 3.90   tan 3.34   black 4.00    thin on tan
+
+   "busy" — the state the fleet spends most of its time in — was the worst of
+   the three, a mid-orange at 2.05:1 on the tan sheet: legible as a smudge,
+   not as a colour anyone could name. The replacements below are measured the
+   same way and all clear 3:1 on the theme they belong to, and each set keeps
+   three unmistakably distinct hues (green / amber / red) so the state is
+   never carried by lightness alone. */
+
+/* default + white sheet (#f7f8fa) — 4.02 / 3.85 / 4.58 */
+.uring.crescent[data-load="idle"] { --load-col: #12855a; }
+.uring.crescent[data-load="busy"] { --load-col: #b4640a; }
+.uring.crescent[data-load="peak"] { --load-col: #c53a20; }
+
+/* TAN (#f2e5bc) — Gruvbox Light Soft, so the states take the published faded
+   family the rest of this theme is built from rather than a second palette:
+   faded aqua #427b58, faded red #9d0006, and a darkened faded yellow (the
+   published #b57614 only reaches 2.81:1 on bg0_s). 3.68 / 3.84 / 6.50 */
+:root[data-theme="tan"] .uring.crescent[data-load="idle"] { --load-col: #427b58; }
+:root[data-theme="tan"] .uring.crescent[data-load="busy"] { --load-col: #96600f; }
+:root[data-theme="tan"] .uring.crescent[data-load="peak"] { --load-col: #9d0006; }
+
+/* BLACK (#0d0f12) — the old triple technically passed here, but a dark
+   saturated stroke on a near-black field reads as muddy rather than as a
+   signal. Lifting the ramp costs nothing and buys headroom: 7.55 / 8.16 /
+   5.11. The blurred halo is also far louder over black than over paper, so
+   it comes down a step — the crescent stays a state indicator, not a bloom. */
+:root[data-theme="black"] .uring.crescent { --cres-halo-o: 0.5; }
+:root[data-theme="black"] .uring.crescent[data-load="idle"] { --load-col: #35c17c; }
+:root[data-theme="black"] .uring.crescent[data-load="busy"] { --load-col: #f0a02e; }
+:root[data-theme="black"] .uring.crescent[data-load="peak"] { --load-col: #fb4934; }
+
+/* a peak fleet breathes — the only motion the hero carries.
+   Stated relative to --cres-halo-o so the per-theme halo level survives the
+   animation (opacity keyframes otherwise overwrite it outright). */
 .uring.crescent[data-load="peak"] .cres-halo { animation: cresPulse 2.6s var(--ease) infinite; }
 @keyframes cresPulse {
-  0%, 100% { opacity: calc(0.72 * var(--glow)); }
-  50%      { opacity: calc(1 * var(--glow)); }
+  0%, 100% { opacity: calc(var(--cres-halo-o) * 0.85 * var(--glow)); }
+  50%      { opacity: calc(var(--cres-halo-o) * 1.18 * var(--glow)); }
 }
 body.reduce-motion .uring.crescent .cres-halo { animation: none; }
 

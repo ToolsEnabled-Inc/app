@@ -10,7 +10,7 @@ export function homeView() {
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
         <span class="brace">{</span>
-        <div class="home-feed" tabindex="0" role="button" aria-label="Open fleet chat">
+        <div class="home-feed" tabindex="0" role="button" aria-expanded="false" aria-label="Open fleet chat">
           <div class="feed-lines"></div>
           <div class="feed-hint">click to open fleet chat</div>
         </div>
@@ -53,13 +53,41 @@ export function homeView() {
   const loadRow = el(`<div class="home-load"><i></i><span class="lt">idle</span><span class="lv"></span></div>`)
   const loadLabel = loadRow.querySelector('.lt')
   const loadVal = loadRow.querySelector('.lv')
+
+  /* setLoad()'s bands are bare thresholds (0.38 busy, 0.72 peak), and the
+     value crossing them is live: CPU drifts continuously on every 'stats'
+     tick and the roster term steps by 1/16 of a machine on every spawn/reap.
+     A fleet parked on a boundary therefore strobed — a reading wobbling
+     0.379/0.381 flipped the crescent, the dot and the caption on every tick,
+     and each flip drags a 1.4s colour transition behind it, so the hero was
+     permanently mid-crossfade between two states. Latch it: a band must be
+     over-run by 5% to be entered and under-run by 5% to be left, so noise of
+     that amplitude cannot move the state at all while a genuine change of
+     load still lands immediately. The percentage readout stays the raw
+     number — the hysteresis governs which state we are IN, never what we
+     report the load to be. */
+  const BUSY = 0.38, PEAK = 0.72, HYST = 0.05
+  let loadState = 'idle'
+  function stateFor(v) {
+    if (loadState === 'peak') return v >= PEAK - HYST ? 'peak' : (v >= BUSY ? 'busy' : 'idle')
+    if (loadState === 'busy') return v >= PEAK ? 'peak' : (v >= BUSY - HYST ? 'busy' : 'idle')
+    return v >= PEAK ? 'peak' : (v >= BUSY ? 'busy' : 'idle')
+  }
   function paintLoad() {
     const v = loadNow()
-    ring.el.setLoad(v)
-    const state = ring.el.dataset.load
-    loadLabel.textContent = state === 'peak' ? 'full throttle' : state === 'busy' ? 'busy' : 'idle'
+    loadState = stateFor(v)
+    // components.setLoad() owns the data-load attribute (and so the crescent
+    // colour), but its thresholds have no memory. Hand it a value parked in
+    // the middle of the band we just latched rather than the raw reading, so
+    // the decision made above is the one that reaches the DOM.
+    ring.el.setLoad(loadState === 'peak' ? 1 : loadState === 'busy' ? 0.55 : 0)
+    loadLabel.textContent = loadState === 'peak' ? 'full throttle' : loadState === 'busy' ? 'busy' : 'idle'
     loadVal.textContent = `${Math.round(v * 100)}%`
-    loadRow.style.setProperty('--load-col', getComputedStyle(ring.el).getPropertyValue('--load-col'))
+    // --load-col is NOT copied down here any more: loadRow lives inside
+    // .uring-inner, so it already inherits the ring's value. Snapshotting it
+    // into an inline style pinned the dot to whichever theme was active at
+    // the last paint, so switching theme left the dot on the old palette
+    // until the next sim event happened to repaint it.
   }
 
   /* ---- criterion 1: fixed-width crossfading digits, driven from home.js
@@ -82,13 +110,21 @@ export function homeView() {
   })
 
   function setDigit(stack, value) {
-    // dedupe against the LAST appended span (the value already in flight),
-    // not the first '.n.cur' match -- the outgoing span keeps the 'cur'
-    // class for its whole fade-out, so matching on '.cur' re-fires every
-    // rAF of the crossfade window and leaks a '.n.next' span per frame.
+    // dedupe against the LAST appended span — the value already in flight —
+    // rather than against whichever span currently answers to '.cur'. This
+    // runs on every rAF, so anything that can disagree with the value being
+    // animated towards re-fires the whole crossfade each frame and leaks a
+    // '.n.next' span per frame. lastElementChild always IS that value.
     const last = stack.lastElementChild
     if (!last || last.textContent === value) return
-    const cur = stack.querySelector('.n.cur')
+    // Fade out EVERYTHING already painted, not just the one span wearing
+    // '.cur'. The class is stripped the moment a fade starts (below), so a
+    // second change arriving inside the 420ms window found querySelector
+    // ('.n.cur') empty: the still-visible span was never given '.out', never
+    // swept, and its own finish() promoted it back to '.cur' — two live
+    // digits stacked on one another. Capturing the children is exact and
+    // cannot miss an element whatever state its classes are in.
+    const outgoing = [...stack.children]
     const next = document.createElement('span')
     next.className = 'n next'
     next.textContent = value
@@ -97,10 +133,10 @@ export function homeView() {
     // .cur for its whole fade, so a crossfade starting before the previous
     // one finished captured the same element again and orphaned a span —
     // under a main-thread stall those piled up permanently over the readout
-    if (cur) { cur.classList.add('out'); cur.classList.remove('cur') }
+    outgoing.forEach(n => { n.classList.remove('cur', 'next', 'in'); n.classList.add('out') })
     requestAnimationFrame(() => requestAnimationFrame(() => next.classList.add('in')))
     const finish = () => {
-      if (cur) cur.remove()
+      outgoing.forEach(n => n.remove())
       stack.querySelectorAll('.n.out').forEach(n => n.remove())   // sweep any interrupted fade
       next.classList.remove('next', 'in'); next.classList.add('cur')
     }
@@ -215,6 +251,7 @@ export function homeView() {
     feedCard.style.height = h + 'px'
     void feedCard.offsetWidth
     feedCard.classList.add('as-chat')
+    feedCard.setAttribute('aria-expanded', 'true')
     feedWrap.classList.add('chat-open')
     chatEl = buildChat({
       title: 'fleet',
@@ -224,6 +261,11 @@ export function homeView() {
       onClose: () => {
         chatOpen = false
         closedAt = performance.now()
+        // hand focus back to the control that opened this, but only if it is
+        // still inside the chat — collapsing must never yank the caret away
+        // from wherever a keyboard user has since moved to
+        const returnFocus = chatEl && chatEl.contains(document.activeElement)
+        feedCard.setAttribute('aria-expanded', 'false')
         feedWrap.classList.remove('chat-open')
         feedCard.style.height = feedCard.offsetHeight + 'px'
         void feedCard.offsetWidth
@@ -232,6 +274,7 @@ export function homeView() {
         feedCard.style.height = h + 'px'
         setTimeout(() => { feedCard.style.height = '' }, 500)
         renderLines()
+        if (returnFocus) feedCard.focus({ preventScroll: true })
       },
       tall: true,
     })
@@ -247,6 +290,11 @@ export function homeView() {
     })
     feedCard.appendChild(chatEl)
     feedCard.style.height = ''
+    // the card stops being a button the moment it becomes a chat, so focus
+    // moves to the thing the user came here to use; without this a keyboard
+    // user who pressed Enter was left focused on a container with no visible
+    // ring (the :focus-visible rule excludes .as-chat) and had to tab in.
+    chatEl.querySelector('.chat-input input')?.focus({ preventScroll: true })
   })
 
   let raf
