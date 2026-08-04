@@ -19,8 +19,8 @@ import { rangeFill } from './views/computers.js'
 import './morphs.css'
 
 const stage = document.getElementById('stage')
-const crumb = document.getElementById('crumb')
-const navEl = document.getElementById('tb-nav')
+const crumb = document.getElementById('crumb')   // removed from the markup; kept null-safe
+const navEl = document.getElementById('tb-nav')   // ditto — the strip is arrows + settings only
 
 let current = null           // { el(wrapper), view, route }
 const ORDER = ['home', 'computers', 'metrics', 'comms']
@@ -145,17 +145,26 @@ function swapView(route, morph, zoom, snapshotted) {
   }
   current = { el: wrap, view, route }
 
-  crumb.innerHTML = crumbFor(route)
+  if (crumb) crumb.innerHTML = crumbFor(route)
   // Route stamp on <body>. It was added to gate the aurora drift to Home;
   // the aurora is gone and no sheet reads it today, but it stays as the
   // one hook a per-route rule can hang off without touching the router.
   document.body.dataset.route = route.name
   const activeName = route.name === 'agent' ? 'computers' : route.name
-  navEl.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.dataset.route === activeName))
+  navEl?.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.dataset.route === activeName))
 
   const idx = ORDER.indexOf(activeName)
-  document.getElementById('nav-back').toggleAttribute('disabled', route.name === 'home')
-  document.getElementById('nav-next').toggleAttribute('disabled', idx === ORDER.length - 1 && route.name !== 'agent')
+  const back = document.getElementById('nav-back')
+  const next = document.getElementById('nav-next')
+  back.toggleAttribute('disabled', route.name === 'home')
+  next.toggleAttribute('disabled', idx === ORDER.length - 1 && route.name !== 'agent')
+
+  /* The arrows are now the ONLY navigation, so each one quietly names where
+     it goes — but only once you reach for it. Nothing at rest; the label
+     fades in on hover/focus. Fewer pieces, and the ones left do more. */
+  const label = (n) => (n === 'home' ? 'home' : n)
+  back.dataset.dest = route.name === 'agent' ? 'computers' : (idx > 0 ? label(ORDER[idx - 1]) : '')
+  next.dataset.dest = idx < ORDER.length - 1 ? label(ORDER[idx + 1]) : ''
 }
 
 window.addEventListener('hashchange', render)

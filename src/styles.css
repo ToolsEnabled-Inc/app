@@ -1404,3 +1404,49 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   The top strip — three pieces, each worth looking at
+   The sketch has a back arrow, the word "settings" with a gear,
+   and a forward arrow. That is the whole banner: no container, no
+   breadcrumb, no tabs. With so little left, each piece earns real
+   craft rather than a default hover box.
+   ============================================================ */
+
+/* The arrows carry ALL navigation now, so each names its destination — but
+   only once you reach for it. The label sits BELOW its arrow (to its side it
+   collided with the gear), centred, and is silent at rest. */
+.topbar .icon-btn { position: relative; }
+.topbar .icon-btn[data-dest]:not([data-dest=""])::after {
+  content: attr(data-dest);
+  position: absolute; top: calc(100% - 2px); left: 50%;
+  transform: translateX(-50%) translateY(-3px);
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap; pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-2, 240ms) var(--ease),
+              transform var(--dur-2, 240ms) var(--ease);
+}
+.topbar .icon-btn:hover::after,
+.topbar .icon-btn:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* no hover slab anywhere on this strip — the glyph itself answers, by
+   darkening and leaning the way it travels */
+.topbar .icon-btn { background: none; }
+.topbar .icon-btn:hover,
+.topbar .icon-btn:active { background: none; box-shadow: none; }
+.topbar .icon-btn svg { transition: transform var(--dur-2, 240ms) var(--ease), color .2s var(--ease); }
+.topbar .icon-btn:hover { color: var(--ink); }
+#nav-back:hover:not([disabled]) svg { transform: translateX(-2px); }
+#nav-next:hover:not([disabled]) svg { transform: translateX(2px); }
+/* the gear turns toward its own detent rather than lighting up */
+#open-settings svg { transition: transform var(--dur-3, 420ms) var(--ease); }
+#open-settings:hover svg { transform: rotate(45deg); }
+
+.topbar .icon-btn[disabled] { opacity: 0.2; }
+.tb-settings-label {
+  opacity: 0.7;
+  transition: opacity var(--dur-2, 240ms) var(--ease);
+}
+.tb-side.tb-right:hover .tb-settings-label { opacity: 1; }
