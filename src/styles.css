@@ -228,19 +228,24 @@ body {
 }
 
 /* ---------- top bar ---------- */
+/* The sketch's top strip is not a banner — it is a back arrow on the left
+   and, on the right, the word "settings" beside a gear and a forward arrow,
+   sitting straight on the page. No container, no fill, no border, no
+   shadow: the controls simply float. */
 .topbar {
   position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
   width: min(1240px, calc(100vw - 32px));
-  height: 54px;
+  height: 44px;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 2px;
   z-index: 60;
-  background: linear-gradient(180deg, rgba(255,255,255,calc(0.56 * var(--wa))), rgba(255,255,255,calc(0.34 * var(--wa))));
-  backdrop-filter: blur(18px) saturate(1.8);
-  -webkit-backdrop-filter: blur(18px) saturate(1.8);
-  border: 1px solid rgba(255,255,255,calc(0.78 * var(--wa)));
-  border-radius: 3px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))), 0 12px 34px -16px rgba(14,23,38,0.22);
+  background: none; border: none; box-shadow: none; backdrop-filter: none;
+  pointer-events: none;              /* only the controls take the pointer */
+}
+.topbar > *, .topbar button, .topbar a { pointer-events: auto; }
+.tb-settings-label {
+  font-size: 12.5px; color: var(--ink-3); letter-spacing: 0.02em;
+  margin-right: -2px;
 }
 .tb-side { display: flex; align-items: center; gap: 8px; min-width: 200px; }
 .tb-right { justify-content: flex-end; }
@@ -255,11 +260,12 @@ body {
   transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease);
 }
 .tb-nav a:hover { color: var(--ink-2); }
+/* current page reads as ink weight + a hairline, not a filled pill —
+   the banner has no box for a pill to sit in any more */
 .tb-nav a.active {
   color: var(--ink);
-  background: rgba(255,255,255,calc(0.78 * var(--wa)));
-  box-shadow: inset 0 1px 0 #fff, 0 4px 14px -6px rgba(14,23,38,0.22),
-    0 0 0 1px rgba(255,255,255,calc(0.9 * var(--wa)));
+  font-weight: 640;
+  box-shadow: inset 0 -1px 0 0 var(--ink-4);
 }
 
 .icon-btn {

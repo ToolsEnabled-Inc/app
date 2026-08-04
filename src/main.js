@@ -128,12 +128,18 @@ document.getElementById('nav-next').addEventListener('click', () => {
 
 /* ---------- settings drawer ---------- */
 const drawer = document.getElementById('drawer')
-document.getElementById('open-settings').addEventListener('click', () => {
-  drawer.classList.add('open'); drawer.setAttribute('aria-hidden', 'false')
-})
-document.getElementById('close-settings').addEventListener('click', () => {
-  drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true')
-})
+/* `inert` (not just aria-hidden) keeps the CLOSED drawer out of the tab
+   order — without it Tab walked through four off-screen controls, one of
+   them a 0x0 checkbox where Space silently toggled Reduce Motion. */
+const setDrawer = (open) => {
+  drawer.classList.toggle('open', open)
+  drawer.setAttribute('aria-hidden', open ? 'false' : 'true')
+  if (open) drawer.removeAttribute('inert')
+  else drawer.setAttribute('inert', '')
+}
+document.getElementById('open-settings').addEventListener('click', () => setDrawer(true))
+document.getElementById('close-settings').addEventListener('click', () => setDrawer(false))
+setDrawer(false)
 
 /* ---------- theme: white | tan (Gruvbox Light Soft) | black ----------
    Applied to <html> before first paint below, and sticky across sessions.

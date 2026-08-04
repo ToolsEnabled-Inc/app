@@ -10,7 +10,7 @@ export function homeView() {
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
         <span class="brace">{</span>
-        <div class="home-feed">
+        <div class="home-feed" tabindex="0" role="button" aria-label="Open fleet chat">
           <div class="feed-lines"></div>
           <div class="feed-hint">click to open fleet chat</div>
         </div>
@@ -93,9 +93,17 @@ export function homeView() {
     next.className = 'n next'
     next.textContent = value
     stack.appendChild(next)
-    if (cur) cur.classList.add('out')
+    // drop 'cur' as well as adding 'out': the outgoing span used to KEEP
+    // .cur for its whole fade, so a crossfade starting before the previous
+    // one finished captured the same element again and orphaned a span —
+    // under a main-thread stall those piled up permanently over the readout
+    if (cur) { cur.classList.add('out'); cur.classList.remove('cur') }
     requestAnimationFrame(() => requestAnimationFrame(() => next.classList.add('in')))
-    const finish = () => { if (cur) cur.remove(); next.classList.remove('next', 'in'); next.classList.add('cur') }
+    const finish = () => {
+      if (cur) cur.remove()
+      stack.querySelectorAll('.n.out').forEach(n => n.remove())   // sweep any interrupted fade
+      next.classList.remove('next', 'in'); next.classList.add('cur')
+    }
     const tid = setTimeout(finish, 420)
     next.addEventListener('transitionend', () => { clearTimeout(tid); finish() }, { once: true })
   }
@@ -192,8 +200,16 @@ export function homeView() {
   let chatOpen = false
   let chatEl = null
   const feedWrap = root.querySelector('.home-feed-wrap')
+  // a click landing in the collapse window used to re-open the chat with a
+  // fresh seed, destroying whatever the user had typed (double-clicking the
+  // close button did exactly that)
+  let closedAt = 0
+  feedCard.addEventListener('keydown', (e) => {
+    if (chatOpen || (e.key !== 'Enter' && e.key !== ' ')) return
+    e.preventDefault(); feedCard.click()
+  })
   feedCard.addEventListener('click', () => {
-    if (chatOpen) return
+    if (chatOpen || performance.now() - closedAt < 450) return
     chatOpen = true
     const h = feedCard.offsetHeight
     feedCard.style.height = h + 'px'
@@ -207,6 +223,7 @@ export function homeView() {
       seed: 4,
       onClose: () => {
         chatOpen = false
+        closedAt = performance.now()
         feedWrap.classList.remove('chat-open')
         feedCard.style.height = feedCard.offsetHeight + 'px'
         void feedCard.offsetWidth

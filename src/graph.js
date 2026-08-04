@@ -1179,6 +1179,11 @@ export class FleetGraph {
     this._clampPan()
     this._applyZoom()
     this.refreshForces()
+    // The tree's tier slots are computed from W/H, and at construction the
+    // canvas is still detached (so W/H are the 800x600 fallbacks) — without
+    // this the default Tree view laid itself out for a stale size and left
+    // ~430px of the panel unused, and never re-fitted on a window resize.
+    if (this._treeActive()) { this.simulation.stop(); this._layoutTree(!boot) }
     // first delivery = the true canvas size, still pre-paint: arrive settled
     if (boot) this._presettle()
   }
