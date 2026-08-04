@@ -52,7 +52,7 @@
   width: 14px; height: 14px;
   border-radius: 1px;                   /* square swatch, not a dot */
   background: linear-gradient(150deg, color-mix(in oklab, var(--role) 72%, white), var(--role));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.55 * var(--wa)));
 }
 .board-page .agent-head .an {
   font-size: 21px; line-height: 1.15;
@@ -94,9 +94,9 @@
   padding: 12px 13px 14px;
   border-radius: var(--board-r);
   border: 1px solid var(--line-2);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.32));
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.6 * var(--wa))), rgba(255,255,255,calc(0.32 * var(--wa))));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),          /* inner top highlight */
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),          /* inner top highlight */
     0 1px 2px rgba(14, 23, 38, 0.035);
 }
 
@@ -172,7 +172,7 @@
 }
 .board-page .bc-end {
   fill: var(--role);
-  stroke: rgba(255, 255, 255, 0.95); stroke-width: 2;     /* 2px surface ring */
+  stroke: rgba(255,255,255,calc(0.95 * var(--wa))); stroke-width: 2;     /* 2px surface ring */
   transform-box: fill-box; transform-origin: center;
 }
 .board-page .bc-pulse {
@@ -182,7 +182,7 @@
 }
 .board-page .bc-cross { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; opacity: 0; }
 .board-page .bc-dot {
-  fill: var(--role); stroke: rgba(255, 255, 255, 0.95); stroke-width: 2;
+  fill: var(--role); stroke: rgba(255,255,255,calc(0.95 * var(--wa))); stroke-width: 2;
   opacity: 0;
 }
 .board-page .bc-cross, .board-page .bc-dot { transition: opacity .16s var(--ease); }
@@ -210,7 +210,7 @@
   background: linear-gradient(180deg,
     color-mix(in oklab, var(--role) 17%, white),
     color-mix(in oklab, var(--role) 28%, white));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa)));
 }
 .board-page .ctl-btn.armed::before {
   content: "";
@@ -225,8 +225,8 @@
 .board-page .ctl-btn.armed:focus-visible {
   outline: none;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 0 0 1.5px rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))),
+    0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
     0 0 0 3.5px rgba(0, 169, 216, 0.72);
 }
 .board-page .ctl-btn.danger:hover {
@@ -271,8 +271,8 @@
 }
 .board-page .board-legend .leg.is-self i {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 0 0 1px rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255,255,255,calc(0.6 * var(--wa))),
+    0 0 0 1px rgba(255,255,255,calc(0.95 * var(--wa))),
     0 0 0 2px color-mix(in oklab, var(--lc) 55%, white);
 }
 

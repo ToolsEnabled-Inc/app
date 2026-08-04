@@ -135,6 +135,35 @@ document.getElementById('close-settings').addEventListener('click', () => {
   drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true')
 })
 
+/* ---------- theme: white | tan (Gruvbox Light Soft) | black ----------
+   Applied to <html> before first paint below, and sticky across sessions.
+   localStorage can throw (private mode, quota), so every access is guarded
+   and a failure simply means "use the default". */
+const THEME_KEY = 'mc.theme'
+const themeSeg = document.getElementById('theme-seg')
+const readTheme = () => {
+  try {
+    const t = localStorage.getItem(THEME_KEY)
+    return t === 'tan' || t === 'black' ? t : 'white'
+  } catch { return 'white' }
+}
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t
+  for (const b of themeSeg.querySelectorAll('button')) {
+    const on = b.dataset.theme === t
+    b.classList.toggle('on', on)
+    b.setAttribute('aria-pressed', on ? 'true' : 'false')
+  }
+}
+themeSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-theme]')
+  if (!b) return
+  const t = b.dataset.theme
+  try { localStorage.setItem(THEME_KEY, t) } catch {}
+  applyTheme(t)
+})
+applyTheme(readTheme())
+
 const glowInput = document.getElementById('set-glow')
 glowInput.addEventListener('input', () => {
   document.documentElement.style.setProperty('--glow', String(glowInput.value / 100))

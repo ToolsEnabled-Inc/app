@@ -74,7 +74,7 @@
 .node.rerooting { z-index: 7; }
 .node.rerooting .node-glass {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
     0 18px 40px -14px rgba(14, 23, 38, 0.34),
     0 3px 8px rgba(14, 23, 38, 0.1);
 }
@@ -121,12 +121,12 @@
   position: absolute; right: 14px; bottom: 14px; z-index: 5;
   display: flex; align-items: center; gap: 7px;
   padding: 7px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255,255,255,calc(0.55 * var(--wa)));
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
   color: var(--ink-2);
   font-size: 12px; font-weight: 600; line-height: 1;
   cursor: pointer;
@@ -143,7 +143,7 @@
 }
 .graph-fit.show { opacity: 1; transform: none; pointer-events: auto; }
 .graph-fit:hover {
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255,255,255,calc(0.75 * var(--wa)));
   color: var(--ink);
   box-shadow: inset 0 1px 0 #fff, 0 12px 26px -12px rgba(14, 23, 38, 0.24);
 }
@@ -196,18 +196,18 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 .graph-edit-btn {
   position: absolute; top: 14px; right: 16px; z-index: 7;
   padding: 8px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255,255,255,calc(0.75 * var(--wa)));
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255,255,255,calc(0.55 * var(--wa)));
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
   color: var(--ink-2);
   font-family: var(--font-ui); font-size: 12.5px; font-weight: 640; line-height: 1;
   cursor: pointer;
   transition: background 0.25s var(--ease), color 0.2s, box-shadow 0.25s var(--ease), transform 0.15s var(--ease);
 }
-.graph-edit-btn:hover { background: rgba(255, 255, 255, 0.85); color: var(--ink); }
+.graph-edit-btn:hover { background: rgba(255,255,255,calc(0.85 * var(--wa))); color: var(--ink); }
 .graph-edit-btn:active { transform: scale(0.95); }
 .graph-edit-btn.on {
   /* solid fill + neutral lift reads "active" fine without a bloom
@@ -255,7 +255,7 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
   border-color: var(--rc);
   transform: scale(1.06);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
     0 10px 26px -12px rgba(14, 23, 38, 0.28),
     0 0 0 3px color-mix(in oklab, var(--rc) 38%, transparent),
     var(--rg-loud);
@@ -286,11 +286,11 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
   position: absolute; top: 14px; right: 94px; z-index: 7;
   display: flex; gap: 2px; padding: 3px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255,255,255,calc(0.5 * var(--wa)));
+  border: 1px solid rgba(255,255,255,calc(0.75 * var(--wa)));
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
   transition: opacity 0.3s var(--ease);
 }
 .graph-layout-seg button {
@@ -308,7 +308,7 @@ body.reduce-motion .graph-fit { transition: opacity .2s linear; transform: none;
 .graph-layout-seg button:active { transform: scale(0.96); }
 .graph-layout-seg button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.95), 0 0 0 3.5px rgba(0, 169, 216, 0.72);
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))), 0 0 0 3.5px rgba(0, 169, 216, 0.72);
 }
 /* editing forces the tree — show the control as inert rather than lying */
 .graph-layout-seg.locked { opacity: 0.45; pointer-events: none; }

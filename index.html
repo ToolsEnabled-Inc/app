@@ -7,10 +7,6 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='38' fill='none' stroke='%2300a9d8' stroke-width='9'/><circle cx='50' cy='50' r='12' fill='%2300bd8a'/></svg>" />
 </head>
 <body>
-  <!-- drifting neon auras the glass refracts -->
-  <div class="aurora" aria-hidden="true">
-    <i class="aur a1"></i><i class="aur a2"></i><i class="aur a3"></i><i class="aur a4"></i><i class="aur a5"></i><i class="aur a6"></i>
-  </div>
 
   <header class="topbar">
     <div class="tb-side tb-left">
@@ -46,6 +42,14 @@
       </button>
     </div>
     <div class="drawer-body">
+      <div class="set-row">
+        <span class="set-label">Theme</span>
+        <div class="theme-seg" id="theme-seg" role="group" aria-label="Theme">
+          <button type="button" data-theme="white">White</button>
+          <button type="button" data-theme="tan">Tan</button>
+          <button type="button" data-theme="black">Black</button>
+        </div>
+      </div>
       <label class="set-row">
         <span class="set-label">Glow intensity</span>
         <input type="range" id="set-glow" min="0" max="200" value="100" />

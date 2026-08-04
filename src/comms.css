@@ -62,7 +62,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  background: #fff;
+  background: var(--sheet);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   overflow: hidden;
@@ -174,7 +174,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  background: #fff;
+  background: var(--sheet);
 }
 .ch-view {
   flex: 1;
@@ -258,7 +258,7 @@
   z-index: 5;
   display: flex; align-items: center; gap: 7px;
   border: 1px solid var(--line-2);
-  background: #fff;
+  background: var(--sheet);
   color: var(--ink-2);
   font-family: var(--font-ui); font-size: 13px; font-weight: 620;
   border-radius: 3px;
@@ -310,7 +310,7 @@
 .comms .jump-chip:focus-visible {
   outline: none;
   box-shadow:
-    0 0 0 1.5px rgba(255, 255, 255, 0.95),
+    0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
     0 0 0 3.5px rgba(0, 169, 216, 0.6);
 }
 
@@ -352,7 +352,7 @@
 }
 .wb-seg button:hover { color: var(--ink-2); }
 .wb-seg button.on {
-  background: #fff; color: var(--ink);
+  background: var(--sheet); color: var(--ink);
   box-shadow: inset 0 1px 0 #fff, 0 2px 8px -3px rgba(14, 23, 38, 0.25);
 }
 
@@ -381,7 +381,7 @@
   scrollbar-width: thin;
 }
 .wb-box.dominant .chip-preview { max-height: var(--pv-dom, 258px); }
-.wb-box.dominant { background: rgba(255, 255, 255, 0.62); }
+.wb-box.dominant { background: rgba(255,255,255,calc(0.62 * var(--wa))); }
 .wb-box.dominant .wb-name { font-size: 14.5px; }
 /* readable, wrapping context lines — the board is for reading, 13px floor */
 .watch-pane .chip .cl {
@@ -446,7 +446,7 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 .wb-ghost {
   position: fixed; left: 0; top: 0; z-index: 220;
   pointer-events: none; opacity: 0.92; overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 60px -20px rgba(14, 23, 38, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 26px 60px -20px rgba(14, 23, 38, 0.45);
   transform: translate(-500px, -500px);
 }
 .wb-drop { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity 0.16s var(--ease); }
@@ -464,7 +464,7 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 .wb-stackdrop {
   display: none; height: 62px; margin-top: 2px; border-radius: 3px;
   border: 1.5px dashed var(--line-2);
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255,255,255,calc(0.4 * var(--wa)));
 }
 .wb-stackdrop.show { display: block; animation: wbIn 0.18s var(--ease); }
 
