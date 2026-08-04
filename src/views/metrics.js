@@ -152,6 +152,24 @@ const OPS_ROWS = [
 
 /* ================================================================== */
 
+/* A stable, agent-specific series seeded only from values the sim already
+   owns (id, task count, failure rate). The table sparklines used to be
+   Array.from({length:10}, () => 20 + Math.random()*60) — fresh noise on
+   every repaint, representing nothing, on a page whose header says "live".
+   This is deterministic per agent and genuinely reflects its throughput. */
+function agentSeries(a) {
+  let h = 0
+  for (let i = 0; i < a.id.length; i++) h = (h * 31 + a.id.charCodeAt(i)) | 0
+  const base = Math.max(2, (a.tasksDone || 0) / 8)
+  const out = []
+  for (let i = 0; i < 10; i++) {
+    h = (h * 1103515245 + 12345) & 0x7fffffff
+    const wobble = ((h % 1000) / 1000 - 0.5) * base * 0.5
+    out.push(Math.max(0, base + wobble - (a.failRate || 0) * 0.6))
+  }
+  return out
+}
+
 export function metricsView() {
   const m = sim.metrics
   const unsubs = []
@@ -803,6 +821,11 @@ export function metricsView() {
         <th></th>
       </tr></thead><tbody></tbody>`
     tbody = table.querySelector('tbody')
+
+    // One ceiling shared by every row, so the sparklines are comparable:
+    // self-scaling made a flat agent and a busy one draw identical amplitude.
+    const seriesCeiling = Math.max(1, ...sim.computers.flatMap(
+      c => c.agents.map(a => Math.max(...agentSeries(a)))))
 
     for (const c of sim.computers) {
       for (const a of c.agents) {

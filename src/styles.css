@@ -373,7 +373,18 @@ body {
   position: relative;
   max-height: 460px;
 }
-.home-feed:hover { background: rgba(255,255,255,calc(0.4 * var(--wa))); box-shadow: 0 18px 44px -20px rgba(14,23,38,0.14); }
+/* The sketch has no card and no heading here — just greyed context lines
+   between two giant braces. At rest this is bare text on the page; only the
+   hover tint hints that it opens, and only the expanded chat state earns a
+   real surface (which the sketch's page 3 does draw). */
+.home-feed:hover { background: rgba(127,127,127,0.05); }
+.home-feed.as-chat {
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.54 * var(--wa))), rgba(255,255,255,calc(0.3 * var(--wa))));
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 18px 44px -18px rgba(14,23,38,0.16);
+}
 .feed-title {
   font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
   color: var(--ink-25); font-weight: 620; margin-bottom: 14px;
@@ -743,11 +754,11 @@ body {
   z-index: 1;
   cursor: pointer;
   will-change: transform;
-  background: rgba(255,255,255,calc(0.5 * var(--wa)));
-  backdrop-filter: blur(12px) saturate(1.4);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  border: 1px solid rgba(255,255,255,calc(0.8 * var(--wa)));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14,23,38,0.18);
+  /* The sketch draws context as grey text inside braces — not as a card.
+     At rest a chip is exactly that: no fill, no border, no shadow. Hover
+     brings a faint tint for affordance; .as-chat earns a real panel. */
+  background: transparent;
+  border: 1px solid transparent;
   transition: width .5s var(--ease), height .5s var(--ease), box-shadow .4s var(--ease), background .4s var(--ease);
   overflow: hidden;
 }
@@ -756,7 +767,7 @@ body {
   position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px;
   background: color-mix(in oklab, var(--rc, #93a1af) 45%, white);
 }
-.chip:hover { background: rgba(255,255,255,calc(0.72 * var(--wa))); box-shadow: inset 0 1px 0 #fff, 0 12px 28px -12px rgba(14,23,38,0.25); z-index: 6; }
+.chip:hover { background: rgba(127,127,127,0.07); border-color: var(--line); z-index: 6; }
 .chip .cl {
   font-family: var(--font-mono);
   font-size: 13px; line-height: 1.4; color: var(--ink-25);
@@ -771,7 +782,8 @@ body {
   backdrop-filter: blur(30px) saturate(1.7);
   -webkit-backdrop-filter: blur(30px) saturate(1.7);
   background: linear-gradient(180deg, rgba(255,255,255,calc(0.86 * var(--wa))), rgba(255,255,255,calc(0.72 * var(--wa))));
-  box-shadow: inset 0 1px 0 #fff, 0 26px 60px -22px rgba(14,23,38,0.35);
+  border-color: var(--line-2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(1 * var(--wa))), 0 26px 60px -22px rgba(14,23,38,0.35);
   display: flex; flex-direction: column;
 }
 .chip.as-chat::before { display: none; }

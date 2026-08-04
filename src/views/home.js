@@ -10,8 +10,7 @@ export function homeView() {
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
         <span class="brace">{</span>
-        <div class="home-feed glass">
-          <div class="feed-title"><span class="dot"></span>Context · Fleet</div>
+        <div class="home-feed">
           <div class="feed-lines"></div>
           <div class="feed-hint">click to open fleet chat</div>
         </div>
@@ -101,32 +100,39 @@ export function homeView() {
     next.addEventListener('transitionend', () => { clearTimeout(tid); finish() }, { once: true })
   }
 
-  /* arc-tip glowing dot, riding the same <g> the arc/arc-glow circles rotate in */
+  /* The hero is the sketch's crescent now, so there is no progress arc and
+     no arc-tip dot to drive — those elements simply do not exist in this
+     markup. Everything below is guarded rather than deleted so the ring can
+     still be built in its sweeping-arc form elsewhere. */
   const trackEl = ring.el.querySelector('.track')
   const arcEls = [...ring.el.querySelectorAll('.arc, .arc-glow')]
   const arcEl = ring.el.querySelector('circle.arc')
-  const rNum = parseFloat(trackEl.getAttribute('r'))
-  const cxNum = parseFloat(trackEl.getAttribute('cx'))
-  const cyNum = parseFloat(trackEl.getAttribute('cy'))
-  const circ = 2 * Math.PI * rNum
-  const strokeW = parseFloat(arcEl.getAttribute('stroke-width')) || 8
-  const gradId = ring.el.querySelector('linearGradient')?.id
+  const hasArc = !!(trackEl && arcEl)
 
-  const tipDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-  tipDot.setAttribute('class', 'uring-tip-dot')
-  tipDot.setAttribute('r', String(Math.max(3, strokeW * 0.85)))
-  if (gradId) tipDot.setAttribute('fill', `url(#${gradId})`)
-  arcEl.parentNode.appendChild(tipDot)
+  let circ = 0, rNum = 0, cxNum = 0, cyNum = 0, tipDot = null
+  if (hasArc) {
+    rNum = parseFloat(trackEl.getAttribute('r'))
+    cxNum = parseFloat(trackEl.getAttribute('cx'))
+    cyNum = parseFloat(trackEl.getAttribute('cy'))
+    circ = 2 * Math.PI * rNum
+    const strokeW = parseFloat(arcEl.getAttribute('stroke-width')) || 8
+    const gradId = ring.el.querySelector('linearGradient')?.id
+    tipDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    tipDot.setAttribute('class', 'uring-tip-dot')
+    tipDot.setAttribute('r', String(Math.max(3, strokeW * 0.85)))
+    if (gradId) tipDot.setAttribute('fill', `url(#${gradId})`)
+    arcEl.parentNode.appendChild(tipDot)
+  }
 
   function renderTick() {
     const p = uptimeParts(sim.serverEpoch)
-    const sweep = circ * p.frac
-    arcEls.forEach(a => a.setAttribute('stroke-dasharray', `${sweep} ${circ - sweep}`))
-
-    const t = (sweep / circ) * Math.PI * 2
-    tipDot.setAttribute('cx', (cxNum + rNum * Math.cos(t)).toFixed(2))
-    tipDot.setAttribute('cy', (cyNum + rNum * Math.sin(t)).toFixed(2))
-
+    if (hasArc) {
+      const sweep = circ * p.frac
+      arcEls.forEach(a => a.setAttribute('stroke-dasharray', `${sweep} ${circ - sweep}`))
+      const t = (sweep / circ) * Math.PI * 2
+      tipDot.setAttribute('cx', (cxNum + rNum * Math.cos(t)).toFixed(2))
+      tipDot.setAttribute('cy', (cyNum + rNum * Math.sin(t)).toFixed(2))
+    }
     partsToValues(p).forEach((v, i) => setDigit(stacks[i], v))
   }
   renderTick()
