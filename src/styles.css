@@ -97,17 +97,15 @@
 
   /* --wa scales every white-glass alpha in the whole sheet set, so a theme
      re-tunes all frosted surfaces from one number instead of hundreds of
-     hand-edited rgba()s. --sheet is the one opaque surface (the comms
-     message sheet). */
+     hand-edited rgba()s. --sheet is the one opaque surface. */
   --wa: 1;
   --sheet: #fff;
 }
 
 /* ============================================================
-   THEMES — clinically flat, one colour per surface. Selected in
-   Settings; the choice is sticky. Role hues and status colours are
-   deliberately shared across all three so the data never changes
-   meaning when the shell changes.
+   THEMES — clinically flat, one colour per surface. Chosen in
+   Settings, sticky across sessions. Role hues and status colours are
+   shared by all three so data never changes meaning with the shell.
    ============================================================ */
 
 /* WHITE — the clinical default */
@@ -116,11 +114,10 @@
   --sheet: #ffffff;  --wa: 1;
 }
 
-/* TAN — Gruvbox Light, the owner's Zed terminal theme. These are the
-   palette's published values, not an approximation:
-   Specifically the SOFT variant (the third in the family), whose bg0_s is
-   the properly tan one rather than the paler hard/medium backgrounds:
-     bg0_s #f2e5bc (the tan)   bg1 #ebdbb2   bg0 #fbf1c7
+/* TAN — Gruvbox Light SOFT, the owner's Zed terminal theme (the third
+   variant in the family; its bg0_s is the properly tan one rather than
+   the paler hard/medium backgrounds). Published values, not guesses:
+     bg0_s #f2e5bc   bg1 #ebdbb2   bg0 #fbf1c7
      fg0 #282828  fg1 #3c3836  fg2 #504945  fg3 #665c54  fg4 #7c6f64 */
 :root[data-theme="tan"] {
   --bg: #f2e5bc;  --bg-2: #ebdbb2;  --surface: #f2e5bc;
@@ -135,7 +132,7 @@
 }
 
 /* BLACK — clinical dark. The ink ramp inverts; --wa drops so the same
-   glass rules render as faint light films instead of white slabs. */
+   glass rules render as faint films of light instead of white slabs. */
 :root[data-theme="black"] {
   --bg: #0d0f12;  --bg-2: #131519;  --surface: #0d0f12;
   --sheet: #14171b;  --wa: 0.075;
@@ -169,6 +166,986 @@ body {
 /* The aurora — six drifting neon fields behind the glass — is gone.
    The owner asked for a clinically clean, single-colour background;
    every surface now composites against a flat --bg instead. */
+
+/* ---------- liquid glass primitives ---------- */
+.glass {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.54 * var(--wa))), rgba(255,255,255,calc(0.3 * var(--wa))));
+  /* 18px kernel (was 26px): with the aurora animating behind, every
+     backdrop-filter pass re-runs each frame — the three large surfaces
+     (cards, topbar, graph card) carry the widest kernels, so they are
+     trimmed for the criterion-3 60fps budget; visually identical frost. */
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+  border: 1px solid rgba(255,255,255,calc(0.75 * var(--wa)));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
+    inset 0 0 0 1px rgba(255,255,255,calc(0.35 * var(--wa))),
+    inset 0 -14px 26px -18px rgba(14,23,38,0.16),
+    0 1px 2px rgba(14,23,38,0.04),
+    0 18px 44px -18px rgba(14,23,38,0.16);
+  border-radius: var(--r-lg);
+  transition: box-shadow .45s var(--ease), border-color .45s var(--ease);
+}
+.glass::before {              /* specular top sheen */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(165deg, rgba(255,255,255,calc(0.55 * var(--wa))) 0%, rgba(255,255,255,calc(0 * var(--wa))) 38%);
+  pointer-events: none;
+}
+.glass::after {               /* hover specular sweep */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(115deg,
+    transparent 32%,
+    rgba(255,255,255,calc(0.45 * var(--wa))) 44%,
+    rgba(255,255,255,calc(0.85 * var(--wa))) 50%,
+    rgba(255,255,255,calc(0.18 * var(--wa))) 55%,
+    transparent 66%);
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  background-position: 115% 0;
+  opacity: 0;
+  transition: opacity .3s var(--ease), background-position 0s .3s;
+}
+.glass:hover::after {
+  opacity: 0.75;
+  background-position: -15% 0;
+  transition: background-position .7s var(--ease), opacity .18s var(--ease);
+}
+.glass:hover {                /* crisp rim light + lifted depth */
+  border-color: rgba(255,255,255,calc(0.95 * var(--wa)));
+  box-shadow:
+    inset 0 1px 0 #fff,
+    inset 0 0 0 1px rgba(255,255,255,calc(0.55 * var(--wa))),
+    inset 0 -14px 26px -18px rgba(14,23,38,0.18),
+    0 1px 2px rgba(14,23,38,0.05),
+    0 24px 54px -20px rgba(14,23,38,0.2),
+    0 0 calc(20px * var(--glow)) rgba(69,214,255, calc(0.11 * var(--glow)));
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  width: min(1240px, calc(100vw - 32px));
+  height: 54px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 10px;
+  z-index: 60;
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.56 * var(--wa))), rgba(255,255,255,calc(0.34 * var(--wa))));
+  backdrop-filter: blur(18px) saturate(1.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.8);
+  border: 1px solid rgba(255,255,255,calc(0.78 * var(--wa)));
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))), 0 12px 34px -16px rgba(14,23,38,0.22);
+}
+.tb-side { display: flex; align-items: center; gap: 8px; min-width: 200px; }
+.tb-right { justify-content: flex-end; }
+.crumb { font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
+.crumb b { color: var(--ink-2); font-weight: 600; }
+
+.tb-nav { display: flex; gap: 4px; }
+.tb-nav a {
+  font-size: 13.5px; font-weight: 550; text-decoration: none;
+  color: var(--ink-25);
+  padding: 7px 14px; border-radius: 3px;
+  transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease);
+}
+.tb-nav a:hover { color: var(--ink-2); }
+.tb-nav a.active {
+  color: var(--ink);
+  background: rgba(255,255,255,calc(0.78 * var(--wa)));
+  box-shadow: inset 0 1px 0 #fff, 0 4px 14px -6px rgba(14,23,38,0.22),
+    0 0 0 1px rgba(255,255,255,calc(0.9 * var(--wa)));
+}
+
+.icon-btn {
+  width: 36px; height: 36px; border-radius: 3px;
+  display: grid; place-items: center;
+  border: 1px solid transparent; background: transparent;
+  color: var(--ink-2); cursor: pointer;
+  transition: background .25s var(--ease), box-shadow .25s var(--ease), color .2s, transform .15s var(--ease);
+}
+.icon-btn svg { width: 20px; height: 20px; }
+.icon-btn:hover { background: rgba(255,255,255,calc(0.8 * var(--wa))); color: var(--ink); box-shadow: 0 4px 12px -6px rgba(14,23,38,0.25), inset 0 1px 0 #fff; }
+.icon-btn:active { transform: scale(0.93); }
+.icon-btn[disabled] { opacity: 0.42; pointer-events: none; }
+
+/* ---------- stage & view transitions ---------- */
+#stage { position: relative; z-index: 1; height: 100vh; padding-top: 82px; }
+.view {
+  position: absolute; inset: 82px 0 0 0;
+  overflow: hidden;
+  opacity: 1; transform: none;
+  transition: opacity .38s var(--ease), transform .38s var(--ease);
+}
+.view.enter { opacity: 0; transform: translateY(14px) scale(0.992); }
+.view.exit  { opacity: 0; transform: translateY(-10px) scale(0.995); pointer-events: none; }
+.view-pad { height: 100%; overflow-y: auto; padding: 8px clamp(16px, 4vw, 48px) 40px; }
+
+/* ============================================================
+   HOME
+   ============================================================ */
+.home {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr minmax(380px, 500px);
+  align-items: center;
+  gap: 2.5vw;
+  padding: 0 clamp(20px, 4vw, 60px);
+}
+@media (max-width: 900px) { .home { grid-template-columns: 1fr; } .home-feed-wrap { display: none; } }
+
+.home-ring-wrap { display: grid; place-items: center; }
+
+/* uptime ring */
+.uring { position: relative; }
+.uring svg { display: block; overflow: visible; }
+/* professional-pass parity (shared by Home's hero ring and the Agent
+   Controls runtime dial): this used to be a permanent blurred halo painted
+   under the arc — the loudest light on either surface. Mirrors the
+   .link-under precedent: an unblurred depth stroke, not radiated light.
+   Track opacity lifted slightly so the unlit ring still reads at full size. */
+.uring .track { stroke: rgba(14,23,38,0.09); }
+.uring .arc-glow { filter: none; opacity: calc(0.1 * var(--glow)); }
+.uring-center {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+}
+.uring-inner { text-align: center; }
+.uring-digits {
+  display: flex; align-items: baseline; justify-content: center;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.uring-digits .seg { display: flex; flex-direction: column; align-items: center; }
+.uring-digits .n { font-size: clamp(34px, 4.6vw, 58px); color: var(--ink); line-height: 1.05; }
+.uring-digits .colon { font-size: clamp(26px, 3.6vw, 44px); color: var(--ink-4); padding: 0 clamp(4px, 0.7vw, 10px); transform: translateY(-4px); animation: colonPulse 2s ease-in-out infinite; }
+@keyframes colonPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.uring-digits .u {
+  margin-top: 8px;
+  font-size: 11px; font-weight: 560; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-25);
+}
+.uring-caption {
+  margin-top: 18px;
+  font-size: 12.5px; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--ink-25); font-weight: 560;
+  text-align: center;
+}
+/* compact rings live at 180–190px: 11px is the floor for a caps micro-label,
+   and the tightened tracking keeps "RUNTIME" (~60px) well inside the ~144px
+   chord available at that height, so nothing escapes the disc */
+.uring.compact .uring-caption { margin-top: 7px; font-size: 11px; letter-spacing: 0.13em; }
+.uring.compact .uring-digits .u { display: none; }
+/* compact rings live inside ~370px rails — digits must scale to the ring,
+   not the viewport, or they escape the panel */
+.uring.compact .uring-digits .n { font-size: 27px; }
+.uring.compact .uring-digits .colon { font-size: 19px; padding: 0 3px; transform: translateY(-2px); }
+.uring-sub { margin-top: 7px; font-size: 12.5px; color: var(--ink-25); text-align: center; font-family: var(--font-mono); }
+
+/* greyed context feed, flanked by giant quiet braces */
+.home-feed-wrap {
+  position: relative;
+  display: flex; align-items: center; gap: 6px;
+  min-height: 420px;
+}
+.brace {
+  font-size: 190px; font-weight: 100; line-height: 0.9;
+  color: rgba(14,23,38,0.06);
+  user-select: none; flex: none;
+  font-family: var(--font-ui);
+  transition: opacity .5s var(--ease), transform .5s var(--ease);
+}
+.home-feed-wrap.chat-open .brace { opacity: 0; transform: scaleX(0.6); }
+.home-feed {
+  flex: 1;
+  cursor: pointer;
+  padding: 26px 22px;
+  border-radius: var(--r-lg);
+  transition: transform .45s var(--ease), box-shadow .45s var(--ease), background .45s var(--ease),
+    height .5s var(--ease), max-height .5s var(--ease);
+  overflow: hidden;
+  position: relative;
+  max-height: 460px;
+}
+.home-feed:hover { background: rgba(255,255,255,calc(0.4 * var(--wa))); box-shadow: 0 18px 44px -20px rgba(14,23,38,0.14); }
+.feed-title {
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--ink-25); font-weight: 620; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.feed-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-shadow);
+  animation: livePulse 2.4s ease-in-out infinite; }
+@keyframes livePulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.7); opacity: 0.5; } }
+.feed-lines { display: flex; flex-direction: column; gap: 8px; }
+.feed-line {
+  font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.35; color: var(--ink-25);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 1; transform: none;
+  transition: opacity .5s var(--ease), transform .5s var(--ease), color .5s var(--ease);
+}
+.feed-line .agent { color: var(--ink-2); font-weight: 600; }
+.feed-line.fresh { opacity: 0; transform: translateY(-8px); }
+/* older lines recede by stepping DOWN the ink ramp instead of by going
+   translucent — 0.45 opacity put live feed text at ~1.9:1, unreadable for
+   exactly the vision the type floor is for. --ink-3 still reads as "older"
+   next to --ink-25 and holds the 4.5:1 floor (4.94 on white, 4.59 on --bg). */
+.feed-line.old { color: var(--ink-3); }
+/* the feed has no card behind it — it floats straight on the aurora — so
+   its supporting text takes the --ink-25 step rather than --ink-3 */
+.feed-hint { margin-top: 16px; font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.04em; }
+
+/* expanded: context feed becomes a chat window (FLIP morph, in place) */
+.home-feed.as-chat { cursor: default; max-height: min(72vh, 640px); height: min(72vh, 640px); display: flex; flex-direction: column; }
+.home-feed.as-chat .feed-lines { display: none; }
+.home-feed.as-chat .feed-hint { display: none; }
+
+/* ============================================================
+   generic chat UI (used by feed morph + node chips + agent page)
+   ============================================================ */
+.chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.chat-head {
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 12px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-head .role-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.chat-head .t { font-size: 13.5px; font-weight: 640; color: var(--ink); }
+.chat-head .s { font-size: 12.5px; color: var(--ink-25); font-family: var(--font-mono); }
+.chat-head .spacer { flex: 1; }
+.chat-close {
+  width: 26px; height: 26px; border-radius: 3px; border: none; cursor: pointer;
+  display: grid; place-items: center; color: var(--ink-25); background: transparent;
+  transition: background .2s, color .2s;
+}
+.chat-close:hover { background: rgba(14,23,38,0.06); color: var(--ink); }
+.chat-close svg { width: 14px; height: 14px; }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.msg {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 3px;
+  font-size: 13px; line-height: 1.45;
+  animation: msgIn .4s var(--ease-spring);
+}
+@keyframes msgIn { from { opacity: 0; transform: translateY(8px) scale(0.96); } }
+.msg.them {
+  align-self: flex-start;
+  background: rgba(255,255,255,calc(0.72 * var(--wa)));
+  border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
+  box-shadow: 0 2px 8px -4px rgba(14,23,38,0.12);
+  color: var(--ink-2);
+}
+.msg.me {
+  align-self: flex-end;
+  color: #fff;
+  background: linear-gradient(160deg, #1e2c3d, #0e1726);
+  box-shadow: 0 6px 18px -8px rgba(14,23,38,0.5);
+}
+.msg .who { display: block; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 650; color: var(--ink-25); margin-bottom: 3px; }
+.msg.me .who { color: rgba(255,255,255,calc(0.66 * var(--wa))); }
+.chat-input {
+  margin-top: 10px;
+  display: flex; gap: 8px; align-items: center; flex: none;
+}
+.chat-input input {
+  flex: 1; height: 38px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
+  background: rgba(255,255,255,calc(0.75 * var(--wa)));
+  box-shadow: inset 0 1px 3px rgba(14,23,38,0.05);
+  padding: 0 14px;
+  font-family: var(--font-ui); font-size: 13.5px; color: var(--ink);
+  outline: none;
+  transition: box-shadow .25s var(--ease);
+}
+.chat-input input:focus { box-shadow: inset 0 1px 3px rgba(14,23,38,0.05), 0 0 0 3px rgba(0,169,216,0.2); }
+.chat-input input::placeholder { color: var(--ink-3); }
+.chat-send {
+  height: 38px; width: 38px; flex: none;
+  border-radius: 3px; border: none; cursor: pointer;
+  display: grid; place-items: center;
+  color: #fff;
+  background: linear-gradient(160deg, #21b7e4, #0092c4);
+  /* neutral lift, no aura (professional-pass — this button lives inside
+     every context-box chat on the graph) */
+  box-shadow: 0 6px 16px -6px rgba(0,169,216,0.5);
+  transition: transform .15s var(--ease), box-shadow .25s;
+}
+.chat-send:hover { transform: translateY(-1px); }
+.chat-send:active { transform: scale(0.92); }
+.chat-send svg { width: 17px; height: 17px; }
+
+/* ============================================================
+   COMPUTERS
+   ============================================================ */
+.computers { height: 100%; display: flex; flex-direction: column; padding: 0 clamp(14px, 2.5vw, 32px) 20px; gap: 14px; }
+
+.tabs { display: flex; gap: 8px; align-items: center; flex: none; padding: 2px; }
+.tab {
+  position: relative;
+  padding: 9px 18px;
+  border-radius: 3px;
+  font-size: 13.5px; font-weight: 570; color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.42 * var(--wa)));
+  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
+  cursor: pointer;
+  transition: all .3s var(--ease);
+  display: flex; align-items: center; gap: 8px;
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+}
+.tab:hover { color: var(--ink-2); background: rgba(255,255,255,calc(0.62 * var(--wa))); }
+.tab.active {
+  color: var(--ink);
+  background: rgba(255,255,255,calc(0.8 * var(--wa)));
+  box-shadow: inset 0 1px 0 #fff, 0 8px 22px -10px rgba(14,23,38,0.25);
+}
+.tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 450; }
+.tab.add { padding: 9px 14px; font-size: 16px; color: var(--ink-25); }
+
+.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, 400px); gap: 14px; }
+@media (max-width: 1080px) {
+  .comp-body { grid-template-columns: 1fr; grid-template-rows: minmax(340px, 1fr) minmax(440px, auto); }
+  .rail { min-height: 440px; }
+}
+
+/* --- graph canvas --- */
+.graph-wrap { position: relative; min-height: 0; border-radius: var(--r-lg); overflow: hidden; }
+.graph-canvas { position: absolute; inset: 0; }
+.graph-canvas svg.links { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* professional-pass: the "under" stroke used to read as a colored halo
+   (wide + translucent = a glow, no filter needed to sell it); dropped to a
+   whisper so it now reads as depth, not neon. Top stroke toned down to match
+   a calm topology-diagram line rather than a bright candy curve. */
+.link-under { fill: none; stroke-linecap: round; opacity: calc(0.07 * var(--glow)); }
+.link-top { fill: none; stroke-linecap: round; opacity: 0.4; }
+
+/* Sits at the TOP, not the bottom. Node labels hang below their disc, and
+   the bottom clamp lets the lowest of them reach within ~7px of the canvas
+   floor — so a bottom-anchored toast lands squarely on label text (QA
+   measured 1198px² over one name at 1280x800). Above the topmost disc there
+   is structurally nothing to collide with: the highest a bubble can sit is
+   r + padTop, and its labels start below it. Clears the crumb (top-left)
+   and the Edit button (top-right) horizontally. */
+.graph-hint {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%) translateY(-6px);
+  z-index: 4;
+  padding: 9px 16px; border-radius: 3px;
+  font-size: 12.5px; color: var(--ink-2);
+  opacity: 0; pointer-events: none;
+  transition: opacity .4s var(--ease), transform .4s var(--ease);
+  white-space: nowrap;
+  max-width: calc(100% - 220px);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.graph-hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.graph-crumb {
+  position: absolute; top: 14px; left: 16px;
+  display: flex; gap: 6px; align-items: center;
+  font-size: 12.5px; color: var(--ink-25);
+  z-index: 5;
+}
+.graph-crumb button {
+  border: none; background: none; cursor: pointer;
+  font-size: 12.5px; color: var(--ink-2); font-weight: 600;
+  padding: 4px 8px; border-radius: 3px;
+  transition: background .2s;
+}
+.graph-crumb button:hover { background: rgba(255,255,255,calc(0.7 * var(--wa))); }
+.graph-crumb .sep { color: var(--ink-4); }
+
+/* --- agent node bubbles (HTML glass over SVG links) --- */
+.node {
+  position: absolute; top: 0; left: 0;
+  transform: translate(-50%, -50%);
+  will-change: transform;
+  z-index: 2;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.node.dragging { cursor: grabbing; z-index: 6; }
+/* while a drag is hot, the moving bubbles skip the backdrop pass — motion
+   hides the frost, and re-sampling 16 lenses per frame is the fps killer */
+.graph-canvas.interacting .node::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* while the physics is hot every bubble is moving — drop the other expensive
+   per-node passes too (5-layer glow → 3, spectral ring, focus pulse). Motion
+   hides the difference; full fidelity returns the moment the graph settles. */
+.graph-canvas.interacting .node-glass {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
+    0 9px 20px -13px rgba(14,23,38,0.22);
+}
+.graph-canvas.interacting .node.focusable .node-glass { animation: none; }
+.node::before {
+  /* Lens frost pass — deliberately NOT on .node-glass. The scale
+     transitions/animations (hover, drag, settle, reap, bloom) all ride
+     .node-glass, and the 60fps clause forbids an expensive filter on the
+     animating element itself. This pseudo carries no transition and no
+     animation: a static circle the glass paints over, keeping the backdrop
+     blur/saturation stronger than v1 (16px / 2.0 vs 14px / 1.6) while the
+     lens scales freely above it. Sized by inset:0 — .node shrink-wraps
+     .node-glass, so this is exactly the bubble's footprint. */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  backdrop-filter: blur(16px) saturate(2);
+  -webkit-backdrop-filter: blur(16px) saturate(2);
+  pointer-events: none;
+}
+.node.enter::before { animation: frostIn .7s var(--ease) both; }  /* track the nodeIn bloom so no full-size frost disc precedes the bubble */
+@keyframes frostIn { 0% { opacity: 0; } 55% { opacity: 0.35; } 100% { opacity: 1; } }
+/* professional-pass (owner: "childish… neon glow does not scream
+   professional"). The bubble used to carry a permanent ambient bloom (two
+   `0 0 Npx` glow layers at rest, on every node, all the time) plus a rainbow
+   conic-gradient edge ring — the two biggest contributors to a "candy /
+   game" read. Both are gone: identity now lives in a confident but muted
+   border tint and a small flat status dot (see .node-name i below); depth
+   comes from a neutral elevation shadow, the way a real card casts a
+   shadow, not a colored halo. The frosted-glass material itself (backdrop
+   blur on .node::before, the soft white specular layers here) stays — that
+   register (macOS/Arc-style glass) reads as premium software, not a toy,
+   as long as nothing under it is glowing. */
+.node-glass {
+  position: relative;
+  width: var(--d); height: var(--d);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background:
+    radial-gradient(42% 34% at 31% 22%, rgba(255,255,255,calc(0.92 * var(--wa))), rgba(255,255,255,calc(0 * var(--wa))) 72%),
+    radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,calc(0.42 * var(--wa))), rgba(255,255,255,calc(0 * var(--wa))) 78%),
+    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,calc(0.74 * var(--wa))), rgba(255,255,255,calc(0.32 * var(--wa))) 55%, rgba(255,255,255,calc(0.19 * var(--wa))));
+  /* no filter / backdrop-filter here — frost lives on the static .node::before;
+     glow is box-shadow layers only (60fps clause) */
+  border: 1.5px solid color-mix(in oklab, var(--rc) 40%, white);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
+    inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
+    0 1px 2px rgba(14,23,38,0.05),
+    0 9px 20px -13px rgba(14,23,38,0.22);
+  transition: box-shadow .45s var(--ease), border-color .45s var(--ease), transform .45s var(--ease-spring), background .45s;
+}
+/* durable hover signal — deepened neutral elevation + a darker border reads
+   clearly on its own, not left to the (fast, easy-to-miss) ripple flourish */
+.node:hover .node-glass {
+  transform: scale(1.03);
+  border-color: color-mix(in oklab, var(--rc) 55%, white);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
+    inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
+    0 2px 4px rgba(14,23,38,0.07),
+    0 14px 28px -14px rgba(14,23,38,0.3);
+}
+.node.dragging .node-glass {
+  transform: scale(1.06);
+  border-color: var(--rc);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
+    0 22px 44px -16px rgba(14,23,38,0.34),
+    0 3px 7px rgba(14,23,38,0.1);
+}
+/* Bubble type is derived from the bubble diameter, and the smallest role
+   (r=39 → --d:78px) put the clock at 12.1px and the caps label at 6.9px —
+   the two worst offenders on the site. max() applies the floor without
+   flattening the size hierarchy on the bigger roles (coordinator --d:124px
+   still gets a 19px clock). Measured against the chord available at the
+   text's own height: at --d:78px the label band is ~72px wide and "RUNTIME"
+   at 11px/0.08em is ~54px, so the floor stays inside the glass. */
+.node .rt {
+  font-variant-numeric: tabular-nums;
+  font-weight: 610;
+  color: var(--ink-2);
+  font-size: max(13px, calc(var(--d) * 0.155));
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+.node .rl {
+  margin-top: 3px;
+  font-size: max(11px, calc(var(--d) * 0.088));
+  font-weight: 560; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-25);
+  line-height: 1.1;
+}
+.node .node-name {
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  white-space: nowrap;
+  display: flex; align-items: center; gap: 5px;
+}
+.node .node-name i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--rc);
+}
+/* +26px clears the 12.5px name line (≈15px tall from +7px) with a hairline
+   of air, so the two label rows never touch at either test size */
+.node .node-role { position: absolute; top: calc(100% + 26px); left: 50%; transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-25); white-space: nowrap; font-weight: 560;
+  /* the role label is the one string that can outgrow its bubble (the
+     longest is "Coordinator's Helper"). The force layout keeps centres
+     ≥ r+30 apart, so bounding the label to the bubble + 56px guarantees two
+     neighbouring labels can never meet, whatever the type size. */
+  max-width: calc(var(--d) + 68px); overflow: hidden; text-overflow: ellipsis; text-align: center; }
+
+/* selection ring — the live "focusable" pulse animation is defined once,
+   in graph.css (.graph-canvas .node.focusable .node-glass::before), which
+   already outranks any rule here by specificity */
+.node.selected .node-glass {
+  border-color: var(--rc);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
+    0 9px 20px -13px rgba(14,23,38,0.22),
+    var(--rg-soft);
+}
+
+/* spawn: graphite → bloom into role color */
+.node.spawning .node-glass {
+  border-color: color-mix(in oklab, var(--c-spawned) 60%, white);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -10px rgba(14,23,38,0.4);
+}
+.node.enter .node-glass { animation: nodeIn .7s var(--ease-spring); }
+@keyframes nodeIn { 0% { opacity: 0; transform: scale(0.15); } 40% { opacity: 1; } 100% { transform: scale(1); } }
+.node.leave { opacity: 0; transition: opacity .5s var(--ease); }
+.node.leave .node-glass { transform: scale(0.4); }
+
+/* role color bindings */
+/* --rg* are the generated perceptual glow stacks (src/glow.css, built by
+   tools/gen-glow.mjs). They are used ONLY for genuine state moments —
+   selection, a valid drop target, an arrival — never as a resting bloom. */
+.role-coordinator { --rc: var(--c-coordinator); --gc: var(--g-coordinator);
+  --rg-soft: var(--glow-coordinator-soft); --rg-loud: var(--glow-coordinator-loud); }
+.role-helper      { --rc: var(--c-helper);      --gc: var(--g-helper);
+  --rg-soft: var(--glow-helper-soft);      --rg-loud: var(--glow-helper-loud); }
+.role-shadow      { --rc: var(--c-shadow);      --gc: var(--g-shadow);
+  --rg-soft: var(--glow-shadow-soft);      --rg-loud: var(--glow-shadow-loud); }
+.role-manager     { --rc: var(--c-manager);     --gc: var(--g-manager);
+  --rg-soft: var(--glow-manager-soft);     --rg-loud: var(--glow-manager-loud); }
+.role-default     { --rc: var(--c-default);     --gc: var(--g-default);
+  --rg-soft: var(--glow-default-soft);     --rg-loud: var(--glow-default-loud); }
+
+/* --- context chips → chat morph --- */
+.chip {
+  position: absolute; top: 0; left: 0;
+  /* width stays 168px on purpose: graph.js carries it as a layout constant
+     (rec.chipW / the collapse-back inline width), so the radial placement
+     math only stays correct while CSS agrees with it. The 13px reading
+     floor is paid for out of the padding instead. */
+  width: 168px;
+  padding: 9px 10px 9px 12px;
+  border-radius: 3px;
+  z-index: 1;
+  cursor: pointer;
+  will-change: transform;
+  background: rgba(255,255,255,calc(0.5 * var(--wa)));
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,calc(0.8 * var(--wa)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14,23,38,0.18);
+  transition: width .5s var(--ease), height .5s var(--ease), box-shadow .4s var(--ease), background .4s var(--ease);
+  overflow: hidden;
+}
+.chip::before {
+  content: "";
+  position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px;
+  background: color-mix(in oklab, var(--rc, #93a1af) 45%, white);
+}
+.chip:hover { background: rgba(255,255,255,calc(0.72 * var(--wa))); box-shadow: inset 0 1px 0 #fff, 0 12px 28px -12px rgba(14,23,38,0.25); z-index: 6; }
+.chip .cl {
+  font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.4; color: var(--ink-25);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chip .cl b { color: var(--ink-2); font-weight: 600; }
+.chip.as-chat {
+  width: 316px; height: 368px;
+  padding: 14px 16px;
+  cursor: default;
+  z-index: 8;
+  backdrop-filter: blur(30px) saturate(1.7);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.86 * var(--wa))), rgba(255,255,255,calc(0.72 * var(--wa))));
+  box-shadow: inset 0 1px 0 #fff, 0 26px 60px -22px rgba(14,23,38,0.35);
+  display: flex; flex-direction: column;
+}
+.chip.as-chat::before { display: none; }
+.chip.as-chat .chip-preview { display: none; }
+.chip .chat { display: none; }
+.chip.as-chat .chat { display: flex; animation: chatIn .45s var(--ease) both; }
+@keyframes chatIn { from { opacity: 0; } }
+
+/* --- right rail: runtime statistics / agent controls morph --- */
+.rail { position: relative; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.rail-page {
+  position: absolute; inset: 0;
+  padding: 22px 22px 16px;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  transition: opacity .4s var(--ease), transform .45s var(--ease);
+}
+.rail-page.off-r { opacity: 0; transform: translateX(26px) scale(0.985); pointer-events: none; }
+.rail-page.off-l { opacity: 0; transform: translateX(-26px) scale(0.985); pointer-events: none; }
+
+.rail-title {
+  font-size: 11.5px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-25); font-weight: 650;
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px; flex: none;
+}
+.rail-title .spacer { flex: 1; }
+.rail-back {
+  border: none; background: none; cursor: pointer;
+  font-size: 12.5px; color: var(--ink-25); font-weight: 600;
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: 3px; letter-spacing: 0.03em;
+  transition: background .2s, color .2s;
+}
+.rail-back:hover { background: rgba(14,23,38,0.05); color: var(--ink); }
+.rail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+
+.stat-hero { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.stat-hero .v { font-size: 46px; font-weight: 660; color: var(--ink); line-height: 1; }
+.stat-hero .l { font-size: 12.5px; color: var(--ink-25); font-weight: 550; }
+.stat-hero .delta { font-size: 12.5px; font-weight: 640; color: var(--s-good); }
+.rail-sub { font-size: 12.5px; line-height: 1.45; color: var(--ink-3); margin-bottom: 18px; font-family: var(--font-mono); }
+
+.rail-sec {
+  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-25); font-weight: 650; margin: 18px 0 10px;
+}
+
+/* mini bar chart (CPU/GPU/...) */
+.bars { display: flex; flex-direction: column; gap: 10px; }
+/* label column widened 58 → 64px so the longest label ("Network", ~48px at
+   12.5px) keeps its old breathing room after the bump */
+.bar-row { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: 10px; }
+.bar-row .bl { font-size: 12.5px; color: var(--ink-2); font-weight: 560; }
+.bar-row .bv { font-size: 12.5px; color: var(--ink-2); font-weight: 620; font-variant-numeric: tabular-nums; text-align: right; }
+.bar-track { height: 10px; border-radius: 2px; background: rgba(14,23,38,0.055); overflow: hidden; position: relative; }
+.bar-fill {
+  position: absolute; inset: 0 auto 0 0; width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--bc) 82%, white), var(--bc));
+  transition: width 1.1s var(--ease);
+}
+
+/* task chips */
+.task-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.task-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 11px;
+  border-radius: 3px;
+  background: rgba(255,255,255,calc(0.6 * var(--wa)));
+  border: 1px solid color-mix(in oklab, var(--tc) 38%, white);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa)));
+  font-size: 13px; color: var(--ink-25);
+  animation: chipIn .5s var(--ease-spring) both;
+  white-space: nowrap;
+}
+@keyframes chipIn { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+.task-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--tc); flex: none; }
+/* done reads from the strike-through and the ink step, not from a 0.45
+   opacity wash that dropped finished task names to ~1.6:1 */
+.task-chip.done { text-decoration: line-through; color: var(--ink-3); }
+.task-chip.done i { opacity: 0.45; }
+
+/* legend */
+/* auto-fit instead of a hard 1fr 1fr: at 12.5px the longest role label
+   ("Coordinator's Helper", ~128px + swatch) no longer fits a half-column in
+   a narrow rail, so the grid drops to one column there instead of wrapping
+   every second entry onto two lines */
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 8px 14px; margin-top: 4px; }
+.leg { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 540; }
+.leg i {
+  width: 12px; height: 12px; border-radius: 4px; flex: none;
+  background: linear-gradient(150deg, color-mix(in oklab, var(--lc) 70%, white), var(--lc));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.6 * var(--wa)));
+}
+/* the off entry steps down the ink ramp and dims only its swatch — the old
+   blanket 0.45 opacity took the label itself to ~2.4:1 */
+.leg.off { color: var(--ink-3); }
+.leg.off i { opacity: 0.4; }
+.leg .ln { color: var(--ink-3); font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* --- agent controls (rail morph target) --- */
+.agent-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.agent-head .role-dot { width: 10px; height: 10px; border-radius: 50%; }
+.agent-head .an { font-size: 20px; font-weight: 660; color: var(--ink); }
+.agent-head .ar { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-25); font-weight: 620; margin-top: 2px; }
+.agent-ring-wrap { display: grid; place-items: center; padding: 10px 0 6px; }
+
+.ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ctl-btn {
+  height: 40px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
+  background: rgba(255,255,255,calc(0.62 * var(--wa)));
+  box-shadow: inset 0 1px 0 #fff, 0 4px 12px -6px rgba(14,23,38,0.14);
+  font-family: var(--font-ui); font-size: 13px; font-weight: 600; color: var(--ink-2);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: all .25s var(--ease);
+}
+.ctl-btn svg { width: 15px; height: 15px; }
+.ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 #fff, 0 8px 18px -8px rgba(14,23,38,0.22); }
+.ctl-btn:active { transform: scale(0.97); }
+.ctl-btn.armed { color: #fff; border-color: transparent;
+  background: linear-gradient(160deg, #21b7e4, #0092c4);
+  box-shadow: 0 6px 16px -6px rgba(0,169,216,0.45); }
+.ctl-btn.danger:hover { color: var(--s-serious); border-color: color-mix(in oklab, var(--s-serious) 30%, white); }
+
+.ctl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 2px; }
+.ctl-row .cl { font-size: 12.5px; color: var(--ink-2); font-weight: 550; white-space: nowrap; }
+.ctl-row .cv { font-size: 12.5px; color: var(--ink-25); font-variant-numeric: tabular-nums; font-family: var(--font-mono); flex: none; }
+/* 130 → 118px: the label ("Context budget") and the mono value both grew,
+   and the slider is the one element in the row that can give width back.
+   At the rail's narrowest (320px card → 272px of content) the row now
+   measures ~257px, so nothing wraps at 1280×800 either. */
+.ctl-row input[type="range"] { width: 118px; flex: none; }
+
+/* sliders */
+input[type="range"] {
+  appearance: none; -webkit-appearance: none;
+  height: 22px; background: transparent; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 3px;
+  background: linear-gradient(90deg, #21b7e4 var(--fill, 50%), rgba(14,23,38,0.08) var(--fill, 50%));
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 17px; height: 17px; border-radius: 50%;
+  margin-top: -6px;
+  background: #fff;
+  border: 1px solid rgba(14,23,38,0.08);
+  box-shadow: 0 2px 7px rgba(14,23,38,0.25);
+  transition: transform .15s var(--ease);
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
+
+/* toggle */
+.toggle { position: relative; display: inline-block; width: 42px; height: 24px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle i {
+  position: absolute; inset: 0; border-radius: 13px;   /* a switch is a capsule, not a box */
+  background: rgba(14,23,38,0.12);
+  transition: background .3s var(--ease);
+}
+.toggle i::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 6px rgba(14,23,38,0.3);
+  transition: transform .3s var(--ease-spring);
+}
+.toggle input:checked + i { background: #21b7e4; }
+.toggle input:checked + i::after { transform: translateX(18px); }
+
+/* ============================================================
+   AGENT PAGE  (subtree · chat | controls, scroll-snap)
+   ============================================================ */
+.agentv { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 0 clamp(14px, 2.5vw, 32px) 20px; }
+/* min-height was 240px — QA measured the label-avoidance system running out
+   of geometric room at small viewports (a 63px clamp-band deficit at
+   1280x800); this floor gives it more to work with there specifically. */
+.agentv-graph { position: relative; flex: 1.05; min-height: 280px; border-radius: var(--r-lg); overflow: hidden; }
+.agentv-panels {
+  flex: 1;
+  min-height: 300px;
+  display: flex; gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  border-radius: var(--r-lg);
+}
+.agentv-panels::-webkit-scrollbar { display: none; }
+.apanel {
+  flex: 0 0 min(560px, 88%);
+  scroll-snap-align: start;
+  padding: 20px 22px;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.apanel-title { font-size: 11.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-25); font-weight: 650; margin-bottom: 12px; }
+.scroll-cue {
+  position: absolute; right: 24px; bottom: 24px;
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-25); display: flex; align-items: center; gap: 6px;
+  animation: cueSlide 2.6s ease-in-out infinite;
+}
+@keyframes cueSlide { 0%,100% { transform: translateX(0); opacity: .7; } 50% { transform: translateX(6px); opacity: 1; } }
+
+/* ============================================================
+   METRICS
+   ============================================================ */
+.metrics { display: flex; flex-direction: column; gap: 14px; max-width: 1240px; margin: 0 auto; }
+.m-row { display: grid; gap: 14px; }
+.m-tiles { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.m-pools { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.m-charts2 { grid-template-columns: 3fr 2fr; }
+.m-charts3 { grid-template-columns: 2fr 1.2fr 1fr; }
+@media (max-width: 1000px) { .m-charts2, .m-charts3 { grid-template-columns: 1fr; } }
+
+.tile { padding: 18px 20px 16px; }
+.tile .tl { font-size: 12.5px; color: var(--ink-25); font-weight: 560; margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+.tile .tl i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc, var(--c-coordinator)); }
+.tile .tv { font-size: 30px; font-weight: 660; color: var(--ink); line-height: 1.05; display: flex; align-items: baseline; gap: 8px; }
+.tile .tv .unit { font-size: 13px; color: var(--ink-25); font-weight: 550; }
+.tile .td { margin-top: 6px; font-size: 12.5px; font-weight: 600; }
+.tile .td.up { color: var(--s-good); } .tile .td.down { color: var(--s-serious); } .tile .td.flat { color: var(--ink-3); font-weight: 500; }
+.tile .spark { margin-top: 10px; }
+
+.pool { padding: 20px 22px 18px; }
+.pool-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.pool-head .pn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 640; color: var(--ink); }
+.pool-head .pt { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; padding: 3px 8px; border-radius: 2px; font-weight: 650;
+  background: color-mix(in oklab, var(--pc) 12%, white); color: color-mix(in oklab, var(--pc) 75%, black); }
+.pool-sub { font-size: 12.5px; color: var(--ink-3); margin-bottom: 14px; }
+.meter { height: 12px; border-radius: 2px; position: relative; overflow: hidden;
+  background: color-mix(in oklab, var(--pc) 12%, white); }
+.meter .mf {
+  position: absolute; inset: 0 auto 0 0; border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--pc) 70%, white), var(--pc));
+  transition: width 1.2s var(--ease);
+}
+.meter-caption { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.meter-caption b { color: var(--ink-2); font-weight: 640; }
+.pool-stats { display: flex; gap: 16px; margin-top: 14px; }
+.pool-stat .v { font-size: 16px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pool-stat .l { font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-25); font-weight: 600; margin-top: 2px; }
+
+.chart-card { padding: 20px 22px 14px; min-width: 0; }
+.chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.chart-head .ct { font-size: 13.5px; font-weight: 650; color: var(--ink); }
+.chart-head .cs { font-size: 12.5px; color: var(--ink-3); }
+.chart-head .spacer { flex: 1; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.chart-legend .ck { display: flex; align-items: center; gap: 6px; }
+.chart-legend .ck i { width: 8px; height: 8px; border-radius: 50%; background: var(--kc); }
+.chart-body { position: relative; }
+.chart-body svg { display: block; width: 100%; height: auto; }
+.chart-body svg text { font-family: var(--font-ui); }
+
+.tooltip {
+  position: absolute; z-index: 10;
+  pointer-events: none;
+  padding: 8px 11px;
+  border-radius: 3px;
+  background: rgba(255,255,255,calc(0.86 * var(--wa)));
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,calc(0.95 * var(--wa)));
+  box-shadow: 0 10px 26px -10px rgba(14,23,38,0.3);
+  font-size: 12.5px; color: var(--ink-2);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity .18s var(--ease), transform .18s var(--ease);
+  white-space: nowrap;
+}
+.tooltip.show { opacity: 1; transform: translateY(0); }
+.tooltip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.tooltip .tt-title { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-25); font-weight: 650; margin-bottom: 3px; }
+
+/* agent metrics table */
+.mtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mtable th {
+  text-align: left; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-25); font-weight: 650; padding: 8px 10px;
+  border-bottom: 1px solid var(--line-2);
+}
+.mtable td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mtable tr:last-child td { border-bottom: none; }
+.mtable tr { transition: background .2s; }
+.mtable tbody tr:hover { background: rgba(255,255,255,calc(0.55 * var(--wa))); }
+.mtable .aname { display: flex; align-items: center; gap: 8px; font-weight: 620; color: var(--ink); }
+.mtable .aname i { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); flex: none; }
+.mtable .num { text-align: right; }
+.mtable .fail-ok { color: var(--s-good); font-weight: 620; }
+.mtable .fail-warn { color: var(--s-warn); font-weight: 620; }
+.mtable .fail-bad { color: var(--s-serious); font-weight: 620; }
+
+/* ---------- settings drawer ---------- */
+.drawer {
+  position: fixed; top: 14px; bottom: 14px; right: 14px;
+  width: 320px;
+  z-index: 80;
+  transform: translateX(calc(100% + 22px));
+  transition: transform .5s var(--ease);
+  background: linear-gradient(180deg, rgba(255,255,255,calc(0.68 * var(--wa))), rgba(255,255,255,calc(0.5 * var(--wa))));
+  backdrop-filter: blur(30px) saturate(1.7);
+  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 #fff, 0 30px 70px -25px rgba(14,23,38,0.4);
+  display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 14px;
+  font-size: 13.5px; font-weight: 650; letter-spacing: 0.06em; color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.drawer-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 18px; }
+.set-row { display: flex; flex-direction: column; gap: 8px; }
+.set-row.set-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
+.set-label { font-size: 13px; font-weight: 570; color: var(--ink-2); }
+.drawer-note { margin-top: auto; font-size: 12.5px; color: var(--ink-3); line-height: 1.65; font-family: var(--font-mono); }
+
+/* ---------- liquid press + neon focus (every interactive element) ----------
+   professional-pass: press used to fire a blurred colored bloom (0 0 18px
+   .38 alpha) around the control — a different, louder register than the
+   house pattern .node-ripple established (a crisp, zero-blur outline). Press
+   now reads the same way: a solid zero-blur ring, no radiated light. */
+.icon-btn:active, .tab:active, .ctl-btn:active, .chat-send:active, .chat-close:active,
+.rail-back:active, .graph-crumb button:active, .tb-nav a:active {
+  transform: scale(0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,calc(0.85 * var(--wa))),
+    0 2px 8px -4px rgba(14,23,38,0.2),
+    0 0 0 2px rgba(0,169,216,0.28);
+}
+.chat-input input:active { transform: scale(0.99); }
+
+/* slider press: thumb grows under the pointer, neutral shadow only */
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  box-shadow: 0 2px 7px rgba(14,23,38,0.25), 0 0 0 4px rgba(0,169,216,0.16);
+}
+
+/* toggle press: liquid thumb stretch, no bloom */
+.toggle:active i::after { width: 25px; }
+.toggle:active input:checked + i::after { transform: translateX(13px); }
+
+.icon-btn:focus-visible, .tab:focus-visible, .ctl-btn:focus-visible, .chat-send:focus-visible,
+.chat-close:focus-visible, .rail-back:focus-visible, .graph-crumb button:focus-visible,
+.tb-nav a:focus-visible, .chat-input input:focus-visible, input[type="range"]:focus-visible,
+.toggle input:focus-visible + i {
+  outline: none;
+  /* professional-pass: the solid double ring (a white halo + a full-strength
+     saturated ring) is already a strong, unambiguous focus indicator on its
+     own — a blurred bloom behind it added nothing accessibility needs and
+     was the one glow this sweep initially left standing. Site-wide recipe,
+     changed here once. */
+  box-shadow:
+    0 0 0 1.5px rgba(255,255,255,calc(0.95 * var(--wa))),
+    0 0 0 3.5px rgba(0,169,216,0.72);
+}
+
+/* ---------- scrollbars (clinical thin) ---------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(14,23,38,0.14); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(14,23,38,0.24); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- reduced motion ---------- */
+body.reduce-motion .node.enter::before { animation: none !important; }  /* frostIn — pseudo animations need their own opt-out */
+body.reduce-motion * { animation-duration: 0.001s !important; transition-duration: 0.12s !important; }
+
 /* ---------- theme selector (settings drawer) ---------- */
 .theme-seg {
   display: flex; gap: 2px; padding: 3px;

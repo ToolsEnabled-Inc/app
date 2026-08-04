@@ -32,10 +32,36 @@ export function homeView() {
   const ring = uptimeRing({
     size: ringSize,
     epoch: sim.serverEpoch,
-    colors: ['#35eab7', '#45d6ff'],
     caption: 'Server Uptime',
     sub: subText(),
+    crescent: true,          // the sketch's circle + left crescent of light
   })
+
+  /* ---- fleet load drives the crescent's colour (the sketch's whole point:
+     green = idling / low, orange = a good few agents and CPU climbing,
+     red = full throttle). Load is the worse of two honest signals: mean CPU
+     across machines, and how full the agent roster is — a box can be busy
+     because it is thinking hard OR because it is running a lot of lanes. ---- */
+  const AGENT_CEILING = 16          // sim's own per-machine spawn ceiling
+  function loadNow() {
+    const comps = sim.computers
+    if (!comps.length) return 0
+    const cpu = comps.reduce((s, c) => s + (c.stats?.cpu || 0), 0) / comps.length / 100
+    const perMachine = comps.map(c => c.agents.length / AGENT_CEILING)
+    const roster = Math.max(0, ...perMachine)
+    return Math.max(0, Math.min(1, Math.max(cpu, roster * 0.92)))
+  }
+  const loadRow = el(`<div class="home-load"><i></i><span class="lt">idle</span><span class="lv"></span></div>`)
+  const loadLabel = loadRow.querySelector('.lt')
+  const loadVal = loadRow.querySelector('.lv')
+  function paintLoad() {
+    const v = loadNow()
+    ring.el.setLoad(v)
+    const state = ring.el.dataset.load
+    loadLabel.textContent = state === 'peak' ? 'full throttle' : state === 'busy' ? 'busy' : 'idle'
+    loadVal.textContent = `${Math.round(v * 100)}%`
+    loadRow.style.setProperty('--load-col', getComputedStyle(ring.el).getPropertyValue('--load-col'))
+  }
 
   /* ---- criterion 1: fixed-width crossfading digits, driven from home.js
      (bypasses ring.update()'s innerHTML-replace-on-every-second so the
@@ -107,12 +133,17 @@ export function homeView() {
 
   root.querySelector('.home-ring-wrap').appendChild(ring.el)
 
+  ring.el.querySelector('.uring-inner').appendChild(loadRow)
+  paintLoad()
+
   /* ---- criterion 2: subscribe to live spawn/reap (+ machine count) ---- */
   const subEl = ring.el.querySelector('.uring-sub')
   const renderSub = () => { if (subEl) subEl.textContent = subText() }
-  const unsubSpawn = sim.on('spawn', renderSub)
-  const unsubReap = sim.on('reap', renderSub)
-  const unsubComputers = sim.on('computers', renderSub)
+  const bothRender = () => { renderSub(); paintLoad() }
+  const unsubSpawn = sim.on('spawn', bothRender)
+  const unsubReap = sim.on('reap', bothRender)
+  const unsubComputers = sim.on('computers', bothRender)
+  const unsubStats = sim.on('stats', paintLoad)      // CPU drift moves the crescent too
 
   /* ---- criterion 3: feed lines + braces ---- */
   const feedCard = root.querySelector('.home-feed')
@@ -203,7 +234,7 @@ export function homeView() {
     el: root,
     destroy() {
       cancelAnimationFrame(raf)
-      unsubFeed(); unsubSpawn(); unsubReap(); unsubComputers()
+      unsubFeed(); unsubSpawn(); unsubReap(); unsubComputers(); unsubStats()
     },
   }
 }

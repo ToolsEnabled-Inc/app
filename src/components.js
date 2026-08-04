@@ -15,16 +15,44 @@ let gradSeq = 0
  * Big glowing uptime ring. Returns { el, update, destroy }.
  * update() re-renders digits + arc from the epoch.
  */
-export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'], caption = 'Server Uptime', sub = '', showDays = true }) {
+export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'], caption = 'Server Uptime', sub = '', showDays = true, crescent = false }) {
   const stroke = Math.max(7, size * 0.02)
   const r = (size - stroke * 2 - 14) / 2
   const cx = size / 2
   const gid = `uring-grad-${++gradSeq}`
+  const fid = `uring-blur-${gradSeq}`
   const circ = 2 * Math.PI * r
 
-  const root = el(`
-    <div class="uring ${size < 240 ? 'compact' : ''}" style="width:${size}px;height:${size}px">
-      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  // The sketch's hero: a plain circle with a crescent of light hugging its
+  // OUTSIDE-LEFT edge — an offset shadow made of light rather than a
+  // progress sweep. Its colour is the fleet's load: green idle, orange
+  // climbing, red full throttle. Two stacked arcs (a wide blurred halo and
+  // a tighter core) give the falloff; both are nudged left so the light
+  // reads as coming from beside the circle, not from the stroke itself.
+  const pt = (deg) => {
+    const a = (deg * Math.PI) / 180
+    return [cx + r * Math.cos(a), cx + r * Math.sin(a)]
+  }
+  const [ax, ay] = pt(133)
+  const [bx, by] = pt(227)
+  const crescentPath = `M ${ax.toFixed(2)} ${ay.toFixed(2)} A ${r} ${r} 0 0 1 ${bx.toFixed(2)} ${by.toFixed(2)}`
+  const off = Math.max(3, size * 0.016)
+
+  const svgBody = crescent
+    ? `
+        <defs>
+          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="${(size * 0.026).toFixed(2)}"/>
+          </filter>
+        </defs>
+        <g transform="translate(${-off} 0)">
+          <path class="cres-halo" d="${crescentPath}" fill="none" stroke-linecap="round"
+            stroke-width="${(stroke * 2.1).toFixed(1)}" filter="url(#${fid})"/>
+          <path class="cres-core" d="${crescentPath}" fill="none" stroke-linecap="round"
+            stroke-width="${(stroke * 0.9).toFixed(1)}"/>
+        </g>
+        <circle class="uring-rim" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke-width="2"/>`
+    : `
         <defs>
           <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="${colors[0]}"/>
@@ -39,7 +67,11 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
           <circle class="arc" cx="${cx}" cy="${cx}" r="${r}" fill="none"
             stroke="url(#${gid})" stroke-width="${stroke}" stroke-linecap="round"
             stroke-dasharray="0 ${circ}"/>
-        </g>
+        </g>`
+
+  const root = el(`
+    <div class="uring ${size < 240 ? 'compact' : ''} ${crescent ? 'crescent' : ''}" style="width:${size}px;height:${size}px">
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${svgBody}
       </svg>
       <div class="uring-center">
         <div class="uring-inner">
@@ -54,6 +86,14 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
   const digitsEl = root.querySelector('.uring-digits')
   const arcs = root.querySelectorAll('.arc, .arc-glow')
 
+  /** Load state drives the crescent's colour. 0..1 → idle | busy | peak. */
+  let lastState = ''
+  root.setLoad = (v) => {
+    const state = v >= 0.72 ? 'peak' : v >= 0.38 ? 'busy' : 'idle'
+    if (state !== lastState) { lastState = state; root.dataset.load = state }
+  }
+  if (crescent) root.setLoad(0)
+
   const seg = (n, u) => `<span class="seg"><span class="n">${n}</span><span class="u">${u}</span></span>`
   const colon = `<span class="colon">:</span>`
 
@@ -67,8 +107,10 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
         ? seg(p.d, 'Days') + colon + seg(p.h, 'Hours') + colon + seg(p.m, 'Minutes') + colon + seg(p.s, 'Seconds')
         : seg(p.h, 'Hours') + colon + seg(p.m, 'Minutes') + colon + seg(p.s, 'Seconds')
     }
-    const sweep = circ * p.frac
-    arcs.forEach(a => a.setAttribute('stroke-dasharray', `${sweep} ${circ - sweep}`))
+    if (!crescent) {
+      const sweep = circ * p.frac
+      arcs.forEach(a => a.setAttribute('stroke-dasharray', `${sweep} ${circ - sweep}`))
+    }
   }
   update()
 
