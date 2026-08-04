@@ -309,3 +309,55 @@
 body.reduce-motion .node-rim.pulse .rim-arc {
   animation: none !important;
 }
+
+/* ============================================================
+   Bottom half, rebuilt: Chat and Controls SIDE BY SIDE
+   ------------------------------------------------------------
+   The horizontal scroll-snap pair was the wrong shape for this
+   content and the wrong reading of the sketch. Measured on the
+   black theme at 1600x900: the wrap was 341px tall, so the two
+   panels rendered 1137x341 — the Controls column needs 561px of
+   content and got 268px of visible height, which is why it read
+   as an empty box with a name in it, and the chat's six messages
+   floated in a wide hollow. Page 3 of the sketch draws Chat and
+   Controls as two boxes next to each other, both present.
+   So: one row, both visible, each scrolling its own overflow.
+   No dots, no scroll cue, no hidden second panel.
+   ============================================================ */
+.agentv-panels-wrap > .agentv-panels {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--s3, 12px);
+  overflow: visible;
+  scroll-snap-type: none;
+}
+.agentv-panels .apanel {
+  flex: initial;
+  min-width: 0; min-height: 0;
+  scroll-snap-align: none;
+  overflow: hidden;                       /* the inner scroller owns the overflow */
+}
+/* each panel scrolls its own content instead of the row scrolling sideways */
+.agentv-panels .apanel > .rail-scroll,
+.agentv-panels .chat-panel .chat { min-height: 0; }
+.agentv-panels .ctl-panel .rail-scroll { overflow-y: auto; padding-right: var(--s1, 4px); }
+
+/* both panels are on screen, so the wayfinding for a hidden one is noise */
+.panel-dots, .agentv-panels-wrap > .scroll-cue { display: none; }
+
+/* Give the halves a saner split — but the strip has a hard floor: below a
+   ~340px canvas the graph drops role labels (compact mode, which exists
+   because a shorter canvas genuinely cannot stack two labelled bubbles).
+   Trimming the strip cost the labels at 323px, so the floor is explicit. */
+.agentv-graph { flex: 0.95; min-height: 362px; }
+.agentv-panels-wrap { flex: 1.25; }
+
+@media (max-width: 1000px) {
+  /* too narrow for two columns — stack them and let the wrap scroll */
+  .agentv-panels-wrap > .agentv-panels {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(260px, auto);
+    overflow-y: auto;
+  }
+}

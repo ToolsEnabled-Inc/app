@@ -48,23 +48,41 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
     const a = (deg * Math.PI) / 180
     return [cx + r * Math.cos(a), cx + r * Math.sin(a)]
   }
-  const [ax, ay] = pt(133)
-  const [bx, by] = pt(227)
-  const crescentPath = `M ${ax.toFixed(2)} ${ay.toFixed(2)} A ${r} ${r} 0 0 1 ${bx.toFixed(2)} ${by.toFixed(2)}`
-  const off = Math.max(3, size * 0.016)
+  // A wider sweep than the first pass (118deg->242deg rather than 133->227)
+  // so the light genuinely wraps the left flank, and THREE stacked arcs
+  // instead of two: a broad outer haze, a mid halo, and a tight bright core.
+  // Real light falls off over distance, so each layer is wider, softer and
+  // fainter than the one inside it — that gradient is what reads as "glow"
+  // rather than "a thick coloured stroke".
+  const arcOf = (a0, a1) => {
+    const [x0, y0] = pt(a0), [x1, y1] = pt(a1)
+    return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`
+  }
+  const crescentPath = arcOf(118, 242)     // outer haze: the full flank
+  const crescentMid = arcOf(126, 234)
+  const crescentCore = arcOf(139, 221)     // core: tightest, brightest
+  const off = Math.max(4, size * 0.022)
 
   const svgBody = crescent
     ? `
         <defs>
-          <filter id="${fid}" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="${(size * 0.026).toFixed(2)}"/>
+          <filter id="${fid}" x="-75%" y="-75%" width="250%" height="250%" color-interpolation-filters="sRGB">
+            <feGaussianBlur stdDeviation="${(size * 0.05).toFixed(2)}"/>
+          </filter>
+          <filter id="${fid}-m" x="-70%" y="-70%" width="240%" height="240%" color-interpolation-filters="sRGB">
+            <feGaussianBlur stdDeviation="${(size * 0.022).toFixed(2)}"/>
+          </filter>
+          <filter id="${fid}-c" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
+            <feGaussianBlur stdDeviation="${(size * 0.004).toFixed(2)}"/>
           </filter>
         </defs>
         <g transform="translate(${-off} 0)">
-          <path class="cres-halo" d="${crescentPath}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 2.1).toFixed(1)}" filter="url(#${fid})"/>
-          <path class="cres-core" d="${crescentPath}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 0.9).toFixed(1)}"/>
+          <path class="cres-haze" d="${crescentPath}" fill="none" stroke-linecap="round"
+            stroke-width="${(stroke * 3.4).toFixed(1)}" filter="url(#${fid})"/>
+          <path class="cres-halo" d="${crescentMid}" fill="none" stroke-linecap="round"
+            stroke-width="${(stroke * 1.9).toFixed(1)}" filter="url(#${fid}-m)"/>
+          <path class="cres-core" d="${crescentCore}" fill="none" stroke-linecap="round"
+            stroke-width="${(stroke * 0.75).toFixed(1)}" filter="url(#${fid}-c)"/>
         </g>
         <circle class="uring-rim" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke-width="2"/>`
     : `

@@ -172,12 +172,16 @@
    ============================================================ */
 .uring.crescent { --cres-halo-o: 0.85; }
 .uring.crescent .uring-rim { stroke: var(--ink-4); }
+.uring.crescent .cres-haze,
 .uring.crescent .cres-halo,
 .uring.crescent .cres-core {
   stroke: var(--load-col, var(--s-good));
   transition: stroke 1.4s var(--ease);
 }
-.uring.crescent .cres-halo { opacity: calc(var(--cres-halo-o) * var(--glow)); }
+/* three layers, each wider + softer + fainter than the one inside it —
+   that gradient is what reads as light rather than a thick coloured stroke */
+.uring.crescent .cres-haze { opacity: calc(var(--cres-halo-o) * 0.42 * var(--glow)); }
+.uring.crescent .cres-halo { opacity: calc(var(--cres-halo-o) * 0.78 * var(--glow)); }
 .uring.crescent .cres-core { opacity: calc(0.95 * var(--glow)); }
 
 /* ---- the three load states, shared with the caption readout ----
@@ -224,12 +228,12 @@
 /* a peak fleet breathes — the only motion the hero carries.
    Stated relative to --cres-halo-o so the per-theme halo level survives the
    animation (opacity keyframes otherwise overwrite it outright). */
-.uring.crescent[data-load="peak"] .cres-halo { animation: cresPulse 2.6s var(--ease) infinite; }
+.uring.crescent[data-load="peak"] .cres-haze { animation: cresPulse 2.6s var(--ease) infinite; }
 @keyframes cresPulse {
-  0%, 100% { opacity: calc(var(--cres-halo-o) * 0.85 * var(--glow)); }
-  50%      { opacity: calc(var(--cres-halo-o) * 1.18 * var(--glow)); }
+  0%, 100% { opacity: calc(var(--cres-halo-o) * 0.34 * var(--glow)); }
+  50%      { opacity: calc(var(--cres-halo-o) * 0.60 * var(--glow)); }
 }
-body.reduce-motion .uring.crescent .cres-halo { animation: none; }
+body.reduce-motion .uring.crescent .cres-haze { animation: none; }
 
 /* load readout under the caption */
 .home-load {

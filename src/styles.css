@@ -189,6 +189,9 @@
      hand-edited rgba()s. --sheet is the one opaque surface. */
   --wa: 1;
   --sheet: #fff;
+  --brace: rgba(14, 23, 38, 0.10);
+  --node-a: 1;
+  --ring-track: rgba(14, 23, 38, 0.09);
 }
 
 /* ============================================================
@@ -201,6 +204,9 @@
 :root[data-theme="white"] {
   --bg: #f7f8fa;  --bg-2: #eef1f5;  --surface: #f7f8fa;
   --sheet: #ffffff;  --wa: 1;
+  --brace: rgba(14, 23, 38, 0.10);
+  --node-a: 1;
+  --ring-track: rgba(14, 23, 38, 0.09);
 }
 
 /* TAN — Gruvbox Light SOFT, the owner's Zed terminal theme (the third
@@ -211,6 +217,9 @@
 :root[data-theme="tan"] {
   --bg: #f2e5bc;  --bg-2: #ebdbb2;  --surface: #f2e5bc;
   --sheet: #fbf1c7;  --wa: 0.62;
+  --brace: rgba(40, 40, 40, 0.13);
+  --node-a: 0.72;
+  --ring-track: rgba(40, 40, 40, 0.12);
   --ink:    #282828;
   --ink-2:  #3c3836;
   --ink-25: #504945;
@@ -229,6 +238,9 @@
 :root[data-theme="black"] {
   --bg: #0d0f12;  --bg-2: #131519;  --surface: #0d0f12;
   --sheet: #14171b;  --wa: 0.075;
+  --brace: rgba(255, 255, 255, 0.13);
+  --node-a: 0.2;
+  --ring-track: rgba(255, 255, 255, 0.13);
   --ink:    #eef2f6;
   --ink-2:  #b7c0ca;
   --ink-25: #a3adb8;
@@ -423,7 +435,7 @@ body {
    under the arc — the loudest light on either surface. Mirrors the
    .link-under precedent: an unblurred depth stroke, not radiated light.
    Track opacity lifted slightly so the unlit ring still reads at full size. */
-.uring .track { stroke: rgba(14,23,38,0.09); }
+.uring .track { stroke: var(--ring-track); }
 .uring .arc-glow { filter: none; opacity: calc(0.1 * var(--glow)); }
 .uring-center {
   position: absolute; inset: 0;
@@ -476,7 +488,9 @@ body {
   /* 100 is the fourth weight this sheet keeps: the braces are a hairline
      drawing, and the 400/550/640 text ladder has nothing that thin */
   font-size: 190px; font-weight: 100; line-height: 0.9;
-  color: rgba(14,23,38,0.06);
+  /* themed: the fixed dark ink was invisible on the black theme, where the
+     braces have to be drawn in LIGHT to read against #0d0f12 at all */
+  color: var(--brace);
   user-select: none; flex: none;
   font-family: var(--font-ui);
   transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
@@ -766,14 +780,14 @@ body {
   border-radius: 50%;
   display: grid; place-items: center;
   background:
-    radial-gradient(42% 34% at 31% 22%, rgba(255,255,255,calc(0.92 * var(--wa))), rgba(255,255,255,calc(0 * var(--wa))) 72%),
-    radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,calc(0.42 * var(--wa))), rgba(255,255,255,calc(0 * var(--wa))) 78%),
-    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,calc(0.74 * var(--wa))), rgba(255,255,255,calc(0.32 * var(--wa))) 55%, rgba(255,255,255,calc(0.19 * var(--wa))));
+    radial-gradient(42% 34% at 31% 22%, rgba(255,255,255,calc(0.92 * var(--node-a, 1))), rgba(255,255,255,calc(0 * var(--wa))) 72%),
+    radial-gradient(26% 20% at 69% 80%, rgba(255,255,255,calc(0.42 * var(--node-a, 1))), rgba(255,255,255,calc(0 * var(--wa))) 78%),
+    radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,calc(0.74 * var(--node-a, 1))), rgba(255,255,255,calc(0.32 * var(--node-a, 1))) 55%, rgba(255,255,255,calc(0.19 * var(--node-a, 1))));
   /* no filter / backdrop-filter here — frost lives on the static .node::before;
      glow is box-shadow layers only (60fps clause) */
   border: 1.5px solid color-mix(in oklab, var(--rc) 40%, white);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
+    inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--node-a, 1))),
     inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
     var(--elev-2);           /* this rule is where --elev-2 came from */
   transition: box-shadow var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease), transform var(--dur-3) var(--ease-spring), background var(--dur-3);
