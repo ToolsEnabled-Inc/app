@@ -504,6 +504,15 @@
   max-height: var(--pv-h, 152px);
   transition: max-height 0.45s var(--ease);
   scrollbar-width: thin;
+  /* These panes are pinned to their newest line, so their top edge always cuts
+     through the middle of an older one — and a hard cut through the waist of a
+     row of type reads as a rendering fault, not as "there is more above". The
+     mask spends one line-height dissolving it instead. Deliberately shorter
+     than the 20px line box: the clipped row should fade, not vanish, or the
+     pane looks like it starts one line later than it does. */
+  --wb-fade: 16px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--wb-fade));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--wb-fade));
 }
 .wb-box.dominant .chip-preview { max-height: var(--pv-dom, 258px); }
 /* dominance is size plus a firmer hairline — the old white-alpha fill was

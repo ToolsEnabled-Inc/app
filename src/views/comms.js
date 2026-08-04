@@ -376,6 +376,10 @@ const CONV_DEFS = [
         'tunnel probe clean from A; take the bridge lane check',
         'territory map re-pinned; C-lane files are disjoint this wave',
         'owner inbox drained on wake; nothing outranks the queue',
+        'B is canonical this wave; A stays the compatibility host',
+        'do not answer for the owner — unread input outranks the queue',
+        'the map is authority, not memory; re-read it before you claim',
+        'if the two hosts disagree on rev, stop and raise it here',
       ],
       b: [
         'ack rev 44 on B; lanes scoped and claimed',
@@ -384,6 +388,10 @@ const CONV_DEFS = [
         'canonical checkout confirmed; ownership table matches preflight',
         'stale lease swept on the B queue; claims proceeding',
         'mirror check done — both machines read map rev 6',
+        'inbox drained on B; one directive acked, nothing to reply to',
+        'holding spawns at 18 of 20 until your fix round closes',
+        're-read the map before the last two claims; both still disjoint',
+        'A-side lease looked live but was 40m stale — swept it',
       ],
     },
   },
@@ -396,6 +404,9 @@ const CONV_DEFS = [
         'fix rounds address rejected items only; no opportunistic refactors',
         'screenshots at 1600×900 and 1280×800 are the only visual evidence',
         'checkpoint before the phase fence; truncation is continuation',
+        'name the files you are taking; the next lane reads that claim',
+        'a green build is not evidence — exercise the route and say so',
+        'if the criterion cannot be measured, it is not a criterion',
       ],
       b: [
         'claimed; preflight clean, no colliding session',
@@ -403,6 +414,9 @@ const CONV_DEFS = [
         'checkpoint written at phase 4 of 5; resuming after mission re-read',
         'lease heartbeat fresh; FLIP row reorder underway',
         'territory re-read before claim; metrics.css stays mine this wave',
+        'exercised all five routes after the build; two themes still to go',
+        'packet has the evidence paths; the intent line is dropped',
+        'stopping at the fence with phase 5 open, not half-landed',
       ],
     },
   },
@@ -414,12 +428,19 @@ const CONV_DEFS = [
         'keep values ≤32KiB; split anything close before the store rejects',
         'report evidence, not intent — packet template is in lane notes',
         'snapshot the registry inside the fence window only',
+        'the remove-path test is the one that has been flaking; start there',
+        'twenty runs minimum before you call a flake narrowed',
+        'do not widen the seat to chase it; report what you measured',
       ],
       b: [
         'seat claimed; repro flake narrowed to 1/20 runs',
         'fence repro deterministic — 20/20 runs, 3m40s',
         'artifacts pruned to the last 5 runs; quota freed',
         'checkpoint at phase 2 of 4; registry snapshot taken',
+        'largest value is 28KiB — under the ceiling, splitting it anyway',
+        'remove-path was the flake; it reproduces on a cold store only',
+        'snapshot taken inside the window; nothing read after it closed',
+        'seat released; the repro is in the packet, not in the summary',
       ],
     },
   },
@@ -432,12 +453,20 @@ const CONV_DEFS = [
         're-review queued; failed criteria only',
         'capture rig pinned to both sizes; verdict lands within one phase',
         'ACCEPT — 17/17 criteria pass, 41s wall clock',
+        'criterion 6 is binary — a screenshot is not a measurement',
+        'reading the diff against the charter, not against the last packet',
+        'evidence tree is thin on the 1280 case; attach or withdraw it',
+        'one fix round means one; a second reopens the whole review',
       ],
       b: [
         'handback ready — ticks raised to 12px, floor verified at both sizes',
         'evidence: reports/q45-filter-row.md; screenshots attached',
         're-review requested; scope unchanged from the charter',
         'packet linter added to the checklist to prevent repeats',
+        '1280 capture re-run; the earlier one was pre-rebuild',
+        'withdrawing criterion 6 evidence — measured, not eyeballed, next pass',
+        'diff is scoped to the two files named in the charter',
+        'wall clock 38s on the re-run; no flake across 20 iterations',
       ],
     },
   },
@@ -448,11 +477,19 @@ const CONV_DEFS = [
         'scope the fix to criterion 3 only; leave shared components alone',
         'verify the floor at both test sizes before the handback',
         'route the packet through builder/handback/9',
+        'no opportunistic refactors in a fix round — rejected items only',
+        'if the shared component has to move, stop and say so first',
+        'measure the floor, do not read it off a screenshot',
+        'handback closes the round; anything else opens a new one',
       ],
       b: [
         'shared tick component untouched; change scoped to the metrics lane',
         'both sizes re-captured; floor holds at 12px',
         'handback 9 posted; re-review requested',
+        'computed the floor off the rendered box, not the stylesheet',
+        'one file touched; diff is 4 lines including the comment',
+        'held the round open until the second size was measured',
+        'no other criterion regressed; re-ran the full sweep',
       ],
     },
   },
@@ -464,12 +501,20 @@ const CONV_DEFS = [
         'B-side mirror check first, then claim',
         'monitor lanes stay read-only; heartbeats on your own lease only',
         'directive fan-out done; re-read the map before claiming',
+        'graph tokens unfreeze after your phase, not after your claim',
+        'if the mirror disagrees, the canonical host wins — do not merge',
+        'lane 5 is unassigned; leave it that way until the sweep lands',
+        'report the probe failure even when the retry succeeds',
       ],
       b: [
         'zoom pointer math verified at 0.55× and 1.7×',
         'claim posted; fence respected on src/graph.js',
         'phase 1 complete — 9/9 checks, 1m18s. evidence: reports/q53-zoom.md',
         'bridge probe timed out once; retrying with backoff, tunnel OK',
+        'mirror check clean; both hosts read the same map rev',
+        'pointer anchor drifts 0.3px at 1.7× — under the threshold, noting it',
+        'holding the token freeze; the slice needs one more phase',
+        'read-only on the monitor lanes, confirmed before the claim',
       ],
     },
   },
@@ -480,11 +525,19 @@ const CONV_DEFS = [
         'status roll-up due at the next checkpoint; keep packets compact',
         'collision check: nobody else on graph.css this phase',
         'heartbeat before you sleep; stale leases get swept',
+        'a truncated run is a continuation, not a completion — resume it',
+        'name your file territory in the claim or the next lane collides',
+        'evidence paths in every packet; intent is not a status',
+        'if the phase fence lands mid-work, checkpoint and stop',
       ],
       b: [
         'lease heartbeat fresh; phase 2 of 3 underway',
         'checkpoint written; resuming after mission re-read',
         'no colliding session in preflight; proceeding',
+        'territory claimed on two files; both named in the packet',
+        'resumed from the phase-2 checkpoint; nothing re-run',
+        'roll-up posted — 3 phases, 2 closed, 1 fenced',
+        'swept my own stale lease from the last wake before claiming',
       ],
     },
   },
@@ -495,27 +548,67 @@ const CONV_DEFS = [
         'worktree fence check: reports dir is reviewer territory',
         'yielding config/agent-org.json to q38; re-claiming after checkpoint',
         'junior lane yields on collision; that is the contract',
+        'the fence is on the directory, not on the individual file',
+        'two lanes cannot both own the ledger — one of you drops it',
+        'reverting the dirty file before the claim, not after',
+        'shared dir is writable; reviewer-owned paths inside it are not',
       ],
       b: [
         'checkpoints ok in shared dir; reports stay reviewer-owned',
         'fence re-verified; dirty file reverted before claim',
         'quota freed; artifacts pruned to last 5 runs',
+        'dropped the ledger claim; q38 had it first by two minutes',
+        're-claimed after the checkpoint, territory unchanged',
+        'wrote outside my fence once; reverted and re-read the map',
+        'artifact dir was over quota — pruned before the run, not during',
       ],
     },
   },
 ]
 
-function seedConv(d) {
+/* Draw a conversation's next line WITHOUT replacement.
+
+   Each side of a conversation has about six lines and the board shows eleven
+   at a time, so drawing independently did not merely risk a repeat — it
+   guaranteed several. One pane read: "directive rev 44 mirrored" three times,
+   "mirror check done", "bridge :8788 probe OK" and "B preflight clean" twice
+   each, out of eleven lines. Nothing gives a generated transcript away faster
+   than a participant saying the same sentence verbatim two lines apart.
+
+   A shuffled bag per side spends the whole vocabulary before any line can come
+   round again, and refilling re-shuffles while refusing to open with the line
+   that just closed the previous bag — otherwise the one repeat this is meant
+   to prevent reappears exactly at the seam. */
+function bagDraw(bags, side, lines) {
+  let bag = bags[side]
+  if (!bag || !bag.length) {
+    bag = lines.slice()
+    for (let i = bag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[bag[i], bag[j]] = [bag[j], bag[i]]
+    }
+    // per side, not per conversation: the two speakers draw from separate
+    // vocabularies, so the line that must not open a's new bag is the last
+    // line A said — checking against whichever side spoke most recently
+    // compares two strings that could never have matched anyway
+    const lastHere = bags.last[side]
+    if (bag.length > 1 && bag[bag.length - 1] === lastHere) {
+      ;[bag[bag.length - 1], bag[0]] = [bag[0], bag[bag.length - 1]]
+    }
+    bags[side] = bag
+  }
+  const t = bag.pop()
+  bags.last[side] = t
+  return t
+}
+
+function seedConv(d, bags) {
   const n = 15 + ri(0, 7)
   const hist = []
   let ago = 20 + Math.random() * 16
   let side = Math.random() < 0.5 ? 'a' : 'b'
-  let last = ''
   for (let i = 0; i < n; i++) {
-    let t = pick(d.lines[side])
-    if (t === last) t = pick(d.lines[side])
-    last = t
-    hist.push({ at: Date.now() - ago * H, s: side === 'a' ? d.a : d.b, t })
+    hist.push({ at: Date.now() - ago * H, s: side === 'a' ? d.a : d.b, t: bagDraw(bags, side, d.lines[side]) })
     ago = Math.max(0.03, ago - (0.1 + Math.random() * (2 * ago / (n - i))))
     if (Math.random() < 0.8) side = side === 'a' ? 'b' : 'a'
   }
@@ -530,7 +623,13 @@ let WATCH = null
 function watchInit() {
   if (WATCH) return WATCH
   WATCH = {
-    convs: new Map(CONV_DEFS.map(d => [d.id, { ...d, hist: seedConv(d), side: 'a', _lastT: '' }])),
+    convs: new Map(CONV_DEFS.map(d => {
+      // one bag pair per conversation, carried from the seed into the live
+      // stream — a fresh bag at hand-over would let the newest line repeat
+      // one the seeded history had only just used
+      const bags = { a: null, b: null, last: { a: '', b: '' } }
+      return [d.id, { ...d, hist: seedConv(d, bags), side: 'a', bags }]
+    })),
     stack: ['coord-sync', 'review-gem', 'helper-fanout', 'build-status', 'fence-watch'].map(wbLeaf),
     size: 'm',
     mode: 'watch',
@@ -1299,10 +1398,7 @@ export function commsView() {
   function genLine(d) {
     if (Math.random() < 0.8) d.side = d.side === 'a' ? 'b' : 'a'
     const s = d.side === 'a' ? d.a : d.b
-    let t = pick(d.lines[d.side])
-    if (t === d._lastT) t = pick(d.lines[d.side])
-    d._lastT = t
-    return { at: Date.now(), s, t }
+    return { at: Date.now(), s, t: bagDraw(d.bags, d.side, d.lines[d.side]) }
   }
   function pickConv() {
     const pool = []
