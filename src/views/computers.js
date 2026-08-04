@@ -314,7 +314,17 @@ function agentChartBox(agent) {
   function tick(ts) {
     if (!p || !g) return
     if (ts - lastStep > CHART_STEP_MS) {
-      if (lastStep) { s.advance(); readout(); if (!frozen) pulse() }
+      if (lastStep) {
+        // The ping marks a MEANINGFUL arrival. It used to fire on every
+        // 4.2s step regardless of whether the value moved, which turns an
+        // event signal into a metronome — the eye stops reading it as
+        // information. Gate it on a real change in the sample.
+        const prevV = s.vals[s.vals.length - 1]
+        s.advance()
+        readout()
+        const nextV = s.vals[s.vals.length - 1]
+        if (!frozen && Math.abs(nextV - prevV) >= 1.5) pulse()
+      }
       lastStep = ts
     }
     const k = reduceMotion() ? 1 : 0.16

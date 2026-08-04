@@ -68,7 +68,7 @@
 /* --- circled runtime --- */
 .board-page .agent-ring-wrap { padding: 14px 0 8px; }
 .board-page .uring { max-width: 100%; }
-.board-page .uring .track { stroke: rgba(14, 23, 38, 0.075); }
+.board-page .uring .track { stroke: var(--chart-track); }   /* themed: was hardcoded light ink */
 /* the ring caption is a label like any other: 12.5px, --ink-2 */
 .board-page .uring.compact .uring-caption {
   margin-top: 8px;
@@ -150,7 +150,7 @@
 @keyframes bcDrawAxis { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
 
 .board-page .bc-tick { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; }
-.board-page .bc-gl { stroke: var(--line-2); stroke-width: 1; shape-rendering: crispEdges; }
+.board-page .bc-gl { stroke: var(--chart-grid); stroke-width: 1; shape-rendering: crispEdges; }
 .board-page .bc-t {
   font-family: var(--font-mono); font-size: 12.5px;
   fill: var(--ink-2); font-variant-numeric: tabular-nums;
@@ -172,7 +172,7 @@
 }
 .board-page .bc-end {
   fill: var(--role);
-  stroke: rgba(255,255,255,calc(0.95 * var(--wa))); stroke-width: 2;     /* 2px surface ring */
+  stroke: var(--sheet); stroke-width: 2;     /* 2px surface ring — themed */
   transform-box: fill-box; transform-origin: center;
 }
 .board-page .bc-pulse {
@@ -182,7 +182,7 @@
 }
 .board-page .bc-cross { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; opacity: 0; }
 .board-page .bc-dot {
-  fill: var(--role); stroke: rgba(255,255,255,calc(0.95 * var(--wa))); stroke-width: 2;
+  fill: var(--role); stroke: var(--sheet); stroke-width: 2;
   opacity: 0;
 }
 .board-page .bc-cross, .board-page .bc-dot { transition: opacity .16s var(--ease); }
@@ -206,10 +206,14 @@
    never loses contrast on the lighter role hues */
 .board-page .ctl-btn.armed {
   color: var(--ink);
-  border-color: color-mix(in oklab, var(--role) 42%, white);
+  /* mix toward the THEME's surface, not literal white: mixing to white put
+     light --ink text on a light tint under the black theme (~1.3:1), and
+     armed is the board's DEFAULT state, so the Pause button was unreadable
+     on load. Identical on white (--sheet is #fff), correct on tan/black. */
+  border-color: color-mix(in oklab, var(--role) 42%, var(--sheet));
   background: linear-gradient(180deg,
-    color-mix(in oklab, var(--role) 17%, white),
-    color-mix(in oklab, var(--role) 28%, white));
+    color-mix(in oklab, var(--role) 17%, var(--sheet)),
+    color-mix(in oklab, var(--role) 28%, var(--sheet)));
   box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa)));
 }
 .board-page .ctl-btn.armed::before {
@@ -256,7 +260,7 @@
 .board-page input[type="range"]::-webkit-slider-runnable-track {
   height: 5px; border-radius: 1px;
   background: linear-gradient(90deg,
-    var(--role) var(--fill, 50%), rgba(14, 23, 38, 0.1) var(--fill, 50%));
+    var(--role) var(--fill, 50%), var(--chart-track) var(--fill, 50%));   /* themed unfilled half */
 }
 .board-page input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 2px 7px rgba(14, 23, 38, 0.25);

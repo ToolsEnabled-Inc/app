@@ -287,7 +287,9 @@ body.reduce-motion .graph-canvas .tier-guide {
 
 .graph-edit-btn {
   position: absolute; top: 14px; right: 16px; z-index: 7;
-  padding: 8px 16px;
+  height: 32px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 16px;
   border: 1px solid rgba(255,255,255,calc(0.75 * var(--wa)));
   border-radius: 3px;
   background: rgba(255,255,255,calc(0.55 * var(--wa)));
@@ -397,8 +399,11 @@ body.reduce-motion .graph-canvas .tier-guide {
 .graph-canvas.labels-compact .node-role { display: none; }
 
 /* --- layout toggle: Tree | Physics (sticky preference) --- */
+/* the segment and the Edit button sit on one top edge, so they must also
+   share a bottom edge — they were 30.5px and 32.5px tall, visibly unaligned */
 .graph-layout-seg {
   position: absolute; top: 14px; right: 94px; z-index: 7;
+  height: 32px; box-sizing: border-box; align-items: center;
   display: flex; gap: 2px; padding: 3px;
   border-radius: 4px;
   background: rgba(255,255,255,calc(0.5 * var(--wa)));
