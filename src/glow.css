@@ -1,0 +1,94 @@
+/* ============================================================
+   GENERATED — do not edit by hand.
+   Source: tools/gen-glow.mjs   Regenerate: node tools/gen-glow.mjs
+
+   Perceptual glow ramps (OKLCH, via culori). Each token is a stack of
+   layers with geometrically growing radii and super-linear alpha decay —
+   physical light falloff rather than one blurred copy of a colour — and
+   each layer's colour is placed in OKLCH so the hue holds at every
+   intensity instead of drifting toward grey through sRGB.
+
+   Three intensities per hue: -soft (a whisper, safe at rest on a small
+   accent), default (a deliberate highlight), -loud (a momentary event).
+   Every use is still gated by --glow so the Settings slider governs it.
+   ============================================================ */
+:root {
+  --glow-coordinator-soft:
+    0 0 5px rgba(165, 235, 255, 0.3),
+    0 0 12px rgba(105, 202, 241, 0.158),
+    0 0 29px rgba(0, 169, 216, 0.083);
+  --glow-coordinator:
+    0 0 6px rgba(165, 235, 255, 0.46),
+    0 0 16px rgba(105, 202, 241, 0.242),
+    0 0 41px rgba(0, 169, 216, 0.127);
+  --glow-coordinator-loud:
+    0 0 6px rgba(165, 235, 255, 0.62),
+    0 0 15px rgba(126, 213, 249, 0.326),
+    0 0 38px rgba(82, 191, 233, 0.172),
+    0 0 94px rgba(0, 169, 216, 0.09);
+  --glow-helper-soft:
+    0 0 5px rgba(255, 212, 161, 0.3),
+    0 0 12px rgba(255, 168, 100, 0.158),
+    0 0 29px rgba(245, 123, 0, 0.083);
+  --glow-helper:
+    0 0 6px rgba(255, 212, 161, 0.46),
+    0 0 16px rgba(255, 168, 100, 0.242),
+    0 0 41px rgba(245, 123, 0, 0.127);
+  --glow-helper-loud:
+    0 0 6px rgba(255, 212, 161, 0.62),
+    0 0 15px rgba(255, 182, 121, 0.326),
+    0 0 38px rgba(255, 153, 77, 0.172),
+    0 0 94px rgba(245, 123, 0, 0.09);
+  --glow-shadow-soft:
+    0 0 5px rgba(171, 251, 216, 0.3),
+    0 0 12px rgba(110, 220, 176, 0.158),
+    0 0 29px rgba(0, 189, 138, 0.083);
+  --glow-shadow:
+    0 0 6px rgba(171, 251, 216, 0.46),
+    0 0 16px rgba(110, 220, 176, 0.242),
+    0 0 41px rgba(0, 189, 138, 0.127);
+  --glow-shadow-loud:
+    0 0 6px rgba(171, 251, 216, 0.62),
+    0 0 15px rgba(132, 230, 190, 0.326),
+    0 0 38px rgba(87, 210, 164, 0.172),
+    0 0 94px rgba(0, 189, 138, 0.09);
+  --glow-manager-soft:
+    0 0 5px rgba(145, 179, 255, 0.3),
+    0 0 12px rgba(102, 141, 255, 0.158),
+    0 0 29px rgba(62, 99, 240, 0.083);
+  --glow-manager:
+    0 0 6px rgba(145, 179, 255, 0.46),
+    0 0 16px rgba(102, 141, 255, 0.242),
+    0 0 41px rgba(62, 99, 240, 0.127);
+  --glow-manager-loud:
+    0 0 6px rgba(145, 179, 255, 0.62),
+    0 0 15px rgba(116, 154, 255, 0.326),
+    0 0 38px rgba(88, 127, 250, 0.172),
+    0 0 94px rgba(62, 99, 240, 0.09);
+  --glow-default-soft:
+    0 0 5px rgba(255, 241, 170, 0.3),
+    0 0 12px rgba(247, 202, 107, 0.158),
+    0 0 29px rgba(219, 164, 0, 0.083);
+  --glow-default:
+    0 0 6px rgba(255, 241, 170, 0.46),
+    0 0 16px rgba(247, 202, 107, 0.242),
+    0 0 41px rgba(219, 164, 0, 0.127);
+  --glow-default-loud:
+    0 0 6px rgba(255, 241, 170, 0.62),
+    0 0 15px rgba(255, 215, 129, 0.326),
+    0 0 38px rgba(238, 189, 83, 0.172),
+    0 0 94px rgba(219, 164, 0, 0.09);
+  --glow-accent-soft:
+    0 0 5px rgba(177, 250, 255, 0.3),
+    0 0 12px rgba(117, 216, 253, 0.158),
+    0 0 29px rgba(33, 183, 228, 0.083);
+  --glow-accent:
+    0 0 6px rgba(177, 250, 255, 0.46),
+    0 0 16px rgba(117, 216, 253, 0.242),
+    0 0 41px rgba(33, 183, 228, 0.127);
+  --glow-accent-loud:
+    0 0 6px rgba(177, 250, 255, 0.62),
+    0 0 15px rgba(138, 227, 255, 0.326),
+    0 0 38px rgba(95, 205, 245, 0.172),
+    0 0 94px rgba(33, 183, 228, 0.09);
+}

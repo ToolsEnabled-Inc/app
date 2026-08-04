@@ -52,7 +52,7 @@
   display: flex;
   gap: 2px;
   padding: 3px;
-  border-radius: 15px;
+  border-radius: 3px;
   background: rgba(14, 23, 38, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.7);
 }
@@ -62,7 +62,7 @@
   bottom: 3px;
   left: 0;
   width: 0;
-  border-radius: 12px;
+  border-radius: 3px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: inset 0 1px 0 #fff, 0 4px 12px -6px rgba(14, 23, 38, 0.28);
   transform: translateX(0);
@@ -79,7 +79,7 @@
   background: transparent;
   cursor: pointer;
   padding: 7px 14px;
-  border-radius: 12px;
+  border-radius: 3px;
   font-family: var(--font-ui);
   font-size: 12.5px;
   font-weight: 570;
@@ -175,7 +175,7 @@
   outline: none;
   color: var(--ink);
   box-shadow: inset 0 0 0 2px rgba(0, 169, 216, 0.25);
-  border-radius: 8px;
+  border-radius: 3px;
 }
 .mtable th .th-in { display: inline-flex; align-items: center; gap: 5px; }
 .mtable th.num .th-in { flex-direction: row-reverse; }

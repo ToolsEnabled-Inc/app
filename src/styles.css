@@ -85,9 +85,9 @@
   --glow: 1;                  /* glow multiplier (settings) */
   --pace: 1;
 
-  --r-lg: 22px;
-  --r-md: 16px;
-  --r-sm: 11px;
+  --r-lg: 3px;
+  --r-md: 3px;
+  --r-sm: 2px;
 
   --font-ui: "Inter Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
@@ -220,7 +220,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
   backdrop-filter: blur(18px) saturate(1.8);
   -webkit-backdrop-filter: blur(18px) saturate(1.8);
   border: 1px solid rgba(255,255,255,0.78);
-  border-radius: 27px;
+  border-radius: 3px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 12px 34px -16px rgba(14,23,38,0.22);
 }
 .tb-side { display: flex; align-items: center; gap: 8px; min-width: 200px; }
@@ -232,7 +232,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .tb-nav a {
   font-size: 13.5px; font-weight: 550; text-decoration: none;
   color: var(--ink-25);
-  padding: 7px 14px; border-radius: 14px;
+  padding: 7px 14px; border-radius: 3px;
   transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease);
 }
 .tb-nav a:hover { color: var(--ink-2); }
@@ -244,7 +244,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 }
 
 .icon-btn {
-  width: 36px; height: 36px; border-radius: 12px;
+  width: 36px; height: 36px; border-radius: 3px;
   display: grid; place-items: center;
   border: 1px solid transparent; background: transparent;
   color: var(--ink-2); cursor: pointer;
@@ -401,7 +401,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .chat-head .s { font-size: 12.5px; color: var(--ink-25); font-family: var(--font-mono); }
 .chat-head .spacer { flex: 1; }
 .chat-close {
-  width: 26px; height: 26px; border-radius: 9px; border: none; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 3px; border: none; cursor: pointer;
   display: grid; place-items: center; color: var(--ink-25); background: transparent;
   transition: background .2s, color .2s;
 }
@@ -411,7 +411,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .msg {
   max-width: 88%;
   padding: 8px 12px;
-  border-radius: 14px;
+  border-radius: 3px;
   font-size: 13px; line-height: 1.45;
   animation: msgIn .4s var(--ease-spring);
 }
@@ -437,7 +437,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 }
 .chat-input input {
   flex: 1; height: 38px;
-  border-radius: 13px;
+  border-radius: 3px;
   border: 1px solid rgba(255,255,255,0.9);
   background: rgba(255,255,255,0.75);
   box-shadow: inset 0 1px 3px rgba(14,23,38,0.05);
@@ -450,7 +450,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .chat-input input::placeholder { color: var(--ink-3); }
 .chat-send {
   height: 38px; width: 38px; flex: none;
-  border-radius: 13px; border: none; cursor: pointer;
+  border-radius: 3px; border: none; cursor: pointer;
   display: grid; place-items: center;
   color: #fff;
   background: linear-gradient(160deg, #21b7e4, #0092c4);
@@ -472,7 +472,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .tab {
   position: relative;
   padding: 9px 18px;
-  border-radius: 15px;
+  border-radius: 3px;
   font-size: 13.5px; font-weight: 570; color: var(--ink-25);
   background: rgba(255,255,255,0.42);
   border: 1px solid rgba(255,255,255,0.7);
@@ -518,7 +518,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .graph-hint {
   position: absolute; left: 50%; top: 14px; transform: translateX(-50%) translateY(-6px);
   z-index: 4;
-  padding: 9px 16px; border-radius: 14px;
+  padding: 9px 16px; border-radius: 3px;
   font-size: 12.5px; color: var(--ink-2);
   opacity: 0; pointer-events: none;
   transition: opacity .4s var(--ease), transform .4s var(--ease);
@@ -537,7 +537,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .graph-crumb button {
   border: none; background: none; cursor: pointer;
   font-size: 12.5px; color: var(--ink-2); font-weight: 600;
-  padding: 4px 8px; border-radius: 9px;
+  padding: 4px 8px; border-radius: 3px;
   transition: background .2s;
 }
 .graph-crumb button:hover { background: rgba(255,255,255,0.7); }
@@ -678,7 +678,13 @@ body[data-route="home"] .aur { animation-play-state: running; }
 /* selection ring — the live "focusable" pulse animation is defined once,
    in graph.css (.graph-canvas .node.focusable .node-glass::before), which
    already outranks any rule here by specificity */
-.node.selected .node-glass { border-color: var(--rc); }
+.node.selected .node-glass {
+  border-color: var(--rc);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.92),
+    0 9px 20px -13px rgba(14,23,38,0.22),
+    var(--rg-soft);
+}
 
 /* spawn: graphite → bloom into role color */
 .node.spawning .node-glass {
@@ -691,11 +697,19 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .node.leave .node-glass { transform: scale(0.4); }
 
 /* role color bindings */
-.role-coordinator { --rc: var(--c-coordinator); --gc: var(--g-coordinator); }
-.role-helper      { --rc: var(--c-helper);      --gc: var(--g-helper); }
-.role-shadow      { --rc: var(--c-shadow);      --gc: var(--g-shadow); }
-.role-manager     { --rc: var(--c-manager);     --gc: var(--g-manager); }
-.role-default     { --rc: var(--c-default);     --gc: var(--g-default); }
+/* --rg* are the generated perceptual glow stacks (src/glow.css, built by
+   tools/gen-glow.mjs). They are used ONLY for genuine state moments —
+   selection, a valid drop target, an arrival — never as a resting bloom. */
+.role-coordinator { --rc: var(--c-coordinator); --gc: var(--g-coordinator);
+  --rg-soft: var(--glow-coordinator-soft); --rg-loud: var(--glow-coordinator-loud); }
+.role-helper      { --rc: var(--c-helper);      --gc: var(--g-helper);
+  --rg-soft: var(--glow-helper-soft);      --rg-loud: var(--glow-helper-loud); }
+.role-shadow      { --rc: var(--c-shadow);      --gc: var(--g-shadow);
+  --rg-soft: var(--glow-shadow-soft);      --rg-loud: var(--glow-shadow-loud); }
+.role-manager     { --rc: var(--c-manager);     --gc: var(--g-manager);
+  --rg-soft: var(--glow-manager-soft);     --rg-loud: var(--glow-manager-loud); }
+.role-default     { --rc: var(--c-default);     --gc: var(--g-default);
+  --rg-soft: var(--glow-default-soft);     --rg-loud: var(--glow-default-loud); }
 
 /* --- context chips → chat morph --- */
 .chip {
@@ -706,7 +720,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
      floor is paid for out of the padding instead. */
   width: 168px;
   padding: 9px 10px 9px 12px;
-  border-radius: 14px;
+  border-radius: 3px;
   z-index: 1;
   cursor: pointer;
   will-change: transform;
@@ -770,7 +784,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
   border: none; background: none; cursor: pointer;
   font-size: 12.5px; color: var(--ink-25); font-weight: 600;
   display: flex; align-items: center; gap: 4px;
-  padding: 4px 8px; border-radius: 8px; letter-spacing: 0.03em;
+  padding: 4px 8px; border-radius: 3px; letter-spacing: 0.03em;
   transition: background .2s, color .2s;
 }
 .rail-back:hover { background: rgba(14,23,38,0.05); color: var(--ink); }
@@ -794,10 +808,10 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .bar-row { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: 10px; }
 .bar-row .bl { font-size: 12.5px; color: var(--ink-2); font-weight: 560; }
 .bar-row .bv { font-size: 12.5px; color: var(--ink-2); font-weight: 620; font-variant-numeric: tabular-nums; text-align: right; }
-.bar-track { height: 10px; border-radius: 6px; background: rgba(14,23,38,0.055); overflow: hidden; position: relative; }
+.bar-track { height: 10px; border-radius: 2px; background: rgba(14,23,38,0.055); overflow: hidden; position: relative; }
 .bar-fill {
   position: absolute; inset: 0 auto 0 0; width: 40%;
-  border-radius: 6px;
+  border-radius: 2px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--bc) 82%, white), var(--bc));
   transition: width 1.1s var(--ease);
 }
@@ -807,7 +821,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .task-chip {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 11px;
-  border-radius: 11px;
+  border-radius: 3px;
   background: rgba(255,255,255,0.6);
   border: 1px solid color-mix(in oklab, var(--tc) 38%, white);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
@@ -850,7 +864,7 @@ body[data-route="home"] .aur { animation-play-state: running; }
 .ctl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ctl-btn {
   height: 40px;
-  border-radius: 13px;
+  border-radius: 3px;
   border: 1px solid rgba(255,255,255,0.85);
   background: rgba(255,255,255,0.62);
   box-shadow: inset 0 1px 0 #fff, 0 4px 12px -6px rgba(14,23,38,0.14);
@@ -901,7 +915,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .toggle { position: relative; display: inline-block; width: 42px; height: 24px; }
 .toggle input { opacity: 0; width: 0; height: 0; }
 .toggle i {
-  position: absolute; inset: 0; border-radius: 13px;
+  position: absolute; inset: 0; border-radius: 13px;   /* a switch is a capsule, not a box */
   background: rgba(14,23,38,0.12);
   transition: background .3s var(--ease);
 }
@@ -970,13 +984,13 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .pool { padding: 20px 22px 18px; }
 .pool-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .pool-head .pn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 640; color: var(--ink); }
-.pool-head .pt { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; padding: 3px 8px; border-radius: 7px; font-weight: 650;
+.pool-head .pt { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; padding: 3px 8px; border-radius: 2px; font-weight: 650;
   background: color-mix(in oklab, var(--pc) 12%, white); color: color-mix(in oklab, var(--pc) 75%, black); }
 .pool-sub { font-size: 12.5px; color: var(--ink-3); margin-bottom: 14px; }
-.meter { height: 12px; border-radius: 7px; position: relative; overflow: hidden;
+.meter { height: 12px; border-radius: 2px; position: relative; overflow: hidden;
   background: color-mix(in oklab, var(--pc) 12%, white); }
 .meter .mf {
-  position: absolute; inset: 0 auto 0 0; border-radius: 7px;
+  position: absolute; inset: 0 auto 0 0; border-radius: 2px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--pc) 70%, white), var(--pc));
   transition: width 1.2s var(--ease);
 }
@@ -1002,7 +1016,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   position: absolute; z-index: 10;
   pointer-events: none;
   padding: 8px 11px;
-  border-radius: 11px;
+  border-radius: 3px;
   background: rgba(255,255,255,0.86);
   backdrop-filter: blur(16px) saturate(1.5);
   -webkit-backdrop-filter: blur(16px) saturate(1.5);

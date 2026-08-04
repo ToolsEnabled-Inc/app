@@ -9,6 +9,7 @@
     "preview": "vite preview --port 4600 --strictPort"
   },
   "devDependencies": {
+    "culori": "^4.0.2",
     "vite": "^6.3.5"
   },
   "dependencies": {

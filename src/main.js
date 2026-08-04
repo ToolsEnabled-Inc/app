@@ -2,6 +2,7 @@
 
 import '@fontsource-variable/inter'
 import '@fontsource-variable/jetbrains-mono'
+import './glow.css'
 import './styles.css'
 
 import { sim, fmtRuntime } from './sim.js'

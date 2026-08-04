@@ -64,7 +64,7 @@
   display: flex;
   background: #fff;
   border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border-radius: 3px;
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(14, 23, 38, 0.03);
 }
@@ -103,7 +103,7 @@
   border: none; background: none; cursor: pointer;
   text-align: left;
   padding: 8px 10px 8px 13px;
-  border-radius: 7px;
+  border-radius: 2px;
   font-family: var(--font-ui);
   transition: background 0.22s var(--ease);
 }
@@ -261,7 +261,7 @@
   background: #fff;
   color: var(--ink-2);
   font-family: var(--font-ui); font-size: 13px; font-weight: 620;
-  border-radius: 8px;
+  border-radius: 3px;
   padding: 7px 13px;
   cursor: pointer;
   box-shadow: 0 8px 20px -10px rgba(14, 23, 38, 0.28);
@@ -343,11 +343,11 @@
 @keyframes wbIn { from { opacity: 0; transform: translateY(6px); } }
 
 /* ---------- segmented controls in the header ---------- */
-.wb-seg { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: rgba(14, 23, 38, 0.05); flex: none; }
+.wb-seg { display: flex; gap: 2px; padding: 3px; border-radius: 3px; background: rgba(14, 23, 38, 0.05); flex: none; }
 .wb-seg button {
   border: none; background: transparent; font-family: var(--font-ui);
   font-size: 12.5px; font-weight: 620; color: var(--ink-3);
-  padding: 4px 11px; border-radius: 8px; cursor: pointer;
+  padding: 4px 11px; border-radius: 3px; cursor: pointer;
   transition: background 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
 .wb-seg button:hover { color: var(--ink-2); }
@@ -401,7 +401,7 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .wb-btn {
-  width: 27px; height: 27px; border-radius: 8px; border: none; flex: none;
+  width: 27px; height: 27px; border-radius: 3px; border: none; flex: none;
   background: transparent; color: var(--ink-3); cursor: pointer;
   display: grid; place-items: center;
   transition: background 0.2s, color 0.2s;
@@ -452,7 +452,7 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 .wb-drop { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity 0.16s var(--ease); }
 .wb-drop.show { opacity: 1; }
 .wb-drop i {
-  position: absolute; inset: 6px; border-radius: 10px;
+  position: absolute; inset: 6px; border-radius: 3px;
   background: color-mix(in oklab, var(--c-coordinator) 13%, transparent);
   border: 1.5px solid color-mix(in oklab, var(--c-coordinator) 45%, white);
   transition: inset 0.15s var(--ease);
@@ -462,7 +462,7 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 .wb-drop[data-half="top"] i { bottom: 50%; }
 .wb-drop[data-half="bottom"] i { top: 50%; }
 .wb-stackdrop {
-  display: none; height: 62px; margin-top: 2px; border-radius: 14px;
+  display: none; height: 62px; margin-top: 2px; border-radius: 3px;
   border: 1.5px dashed var(--line-2);
   background: rgba(255, 255, 255, 0.4);
 }
