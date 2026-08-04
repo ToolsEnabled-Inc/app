@@ -1790,7 +1790,24 @@ export class FleetGraph {
     }
     const tierKeys = [...tiers.keys()].sort((a, b) => a - b)
     const rows = tierKeys.length
-    const padT = 104, padB = 92
+    /* The vertical twin of the packing problem below: 104/92 were tuned for
+       three tiers, and a fourth (a worker spawning under a default) collapsed
+       the row pitch to 47px against 78px bubbles — two ROWS parked 31px into
+       each other on a 768px screen. The pads now yield toward floors when the
+       tiers need the room: 64 keeps the top tier clear of the crumb/toolbar
+       row, 70 keeps the bottom tier's compact name label on the canvas. At
+       the floors a 4-tier fleet on a 338px canvas still can't reach tangent
+       pitch (68px vs 78) — that residue is focus-mode territory (the density
+       hint), not deeper packing. */
+    let padT = 104, padB = 92
+    if (rows > 1) {
+      const deficit = 86 * (rows - 1) - (this.H - padT - padB)
+      if (deficit > 0) {
+        const gT = Math.min(104 - 64, Math.round(deficit * 0.55))
+        padT -= gT
+        padB -= Math.min(92 - 70, deficit - gT)
+      }
+    }
     const rowH = rows > 1 ? (this.H - padT - padB) / (rows - 1) : 0
     const slots = new Map()
     const rowYs = []
@@ -1803,11 +1820,42 @@ export class FleetGraph {
       })
       const y = rows > 1 ? padT + ri * rowH : this.H / 2
       rowYs.push(y)
+      /* Packing a tier is a capacity problem, and the old division-and-clamp
+         pretended it wasn't: x = W/(n+1) spreads centres evenly with no idea
+         how wide a bubble is, and the 44px edge clamp then shoved the outer
+         bubbles INWARD, spending their neighbours' gaps. At eleven-plus
+         default bubbles on a ~950px canvas that produced stable 20-36px
+         bubble-on-bubble interpenetration — not a transient, two circles
+         parked inside each other on the graph's default view.
+         Now: keep the airy division layout whenever it genuinely fits, and
+         otherwise pack the tier evenly at the widest spacing that does, with
+         the degradation explicit and ordered — give up edge margin first
+         (44 -> 12), then the breathing gap, and only then admit up to 6px of
+         near-tangent overlap, which is the physical floor short of shrinking
+         bubbles whose runtime text already fills them. Beyond that the
+         designed answer is focus mode, not deeper packing. */
       const step = this.W / (list.length + 1)
-      list.forEach((n, i) => slots.set(n.id, {
-        x: Math.max(n.r + 44, Math.min(this.W - n.r - 44, step * (i + 1))),
-        y,
-      }))
+      const naive = list.map((n, i) =>
+        Math.max(n.r + 44, Math.min(this.W - n.r - 44, step * (i + 1))))
+      const naiveOk = naive.every((x, i) =>
+        i === 0 || x - naive[i - 1] >= list[i - 1].r + list[i].r + 2)
+      let xs = naive
+      if (!naiveOk && list.length > 1) {
+        for (const [edge, air] of [[44, 10], [12, 10], [12, 0], [12, -6]]) {
+          const gaps = list.map((n, i) => i ? list[i - 1].r + n.r + air : 0)
+          const span = gaps.reduce((a, b) => a + b, 0)
+          const avail = this.W - 2 * edge - list[0].r - list[list.length - 1].r
+          if (span <= avail || air === -6) {
+            // last resort compresses proportionally — a fleet that outgrows
+            // even the overlap floor still never stacks bubbles concentric
+            const k = span > avail ? avail / span : 1
+            let x = edge + list[0].r + Math.max(0, (avail - span) / 2)
+            xs = list.map((n, i) => (x += gaps[i] * k))
+            break
+          }
+        }
+      }
+      list.forEach((n, i) => slots.set(n.id, { x: xs[i], y }))
     })
     return { slots, rowYs }
   }
