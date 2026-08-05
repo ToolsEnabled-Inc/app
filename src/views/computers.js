@@ -9,17 +9,26 @@
 //
 // Lane C2 makes the far side of that morph the whiteboard BOARD: a
 // role-coloured agent title over a rule, the circled runtime, a real per-agent
-// Runtime Statistics plot with drawn hairline axes, the controls inside a
+// Runtime Statistics plot with quiet chart chrome, the controls inside a
 // square box, and square legend swatches. Only the board's internal boxes are
 // square — the rail glass card keeps its own shape (see board.css).
 
-import { ticks as d3ticks } from 'd3-array'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { SVGRenderer } from 'echarts/renderers'
 import { readLayout, writeLayout } from '../layout-pref.js'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES } from '../vocab.js'
-import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip, attachSeg, buildChat } from '../components.js'
+import { el, uptimeRing, bindRuntime, countUp, setViewMorph, attachSeg, buildChat } from '../components.js'
 import { FleetGraph } from '../graph.js'
+import { withAlpha } from '../echarts-theme.js'
 import '../board.css'
+
+// Keep this surface on the same tree-shaken ECharts build as Metrics. No
+// legend/title/toolbox modules are registered, so the board's DOM header is
+// the only chrome the single-series plot can acquire.
+echarts.use([LineChart, GridComponent, TooltipComponent, SVGRenderer])
 
 /* The Load bars used to be painted in ROLE hues — CPU in --c-coordinator,
    GPU in --c-helper, Network in --c-shadow, Disk in --c-manager — while the
@@ -53,13 +62,14 @@ const FLIP_MS = 460          // hero number ⇄ runtime ring
 const GRAPH_FADE_MS = 150    // outgoing graph dissolve
 const NODE_STAGGER_MS = 30   // incoming bubble cascade step
 
-const reduceMotion = () => document.body.classList.contains('reduce-motion')
+const motionQuery = typeof window.matchMedia === 'function'
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : null
+const reduceMotion = () => document.body.classList.contains('reduce-motion') || !!motionQuery?.matches
 const rectCenter = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
 
 /* ---------- board: the per-agent Runtime Statistics plot ---------- */
 const CHART_N = 24                 // samples on screen
-const CHART_H = 116                // svg height incl. the x-axis label band
-const CHART_PAD = { l: 34, r: 10, t: 12, b: 30 }
 const CHART_SPAN_MIN = 30          // minutes of history the window covers
 const CHART_STEP_MS = 4200         // a new sample lands this often
 const CHART_INTRO_MS = 620
@@ -117,30 +127,15 @@ function seriesFor(agent) {
   return s
 }
 
-// smooth polyline through the samples — quadratic midpoints, so the curve
-// never overshoots past the data the way a spline would
-function curveOf(pts) {
-  if (pts.length < 2) return ''
-  let d = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
-  for (let i = 1; i < pts.length - 1; i++) {
-    const mx = (pts[i].x + pts[i + 1].x) / 2
-    const my = (pts[i].y + pts[i + 1].y) / 2
-    d += `Q${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`
-  }
-  const last = pts[pts.length - 1]
-  return `${d}L${last.x.toFixed(1)} ${last.y.toFixed(1)}`
-}
-
 /**
  * The board's "Runtime Statistics" box: activity over time for ONE agent,
- * drawn with real hairline x/y axes like the sketch. Single series, so the
- * box header names it and carries the end value instead of a legend.
+ * rendered by the same tree-shaken ECharts core as Metrics. Single series,
+ * so the box header names it and carries the end value instead of a legend.
  * Returns { el, tick(ts), intro(), destroy() } — tick() is driven by the
  * view's existing rAF loop.
  */
 function agentChartBox(agent) {
   const s = seriesFor(agent)
-  const cur = s.vals.slice()                 // eased values actually on screen
   const box = el(`
     <div class="board-box board-chart-box">
       <div class="board-box-h">
@@ -148,136 +143,164 @@ function agentChartBox(agent) {
         <span class="bh-v"><i></i><span><b class="bc-now">0</b>%</span></span>
       </div>
       <div class="board-cap">agent activity · last ${CHART_SPAN_MIN} min</div>
-      <div class="board-plot"><div class="bc-canvas"></div></div>
+      <div class="board-plot">
+        <div class="bc-canvas" role="img" aria-label="${agent.name} activity over the last ${CHART_SPAN_MIN} minutes"></div>
+      </div>
     </div>
   `)
 
-  const plot = box.querySelector('.board-plot')
   const canvas = box.querySelector('.bc-canvas')
   const nowEl = box.querySelector('.bc-now')
-  const tip = makeTooltip(plot)
+  let chart = null
+  let theme = null
+  let lastStep = 0
+  let shown = -1
+  let disposed = false
+  let themeMO = null
+  let motionMO = null
 
-  let W = 0, g = null, p = null
-  let frozen = true, lastStep = 0, shown = -1
-  let introDelay = null, introDone = false, safety = 0
-
-  const minsAgo = (i) => Math.round((CHART_N - 1 - i) * (CHART_SPAN_MIN / (CHART_N - 1)))
-
-  // static frame: axes, ticks, labels, hit area — rebuilt only on resize
-  function frame(w) {
-    W = w
-    const x0 = CHART_PAD.l + 0.5
-    const x1 = Math.max(x0 + 60, w - CHART_PAD.r) + 0.5
-    const yTop = CHART_PAD.t + 0.5
-    const yBot = CHART_H - CHART_PAD.b + 0.5
-    g = {
-      x0, x1, yTop, yBot,
-      x: (i) => x0 + (i / (CHART_N - 1)) * (x1 - x0),
-      y: (v) => yBot - (Math.max(0, Math.min(100, v)) / 100) * (yBot - yTop),
+  // Like echarts-theme.js, snapshot custom properties into literal colours:
+  // the SVG renderer cannot resolve var() inside inline attributes or gradient
+  // stops. --rc is inherited from the rail and is the single series colour.
+  function buildChartTheme() {
+    const rootCS = getComputedStyle(document.documentElement)
+    const scopeCS = getComputedStyle(box)
+    const read = (cs, name, fallback) => cs.getPropertyValue(name).trim() || fallback
+    return {
+      role: read(scopeCS, '--rc', '#00a9d8'),
+      ink2: read(rootCS, '--ink-2', '#4f5f70'),
+      grid: read(rootCS, '--chart-grid', 'rgba(14,23,38,0.07)'),
+      cross: read(rootCS, '--chart-cross', 'rgba(14,23,38,0.24)'),
+      mono: read(rootCS, '--font-mono', 'ui-monospace, monospace'),
     }
-    const yTick = (v) => `
-      <line class="bc-tick" x1="${x0 - 3.5}" y1="${g.y(v)}" x2="${x0}" y2="${g.y(v)}"/>
-      <text class="bc-t" x="${x0 - 8}" y="${g.y(v) + 4.5}" text-anchor="end">${v}</text>`
+  }
 
-    // The value axis' stops used to be three hand-written calls — yTick(0),
-    // yTick(50), yTick(100) — and the single gridline was separately hardcoded
-    // at 50, so the label set and the grid were two facts that merely happened
-    // to agree, and neither knew how tall the plot actually was. d3-array's
-    // ticks() picks canonical 1/2/5 stops for the 0–100 domain, and the count
-    // is derived from the real plot height at ~34px per label so the labels can
-    // never crowd below the 12.5px type floor (a shorter box now drops a stop
-    // instead of overlapping its neighbours). Every gridline is now literally
-    // one of the labelled stops, so the grid cannot mean something the axis
-    // does not say. At today's 74px plot this still resolves to 0 / 50 / 100.
-    const yVals = d3ticks(0, 100, Math.max(1, Math.min(5, Math.round((yBot - yTop) / 34))))
-    const gridLines = yVals
-      .filter(v => v > 0 && v < 100)
-      .map(v => `<line class="bc-gl bc-chrome" x1="${x0}" y1="${g.y(v)}" x2="${x1}" y2="${g.y(v)}"/>`)
-      .join('')
+  const data = () => s.vals.map((v, i) => [
+    -CHART_SPAN_MIN + i * (CHART_SPAN_MIN / (CHART_N - 1)),
+    +v.toFixed(2),
+  ])
 
-    // once the board has drawn itself in, a later resize rebuilds the frame
-    // finished — the axes must not re-draw every frame of a window drag
-    canvas.innerHTML = `
-      <svg class="bchart ${introDone ? 'bc-static' : ''}" width="${w}" height="${CHART_H}" viewBox="0 0 ${w} ${CHART_H}"
-           role="img" aria-label="${agent.name} activity over the last ${CHART_SPAN_MIN} minutes">
-        ${gridLines}
-        <path class="bc-area" d=""/>
-        <path class="bc-line" d=""/>
-        <circle class="bc-pulse" r="5" cx="${x1}" cy="${g.y(50)}"/>
-        <circle class="bc-end" r="4.5" cx="${x1}" cy="${g.y(50)}"/>
-        <line class="bc-cross" x1="${x0}" y1="${yTop}" x2="${x0}" y2="${yBot}"/>
-        <circle class="bc-dot" r="4" cx="${x0}" cy="${yBot}"/>
-        <line class="bc-ax bc-ax-y" x1="${x0}" y1="${yBot}" x2="${x0}" y2="${yTop}" style="--len:${(yBot - yTop).toFixed(1)}px"/>
-        <line class="bc-ax bc-ax-x" x1="${x0}" y1="${yBot}" x2="${x1}" y2="${yBot}" style="--len:${(x1 - x0).toFixed(1)}px"/>
-        <g class="bc-chrome">
-          ${yVals.map(yTick).join('')}
-          <text class="bc-t" x="${x0 - 2}" y="${yBot + 20}" text-anchor="start">-${CHART_SPAN_MIN}m</text>
-          <text class="bc-t" x="${(x0 + x1) / 2}" y="${yBot + 20}" text-anchor="middle">-${CHART_SPAN_MIN / 2}m</text>
-          <text class="bc-t" x="${x1}" y="${yBot + 20}" text-anchor="end">now</text>
-        </g>
-        <rect class="bc-hit" x="${x0 - 6}" y="${yTop - 8}" width="${x1 - x0 + 12}" height="${yBot - yTop + 16}"/>
-      </svg>`
+  // The metrics tooltip idiom: ECharts owns placement and confinement; the
+  // transparent engine container carries the shared, theme-aware .mtip skin.
+  const tipBase = () => ({
+    appendToBody: true,
+    confine: true,
+    transitionDuration: 0,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    extraCssText: 'box-shadow:none;',
+  })
 
-    p = {
-      svg: canvas.querySelector('svg'),
-      area: canvas.querySelector('.bc-area'),
-      line: canvas.querySelector('.bc-line'),
-      end: canvas.querySelector('.bc-end'),
-      pulse: canvas.querySelector('.bc-pulse'),
-      cross: canvas.querySelector('.bc-cross'),
-      dot: canvas.querySelector('.bc-dot'),
-      hit: canvas.querySelector('.bc-hit'),
+  function option({ entrance = false, delay = 0, duration = 420 } = {}) {
+    const th = theme
+    const reduced = reduceMotion()
+    return {
+      animation: !reduced,
+      animationDuration: reduced ? 0 : (entrance ? CHART_INTRO_MS : duration),
+      animationDelay: reduced || !entrance ? 0 : delay,
+      animationEasing: 'cubicOut',
+      animationDurationUpdate: reduced ? 0 : duration,
+      animationEasingUpdate: 'cubicInOut',
+      backgroundColor: 'transparent',
+      color: [th.role],
+      grid: { left: 34, right: 10, top: 12, bottom: 30 },
+      xAxis: {
+        type: 'value',
+        min: -CHART_SPAN_MIN,
+        max: 0,
+        interval: CHART_SPAN_MIN / 2,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: {
+          color: th.ink2,
+          fontFamily: th.mono,
+          fontSize: 12.5,
+          margin: 10,
+          showMinLabel: true,
+          showMaxLabel: true,
+          hideOverlap: false,
+          formatter: (v) => v === 0 ? 'now' : `${v}m`,
+        },
+        axisPointer: { label: { show: false } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: 100,
+        interval: 50,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: th.ink2,
+          fontFamily: th.mono,
+          fontSize: 12.5,
+          margin: 8,
+        },
+        splitLine: {
+          show: true,
+          lineStyle: { color: th.grid, width: 1, type: 'solid' },
+        },
+        axisPointer: { label: { show: false } },
+      },
+      tooltip: {
+        ...tipBase(),
+        trigger: 'axis',
+        axisPointer: {
+          type: 'cross',
+          snap: true,
+          label: { show: false },
+          lineStyle: { color: th.cross, width: 1, type: 'solid' },
+          crossStyle: { color: th.cross, width: 1, type: 'solid' },
+        },
+        formatter: (params) => {
+          const q = params[0]
+          if (!q) return ''
+          const [mins, value] = q.value
+          const ago = Math.abs(Math.round(mins))
+          return `<div class="mtip"><div class="tt-title">${agent.name}</div><b>${Math.round(value)}%</b> active · ${ago ? `${ago} min ago` : 'now'}</div>`
+        },
+      },
+      series: [{
+        id: 'agent-activity',
+        name: 'Agent activity',
+        type: 'line',
+        data: data(),
+        smooth: 0.28,
+        symbol: 'none',
+        showSymbol: false,
+        color: th.role,
+        lineStyle: { color: th.role, width: 2, cap: 'round', join: 'round' },
+        itemStyle: { color: th.role },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: withAlpha(th.role, 0.16) },
+              { offset: 1, color: withAlpha(th.role, 0) },
+            ],
+          },
+        },
+        emphasis: {
+          lineStyle: { color: th.role, width: 2 },
+          itemStyle: { color: th.role },
+        },
+      }],
     }
-    p.hit.addEventListener('pointermove', onHover)
-    p.hit.addEventListener('pointerleave', offHover)
-    paint()
-    runIntro()
   }
 
-  function paint() {
-    if (!p || !g) return
-    const pts = cur.map((v, i) => ({ x: g.x(i), y: g.y(v) }))
-    const d = curveOf(pts)
-    p.line.setAttribute('d', d)
-    p.area.setAttribute('d', `${d}L${g.x1.toFixed(1)} ${g.yBot.toFixed(1)}L${g.x0.toFixed(1)} ${g.yBot.toFixed(1)}Z`)
-    const last = pts[pts.length - 1]
-    p.end.setAttribute('cx', last.x.toFixed(1))
-    p.end.setAttribute('cy', last.y.toFixed(1))
-    p.pulse.setAttribute('cx', last.x.toFixed(1))
-    p.pulse.setAttribute('cy', last.y.toFixed(1))
+  function paint(settings) {
+    if (!chart || chart.isDisposed()) return
+    chart.setOption(option(settings))
   }
 
-  function onHover(e) {
-    if (!p || !g) return
-    const r = p.svg.getBoundingClientRect()
-    if (!r.width) return
-    const x = (e.clientX - r.left) * (W / r.width)
-    const i = Math.max(0, Math.min(CHART_N - 1, Math.round((x - g.x0) / (g.x1 - g.x0) * (CHART_N - 1))))
-    const v = Math.round(cur[i])
-    p.cross.setAttribute('x1', g.x(i).toFixed(1))
-    p.cross.setAttribute('x2', g.x(i).toFixed(1))
-    p.dot.setAttribute('cx', g.x(i).toFixed(1))
-    p.dot.setAttribute('cy', g.y(cur[i]).toFixed(1))
-    p.cross.style.opacity = '0.55'
-    p.dot.style.opacity = '1'
-    const m = minsAgo(i)
-    tip.show(`<div class="tt-title">${agent.name}</div><b>${v}%</b> active · ${m ? `${m} min ago` : 'now'}`, e.clientX, e.clientY)
-  }
-
-  function offHover() {
-    if (!p) return
-    p.cross.style.opacity = '0'
-    p.dot.style.opacity = '0'
-    tip.hide()
-  }
-
-  // The badge is written here and ONLY here, as one plain text swap. It used
-  // to run a 600ms countUp tween, which meant the badge spent over half of
-  // every sample interval displaying values the series never contained — and
-  // during the rail crossfade a screenshot could catch that in-between glyph
-  // blended with the other page's text, reading as two values struck through
-  // each other. A single writer doing a single atomic write cannot show a
-  // stale or intermediate value, so that overlap is structurally impossible.
+  // One plain text swap keeps the header badge on a value the series really
+  // contains; it never shows an in-between tween value during the rail morph.
   function readout() {
     const v = Math.round(s.vals[CHART_N - 1])
     if (v === shown) return
@@ -285,92 +308,71 @@ function agentChartBox(agent) {
     shown = v
   }
 
-  function pulse() {
-    if (!p || reduceMotion()) return
-    p.pulse.animate(
-      [{ transform: 'scale(0.55)', opacity: 0.45 }, { transform: 'scale(2.7)', opacity: 0 }],
-      { duration: 900, easing: MORPH_EASE },
-    )
-  }
-
-  // The line draws itself in behind the rail cascade, like the axes above it.
-  // The first frame only exists once the box has been laid out, so the caller's
-  // delay is parked here and spent by frame().
+  // intro() runs after insertion into the rail. ECharts therefore sees the
+  // real ~316x116 host rather than initializing a detached zero-width node;
+  // the existing outer box keeps its ~344x190 footprint exactly.
   function intro(delay) {
-    introDelay = delay
+    if (disposed || chart) return
     readout()
-    runIntro()
+    theme = buildChartTheme()
+    chart = echarts.init(canvas, null, { renderer: 'svg' })
+    paint({ entrance: true, delay, duration: CHART_INTRO_MS })
+
+    if (typeof MutationObserver !== 'undefined') {
+      themeMO = new MutationObserver(() => {
+        theme = buildChartTheme()
+        paint({ duration: 240 })
+      })
+      themeMO.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
+      })
+
+      // The Settings motion toggle can flip without a data update. Reissuing
+      // the full option parks an in-flight engine tween immediately.
+      motionMO = new MutationObserver(() => paint({ duration: 0 }))
+      motionMO.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class'],
+      })
+    }
+    motionQuery?.addEventListener?.('change', onMotionChange)
   }
 
-  function runIntro() {
-    if (introDone || introDelay == null || !p) return
-    introDone = true
-    const delay = introDelay
-    if (reduceMotion()) { frozen = false; return }
-    const len = p.line.getTotalLength() || 1
-    p.line.style.strokeDasharray = `${len}`
-    const draw = p.line.animate(
-      [{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
-      { duration: CHART_INTRO_MS, delay, easing: MORPH_EASE, fill: 'backwards' },
-    )
-    const land = () => {
-      if (p) p.line.style.strokeDasharray = ''
-      frozen = false
-      paint()
-    }
-    draw.onfinish = land
-    // a resize mid-draw can strand the animation on a discarded path, so the
-    // plot is never left frozen waiting for a finish event that never comes
-    clearTimeout(safety)
-    safety = setTimeout(land, delay + CHART_INTRO_MS + 220)
-    p.area.animate([{ opacity: 0 }, { opacity: 1 }],
-      { duration: 420, delay: delay + 220, easing: MORPH_EASE, fill: 'backwards' })
-    p.end.animate([{ transform: 'scale(0)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
-      { duration: 340, delay: delay + CHART_INTRO_MS - 90, easing: 'cubic-bezier(0.34, 1.3, 0.4, 1)', fill: 'backwards' })
+  function onMotionChange() {
+    paint({ duration: 0 })
   }
 
   function tick(ts) {
-    if (!p || !g) return
-    if (ts - lastStep > CHART_STEP_MS) {
-      if (lastStep) {
-        // The ping marks a MEANINGFUL arrival. It used to fire on every
-        // 4.2s step regardless of whether the value moved, which turns an
-        // event signal into a metronome — the eye stops reading it as
-        // information. Gate it on a real change in the sample.
-        const prevV = s.vals[s.vals.length - 1]
-        s.advance()
-        readout()
-        const nextV = s.vals[s.vals.length - 1]
-        if (!frozen && Math.abs(nextV - prevV) >= 1.5) pulse()
-      }
+    if (!chart || chart.isDisposed()) return
+    if (!lastStep) {
       lastStep = ts
+      return
     }
-    const k = reduceMotion() ? 1 : 0.16
-    let moved = false
-    for (let i = 0; i < CHART_N; i++) {
-      const d = s.vals[i] - cur[i]
-      if (Math.abs(d) > 0.02) { cur[i] += d * k; moved = true }
-    }
-    if (moved && !frozen) paint()
+    if (ts - lastStep < CHART_STEP_MS) return
+    lastStep = ts
+    s.advance()
+    readout()
+    paint({ duration: 600 })
   }
 
-  const ro = new ResizeObserver((entries) => {
-    const w = Math.round(entries[0].contentRect.width)
-    if (w > 80 && w !== W) { frame(w); if (!frozen) paint() }
+  const ro = new ResizeObserver(() => {
+    if (chart && !chart.isDisposed()) chart.resize()
   })
-  ro.observe(plot)
+  ro.observe(canvas)
 
   return {
     el: box,
     tick,
     intro,
     destroy() {
+      disposed = true
       ro.disconnect()
-      clearTimeout(safety)
-      tip.hide()
-      p?.hit.removeEventListener('pointermove', onHover)
-      p?.hit.removeEventListener('pointerleave', offHover)
-      p = null
+      themeMO?.disconnect()
+      motionMO?.disconnect()
+      motionQuery?.removeEventListener?.('change', onMotionChange)
+      if (chart && !chart.isDisposed()) chart.dispose()
+      chart = null
     },
   }
 }
@@ -882,7 +884,7 @@ export function computersView({ initialComputer = null, navigate }) {
       ? heroEl.getBoundingClientRect() : null
 
     // one role variable feeds the title, ring, plot, armed control and legend
-    ctlPage.style.setProperty('--role', role.hex)
+    ctlPage.style.setProperty('--rc', role.hex)
     ctlPage.style.setProperty('--role-glow', role.glow)
 
     ctlPage.innerHTML = `
@@ -1037,9 +1039,8 @@ export function computersView({ initialComputer = null, navigate }) {
   // The runtime ring is additionally throttled to ~12Hz: its sweep advances
   // 6° per minute, so rewriting two SVG stroke-dasharray attributes every
   // frame bought no visible smoothness (at 12Hz the arc tip moves well under
-  // a pixel per step). The chart is deliberately NOT throttled — its easing is
-  // a per-frame fraction, so dropping frames there would change the animation
-  // itself and not merely its cost.
+  // a pixel per step). chart.tick() is only a cheap interval gate now;
+  // ECharts owns the 600ms data morph when the next sample actually lands.
   let raf = 0
   let lastRingAt = 0
   const loop = (ts) => {

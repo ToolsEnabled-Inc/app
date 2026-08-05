@@ -33,7 +33,7 @@
    ------------------------------------------------------------ */
 .board-page {
   --board-r: 3px;                       /* the square corner, everywhere inside */
-  --role: var(--c-coordinator);
+  --role: var(--rc, var(--c-coordinator));
   --role-glow: var(--g-coordinator);
   /* a marker-dark version of the role hue: same hue, ink-level contrast */
   --role-ink: color-mix(in oklab, var(--role) 52%, var(--ink));
@@ -132,66 +132,17 @@
 
 /* ------------------------------------------------------------
    4 · Runtime Statistics plot
-   Single series → no legend box; the box header names it. Hairline
-   axes drawn from the origin, recessive grid, one direct end label.
+   The engine fills the same 116px slot the retired inline SVG occupied, so
+   the box keeps its ~344x190 footprint and its place in the rail unchanged.
+   All visible chart chrome is emitted by the scoped ECharts option; this CSS
+   owns only geometry and the hover cursor.
    ------------------------------------------------------------ */
-.board-page .board-plot { position: relative; }
-.board-page .bchart { display: block; width: 100%; overflow: visible; }
-
-.board-page .bc-ax {
-  stroke: var(--ink-4); stroke-width: 1;
-  shape-rendering: crispEdges;
-  stroke-dasharray: var(--len);
-  /* the axes are drawn from the origin on this box's own step of the rail
-     cascade (--mi), so the board reads as one gesture, not two */
-  animation: bcDrawAxis 420ms var(--ease) both;
-  animation-delay: calc(var(--mi, 0) * var(--morph-stagger, 80ms) + 40ms);
+.board-page .board-plot { position: relative; height: 116px; }
+.board-page .bc-canvas {
+  width: 100%; height: 116px;
+  cursor: crosshair;
+  font-variant-numeric: tabular-nums;
 }
-@keyframes bcDrawAxis { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
-
-.board-page .bc-tick { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; }
-.board-page .bc-gl { stroke: var(--chart-grid); stroke-width: 1; shape-rendering: crispEdges; }
-.board-page .bc-t {
-  font-family: var(--font-mono); font-size: 12.5px;
-  fill: var(--ink-2); font-variant-numeric: tabular-nums;
-}
-.board-page .bc-chrome {
-  animation: bcChromeIn 380ms var(--ease) both;
-  animation-delay: calc(var(--mi, 0) * var(--morph-stagger, 80ms) + 170ms);
-}
-@keyframes bcChromeIn { from { opacity: 0; } to { opacity: 1; } }
-
-/* a frame rebuilt after the board has already drawn in starts finished */
-.board-page .bc-static .bc-ax { animation: none; stroke-dasharray: none; }
-.board-page .bc-static .bc-chrome { animation: none; }
-
-.board-page .bc-area { fill: var(--role); fill-opacity: 0.1; stroke: none; }
-.board-page .bc-line {
-  fill: none; stroke: var(--role); stroke-width: 2;
-  stroke-linecap: round; stroke-linejoin: round;
-}
-.board-page .bc-end {
-  fill: var(--role);
-  stroke: var(--sheet); stroke-width: 2;     /* 2px surface ring — themed */
-  transform-box: fill-box; transform-origin: center;
-}
-.board-page .bc-pulse {
-  fill: none; stroke: var(--role); stroke-width: 1.5;
-  transform-box: fill-box; transform-origin: center;
-  opacity: 0; pointer-events: none;
-}
-.board-page .bc-cross { stroke: var(--ink-4); stroke-width: 1; shape-rendering: crispEdges; opacity: 0; }
-.board-page .bc-dot {
-  fill: var(--role); stroke: var(--sheet); stroke-width: 2;
-  opacity: 0;
-}
-.board-page .bc-cross, .board-page .bc-dot { transition: opacity .16s var(--ease); }
-.board-page .bc-hit { fill: transparent; pointer-events: all; cursor: crosshair; }
-
-/* the shared tooltip is part of the board — it obeys the type floor too
-   (body at 13px: multi-word prose floor, tracking styles.css's base) */
-.board-page .tooltip { font-size: 13px; color: var(--ink-2); border-radius: var(--board-r); }
-.board-page .tooltip .tt-title { font-size: 12.5px; color: var(--ink-2); letter-spacing: 0.04em; }
 
 /* ------------------------------------------------------------
    5 · Agent Controls — square box, square buttons
@@ -419,10 +370,3 @@
    ------------------------------------------------------------ */
 .computers .rail-page.mc-out .bh-v,
 .computers .rail-page.mc-out .bv { visibility: hidden; }
-
-/* ------------------------------------------------------------
-   reduce-motion: the drawn-in axes and plot appear finished
-   ------------------------------------------------------------ */
-body.reduce-motion .board-page .bc-ax,
-body.reduce-motion .board-page .bc-chrome { animation-delay: 0ms !important; }
-body.reduce-motion .board-page .bc-pulse { display: none; }
