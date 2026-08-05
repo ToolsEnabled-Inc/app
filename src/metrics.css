@@ -266,14 +266,18 @@
 }
 .m-band .band-cap .bc-note { font-weight: 550; letter-spacing: 0.06em; }
 
-/* band 4: three bare instruments in one row, whitespace-separated */
-.m-row3 {
+/* slot rows: 1–3 bare instruments sharing one row, whitespace-separated.
+   (Generalized from the fixed .m-row3 — the layout engine writes each
+   row's column recipe into --srow-cols from the members' declared weights,
+   so the standard heat·verdicts·lanes row keeps its exact 1.25fr 1fr 1fr.) */
+.m-srow {
   display: grid;
-  grid-template-columns: 1.25fr 1fr 1fr;
+  grid-template-columns: var(--srow-cols, 1fr);
   gap: var(--s4) 44px;
   align-items: start;
 }
-@media (max-width: 1000px) { .m-row3 { grid-template-columns: 1fr; } }
+.m-srow > * { min-width: 0; }
+@media (max-width: 1000px) { .m-srow { grid-template-columns: 1fr; } }
 
 /* ---------- verdict split: hero total + one 100% stacked bar ---------- */
 .vwrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 6px 0 4px; }
@@ -467,14 +471,220 @@
   outline-offset: 1px;
 }
 
+/* a pools column that shares a row folds its three cards into a stack —
+   three 3-col cards at slot width clip their own captions — and sheds the
+   full-band hairline that would otherwise draw mid-row */
+.metrics .m-pools--slim {
+  grid-template-columns: 1fr;
+  border-top: none;
+  padding-top: 0;
+}
+
+/* ============================================================
+   LAYOUT EDIT MODE — the customization layer's chrome.
+   Doctrine: dashes mean "structure is movable" (graph.css); the tray
+   is a bar of the page, not a toolbox; every affordance is hairline +
+   3px corners + the existing type tiers. No popups anywhere.
+   ============================================================ */
+
+/* the arming control: the lane-clear chip register (hairline, quiet),
+   armed state borrows the graph Edit button's exact fill recipe */
+.m-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 640;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .22s var(--ease), border-color .22s var(--ease), background .25s var(--ease);
+}
+.m-edit-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.m-edit-btn:active { transform: scale(0.96); }
+.m-edit-btn:focus-visible { outline: 3px solid var(--focus-ring, #0079a8); outline-offset: 1px; }
+.m-edit-btn.on {
+  /* the graph-edit-btn armed recipe: composites to 5.5:1 under #fff text */
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(160deg, #0b7ea8, #05607f);
+}
+
+/* the movable-structure signal: one dashed hairline per component */
+.metrics.m-editing [data-mc] {
+  outline: 1px dashed color-mix(in oklab, var(--ink) 34%, transparent);
+  outline-offset: 10px;
+  border-radius: 3px;
+}
+.metrics.m-editing [data-mc].m-dragsrc { opacity: 0.45; }
+.metrics.m-editing [data-mc].m-carry {
+  outline: 1.5px dashed var(--focus-ring, #0079a8);
+}
+
+/* grip + remove, riding each component's title row */
+.m-editctl { display: inline-flex; align-items: center; gap: 4px; align-self: center; margin-left: 8px; }
+.m-grip, .m-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  padding: 0;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: grab;
+  transition: color .22s var(--ease), border-color .22s var(--ease);
+}
+.m-grip svg { width: 10px; height: 14px; fill: currentColor; display: block; }
+.m-x { cursor: pointer; font-size: 14px; line-height: 1; font-family: var(--font-ui); }
+.m-grip:hover, .m-x:hover { color: var(--ink); border-color: var(--ink-3); }
+.m-grip:focus-visible, .m-x:focus-visible {
+  outline: 3px solid var(--focus-ring, #0079a8);
+  outline-offset: 1px;
+}
+/* stats and pools have no title row of their own: the injected edit-only
+   head spans their grid so it reads exactly like the other section heads */
+.m-edit-head { grid-column: 1 / -1; margin-bottom: 0; }
+
+/* ---------- the component tray: a slim bar of the page ---------- */
+.m-tray { display: none; }
+.metrics.m-editing .m-tray {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: -20px;               /* tucks under the filter row's hairline */
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line-2);
+  animation: mTrayIn .24s var(--ease);
+}
+@keyframes mTrayIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.m-tray-label {
+  font-size: 11px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+  font-weight: 650;
+}
+.m-tray .spacer { flex: 1; }
+.m-tray-chips { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.m-tray-empty { font-size: 12.5px; color: var(--ink-3); }
+.m-tray-live { font-size: 12.5px; color: var(--ink-3); }
+.m-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: grab;
+  transition: color .22s var(--ease), border-color .22s var(--ease);
+}
+.m-chip:hover { color: var(--ink); border-color: var(--ink-3); }
+.m-chip:focus-visible { outline: 3px solid var(--focus-ring, #0079a8); outline-offset: 1px; }
+.m-chip.m-dragsrc { opacity: 0.45; }
+.m-reset {
+  padding: 0;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color .22s var(--ease);
+}
+.m-reset:hover { color: var(--ink); text-decoration: underline; }
+.m-reset:focus-visible { outline: 3px solid var(--focus-ring, #0079a8); outline-offset: 2px; border-radius: 3px; }
+
+/* ---------- drag chrome: ghost, insert line, join halves ----------
+   All three are body-level and position:fixed — no component ever gains
+   position:relative for them (a positioned band would become the pool
+   tooltips' containing block and shift their clamp math). */
+body.m-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+body.m-dragging .m-grip { cursor: grabbing; }
+/* charts must not chase the pointer with tooltips mid-drag — and inert
+   SVG lets elementFromPoint resolve straight to the component root */
+body.m-dragging .metrics .echart { pointer-events: none; }
+
+.m-ghost {
+  position: fixed; left: 0; top: 0; z-index: 220;
+  pointer-events: none;
+  padding: 5px 12px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 640;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(0.9 * var(--wa))),
+    0 26px 60px -20px rgba(14, 23, 38, 0.45);
+  opacity: 0.92;
+  transform: translate(-500px, -500px);
+  white-space: nowrap;
+}
+
+/* between-row drop: one crisp line in the gap — the full-component (and
+   default) indicator; a full component over a slot row sees THIS, never
+   a half-highlight */
+.m-insline {
+  position: fixed; z-index: 210;
+  height: 0;
+  border-top: 2px solid color-mix(in oklab, var(--c-coordinator, #00a9d8) 70%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.m-insline::before, .m-insline::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--c-coordinator, #00a9d8);
+}
+.m-insline::before { left: -2px; }
+.m-insline::after { right: -2px; }
+
+/* join a slot row: the wb-drop halves, drawn over the target component */
+.m-joinbox { position: fixed; z-index: 210; pointer-events: none; }
+.m-joinbox i {
+  position: absolute; inset: 4px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--c-coordinator, #00a9d8) 13%, transparent);
+  border: 1.5px solid color-mix(in oklab, var(--c-coordinator, #00a9d8) 45%, white);
+}
+.m-joinbox[data-side="left"] i { right: 50%; }
+.m-joinbox[data-side="right"] i { left: 50%; }
+
 /* ---------- pool meter tooltip type floor ---------- */
 .metrics .tooltip { font-size: 13px; }
 .metrics .tooltip .tt-title { font-size: 12.5px; }
 
+/* removed components park here ALIVE: laid out at a real width (their
+   engine instances keep true dimensions for the re-add resize), invisible,
+   out of flow, off screen */
+.m-stash {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  width: 1100px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ---------- reduced motion ----------
    (the engine charts read the same gate in JS: reduced() sets
-   animation:false / animationDurationUpdate:0 on every setOption) */
+   animation:false / animationDurationUpdate:0 on every setOption; the
+   drag ghost's settle fade is gated in metrics-layout.js the same way) */
 body.reduce-motion .spark-halo,
 body.reduce-motion .spark-halo.ping { animation: none; opacity: 0; }
 body.reduce-motion .stat .tv.bump { animation: none; }
 body.reduce-motion .m-filter .live-dot { animation: none; opacity: 1; }
+body.reduce-motion .metrics.m-editing .m-tray { animation: none; }

@@ -26,6 +26,7 @@ import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
 import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../components.js'
 import { buildTheme } from '../echarts-theme.js'
 import { createCharts } from '../metrics-charts.js'
+import { createMetricsLayout } from '../metrics-layout.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
 
@@ -294,7 +295,7 @@ export function metricsView() {
   const timers = new Set()
   const after = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn() }, ms); timers.add(t); return t }
 
-  const state = { range: '24h', machine: 'all', laneFilter: null }
+  const state = { range: '24h', machine: 'all', laneFilter: null, editing: false }
   const meta = () => RANGE_META[state.range]
 
   /* live-pulse buffer: buckets appended to the command band since the last
@@ -334,13 +335,14 @@ export function metricsView() {
           ${pillGroup('machine', MACHINES, 'Machine')}
           <span class="spacer"></span>
           <span class="mf-note" id="mf-note">simulated fleet · <i class="live-dot" aria-hidden="true"></i><b>live</b></span>
+          <button type="button" class="m-edit-btn" id="m-edit" aria-pressed="false">Edit layout</button>
         </div>
-        <div class="m-strip" id="tiles"></div>
-        <section class="m-sec m-sankey">
+        <div class="m-strip" id="tiles" data-mc="stats"></div>
+        <section class="m-sec m-sankey" data-mc="sankey">
           <div class="m-head"><span class="mt">Token routing</span><span class="ms" id="sankey-sub">pools → providers → roles</span></div>
           <div class="echart" id="sankey-chart" role="img" aria-label="Token routing from account pools through providers to agent roles"></div>
         </section>
-        <section class="m-sec m-band">
+        <section class="m-sec m-band" data-mc="tokenflow">
           <div class="m-head"><span class="mt">Token flow</span><span class="ms" id="tokens-sub">last 24 h · thousands</span>
             <span class="spacer"></span>
             <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
@@ -349,32 +351,30 @@ export function metricsView() {
           <div class="band-cap"><span>failure %</span><span class="bc-note">same window · crosshair synced</span></div>
           <div class="echart" id="strip-chart" role="img" aria-label="Failure percent over the same time axis"></div>
         </section>
-        <div class="m-row3">
-          <section class="m-sec">
-            <div class="m-head"><span class="mt">Fleet activity</span><span class="ms" id="heat-sub">by hour · 7 days</span>
-              <span class="spacer"></span>
-              <span class="heat-key" id="heat-key"></span>
-            </div>
-            <div class="echart" id="heat-chart" role="img" aria-label="Fleet activity heatmap"></div>
-          </section>
-          <section class="m-sec">
-            <div class="m-head"><span class="mt">Review verdicts</span><span class="ms" id="verdict-sub">this week</span></div>
-            <div id="verdict-chart"></div>
-          </section>
-          <section class="m-sec">
-            <div class="m-head"><span class="mt">Failure by lane</span><span class="ms" id="fail-sub">rolling 24 h</span>
-              <span class="spacer"></span>
-              <span class="chart-legend">
-                <span class="ck" style="--kc:var(--sev-good)"><i></i>&lt; 2%</span>
-                <span class="ck" style="--kc:var(--sev-warn)"><i></i>2–5%</span>
-                <span class="ck" style="--kc:var(--sev-serious)"><i></i>&gt; 5%</span>
-              </span>
-            </div>
-            <div class="echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent — click a bar to filter the agent table"></div>
-          </section>
-        </div>
-        <div class="m-row m-pools" id="pools"></div>
-        <section class="m-sec m-agents">
+        <section class="m-sec" data-mc="heatmap">
+          <div class="m-head"><span class="mt">Fleet activity</span><span class="ms" id="heat-sub">by hour · 7 days</span>
+            <span class="spacer"></span>
+            <span class="heat-key" id="heat-key"></span>
+          </div>
+          <div class="echart" id="heat-chart" role="img" aria-label="Fleet activity heatmap"></div>
+        </section>
+        <section class="m-sec" data-mc="verdicts">
+          <div class="m-head"><span class="mt">Review verdicts</span><span class="ms" id="verdict-sub">this week</span></div>
+          <div id="verdict-chart"></div>
+        </section>
+        <section class="m-sec" data-mc="lanes">
+          <div class="m-head"><span class="mt">Failure by lane</span><span class="ms" id="fail-sub">rolling 24 h</span>
+            <span class="spacer"></span>
+            <span class="chart-legend">
+              <span class="ck" style="--kc:var(--sev-good)"><i></i>&lt; 2%</span>
+              <span class="ck" style="--kc:var(--sev-warn)"><i></i>2–5%</span>
+              <span class="ck" style="--kc:var(--sev-serious)"><i></i>&gt; 5%</span>
+            </span>
+          </div>
+          <div class="echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent — click a bar to filter the agent table"></div>
+        </section>
+        <div class="m-row m-pools" id="pools" data-mc="pools"></div>
+        <section class="m-sec m-agents" data-mc="agents">
           <div class="m-head"><span class="mt">Agents</span><span class="ms" id="table-sub">all machines · live</span>
             <span class="spacer"></span>
             <button type="button" class="lane-clear" id="lane-clear" hidden></button>
@@ -384,6 +384,46 @@ export function metricsView() {
       </div>
     </div>
   `)
+
+  /* ================= layout customization =================
+     The registry: each band is a movable module. `full` must span the
+     column; `slot` can share a row up to 3-up. tokenflow is ONE component
+     (hero + synced failure strip) — the crosshair sync is their point, so
+     they move as a unit. pools clamps to 2-up: measured at 1280, a 3-up
+     pools column is ~360px, and even the slim single-column card stack
+     cannot hold "$xx.xx of $300 left" beside its caption without clipping.
+     The engine only moves DOM nodes — every echarts instance rides its
+     element, and onArrange resizes them in place (verified: reparenting
+     an initialized instance keeps series state, connect groups and the
+     view's ResizeObserver subscriptions — element identity never changes). */
+  const layout = createMetricsLayout({
+    container: root.querySelector('.metrics'),
+    filterRow: root.querySelector('#m-filter'),
+    editBtn: root.querySelector('#m-edit'),
+    components: [
+      { id: 'stats', title: 'Stats', el: root.querySelector('[data-mc="stats"]'), size: 'full' },
+      { id: 'sankey', title: 'Token routing', el: root.querySelector('[data-mc="sankey"]'), size: 'full' },
+      { id: 'tokenflow', title: 'Token flow', el: root.querySelector('[data-mc="tokenflow"]'), size: 'full' },
+      { id: 'heatmap', title: 'Fleet activity', el: root.querySelector('[data-mc="heatmap"]'), size: 'slot', weight: 1.25 },
+      { id: 'verdicts', title: 'Review verdicts', el: root.querySelector('[data-mc="verdicts"]'), size: 'slot' },
+      { id: 'lanes', title: 'Failure by lane', el: root.querySelector('[data-mc="lanes"]'), size: 'slot' },
+      { id: 'pools', title: 'Account pools', el: root.querySelector('[data-mc="pools"]'), size: 'slot', maxShare: 2, slimClass: 'm-pools--slim' },
+      { id: 'agents', title: 'Agents', el: root.querySelector('[data-mc="agents"]'), size: 'full' },
+    ],
+    standard: [['stats'], ['sankey'], ['tokenflow'], ['heatmap', 'verdicts', 'lanes'], ['pools'], ['agents']],
+    reduced,
+    onEditChange: (on) => {
+      state.editing = on
+      /* exiting edit un-pauses the page: one drift retarget resumes the
+         breathing the pulse gate held back (the pulse chain itself never
+         stopped scheduling — it just skipped appends) */
+      if (!on && charts) retarget(420)
+    },
+    /* moving a component reparents live echarts hosts — resize every
+       instance in place; dispose/rebuild measured unnecessary (report) */
+    onArrange: () => charts?.resize(),
+  })
+  unsubs.push(() => layout.destroy())
 
   /* ================= dataset generation ================= */
 
@@ -1210,6 +1250,10 @@ export function metricsView() {
      new noise. reduced(): the point still appends (data must not stall), the
      600ms slide is gated off inside anim(). */
   function pulse() {
+    /* edit mode stills the stream: appends hold (a chart must not reflow
+       under a drag), but the chain keeps scheduling so exiting edit resumes
+       the cadence without a restart */
+    if (state.editing) { schedulePulse(); return }
     const R = meta(), M = MACHINE_META[state.machine]
     const key = `${state.range}|${state.machine}`
     const n = liveN++
@@ -1347,10 +1391,12 @@ export function metricsView() {
     unsubs.push(() => themeMO.disconnect())
   }
 
-  /* live drift keeps every mark breathing — a short tween, never a snap */
-  unsubs.push(sim.on('metrics', () => retarget(420)))
-  unsubs.push(sim.on('spawn', () => retarget(520)))
-  unsubs.push(sim.on('reap', () => retarget(520)))
+  /* live drift keeps every mark breathing — a short tween, never a snap.
+     Edit mode gates it (with the pulse): a page being rearranged must not
+     move under the pointer; onEditChange fires one retarget on exit. */
+  unsubs.push(sim.on('metrics', () => { if (!state.editing) retarget(420) }))
+  unsubs.push(sim.on('spawn', () => { if (!state.editing) retarget(520) }))
+  unsubs.push(sim.on('reap', () => { if (!state.editing) retarget(520) }))
 
   return {
     el: root,
