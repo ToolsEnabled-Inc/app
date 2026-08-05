@@ -1266,12 +1266,23 @@ body {
 .bar-row .bv { font-size: 12.5px; color: var(--ink-2); font-weight: 640; font-variant-numeric: tabular-nums; text-align: right; }
 .bar-track { height: 10px; border-radius: 2px; background: rgba(14,23,38,0.055); overflow: hidden; position: relative; }
 .bar-fill {
-  position: absolute; inset: 0 auto 0 0; width: 40%;
+  /* Composited fill, not an animated `width` — the same fix metrics.css
+     applied to .meter .mf, which named THIS selector as the remaining copy
+     of the defect: the sim rewrites all four Load bars every stats tick, so
+     the 1.1s width tween kept ~4 live width transitions running a layout
+     per frame at idle. Full-width + left-origin scaleX inside the track's
+     existing overflow:hidden is a drop-in: the gradient already spanned the
+     fill's own width, so scaling it looks identical, and the 2px radius is
+     small enough that the scale's squash of the right corners stays
+     sub-pixel (metrics.css relies on exactly the same property). transform
+     is composited; width is not. */
+  position: absolute; inset: 0 auto 0 0; width: 100%;
   border-radius: 2px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--bc) 82%, white), var(--bc));
+  transform-origin: left center;
   /* 1.1s is a data tween — the bar reads as a value travelling to its new
      level, which is a different job from a UI response */
-  transition: width 1.1s var(--ease);
+  transition: transform 1.1s var(--ease);
 }
 
 /* task chips */

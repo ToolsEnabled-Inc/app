@@ -768,7 +768,7 @@ export function computersView({ initialComputer = null, navigate }) {
           ${BAR_DEFS.map(b => `
             <div class="bar-row" data-k="${b.key}">
               <span class="bl">${b.label}</span>
-              <div class="bar-track"><div class="bar-fill" style="--bc:${BAR_C};--bg-glow:${BAR_G};width:0%"></div></div>
+              <div class="bar-track"><div class="bar-fill" style="--bc:${BAR_C};--bg-glow:${BAR_G};transform:scaleX(0)"></div></div>
               <span class="bv">0%</span>
             </div>`).join('')}
         </div>
@@ -792,7 +792,10 @@ export function computersView({ initialComputer = null, navigate }) {
       const row = statsPage.querySelector(`.bar-row[data-k="${b.key}"]`)
       if (!row) continue
       const v = Math.round(computer.stats[b.key])
-      row.querySelector('.bar-fill').style.width = v + '%'
+      /* composited: scaleX on a full-width fill, never an animated width —
+         the width tween kept a layout running per frame at idle (see
+         .bar-fill in styles.css and the .meter .mf precedent in metrics.css) */
+      row.querySelector('.bar-fill').style.transform = `scaleX(${(v / 100).toFixed(4)})`
       row.querySelector('.bv').textContent = v + '%'
     }
     const ac = statsPage.querySelector('#agent-count')

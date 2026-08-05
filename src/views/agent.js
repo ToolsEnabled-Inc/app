@@ -81,8 +81,37 @@ const CLEAR_PAD = 3
 
 /** Bubble disc + node-name/node-role label rects of one graph.nodes record,
  *  in local graph-canvas coordinates, each already inflated by the paint-time
- *  scale and the safety pad. */
-function nodeObstacle(rec) {
+ *  scale and the safety pad.
+ *
+ *  `labelMetrics` (idle-burn audit): offsetWidth/offsetHeight/offsetTop are
+ *  live layout reads, and this used to pay up to six of them per node per
+ *  FRAME to rebuild rects for labels whose text never changes while the node
+ *  stands — most of the forced synchronous layout the audit measured on this
+ *  page. The measured w/h/offsetTop go in a per-view cache keyed by node id +
+ *  bubble radius (offsetTop is measured from the bubble box, so a radius
+ *  change re-measures); positions stay live because rec.x/y are plain JS
+ *  state from graph.js — a moving node still tracks per frame for free. */
+function nodeObstacle(rec, labelMetrics) {
+  const key = `${rec.id}@${rec.r}`
+  let m = labelMetrics.get(key)
+  if (!m) {
+    m = []
+    // only cache a COMPLETE measurement — a detached/not-yet-laid-out label
+    // reads 0, and freezing that would blind the solver to it forever
+    let complete = true
+    for (const sel of ['.node-name', '.node-role']) {
+      const label = rec.el.querySelector(sel)
+      if (!label) continue
+      const w = label.offsetWidth, h = label.offsetHeight
+      if (!w || !h) { complete = false; continue }
+      // node-name/node-role are centered under the bubble via left:50% +
+      // translateX(-50%) — the translate is paint-only, so their true visual
+      // left edge is rec.x - w/2, not anything offsetLeft would report. .node
+      // shrink-wraps .node-glass, so offsetTop is measured from rec.y - rec.r.
+      m.push({ w, h, top: label.offsetTop })
+    }
+    if (complete) labelMetrics.set(key, m)
+  }
   // The bubble's own SQUARE box as well as its disc. .node shrink-wraps
   // .node-glass, so that square is the element's real hit box — the corners
   // outside the circle are still part of the bubble as far as anything reading
@@ -93,15 +122,8 @@ function nodeObstacle(rec) {
     left: rec.x - rec.r - CLEAR_PAD, right: rec.x + rec.r + CLEAR_PAD,
     top: rec.y - rec.r - CLEAR_PAD, bottom: rec.y + rec.r + CLEAR_PAD,
   }]
-  for (const sel of ['.node-name', '.node-role']) {
-    const label = rec.el.querySelector(sel)
-    const w = label && label.offsetWidth, h = label && label.offsetHeight
-    if (!w || !h) continue
-    // node-name/node-role are centered under the bubble via left:50% +
-    // translateX(-50%) — the translate is paint-only, so their true visual
-    // left edge is rec.x - w/2, not anything offsetLeft would report. .node
-    // shrink-wraps .node-glass, so offsetTop is measured from rec.y - rec.r.
-    const top = rec.y - rec.r + label.offsetTop
+  for (const { w, h, top: ot } of m) {
+    const top = rec.y - rec.r + ot
     labels.push({
       left: rec.x - w / 2 - CLEAR_PAD, right: rec.x + w / 2 + CLEAR_PAD,
       top: top - CLEAR_PAD, bottom: top + h + CLEAR_PAD,
@@ -534,19 +556,103 @@ export function agentView({ compId, agentId, navigate }) {
   let lastGeomSig = ''
   let solvedBoxes = new Map()
 
-  // Runs every frame (see loop() below); no-ops instantly whenever no chip
-  // is open, so it costs nothing outside an actual hover/focus reveal.
+  /* --- geometry caches (idle-burn audit) ----------------------------------
+     placeOpenChips runs in the rAF loop, and its short-circuit key used to be
+     COMPUTED from live layout reads — canvas.clientWidth/clientHeight,
+     canvas.getBoundingClientRect(), a rect per overlay child, label offsets
+     per node and offsetWidth/offsetHeight per chip — so deciding "nothing
+     changed" itself forced ~63 synchronous layouts a second while the page
+     sat completely idle. Each read now lives behind a cache invalidated by
+     the thing that can actually change it:
+       · staticGeom (canvas size + overlay rects): the view's ResizeObserver
+         watching the canvas, a gwrap overlay-set mutation, or a zoom/pan
+         change (the overlay conversion runs through the canvas rect, which
+         zoom/pan move without any observer firing).
+       · labelMetrics (see nodeObstacle): per-node, DOM-static while a node
+         stands; cleared with staticGeom.
+       · chipDims (per-chip measured size): dropped whenever something that
+         can change a chip's box happens — a context rewrite, a cx-tight
+         toggle, the chat morph, a resize — and re-read once, on demand.
+     Node positions are deliberately NOT cached: rec.x/y/r are plain JS state
+     maintained by graph.js, so the per-frame signature still tracks drags and
+     physics settles frame-accurately without touching layout. */
+  let staticGeomDirty = true
+  let staticGeom = null
+  const labelMetrics = new Map()
+  const chipDims = new Map()
+  const strokeOf = new Map()        // rec.id -> resolved --rc for its leader line
+  let obstacles = []
+  let obstaclesSig = ''
+  let appliedKey = ''               // the solvedKey the DOM currently shows
+  const markGeomDirty = () => {
+    staticGeomDirty = true
+    labelMetrics.clear()
+    chipDims.clear()
+    // the position signature alone cannot see a metrics-only change (same
+    // node positions, different label/chip sizes), so a dirty world must
+    // force the obstacle rebuild AND the re-solve explicitly or the cleared
+    // caches would sit unread until something happened to move a node
+    obstaclesSig = ''
+    solvedKey = ''
+    appliedKey = ''
+  }
+  // Web fonts land after first paint and change label widths and preview
+  // heights with NO DOM mutation — the one geometry change none of the
+  // observers below can see. Baseline code re-measured every frame and so
+  // absorbed it silently; the cache must be told. `ready` covers the initial
+  // face set, 'loadingdone' any face fetched later.
+  const onFontsDone = () => markGeomDirty()
+  document.fonts?.ready?.then(onFontsDone)
+  document.fonts?.addEventListener?.('loadingdone', onFontsDone)
+  // every height change must go through here so the stale measurement dies
+  // with the class flip — a cached height surviving a cx-tight toggle would
+  // hand the solver 74px boxes that paint 55px, or the reverse
+  const setTight = (chipEl, on) => {
+    if (chipEl.classList.contains('cx-tight') === on) return
+    chipEl.classList.toggle('cx-tight', on)
+    chipDims.delete(chipEl)
+  }
+
+  /** The ONLY live geometry reads on the placement path — runs on
+   *  invalidation, never per settled frame. */
+  function refreshStaticGeom(viewSig) {
+    const canvasW = canvas.clientWidth, canvasH = canvas.clientHeight
+    /* ...and the panel's own chrome. The breadcrumb is an absolutely
+       positioned overlay that is a SIBLING of the canvas, so it was invisible
+       to a search that only knew about nodes: a chip would happily take the
+       top-left pocket and print "claude / heartbeating claimed tas..." straight
+       through "← Computer 1 / codex". Anything overlaid on this panel counts,
+       not just the crumb, so the reservation is taken from the DOM rather than
+       from a list of class names that the next overlay would not be on. */
+    const cbox = canvas.getBoundingClientRect()
+    const overlayObs = []
+    let overlaySig = ''
+    for (const ov of gwrap.children) {
+      if (ov === canvas) continue
+      const r = ov.getBoundingClientRect()
+      if (!r.width || !r.height) continue
+      overlayObs.push({
+        cx: 0, cy: 0, cr: 0,
+        labels: [{
+          left: r.left - cbox.left - CLEAR_PAD, top: r.top - cbox.top - CLEAR_PAD,
+          right: r.right - cbox.left + CLEAR_PAD, bottom: r.bottom - cbox.top + CLEAR_PAD,
+        }],
+      })
+      overlaySig += `|ov${Math.round(r.width)}x${Math.round(r.height)}`
+    }
+    staticGeom = { canvasW, canvasH, overlayObs, overlaySig, viewSig }
+    staticGeomDirty = false
+  }
+
+  // Runs every frame (see loop() below). Chips are visible at rest (the owner
+  // wants the grey context boxes on this page so an agent is identifiable and
+  // chattable at a glance), so the loop always has candidate work while any
+  // chip exists — which is why the SETTLED path below must be layout-free:
+  // it walks placements, runs two DOM queries (traversal, not layout), builds
+  // the position signature from graph.js's plain JS state and compares it to
+  // what the DOM already shows. Live geometry is only read when one of the
+  // cache invalidations above says it truly changed.
   function placeOpenChips() {
-    // "no-ops instantly" was not quite true: the function still ran a full
-    // querySelectorAll over the graph canvas on every one of the sixty frames
-    // a second in which nothing at all was revealed. openHint (maintained by
-    // the badge's own open/close handlers) plus the placements map together
-    // say whether any work can possibly exist, so the resting cost is now two
-    // integer reads instead of a DOM query.
-    // Chips are visible at rest now (the owner wants the grey context boxes
-    // on this page so an agent is identifiable and chattable at a glance),
-    // so the loop always has work while any chip exists. The placements map
-    // still short-circuits the expensive search when nothing has moved.
     if (!canvas.querySelector('.chip:not(.as-chat)') && !placements.size) return
     const now = performance.now()
     // hand positioning back to graph.js's own transform once a chip is no
@@ -561,6 +667,13 @@ export function agentView({ compId, agentId, navigate }) {
         chipEl.style.left = ''
         chipEl.style.top = ''
         chipEl.classList.remove('cx-tight')
+        // the chat morph writes its own inline size, so whatever height was
+        // cached is void once the chip comes back from it
+        chipDims.delete(chipEl)
+        // drop the leader line with the placement — previously it lingered
+        // until the next apply pass, which never came if every chip closed
+        const line = cxLine.get(chipEl)
+        if (line) { line.remove(); cxLine.delete(chipEl) }
         placements.delete(chipEl)
       }
     }
@@ -569,36 +682,26 @@ export function agentView({ compId, agentId, navigate }) {
     // (this is what clears an entry whose chip was removed or morphed to chat
     // while still open) and let the loop go back to resting
     if (!openChips.length) { openHint.clear(); return }
-    const canvasW = canvas.clientWidth, canvasH = canvas.clientHeight
-    if (!canvasW || !canvasH) return
+    // zoom/pan move the canvas rect the overlay conversion runs through, and
+    // no observer fires for them — but the numbers themselves are plain JS on
+    // the graph, so comparing them per frame is free and re-reading rects
+    // only happens on the frames where they actually moved
+    const viewSig = `${graph.zoom || 1},${graph.panX || 0},${graph.panY || 0}`
+    if (!staticGeom || staticGeom.viewSig !== viewSig) staticGeomDirty = true
+    if (staticGeomDirty) refreshStaticGeom(viewSig)
+    const { canvasW, canvasH } = staticGeom
+    // a 0 here means "not laid out yet", not a real size — keep asking until
+    // the ResizeObserver's initial delivery lands a real one
+    if (!canvasW || !canvasH) { staticGeomDirty = true; return }
+    let sig = `${canvasW}x${canvasH}${staticGeom.overlaySig}|v${viewSig}`
+    for (const [, rec] of graph.nodes) sig += `|${rec.x.toFixed(1)},${rec.y.toFixed(1)},${rec.r}`
     // every node's bubble disc + name/role rows, own node included — the own
-    // footprint is a hard constraint here, not a weighted cost
-    const obstacles = []
-    let sig = `${canvasW}x${canvasH}`
-    /* ...and the panel's own chrome. The breadcrumb is an absolutely
-       positioned overlay that is a SIBLING of the canvas, so it was invisible
-       to a search that only knew about nodes: a chip would happily take the
-       top-left pocket and print "claude / heartbeating claimed tas..." straight
-       through "← Computer 1 / codex". Anything overlaid on this panel counts,
-       not just the crumb, so the reservation is taken from the DOM rather than
-       from a list of class names that the next overlay would not be on. */
-    const cbox = canvas.getBoundingClientRect()
-    for (const ov of gwrap.children) {
-      if (ov === canvas) continue
-      const r = ov.getBoundingClientRect()
-      if (!r.width || !r.height) continue
-      obstacles.push({
-        cx: 0, cy: 0, cr: 0,
-        labels: [{
-          left: r.left - cbox.left - CLEAR_PAD, top: r.top - cbox.top - CLEAR_PAD,
-          right: r.right - cbox.left + CLEAR_PAD, bottom: r.bottom - cbox.top + CLEAR_PAD,
-        }],
-      })
-      sig += `|ov${Math.round(r.width)}x${Math.round(r.height)}`
-    }
-    for (const [, rec] of graph.nodes) {
-      obstacles.push(nodeObstacle(rec))
-      sig += `|${rec.x.toFixed(1)},${rec.y.toFixed(1)},${rec.r}`
+    // footprint is a hard constraint here, not a weighted cost. Rebuilt only
+    // when the signature moved: at rest this whole block is one string compare.
+    if (sig !== obstaclesSig) {
+      obstacles = [...staticGeom.overlayObs]
+      for (const [, rec] of graph.nodes) obstacles.push(nodeObstacle(rec, labelMetrics))
+      obstaclesSig = sig
     }
     /* Left-to-right by node x. The solver is not order-greedy any more, so
        this is no longer about which box gets first pick — it is about the
@@ -616,12 +719,8 @@ export function agentView({ compId, agentId, navigate }) {
        geometry is a fresh question, so every box re-asks it at full height. */
     if (sig !== lastGeomSig) {
       lastGeomSig = sig
-      for (const it of items) it.chipEl.classList.remove('cx-tight')
+      for (const it of items) setTight(it.chipEl, false)
     }
-    const cw = items[0].chipEl.offsetWidth || CHIP_W
-    for (const it of items) it.idealX = it.rec.x - cw / 2   // vertical-leader slot
-    const measure = () => { for (const it of items) it.ch = it.chipEl.offsetHeight || CHIP_H }
-    const keyOf = () => items.reduce((k, it) => `${k}|${it.rec.id}:${it.ch}`, `${sig}|w${cw}`)
     /* Density is uniform across the strip or it reads as a fault, and one box
        can fall out of step on its own: opening the inline chat hands that chip
        back to graph.js, which drops its .cx-tight, so closing the chat returns
@@ -630,9 +729,32 @@ export function agentView({ compId, agentId, navigate }) {
        is then a property of the canvas, never of what happened to it. */
     const tight = items.filter(it => it.chipEl.classList.contains('cx-tight')).length
     if (tight && tight < items.length) {
-      for (const it of items) it.chipEl.classList.remove('cx-tight')
+      for (const it of items) setTight(it.chipEl, false)
+    }
+    /* Sizes come from the chipDims cache; offsetWidth/offsetHeight are read
+       only for chips whose entry was dropped by an actual size-changing event
+       — at rest this loop is pure Map lookups, no layout. */
+    const measure = () => {
+      for (const it of items) {
+        let d = chipDims.get(it.chipEl)
+        if (!d) {
+          d = { w: it.chipEl.offsetWidth || CHIP_W, h: it.chipEl.offsetHeight || CHIP_H }
+          /* A chip fresh out of the chat morph still carries the morph's
+             inline height and is animating toward its resting box for ~500ms
+             (graph.js closeChat) — caching a mid-flight interpolation would
+             freeze the box at a size it held for one frame. Transient chips
+             are re-measured per frame, exactly the old behaviour, until the
+             morph timer clears that inline height. */
+          if (!it.chipEl.style.height) chipDims.set(it.chipEl, d)
+        }
+        it.ch = d.h
+        it.cwm = d.w
+      }
     }
     measure()
+    const cw = items[0].cwm || CHIP_W
+    for (const it of items) it.idealX = it.rec.x - cw / 2   // vertical-leader slot
+    const keyOf = () => items.reduce((k, it) => `${k}|${it.rec.id}:${it.ch}`, `${sig}|w${cw}`)
     if (keyOf() !== solvedKey) {
       let laneCache = new Map()
       const lanesFor = (ch) => {
@@ -671,12 +793,12 @@ export function agentView({ compId, agentId, navigate }) {
       let score = rank(boxes)
       if (score[0] > 0 || score[1] > ATTACHED_REACH) {
         const fullBoxes = boxes
-        for (const it of items) it.chipEl.classList.add('cx-tight')
+        for (const it of items) setTight(it.chipEl, true)
         measure()                                   // one forced reflow, on change only
         const tightBoxes = solveNow()
         if (better(rank(tightBoxes), score)) { boxes = tightBoxes; score = rank(tightBoxes) }
         else {
-          for (const it of items) it.chipEl.classList.remove('cx-tight')
+          for (const it of items) setTight(it.chipEl, false)
           measure()
           boxes = fullBoxes
         }
@@ -684,6 +806,14 @@ export function agentView({ compId, agentId, navigate }) {
       solvedBoxes = new Map(items.map((it, i) => [it.chipEl, boxes[i]]))
       solvedKey = keyOf()
     }
+    /* Settled fast path (idle-burn audit). solvedKey already encodes the
+       canvas box, overlays, zoom/pan, every node position and every box size,
+       so when it matches what the DOM last had applied there is nothing to
+       write — the accept loop below would only re-derive identical styles and
+       identical line endpoints. Returning here is what makes the resting
+       frame a string compare instead of five clearance tests and a dozen
+       attribute writes. */
+    if (solvedKey === appliedKey) return
     /* The lane arithmetic is a proposal, not a licence to paint. Every chosen
        box is re-tested against the real obstacle set (exact circle test for
        bubbles) and against the boxes already accepted this frame, so a bug in
@@ -722,6 +852,7 @@ export function agentView({ compId, agentId, navigate }) {
     for (const [key, line] of cxLine) {
       if (!key.isConnected || !placements.has(key)) { line.remove(); cxLine.delete(key) }
     }
+    appliedKey = solvedKey
   }
 
   /** One hairline from the box's nearest edge to the bubble's rim. */
@@ -731,6 +862,15 @@ export function agentView({ compId, agentId, navigate }) {
     if (!line) {
       line = document.createElementNS(SVG_NS, 'line')
       line.setAttribute('class', 'cx-link')
+      /* Resolved once per node, not per draw: getComputedStyle forces a style
+         recalc, and the role colour riding in --rc never changes while the
+         node lives — during a drag this ran every frame for every line. */
+      let stroke = strokeOf.get(rec.id)
+      if (!stroke) {
+        stroke = getComputedStyle(rec.el).getPropertyValue('--rc') || 'currentColor'
+        strokeOf.set(rec.id, stroke)
+      }
+      line.style.stroke = stroke
       cxLinks.appendChild(line)
       cxLine.set(chipEl, line)
     }
@@ -743,11 +883,21 @@ export function agentView({ compId, agentId, navigate }) {
     line.setAttribute('y1', by.toFixed(1))
     line.setAttribute('x2', (rec.x - (dx / d) * (rec.r + 3)).toFixed(1))
     line.setAttribute('y2', (rec.y - (dy / d) * (rec.r + 3)).toFixed(1))
-    line.style.stroke = getComputedStyle(rec.el).getPropertyValue('--rc') || 'currentColor'
   }
 
   const rimObserver = new MutationObserver((muts) => {
     for (const m of muts) {
+      // an overlay appearing/disappearing on gwrap changes the reserved
+      // chrome rects the placement cache holds — re-read them next frame
+      if (m.target === gwrap) { markGeomDirty(); continue }
+      // a mutation INSIDE a chip is a preview rewrite (graph.js sets the
+      // preview's innerHTML both on 'context' events and on its own initial
+      // self-heal, which emits no event at all) — the box's height may have
+      // changed, so its cached size dies here and is re-measured once.
+      // Without this, chips measured before their first real preview kept
+      // their empty-preview height and the solver packed 74px boxes as 44px.
+      const inChip = m.target !== canvas && m.target.closest?.('.chip')
+      if (inChip) { chipDims.delete(inChip); continue }
       m.addedNodes.forEach((n) => {
         if (n.nodeType !== 1) return
         attachRim(n)
@@ -758,10 +908,17 @@ export function agentView({ compId, agentId, navigate }) {
       })
     }
   })
-  rimObserver.observe(canvas, { childList: true })
+  // subtree:true so preview rewrites inside chips are seen (see above); the
+  // direct-child add/remove handling filters itself by target === canvas
+  rimObserver.observe(canvas, { childList: true, subtree: true })
+  rimObserver.observe(gwrap, { childList: true })
 
   const unsubContext = sim.on('context', ({ comp, agent: a }) => {
     if (comp !== computer) return
+    // a context rewrite can change the chip preview's height — drop only that
+    // chip's cached size so the next placement frame re-measures it once
+    const chip = graph.nodes.get(a.id)?.chip
+    if (chip) chipDims.delete(chip)
     const rim = rimByAgent.get(a.id)
     if (!rim) return
     rim.classList.remove('pulse')
@@ -836,8 +993,20 @@ export function agentView({ compId, agentId, navigate }) {
     ctlScroll.classList.toggle('at-end', atEnd)
   }
   ctlScroll.addEventListener('scroll', syncScrollEnd, { passive: true })
-  const ctlResize = new ResizeObserver(syncScrollEnd)
+  // One observer, two jobs: the Controls scroll fade above, and the placement
+  // geometry cache — the canvas box is the only resize signal placeOpenChips
+  // needs, and hearing it HERE is what lets the settled rAF path stop reading
+  // canvas sizes every frame just in case the window moved.
+  const ctlResize = new ResizeObserver((entries) => {
+    let scroll = false
+    for (const e of entries) {
+      if (e.target === canvas) markGeomDirty()
+      else scroll = true
+    }
+    if (scroll) syncScrollEnd()
+  })
   ctlResize.observe(ctlScroll)
+  ctlResize.observe(canvas)
   root.querySelectorAll('input[type="range"]').forEach(rangeFill)
   root.querySelectorAll('.ctl-grid .ctl-btn').forEach(btn => btn.addEventListener('click', () => {
     root.querySelectorAll('.ctl-grid .ctl-btn.armed').forEach(b => b.classList.remove('armed'))
@@ -868,6 +1037,7 @@ export function agentView({ compId, agentId, navigate }) {
       cancelAnimationFrame(raf)
       rimObserver.disconnect()
       ctlResize.disconnect()
+      document.fonts?.removeEventListener?.('loadingdone', onFontsDone)
       unsubContext()
       graph.destroy()
     },
