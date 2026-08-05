@@ -136,111 +136,127 @@
    usable arm on either side of the point at the narrow breakpoint */
 .home-feed-wrap .brace { min-height: 190px; }
 
-/* ---- the tail of the log dies away instead of stopping on a cut ----
-   The nine lines ended on a hard edge: the ninth sat at full --ink-3 and then
-   the tenth simply was not there, which is what a truncated list looks like.
-   A log should thin out at the point it runs past the frame.
+/* ============================================================
+   The coordinator session thread — what the braces bracket now.
+   The one-line churn ticker and its click-to-open chat morph are
+   retired; their rules that live in styles.css (.feed-title,
+   .feed-line, .feed-hint, .home-feed.as-chat, the .home-feed
+   hover/morph plumbing) are shared-file territory and are left
+   in place unreferenced rather than edited from this lane.
+   ============================================================ */
 
-   Not another ink step — styles.css records why "older = translucent" was
-   wrong (0.45 opacity put live feed text at ~1.9:1) and --ink-3 is the last
-   step on the ramp that still holds 4.5:1, so colour has nowhere left to go.
-   Not mask-image either: masking pushes the element onto its own render
-   surface, and Chrome drops LCD subpixel antialiasing inside one — every
-   line in the column would have gone quietly softer to fade the last one,
-   which is a bad trade on 13px monospace.
+/* The feed block is no longer a button that morphs into a chat — it IS the
+   session, at rest. An explicit height (styles.css's content-sized
+   max-height:460px would leave nothing to scroll) is what makes the thread
+   scroll internally while the braces — `align-self: stretch` against this
+   box — keep spanning it edge to edge. 70vh keeps the composer on screen at
+   the 800-tall test size; the 620px cap stops the column towering so far
+   over the 520px ring that the page reads as two unrelated columns. */
+.home .home-feed {
+  cursor: default;
+  height: min(70vh, 620px);
+  max-height: none;
+  display: flex; flex-direction: column;
+}
+/* the hover tint was the old "this opens" affordance; nothing opens now */
+.home .home-feed:hover { background: transparent; }
 
-   So: the page colour itself is drawn back over the tail. body is
-   `background: var(--bg)` — clinically flat, one colour — so a gradient to
-   var(--bg) is literally the page reclaiming the bottom 34px, and it follows
-   data-theme for free. It stops at 58% rather than reaching full --bg, so the
-   last line dims to a little under half strength instead of being erased
-   while someone may still be reading it. The text underneath is painted over,
-   not composited, so its antialiasing is untouched. .leaving already exits
-   downward into exactly this band, so departures now recede into the fade
-   instead of dropping off a ledge.
+/* one quiet caps line names the surface; the braces do all the framing */
+.home .session-head {
+  flex: none;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  font-weight: 640; color: var(--ink-25);
+  margin-bottom: var(--s3);
+}
 
-   BUT the band was 34px over an unpadded column, and a 13px/1.35 line is
-   17.55px — so it covered the ninth line whole (alpha 0.43 at its vertical
-   mid) and dropped live informational text to 2.17:1 white / 2.30 tan / 2.91
-   black. All nine lines paint at once on arrival at #/, so that line had
-   never been legible in the session. Lowering the terminal alpha cannot fix
-   it while the band still covers a whole line — swept: 0.40 -> 2.70:1, 0.30
-   -> 3.07, 0.20 -> 3.51, 0.12 -> 3.91, all under 4.5:1 — and rendering eight
-   lines instead of nine does nothing at all, because the column is auto-height
-   (content ~300px inside a 460px max-height) so bottom:0 simply re-lands the
-   same band on whichever line is now last.
-   The fix is to give the band somewhere to be that is not glyphs: 22px of
-   padding under the column, and a 26px band, so the gradient occupies the
-   descender zone and the empty strip below it. The last line keeps its full
-   4.64 / 5.18 / 6.64:1 (peak alpha over its descenders is ~0.06), the column
-   still ends on a wash rather than a cut, and .leaving still exits into it. */
-.home-feed .feed-lines { position: relative; padding-bottom: 22px; }
-.home-feed .feed-lines::after {
+.home .session-view { position: relative; flex: 1; min-height: 0; }
+/* top padding gives the entry fade below somewhere to live that is not
+   glyphs; right padding keeps 13px mono clear of the scrollbar */
+.home .session-log {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 16px 12px 4px 0;
+}
+/* the log is a focusable scroll region (keyboard users page through history
+   with it), so it needs a visible focus mark; --ink-derived so it holds on
+   all three sheets without a per-theme override */
+.home .session-log:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ink) 55%, transparent);
+  outline-offset: -2px;
+}
+
+/* ---- the thread dissolves at its top edge instead of being cut ----
+   The scroller is pinned to the newest turn, so its top edge always slices
+   through an older line — the same problem the comms watch-pane masks away.
+   Same dissolve, different device: an overlay of the page's own colour
+   rather than mask-image, because a mask pushes the element onto its own
+   render surface and Chrome drops LCD subpixel antialiasing inside one —
+   the whole column would render softer to fade one line, a bad trade on
+   13px monospace (the reasoning recorded for the old ticker's tail fade,
+   still true). Full --bg at the very edge is right here where 58% was right
+   for the tail: the top row is mid-scroll debris, not something being read.
+   Stops shy of the scrollbar so the gradient never tints the thumb. */
+.home .session-view::before {
   content: '';
   position: absolute;
-  left: 0; right: 0; bottom: 0;
+  left: 0; right: 12px; top: 0;
   height: 26px;
+  z-index: 1;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 58%, transparent));
+  background: linear-gradient(to bottom, var(--bg), color-mix(in srgb, var(--bg) 0%, transparent));
 }
 
-/* oldest line fades out (instead of an instant remove) when the feed overflows */
-.home-feed .feed-line.leaving {
-  opacity: 0;
-  transform: translateY(10px);
-  pointer-events: none;
+/* ---- turns: a transcript, not bubbles ----
+   Full-width text blocks, role-labelled, in the VSCode-session register:
+   the owner speaks in the UI face at full ink; the fleet speaks mono. The
+   only decoration is the 7px role dot the rest of the site already uses
+   for exactly this job (chat-head, graph nodes). */
+.home .turn { margin-top: 15px; }
+.home .turn:first-child { margin-top: 0; }
+.home .turn-who {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  font-weight: 660; color: var(--ink-25);
+  margin-bottom: 3px;
+}
+.home .turn-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.home .turn-text {
+  font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.55;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+/* the owner is not a fleet role: UI face, full ink, no dot */
+.home .turn.is-owner .turn-who { font-family: var(--font-ui); }
+.home .turn.is-owner .turn-text { font-family: var(--font-ui); font-size: 13.5px; line-height: 1.5; color: var(--ink); }
+/* delegation depth: fleet report-backs and tool lines sit one step in from
+   the two principals, the way nested output does in a session transcript */
+.home .turn.is-agent, .home .turn.is-act { margin-left: 18px; }
+/* action lines: the transcript's tool register — quiet, marked, unlabelled.
+   --ink-3 is the AA floor for 13px reading text, so quiet stops here. */
+.home .turn.is-act { margin-top: 9px; }
+.home .turn.is-act .turn-text { color: var(--ink-3); }
+.home .turn.is-act .turn-text::before { content: '\203A\00A0'; color: var(--ink-4); }
+
+/* arrivals settle in; body.reduce-motion's global clamp caps this to 1ms */
+.home .turn.fresh { animation: turnIn 0.5s var(--ease) both; }
+@keyframes turnIn { from { opacity: 0; transform: translateY(9px); } }
+
+/* the composer: the shared .chat-input idiom plus one hairline — the single
+   place in this column where separation is genuinely load-bearing (the
+   boundary between the record and the thing that appends to it) */
+.home .session-input {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
 }
 
-/* ---- keyboard affordance ----
-   .home-feed is a real control (tabindex=0, role=button, Enter/Space bound)
-   but it is bare text at rest, so a keyboard user tabbing onto it previously
-   got the UA default outline at best and, once :focus-visible rules elsewhere
-   set `outline: none` expectations, effectively nothing. This is the site ring
-   recipe verbatim (styles.css .icon-btn:focus-visible et al) — white halo
-   scaled by --wa so it reads on all three sheets, then the full-strength
-   accent ring — plus the hover tint, so focus states the same "this opens"
-   the pointer state does. The base .home-feed transition runs box-shadow at
-   .45s, far too slow for a focus indicator, so the appearance is re-timed
-   here; removal falls back to the base timing on blur, which is fine.
-   Excluded once expanded: at that point the card is a chat surface with its
-   own elevation, not a button.
-   The transition list restates transform/height/max-height at their base
-   timings rather than declaring box-shadow alone — the shorthand REPLACES the
-   base list, and returning focus to this card while the chat collapses (which
-   onClose now does) would otherwise drop `height` out of the transition
-   mid-flight and snap the morph shut. */
-.home-feed:focus-visible:not(.as-chat) {
-  outline: none;
-  background: rgba(127, 127, 127, 0.05);
-  box-shadow:
-    0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
-    0 0 0 3.5px var(--focus-ring, rgba(0, 169, 216, 0.72));
-  transition:
-    box-shadow .12s var(--ease), background .12s var(--ease),
-    transform .45s var(--ease), height .5s var(--ease), max-height .5s var(--ease);
-}
-/* ...and that recipe only clears WCAG 1.4.11's 3:1 on the black sheet. The
-   ring is the only thing that marks this control when focused, and the two
-   layers do not add up on a light page: rgba(0,169,216,0.72) composites to
-   rgb(69,191,226) = 2.01:1 on white and rgb(68,186,208) = 1.82:1 on tan
-   (black: 4.11:1, fine), while the inner halo is a dark-theme device that
-   contributes 1.06:1 / 1.15:1 — i.e. nothing — so the indicator really is one
-   under-strength 2px band. Pixel-sampled across the focused card's left edge
-   at deviceScaleFactor 1; identical at 1280x800 and 1600x900.
-   Light sheets need a darker hue, not a heavier one: #006b8a at 0.95 measures
-   5.17:1 on #f7f8fa and 4.44:1 on #f2e5bc. (#0091b8 tops out at 3.24 / 2.78
-   and still fails tan, so this is not a small nudge.) Both rules read
-   --focus-ring first so that if the site-wide token lands in styles.css — the
-   same defect is duplicated at styles.css:1319/1372, graph.css:429 and
-   comms.css:395 — home follows it instead of drifting from it. */
-:root[data-theme="white"] .home-feed:focus-visible:not(.as-chat),
-:root[data-theme="tan"] .home-feed:focus-visible:not(.as-chat) {
-  box-shadow:
-    0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
-    0 0 0 3.5px var(--focus-ring, rgba(0, 107, 138, 0.95));
-}
-
-/* giant braces flex subtly on each feed arrival. Plain scale factors now:
+/* giant braces flex subtly when a turn lands in the session (rarer now — a
+   session breathes in tens of seconds, not the old ticker's poll cadence, so
+   the flex stays an event mark instead of becoming ambient motion).
+   Plain scale factors:
    the brace's height is layout, not a transform, so there is no fitted
    baseline for the keyframes to preserve. The flex is horizontal -- a bracket
    widening a hair as a line lands reads as the bracket reacting, where a

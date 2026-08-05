@@ -693,64 +693,18 @@ body {
 .brace > svg + svg,
 .brace > svg + .brace-arm,
 .brace > .brace-arm + svg { margin-top: -1px; }
-.home-feed-wrap.chat-open .brace { opacity: 0; transform: scaleX(calc(var(--bx) * 0.6)); }
+/* The base surface for the thread between the braces. Everything that made
+   this a CLICKABLE MORPH — cursor, hover tint, the height-tweened as-chat
+   card, the .feed-* line/ticker family — is retired with the ticker itself:
+   the thread is the resting state now (home.css owns its geometry), so a
+   pointer cursor here would promise an interaction that no longer exists. */
 .home-feed {
   flex: 1;
-  cursor: pointer;
   padding: var(--s5);
   border-radius: var(--r-lg);
-  /* one step for the whole morph: the box, its surface and its shadow used
-     to move on .45s while its height moved on .5s, which is a 50ms tail
-     nobody asked for */
-  transition: transform var(--dur-3) var(--ease), box-shadow var(--dur-3) var(--ease), background var(--dur-3) var(--ease),
-    height var(--dur-3) var(--ease), max-height var(--dur-3) var(--ease);
   overflow: hidden;
   position: relative;
-  max-height: 460px;
 }
-/* The sketch has no card and no heading here — just greyed context lines
-   between two giant braces. At rest this is bare text on the page; only the
-   hover tint hints that it opens, and only the expanded chat state earns a
-   real surface (which the sketch's page 3 does draw). */
-.home-feed:hover { background: rgba(127,127,127,0.05); }
-.home-feed.as-chat {
-  background: linear-gradient(180deg, rgba(255,255,255,calc(0.54 * var(--wa))), rgba(255,255,255,calc(0.3 * var(--wa))));
-  backdrop-filter: blur(18px) saturate(1.8);
-  -webkit-backdrop-filter: blur(18px) saturate(1.8);
-  border: 1px solid var(--line-2);
-  box-shadow: var(--elev-3);
-}
-.feed-title {
-  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
-  color: var(--ink-25); font-weight: 640; margin-bottom: var(--s3);
-  display: flex; align-items: center; gap: var(--s2);
-}
-.feed-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-shadow);
-  animation: livePulse 2.4s ease-in-out infinite; }
-@keyframes livePulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.7); opacity: 0.5; } }
-.feed-lines { display: flex; flex-direction: column; gap: var(--s2); }
-.feed-line {
-  font-family: var(--font-mono);
-  font-size: 13px; line-height: 1.35; color: var(--ink-25);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  opacity: 1; transform: none;
-  transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease), color var(--dur-3) var(--ease);
-}
-.feed-line .agent { color: var(--ink-2); font-weight: 640; }
-.feed-line.fresh { opacity: 0; transform: translateY(-8px); }
-/* older lines recede by stepping DOWN the ink ramp instead of by going
-   translucent — 0.45 opacity put live feed text at ~1.9:1, unreadable for
-   exactly the vision the type floor is for. --ink-3 still reads as "older"
-   next to --ink-25 and holds the 4.5:1 floor (4.94 on white, 4.59 on --bg). */
-.feed-line.old { color: var(--ink-3); }
-/* the feed has no card behind it — it floats straight on the aurora — so
-   its supporting text takes the --ink-25 step rather than --ink-3 */
-.feed-hint { margin-top: var(--s4); font-size: 12.5px; color: var(--ink-25); letter-spacing: 0.04em; }
-
-/* expanded: context feed becomes a chat window (FLIP morph, in place) */
-.home-feed.as-chat { cursor: default; max-height: min(72vh, 640px); height: min(72vh, 640px); display: flex; flex-direction: column; }
-.home-feed.as-chat .feed-lines { display: none; }
-.home-feed.as-chat .feed-hint { display: none; }
 
 /* ============================================================
    generic chat UI (used by feed morph + node chips + agent page)

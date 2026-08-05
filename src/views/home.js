@@ -1,17 +1,20 @@
-// /home — the giant hero ring + a real recent-activity panel.
+// /home — the giant hero ring + the coordinator's session thread.
 //
-// DATA WIRING NOTE: this view no longer reads src/sim.js at all. Every
-// number here comes from public/data/status.json (written by
-// tools/gen-status.mjs from real, read-only ToolsEnabled state on this
-// machine) via src/live-status.js. If that file is missing, unreachable, or
-// malformed, this view says so in words — it never falls back to a
-// plausible-looking placeholder number. Every reading also carries its own
-// "as of" age, because the snapshot's sections can each be a different age
-// (a health sweep from 14 hours ago next to a cross-machine handshake from
-// 2 minutes ago is normal, and hiding that difference would be a lie).
+// DATA WIRING NOTE: the RING still reads public/data/status.json (written by
+// tools/gen-status.mjs from real, read-only ToolsEnabled state) via
+// src/live-status.js, and still refuses to invent a number when that file is
+// missing. The THREAD between the braces is different on purpose: it is the
+// PLAN.md simulation — a written coordinator session, like every other page's
+// conversations — because the real coordinator's context never leaves its own
+// machine. The two do not mix: live numbers feed the ring caption, the thread
+// feeds nothing and reads from nothing.
 //
-// Every other page in this app (computers/agent/metrics/comms) is still the
-// PLAN.md simulation and is unaffected by this file.
+// The thread replaced the one-line lane-activity ticker (and its
+// click-to-open chat morph). The braces stay — they bracket the session
+// context, which is the sketch's whole gesture — but what they bracket is now
+// the session itself, fully expanded, at rest: the owner's directives, the
+// coordinator's reasoning, delegations and report-backs, and the quiet
+// tool-action lines a session transcript carries between turns.
 
 import { el, uptimeRing } from '../components.js'
 import { fetchStatus, ageMs, fmtAge } from '../live-status.js'
@@ -20,6 +23,139 @@ import '../home.css'
 const POLL_MS = 45_000
 const DASH = '—' // em dash — used for "no reading", never "0"
 
+/* ============================================================
+   The session cast. Hues are the site's role palette (vocab.js
+   ROLES / the graph nodes), so the same agent wears the same
+   colour on every page. The owner has no dot: the owner is not
+   a fleet role, and the transcript marks that typographically
+   (UI face, full ink) rather than with a badge.
+   ============================================================ */
+const SPEAKERS = {
+  owner: { cls: 'is-owner', label: 'owner' },
+  codex: { cls: 'is-coord', label: 'codex · coordinator', hue: 'var(--c-coordinator)' },
+  'codex-b': { cls: 'is-agent', label: 'codex-b', hue: 'var(--c-coordinator)' },
+  'luna-02': { cls: 'is-agent', label: 'luna-02', hue: 'var(--c-manager)' },
+  'terra-01': { cls: 'is-agent', label: 'terra-01', hue: 'var(--c-shadow)' },
+  'gem-lane-3': { cls: 'is-agent', label: 'gem-lane-3', hue: 'var(--c-default)' },
+  'sandbox-w1': { cls: 'is-agent', label: 'sandbox-w1', hue: 'var(--c-default)' },
+  act: { cls: 'is-act', label: '' },
+}
+
+/* The seeded session — one morning's thread, oldest first. Written (not
+   generated) so it reads as a conversation with an arc: wave report →
+   fix-round delegation → the bridge incident → the ledger gap → what is
+   left → an owner decision landing in the directive. The register is the
+   fleet's own (comms CONV_DEFS / vocab.js): gates, territories, evidence
+   packets, checkpoints, leases, fences. */
+const SESSION = [
+  ['act', 'resumed coordinator session — read STANDING-ORDERS.md in full · ledger query: 9 gates open, none blocking this lane'],
+  ['owner', 'Morning. Where did the overnight wave land? I want the quality pass wrapped before anything new starts — and if the scheduler fence repro is still flaking, that outranks cosmetics.'],
+  ['codex', 'Overnight wave: six of eight lanes closed clean. luna-02 landed the metrics sweep (41/41 green, 2m18s), terra-01 accepted reviews 12 and 14. The two still open are the scheduler fence repro — deterministic now, 20/20 runs — and the board morph polish, checkpointed at phase 3 of 5. Nothing regressed; evidence paths are in every packet. Holding new spawns until the fix round closes.'],
+  ['act', 'ran node tools/agent-preflight.js — clean, no colliding session · territory map current'],
+  ['codex', 'Delegating the fix round now: gem-lane-3 takes criterion 3 only — the type floor on the metrics ticks — territory scoped to the two files named in the rejection. luna-02 keeps metrics.css; nobody else touches it this wave.'],
+  ['luna-02', 'claim acknowledged. preflight clean, no colliding session. metrics.css stays mine through the wave; phase 1 of 3 underway, checkpoint before the fence.'],
+  ['gem-lane-3', 'fix scoped to criterion 3 — shared tick component untouched. ticks raised to 12px and the floor measured off the rendered box, not the stylesheet. handback posted, re-review requested.'],
+  ['act', 'memory.set agent-coord builder/handback/9 — 412 chars · lease heartbeat fresh'],
+  ['terra-01', 're-review of 9: ACCEPT — floor verified at 1600×900 and 1280×800, 11/11 criteria green, 38s wall clock. evidence: artifacts/r191/review.md. closing the round.'],
+  ['codex', 'Round closed in one pass — that is the contract working. Rolling the verdict into the ledger and releasing the spawn hold; cap back to 20.'],
+  ['owner', 'Good. What about the cross-machine link? B went quiet for a stretch yesterday and I never got a straight answer on whether that was the tunnel or the bridge.'],
+  ['codex', 'It was the bridge, not the tunnel. The :8788 probe timed out twice while :8787 stayed clean, so the chat relay never dropped — only the bounded tool lane did. codex-b restarted the bridge on B and both lanes have been green for fourteen hours. I have split the two lanes apart in the status packet so the next report cannot blur them.'],
+  ['act', 'ran node tools/bridge-status.js — tunnel :8787 OK · bridge :8788 OK · auth verified'],
+  ['codex-b', 'confirming from B: both lanes green since the restart. canonical checkout verified against the ownership table; mirror check clean, both machines read map rev 6.'],
+  ['owner', "While you're in there — the churn ledger keeps showing lanes that end with no outcome recorded. Is that real, or a reporting gap?"],
+  ['codex', 'Mostly a reporting gap. Three of those lanes were truncated mid-phase and resumed correctly — a truncation is a continuation, so no outcome line is the right record for them. But two lanes genuinely exited without writing a packet, which is a contract violation. The watchdog now flags any lane-end without a matching evidence path, and sandbox-w1 is sweeping the ledger for older cases.'],
+  ['sandbox-w1', 'ledger sweep done — 214 lane-end events checked, 9 missing packets, all older than the current contract revision. tagged for backfill; none from active lanes. evidence: reports/q57-ledger-sweep.md'],
+  ['act', 'checkpoint written — sweep lane phase 2 of 4 · resuming after mission re-read'],
+  ['terra-01', 'controller/review/16 pre-read: charter scope confirmed, evidence tree spot-checked. capture rig pinned to both sizes; verdict lands within one phase.'],
+  ['owner', 'One more thing. I saw a help-request on the board older than a day. Whose queue does that die in?'],
+  ['codex', 'Mine, ultimately — unanswered asks escalate to the coordinator at 24 hours, and this one slipped because it arrived tagged to a retired key. I answered it this morning at the original key and taught the watchdog the retired-key case, so that class of miss should not recur.'],
+  ['act', 'memory.set help-request-044-answer — 268 chars · original key notified'],
+  ['gem-lane-3', 'picking the board morph lane back up from its phase-3 checkpoint. nothing re-run; resumed exactly at the fence. FLIP reorder next.'],
+  ['luna-02', 'phase 2 complete — 18/18 tests green, 1m26s. evidence: reports/q58-metrics-close.md. lease heartbeat fresh; phase 3 of 3 underway.'],
+  ['codex', "Status roll-up: four lanes active, every lease fresh, no open blockers. Reviews 15 and 16 are queued behind terra-01's capture rig — capture is not interruptible, so they land this afternoon. The fence repro packet is the model I want the other lanes copying: repro, timings, evidence, nothing else."],
+  ['owner', "What's actually left before I can call this wave done?"],
+  ['codex', "Three things. terra-01's two queued verdicts. The board morph lane's last two phases, which are mechanical. And one decision that is yours, not mine: whether the retired compatibility host keeps its mirror duty or we cut over to canonical-only. Everything else is closed with evidence."],
+  ['owner', 'Keep the mirror through the end of the month, then cut it. Put that in the directive so nobody relitigates it in three weeks.'],
+  ['codex', 'Written as directive rev 45 with the date and the cutover condition — newest wins, so the standing mirror-duty note is superseded cleanly rather than argued with. Both machines acked inside a minute.'],
+  ['act', 'memory.set agent-coord directive/current rev 45 — acks: codex-b, luna-02, gem-lane-3'],
+  ['codex-b', 'rev 45 acked on B. mirror duty scheduled through month-end, cutover condition recorded; nothing else outstanding on my side.'],
+  ['terra-01', 'controller/review/15: ACCEPT — 13/13 criteria pass, 44s wall clock. evidence: artifacts/r193/review.md'],
+  ['act', 'ledger updated — review/15 verdict recorded · OUTWARD class untouched'],
+  ['codex', "That clears one of the three. I'll bring review/16 and the morph close-out when they land — nothing needs you before the month-end cutover."],
+]
+
+/* Live continuation of the same morning — a session breathes in minutes, not
+   the old ticker's seconds, so these land rarely and carry whole messages. */
+const ARRIVALS = [
+  { who: 'terra-01', text: 'controller/review/16: ACCEPT — 15/15 criteria pass, 52s wall clock. evidence: artifacts/r194/review.md' },
+  { who: 'codex', text: 'Both queued verdicts are in; the wave is down to the morph close-out. The cutover note stands — nothing needs a decision before month-end.' },
+  { who: 'gem-lane-3', text: 'checkpoint at phase 4 of 5 — FLIP reorder verified at both test sizes. resuming after mission re-read.' },
+  { who: 'act', text: 'ran node tools/bridge-status.js — tunnel :8787 OK · bridge :8788 OK' },
+  { who: 'codex-b', text: 'mirror sweep clean on B — ownership table matches preflight, map rev steady at 6.' },
+  { who: 'luna-02', text: 'phase 3 complete — 24/24 tests green, 1m41s. evidence: reports/q58-metrics-close.md. lane released.' },
+  { who: 'act', text: 'lease sweep — four lanes active, all heartbeats fresh, no stale locks' },
+  { who: 'sandbox-w1', text: 'backfill packet 3 of 9 posted — older lane-ends gaining evidence paths; none from active lanes.' },
+  { who: 'codex', text: 'Watchdog is quiet and every lease is fresh. Next roll-up lands at the top of the hour unless a blocker surfaces first.' },
+  { who: 'act', text: 'memory.set builder/status roll-up — 388 chars · acks pending' },
+  { who: 'luna-02', text: 'note: metrics.css territory released — nothing held past the wave.' },
+  { who: 'act', text: 'ledger query — 9 gates open, 0 blocking active lanes' },
+  { who: 'gem-lane-3', text: 'phase 5 underway — final polish only; no shared files touched.' },
+  { who: 'terra-01', text: 'queue note: capture rig idle — no verdicts pending.' },
+  { who: 'codex-b', text: 'B-side heartbeats all fresh; no colliding sessions in preflight.' },
+  { who: 'act', text: 'checkpoint written — morph lane phase 4 of 5' },
+]
+
+/* Replies to the owner typing into the composer — the coordinator's voice,
+   full messages (the one-line CHAT_REPLIES pool belongs to the small chip
+   chats, not to a session transcript). */
+const REPLIES = [
+  'Noted — writing it into the directive so the next wake reads it from the board, not from memory. Both machines will ack within the minute.',
+  "On it. Preflight first, then I'll scope the territory and name the files in the claim so nothing collides.",
+  "Checked just now: all leases fresh, no open blockers, two verdicts queued behind the capture rig. I'll report when they land.",
+  'That one needs an owner decision at the gate, so I am holding it rather than guessing — the deadline does not override the ledger.',
+  'Good catch. I have flagged it to the watchdog and asked sandbox-w1 for a sweep; the evidence packet will name whatever it finds.',
+  'Delegating that to luna-02 with the territory scoped to two files. One fix round; if it fails twice it escalates back to me.',
+  'The honest answer is it is mid-phase — checkpointed, resumable, and I would rather land it clean than call it done early.',
+  "Done, and recorded with an evidence path — a bare 'done' would not survive terra-01's review anyway.",
+  "I'll fold that into the next roll-up. If you want it sooner, say so and I will interrupt the phase at its checkpoint.",
+  'Understood — treating that as the priority lane. Everything cosmetic holds until it closes.',
+]
+
+/* A reply is sometimes preceded by the tool line the coordinator actually ran
+   to answer — the transcript register where work shows itself. */
+const REPLY_ACTS = [
+  'ran node tools/agent-preflight.js — clean, no colliding session',
+  'ledger query — 9 gates open, none blocking active lanes',
+  'memory.search agent-coord — 3 fresh packets since last read',
+  'ran node tools/bridge-status.js — both lanes OK',
+]
+
+const escText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/* Draw from a shuffled bag so the pool is spent before anything repeats —
+   the comms board learned this the hard way (see bagDraw there): nothing
+   gives a generated transcript away faster than a verbatim repeat two
+   messages apart. On refill, the new bag must not open with the line that
+   just closed the old one, or the one guarded repeat appears at the seam. */
+function makeBag(items) {
+  let bag = []
+  let last = null
+  return () => {
+    if (!bag.length) {
+      bag = items.slice()
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[bag[i], bag[j]] = [bag[j], bag[i]]
+      }
+      if (bag.length > 1 && bag[bag.length - 1] === last) {
+        ;[bag[0], bag[bag.length - 1]] = [bag[bag.length - 1], bag[0]]
+      }
+    }
+    last = bag.pop()
+    return last
+  }
+}
+
 export function homeView() {
   const root = el(`
     <div class="home">
@@ -27,8 +163,16 @@ export function homeView() {
       <div class="home-feed-wrap">
         <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <div class="home-feed">
-          <div class="feed-lines"></div>
-          <div class="feed-hint">recent lane activity — read-only</div>
+          <div class="session-head">session — codex/coordinator · owner channel</div>
+          <div class="session-view">
+            <div class="session-log" tabindex="0" role="log" aria-label="Coordinator session transcript"></div>
+          </div>
+          <div class="chat-input session-input">
+            <input type="text" placeholder="Message codex…" aria-label="Message codex" />
+            <button class="chat-send" aria-label="Send">
+              <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
         </div>
         <span class="brace is-right" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
@@ -104,54 +248,88 @@ export function homeView() {
     }
   }
 
-  /* ---- feed: real recent lane activity, newest first ---- */
-  const linesEl = root.querySelector('.feed-lines')
-  const feedHint = root.querySelector('.feed-hint')
+  /* ============================================================
+     The session thread between the braces.
+     ============================================================ */
+  const logEl = root.querySelector('.session-log')
+  const input = root.querySelector('.session-input input')
+  const timers = []
+
   const braces = [...root.querySelectorAll('.brace')]
   braces.forEach(b => b.addEventListener('animationend', () => b.classList.remove('brace-pulse')))
   const pulseBraces = () => {
     braces.forEach(b => { b.classList.remove('brace-pulse'); void b.offsetWidth; b.classList.add('brace-pulse') })
   }
 
-  function describeLane(item) {
-    const age = fmtAge(ageMs(item.at))
-    const ageTxt = age ? ` · ${age}` : ''
-    if (item.event === 'lane-end') {
-      const outcome = item.outcome || 'ended'
-      const exit = item.exitCode != null ? ` (exit ${item.exitCode})` : ''
-      return `${outcome}${exit}${ageTxt}`
-    }
-    return `started${ageTxt}`
+  function addTurn(who, text, fresh = false) {
+    const meta = SPEAKERS[who] || { cls: 'is-agent', label: who }
+    const dot = meta.hue ? `<i class="turn-dot" style="background:${meta.hue}"></i>` : ''
+    const label = meta.label ? `<span class="turn-who">${dot}${escText(meta.label)}</span>` : ''
+    const node = el(`<div class="turn ${meta.cls}${fresh ? ' fresh' : ''}">${label}<div class="turn-text">${escText(text)}</div></div>`)
+    logEl.appendChild(node)
+    return node
   }
+  SESSION.forEach(([who, text]) => addTurn(who, text))
 
-  let lastFeedKey = ''
-  function renderFeed(recentLanes) {
-    if (!recentLanes || !recentLanes.available) {
-      linesEl.innerHTML = `<div class="feed-line">lane activity log unavailable${recentLanes?.error ? `: ${recentLanes.error}` : ''}</div>`
-      feedHint.textContent = 'source: state/agent-churn-ledger.jsonl (unreachable)'
-      lastFeedKey = ''
-      return
-    }
-    if (!recentLanes.items.length) {
-      linesEl.innerHTML = `<div class="feed-line">no recorded lane activity</div>`
-      feedHint.textContent = 'source: state/agent-churn-ledger.jsonl (0 events)'
-      lastFeedKey = ''
-      return
-    }
-    const key = recentLanes.items[0].at + recentLanes.items[0].event
-    const isNew = key !== lastFeedKey && lastFeedKey !== ''
-    lastFeedKey = key
-    linesEl.innerHTML = ''
-    recentLanes.items.slice(0, 9).forEach((item, i) => {
-      const line = el(`<div class="feed-line ${i > 6 ? 'old' : ''}"><span class="agent">${item.laneId || 'unknown-lane'}</span> · ${describeLane(item)}</div>`)
-      linesEl.appendChild(line)
-    })
-    const newestAge = fmtAge(ageMs(recentLanes.items[0].at))
-    feedHint.textContent = `source: ${recentLanes.path} · newest event ${newestAge || 'unknown age'}`
-    if (isNew) pulseBraces()
+  /* The seeded history renders while the view is still DETACHED (the router
+     mounts it after assembly), where scrollHeight is 0 and any snap here is a
+     no-op. So the thread keeps the standard chat contract from
+     components.js buildChat instead: pinned to the newest turn through every
+     resize and append, unpinned the moment the reader scrolls up to read
+     history, re-pinned when they return to the bottom. */
+  let pinned = true
+  logEl.addEventListener('scroll', () => {
+    pinned = logEl.scrollTop >= logEl.scrollHeight - logEl.clientHeight - 24
+  }, { passive: true })
+  const anchorRo = new ResizeObserver(() => {
+    if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
+  })
+  anchorRo.observe(logEl)
+  const anchorMo = new MutationObserver(() => {
+    if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
+  })
+  anchorMo.observe(logEl, { childList: true })
+
+  /* ---- live continuation: rare, whole-message arrivals ----
+     The old ticker re-rendered every 45s poll; a session is quieter. First
+     arrival lands inside the first half-minute (so the page visibly lives),
+     then one every 24-48s. The brace pulse marks each arrival — the bracket
+     reacting to the context it holds growing. */
+  const drawArrival = makeBag(ARRIVALS)
+  let arrivalT = 0
+  const scheduleArrival = (first = false) => {
+    arrivalT = setTimeout(() => {
+      const t = drawArrival()
+      addTurn(t.who, t.text, true)
+      pulseBraces()
+      scheduleArrival()
+    }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
+    timers.push(arrivalT)
   }
+  scheduleArrival(true)
 
-  /* ---- apply a fetched (or failed) status result to every widget ---- */
+  /* ---- the composer: the owner speaks, the coordinator answers ---- */
+  const drawReply = makeBag(REPLIES)
+  const drawReplyAct = makeBag(REPLY_ACTS)
+  const send = () => {
+    const v = input.value.trim()
+    if (!v) return
+    input.value = ''
+    addTurn('owner', v, true)
+    // Sometimes the tool line the coordinator ran to answer arrives first —
+    // that beat is what makes the reply read as work done, not text served.
+    const withAct = Math.random() < 0.35
+    const replyAt = 1100 + Math.random() * 1100
+    if (withAct) timers.push(setTimeout(() => addTurn('act', drawReplyAct(), true), replyAt - 550))
+    timers.push(setTimeout(() => {
+      addTurn('codex', drawReply(), true)
+      pulseBraces()
+    }, replyAt + (withAct ? 500 : 0)))
+  }
+  root.querySelector('.chat-send').addEventListener('click', send)
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send() })
+
+  /* ---- apply a fetched (or failed) status result to the ring widgets ---- */
   function applyResult(result) {
     if (!result.ok) {
       ring.el.dataset.load = 'unknown'
@@ -159,11 +337,10 @@ export function homeView() {
       loadVal.textContent = ''
       const subEl = ring.el.querySelector('.uring-sub')
       if (subEl) subEl.textContent = result.reason
-      renderFeed(null)
       epochMs = null
       return
     }
-    const { health, peerLink, recentLanes } = result.data
+    const { health, peerLink } = result.data
     const subEl = ring.el.querySelector('.uring-sub')
 
     if (health && health.available) {
@@ -214,8 +391,6 @@ export function homeView() {
       peerLv.textContent = 'unavailable'
       peerDot.style.background = 'var(--ink-4)'
     }
-
-    renderFeed(recentLanes)
   }
 
   let destroyed = false
@@ -237,6 +412,9 @@ export function homeView() {
       destroyed = true
       cancelAnimationFrame(raf)
       clearInterval(pollTimer)
+      timers.forEach(clearTimeout)
+      anchorRo.disconnect()
+      anchorMo.disconnect()
     },
   }
 }
