@@ -216,6 +216,11 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   new MutationObserver(() => {
     if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
   }).observe(log, { childList: true })
+  // the webfont swap grows text with no mutation and no box resize — the one
+  // path the two observers above cannot see (measured on the home thread)
+  document.fonts?.ready?.then(() => {
+    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+  })
 
   const send = () => {
     const v = input.value.trim()

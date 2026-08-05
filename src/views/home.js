@@ -289,6 +289,13 @@ export function homeView() {
     if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
   })
   anchorMo.observe(logEl, { childList: true })
+  /* ...and the webfont swap, the one growth path with NO mutation and NO box
+     resize: mono text re-wrapping in the just-landed face grew the thread
+     44px past a pin taken before fonts were ready (measured; the same lesson
+     the placement cache learned). Fonts settle once — one re-pin then. */
+  document.fonts?.ready?.then(() => {
+    if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
+  })
 
   /* ---- live continuation: rare, whole-message arrivals ----
      The old ticker re-rendered every 45s poll; a session is quieter. First
