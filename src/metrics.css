@@ -106,14 +106,19 @@
   --prov-local:  #7c5fa9;
 }
 
-/* ---------- glass filter row ---------- */
+/* ---------- filter row: bare controls over one hairline ----------
+   Was a glass card. The home page's language — text floating on the page,
+   hairline rules instead of boxes — applies exactly here: two labels, two
+   segs and a status note need no box of their own directly under the bare
+   topbar. The hairline keeps the row reading as a unit and spans the full
+   page column, which is what ties it to that column's edges. */
 .m-filter {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  border-radius: var(--r-md);
+  padding: 2px 2px 12px;
+  border-bottom: 1px solid var(--line-2);
 }
 /* --ink-4 is documented in styles.css as DECORATION ONLY — separators and
    off-state marks, never a fact on its own — and measures 3.19 (white) /
@@ -272,6 +277,22 @@
 .vlegend .vk i { width: 8px; height: 8px; border-radius: 50%; background: var(--vc); flex: none; }
 .vlegend .vk b { font-weight: 640; color: var(--ink); font-variant-numeric: tabular-nums; }
 .vlegend .vk em { font-style: normal; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* verdict footer — the home concept applied INSIDE a card: one hairline,
+   bare label/value rows, no sub-boxes. Fills the height the card previously
+   spent on blank glass with rates the bar cannot encode directly. */
+.vfoot {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding: 12px 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vf-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; }
+.vf-l { color: var(--ink-25); letter-spacing: 0.02em; }
+.vf-v { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 640; }
+.vf-v em { font-style: normal; color: var(--ink-3); font-weight: 550; margin-left: 6px; }
 
 .heat-cell { transition: none; }
 /* was a hardcoded near-black stroke, invisible on the black theme */

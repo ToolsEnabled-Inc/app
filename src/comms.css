@@ -86,13 +86,18 @@
   border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent);
 }
 
-/* ---------- header: channel name · agent-coord · live · count ---------- */
+/* ---------- header: channel name · agent-coord · live · count ----------
+   Sits OUTSIDE the glass card (first child of .comms) since the home-concept
+   pass: the page's own chrome floats bare on the page, the card holds only
+   the board/sheet it frames. All JS queries run from .comms and the
+   data-mode rules are .comms[data-mode] descendants, so the move is
+   invisible to both. */
 .comms-head {
   flex: none;
   display: flex;
   align-items: baseline;
   gap: 12px;
-  padding: 6px 8px 12px;
+  padding: 0 2px 12px;
 }
 .head-hash { font-size: 17px; font-weight: 600; color: var(--ink-4); }
 .head-name { font-size: 17px; font-weight: 680; color: var(--ink); letter-spacing: 0.01em; }

@@ -272,12 +272,15 @@ const TILE_DEFS = [
     delta: { kind: 'period', mode: 'pct', signed: false },
   },
   {
-    id: 'ckpt', l: 'Checkpoints',
+    /* spark like the other four: these two were the only tiles without one,
+       leaving a 46px hollow that read as half-loaded rather than as a
+       different kind of tile */
+    id: 'ckpt', l: 'Checkpoints', spark: true,
     val: (d) => d.tiles.checkpoints, fmt: (v) => String(Math.round(v)), unit: () => 'recorded',
     delta: { kind: 'session', noun: 'new', signed: false },
   },
   {
-    id: 'gates', l: 'Gate blocks',
+    id: 'gates', l: 'Gate blocks', spark: true,
     val: (d) => d.tiles.gateBlocks, fmt: (v) => String(Math.round(v)), unit: () => 'held safely',
     delta: { kind: 'session', noun: 'held', signed: false },
   },
@@ -340,7 +343,7 @@ export function metricsView() {
   const root = el(`
     <div class="view-pad">
       <div class="metrics">
-        <div class="m-filter glass" id="m-filter">
+        <div class="m-filter" id="m-filter">
           <span class="mf-label">Range</span>
           ${pillGroup('range', RANGES, 'Time range')}
           <span class="mf-sep"></span>
@@ -490,6 +493,8 @@ export function metricsView() {
       tasks: sparkFor('tasks', tiles.tasksClosed),
       fail: sparkFor('fail', tiles.failAvg),
       tokens: sparkFor('tokens', tiles.tokTotal / 24),
+      ckpt: sparkFor('ckpt', tiles.checkpoints),
+      gates: sparkFor('gates', tiles.gateBlocks),
     }
 
     return { tokens, tokMax, tokTicks, tokTotal, fail, heat, verdicts, pools, ops, tiles, spark }
@@ -1022,10 +1027,27 @@ export function metricsView() {
       </div>
     `)
     host.appendChild(wrap)
+    /* The card used to end at the legend and stretch to the heat card's
+       height, leaving ~48% blank glass. Rather than shrink the card, the
+       home page's language fills it: one hairline, bare text rows, no
+       sub-boxes. Each row is a rate the bar cannot show directly (share,
+       ratio, count) with a measured previous-period delta — same doctrine
+       as the tile delta rows, never a caption. */
+    const foot = el(`
+      <div class="vfoot">
+        <div class="vf-row"><span class="vf-l">acceptance</span><span class="vf-v"><b id="vf-acc">0%</b><em id="vf-accd"></em></span></div>
+        <div class="vf-row"><span class="vf-l">retries per accept</span><span class="vf-v"><b id="vf-rr">0</b><em id="vf-rrd"></em></span></div>
+        <div class="vf-row"><span class="vf-l">rejected</span><span class="vf-v"><b id="vf-rej">0</b><em id="vf-rejd"></em></span></div>
+      </div>
+    `)
+    host.appendChild(foot)
     verdict.total = wrap.querySelector('#verdict-total')
     verdict.segs = [...wrap.querySelectorAll('.vseg')]
     verdict.vals = VSEGS.map(s => wrap.querySelector(`.vn-${s.key}`))
     verdict.pcts = VSEGS.map(s => wrap.querySelector(`.vp-${s.key}`))
+    verdict.acc = foot.querySelector('#vf-acc'); verdict.accd = foot.querySelector('#vf-accd')
+    verdict.rr = foot.querySelector('#vf-rr'); verdict.rrd = foot.querySelector('#vf-rrd')
+    verdict.rej = foot.querySelector('#vf-rej'); verdict.rejd = foot.querySelector('#vf-rejd')
 
     const bar = wrap.querySelector('.vbar')
     const tip = viewportTooltip(host)
@@ -1062,6 +1084,27 @@ export function metricsView() {
       acc += frac
     })
     verdict.total.textContent = Math.round(total).toLocaleString('en-US')
+
+    /* Footer rows — derived from the same d.verdicts the bar paints, so the
+       acceptance share here always agrees with the Accept legend entry. The
+       deltas diff against prevPeriod (rebuilt in retarget()), the identical
+       generator one period back — a measured comparison, like the tiles.
+       During a tween the values ride the interpolated frames and settle on
+       the target's, same as every other mark in the card. */
+    const R = meta()
+    const p = prevPeriod.verdicts
+    const pTotal = p.accept + p.retry + p.reject
+    const accPct = total ? (v.accept / total) * 100 : 0
+    const pAccPct = pTotal ? (p.accept / pTotal) * 100 : 0
+    const rr = v.accept ? v.retry / v.accept : 0
+    const pRr = p.accept ? p.retry / p.accept : 0
+    const dAcc = accPct - pAccPct, dRr = rr - pRr, dRej = Math.round(v.reject) - Math.round(p.reject)
+    verdict.acc.textContent = `${accPct.toFixed(1)}%`
+    verdict.accd.textContent = Math.abs(dAcc) < 0.05 ? `level ${R.prev}` : `${signed(dAcc, 1)} pts ${R.prev}`
+    verdict.rr.textContent = rr.toFixed(2)
+    verdict.rrd.textContent = Math.abs(dRr) < 0.005 ? `level ${R.prev}` : `${signed(dRr, 2)} ${R.prev}`
+    verdict.rej.textContent = Math.round(v.reject).toLocaleString('en-US')
+    verdict.rejd.textContent = dRej === 0 ? `level ${R.prev}` : `${signed(dRej)} ${R.prev}`
   }
 
   /* ================= discipline counters ================= */
@@ -1077,7 +1120,7 @@ export function metricsView() {
     host.innerHTML = ''
     for (const [l, s] of OPS_ROWS) {
       const row = el(`
-        <div style="display:flex;align-items:baseline;justify-content:space-between;padding:9px 2px;border-bottom:1px solid var(--line)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;padding:7px 2px;border-bottom:1px solid var(--line)">
           <div><div style="font-size:12.5px;font-weight:570;color:var(--ink-2)">${l}</div>
           <div style="font-size:12.5px;color:var(--ink-25)">${s}</div></div>
           <div class="opv" style="font-size:20px;font-weight:650;font-variant-numeric:tabular-nums">0</div>

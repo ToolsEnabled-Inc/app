@@ -682,25 +682,25 @@ export function commsView() {
   const W = watchInit()
   const root = el(`
     <div class="comms" data-mode="${W.mode}">
+      <header class="comms-head">
+        <span class="head-hash">#</span><span class="head-name">directive</span>
+        <span class="head-meta">agent-coord · cross-machine</span>
+        <span class="head-wt">watch board</span>
+        <span class="head-wt-meta">agent-coord · live conversations</span>
+        <span class="spacer"></span>
+        <div class="seg wb-seg size-seg" role="group" aria-label="Box size">
+          <button type="button" data-size="s" title="Small boxes">S</button>
+          <button type="button" data-size="m" title="Medium boxes">M</button>
+          <button type="button" data-size="l" title="Large boxes">L</button>
+        </div>
+        <div class="seg wb-seg mode-seg" role="group" aria-label="Comms mode">
+          <button type="button" data-wmode="watch">Watch</button>
+          <button type="button" data-wmode="channels">Channels</button>
+        </div>
+        <span class="head-live"><i></i>live</span>
+        <span class="head-count"><b>0</b> agents</span>
+      </header>
       <div class="comms-card glass">
-        <header class="comms-head">
-          <span class="head-hash">#</span><span class="head-name">directive</span>
-          <span class="head-meta">agent-coord · cross-machine</span>
-          <span class="head-wt">watch board</span>
-          <span class="head-wt-meta">agent-coord · live conversations</span>
-          <span class="spacer"></span>
-          <div class="seg wb-seg size-seg" role="group" aria-label="Box size">
-            <button type="button" data-size="s" title="Small boxes">S</button>
-            <button type="button" data-size="m" title="Medium boxes">M</button>
-            <button type="button" data-size="l" title="Large boxes">L</button>
-          </div>
-          <div class="seg wb-seg mode-seg" role="group" aria-label="Comms mode">
-            <button type="button" data-wmode="watch">Watch</button>
-            <button type="button" data-wmode="channels">Channels</button>
-          </div>
-          <span class="head-live"><i></i>live</span>
-          <span class="head-count"><b>0</b> agents</span>
-        </header>
         <div class="comms-body">
           <div class="watch-pane" data-size="${W.size}">
             <div class="watch-stack"></div>

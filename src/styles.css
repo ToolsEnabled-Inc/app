@@ -1527,7 +1527,9 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 }
 .m-pools { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .m-charts2 { grid-template-columns: 3fr 2fr; }
-.m-charts3 { grid-template-columns: 2fr 1.2fr 1fr; }
+/* start, not stretch: three unequal cards stretched to the tallest left the
+   shorter two mostly blank glass; .m-charts2 keeps stretch (near-equal pair) */
+.m-charts3 { grid-template-columns: 2fr 1.2fr 1fr; align-items: start; }
 @media (max-width: 1000px) { .m-charts2, .m-charts3 { grid-template-columns: 1fr; } }
 
 /* 20px is 4px from both --s4 and --s5, i.e. outside the 2px conversion
