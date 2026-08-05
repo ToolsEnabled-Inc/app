@@ -295,6 +295,13 @@
 .uring.crescent[data-load="busy"] { --load-col: #b4640a; }
 .uring.crescent[data-load="peak"] { --load-col: #c53a20; }
 
+/* "unknown" — a real fourth state added for live data: no reading is
+   available yet (or the source is unreachable), so this must NOT fall
+   through to --s-good (the crescent's unset-var default) and read as a
+   quiet green "all clear". Same neutral --ink-4 the rim already uses,
+   theme-aware without needing a per-theme override. */
+.uring.crescent[data-load="unknown"] { --load-col: var(--ink-4); }
+
 /* TAN (#f2e5bc) — Gruvbox Light Soft, so the states take the published faded
    family the rest of this theme is built from rather than a second palette:
    faded aqua #427b58, faded red #9d0006, and a darkened faded yellow (the

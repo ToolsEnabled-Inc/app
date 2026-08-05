@@ -1,8 +1,24 @@
-// /home — the giant uptime ring + greyed context feed (expands into a chat).
+// /home — the giant hero ring + a real recent-activity panel.
+//
+// DATA WIRING NOTE: this view no longer reads src/sim.js at all. Every
+// number here comes from public/data/status.json (written by
+// tools/gen-status.mjs from real, read-only ToolsEnabled state on this
+// machine) via src/live-status.js. If that file is missing, unreachable, or
+// malformed, this view says so in words — it never falls back to a
+// plausible-looking placeholder number. Every reading also carries its own
+// "as of" age, because the snapshot's sections can each be a different age
+// (a health sweep from 14 hours ago next to a cross-machine handshake from
+// 2 minutes ago is normal, and hiding that difference would be a lie).
+//
+// Every other page in this app (computers/agent/metrics/comms) is still the
+// PLAN.md simulation and is unaffected by this file.
 
-import { sim, uptimeParts } from '../sim.js'
-import { el, uptimeRing, buildChat } from '../components.js'
+import { el, uptimeRing } from '../components.js'
+import { fetchStatus, ageMs, fmtAge } from '../live-status.js'
 import '../home.css'
+
+const POLL_MS = 45_000
+const DASH = '—' // em dash — used for "no reading", never "0"
 
 export function homeView() {
   const root = el(`
@@ -10,320 +26,217 @@ export function homeView() {
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
         <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <div class="home-feed" tabindex="0" role="button" aria-expanded="false" aria-label="Open fleet chat">
+        <div class="home-feed">
           <div class="feed-lines"></div>
-          <div class="feed-hint">click to open fleet chat</div>
+          <div class="feed-hint">recent lane activity — read-only</div>
         </div>
         <span class="brace is-right" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
   `)
 
-  /* ---- live totals for the sub-caption (criterion 2) ---- */
-  const agentTotal = () => sim.computers.reduce((n, c) => n + c.agents.length, 0)
-  const subText = () => {
-    const mc = sim.computers.length
-    const ac = agentTotal()
-    return `${mc} machine${mc === 1 ? '' : 's'} · ${ac} agent${ac === 1 ? '' : 's'} live`
-  }
-
   const ringSize = Math.min(520, Math.max(380, window.innerHeight - 300))
   const ring = uptimeRing({
     size: ringSize,
-    epoch: sim.serverEpoch,
-    caption: 'Server Uptime',
-    sub: subText(),
-    crescent: true,          // the sketch's circle + left crescent of light
+    epoch: Date.now(),          // placeholder only; real epoch set once data loads
+    caption: 'Last Health Sweep',
+    sub: 'loading…',
+    crescent: true,
   })
+  ring.el.dataset.load = 'unknown'
+  root.querySelector('.home-ring-wrap').appendChild(ring.el)
 
-  /* ---- fleet load drives the crescent's colour (the sketch's whole point:
-     green = idling / low, orange = a good few agents and CPU climbing,
-     red = full throttle). Load is the worse of two honest signals: mean CPU
-     across machines, and how full the agent roster is — a box can be busy
-     because it is thinking hard OR because it is running a lot of lanes. ---- */
-  const AGENT_CEILING = 16          // sim's own per-machine spawn ceiling
-  function loadNow() {
-    const comps = sim.computers
-    if (!comps.length) return 0
-    const cpu = comps.reduce((s, c) => s + (c.stats?.cpu || 0), 0) / comps.length / 100
-    const perMachine = comps.map(c => c.agents.length / AGENT_CEILING)
-    const roster = Math.max(0, ...perMachine)
-    return Math.max(0, Math.min(1, Math.max(cpu, roster * 0.92)))
-  }
-  const loadRow = el(`<div class="home-load"><i></i><span class="lt">idle</span><span class="lv"></span></div>`)
+  const loadRow = el(`<div class="home-load"><i></i><span class="lt">no data yet</span><span class="lv"></span></div>`)
   const loadLabel = loadRow.querySelector('.lt')
   const loadVal = loadRow.querySelector('.lv')
+  ring.el.querySelector('.uring-inner').appendChild(loadRow)
 
-  /* setLoad()'s bands are bare thresholds (0.38 busy, 0.72 peak), and the
-     value crossing them is live: CPU drifts continuously on every 'stats'
-     tick and the roster term steps by 1/16 of a machine on every spawn/reap.
-     A fleet parked on a boundary therefore strobed — a reading wobbling
-     0.379/0.381 flipped the crescent, the dot and the caption on every tick,
-     and each flip drags a 1.4s colour transition behind it, so the hero was
-     permanently mid-crossfade between two states. Latch it: a band must be
-     over-run by 5% to be entered and under-run by 5% to be left, so noise of
-     that amplitude cannot move the state at all while a genuine change of
-     load still lands immediately. The percentage readout stays the raw
-     number — the hysteresis governs which state we are IN, never what we
-     report the load to be. */
-  const BUSY = 0.38, PEAK = 0.72, HYST = 0.05
-  let loadState = 'idle'
-  function stateFor(v) {
-    if (loadState === 'peak') return v >= PEAK - HYST ? 'peak' : (v >= BUSY ? 'busy' : 'idle')
-    if (loadState === 'busy') return v >= PEAK ? 'peak' : (v >= BUSY - HYST ? 'busy' : 'idle')
-    return v >= PEAK ? 'peak' : (v >= BUSY ? 'busy' : 'idle')
-  }
-  function paintLoad() {
-    const v = loadNow()
-    loadState = stateFor(v)
-    // components.setLoad() owns the data-load attribute (and so the crescent
-    // colour), but its thresholds have no memory. Hand it a value parked in
-    // the middle of the band we just latched rather than the raw reading, so
-    // the decision made above is the one that reaches the DOM.
-    ring.el.setLoad(loadState === 'peak' ? 1 : loadState === 'busy' ? 0.55 : 0)
-    loadLabel.textContent = loadState === 'peak' ? 'full throttle' : loadState === 'busy' ? 'busy' : 'idle'
-    loadVal.textContent = `${Math.round(v * 100)}%`
-    // --load-col is NOT copied down here any more: loadRow lives inside
-    // .uring-inner, so it already inherits the ring's value. Snapshotting it
-    // into an inline style pinned the dot to whichever theme was active at
-    // the last paint, so switching theme left the dot on the old palette
-    // until the next sim event happened to repaint it.
-  }
-
-  /* ---- criterion 1: fixed-width crossfading digits, driven from home.js
-     (bypasses ring.update()'s innerHTML-replace-on-every-second so the
-     minute rollover can crossfade instead of jump) ---- */
+  /* ---- fixed-width crossfading digits (same mechanism as the rest of the
+     app used for its clock) — the epoch they read is real once loaded, and
+     the digits show DASH (never 0s) until it is. ---- */
   const showDays = true
   const UNITS = showDays
     ? [['d', 'Days'], ['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
     : [['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
-  const partsToValues = (p) => (showDays ? [p.d, p.h, p.m, p.s] : [p.h, p.m, p.s])
 
   const digitsEl = ring.el.querySelector('.uring-digits')
   digitsEl.innerHTML = UNITS
-    .map(([, label]) => `<span class="seg"><span class="n-stack"><span class="n cur"></span></span><span class="u">${label}</span></span>`)
+    .map(([, label]) => `<span class="seg"><span class="n-stack"><span class="n cur">${DASH}</span></span><span class="u">${label}</span></span>`)
     .join('<span class="colon">:</span>')
-
   const stacks = [...digitsEl.querySelectorAll('.n-stack')]
-  partsToValues(uptimeParts(sim.serverEpoch)).forEach((v, i) => {
-    stacks[i].querySelector('.n.cur').textContent = v
-  })
 
   function setDigit(stack, value) {
-    // dedupe against the LAST appended span — the value already in flight —
-    // rather than against whichever span currently answers to '.cur'. This
-    // runs on every rAF, so anything that can disagree with the value being
-    // animated towards re-fires the whole crossfade each frame and leaks a
-    // '.n.next' span per frame. lastElementChild always IS that value.
     const last = stack.lastElementChild
     if (!last || last.textContent === value) return
-    // Fade out EVERYTHING already painted, not just the one span wearing
-    // '.cur'. The class is stripped the moment a fade starts (below), so a
-    // second change arriving inside the 420ms window found querySelector
-    // ('.n.cur') empty: the still-visible span was never given '.out', never
-    // swept, and its own finish() promoted it back to '.cur' — two live
-    // digits stacked on one another. Capturing the children is exact and
-    // cannot miss an element whatever state its classes are in.
     const outgoing = [...stack.children]
     const next = document.createElement('span')
     next.className = 'n next'
     next.textContent = value
     stack.appendChild(next)
-    // drop 'cur' as well as adding 'out': the outgoing span used to KEEP
-    // .cur for its whole fade, so a crossfade starting before the previous
-    // one finished captured the same element again and orphaned a span —
-    // under a main-thread stall those piled up permanently over the readout
     outgoing.forEach(n => { n.classList.remove('cur', 'next', 'in'); n.classList.add('out') })
     requestAnimationFrame(() => requestAnimationFrame(() => next.classList.add('in')))
     const finish = () => {
       outgoing.forEach(n => n.remove())
-      stack.querySelectorAll('.n.out').forEach(n => n.remove())   // sweep any interrupted fade
+      stack.querySelectorAll('.n.out').forEach(n => n.remove())
       next.classList.remove('next', 'in'); next.classList.add('cur')
     }
     const tid = setTimeout(finish, 420)
     next.addEventListener('transitionend', () => { clearTimeout(tid); finish() }, { once: true })
   }
 
-  /* The hero is the sketch's crescent now, so there is no progress arc and
-     no arc-tip dot to drive — those elements simply do not exist in this
-     markup. Everything below is guarded rather than deleted so the ring can
-     still be built in its sweeping-arc form elsewhere. */
-  const trackEl = ring.el.querySelector('.track')
-  const arcEls = [...ring.el.querySelectorAll('.arc, .arc-glow')]
-  const arcEl = ring.el.querySelector('circle.arc')
-  const hasArc = !!(trackEl && arcEl)
-
-  let circ = 0, rNum = 0, cxNum = 0, cyNum = 0, tipDot = null
-  if (hasArc) {
-    rNum = parseFloat(trackEl.getAttribute('r'))
-    cxNum = parseFloat(trackEl.getAttribute('cx'))
-    cyNum = parseFloat(trackEl.getAttribute('cy'))
-    circ = 2 * Math.PI * rNum
-    const strokeW = parseFloat(arcEl.getAttribute('stroke-width')) || 8
-    const gradId = ring.el.querySelector('linearGradient')?.id
-    tipDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-    tipDot.setAttribute('class', 'uring-tip-dot')
-    tipDot.setAttribute('r', String(Math.max(3, strokeW * 0.85)))
-    if (gradId) tipDot.setAttribute('fill', `url(#${gradId})`)
-    arcEl.parentNode.appendChild(tipDot)
+  function uptimeParts(epoch) {
+    let s = Math.max(0, Math.floor((Date.now() - epoch) / 1000))
+    const d = Math.floor(s / 86400); s -= d * 86400
+    const h = Math.floor(s / 3600); s -= h * 3600
+    const m = Math.floor(s / 60); s -= m * 60
+    const pad = (n) => String(n).padStart(2, '0')
+    return { d: String(d), h: pad(h), m: pad(m), s: pad(s) }
   }
+  const partsToValues = (p) => (showDays ? [p.d, p.h, p.m, p.s] : [p.h, p.m, p.s])
 
-  function renderTick() {
-    const p = uptimeParts(sim.serverEpoch)
-    if (hasArc) {
-      const sweep = circ * p.frac
-      arcEls.forEach(a => a.setAttribute('stroke-dasharray', `${sweep} ${circ - sweep}`))
-      const t = (sweep / circ) * Math.PI * 2
-      tipDot.setAttribute('cx', (cxNum + rNum * Math.cos(t)).toFixed(2))
-      tipDot.setAttribute('cy', (cyNum + rNum * Math.sin(t)).toFixed(2))
+  let epochMs = null   // null until a real health-sweep timestamp is loaded
+
+  let lastTickAt = 0
+  function renderTick(ts) {
+    if (epochMs != null && ts - lastTickAt >= 80) {
+      lastTickAt = ts
+      partsToValues(uptimeParts(epochMs)).forEach((v, i) => setDigit(stacks[i], v))
     }
-    partsToValues(p).forEach((v, i) => setDigit(stacks[i], v))
   }
-  renderTick()
 
-  root.querySelector('.home-ring-wrap').appendChild(ring.el)
-
-  ring.el.querySelector('.uring-inner').appendChild(loadRow)
-  paintLoad()
-
-  /* ---- criterion 2: subscribe to live spawn/reap (+ machine count) ---- */
-  const subEl = ring.el.querySelector('.uring-sub')
-  const renderSub = () => { if (subEl) subEl.textContent = subText() }
-  const bothRender = () => { renderSub(); paintLoad() }
-  const unsubSpawn = sim.on('spawn', bothRender)
-  const unsubReap = sim.on('reap', bothRender)
-  const unsubComputers = sim.on('computers', bothRender)
-  const unsubStats = sim.on('stats', paintLoad)      // CPU drift moves the crescent too
-
-  /* ---- criterion 3: feed lines + braces ---- */
-  const feedCard = root.querySelector('.home-feed')
+  /* ---- feed: real recent lane activity, newest first ---- */
   const linesEl = root.querySelector('.feed-lines')
+  const feedHint = root.querySelector('.feed-hint')
   const braces = [...root.querySelectorAll('.brace')]
   braces.forEach(b => b.addEventListener('animationend', () => b.classList.remove('brace-pulse')))
   const pulseBraces = () => {
     braces.forEach(b => { b.classList.remove('brace-pulse'); void b.offsetWidth; b.classList.add('brace-pulse') })
   }
 
-  const renderLines = () => {
+  function describeLane(item) {
+    const age = fmtAge(ageMs(item.at))
+    const ageTxt = age ? ` · ${age}` : ''
+    if (item.event === 'lane-end') {
+      const outcome = item.outcome || 'ended'
+      const exit = item.exitCode != null ? ` (exit ${item.exitCode})` : ''
+      return `${outcome}${exit}${ageTxt}`
+    }
+    return `started${ageTxt}`
+  }
+
+  let lastFeedKey = ''
+  function renderFeed(recentLanes) {
+    if (!recentLanes || !recentLanes.available) {
+      linesEl.innerHTML = `<div class="feed-line">lane activity log unavailable${recentLanes?.error ? `: ${recentLanes.error}` : ''}</div>`
+      feedHint.textContent = 'source: state/agent-churn-ledger.jsonl (unreachable)'
+      lastFeedKey = ''
+      return
+    }
+    if (!recentLanes.items.length) {
+      linesEl.innerHTML = `<div class="feed-line">no recorded lane activity</div>`
+      feedHint.textContent = 'source: state/agent-churn-ledger.jsonl (0 events)'
+      lastFeedKey = ''
+      return
+    }
+    const key = recentLanes.items[0].at + recentLanes.items[0].event
+    const isNew = key !== lastFeedKey && lastFeedKey !== ''
+    lastFeedKey = key
     linesEl.innerHTML = ''
-    sim.feed.slice(0, 9).forEach((l, i) => {
-      const line = el(`<div class="feed-line ${i > 6 ? 'old' : ''}"><span class="agent">${l.agent}</span> · ${l.text}</div>`)
+    recentLanes.items.slice(0, 9).forEach((item, i) => {
+      const line = el(`<div class="feed-line ${i > 6 ? 'old' : ''}"><span class="agent">${item.laneId || 'unknown-lane'}</span> · ${describeLane(item)}</div>`)
       linesEl.appendChild(line)
     })
+    const newestAge = fmtAge(ageMs(recentLanes.items[0].at))
+    feedHint.textContent = `source: ${recentLanes.path} · newest event ${newestAge || 'unknown age'}`
+    if (isNew) pulseBraces()
   }
-  renderLines()
 
-  const unsubFeed = sim.on('feed', (l) => {
-    if (chatOpen) return
-    const line = el(`<div class="feed-line fresh"><span class="agent">${l.agent}</span> · ${l.text}</div>`)
-    linesEl.prepend(line)
-    requestAnimationFrame(() => requestAnimationFrame(() => line.classList.remove('fresh')))
-    pulseBraces()
-
-    // oldest fades out instead of being cut instantly
-    const active = [...linesEl.children].filter(c => !c.classList.contains('leaving'))
-    while (active.length > 9) {
-      const last = active.pop()
-      last.classList.add('leaving')
-      const done = () => last.remove()
-      const tid = setTimeout(done, 560)
-      last.addEventListener('transitionend', () => { clearTimeout(tid); done() }, { once: true })
+  /* ---- apply a fetched (or failed) status result to every widget ---- */
+  function applyResult(result) {
+    if (!result.ok) {
+      ring.el.dataset.load = 'unknown'
+      loadLabel.textContent = 'source unavailable'
+      loadVal.textContent = ''
+      const subEl = ring.el.querySelector('.uring-sub')
+      if (subEl) subEl.textContent = result.reason
+      renderFeed(null)
+      epochMs = null
+      return
     }
-    ;[...linesEl.children].forEach((c, i) => c.classList.toggle('old', i > 6 && !c.classList.contains('leaving')))
-  })
+    const { health, peerLink, recentLanes } = result.data
+    const subEl = ring.el.querySelector('.uring-sub')
 
-  // context box → chat window morph (in place, no popup)
-  let chatOpen = false
-  let chatEl = null
-  const feedWrap = root.querySelector('.home-feed-wrap')
-  // a click landing in the collapse window used to re-open the chat with a
-  // fresh seed, destroying whatever the user had typed (double-clicking the
-  // close button did exactly that)
-  let closedAt = 0
-  feedCard.addEventListener('keydown', (e) => {
-    if (chatOpen || (e.key !== 'Enter' && e.key !== ' ')) return
-    e.preventDefault(); feedCard.click()
-  })
-  feedCard.addEventListener('click', () => {
-    if (chatOpen || performance.now() - closedAt < 450) return
-    chatOpen = true
-    const h = feedCard.offsetHeight
-    feedCard.style.height = h + 'px'
-    void feedCard.offsetWidth
-    feedCard.classList.add('as-chat')
-    feedCard.setAttribute('aria-expanded', 'true')
-    feedWrap.classList.add('chat-open')
-    chatEl = buildChat({
-      title: 'fleet',
-      subtitle: 'coordinator relay · agent-coord',
-      roleKey: 'shadow',
-      seed: 4,
-      onClose: () => {
-        chatOpen = false
-        closedAt = performance.now()
-        // hand focus back to the control that opened this, but only if it is
-        // still inside the chat — collapsing must never yank the caret away
-        // from wherever a keyboard user has since moved to
-        const returnFocus = chatEl && chatEl.contains(document.activeElement)
-        feedCard.setAttribute('aria-expanded', 'false')
-        feedWrap.classList.remove('chat-open')
-        feedCard.style.height = feedCard.offsetHeight + 'px'
-        void feedCard.offsetWidth
-        feedCard.classList.remove('as-chat')
-        chatEl.remove(); chatEl = null
-        feedCard.style.height = h + 'px'
-        setTimeout(() => { feedCard.style.height = '' }, 500)
-        renderLines()
-        if (returnFocus) feedCard.focus({ preventScroll: true })
-      },
-      tall: true,
-    })
-    // criterion 3: seed messages stagger-in rather than appearing at once.
-    // .msg's `animation: msgIn .4s var(--ease-spring)` shorthand resolves
-    // fill-mode to 'none', so a delayed message renders at its settled
-    // (opacity:1) style for the whole delay, then jumps back to the 0%
-    // keyframe when the animation starts -- a flash, not a stagger. Force
-    // 'backwards' so the delay window holds the 0% keyframe instead.
-    ;[...chatEl.querySelectorAll('.chat-log .msg')].forEach((m, i) => {
-      m.style.animationDelay = `${i * 70}ms`
-      m.style.animationFillMode = 'backwards'
-    })
-    feedCard.appendChild(chatEl)
-    feedCard.style.height = ''
-    // the card stops being a button the moment it becomes a chat, so focus
-    // moves to the thing the user came here to use; without this a keyboard
-    // user who pressed Enter was left focused on a container with no visible
-    // ring (the :focus-visible rule excludes .as-chat) and had to tab in.
-    chatEl.querySelector('.chat-input input')?.focus({ preventScroll: true })
-  })
+    if (health && health.available) {
+      epochMs = health.observedAtMs
+      const c = health.counts
+      if (subEl) {
+        subEl.textContent =
+          `${health.total} subsystems · ${c.OK} ok · ${c.DOWN} down · ${c.STOPPED} stopped${c.UNKNOWN ? ` · ${c.UNKNOWN} unknown` : ''}`
+      }
+      const severity = c.DOWN > 0 ? 'peak' : (c.UNKNOWN > 0 ? 'busy' : 'idle')
+      ring.el.dataset.load = severity
+      loadLabel.textContent = c.DOWN > 0 ? `${c.DOWN} subsystem${c.DOWN === 1 ? '' : 's'} down`
+        : c.UNKNOWN > 0 ? 'partially verifiable' : 'all subsystems clear'
+      const sweepAge = fmtAge(ageMs(health.observedAtMs))
+      loadVal.textContent = sweepAge ? `swept ${sweepAge}` : ''
+    } else {
+      epochMs = null
+      if (subEl) subEl.textContent = health?.error || 'health snapshot unavailable'
+      ring.el.dataset.load = 'unknown'
+      loadLabel.textContent = 'health snapshot unavailable'
+      loadVal.textContent = ''
+    }
 
-  /* The braces are SVG now, stretched by the layout to exactly the height
-     of the content they bracket — so the glyph-metric fitter that used to
-     live here (canvas ink extents, a baseline strut, a solved-for translate)
-     is gone. It was also wrong: it mixed offsetTop coordinate spaces and put
-     the braces ~259px below the text they were meant to enclose. */
+    // second real reading, appended below the load row rather than invented
+    // into the same field: cross-machine link freshness (a DIFFERENT age
+    // than the health sweep above, on purpose).
+    let peerRow = ring.el.querySelector('.home-peer')
+    if (!peerRow) {
+      peerRow = el(`<div class="home-load home-peer"><i></i><span class="lt"></span><span class="lv"></span></div>`)
+      ring.el.querySelector('.uring-inner').appendChild(peerRow)
+    }
+    const peerLt = peerRow.querySelector('.lt')
+    const peerLv = peerRow.querySelector('.lv')
+    const peerDot = peerRow.querySelector('i')
+    const out = peerLink?.outbound
+    // This dot is intentionally coloured independently of the ring's
+    // --load-col (which it would otherwise silently inherit): it reports the
+    // cross-machine link's OWN freshness, a different signal than the health
+    // sweep above, and the two must never be visually conflated.
+    if (out?.available) {
+      const age = ageMs(out.authenticatedAtMs)
+      const age2 = fmtAge(age)
+      peerLt.textContent = `link to ${out.peerHost || 'peer'}`
+      peerLv.textContent = age2 ? `verified ${age2}` : 'age unknown'
+      peerDot.style.background = age != null && age < 30 * 60_000 ? 'var(--s-good)' : 'var(--s-warn)'
+    } else {
+      peerLt.textContent = 'cross-machine link'
+      peerLv.textContent = 'unavailable'
+      peerDot.style.background = 'var(--ink-4)'
+    }
+
+    renderFeed(recentLanes)
+  }
+
+  let destroyed = false
+  async function load() {
+    const result = await fetchStatus()
+    if (destroyed) return
+    applyResult(result)
+  }
+  load()
+  const pollTimer = setInterval(load, POLL_MS)
 
   let raf
-  /* Throttled to ~12Hz, the gate computers.js and agent.js already carry and
-     this loop was simply missed by. renderTick() redraws a clock whose digits
-     change once a second (and, in the sweeping-arc form of the ring, an arc
-     that advances 6deg per minute, so the tip moves well under a pixel per
-     step at 12Hz) — ungated it ran ~180x/s, and measured at rest on #/ it was
-     176-180 style recalcs/s and 45% of the page's CPU to redraw the same
-     frame. Suppressing it alone took recalcs to 29.5/s and CPU 13.5% -> 7.4%. */
-  let lastTickAt = 0
-  const loop = (ts) => {
-    if (ts - lastTickAt >= 80) { lastTickAt = ts; renderTick() }
-    raf = requestAnimationFrame(loop)
-  }
+  const loop = (ts) => { renderTick(ts); raf = requestAnimationFrame(loop) }
   raf = requestAnimationFrame(loop)
 
   return {
     el: root,
     destroy() {
+      destroyed = true
       cancelAnimationFrame(raf)
-      fitObserver.disconnect()
-      unsubFeed(); unsubSpawn(); unsubReap(); unsubComputers(); unsubStats()
+      clearInterval(pollTimer)
     },
   }
 }
