@@ -1,19 +1,23 @@
-// Metrics — account pools, failure rates, token flow, verdicts, activity heat,
-// and the full agent table. All simulated, all alive.
+// Metrics — the Swiss instrument panel. Unboxed: no glass cards, no tile
+// grid — whitespace and hairlines do all separation, the homepage's own
+// language. Bands top to bottom: filter row · bare stat strip · the
+// token-routing sankey promoted to page hero · the token-flow band rebuilt
+// as solid stacked Carbon bands with its crosshair-synced failure strip ·
+// three bare supporting instruments (heat, verdicts, failure by lane) ·
+// pools as bare columns · the unboxed agent table.
 //
-// T4: a glass filter row (time range × machine) retargets every chart and
-// TWEENS to the new simulated dataset; tiles count up; the agent table sorts
-// with a FLIP reorder; tooltips cover every mark.
+// The filter row (time range × machine) retargets every chart and TWEENS to
+// the new simulated dataset; stats count up; the agent table sorts with a
+// FLIP reorder; tooltips cover every mark.
 //
-// The engine charts (the command band — token-flow hero with zoom + synced
-// failure strip — the token-routing sankey, failure bars, activity heat,
-// verdict split) render through ECharts — metrics-charts.js owns the option
-// builders, echarts-theme.js snapshots the design tokens the engine cannot
-// read through var(). This view still owns the DATA (buildData, buildSankey
-// and their deterministic noise) and the DOM numbers; the engine owns
-// geometry, morph animation, the crosshair, zoom and per-series focus.
-// Tiles, pools, sparklines, ops and the agent table stay hand-rolled —
-// they were already right.
+// The engine charts render through ECharts — metrics-charts.js owns the
+// option builders, echarts-theme.js snapshots the design tokens the engine
+// cannot read through var() (including the Carbon categorical / alert /
+// sequential re-steps scoped on .metrics). This view still owns the DATA
+// (buildData, buildSankey and their deterministic noise) and the DOM
+// numbers; the engine owns geometry, morph animation, the crosshair, zoom
+// and per-series focus. Stats, pools, sparklines and the agent table stay
+// hand-rolled — they were already right.
 
 import '../metrics.css'
 import { ticks as d3ticks } from 'd3-array'
@@ -167,20 +171,20 @@ const RANGE_META = {
   '24h': {
     word: 'last 24 h', unit: '24 h', prev: 'vs yesterday',
     ticks: HOUR_TICKS, xlab: (i) => `${String(Math.round(i)).padStart(2, '0')}:00`,
-    failSub: 'rolling 24 h', verdictSub: 'last 24 h', heatSub: 'by hour · 7 days', opsSub: 'counters · 24 h',
+    failSub: 'rolling 24 h', verdictSub: 'last 24 h', heatSub: 'by hour · 7 days',
     vol: 1, smooth: 0, fail: 1, heat: 1.05, verdicts: 0.16, pool: 0.86, ops: 0.22,
   },
   '7d': {
     word: 'last 7 days', unit: '7 d', prev: 'vs last week',
     ticks: [0, 4, 8, 12, 16, 20, 23], xlab: (i) => DAYS[Math.round((i / (N - 1)) * 6)],
-    failSub: 'rolling 7 days', verdictSub: 'this week', heatSub: 'by hour · 7 days', opsSub: 'counters · 7 d',
+    failSub: 'rolling 7 days', verdictSub: 'this week', heatSub: 'by hour · 7 days',
     vol: 1.17, smooth: 0.45, fail: 0.88, heat: 1, verdicts: 1, pool: 1, ops: 1,
   },
   '30d': {
     word: 'last 30 days', unit: '30 d', prev: 'vs last month',
     ticks: d3ticks(0, 30, 3).slice().reverse().map(idxForDaysAgo),
     xlab: (i) => i >= N - 1 ? 'now' : `−${Math.round((1 - i / (N - 1)) * 30)} d`,
-    failSub: 'rolling 30 days', verdictSub: 'this month', heatSub: 'by hour · weekday mean', opsSub: 'counters · 30 d',
+    failSub: 'rolling 30 days', verdictSub: 'this month', heatSub: 'by hour · weekday mean',
     vol: 1.33, smooth: 0.7, fail: 0.79, heat: 0.9, verdicts: 4.1, pool: 1.12, ops: 3.6,
   },
 }
@@ -259,13 +263,10 @@ const TILE_DEFS = [
   },
 ]
 
-const OPS_ROWS = [
-  ['Truncations resumed', 'continuation, never completion'],
-  ['Model-floor refusals', 'downgrade = refusal'],
-  ['Ledger gates open', 'deadlines never override'],
-  ['Preflights run', 'before work, not after'],
-  ['Territory collisions', 'claims held'],
-]
+/* The Discipline counters card is retired with the unboxed redesign: the
+   supporting-instrument row is heat · verdicts · failure-by-lane, and the
+   two counters the stat strip already carries (checkpoints, gate blocks)
+   keep their R.ops scaling below. */
 
 /* ================================================================== */
 
@@ -332,60 +333,54 @@ export function metricsView() {
           <span class="mf-label">Machine</span>
           ${pillGroup('machine', MACHINES, 'Machine')}
           <span class="spacer"></span>
-          <span class="mf-note" id="mf-note">simulated fleet · <b>live</b></span>
+          <span class="mf-note" id="mf-note">simulated fleet · <i class="live-dot" aria-hidden="true"></i><b>live</b></span>
         </div>
-        <div class="m-row m-tiles" id="tiles"></div>
-        <div class="chart-card glass m-band" id="band-card">
-          <div class="chart-head"><span class="ct">Token flow</span><span class="cs" id="tokens-sub">last 24 h · thousands</span>
+        <div class="m-strip" id="tiles"></div>
+        <section class="m-sec m-sankey">
+          <div class="m-head"><span class="mt">Token routing</span><span class="ms" id="sankey-sub">pools → providers → roles</span></div>
+          <div class="echart" id="sankey-chart" role="img" aria-label="Token routing from account pools through providers to agent roles"></div>
+        </section>
+        <section class="m-sec m-band">
+          <div class="m-head"><span class="mt">Token flow</span><span class="ms" id="tokens-sub">last 24 h · thousands</span>
             <span class="spacer"></span>
             <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
           </div>
-          <div class="chart-body echart" id="hero-chart" role="img" aria-label="Token flow by provider, stacked area with zoom"></div>
+          <div class="echart" id="hero-chart" role="img" aria-label="Token flow by provider, solid stacked bands with wheel zoom"></div>
           <div class="band-cap"><span>failure %</span><span class="bc-note">same window · crosshair synced</span></div>
-          <div class="chart-body echart" id="strip-chart" role="img" aria-label="Failure percent over the same time axis"></div>
-        </div>
-        <div class="m-row m-charts2">
-          <div class="chart-card glass" id="sankey-card">
-            <div class="chart-head"><span class="ct">Token routing</span><span class="cs" id="sankey-sub">pools → providers → roles</span></div>
-            <div class="chart-body echart" id="sankey-chart" role="img" aria-label="Token routing from account pools through providers to agent roles"></div>
-          </div>
-          <div class="chart-card glass" id="fail-card">
-            <div class="chart-head"><span class="ct">Failure rate by lane</span><span class="cs" id="fail-sub">rolling 24 h</span>
-              <span class="spacer"></span>
-              <span class="chart-legend">
-                <span class="ck" style="--kc:var(--s-good)"><i></i>&lt; 2%</span>
-                <span class="ck" style="--kc:var(--s-warn)"><i></i>2–5%</span>
-                <span class="ck" style="--kc:var(--s-serious)"><i></i>&gt; 5%</span>
-              </span>
-            </div>
-            <div class="chart-body echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent — click a bar to filter the agent table"></div>
-          </div>
-        </div>
-        <div class="m-row m-charts3">
-          <div class="chart-card glass">
-            <div class="chart-head"><span class="ct">Fleet activity</span><span class="cs" id="heat-sub">by hour · 7 days</span>
+          <div class="echart" id="strip-chart" role="img" aria-label="Failure percent over the same time axis"></div>
+        </section>
+        <div class="m-row3">
+          <section class="m-sec">
+            <div class="m-head"><span class="mt">Fleet activity</span><span class="ms" id="heat-sub">by hour · 7 days</span>
               <span class="spacer"></span>
               <span class="heat-key" id="heat-key"></span>
             </div>
-            <div class="chart-body echart" id="heat-chart" role="img" aria-label="Fleet activity heatmap"></div>
-          </div>
-          <div class="chart-card glass">
-            <div class="chart-head"><span class="ct">Review verdicts</span><span class="cs" id="verdict-sub">this week</span></div>
-            <div class="chart-body" id="verdict-chart"></div>
-          </div>
-          <div class="chart-card glass" id="ops-card">
-            <div class="chart-head"><span class="ct">Discipline</span><span class="cs" id="ops-sub">counters</span></div>
-            <div class="chart-body" id="ops-body"></div>
-          </div>
+            <div class="echart" id="heat-chart" role="img" aria-label="Fleet activity heatmap"></div>
+          </section>
+          <section class="m-sec">
+            <div class="m-head"><span class="mt">Review verdicts</span><span class="ms" id="verdict-sub">this week</span></div>
+            <div id="verdict-chart"></div>
+          </section>
+          <section class="m-sec">
+            <div class="m-head"><span class="mt">Failure by lane</span><span class="ms" id="fail-sub">rolling 24 h</span>
+              <span class="spacer"></span>
+              <span class="chart-legend">
+                <span class="ck" style="--kc:var(--sev-good)"><i></i>&lt; 2%</span>
+                <span class="ck" style="--kc:var(--sev-warn)"><i></i>2–5%</span>
+                <span class="ck" style="--kc:var(--sev-serious)"><i></i>&gt; 5%</span>
+              </span>
+            </div>
+            <div class="echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent — click a bar to filter the agent table"></div>
+          </section>
         </div>
         <div class="m-row m-pools" id="pools"></div>
-        <div class="chart-card glass">
-          <div class="chart-head"><span class="ct">Agents</span><span class="cs" id="table-sub">all machines · live</span>
+        <section class="m-sec m-agents">
+          <div class="m-head"><span class="mt">Agents</span><span class="ms" id="table-sub">all machines · live</span>
             <span class="spacer"></span>
             <button type="button" class="lane-clear" id="lane-clear" hidden></button>
           </div>
           <div style="overflow-x:auto"><table class="mtable" id="agent-table"></table></div>
-        </div>
+        </section>
       </div>
     </div>
   `)
@@ -415,7 +410,9 @@ export function metricsView() {
     // (round the peak up to a multiple of 50, then cut it in four) printed
     // labels that were NOT the gridline's value whenever tokMax/50 was odd —
     // e.g. peak 42 rendered "0,13,25,38,50" for true stops 0,12.5,25,37.5,50.
-    const tokTicks = d3ticks(0, Math.max(50, peak * 1.06), 5)
+    // Count 4, not 5: the redesign holds the hero to at most ~5 printed
+    // y labels (screenshot-measured: 5 landed 8 lines at a 350 peak).
+    const tokTicks = d3ticks(0, Math.max(50, peak * 1.06), 4)
     // The axis ceiling is the next STEP MULTIPLE above the padded peak, not
     // the raw padded peak: the engine labels its axis max, so a non-multiple
     // ceiling printed the float itself (measured: "332.4637058685107") where
@@ -464,15 +461,8 @@ export function metricsView() {
       clamp(1, 99, m.spend.uniPct * pf * (state.range === '30d' ? 1.7 : 1)),
     ]
 
-    /* discipline counters */
+    /* the ops scale still feeds two stat-strip counters below */
     const os = R.ops * M.share
-    const ops = [
-      m.truncations * os,
-      m.modelFloorRefusals * os,
-      state.machine === 'all' ? 4 : 2,
-      96 * os,
-      0,
-    ]
 
     const comps = machineComputers()
     const agents = comps.reduce((s, c) => s + c.agents.length, 0)
@@ -505,7 +495,7 @@ export function metricsView() {
 
     return {
       tokens, tokMax, tokTicks, tokTotal, fail, failSeries, heat, verdicts,
-      pools, ops, tiles, spark, sankey: buildSankey(tokens, pools),
+      pools, tiles, spark, sankey: buildSankey(tokens, pools),
     }
   }
 
@@ -603,7 +593,6 @@ export function metricsView() {
     return {
       verdicts: obj(a.verdicts, b.verdicts),
       pools: arr(a.pools, b.pools),
-      ops: arr(a.ops, b.ops),
       tiles: obj(a.tiles, b.tiles),
       spark: Object.fromEntries(Object.keys(a.spark).map(k => [k, arr(a.spark[k], b.spark[k])])),
     }
@@ -622,9 +611,12 @@ export function metricsView() {
   function buildTiles() {
     tilesEl.innerHTML = ''
     for (const t of TILE_DEFS) {
+      /* a bare figure, not a card: 11px caps label above, big tabular value,
+         the measured delta line, the sparkline glyph under — no box, no
+         fill, no bullet dot (the label already identifies the figure) */
       const tile = el(`
-        <div class="tile glass" style="--tc:${TILE_MARK}" data-tile="${t.id}">
-          <div class="tl"><i></i>${t.l}</div>
+        <div class="stat" data-tile="${t.id}">
+          <div class="tl">${t.l}</div>
           <div class="tv"><span class="tvn">—</span><span class="unit"></span></div>
           <div class="td flat"></div>
         </div>
@@ -794,7 +786,7 @@ export function metricsView() {
          neutral --pool-accent and the collision is gone by construction.
          The fill is scaleX, not width: see .metrics .meter .mf. */
       const card = el(`
-        <div class="pool glass" style="--pc:var(--pool-accent)">
+        <div class="pool" style="--pc:var(--pool-accent)">
           <div class="pool-head"><span class="pn">${p.id}</span><span class="pt">${p.kind}</span></div>
           <div class="pool-sub">${p.desc}</div>
           <div class="meter"><div class="mf" style="transform:scaleX(0)"></div></div>
@@ -898,9 +890,9 @@ export function metricsView() {
      `tone` names the theme-snapshot key the engine paints the segment with —
      same status token, two consumers. */
   const VSEGS = [
-    { k: 'Accept', key: 'accept', c: 'var(--s-good)', tone: 'good' },
-    { k: 'Retry', key: 'retry', c: 'var(--s-warn)', tone: 'warn' },
-    { k: 'Reject', key: 'reject', c: 'var(--s-serious)', tone: 'serious' },
+    { k: 'Accept', key: 'accept', c: 'var(--sev-good)', tone: 'good' },
+    { k: 'Retry', key: 'retry', c: 'var(--sev-warn)', tone: 'warn' },
+    { k: 'Reject', key: 'reject', c: 'var(--sev-serious)', tone: 'serious' },
   ]
   const verdict = { vals: [], pcts: [] }
 
@@ -980,33 +972,6 @@ export function metricsView() {
     verdict.rrd.textContent = Math.abs(dRr) < 0.005 ? `level ${R.prev}` : `${signed(dRr, 2)} ${R.prev}`
     verdict.rej.textContent = Math.round(v.reject).toLocaleString('en-US')
     verdict.rejd.textContent = dRej === 0 ? `level ${R.prev}` : `${signed(dRej)} ${R.prev}`
-  }
-
-  /* ================= discipline counters ================= */
-
-  const opsRefs = []
-
-  /* The sub-caption is --ink-25, not --ink-4: it carries the row's meaning
-     ("continuation, never completion" is what makes 'Truncations resumed' a
-     discipline rather than a count), and styles.css documents --ink-4 as
-     decoration only — it measured 3.19:1 on white, below the text floor. */
-  function buildOps() {
-    const host = root.querySelector('#ops-body')
-    host.innerHTML = ''
-    for (const [l, s] of OPS_ROWS) {
-      const row = el(`
-        <div style="display:flex;align-items:baseline;justify-content:space-between;padding:7px 2px;border-bottom:1px solid var(--line)">
-          <div><div style="font-size:12.5px;font-weight:570;color:var(--ink-2)">${l}</div>
-          <div style="font-size:12.5px;color:var(--ink-25)">${s}</div></div>
-          <div class="opv" style="font-size:20px;font-weight:650;font-variant-numeric:tabular-nums">0</div>
-        </div>`)
-      host.appendChild(row)
-      opsRefs.push(row.querySelector('.opv'))
-    }
-  }
-
-  function applyOps(d) {
-    opsRefs.forEach((elm, i) => { elm.textContent = String(Math.round(d.ops[i])) })
   }
 
   /* ================= agent table (sortable + FLIP) ================= */
@@ -1185,14 +1150,16 @@ export function metricsView() {
 
   function applyChrome() {
     const R = meta()
-    root.querySelector('#tokens-sub').textContent = `${R.word} · thousands${machineSuffix()}`
+    /* the zoom hint lives in words because the slider chrome is gone —
+       wheel/drag inside the plot is the only zoom, and an instrument
+       states its controls instead of hiding them */
+    root.querySelector('#tokens-sub').textContent = `${R.word} · thousands${machineSuffix()} · wheel to zoom`
     root.querySelector('#sankey-sub').textContent = `pools → providers → roles · ${R.word}${machineSuffix()}`
     root.querySelector('#fail-sub').textContent = `${R.failSub}${machineSuffix()}`
     root.querySelector('#heat-sub').textContent = `${R.heatSub}${machineSuffix()}`
     root.querySelector('#verdict-sub').textContent = `${R.verdictSub}${machineSuffix()}`
-    root.querySelector('#ops-sub').textContent = R.opsSub
     root.querySelector('#table-sub').textContent = `${machineName()} · live`
-    root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <b>live</b>`
+    root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <i class="live-dot" aria-hidden="true"></i><b>live</b>`
     applyTileDeltas(target)
     /* the token chart's x-axis language (00:00 / weekday / −N d) rides the
        chart update itself now — retarget() re-issues options with R in them */
@@ -1203,7 +1170,7 @@ export function metricsView() {
   let rafId = 0
 
   function applyAll(d) {
-    applyTiles(d); applyPools(d); applyVerdicts(d); applyOps(d)
+    applyTiles(d); applyPools(d); applyVerdicts(d)
   }
 
   function tweenTo(next, dur) {
@@ -1306,7 +1273,6 @@ export function metricsView() {
       ...d,
       verdicts: { accept: 1, retry: 1, reject: 1 },
       pools: d.pools.map(() => 0),
-      ops: d.ops.map(() => 0),
       tiles: Object.fromEntries(Object.keys(d.tiles).map(k => [k, 0])),
       spark: Object.fromEntries(Object.keys(d.spark).map(k => [k, d.spark[k].map(() => 0.01)])),
     }
@@ -1335,7 +1301,7 @@ export function metricsView() {
 
   let bootRaf = requestAnimationFrame(() => {
     bootRaf = 0
-    buildVerdicts(); buildOps(); buildTable()
+    buildVerdicts(); buildTable()
     theme = buildTheme(root.querySelector('.metrics'))
     charts = createCharts({
       hosts: {

@@ -1,120 +1,117 @@
 /* ============================================================
-   METRICS INTERACTIVITY (lane T4)
-   Filter row · tweened charts · count-up tiles · sortable table
-   Additive only — no existing class is redefined destructively.
+   METRICS — Swiss instrument panel, unboxed.
+   One column, hairlines and whitespace do all separation. The only
+   glass left on this page is the transient tooltip overlay. Layout
+   bands (top to bottom): filter row · bare stat strip · sankey hero ·
+   token-flow band + synced failure strip · three supporting
+   instruments · pools · agent table.
+   Type tiers (site doctrine): 11px caps micro-labels only ·
+   12.5px interface/data labels · 13px+ reading text.
    ============================================================ */
 
 /* ------------------------------------------------------------
-   C6 polish pass — type floor + neon restraint.
-   Base rules for .tile/.pool/.chart-head/.mtable/.tooltip live in
-   the shared src/styles.css (another lane's territory this wave),
-   so their type-floor bumps are overridden here with a `.metrics`
-   ancestor prefix — strictly higher specificity than the base
-   selector, so it wins regardless of stylesheet load order without
-   touching the file. Chart SVG paddings/font sizes are handled in
-   metrics.js next to the geometry they belong to.
-   ------------------------------------------------------------ */
+   THE PALETTE — IBM Carbon (from @carbon/colors), applied as the
+   page's downloaded skin. Three families, each re-stepped per theme
+   here so the DOM legend chips, the sankey nodes, every engine chart
+   (via the buildTheme() snapshot, which reads THESE scoped values off
+   the mounted .metrics element) and the table's fail column all move
+   together on a theme flip.
 
-/* ------------------------------------------------------------
-   PROVIDER SERIES PALETTE — scoped to .metrics on purpose.
-
-   The research finding: one palette was doing THREE jobs at once. The four
-   PROVIDER series in the token chart, the six ROLE dots in the agent table,
-   and the three account POOLS all drew from the same five hexes in
-   src/vocab.js, so a cyan band in the stacked area and a cyan dot in the
-   table below implied a relationship that does not exist. Colour must
-   follow one entity, never three.
-
-   Roles keep the saturated set (they are the shell's identity system and are
-   shared by every view). Providers move here, to a MUTED categorical set —
-   lower chroma, wider lightness spread, and four hue families the role
-   palette does not occupy (plum 332, moss 128, brick 28, indigo 302 vs the
-   roles' cyan 227 / orange 53 / mint 165 / blue 268 / yellow 84).
-
-   Values are computed, not eyeballed — validated with the dataviz palette
-   validator against every theme surface. The surfaces are the PAGE
-   backgrounds, not --sheet: the flat-background pass means a chart card
-   composites to --bg exactly, so a card is #f7f8fa / #f2e5bc / #0d0f12 and
-   the earlier #ffffff / #fbf1c7 / #14171b claim was validating a surface
-   that is no longer painted. Re-measured stroke contrast on the real one:
-     white #f7f8fa  codex 4.86 · claude 3.32 · gemini 7.13 · local 3.37
-     tan   #f2e5bc  codex 4.11 · claude 3.91 · gemini 6.02 · local 4.11
-     black #0d0f12  codex 3.70 · claude 6.26 · gemini 3.48 · local 5.89
-   The tan theme needed its own step for claude and local — on #f2e5bc the
-   light values measured 2.81 and 2.85, under the 3:1 non-text floor, and
-   they are the two topmost 2px strokes in the stack (read against the sky,
-   not against a neighbouring band). Nearest role hue is ΔE 11.3–20.9 away in
-   every theme, so no provider band can be mistaken for a role dot.
-
-   Scoped to .metrics rather than added to src/styles.css because that file
-   belongs to another lane this wave.
+     categorical (providers)  purple/cyan/teal/magenta — Codex, Claude,
+                              Gemini, Local in that order. Light set on
+                              white AND tan; dark set on black. These
+                              hexes are the skin: they render EXACTLY
+                              (no filters, no alpha desaturation) as
+                              solid band fills, sankey provider nodes
+                              and legend chips.
+     alert (severity marks)   --sev-* : chart fills, strip pieces,
+                              legend dots, verdict segments.
+     alert (severity text)    --s-* re-steps: the fail column's 13px
+                              numbers and the delta rows need 4.5:1 as
+                              TEXT, which Carbon's light warning yellow
+                              (#f1c21b, 1.66:1 on white — measured)
+                              cannot give, so text takes darker steps
+                              of the SAME Carbon families. On black the
+                              mark hues already clear 4.5:1 and text
+                              uses them verbatim.
+     sequential (heat)        Carbon blue ramp; black inverts lightness
+                              so low activity = dim.
    ------------------------------------------------------------ */
 .metrics {
-  --prov-codex:  #98568f;   /* plum   L .550 C .115 h 332 */
-  --prov-claude: #719340;   /* moss   L .619 C .118 h 128 */
-  --prov-gemini: #90372f;   /* brick  L .460 C .122 h  28 */
-  --prov-local:  #9779c5;   /* indigo L .635 C .115 h 301 */
+  /* categorical — Carbon light: purple70 cyan50 teal70 magenta70 */
+  --prov-codex:  #6929c4;
+  --prov-claude: #1192e8;
+  --prov-gemini: #005d5d;
+  --prov-local:  #9f1853;
 
-  /* Stacked-area fill alphas, band 0 (baseline) → band 3 (top).
-     Four identical washes at 0.1 muddied every boundary; a descending ramp
-     gives the stack an implied light direction and keeps the band that is
-     read against the axis the most substantial one.
-     CONSUMED BY JS now (echarts-theme.js buildTheme): each alpha is the top
-     stop of that band's vertical fade-to-transparent gradient. They stay CSS
-     custom properties so the black theme's re-step below keeps working. */
-  --area-a0: 0.30;
-  --area-a1: 0.22;
-  --area-a2: 0.16;
-  --area-a3: 0.11;
+  /* severity marks — Carbon alert, light. green60 / yellow50 / red60.
+     yellow30 #f1c21b measured 1.66:1 on the white page — a warn strip
+     piece drawn in it reads as a gap in the line, so the mark takes the
+     darkest yellow that still reads as yellow (yellow50, 3.1:1 — the
+     3:1 non-text floor). Deviation from the brief hex, measured. */
+  --sev-good:    #198038;
+  --sev-warn:    #b28600;
+  --sev-serious: #da1e28;
 
-  /* ---------- pool + tile accents: DELIBERATELY NOT CATEGORICAL ----------
-     Wave 1 split PROVIDERS off the role hexes but left POOLS and the tile
-     dots carrying them, so pool jpinckard21 (#00a9d8) was the Coordinator
-     dot, jpinckard95 (#3e63f0) the Manager and jpinc005 (#00bd8a) the Shadow
-     Manager — the same three hexes, ~500 px apart in one scroll. The tile
-     row was worse: six dots off five role hexes, two of them ('Tasks closed'
-     and 'Checkpoints') the SAME hex, so colour did not identify even within
-     the row it lived in.
+  /* severity text — same families at text-safe steps (white page:
+     5.05 / 4.67 / 5.02) */
+  --s-good:    #198038;
+  --s-warn:    #8e6a00;   /* yellow60 */
+  --s-serious: #da1e28;
 
-     A fourth categorical set was not the answer — roles, providers, verdict
-     statuses, failure severities and the heat ramp already spend this page's
-     colour budget. Neither dimension needs a hue: every pool card is
-     labelled with its mono account name plus a kind badge, and every tile
-     carries its own text label. So both resolve to ONE neutral and the
-     collision disappears by construction rather than by re-tuning.
+  /* sequential — Carbon blue20→blue80 (6 stops of the published ramp) */
+  --heat-0: #d0e2ff;
+  --heat-1: #a6c8ff;
+  --heat-2: #78a9ff;
+  --heat-3: #4589ff;
+  --heat-4: #0f62fe;
+  --heat-5: #002d9c;
 
-     --pool-accent is a fixed slate on every theme on purpose: the meter
-     track is color-mix(--pc 12%, white) in styles.css, i.e. light on ALL
-     themes, so a theme-flipping ink would leave a pale fill in a pale track
-     on black. 3.15:1 fill-vs-track, 7.6:1 badge text. --tile-mark sits on
-     the card and does flip, so it takes the ink ramp. */
+  /* pools + stat marks stay deliberately NON-categorical (one neutral):
+     pools are identified by their mono account name + kind badge, stats
+     by their own label — neither spends a hue, so the categorical set
+     above stays unambiguous. --pool-accent is a fixed slate (the meter
+     badge mixes it toward --sheet per theme); --tile-mark rides ink. */
   --pool-accent: #5c6b7a;
   --tile-mark: var(--ink-2);
 }
-:root[data-theme="black"] .metrics {
-  --prov-codex:  #9b5392;   /* dark-band steps: re-selected against #14171b, */
-  --prov-claude: #7f9e37;   /* not an automatic lightening of the light set  */
-  --prov-gemini: #ac4a41;
-  --prov-local:  #9f80cd;
-  --area-a0: 0.26;
-  --area-a1: 0.19;
-  --area-a2: 0.14;
-  --area-a3: 0.10;
-}
-/* tan re-steps only the two strokes that failed on #f2e5bc; codex and gemini
-   already clear the floor there and stay on the light values so the four
-   series keep one family across themes. 3.91 (claude) and 4.11 (local). */
+/* tan: same Carbon light categorical + marks (the brief's light set
+   serves white AND tan); only TEXT severity steps down one Carbon step
+   so 13px numbers clear 4.5:1 on #f2e5bc (green70/yellow70/red70:
+   6.15 / 6.24 / 6.19 measured) */
 :root[data-theme="tan"] .metrics {
-  --prov-claude: #5c7a2b;
-  --prov-local:  #7c5fa9;
+  --s-good:    #0e6027;
+  --s-warn:    #684e00;
+  --s-serious: #a2191f;
+}
+/* black: Carbon dark categorical (purple40 cyan40 teal40 magenta40),
+   dark alert marks (green40 / yellow30 / red50 — all ≥5.6:1 on #0d0f12,
+   so text uses the mark hues verbatim), lightness-inverted blue ramp */
+:root[data-theme="black"] .metrics {
+  --prov-codex:  #a56eff;
+  --prov-claude: #33b1ff;
+  --prov-gemini: #08bdba;
+  --prov-local:  #ff7eb6;
+
+  --sev-good:    #42be65;
+  --sev-warn:    #f1c21b;
+  --sev-serious: #fa4d56;
+  --s-good:      #42be65;
+  --s-warn:      #f1c21b;
+  --s-serious:   #fa4d56;
+
+  --heat-0: #002d9c;
+  --heat-1: #0043ce;
+  --heat-2: #0f62fe;
+  --heat-3: #4589ff;
+  --heat-4: #78a9ff;
+  --heat-5: #a6c8ff;
 }
 
 /* ---------- filter row: bare controls over one hairline ----------
-   Was a glass card. The home page's language — text floating on the page,
-   hairline rules instead of boxes — applies exactly here: two labels, two
-   segs and a status note need no box of their own directly under the bare
-   topbar. The hairline keeps the row reading as a unit and spans the full
-   page column, which is what ties it to that column's edges. */
+   Two labels, two segs and a status note floating on the page; the
+   hairline ties the row to the column's edges. (The seg skin itself is
+   the shared styles.css control — untouched.) */
 .m-filter {
   display: flex;
   align-items: center;
@@ -123,13 +120,6 @@
   padding: 2px 2px 12px;
   border-bottom: 1px solid var(--line-2);
 }
-/* --ink-4 is documented in styles.css as DECORATION ONLY — separators and
-   off-state marks, never a fact on its own — and measures 3.19 (white) /
-   3.87 (tan) / 4.05 (black) against the composited card. Everything below
-   is informational text at 12.5px: the filter's own labels, the status note,
-   the heat key's low/high (the only thing saying which end of the ramp is
-   busy), and the verdict hero's caption. They take --ink-25, the token whose
-   documented job is exactly this tier: 5.38 / 7.02 / 8.43. */
 .m-filter .mf-label {
   font-size: 12.5px;
   letter-spacing: 0.12em;
@@ -152,34 +142,68 @@
   white-space: nowrap;
 }
 .m-filter .mf-note b { color: var(--ink-3); font-weight: 600; }
+/* the page's one ambient accent: a tiny dot breathing beside `live` —
+   opacity only (composited), stilled under reduced motion */
+.m-filter .live-dot {
+  display: inline-block;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--sev-good);
+  margin-right: 5px;
+  vertical-align: 1px;
+  animation: liveBreathe 2.8s ease-in-out infinite;
+}
+@keyframes liveBreathe { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
-/* The range/machine pills are the shared .seg control now (styles.css) —
-   trough, indicator, label colours (--ink-25 → --ink) and the site focus
-   recipe all come from there; .pill-group / .pill remain in the markup only
-   as this view's click-delegation hooks. */
+/* ---------- band 1: bare stat strip ----------
+   Six figures floating in one row — no boxes, no fills. 11px caps label
+   above, ~32px tabular value, the measured 12.5px delta line, the
+   shared sparkline glyph under. One full-column hairline closes the
+   strip. */
+.m-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--s4) 24px;
+  padding: 6px 2px 22px;
+  border-bottom: 1px solid var(--line-2);
+}
+/* six factors as 3+3 below the width where one row of six gets cramped */
+@media (max-width: 1100px) {
+  .m-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.stat { min-width: 0; }
+.stat .tl {
+  font-size: 11px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+  font-weight: 650;
+  margin-bottom: 9px;
+  white-space: nowrap;
+}
+.stat .tv {
+  display: flex; align-items: baseline; gap: 7px;
+  font-size: 32px; font-weight: 640; line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: color .3s var(--ease);
+}
+.stat .tv .unit {
+  font-size: 12.5px; color: var(--ink-25); font-weight: 550;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stat .td { margin-top: 7px; font-size: 12.5px; font-weight: 640; transition: color .3s var(--ease); }
+.stat .td.up { color: var(--s-good); }
+.stat .td.down { color: var(--s-serious); }
+.stat .td.flat { color: var(--ink-3); font-weight: 550; }
+.stat .spark { margin-top: 7px; display: block; }
 
-/* ---------- tiles: count-up bump + sparkline end-point pulse ---------- */
-.tile .tv { transition: color .3s var(--ease); }
-.tile .tv.bump { animation: tvBump .52s var(--ease-spring); }
+/* count-up bump + sparkline end-point pulse (state marks, one-shot) */
+.stat .tv.bump { animation: tvBump .52s var(--ease-spring); }
 @keyframes tvBump {
   0%   { transform: none; }
   32%  { transform: translateY(-2px) scale(1.045); }
   100% { transform: none; }
 }
-.tile .td { transition: color .3s var(--ease); }
-
-/* The halo is a STATE MARK, not a resting decoration.
-   It used to run `sparkBreath` — an infinite transform: scale() keyframe on
-   four SVG <circle>s. SVG transforms are not composited in Chromium, so each
-   of those frames re-laid-out the sparkline SVGs, permanently, at rest,
-   forever: cancelling only those four animations on an idle #/metrics took
-   CPU 25.5% -> 8.1%, layouts 54.3/s -> 11.2/s, layout time 44.1 -> 19.4
-   ms/s, p95 frame 27.7 -> 11.0 ms, and long frames (>=40 ms in 5 s) 8 -> 1.
-   It was also a permanent coloured pulse at rest, which the settled
-   direction rules out on its own — so it is gone rather than converted to
-   an opacity-only breath, and the resting opacity goes to 0 with it. What
-   remains is the one-shot .ping, fired only when a tile's value actually
-   moves: a genuine state moment. */
 .spark-halo {
   transform-box: fill-box;
   transform-origin: center;
@@ -192,66 +216,47 @@
   100% { transform: scale(3.2); opacity: 0; }
 }
 
-/* ---------- tiles: one baseline grid across the row ----------
-   'Agents live' is the only tile whose value suffix can wrap ('of 107
-   spawned'), and at 1280x800 it does: 27px instead of 14px, which pushed
-   that tile's delta row 10px and its sparkline 10px below the five tiles
-   beside it. Six boxes on one shared top edge, one of them laddering down,
-   reads as unfinished rather than as data. Reserve the second line so the
-   row cannot ladder whatever the copy or the digit count does — a fix in
-   the layout rather than in the wording, which would only hold until the
-   spawned count reached four digits. */
-.metrics .tile .tv .unit {
-  min-height: 27px;      /* two 13.5px lines — fallback for no `lh` support */
-  min-height: 2lh;
+/* ---------- bands: bare sections ----------
+   A band is a caps title + quiet sub floating over its chart. No card,
+   no fill, no border — the band's own whitespace separates it. */
+.m-sec { min-width: 0; }
+.m-head {
+  display: flex; align-items: baseline; gap: 10px;
+  flex-wrap: wrap; row-gap: 4px;
+  padding: 0 2px;
+  margin-bottom: 10px;
 }
-
-/* ---------- pool meters: hoverable ---------- */
-/* Composited fill, not an animated `width`.
-   styles.css tweens `.meter .mf` width for 1.2s and this view rewrites it on
-   every frame of every tween, so the quota meters ran a full layout per
-   frame — the same defect as .bar-fill on #/computers, where removing the
-   width transition took layout from 89.3/s to 23.8/s during a drag. The fill
-   is absolutely positioned inside an overflow:hidden track, so a left-origin
-   scaleX is a drop-in: the gradient already spanned the fill's own width, so
-   scaling it looks identical. transform is composited; width is not.
-   The duration is the .3s this view was already applying inline, not the
-   1.2s in styles.css: the value here is rewritten every frame by the tween
-   engine, so the transition is a damping filter on top of it, and 1.2s of
-   damping would leave the meter visibly trailing its own tween. */
-.metrics .meter .mf {
-  width: 100%;
-  transform-origin: left center;
-  transition: transform .3s var(--ease);
+.m-head .mt {
+  font-size: 11px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-weight: 660;
+  white-space: nowrap;
 }
-.pool .meter { cursor: default; transition: box-shadow .3s var(--ease); }
-.pool .meter:hover {
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--pc) 14%, transparent);
-}
+/* 13px, not 12.5: the sub is multi-word prose ("pools → providers →
+   roles · last 24 h"), which sits on the reading floor, not the
+   data-label tier */
+.m-head .ms { font-size: 13px; color: var(--ink-3); }
+.m-head .spacer { flex: 1; }
 
-/* ---------- engine-rendered charts ----------
-   All engine charts are ECharts instances (SVG renderer): CSS owns only the
-   CONTAINER — the engine fills whatever box it is given. The command band
-   and the sankey take FIXED heights (they are full-width/2-col heroes whose
-   reading depends on absolute plot room, not on card proportion); the
-   smaller plots keep their aspect-ratios. Text inside is real 12.5px at
-   every width. */
-.metrics #hero-chart { height: 300px; }     /* plot + axis labels + slider strip */
-.metrics #strip-chart { height: 80px; }
-.metrics #sankey-chart { height: 340px; }
-.metrics #fail-chart { aspect-ratio: 420 / 207; }
-.metrics #heat-chart { aspect-ratio: 476 / 152; }
+/* engine hosts — CSS owns the box, the engine fills it */
+.metrics #sankey-chart { height: 430px; }
+.metrics #hero-chart { height: 260px; }
+.metrics #strip-chart { height: 70px; }
+.metrics #heat-chart { height: 168px; }
+.metrics #fail-chart { height: 192px; }
+.metrics .echart svg { width: 100%; height: 100%; }
 
-/* the caption row between the band's two panes — the strip's entire header.
-   11px uppercase micro-label tier (a label, never a fact); the hairline
-   above it is what makes hero and strip read as two panes of ONE instrument
-   rather than two stacked cards. */
+/* the caption row between the band's two panes — 11px caps micro-label
+   tier; its hairline is what makes hero and strip read as two panes of
+   ONE instrument */
 .m-band .band-cap {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-top: 2px;
-  padding: 8px 2px 6px;
+  margin-top: 4px;
+  padding: 8px 2px 4px;
   border-top: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: var(--track-caps);
@@ -260,18 +265,18 @@
   font-weight: 640;
 }
 .m-band .band-cap .bc-note { font-weight: 550; letter-spacing: 0.06em; }
-/* the shared .chart-body svg rule says height:auto (right for the scaling
-   hand-rolled charts elsewhere); the engine sizes its own svg to the box,
-   so pin it to the box and let chart.resize() own the geometry */
-.metrics .echart svg { width: 100%; height: 100%; }
 
-/* ---------- verdict split: one 100% stacked bar + a hero total ----------
-   Replaced the donut. An arc solver spent ~40 lines of trigonometry to make
-   three numbers harder to compare than a bar does for free: angle is the
-   least accurately judged visual channel, and the ring pushed its own total
-   into a hole in the middle. Length on a common baseline is the accurate
-   channel, and the total gets to be what it actually is — a hero number. */
-.vwrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 10px 0 4px; }
+/* band 4: three bare instruments in one row, whitespace-separated */
+.m-row3 {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  gap: var(--s4) 44px;
+  align-items: start;
+}
+@media (max-width: 1000px) { .m-row3 { grid-template-columns: 1fr; } }
+
+/* ---------- verdict split: hero total + one 100% stacked bar ---------- */
+.vwrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 6px 0 4px; }
 .vhero { flex: none; }
 .vhero .vh-n {
   font-size: 34px; font-weight: 660; line-height: 1;
@@ -279,14 +284,10 @@
 }
 .vhero .vh-l {
   margin-top: 5px;
-  font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--ink-25); font-weight: 600;
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 650;
 }
 .vsplit { flex: 1 1 180px; min-width: 0; }
-/* No track behind it: a 100% stacked bar has no empty remainder, so the 2px
-   inter-segment gaps read as bare surface rather than a second grey. The
-   segments are engine-drawn now (metrics-charts.js verdictOption) — this box
-   just holds the 22px lane the bar has always occupied. */
 .vbar { position: relative; height: 22px; }
 .vlegend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 11px; }
 .vlegend .vk {
@@ -297,9 +298,7 @@
 .vlegend .vk b { font-weight: 640; color: var(--ink); font-variant-numeric: tabular-nums; }
 .vlegend .vk em { font-style: normal; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
-/* verdict footer — the home concept applied INSIDE a card: one hairline,
-   bare label/value rows, no sub-boxes. Fills the height the card previously
-   spent on blank glass with rates the bar cannot encode directly. */
+/* verdict footer — hairline + bare label/value rows, measured deltas */
 .vfoot {
   margin-top: 14px;
   border-top: 1px solid var(--line);
@@ -330,12 +329,12 @@
   box-shadow: inset 0 0 0 1px rgba(14, 23, 38, 0.04);
 }
 
+/* severity + provider legend chips ride the shared .chart-legend skin */
+.metrics .chart-legend { font-size: 12.5px; }
+
 /* ---------- engine tooltip skin (.mtip) ----------
-   The ECharts tooltip container is stripped to transparent (metrics-charts
-   tipBase) and the formatter wraps its content in .mtip, so the skin is one
-   CSS rule that follows the theme through the cascade — same recipe as the
-   shared .tooltip in styles.css (3px radius, the glass surface, the shadow
-   token, 13px ink-2). It is appended to <body>, hence no .metrics prefix. */
+   The one glass survivor: a transient overlay, not a page surface.
+   Appended to <body>, hence no .metrics prefix. */
 .mtip {
   padding: var(--s2) var(--s3);
   border-radius: 3px;
@@ -352,28 +351,62 @@
   font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
   color: var(--ink-25); font-weight: 640; margin-bottom: var(--s1);
 }
-/* the crosshair tooltip lists four providers + a total: the total row takes
-   a hairline so the sum reads as a sum, not a fifth series */
 .mtip .tt-total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
-
-/* tooltip series keys — colour lives in the swatch, text stays on ink
-   (.tooltip = the pool meters' hand-rolled tip; .mtip = the engine's) */
 .tooltip .tt-row, .mtip .tt-row { display: flex; align-items: center; gap: 6px; line-height: 1.65; }
 .tooltip .tt-row b, .mtip .tt-row b { margin-left: auto; padding-left: 10px; }
 .tooltip .tt-key, .mtip .tt-key {
   width: 7px; height: 7px; border-radius: 50%; flex: none; display: block;
 }
 
-/* ---------- sortable agent table ---------- */
+/* ---------- band 5: pools, three bare columns over one hairline ---------- */
+.metrics .m-pools {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s4) 44px;
+  border-top: 1px solid var(--line-2);
+  padding-top: 20px;
+}
+@media (max-width: 900px) { .metrics .m-pools { grid-template-columns: 1fr; } }
+.metrics .pool { padding: 0 2px; }
+/* thin 3px meter — a rule of colour, not a trough */
+.metrics .meter {
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--ink) 12%, transparent);
+  box-shadow: none;
+}
+.metrics .meter .mf {
+  width: 100%;
+  border-radius: 2px;
+  background: var(--pc);
+  transform-origin: left center;
+  transition: transform .3s var(--ease);
+}
+.pool .meter { cursor: default; transition: box-shadow .3s var(--ease); }
+.pool .meter:hover {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--pc) 14%, transparent);
+}
+/* type-floor restatements for pool text owned by styles.css */
+.metrics .pool-head .pt { font-size: 12.5px; padding: 4px 10px; }
+.metrics .pool-sub { font-size: 12.5px; }
+.metrics .meter-caption { font-size: 12.5px; }
+.metrics .pool-stat .l { font-size: 12.5px; }
+
+/* ---------- agent table, unboxed ----------
+   Hairline header rule (on the section head), hairline row rules at low
+   alpha from the shared .mtable skin. Hover is an ink tint so it reads
+   on the bare page of every theme. */
+.metrics .m-agents .m-head {
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 10px;
+  margin-bottom: 0;
+}
+.metrics .m-agents .mtable th { border-bottom: 1px solid var(--line); }
+.metrics .mtable tbody tr:hover { background: color-mix(in oklab, var(--ink) 3.5%, transparent); }
+.metrics .mtable th { font-size: 13px; padding: 9px 12px; }
+.metrics .mtable td { font-size: 13px; padding: 10px 12px; }
+
 .mtable th.sortable { cursor: pointer; user-select: none; transition: color .22s var(--ease); }
 .mtable th.sortable:hover { color: var(--ink-2); }
-/* Same ring, drawn as an INSET outline rather than the shared box-shadow:
-   these are cells in a border-collapse table inside an overflow-x:auto
-   scroller, so an outer ring on the first/last column would be clipped by
-   the scroller and an outer box-shadow has to fight the collapsed border
-   model. An outline ignores both, and outline-offset keeps it inside the
-   cell. Full strength, not the old 0.25 alpha. `color` stays as the
-   secondary cue it always was. */
 .mtable th.sortable:focus-visible {
   outline: 3px solid var(--focus-ring, #0079a8);
   outline-offset: -3px;
@@ -400,11 +433,8 @@
 .mtable tbody tr.row-hidden { display: none; }
 .mtable tbody tr.flip { position: relative; z-index: 1; }
 
-/* ---------- failure-lane filter state ----------
-   A filtered row is MARKED, not just a survivor of hiding: the tint plus a
-   2px inset left edge say "you are looking at a selection", so a narrowed
-   table cannot be mistaken for a small fleet. Neutral ink at 4% — the row's
-   own role/status colours keep doing the identifying. */
+/* failure-lane filter state: a filtered row is MARKED, not just a
+   survivor of hiding */
 .mtable tbody tr.lane-filtered td {
   background: color-mix(in oklab, var(--ink) 4%, transparent);
 }
@@ -412,8 +442,8 @@
   box-shadow: inset 2px 0 0 var(--ink-3);
 }
 
-/* the clear affordance in the table header: chip idiom, hairline border,
-   3px corners, 12.5px — quiet until hovered, like the sort headers */
+/* the clear affordance in the table header: chip idiom, hairline
+   border, 3px corners, quiet until hovered */
 .lane-clear {
   display: inline-flex;
   align-items: center;
@@ -437,39 +467,14 @@
   outline-offset: 1px;
 }
 
-/* ---------- C6: type floor for text owned by src/styles.css ----------
-   Chart text lives in the SVG markup itself (metrics.js, next to the chart
-   geometry it is sized against) and is now 12.5px throughout — the axis
-   ticks, hour labels and failure-lane names were an invented 11.5px, below
-   both the owner's 12.5px interface floor and the three-tier scale this
-   sheet's own header declares (11px uppercase micro-labels only / 12.5px
-   interface / 13px reading). These rules cover the labels/legends (>=12.5px)
-   and table cells (>=13px) tiers for elements whose base rule is in
-   styles.css. */
-.metrics .chart-head { flex-wrap: wrap; row-gap: 4px; }
-.metrics .chart-head .cs { font-size: 12.5px; }
-.metrics .chart-legend { font-size: 12.5px; }
-.metrics .tile .tl { font-size: 12.5px; }
-.metrics .tile .td { font-size: 12.5px; }
-.metrics .pool-head .pt { font-size: 12.5px; padding: 4px 10px; }
-.metrics .pool-sub { font-size: 12.5px; }
-.metrics .meter-caption { font-size: 12.5px; }
-.metrics .pool-stat .l { font-size: 12.5px; }
-.metrics .mtable th { font-size: 13px; padding: 9px 12px; }
-.metrics .mtable td { font-size: 13px; padding: 10px 12px; }
-/* body 13px — the multi-word prose floor, matching the styles.css base
-   (a 12.5 restatement here would silently undo that raise in this scope) */
+/* ---------- pool meter tooltip type floor ---------- */
 .metrics .tooltip { font-size: 13px; }
 .metrics .tooltip .tt-title { font-size: 12.5px; }
-
-/* professional-pass: the C6 overrides that used to live here (quieter dot/
-   meter glow) are gone along with the base box-shadows in styles.css —
-   .tile .tl i, .mtable .aname i, and .meter .mf are flat now, so there is
-   nothing left to override. */
 
 /* ---------- reduced motion ----------
    (the engine charts read the same gate in JS: reduced() sets
    animation:false / animationDurationUpdate:0 on every setOption) */
 body.reduce-motion .spark-halo,
 body.reduce-motion .spark-halo.ping { animation: none; opacity: 0; }
-body.reduce-motion .tile .tv.bump { animation: none; }
+body.reduce-motion .stat .tv.bump { animation: none; }
+body.reduce-motion .m-filter .live-dot { animation: none; opacity: 1; }

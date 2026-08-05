@@ -24,14 +24,15 @@
 
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, HeatmapChart, SankeyChart } from 'echarts/charts'
-// DataZoomComponent alone would install both interactions, but the two
-// sub-components are named explicitly so the tree-shaken registration reads
-// as the exact capability list this page uses — nothing arrives implicitly.
-// Legend/Title/Toolbox stay unregistered on purpose (the demo look cannot
-// physically leak in), same rule as day one.
+// The INSIDE zoom is the only zoom on the page now: the slider strip was
+// eliminated in the unboxed redesign (screenshots: even fully restyled it
+// read as library chrome pinned under the hero — a grey slab at rest,
+// because a full window means "everything selected"). Wheel/drag zooms;
+// the band's sub-caption says so in words. Legend/Title/Toolbox stay
+// unregistered on purpose (the demo look cannot physically leak in).
 import {
   GridComponent, TooltipComponent, VisualMapComponent,
-  DataZoomComponent, DataZoomInsideComponent, DataZoomSliderComponent,
+  DataZoomComponent, DataZoomInsideComponent,
 } from 'echarts/components'
 import { UniversalTransition } from 'echarts/features'
 import { SVGRenderer } from 'echarts/renderers'
@@ -41,7 +42,7 @@ import { withAlpha } from './echarts-theme.js'
 echarts.use([
   LineChart, BarChart, HeatmapChart, SankeyChart,
   GridComponent, TooltipComponent, VisualMapComponent,
-  DataZoomComponent, DataZoomInsideComponent, DataZoomSliderComponent,
+  DataZoomComponent, DataZoomInsideComponent,
   UniversalTransition, SVGRenderer,
 ])
 
@@ -113,11 +114,11 @@ function heroOption(P) {
   const tickSet = new Set(R.ticks.map(t => Math.round(t)))
   const step = d.tokTicks.length > 1 ? d.tokTicks[1] - d.tokTicks[0] : d.tokMax
   const len = N + live.length
+  const top = PROVIDERS.length - 1
   return {
     ...anim(P),
     backgroundColor: 'transparent',
-    // bottom clears the axis labels AND the 28px slider strip below them
-    grid: { left: BAND_L, right: BAND_R, top: 12, bottom: 64 },
+    grid: { left: BAND_L, right: BAND_R, top: 14, bottom: 28 },
     xAxis: {
       type: 'category', boundaryGap: false, data: bandCats(len),
       axisLine: { show: false }, axisTick: { show: false },
@@ -131,37 +132,9 @@ function heroOption(P) {
       splitLine: { lineStyle: { color: th.grid, width: 1 } },
       axisLabel: { ...axisText(th, th.ink3), margin: 8, formatter: (v) => String(v) },
     },
-    /* the zoom pair: wheel/drag inside the plot, plus a slim slider strip.
-       Every visible slider surface is restyled from the theme snapshot —
-       the engine's stock blue brush would be the loudest object on the page
-       and would out itself as a library default in one glance. */
-    dataZoom: [
-      { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
-      {
-        type: 'slider', xAxisIndex: 0, filterMode: 'none',
-        bottom: 6, height: 28, left: BAND_L, right: BAND_R,
-        borderRadius: 3,                       // the page's square-ish corner
-        showDetail: false, brushSelect: false, // no floating numbers, no brush
-        backgroundColor: 'transparent',
-        borderColor: th.grid,
-        /* washes at whisper strength: at the default full window the entire
-           strip is "selected", so filler + selected-shadow stack — anything
-           stronger reads as a grey slab pinned under the hero (measured on
-           the white theme) rather than as a quiet instrument */
-        fillerColor: withAlpha(th.ink, 0.035),
-        dataBackground: {
-          lineStyle: { color: th.ink3, width: 1, opacity: 0.3 },
-          areaStyle: { color: th.ink3, opacity: 0.05 },
-        },
-        selectedDataBackground: {
-          lineStyle: { color: th.ink2, width: 1, opacity: 0.5 },
-          areaStyle: { color: th.ink2, opacity: 0.09 },
-        },
-        handleStyle: { color: th.sheet, borderColor: th.ink3, borderWidth: 1 },
-        moveHandleSize: 0,                     // no fat grab-bar above the strip
-        emphasis: { handleStyle: { borderColor: th.ink } },
-      },
-    ],
+    // wheel/drag zoom only — the slider strip is gone (see the import note);
+    // connect() mirrors this window into the failure strip below
+    dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
     tooltip: {
       ...tipBase(), trigger: 'axis',
       axisPointer: { type: 'line', lineStyle: { color: th.cross, width: 1, type: 'solid' } },
@@ -175,28 +148,32 @@ function heroOption(P) {
         return mtip(`<div class="tt-title">${bandLabel(R, i)}</div>${rows}<div class="tt-row tt-total">Total <b>${Math.round(total)}k</b></div>`)
       },
     },
+    /* TRUE stacked bands, rebuilt from zero (owner verdict on the old one:
+       four independent translucent areas pouring to baseline = mud). Every
+       band is a SOLID Carbon categorical fill — bands physically cannot
+       overlap, so no boundary can muddy. A 1.5px --bg seam rides each
+       band's top line: the page's own colour drawn between fills, which is
+       what makes four saturated hues read as machined parts rather than a
+       poster. The topmost band's line carries the page's one new glow —
+       a ≤8px same-hue breath kept under 0.35 alpha. */
     series: PROVIDERS.map((p, bi) => ({
       id: p.id, name: p.label, type: 'line', stack: 'tok',
       data: d.tokens[p.id].map(v => +v.toFixed(2)).concat(live.map(e => +e.tok[p.id].toFixed(2))),
-      symbol: 'none', smooth: false,
+      symbol: 'none', smooth: 0.25,
       color: th.prov[p.id],
-      lineStyle: { width: 2, color: th.prov[p.id], join: 'round' },
-      // per-band vertical fade to transparent at the band's own base — the
-      // top alpha is the same --area-a0..a3 ramp the SVG polygons wore
-      areaStyle: {
-        color: {
-          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: withAlpha(th.prov[p.id], th.areaAlpha[bi]) },
-            { offset: 1, color: withAlpha(th.prov[p.id], 0) },
-          ],
-        },
-      },
+      z: 2 + bi,
+      lineStyle: bi === top
+        ? {
+            width: 2, color: th.prov[p.id], join: 'round',
+            shadowBlur: 8, shadowColor: withAlpha(th.prov[p.id], 0.32), shadowOffsetY: -2,
+          }
+        : { width: 1.5, color: th.bg, join: 'round' },
+      areaStyle: { color: th.prov[p.id], opacity: 1 },
       // hovering one provider's band recedes the other three; blur strength
       // hand-set — the engine default fades to near-invisible, which reads
       // as data disappearing rather than receding
       emphasis: { focus: 'series' },
-      blur: { lineStyle: { opacity: 0.22 }, areaStyle: { opacity: 0.25 } },
+      blur: { lineStyle: { opacity: 0.3 }, areaStyle: { opacity: 0.35 } },
       universalTransition: true,
     })),
   }
@@ -213,7 +190,7 @@ function stripOption(P) {
   return {
     ...anim(P),
     backgroundColor: 'transparent',
-    grid: { left: BAND_L, right: BAND_R, top: 6, bottom: 6 },
+    grid: { left: BAND_L, right: BAND_R, top: 5, bottom: 5 },
     xAxis: {
       type: 'category', boundaryGap: false, data: bandCats(series.length),
       axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false },
@@ -248,7 +225,7 @@ function stripOption(P) {
       id: 'fail-strip', type: 'line',
       data: series.map((v, i) => [i, +v.toFixed(2)]),   // pairs so the visualMap reads dim 1
       symbol: 'none', smooth: false,
-      lineStyle: { width: 1.5 },
+      lineStyle: { width: 2 },
       // a whisper of area so the strip reads as a chart, not a stray wire;
       // neutral ink, not a severity wash — the LINE carries the judgement
       areaStyle: {
@@ -265,19 +242,24 @@ function stripOption(P) {
   }
 }
 
-/* ---------- token routing sankey ----------
-   The view derives the flows (metrics.js buildSankey — data stays with the
-   data owner); this builder only dresses them. Clinical dress: slim 12px
-   node bars, generous gaps, hairline gradient links at 0.25 that lift to 0.5
-   with a soft glow on hover — the one place the page spends its "kind of
-   glowy" budget at data scale. layoutIterations: 0 keeps OUR declared node
-   order; the solver's reshuffles read as the library deciding the page. */
+/* ---------- token routing sankey — THE HERO ----------
+   The one chart with an explicit owner verdict ("cool"), promoted to the
+   page's centerpiece: full column, 430px, bare on the page. The view
+   derives the flows (metrics.js buildSankey — data stays with the data
+   owner); this builder only dresses them. Centerpiece dress: slim 3px-
+   cornered node bars, generous vertical rhythm, gradient links resting at
+   0.28 that lift to 0.55 with a soft same-hue glow on hover — the place
+   the page spends its "kind of glowy" budget at data scale. Provider
+   nodes wear the Carbon categorical hues; pools stay the one neutral;
+   roles keep their site-wide identity hexes. layoutIterations: 0 keeps
+   OUR declared node order; the solver's reshuffles read as the library
+   deciding the page. */
 const fmtFlow = (v) => v >= 1000 ? (v / 1000).toFixed(1) + 'M' : Math.round(v) + 'k'
 
 function sankeyOption(P) {
   const { d, theme: th } = P
   /* pool and provider node colours resolve from the THEME SNAPSHOT here (the
-     --prov-* set re-steps on black/tan, the pool neutral is the cards' own
+     --prov-* set re-steps on black, the pool neutral is the columns' own
      slate); role hexes are theme-constant and travel with the data. The map
      also feeds each link's hover glow — the glow is the target's hue, so a
      lifted link answers "flowing INTO what?" */
@@ -295,25 +277,25 @@ function sankeyOption(P) {
     },
     series: [{
       id: 'routing', type: 'sankey',
-      left: 6, right: 10, top: 14, bottom: 10,
-      nodeWidth: 12, nodeGap: 16,
+      left: 6, right: 12, top: 18, bottom: 14,
+      nodeWidth: 12, nodeGap: 26,
       layoutIterations: 0,
       emphasis: { focus: 'adjacency' },
       data: d.sankey.nodes.map(n => ({
         name: n.name, depth: n.depth,
         itemStyle: { color: nodeColor(n), borderWidth: 0, borderRadius: 3 },
         // the last column's labels sit LEFT of their bars, inside the plot —
-        // nothing may clip against the card edge at 1280
+        // nothing may clip against the column edge at 1280
         label: n.depth === 2 ? { position: 'left' } : { position: 'right' },
       })),
       links: d.sankey.links.map(l => ({
         source: l.source, target: l.target, value: +l.value.toFixed(1),
-        lineStyle: { color: 'gradient', opacity: 0.25, curveness: 0.5 },
+        lineStyle: { color: 'gradient', opacity: 0.28, curveness: 0.5 },
         emphasis: {
-          lineStyle: { opacity: 0.5, shadowBlur: 10, shadowColor: withAlpha(cmap.get(l.target) || th.ink3, 0.35) },
+          lineStyle: { opacity: 0.55, shadowBlur: 10, shadowColor: withAlpha(cmap.get(l.target) || th.ink3, 0.35) },
         },
       })),
-      label: { fontSize: 12.5, color: th.ink2, fontFamily: th.font, fontWeight: 500 },
+      label: { fontSize: 13, color: th.ink2, fontFamily: th.font, fontWeight: 550 },
       blur: {
         itemStyle: { opacity: 0.35 },
         lineStyle: { opacity: 0.06 },

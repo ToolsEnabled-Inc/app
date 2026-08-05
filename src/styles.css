@@ -1508,7 +1508,12 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 /* ============================================================
    METRICS
    ============================================================ */
-.metrics { display: flex; flex-direction: column; gap: var(--s3); max-width: var(--page-max); margin: 0 auto; }
+/* 34px band rhythm, deliberately off the space scale: the unboxed metrics
+   redesign separates its bands with whitespace instead of card edges, and
+   the --s5 step (24px) still read as one continuous surface at review —
+   the gap IS the separator now, so it needs to be unmistakably larger
+   than any intra-band spacing (which tops out at 22px). */
+.metrics { display: flex; flex-direction: column; gap: 34px; max-width: var(--page-max); margin: 0 auto; }
 .m-row { display: grid; gap: var(--s3); }
 .m-tiles { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 /* auto-fit knows the tile minimum but not the tile COUNT: with six tiles it
