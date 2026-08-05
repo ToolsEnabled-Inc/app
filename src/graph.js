@@ -82,7 +82,7 @@ let probeOwner = null
    one of them had to agree or the collision placement drifted from the box it
    was placing. It is a constant here and nowhere else -- graph.js writes it
    onto the element, so CSS no longer states a width at all.
-   224, not 168, because of what the box is FOR: it has to say which agent
+   248 (was 224, was 168), because of what the box is FOR: it has to say which agent
    this is and roughly what it is doing. At 168 with the name and the task
    sharing one line, the task truncated to "promotin..." / "watc..." /
    "matchi..." and the box read as broken rather than terse. */
@@ -94,12 +94,12 @@ let probeOwner = null
    elementFromPoint did not return, i.e. it could not be clicked at all. */
 let chatZ = 8
 
-export const CHIP_W = 224
+export const CHIP_W = 248
 /* The fallback height, used only until the real one can be measured. 74, not
    44: the box is three rows now (name, then two context lines) and this number
    is what the placement reserves. Over-reserving only pushes a box further
    from its node; under-reserving draws it through one. */
-export const CHIP_H = 74
+export const CHIP_H = 100
 
 export class FleetGraph {
   constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null }) {
@@ -847,8 +847,10 @@ export class FleetGraph {
       const s = l.source, t = l.target
       const dx = t.x - s.x, dy = t.y - s.y
       const L = Math.hypot(dx, dy) || 1
-      // organic quadratic bend perpendicular to the chord, 12–24px by distance
-      const bendAbs = Math.max(12, Math.min(24, L * 0.11 * (l.bendMul || 1)))
+      // a taut quadratic — 5-10px of bow, down from 12-24. The organic swing
+      // read as a mind-map doodle; an engineered diagram keeps its connectors
+      // nearly straight and lets the curve be felt, not seen.
+      const bendAbs = Math.max(5, Math.min(10, L * 0.05 * (l.bendMul || 1)))
       const bend = bendAbs * (l.side || 1)
       const qx = (s.x + t.x) / 2 + (-dy / L) * bend
       const qy = (s.y + t.y) / 2 + (dx / L) * bend

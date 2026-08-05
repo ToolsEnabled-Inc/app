@@ -406,11 +406,16 @@ body.reduce-motion .graph-canvas .tier-guide {
    into dashes to signal the structure is currently movable. */
 .graph-canvas[data-edit-mode] .link-top { stroke-dasharray: 5 7; }
 .graph-canvas[data-edit-mode] .link-under { opacity: 0.12; }
+/* the connector layer runs through a single restraint pass: the role hexes
+   (written per-link by JS) stay the identity system's, but at line scale
+   they whispered candy — saturate(0.72) pulls every hue toward engineered
+   at once. Static layer, static filter: no per-frame cost. */
+.graph-canvas > svg { filter: saturate(0.72); }
 /* tree view: a touch more presence than the physics view's airy curves */
 .graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-top {
   stroke-dasharray: none;
-  opacity: 0.62;
-  stroke-width: 1.9;
+  opacity: 0.52;
+  stroke-width: 1.6;
 }
 .graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-under { opacity: 0.1; }
 .graph-canvas[data-layout="tree"] .node.focusable .node-glass::before { animation: none; }

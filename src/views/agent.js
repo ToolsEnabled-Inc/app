@@ -563,6 +563,7 @@ export function agentView({ compId, agentId, navigate }) {
   let solvedKey = ''
   let lastGeomSig = ''
   let solvedBoxes = new Map()
+  let culledSet = new Set()         // chips the density policy has retired
 
   /* --- geometry caches (idle-burn audit) ----------------------------------
      placeOpenChips runs in the rAF loop, and its short-circuit key used to be
@@ -727,6 +728,7 @@ export function agentView({ compId, agentId, navigate }) {
        geometry is a fresh question, so every box re-asks it at full height. */
     if (sig !== lastGeomSig) {
       lastGeomSig = sig
+      culledSet = new Set()
       for (const it of items) setTight(it.chipEl, false)
     }
     /* Density is uniform across the strip or it reads as a fault, and one box
@@ -735,9 +737,10 @@ export function agentView({ compId, agentId, navigate }) {
        one full-height box to a row of compact ones. Re-asking the question
        from a level start is both the fix and the whole rule — the answer below
        is then a property of the canvas, never of what happened to it. */
-    const tight = items.filter(it => it.chipEl.classList.contains('cx-tight')).length
-    if (tight && tight < items.length) {
-      for (const it of items) setTight(it.chipEl, false)
+    const living = items.filter(it => !culledSet.has(it.chipEl))
+    const tight = living.filter(it => it.chipEl.classList.contains('cx-tight')).length
+    if (tight && tight < living.length) {
+      for (const it of living) setTight(it.chipEl, false)
     }
     /* Sizes come from the chipDims cache; offsetWidth/offsetHeight are read
        only for chips whose entry was dropped by an actual size-changing event
@@ -769,23 +772,24 @@ export function agentView({ compId, agentId, navigate }) {
         if (!laneCache.has(ch)) laneCache.set(ch, buildLanes(cw, ch, obstacles, canvasW, canvasH))
         return laneCache.get(ch)
       }
-      const solveNow = () => { laneCache = new Map(); return solveBands(items, lanesFor, cw) }
+      const solveFor = (list) => { laneCache = new Map(); return solveBands(list, lanesFor, cw) }
       /* Rank an arrangement the way a reader does: a box that is not shown at
          all is the worst outcome, and after that the one that has to be hunted
          for is. Total length is only the tie-break — five tidy boxes and one
          stranded one is a worse strip than five slightly-longer leaders. */
-      const rank = (boxes) => {
+      const rank = (boxes, list) => {
         let held = 0, worst = 0, total = 0
         boxes.forEach((b, i) => {
           if (!b) { held++; return }
-          const d = Math.hypot(b.x + cw / 2 - items[i].rec.x, b.y + items[i].ch / 2 - items[i].rec.y)
+          const d = Math.hypot(b.x + cw / 2 - list[i].rec.x, b.y + list[i].ch / 2 - list[i].rec.y)
           worst = Math.max(worst, d); total += d
         })
         return [held, worst, total]
       }
       const better = (a, b) => a[0] !== b[0] ? a[0] < b[0] : a[1] !== b[1] ? a[1] < b[1] : a[2] < b[2]
 
-      let boxes = solveNow()
+      let active = items.filter(it => !culledSet.has(it.chipEl))
+      let boxes = solveFor(active)
       /* DENSITY IS A WHOLE-STRIP DECISION, not a per-box rescue. The old
          escalation tightened whichever single box happened to lose, which left
          one 55px box in a row of 74px ones — reading as a rendering fault
@@ -798,20 +802,45 @@ export function agentView({ compId, agentId, navigate }) {
          the box itself, at which point the eye has to hunt for which bubble it
          belongs to and a shorter box that is actually beside its bubble says
          more than a taller one stranded across the strip. */
-      let score = rank(boxes)
+      let score = rank(boxes, active)
+      /* FEWER, FULLER — the owner's trade, stated in their own words: the
+         boxes should be "decently sized with good amounts of text in them,
+         and once the graph gets too dense that's where the chatboxes end."
+         The old escalation kept every box by compacting ALL of them to
+         one clipped line, which at the new full size meant the whole strip
+         degraded everywhere. Now, when full boxes don't fit, the strip
+         RETIRES the least important boxes one at a time — role rank decides,
+         the page's own agent is never culled — and the boxes that remain say
+         everything. Compact-all survives only as the last resort below a
+         three-box floor. A retired box is not gone: its bubble, its badge
+         and its click-to-chat all still work; only the ambient preview ends. */
       if (score[0] > 0 || score[1] > ATTACHED_REACH) {
-        const fullBoxes = boxes
-        for (const it of items) setTight(it.chipEl, true)
-        measure()                                   // one forced reflow, on change only
-        const tightBoxes = solveNow()
-        if (better(rank(tightBoxes), score)) { boxes = tightBoxes; score = rank(tightBoxes) }
-        else {
-          for (const it of items) setTight(it.chipEl, false)
-          measure()
-          boxes = fullBoxes
+        const PRIO = { coordinator: 4, helper: 3, shadow: 3, manager: 2, default: 1, spawned: 0 }
+        const prio = (it) => it.rec.id === agent.id ? 9 : (PRIO[it.rec.agent.role] ?? 1)
+        while ((score[0] > 0 || score[1] > ATTACHED_REACH) && active.length > 3) {
+          let cut = 0
+          for (let i = 1; i < active.length; i++) {
+            if (prio(active[i]) <= prio(active[cut])) cut = i   // lowest rank; rightmost on ties
+          }
+          culledSet.add(active[cut].chipEl)
+          active = active.filter((_, i) => i !== cut)
+          boxes = solveFor(active)
+          score = rank(boxes, active)
+        }
+        if (score[0] > 0 || score[1] > ATTACHED_REACH) {
+          const fullBoxes = boxes
+          for (const it of active) setTight(it.chipEl, true)
+          measure()                                 // one forced reflow, on change only
+          const tightBoxes = solveFor(active)
+          if (better(rank(tightBoxes, active), score)) { boxes = tightBoxes }
+          else {
+            for (const it of active) setTight(it.chipEl, false)
+            measure()
+            boxes = fullBoxes
+          }
         }
       }
-      solvedBoxes = new Map(items.map((it, i) => [it.chipEl, boxes[i]]))
+      solvedBoxes = new Map(active.map((it, i) => [it.chipEl, boxes[i]]))
       solvedKey = keyOf()
     }
     /* Settled fast path (idle-burn audit). solvedKey already encodes the

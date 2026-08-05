@@ -996,7 +996,12 @@ body {
     radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,calc(0.74 * var(--node-a, 1))), rgba(255,255,255,calc(0.32 * var(--node-a, 1))) 55%, rgba(255,255,255,calc(0.19 * var(--node-a, 1))));
   /* no filter / backdrop-filter here — frost lives on the static .node::before;
      glow is box-shadow layers only (60fps clause) */
-  border: 1.5px solid color-mix(in oklab, var(--rc) 40%, white);
+  /* identity on the rim, restraint in the mix: role colour folded into the
+     themed hairline rather than into white — 40% role in white IS pastel by
+     construction (baby blue, peach), which is most of what read as
+     "childish". Saturation belongs at small scale (the status dot, the
+     legend); at bubble scale the colour should be a machined tint. */
+  border: 1.5px solid color-mix(in oklab, var(--rc) 34%, var(--line-2));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--node-a, 1))),
     inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
@@ -1062,7 +1067,11 @@ body {
 /* +26px clears the 12.5px name line (≈15px tall from +7px) with a hairline
    of air, so the two label rows never touch at either test size */
 .node .node-role { position: absolute; top: calc(100% + 26px); left: 50%; transform: translateX(-50%);
-  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; color: var(--ink-25); white-space: nowrap; font-weight: 550;
+  /* 10.5/500/wider tracking: the row beneath every bubble was the loudest
+     text on the canvas — a chunky shout repeated nine times. A quieter,
+     wider-set label reads as engineering annotation instead. (Caps micro-
+     label register, exempt from the 13px reading floor like its peers.) */
+  font-size: 10.5px; letter-spacing: calc(var(--track-caps) + 0.03em); text-transform: uppercase; color: var(--ink-25); white-space: nowrap; font-weight: 500;
   /* the role label is the one string that can outgrow its bubble (the
      longest is "Coordinator's Helper"). The force layout keeps centres
      ≥ r+30 apart, so bounding the label to the bubble + a fixed margin
@@ -1075,7 +1084,12 @@ body {
      _resolveClampedLabels() pushes neighbouring nodes apart on it, so a wider
      label buys itself the room instead of colliding (verified: 0 label
      overlaps on both graph pages at 1600 and 1280 after the change). */
-  max-width: calc(var(--d) + 84px); overflow: hidden; text-overflow: ellipsis; text-align: center; }
+  /* +96 (was +84): the professional pass set the role caps wider-tracked,
+     which grew "Coordinator's Helper" from 185 to 192px — past the old cap on
+     the agent page's smaller bubbles. Same self-correcting argument as the
+     last raise: graph.js measures the real width into labelW and the
+     label-avoid pass spaces neighbours on it. */
+  max-width: calc(var(--d) + 96px); overflow: hidden; text-overflow: ellipsis; text-align: center; }
 
 /* selection ring — the live "focusable" pulse animation is defined once,
    in graph.css (.graph-canvas .node.focusable .node-glass::before), which
@@ -1187,13 +1201,15 @@ body {
   overflow: hidden;
   text-overflow: clip;
 }
-/* The PREVIOUS activity line goes, at every width. Two context lines were
-   never both readable in this column — that is what the 6-of-6 ellipsis count
-   was measuring — and between "what this agent is doing, in full" and "two
-   halves of two different sentences", the first is the whole reason the box
-   is on the page. */
+/* BOTH activity lines show, each wrapped to a bounded two rows. An earlier
+   pass dropped the previous-activity line for density's sake; the owner has
+   since asked for the opposite trade — "decently sized with good amounts of
+   text" — and the density problem is solved where it belongs: the graph
+   stops showing boxes entirely once the fleet passes DENSE_AT (graph.js),
+   so the boxes that DO show can afford to say more. */
 .graph-canvas .chip:not(.as-chat) .chip-preview .cl:not(.cl-name) ~ .cl:not(.cl-name) {
-  display: none;
+  margin-top: 3px;
+  opacity: 0.82;   /* the previous line recedes a step so "now" reads first */
 }
 .chip.as-chat {
   width: 316px; height: 368px;
