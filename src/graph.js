@@ -5,7 +5,7 @@
 import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY } from 'd3-force'
 import { sim, fmtRuntime } from './sim.js'
 import { ROLES } from './vocab.js'
-import { el, buildChat, bindRuntime } from './components.js'
+import { el, buildChat, bindRuntime, formatInlineText } from './components.js'
 import './graph.css'
 
 const RADII = { coordinator: 62, helper: 52, shadow: 52, manager: 47, default: 39 }
@@ -72,6 +72,7 @@ const SETTLE_MIN_AMP = 0.18        // a set-down still ticks; it does not bounce
 
 /* Dense-mode focus ring: a bounded attractor, not an idle loop. */
 const FOCUS_PULSE_MS = 1900, FOCUS_PULSES = 3
+const SETTLED_ALPHA = 0.018
 
 const prefersCalm = () => document.body.classList.contains('reduce-motion')
 // axis-aligned rect intersection area (px²) — chip avoidance scoring
@@ -131,7 +132,7 @@ export const CHIP_W = 248
 export const CHIP_H = 100
 
 export class FleetGraph {
-  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null }) {
+  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, onGeometry = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null }) {
     this.chipPredicate = chipPredicate
     this.screenChips = screenChips === true
     this.contextFeed = typeof contextFeed === 'function' ? contextFeed : null
@@ -141,6 +142,7 @@ export class FleetGraph {
     this.onRootChange = onRootChange
     this.onSelect = onSelect
     this.onOpenControls = onOpenControls
+    this.onGeometry = typeof onGeometry === 'function' ? onGeometry : null
     this.chipsFor = chipsFor
     this.nodes = new Map()          // id -> node record
     this.selectedId = null
@@ -212,6 +214,7 @@ export class FleetGraph {
     this._onKeyDown = (e) => this._escTopChat(e)
     document.addEventListener('keydown', this._onKeyDown)
 
+    this._simulationRunning = true
     this.simulation = forceSimulation([])
       .velocityDecay(0.32)
       // 0.015 → 0.028: the old decay left the layout visibly untangling for
@@ -221,6 +224,7 @@ export class FleetGraph {
       // ~1.5s instead of ~4s.
       .alphaDecay(0.028)
       .on('tick', () => this.tick())
+      .on('end', () => this._simulationEnded())
 
     // dev perf probe — HONEST numbers. window.__graphFrameMs is a rolling
     // average of the REAL rAF frame interval while this graph is mounted —
@@ -239,7 +243,8 @@ export class FleetGraph {
     // so a graph→graph navigation would otherwise have the OLD graph erase
     // the NEW graph's readings on its way out.
     probeOwner = this
-    const probe = (t) => {
+    this._perfTail = 3
+    this._perfProbe = (t) => {
       if (this._lastFrameT) {
         const dt = t - this._lastFrameT
         if (dt < 250) {                              // ignore tab-hidden gaps
@@ -253,9 +258,13 @@ export class FleetGraph {
       }
       this._tickCost = 0
       this._lastFrameT = t
-      this._perfRaf = requestAnimationFrame(probe)
+      const active = this._activityRunning()
+      if (active) this._perfTail = 3
+      else this._perfTail--
+      if (active || this._perfTail > 0) this._perfRaf = requestAnimationFrame(this._perfProbe)
+      else { this._perfRaf = null; this._lastFrameT = 0 }
     }
-    this._perfRaf = requestAnimationFrame(probe)
+    this._perfRaf = requestAnimationFrame(this._perfProbe)
     window.__graphStress = (count = 16, ms = 3000) => this._stress(count, ms)
 
     this.build(true)
@@ -314,6 +323,54 @@ export class FleetGraph {
     )
   }
 
+  _activityRunning() {
+    return !!(this._simulationRunning || this._draggingNow || this._zoomHot
+      || this._panning || this._zoomRaf || this._treeRaf || this._glideRaf
+      || [...this.nodes.values()].some(n => n._flingRaf))
+  }
+
+  _wakeFrameProbe() {
+    this._perfTail = Math.max(this._perfTail || 0, 3)
+    if (this._destroyed || this._perfRaf || !this._perfProbe) return
+    this._lastFrameT = 0
+    this._perfRaf = requestAnimationFrame(this._perfProbe)
+  }
+
+  _setInteracting(on) {
+    this._hot = !!on
+    this.container.classList.toggle('interacting', !!on)
+    this.screenOverlay?.classList.toggle('interacting', !!on)
+  }
+
+  _restartSimulation() {
+    this._simulationRunning = true
+    this.simulation.restart()
+    this._wakeFrameProbe()
+  }
+
+  _stopSimulation(zeroAlpha = false) {
+    this.simulation.stop()
+    this._simulationRunning = false
+    if (zeroAlpha) this.simulation.alphaTarget(0).alpha(0)
+  }
+
+  _parkSimulation() {
+    if (!this._simulationRunning) return
+    this._stopSimulation(true)
+    if (!this._draggingNow && !this._zoomHot && !this._panning) this._setInteracting(false)
+    if (this.screenChips) this._queueScreenGeometryRefresh()
+  }
+
+  _simulationEnded() {
+    this._parkSimulation()
+  }
+
+  _screenGeometryMoving() {
+    return !!(this._simulationRunning || this._draggingNow || this._zoomHot
+      || this._panning || this._zoomRaf || this._treeRaf || this._glideRaf
+      || [...this.nodes.values()].some(n => n._flingRaf))
+  }
+
   /* ---------- membership ---------- */
 
   visibleAgents() {
@@ -363,6 +420,7 @@ export class FleetGraph {
   _presettle() {
     let guard = 0
     while (this.simulation.alpha() > 0.03 && guard++ < 360) this.simulation.tick()
+    this._stopSimulation(true)
     this._snapChips = true                       // chips land, not glide, on reveal
     this.tick()                                  // paint the resolved layout now
     this._snapChips = false
@@ -516,8 +574,9 @@ export class FleetGraph {
        sharing a line meant the ellipsis ate the task instead of the name:
        `claude · promotin...` where the task is the part you cannot guess.
        Split, the name always reads in full and the task gets the whole width. */
-    pv.innerHTML = `<div class="cl cl-name"><b>${rec.agent.name}</b></div>`
-      + rec.agent.context.map(c => `<div class="cl">${c}</div>`).join('')
+    const format = (value) => formatInlineText(value, { agents: this.computer.agents, roleKey: rec.agent.role })
+    pv.innerHTML = `<div class="cl cl-name"><b>${format(rec.agent.name)}</b></div>`
+      + rec.agent.context.map(c => `<div class="cl">${format(c)}</div>`).join('')
     const h = rec.chip.offsetHeight
     rec.chipH = h || CHIP_H
     // a 0 here means "not laid out yet", not "44px tall" — tick() re-measures
@@ -565,25 +624,39 @@ export class FleetGraph {
         <div class="cl cl-previous" data-monitor-row="5"></div>
         <div class="cl cl-chat" data-monitor-row="6"></div>
       `
-      pv.querySelector('.chip-monitor-name').textContent = rec.agent.name
+      pv.querySelector('.chip-monitor-name').innerHTML = formatInlineText(rec.agent.name, {
+        agents: this.computer.agents,
+        roleKey: rec.agent.role,
+      })
       const runtime = pv.querySelector('.chip-runtime')
+      runtime.classList.add('inline-number')
       runtime.textContent = fmtRuntime(rec.agent.bornAt)
       rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
     }
     const feed = this._screenContext(rec)
     const tasks = Number.isFinite(feed.tasks) ? Math.max(0, Math.round(feed.tasks)) : 0
     const failRate = Number.isFinite(feed.failRate) ? Math.max(0, feed.failRate) : 0
-    pv.querySelector('.chip-tasks').textContent = `${tasks} tasks`
+    pv.querySelector('.chip-tasks').innerHTML = formatInlineText(`${tasks} tasks`, {
+      agents: this.computer.agents,
+      roleKey: rec.agent.role,
+    })
     const fail = pv.querySelector('.chip-fail')
-    fail.textContent = `${failRate}% fail`
+    fail.innerHTML = formatInlineText(`${failRate}% fail`, {
+      agents: this.computer.agents,
+      roleKey: rec.agent.role,
+    })
     fail.classList.remove('sev-good', 'sev-warn', 'sev-serious')
     fail.classList.add(`sev-${failRate < 2 ? 'good' : failRate < 5 ? 'warn' : 'serious'}`)
-    pv.querySelector('.chip-model').textContent = feed.model || 'unknown model'
+    pv.querySelector('.chip-model').innerHTML = formatInlineText(feed.model || 'unknown model', {
+      agents: this.computer.agents,
+      roleKey: rec.agent.role,
+    })
     const update = (selector, text, prefix = '') => {
       const row = pv.querySelector(selector)
       const next = text ? prefix + text : ''
       row.hidden = !next
-      if (row.textContent !== next) row.textContent = next
+      const formatted = formatInlineText(next, { agents: this.computer.agents, roleKey: rec.agent.role })
+      if (row.innerHTML !== formatted) row.innerHTML = formatted
     }
     update('.cl-current', feed.current)
     update('.cl-previous', feed.previous)
@@ -646,6 +719,7 @@ export class FleetGraph {
       title: rec.agent.name,
       subtitle: `${ROLES[rec.agent.role].label} · context`,
       roleKey: rec.agent.role,
+      context: () => rec.agent.context,
       onClose: () => this.closeChat(rec),
     })
     chip.appendChild(chat)
@@ -756,7 +830,7 @@ export class FleetGraph {
     this.spawnNode(agent, false)
     this.refreshForces()
     this.updateDensity()
-    if (this._treeActive()) { this.simulation.stop(); this._layoutTree(true) }
+    if (this._treeActive()) { this._stopSimulation(true); this._layoutTree(true) }
   }
 
   removeAgent(id) {
@@ -766,7 +840,7 @@ export class FleetGraph {
     this.removeNode(rec, true)
     this.refreshForces()
     this.updateDensity()
-    if (this._treeActive()) { this.simulation.stop(); this._layoutTree(true) }
+    if (this._treeActive()) { this._stopSimulation(true); this._layoutTree(true) }
   }
 
   /* ---------- forces ---------- */
@@ -792,7 +866,9 @@ export class FleetGraph {
     // soft reheat 0.7 → 0.55: with the faster alphaDecay this keeps spawn /
     // re-root churn well under 2s while the glide cinematic (680ms) still
     // has live ticks for its whole run
-    this.simulation.alpha(hard ? 1 : 0.55).restart()
+    this.simulation.alphaTarget(0).alpha(hard ? 1 : 0.55)
+    if (this._treeActive()) this._stopSimulation(true)
+    else this._restartSimulation()
   }
 
   /** Bubble collision only kept CIRCLES apart — the name/role block hanging
@@ -917,10 +993,9 @@ export class FleetGraph {
     const _t0 = performance.now()
     // hot-state switch: while the sim is energetic (spawns, re-roots, drags)
     // the canvas runs in reduced-fidelity mode; it settles back automatically
-    const hot = this._draggingNow || this._zoomHot || this.simulation.alpha() > 0.04
+    const hot = this._activityRunning()
     if (hot !== this._hot) {
-      this._hot = hot
-      this.container.classList.toggle('interacting', hot)
+      this._setInteracting(hot)
     }
     // Compact-label mode. QA proved (offline replay on frozen 16-node
     // geometry) that a 294px-tall canvas is GEOMETRICALLY unable to host
@@ -1029,7 +1104,7 @@ export class FleetGraph {
       for (const n of nodesArr) {
         n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
       }
-      this._placeScreenChips(nodesArr)
+      if (!this._screenGeometryMoving()) this._placeScreenChips(nodesArr)
     } else {
       this._uiRects = this._uiObstacles()
       for (const n of nodesArr) {
@@ -1058,6 +1133,13 @@ export class FleetGraph {
       l.topEl?.setAttribute('d', d)
     }
     this._tickCost += performance.now() - _t0
+    this.onGeometry?.()
+    if (this._simulationRunning && !this._draggingNow
+      && this.simulation.alphaTarget() === 0
+      && this.simulation.alpha() < SETTLED_ALPHA
+      && ![...this.nodes.values()].some(n => n._flingRaf)) {
+      this._parkSimulation()
+    }
   }
 
   /** The Y clamp above runs strictly AFTER _labelAvoidForce (d3 fires all
@@ -1255,6 +1337,7 @@ export class FleetGraph {
     this._screenGeometryRaf = requestAnimationFrame(() => {
       this._screenGeometryRaf = null
       if (this._destroyed) return
+      if (this._screenGeometryMoving()) return
       this._screenUiDirty = true
       this._screenLayoutKey = ''
       this._placeScreenChips([...this.nodes.values()])
@@ -1722,7 +1805,8 @@ export class FleetGraph {
         added.push(rec)
       }
       this.refreshForces()
-      this.simulation.alphaTarget(0.12).restart()  // keep ticking while sampling
+      this.simulation.alphaTarget(0.12)  // keep ticking while sampling
+      this._restartSimulation()
       const t0 = performance.now()
       let sum = 0, n = 0
       const sample = (t) => {
@@ -1743,6 +1827,7 @@ export class FleetGraph {
   wireInteractions(rec) {
     const elm = rec.el
     let startX = 0, startY = 0, moved = false, pid = null
+    let dragOrigin = null
     let clickTimer = null
     let samples = []                 // recent pointer positions for fling velocity
 
@@ -1754,7 +1839,9 @@ export class FleetGraph {
       elm.setPointerCapture(pid)
       startX = e.clientX; startY = e.clientY; moved = false
       samples = [{ x: e.clientX, y: e.clientY, t: performance.now() }]
-      const g = this._toGraph(e)                     // graph coords at any zoom
+      const hr = this.zoomHost.getBoundingClientRect()
+      dragOrigin = { x: hr.left + this.zoomHost.clientLeft, y: hr.top + this.zoomHost.clientTop }
+      const g = this._toGraph(e, dragOrigin)         // graph coords at any zoom
       offX = rec.x - g.x
       offY = rec.y - g.y
     })
@@ -1767,16 +1854,18 @@ export class FleetGraph {
       if (!moved && Math.hypot(dx, dy) > 5) {
         moved = true
         elm.classList.add('dragging')
+        this._draggingNow = true
+        this._setInteracting(true)
+        this._wakeFrameProbe()
         if (this._treeActive()) {
           rec._editDragging = true                    // relayout keeps hands off
         } else {
-          this._draggingNow = true
-          this.container.classList.add('interacting') // immediate; tick() sustains it
-          this.simulation.alphaTarget(0.28).restart()
+          this.simulation.alphaTarget(0.28)
+          this._restartSimulation()
         }
       }
       if (moved) {
-        const g = this._toGraph(e)                   // clamp in GRAPH coords
+        const g = this._toGraph(e, dragOrigin)       // clamp in GRAPH coords
         rec.fx = Math.max(rec.r, Math.min(this.W - rec.r, g.x + offX))
         rec.fy = Math.max(rec.r, Math.min(this.H - rec.r, g.y + offY))
         if (this._treeActive()) {
@@ -1807,8 +1896,10 @@ export class FleetGraph {
       if (pid === null) return
       try { elm.releasePointerCapture(pid) } catch {}
       pid = null
+      dragOrigin = null
       if (moved) {
         elm.classList.remove('dragging')
+        this._draggingNow = false
         if (this.editMode) {                           // C8: drop = re-parent
           this._editDrop(rec)
           samples = []
@@ -1821,7 +1912,6 @@ export class FleetGraph {
           this._layoutTree(true)
           return
         }
-        this._draggingNow = false                      // tick() cools the canvas as alpha decays
         this.simulation.alphaTarget(0)
         // fling: recent pointer velocity in px/ms (capped ~2.4 ≈ 40px/frame)
         let vx = 0, vy = 0
@@ -1940,6 +2030,8 @@ export class FleetGraph {
       vx/vy in px/ms. */
   startFling(rec, vx, vy) {
     if (rec._flingRaf) cancelAnimationFrame(rec._flingRaf)
+    this._setInteracting(true)
+    this._wakeFrameProbe()
     const t0 = performance.now()
     let last = t0
     rec.fx = rec.x; rec.fy = rec.y
@@ -1952,7 +2044,7 @@ export class FleetGraph {
       // keep the sim ticking gently so the pin renders and neighbors yield —
       // never spike alpha (the alpha bump is what let forces eat the fling)
       if (this.simulation.alpha() < 0.1) this.simulation.alpha(0.1)
-      this.simulation.restart()
+      this._restartSimulation()
       if (Math.hypot(vx, vy) > 0.04 && t - t0 < 900) {
         rec._flingRaf = requestAnimationFrame(step)
       } else {
@@ -2041,11 +2133,15 @@ export class FleetGraph {
     }
     this._glideRec = rec
     rec.el.classList.add('rerooting')
+    this._setInteracting(true)
+    this._wakeFrameProbe()
     const tx = this.W / 2, ty = this.H * 0.42
     const done = () => setTimeout(() => {
       rec.fx = null; rec.fy = null
       rec.el.classList.remove('rerooting')
       if (this._glideRec === rec) this._glideRec = null
+      if (this.screenChips) this._queueScreenGeometryRefresh()
+      if (!this._activityRunning()) this._setInteracting(false)
     }, 220)
     if (prefersCalm()) { rec.fx = tx; rec.fy = ty; done(); return }
     const sx = rec.x, sy = rec.y, dur = STRUCTURAL_MS, t0 = performance.now()
@@ -2151,7 +2247,7 @@ export class FleetGraph {
     // canvas is still detached (so W/H are the 800x600 fallbacks) — without
     // this the default Tree view laid itself out for a stale size and left
     // ~430px of the panel unused, and never re-fitted on a window resize.
-    if (this._treeActive()) { this.simulation.stop(); this._layoutTree(!boot) }
+    if (this._treeActive()) { this._stopSimulation(true); this._layoutTree(!boot) }
     // first delivery = the true canvas size, still pre-paint: arrive settled
     if (boot) this._presettle()
   }
@@ -2162,9 +2258,15 @@ export class FleetGraph {
       container's rect already carries pan (transform-origin 0 0), so the
       conversion is exact at every zoom/pan — drags, offsets and clamps all
       keep operating on true graph coordinates. */
-  _toGraph(e) {
-    const cr = this.container.getBoundingClientRect()
-    return { x: (e.clientX - cr.left) / this.zoom, y: (e.clientY - cr.top) / this.zoom }
+  _toGraph(e, origin = null) {
+    if (!origin) {
+      const hr = this.zoomHost.getBoundingClientRect()
+      origin = { x: hr.left + this.zoomHost.clientLeft, y: hr.top + this.zoomHost.clientTop }
+    }
+    return {
+      x: (e.clientX - origin.x - this.panX) / this.zoom,
+      y: (e.clientY - origin.y - this.panY) / this.zoom,
+    }
   }
 
   /** Keep the scaled canvas covering the viewport (zoom > 1) or fully inside
@@ -2176,18 +2278,17 @@ export class FleetGraph {
     this.panY = Math.max(Math.min(0, by), Math.min(Math.max(0, by), this.panY))
   }
 
-  _applyZoom() {
+  _applyZoom(updateReadout = true) {
     const idle = this.zoom === 1 && !this.panX && !this.panY
     // identity clears the inline transform entirely — at 1× the canvas keeps
     // its original (non-stacking-context) paint order and zero overhead
     this.container.style.transform = idle ? '' :
       `translate3d(${this.panX}px, ${this.panY}px, 0) scale(${this.zoom})`
     this.zoomHost.classList.toggle('zoomed', Math.abs(this.zoom - 1) > 0.004)
-    this._syncFit()
-    if (this.screenChips) this._placeScreenChips([...this.nodes.values()])
+    this._syncFit(updateReadout)
   }
 
-  _syncFit() {
+  _syncFit(updateReadout = true) {
     if (!this.fitEl) return
     const active = Math.abs(this.zoom - 1) > 0.004 || Math.abs(this._zt - 1) > 0.004
       || !!this.panX || !!this.panY
@@ -2197,9 +2298,11 @@ export class FleetGraph {
       this._screenUiDirty = true
       this._screenLayoutKey = ''
     }
-    const z = this.fitEl.querySelector('.gf-z')
-    const txt = `${this.zoom.toFixed(2)}×`
-    if (z && z.textContent !== txt) z.textContent = txt
+    if (updateReadout) {
+      const z = this.fitEl.querySelector('.gf-z')
+      const txt = `${this.zoom.toFixed(2)}×`
+      if (z && z.textContent !== txt) z.textContent = txt
+    }
   }
 
   _wheel(e) {
@@ -2207,12 +2310,27 @@ export class FleetGraph {
     // an open chat morph scrolls its own messages — never hijack that wheel
     if (e.target.closest?.('.chip.as-chat, .chat')) return
     e.preventDefault()
-    const cr = this.container.getBoundingClientRect()
+    // The host never carries the zoom transform. Cache its origin for the
+    // wheel burst so a transform write from the previous frame cannot turn
+    // every incoming wheel event's geometry read into a forced layout.
+    const now = performance.now()
+    if (!this._wheelOrigin || now > this._wheelOrigin.until) {
+      const hr = this.zoomHost.getBoundingClientRect()
+      this._wheelOrigin = {
+        x: hr.left + this.zoomHost.clientLeft,
+        y: hr.top + this.zoomHost.clientTop,
+        until: now + 260,
+      }
+    } else {
+      this._wheelOrigin.until = now + 260
+    }
+    const sx = e.clientX - this._wheelOrigin.x
+    const sy = e.clientY - this._wheelOrigin.y
     // anchor: the graph point under the cursor + its host-space screen point
-    this._ax = (e.clientX - cr.left) / this.zoom
-    this._ay = (e.clientY - cr.top) / this.zoom
-    this._asx = e.clientX - cr.left + this.panX
-    this._asy = e.clientY - cr.top + this.panY
+    this._ax = (sx - this.panX) / this.zoom
+    this._ay = (sy - this.panY) / this.zoom
+    this._asx = sx
+    this._asy = sy
     const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * this.H : e.deltaY
     this._zt = Math.max(0.55, Math.min(1.7, this._zt * Math.exp(-dy * 0.0022)))
     this._zoomMode = 'anchor'
@@ -2221,6 +2339,7 @@ export class FleetGraph {
       this.panX = this._asx - this._ax * this.zoom
       this.panY = this._asy - this._ay * this.zoom
       this._clampPan(); this._applyZoom()
+      this._queueScreenGeometryRefresh()
       return
     }
     this._zoomHotOn()
@@ -2255,7 +2374,7 @@ export class FleetGraph {
         this._zoomHotOff()
         return
       }
-      this._applyZoom()
+      this._applyZoom(false)
       this._zoomRaf = requestAnimationFrame(step)
     }
     this._zoomRaf = requestAnimationFrame(step)
@@ -2268,6 +2387,7 @@ export class FleetGraph {
     if (prefersCalm()) {
       this.zoom = 1; this.panX = 0; this.panY = 0
       this._applyZoom()
+      this._queueScreenGeometryRefresh()
       return
     }
     this._zoomHotOn()
@@ -2303,7 +2423,7 @@ export class FleetGraph {
     if (!this._panning || e.pointerId !== this._panPid) return
     this.panX = this._panX0 + (e.clientX - this._panSX)
     this.panY = this._panY0 + (e.clientY - this._panSY)
-    this._clampPan(); this._applyZoom()
+    this._clampPan(); this._applyZoom(false)
   }
 
   _panEnd(e) {
@@ -2311,6 +2431,7 @@ export class FleetGraph {
     this._panning = false; this._panPid = null
     try { this.zoomHost.releasePointerCapture(e.pointerId) } catch {}
     this.zoomHost.classList.remove('panning')
+    this._syncFit(true)
     this._zoomHotOff()
   }
 
@@ -2320,19 +2441,17 @@ export class FleetGraph {
     clearTimeout(this._zoomHotTimer)
     if (!this._zoomHot) {
       this._zoomHot = true
-      this._hot = true
-      this.container.classList.add('interacting')
+      this._setInteracting(true)
     }
+    this._wakeFrameProbe()
   }
 
   _zoomHotOff() {
     clearTimeout(this._zoomHotTimer)
     this._zoomHotTimer = setTimeout(() => {
       this._zoomHot = false
-      if (!this._draggingNow && !this._panning && this.simulation.alpha() <= 0.04) {
-        this._hot = false
-        this.container.classList.remove('interacting')
-      }
+      this._queueScreenGeometryRefresh()
+      if (!this._activityRunning()) this._setInteracting(false)
     }, 200)
   }
 
@@ -2377,8 +2496,7 @@ export class FleetGraph {
       for (const n of this.nodes.values()) {
         if (n._flingRaf) { cancelAnimationFrame(n._flingRaf); n._flingRaf = null }
       }
-      this.simulation.alphaTarget(0)
-      this.simulation.stop()
+      this._stopSimulation(true)
       this._layoutTree(animate)
     } else {
       this._clearTierGuides()
@@ -2387,7 +2505,8 @@ export class FleetGraph {
         n.fx = null; n.fy = null; n._editDragging = false
         n.el.classList.remove('drop-ok', 'refuse')
       }
-      this.simulation.alpha(0.85).restart()      // melt back into liquid
+      this.simulation.alphaTarget(0).alpha(0.85)      // melt back into liquid
+      this._restartSimulation()
     }
   }
 
@@ -2511,6 +2630,8 @@ export class FleetGraph {
   _layoutTree(animate = true) {
     const { slots, rowYs } = this._treeSlots()
     if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
+    this._setInteracting(true)
+    this._wakeFrameProbe()
     const starts = new Map()
     for (const n of this.nodes.values()) starts.set(n.id, { x: n.x, y: n.y })
     const t0 = performance.now()
@@ -2545,7 +2666,11 @@ export class FleetGraph {
       this.tick()
       if (u >= 1) this._snapChips = false
       if (u < 1 && this._treeActive()) this._treeRaf = requestAnimationFrame(step)
-      else this._treeRaf = null
+      else {
+        this._treeRaf = null
+        if (this.screenChips) this._queueScreenGeometryRefresh()
+        if (!this._activityRunning()) this._setInteracting(false)
+      }
     }
     this._treeRaf = requestAnimationFrame(step)
   }
@@ -2625,7 +2750,7 @@ export class FleetGraph {
 
   destroy() {
     this._destroyed = true
-    this.simulation.stop()
+    this._stopSimulation()
     this.ro.disconnect()
     if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
     this._clearTierGuides()

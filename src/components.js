@@ -1,6 +1,6 @@
 // Shared UI pieces: uptime ring, chat window, sparkline, tooltip.
 
-import { uptimeParts } from './sim.js'
+import { sim, uptimeParts } from './sim.js'
 import { CHAT, CHAT_CONTEXT_REPLIES, CHAT_REPLIES, ROLES, pick } from './vocab.js'
 
 export const el = (html) => {
@@ -246,6 +246,86 @@ function normalizeChatContext(value) {
   return text
 }
 
+const INLINE_AGENT_ROLES = Object.freeze({
+  codex: 'coordinator',
+  claude: 'helper',
+  jarvis: 'coordinator',
+  'shadow-mgr': 'shadow',
+})
+
+const escapeInlineHtml = (value) => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;')
+
+const escapeInlineRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Escape-safe quiet emphasis for operational prose. The source string is
+ * escaped in full before the one combined token pass adds the only markup
+ * this function can emit; callers can therefore assign the result to
+ * innerHTML without making activity/context text an HTML surface.
+ */
+export function formatInlineText(value, { agents = [], roleKey = 'default' } = {}) {
+  const escaped = escapeInlineHtml(value)
+  if (!escaped) return ''
+
+  const roster = []
+  const seen = new Set()
+  const addAgent = (agent) => {
+    if (!agent?.name) return
+    const key = String(agent.name).toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    roster.push(agent)
+  }
+  for (const computer of sim.computers || []) {
+    for (const agent of computer.agents || []) addAgent(agent)
+  }
+  for (const agent of agents || []) addAgent(agent)
+
+  const literalNames = roster
+    .map(agent => escapeInlineRegex(escapeInlineHtml(agent.name)))
+    .sort((a, b) => b.length - a.length)
+  const agentPattern = [
+    ...literalNames,
+    'gem-lane-[a-z0-9_-]+',
+    'sandbox-w\\d+',
+    'luna-\\d+',
+    'terra-\\d+',
+    'shadow-mgr',
+    'jarvis',
+    'codex',
+    'claude',
+  ].join('|')
+  const tokenPattern = new RegExp(
+    `(?<path>(?:[a-z]:[\\\\/])?(?:[a-z0-9_.-]+[\\\\/])+[a-z0-9_.-]*[a-z0-9_-])`
+      + `|(?<request>\\b[qr]\\d+(?:\\.\\d+)*\\b)`
+      + `|(?<agent>(?<![\\w-])(?:${agentPattern})(?![\\w-]))`
+      + '|(?<number>(?<![\\w.#])\\d+(?:\\.\\d+)?(?:\\s+(?:seconds?|minutes?|hours?|days?|tasks?|checks?|tokens?|of\\s+\\d+)|\\s*(?:%|ms|s|m|h)(?!\\w))?(?![\\w.]))',
+    'giu',
+  )
+
+  return escaped.replace(tokenPattern, (token, ...args) => {
+    const groups = args.at(-1) || {}
+    if (groups.path || groups.request) return `<span class="inline-register">${token}</span>`
+    if (groups.number) return `<span class="inline-number">${token}</span>`
+    if (groups.agent) {
+      const folded = token.toLowerCase()
+      const match = roster.find(agent => escapeInlineHtml(agent.name).toLowerCase() === folded)
+      const fallback = folded.startsWith('sandbox-') ? 'spawned'
+        : folded.startsWith('shadow-') ? 'shadow'
+          : INLINE_AGENT_ROLES[folded] || roleKey
+      const resolved = match?.role || fallback
+      const role = Object.hasOwn(ROLES, resolved) ? resolved : 'default'
+      return `<span class="inline-agent role-${role}">${token}</span>`
+    }
+    return token
+  })
+}
+
 /** Build a chat window element (used inside chips, home feed, agent page). */
 export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null }) {
   const role = ROLES[roleKey] || ROLES.coordinator
@@ -299,7 +379,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     }
     const body = document.createElement('span')
     body.className = 'chat-msg-text'
-    body.textContent = text
+    body.innerHTML = formatInlineText(text, { agents: [{ name: title, role: roleKey }], roleKey })
     m.appendChild(body)
     return { m, body }
   }
@@ -482,7 +562,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     pinGrowingReply()
 
     if (chatReducedMotion()) {
-      body.textContent = fullText
+      body.innerHTML = formatInlineText(fullText, { agents: [{ name: title, role: roleKey }], roleKey })
       m.removeAttribute('aria-busy')
       finishReply()
       return
@@ -490,14 +570,15 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
 
     const words = fullText.match(/\S+\s*/g) || [fullText]
     let index = 0
+    let streamedText = ''
     currentStream = { message: m, body, fullText }
     bumpChatDebug('streams', 1)
 
     const streamWord = () => {
-      body.appendChild(document.createTextNode(words[index++] || ''))
+      streamedText += words[index++] || ''
+      body.innerHTML = formatInlineText(streamedText, { agents: [{ name: title, role: roleKey }], roleKey })
       pinGrowingReply()
       if (index >= words.length) {
-        body.normalize()
         finishReply()
         return
       }

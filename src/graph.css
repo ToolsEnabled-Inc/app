@@ -301,6 +301,47 @@
 }
 .graph-chip-leader.visible { opacity: 0.42; }
 
+/* Quiet inline register shared by monitor prose and buildChat. These are ink
+   shifts, never chips: at reading distance the sentence remains one texture. */
+.inline-number {
+  color: var(--ink-2);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.msg.them .inline-number { color: var(--ink); }
+.msg.me .inline-number { color: #fff; }
+.graph-chip-overlay .chip-runtime.inline-number,
+.graph-chip-overlay .cl-current .inline-number,
+.graph-chip-overlay .cl-chat .inline-number { color: var(--ink); }
+.inline-agent {
+  color: color-mix(in oklab, var(--rc, var(--c-coordinator)) 36%, var(--ink-2));
+  font-weight: 620;
+}
+.inline-agent.role-spawned { --rc: var(--c-spawned); }
+.msg.me .inline-agent {
+  color: color-mix(in oklab, var(--rc, var(--c-coordinator)) 24%, white);
+}
+.inline-register {
+  color: color-mix(in oklab, var(--ink-3) 78%, var(--rc, var(--c-coordinator)) 22%);
+  font-weight: 550;
+}
+.msg.me .inline-register { color: rgba(255,255,255,0.78); }
+.chip-fail .inline-number { color: inherit; }
+
+/* The canvas' hot class cannot reach this sibling overlay. Mirror the state
+   here so wheel/drag frames also shed the 30px chat frost and leader churn. */
+.graph-chip-overlay.interacting .graph-chip-leader {
+  opacity: 0 !important;
+  transition: none !important;
+}
+.graph-chip-overlay.interacting .chip.as-chat {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.graph-chip-overlay.interacting .monitor-brace { animation: none !important; }
+
 .graph-chip-overlay .chip {
   z-index: 1;
   opacity: 0;
@@ -476,7 +517,7 @@
 .graph-chip-overlay .chip:not(.as-chat) .cl-current {
   -webkit-line-clamp: 2;
   min-height: 2.7em;
-  color: var(--ink);
+  color: var(--ink-2);
 }
 .graph-chip-overlay .chip:not(.as-chat) .cl-previous {
   -webkit-line-clamp: 1;

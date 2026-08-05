@@ -1005,6 +1005,7 @@ export function agentView({ compId, agentId, navigate }) {
     roleKey: agent.role,
     seed: 6,
     tall: true,
+    context: () => agent.context,   // replies reference live activity
   })
   root.querySelector('.chat-panel').appendChild(chat)
 
