@@ -364,6 +364,38 @@ themeSeg.addEventListener('click', (e) => {
 })
 applyTheme(readTheme())
 
+/* ---------- text size ----------
+   The owner asked for a user-facing text-size setting. The app is sized in
+   px throughout (13px reading floor, 12.5 data tier), so the honest scale
+   control is zoom on the body: layout rescales coherently, fixed chrome
+   included, and every chart re-fits itself because its host resizes and the
+   existing ResizeObservers fire. Default is exactly 1 — an untouched user
+   is byte-identical, and the QA suites (which assert px) run at default. */
+const TEXT_KEY = 'mc.text'
+const textSeg = document.getElementById('text-seg')
+const readText = () => {
+  try {
+    const v = parseFloat(localStorage.getItem(TEXT_KEY))
+    return v === 0.9 || v === 1.12 ? v : 1
+  } catch { return 1 }
+}
+function applyText(v) {
+  document.body.style.zoom = v === 1 ? '' : String(v)
+  for (const b of textSeg.querySelectorAll('button')) {
+    const on = parseFloat(b.dataset.text) === v
+    b.classList.toggle('on', on)
+    b.setAttribute('aria-pressed', on ? 'true' : 'false')
+  }
+}
+textSeg.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-text]')
+  if (!b) return
+  const v = parseFloat(b.dataset.text)
+  try { localStorage.setItem(TEXT_KEY, String(v)) } catch {}
+  applyText(v)
+})
+applyText(readText())
+
 const glowInput = document.getElementById('set-glow')
 glowInput.addEventListener('input', () => {
   document.documentElement.style.setProperty('--glow', String(glowInput.value / 100))

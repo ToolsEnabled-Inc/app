@@ -56,6 +56,18 @@
           <button type="button" data-theme="black">Black</button>
         </div>
       </div>
+      <!-- same control family as Theme on purpose: one drawer, one control
+           language. Scales the whole app via zoom (the codebase is sized in
+           px throughout; zoom rescales layout coherently and every
+           ResizeObserver-driven chart re-fits itself on the change). -->
+      <div class="set-row">
+        <span class="set-label">Text size</span>
+        <div class="theme-seg" id="text-seg" role="group" aria-label="Text size">
+          <button type="button" data-text="0.9">Small</button>
+          <button type="button" data-text="1">Default</button>
+          <button type="button" data-text="1.12">Large</button>
+        </div>
+      </div>
       <label class="set-row">
         <span class="set-label">Glow intensity</span>
         <input type="range" id="set-glow" min="0" max="200" value="100" />
