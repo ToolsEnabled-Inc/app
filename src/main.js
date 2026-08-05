@@ -156,15 +156,21 @@ function swapView(route, morph, zoom, snapshotted) {
   const idx = ORDER.indexOf(activeName)
   const back = document.getElementById('nav-back')
   const next = document.getElementById('nav-next')
-  back.toggleAttribute('disabled', route.name === 'home')
-  next.toggleAttribute('disabled', idx === ORDER.length - 1 && route.name !== 'agent')
+  /* The ring is closed: home <- computers <- metrics <- comms <- home. The
+     ends used to dead-end (back dark on home, forward dark on comms), which
+     made the two arrows read as a linear pager with nothing past its covers.
+     The owner asked for a loop — back and forth exist on every page — so
+     neither arrow ever disables and the maths below is modular. */
+  back.toggleAttribute('disabled', false)
+  next.toggleAttribute('disabled', false)
 
   /* The arrows are now the ONLY navigation, so each one quietly names where
      it goes — but only once you reach for it. Nothing at rest; the label
      fades in on hover/focus. Fewer pieces, and the ones left do more. */
   const label = (n) => (n === 'home' ? 'home' : n)
-  back.dataset.dest = route.name === 'agent' ? 'computers' : (idx > 0 ? label(ORDER[idx - 1]) : '')
-  next.dataset.dest = idx < ORDER.length - 1 ? label(ORDER[idx + 1]) : ''
+  const ringAt = (i) => ORDER[(i + ORDER.length) % ORDER.length]
+  back.dataset.dest = route.name === 'agent' ? 'computers' : label(ringAt(idx - 1))
+  next.dataset.dest = route.name === 'agent' ? 'metrics' : label(ringAt(idx + 1))
 
   /* …and the same destination has to reach a screen reader, which the CSS
      ::after caption never could: it is generated content, and the static
@@ -185,17 +191,20 @@ function swapView(route, morph, zoom, snapshotted) {
 
 window.addEventListener('hashchange', render)
 
+const hashFor = (name) => (name === 'home' ? '#/' : `#/${name}`)
 document.getElementById('nav-back').addEventListener('click', () => {
   const route = parse()
+  // the agent view is a drill-in, not a ring stop: back surfaces to its graph
   if (route.name === 'agent') { location.hash = '#/computers'; return }
   const idx = ORDER.indexOf(route.name)
-  location.hash = idx > 0 ? (ORDER[idx - 1] === 'home' ? '#/' : `#/${ORDER[idx - 1]}`) : '#/'
+  location.hash = hashFor(ORDER[(idx - 1 + ORDER.length) % ORDER.length])
 })
 document.getElementById('nav-next').addEventListener('click', () => {
   const route = parse()
-  const name = route.name === 'agent' ? 'computers' : route.name
-  const idx = ORDER.indexOf(name)
-  if (idx < ORDER.length - 1) location.hash = `#/${ORDER[idx + 1]}`
+  // ...and forward from the drill-in resumes the ring after its graph
+  if (route.name === 'agent') { location.hash = '#/metrics'; return }
+  const idx = ORDER.indexOf(route.name)
+  location.hash = hashFor(ORDER[(idx + 1) % ORDER.length])
 })
 
 /* ---------- settings drawer ---------- */
