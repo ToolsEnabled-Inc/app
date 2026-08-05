@@ -716,6 +716,52 @@ body {
 /* the 2px side padding is a hairline nudge that keeps the scrollbar off the
    bubbles — below the scale's floor, so it stays literal */
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) 2px; }
+.chat-time-divider {
+  align-self: center;
+  padding: 2px 0;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.chat-typing {
+  align-self: flex-start;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-height: 22px;
+  padding: 2px var(--s1);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chat-typing-name {
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-typing-sep { opacity: 0.58; }
+.chat-typing-dots { display: inline-flex; gap: 2px; min-width: 20px; }
+.chat-typing-dots i {
+  font-style: normal;
+  opacity: 0.24;
+  animation: chatDotPulse 1.12s ease-in-out infinite;
+}
+.chat-typing-dots i:nth-child(2) { animation-delay: 0.16s; }
+.chat-typing-dots i:nth-child(3) { animation-delay: 0.32s; }
+@keyframes chatDotPulse {
+  0%, 68%, 100% { opacity: 0.24; }
+  30% { opacity: 0.78; }
+}
+body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-typing-dots i { animation: none !important; opacity: 0.5; }
+}
 .msg {
   max-width: 88%;
   padding: var(--s2) var(--s3);

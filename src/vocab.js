@@ -54,6 +54,33 @@ export const CHAT_REPLIES = [
   'spawned two worker lanes; territories non-overlapping',
 ]
 
+export const CHAT_CONTEXT_REPLIES = {
+  coordinator: [
+    'directive read — {{context}}. gates stay closed until evidence clears; no territory change from this thread.',
+    'coord pass: {{context}}. i’m keeping the current owners in place and watching the next revision.',
+    'ack — {{context}}. no collision on the named territory; the lane can continue behind its existing fence.',
+    'gate check: {{context}}. nothing moves outward until the ledger says clear, then i’ll log the receipt.',
+    'territory is stable. {{context}}. if that changes, i’ll issue one bounded handoff instead of splitting ownership.',
+    'current directive is accounted for: {{context}}. next checkpoint waits on evidence, not elapsed time.',
+    'fleet read: {{context}}. no stale claim is being treated as live; i’m reconciling before another assignment.',
+    'holding the coordination line — {{context}}. owners, gates, and help requests remain on separate tracks.',
+    'revision checked: {{context}}. the active phase stays fenced; truncation would checkpoint and resume, never close it.',
+    'coordinator answer: {{context}}. i’ll keep the lane scoped and raise only a real owner decision.',
+  ],
+  lane: [
+    'current lane — {{context}}. the sweep is moving; nothing stuck and no territory drift.',
+    'working the current card: {{context}}. i’ll hand back evidence when the bounded pass closes.',
+    'ack — {{context}}. the next check is already queued behind this one; replies stay serialized.',
+    'current task: {{context}}. heartbeat is fresh, the fence is intact, and i’m continuing.',
+    'status from {{agent}}: {{context}}. no blocker to report; next checkpoint is the natural stop.',
+    'still in the same lane — {{context}}. i haven’t crossed into adjacent files or opened a second phase.',
+    'read-only pass first: {{context}}. if the evidence holds, i’ll promote it; otherwise it stays staged.',
+    'checkpoint view: {{context}}. progress is real, but i’m not calling completion before the last check.',
+    'on it — {{context}}. one task, one stream, then the queued turn gets the line.',
+    'lane update: {{context}}. no lease contention, no hidden retry, and nothing waiting on the owner.',
+  ],
+}
+
 export const SUBSYSTEMS = [
   'Preflight', 'Standing Orders', 'Ledger Gates', 'Owner Inbox', 'Agent-Coord Memory',
   'Task Queue', 'Tool Registry', 'Audit Ledger', 'Kill Switch', 'Tunnel', 'Bridge',

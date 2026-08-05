@@ -1,7 +1,7 @@
 // Shared UI pieces: uptime ring, chat window, sparkline, tooltip.
 
 import { uptimeParts } from './sim.js'
-import { CHAT, CHAT_REPLIES, ROLES, pick } from './vocab.js'
+import { CHAT, CHAT_CONTEXT_REPLIES, CHAT_REPLIES, ROLES, pick } from './vocab.js'
 
 export const el = (html) => {
   const t = document.createElement('template')
@@ -150,8 +150,104 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
   return { el: root, update }
 }
 
+const CHAT_MINUTE = 60 * 1000
+const CHAT_CLUSTER_GAP = 8 * CHAT_MINUTE
+const CHAT_CLOCK_ORIGIN = Date.now()
+const COORDINATING_CHAT_ROLES = new Set(['coordinator', 'helper', 'shadow', 'manager'])
+
+const liveChats = new Set()
+let chatLifecycleObserver = null
+
+const chatDebug = import.meta.env?.DEV && typeof window !== 'undefined'
+  ? (window.__chatDebug = {
+      activeChats: 0,
+      pendingTimers: 0,
+      typingIndicators: 0,
+      streams: 0,
+      queuedTurns: 0,
+      completedReplies: 0,
+      disposedChats: 0,
+    })
+  : null
+
+function bumpChatDebug(key, amount) {
+  if (!chatDebug) return
+  chatDebug[key] = Math.max(0, (chatDebug[key] || 0) + amount)
+}
+
+function sweepChatLifecycles() {
+  for (const entry of [...liveChats]) {
+    if (entry.root.isConnected) {
+      entry.seenConnected = true
+      entry.morphHost ||= entry.root.closest('.as-chat')
+      // Chip and comms chats remain mounted for their closing morph. Their
+      // host dropping .as-chat is the actual close signal, so reply work is
+      // stopped before that half-second shell animation removes the DOM.
+      if (entry.morphHost && !entry.morphHost.classList.contains('as-chat')) entry.dispose()
+    } else if (entry.seenConnected) {
+      // Full-page and rail chats have no close button. Disconnection is their
+      // view/rail teardown, including innerHTML swaps on the computers rail.
+      entry.dispose()
+    }
+  }
+  if (!liveChats.size && chatLifecycleObserver) {
+    chatLifecycleObserver.disconnect()
+    chatLifecycleObserver = null
+  }
+}
+
+function registerChatLifecycle(entry) {
+  liveChats.add(entry)
+  if (!chatLifecycleObserver && typeof MutationObserver !== 'undefined') {
+    chatLifecycleObserver = new MutationObserver(sweepChatLifecycles)
+    chatLifecycleObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+  }
+  queueMicrotask(sweepChatLifecycles)
+  return () => {
+    liveChats.delete(entry)
+    if (!liveChats.size && chatLifecycleObserver) {
+      chatLifecycleObserver.disconnect()
+      chatLifecycleObserver = null
+    }
+  }
+}
+
+function chatReducedMotion() {
+  return document.body.classList.contains('reduce-motion')
+    || Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
+function chatTime(at) {
+  const d = new Date(at)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function normalizeChatContext(value) {
+  const parts = []
+  const add = (candidate) => {
+    if (Array.isArray(candidate)) { candidate.forEach(add); return }
+    if (typeof candidate !== 'string' && typeof candidate !== 'number') return
+    const text = String(candidate).replace(/\s+/g, ' ').trim()
+    if (text) parts.push(text)
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const preferred = ['activity', 'activities', 'task', 'status', 'progress', 'current']
+      .filter(key => Object.hasOwn(value, key))
+    ;(preferred.length ? preferred.map(key => value[key]) : Object.values(value)).forEach(add)
+  } else add(value)
+
+  let text = parts.join(' · ').replace(/[\s,;:.!?—–-]+$/u, '')
+  if (text.length > 190) text = `${text.slice(0, 187).trimEnd()}…`
+  return text
+}
+
 /** Build a chat window element (used inside chips, home feed, agent page). */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false }) {
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null }) {
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
     <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
@@ -178,21 +274,71 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
 
   const log = root.querySelector('.chat-log')
   const input = root.querySelector('input')
-  // The seeded excerpt is the conversation's *past*, so it must not change
-  // between opens: the title is the conversation's identity, so the window
-  // into CHAT is derived from it rather than re-rolled with Math.random().
-  // Re-opening the same agent's chat now replays the same history.
-  const span = Math.max(1, CHAT.length - seed)
-  const start = hashString(String(title ?? '')) % span
-  const history = CHAT.slice(start, start + seed)
+  const sendButton = root.querySelector('.chat-send')
+  let disposed = false
+  let lastTurnAt = null
 
-  const addMsg = (from, text, who) => {
-    const m = el(`<div class="msg ${from}">${who ? `<span class="who">${who}</span>` : ''}${text}</div>`)
+  const addTimeDivider = (at) => {
+    const divider = document.createElement('time')
+    divider.className = 'chat-time-divider'
+    divider.dateTime = new Date(at).toISOString()
+    divider.textContent = chatTime(at)
+    divider.setAttribute('aria-label', `Conversation resumed at ${chatTime(at)}`)
+    log.appendChild(divider)
+  }
+
+  const makeMsg = (from, text, who, at) => {
+    const m = document.createElement('div')
+    m.className = `msg ${from}`
+    m.title = chatTime(at)
+    if (who) {
+      const sender = document.createElement('span')
+      sender.className = 'who'
+      sender.textContent = who
+      m.appendChild(sender)
+    }
+    const body = document.createElement('span')
+    body.className = 'chat-msg-text'
+    body.textContent = text
+    m.appendChild(body)
+    return { m, body }
+  }
+
+  const addMsg = (from, text, who, at = Date.now()) => {
+    if (lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP) addTimeDivider(at)
+    lastTurnAt = at
+    const { m } = makeMsg(from, text, who, at)
     log.appendChild(m)
     log.scrollTop = log.scrollHeight
     return m
   }
-  history.forEach((m, i) => addMsg(m.from, m.text, i === 0 ? (m.from === 'them' ? title : 'you') : null))
+  // The seeded excerpt is the conversation's *past*, so it must not change
+  // between opens: the title is the conversation's identity, so the window
+  // into CHAT is derived from it rather than re-rolled with Math.random().
+  // Re-opening the same agent's chat now replays the same history.
+  const titleHash = hashString(String(title ?? ''))
+  const span = Math.max(1, CHAT.length - seed)
+  const start = titleHash % span
+  const history = CHAT.slice(start, start + seed)
+
+  // Give the simulated past a stable rhythm: short exchanges grouped around
+  // one real pause. A six-turn direct line therefore reads like a thread,
+  // while the compact two-turn comms excerpt does not spend a row on chrome.
+  const historyTimes = new Array(history.length)
+  const clusterAt = history.length >= 3 ? Math.floor(history.length / 2) : -1
+  let historyCursor = CHAT_CLOCK_ORIGIN - (2 + titleHash % 4) * CHAT_MINUTE
+  for (let i = history.length - 1; i >= 0; i--) {
+    historyTimes[i] = historyCursor
+    const shortGap = 1 + ((titleHash >>> (i % 24)) % 4)
+    const gap = i === clusterAt ? 9 + (titleHash % 4) : shortGap
+    historyCursor -= gap * CHAT_MINUTE
+  }
+  history.forEach((m, i) => addMsg(
+    m.from,
+    m.text,
+    i === 0 ? (m.from === 'them' ? title : 'you') : null,
+    historyTimes[i],
+  ))
   /* The seeded history above is written while the panel is still DETACHED
      (the agent view assembles its chat before mount), where scrollHeight is 0
      and the per-message snap inside addMsg is a no-op — the pane then sat
@@ -208,30 +354,225 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     pinned = log.scrollTop >= log.scrollHeight - log.clientHeight - 24
   }, { passive: true })
   const anchorRo = new ResizeObserver(() => {
-    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+    if (!disposed && pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
   })
   anchorRo.observe(log)
   // content growth (a new message wrapping taller) moves scrollHeight without
   // resizing the box — the same pin applies
-  new MutationObserver(() => {
-    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
-  }).observe(log, { childList: true })
+  const contentObserver = new MutationObserver(() => {
+    if (!disposed && pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+  })
+  contentObserver.observe(log, { childList: true })
   // the webfont swap grows text with no mutation and no box resize — the one
   // path the two observers above cannot see (measured on the home thread)
   document.fonts?.ready?.then(() => {
-    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+    if (!disposed && pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
   })
 
+  const pinGrowingReply = () => {
+    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+  }
+
+  const timers = new Set()
+  const schedule = (fn, ms) => {
+    if (disposed) return null
+    let timer = null
+    timer = setTimeout(() => {
+      if (timers.delete(timer)) bumpChatDebug('pendingTimers', -1)
+      if (!disposed) fn()
+    }, ms)
+    timers.add(timer)
+    bumpChatDebug('pendingTimers', 1)
+    return timer
+  }
+  const clearTimers = () => {
+    for (const timer of timers) {
+      clearTimeout(timer)
+      bumpChatDebug('pendingTimers', -1)
+    }
+    timers.clear()
+  }
+
+  const replyQueue = []
+  let replying = false
+  let typingEl = null
+  let currentStream = null
+
+  const replyTextFor = (prompt) => {
+    const kind = COORDINATING_CHAT_ROLES.has(roleKey) ? 'coordinator' : 'lane'
+    const pool = CHAT_CONTEXT_REPLIES[kind] || CHAT_REPLIES
+    const template = pick(pool)
+    let supplied = ''
+    try {
+      supplied = normalizeChatContext(typeof context === 'function'
+        ? context({ title, roleKey, prompt })
+        : context)
+    } catch {
+      // A live activity reader is an enhancement, never a send blocker.
+    }
+    const fallback = kind === 'coordinator'
+      ? 'the directive queue is checked and no gate or territory change is pending'
+      : 'the assigned task is moving through its current sweep'
+    return template
+      .replaceAll('{{context}}', supplied || fallback)
+      .replaceAll('{{agent}}', String(title || role.label).toLowerCase())
+      .replaceAll('{{role}}', role.label.toLowerCase())
+  }
+
+  const makeTyping = () => {
+    const row = document.createElement('div')
+    row.className = 'chat-typing'
+    row.setAttribute('role', 'status')
+    row.setAttribute('aria-label', `${title} is thinking`)
+
+    const name = document.createElement('span')
+    name.className = 'chat-typing-name'
+    name.textContent = title
+    const sep = document.createElement('span')
+    sep.className = 'chat-typing-sep'
+    sep.setAttribute('aria-hidden', 'true')
+    sep.textContent = '·'
+    const dots = document.createElement('span')
+    dots.className = 'chat-typing-dots'
+    dots.setAttribute('aria-hidden', 'true')
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement('i')
+      dot.textContent = '·'
+      dots.appendChild(dot)
+    }
+    row.append(name, sep, dots)
+    return row
+  }
+
+  const insertAfter = (node, anchor) => {
+    if (anchor?.parentNode === log) log.insertBefore(node, anchor.nextSibling)
+    else log.appendChild(node)
+  }
+
+  const takeTyping = () => {
+    const row = typingEl
+    if (row) bumpChatDebug('typingIndicators', -1)
+    typingEl = null
+    return row
+  }
+
+  let pumpReplies = () => {}
+  const finishReply = () => {
+    if (currentStream) {
+      currentStream.message.removeAttribute('aria-busy')
+      currentStream = null
+      bumpChatDebug('streams', -1)
+    }
+    replying = false
+    log.removeAttribute('aria-busy')
+    bumpChatDebug('completedReplies', 1)
+    pumpReplies()
+  }
+
+  const startReply = (item) => {
+    const fullText = replyTextFor(item.prompt)
+    const replyAt = Date.now()
+    const { m, body } = makeMsg('them', '', null, replyAt)
+    m.setAttribute('aria-busy', 'true')
+    lastTurnAt = replyAt
+
+    const marker = takeTyping()
+    if (marker?.parentNode) marker.replaceWith(m)
+    else insertAfter(m, item.message)
+    pinGrowingReply()
+
+    if (chatReducedMotion()) {
+      body.textContent = fullText
+      m.removeAttribute('aria-busy')
+      finishReply()
+      return
+    }
+
+    const words = fullText.match(/\S+\s*/g) || [fullText]
+    let index = 0
+    currentStream = { message: m, body, fullText }
+    bumpChatDebug('streams', 1)
+
+    const streamWord = () => {
+      body.appendChild(document.createTextNode(words[index++] || ''))
+      pinGrowingReply()
+      if (index >= words.length) {
+        body.normalize()
+        finishReply()
+        return
+      }
+      schedule(streamWord, 30 + Math.random() * 30)
+    }
+    streamWord()
+  }
+
+  pumpReplies = () => {
+    if (disposed || replying || !replyQueue.length) return
+    replying = true
+    const item = replyQueue.shift()
+    bumpChatDebug('queuedTurns', -1)
+    typingEl = makeTyping()
+    insertAfter(typingEl, item.message)
+    bumpChatDebug('typingIndicators', 1)
+    log.setAttribute('aria-busy', 'true')
+    pinGrowingReply()
+    // The old 0.9–2.1s canned delay read as latency. This shorter beat reads
+    // as thought, then hands off to the word stream for the visible work.
+    schedule(() => startReply(item), 560 + Math.random() * 360)
+  }
+
   const send = () => {
+    if (disposed) return
     const v = input.value.trim()
     if (!v) return
     input.value = ''
-    addMsg('me', v)
-    setTimeout(() => addMsg('them', pick(CHAT_REPLIES)), 900 + Math.random() * 1200)
+    pinned = true
+    const message = addMsg('me', v)
+    replyQueue.push({ prompt: v, message })
+    bumpChatDebug('queuedTurns', 1)
+    pumpReplies()
   }
-  root.querySelector('.chat-send').addEventListener('click', send)
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send() })
-  if (onClose) root.querySelector('.chat-close').addEventListener('click', (e) => { e.stopPropagation(); onClose() })
+
+  const onInputKeydown = (e) => { if (e.key === 'Enter') send() }
+  const onCloseClick = (e) => {
+    e.stopPropagation()
+    dispose()
+    onClose()
+  }
+
+  sendButton.addEventListener('click', send)
+  input.addEventListener('keydown', onInputKeydown)
+  if (onClose) root.querySelector('.chat-close').addEventListener('click', onCloseClick)
+
+  let unregisterLifecycle = () => {}
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    clearTimers()
+    if (replyQueue.length) bumpChatDebug('queuedTurns', -replyQueue.length)
+    replyQueue.length = 0
+    const marker = takeTyping()
+    marker?.remove()
+    if (currentStream) {
+      currentStream.message.removeAttribute('aria-busy')
+      currentStream = null
+      bumpChatDebug('streams', -1)
+    }
+    replying = false
+    log.removeAttribute('aria-busy')
+    anchorRo.disconnect()
+    contentObserver.disconnect()
+    sendButton.removeEventListener('click', send)
+    input.removeEventListener('keydown', onInputKeydown)
+    if (onClose) root.querySelector('.chat-close')?.removeEventListener('click', onCloseClick)
+    unregisterLifecycle()
+    bumpChatDebug('activeChats', -1)
+    bumpChatDebug('disposedChats', 1)
+  }
+
+  bumpChatDebug('activeChats', 1)
+  unregisterLifecycle = registerChatLifecycle({ root, dispose, seenConnected: false, morphHost: null })
+  Object.defineProperty(root, 'dispose', { value: dispose })
 
   return root
 }
