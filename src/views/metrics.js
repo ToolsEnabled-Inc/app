@@ -36,6 +36,10 @@ const N = 24                                  // buckets on the token chart
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v))
 const lerp = (a, b, t) => a + (b - a) * t
 const easeInOut = (p) => p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2
+const HEART_PATTERN = [0, 0.015, 0, 0.07, -0.11, 0.94, -0.34, 0.17, 0.035, 0, 0, 0]
+const beatClock = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+})
 /* The OS preference counts, not just the Settings toggle.
    Every JS motion gate on the site reads body.reduce-motion, and the only
    writer of that class is the Settings checkbox — the media query never sets
@@ -109,9 +113,9 @@ const provInk = (id) => `var(--prov-${id}, var(--ink-3))`
    subscription'. It is clean at 1920x1080, which is why a container-relative
    clamp looked right.
 
-   This wrapper now serves ONLY the pool meters: the four hero charts moved
-   to the engine tooltip (appendToBody + confine = the same viewport clamp,
-   natively), which deleted the tall token-flow case that used to live here.
+   This wrapper serves the pool meters and the DOM-native gates timeline; the
+   engine charts use appendToBody + confine for the same viewport clamp
+   natively, which deleted the tall token-flow case that used to live here.
    The real fix is four lines inside makeTooltip.show, but components.js is
    another lane's file this wave, so this wrapper re-clamps after the shared
    code has positioned the element: same math it uses (container rect +
@@ -170,19 +174,22 @@ const idxForDaysAgo = (a) => (1 - a / 30) * (N - 1)
 
 const RANGE_META = {
   '24h': {
-    word: 'last 24 h', unit: '24 h', prev: 'vs yesterday',
+    word: 'last 24 h', unit: '24 h', prev: 'vs yesterday', days: 1,
+    timeline: ['−24 h', '−12 h', 'now'],
     ticks: HOUR_TICKS, xlab: (i) => `${String(Math.round(i)).padStart(2, '0')}:00`,
     failSub: 'rolling 24 h', verdictSub: 'last 24 h', heatSub: 'by hour · 7 days',
     vol: 1, smooth: 0, fail: 1, heat: 1.05, verdicts: 0.16, pool: 0.86, ops: 0.22,
   },
   '7d': {
-    word: 'last 7 days', unit: '7 d', prev: 'vs last week',
+    word: 'last 7 days', unit: '7 d', prev: 'vs last week', days: 7,
+    timeline: ['Mon', 'Thu', 'now'],
     ticks: [0, 4, 8, 12, 16, 20, 23], xlab: (i) => DAYS[Math.round((i / (N - 1)) * 6)],
     failSub: 'rolling 7 days', verdictSub: 'this week', heatSub: 'by hour · 7 days',
     vol: 1.17, smooth: 0.45, fail: 0.88, heat: 1, verdicts: 1, pool: 1, ops: 1,
   },
   '30d': {
-    word: 'last 30 days', unit: '30 d', prev: 'vs last month',
+    word: 'last 30 days', unit: '30 d', prev: 'vs last month', days: 30,
+    timeline: ['−30 d', '−15 d', 'now'],
     ticks: d3ticks(0, 30, 3).slice().reverse().map(idxForDaysAgo),
     xlab: (i) => i >= N - 1 ? 'now' : `−${Math.round((1 - i / (N - 1)) * 30)} d`,
     failSub: 'rolling 30 days', verdictSub: 'this month', heatSub: 'by hour · weekday mean',
@@ -314,6 +321,51 @@ export function metricsView() {
     ? sim.computers
     : sim.computers.filter(c => c.id === state.machine)
 
+  /* ---------------- machine heartbeat ----------------
+     A rolling, data-owned EKG trace for the two simulated machines. Live
+     hiccups are derived only from state the sim already exposes: a spawning
+     lane or an extreme CPU/network/disk reading. Seed history includes one
+     short deterministic held interval per machine so a fresh screenshot
+     demonstrates the flatline grammar without waiting for a random walk to
+     cross a threshold. */
+  const HEART_POINTS = 72
+  const HEART_CADENCE = 520
+  const heartbeatHiccup = (c) => c.agents.some(a => a.state === 'spawning')
+    || c.stats.net < 12 || c.stats.cpu > 90 || c.stats.disk > 56
+  const heartbeatPoint = (c, machineIndex, sequence, at, forcedHiccup = null) => {
+    const hiccup = forcedHiccup ?? heartbeatHiccup(c)
+    const phase = (sequence + machineIndex * 3) % HEART_PATTERN.length
+    const amplitude = 0.76 + c.stats.cpu * 0.002 + c.stats.net * 0.0008
+    const baseline = HEART_PATTERN[phase] === 0
+      ? (noise(`${c.id}|heart|${sequence}`) - 0.5) * 0.012
+      : 0
+    return {
+      value: +(hiccup ? 0 : HEART_PATTERN[phase] * amplitude + baseline).toFixed(4),
+      at, hiccup,
+      beat: !hiccup && phase === 5,
+    }
+  }
+  const heartNow = Date.now()
+  const heartbeat = {
+    cadence: HEART_CADENCE,
+    sequence: HEART_POINTS,
+    machines: sim.computers.slice(0, 2).map((c, machineIndex) => {
+      const points = []
+      let lastBeat = heartNow
+      const heldAt = 20 + Math.floor(noise(`${c.id}|heart|held`) * 28)
+      for (let i = 0; i < HEART_POINTS; i++) {
+        const at = heartNow - (HEART_POINTS - 1 - i) * HEART_CADENCE
+        const point = heartbeatPoint(c, machineIndex, i, at, i >= heldAt && i < heldAt + 6)
+        if (point.beat) lastBeat = at
+        points.push(point)
+      }
+      return {
+        id: c.id, name: c.name, points, lastBeat, hiccup: false,
+        holdRemaining: 0, cooldown: machineIndex * 4,
+      }
+    }),
+  }
+
   /* lane display order is fixed once (severity-descending) so bars can tween in place */
   const LANES = [...m.failureByLane].sort((a, b) => b.rate - a.rate).map(l => l.lane)
 
@@ -373,6 +425,41 @@ export function metricsView() {
           </div>
           <div class="echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent — click a bar to filter the agent table"></div>
         </section>
+        <section class="m-sec m-heartbeat" data-mc="heartbeat">
+          <div class="m-head"><span class="mt">Machine heartbeat</span><span class="ms" id="heartbeat-sub">two machines · rolling live signal</span></div>
+          <div class="heartbeat-stage">
+            ${heartbeat.machines.map((machine, i) => `
+              <div class="hb-meta" data-hb="${machine.id}" style="--hb-row:${i}">
+                <span class="hb-name"><i aria-hidden="true"></i>${machine.name}</span>
+                <span class="hb-last">last beat —</span>
+              </div>
+              <i class="hb-signal-tip" data-hb-tip="${machine.id}" aria-hidden="true"></i>`).join('')}
+            <div class="echart" id="heartbeat-chart" role="img" aria-label="Live EKG-style machine heartbeat traces"></div>
+          </div>
+        </section>
+        <section class="m-sec m-burn" data-mc="burn">
+          <div class="m-head"><span class="mt">Pool burn</span><span class="ms" id="burn-sub">last 24 h · per machine-day</span></div>
+          <div class="burn-stage">
+            ${POOLS.slice(0, 2).map((pool, i) => `
+              <div class="burn-meta" data-burn="${pool.id}" style="--burn-row:${i}">
+                <div class="burn-line"><span class="burn-name">${pool.id}</span><span class="burn-rate">—</span></div>
+                <div class="burn-figure">—</div>
+              </div>`).join('')}
+            <div class="echart" id="burn-chart" role="img" aria-label="Spend rate for the two active account pools"></div>
+          </div>
+        </section>
+        <section class="m-sec m-gates" data-mc="gates">
+          <div class="m-head"><span class="mt">Gates &amp; checkpoints</span><span class="ms" id="gates-sub">last 24 h · event log</span><span class="spacer"></span><span class="gate-counts" id="gate-counts"></span></div>
+          <div class="gate-stage">
+            <div class="gate-track" role="list" aria-label="Checkpoint and gate events over the selected range"></div>
+            <div class="gate-axis-labels"><span></span><span></span><span></span></div>
+            <div class="gate-legend" aria-hidden="true">
+              <span><i class="is-checkpoint"></i>checkpoint</span>
+              <span><i class="is-open"></i>open</span>
+              <span><i class="is-held"></i>held</span>
+            </div>
+          </div>
+        </section>
         <div class="m-row m-pools" id="pools" data-mc="pools"></div>
         <section class="m-sec m-agents" data-mc="agents">
           <div class="m-head"><span class="mt">Agents</span><span class="ms" id="table-sub">all machines · live</span>
@@ -409,6 +496,9 @@ export function metricsView() {
       { id: 'lanes', title: 'Failure by lane', el: root.querySelector('[data-mc="lanes"]'), size: 'slot' },
       { id: 'pools', title: 'Account pools', el: root.querySelector('[data-mc="pools"]'), size: 'slot', maxShare: 2, slimClass: 'm-pools--slim' },
       { id: 'agents', title: 'Agents', el: root.querySelector('[data-mc="agents"]'), size: 'full' },
+      { id: 'heartbeat', title: 'Machine heartbeat', el: root.querySelector('[data-mc="heartbeat"]'), size: 'slot', optional: true },
+      { id: 'burn', title: 'Pool burn', el: root.querySelector('[data-mc="burn"]'), size: 'slot', optional: true },
+      { id: 'gates', title: 'Gates & checkpoints', el: root.querySelector('[data-mc="gates"]'), size: 'slot', optional: true },
     ],
     standard: [['stats'], ['sankey'], ['tokenflow'], ['heatmap', 'verdicts', 'lanes'], ['pools'], ['agents']],
     reduced,
@@ -421,11 +511,88 @@ export function metricsView() {
     },
     /* moving a component reparents live echarts hosts — resize every
        instance in place; dispose/rebuild measured unnecessary (report) */
-    onArrange: () => charts?.resize(),
+    onArrange: () => {
+      charts?.resize()
+      if (!charts) return
+      syncOptionalChrome()
+      if (componentPlaced('heartbeat')) {
+        syncHeartbeatMeta()
+        moveHeartbeatTips()
+        charts.updateHeartbeat({
+          heartbeat, theme, dur: 0, entrance: false, reduced: reduced(), machine: state.machine,
+        })
+      }
+      if (componentPlaced('burn')) {
+        applyBurn(target)
+        charts.updateBurn({
+          d: target, R: meta(), theme, dur: 0, entrance: false, reduced: reduced(),
+        })
+      }
+      if (componentPlaced('gates')) applyTimeline(target)
+    },
   })
   unsubs.push(() => layout.destroy())
 
   /* ================= dataset generation ================= */
+
+  function buildBurn(pools, key, R) {
+    /* The selected range and selected machines define the observed exposure
+       in machine-days. That denominator already belongs to the page (rather
+       than inventing an account age from a caption), and keeps the figure
+       legible immediately after a fresh sim boot: two machines over 24 h =
+       two observed machine-days. Each displayed runway is then exactly
+       remaining / the mean of the visible rate samples. */
+    const machineDays = Math.max(0.25, R.days * Math.max(1, machineComputers().length))
+    const vertexTotal = m.spend.vertexTotal
+    const defs = [
+      { id: 'jpinckard21', label: 'subscription seat', kind: 'percent', total: 100, used: pools[0] },
+      { id: 'jpinckard95', label: 'vertex trial', kind: 'currency', total: vertexTotal, used: vertexTotal * pools[1] / 100 },
+    ]
+    const rows = defs.map((def) => {
+      const pace = Math.max(0.01, def.used / machineDays)
+      const raw = Array.from({ length: 18 }, (_, i) =>
+        pace * (0.72 + 0.56 * noise(`${key}|burn|${def.id}|${i}`)))
+      const series = smoothArr(raw, 0.58).map(v => +Math.max(0.01, v).toFixed(3))
+      const recent = series.slice(-6)
+      const rate = recent.reduce((sum, v) => sum + v, 0) / recent.length
+      const remaining = Math.max(0, def.total - def.used)
+      return { ...def, remaining, rate, runway: rate ? remaining / rate : null, series }
+    })
+    return { rows, machineDays }
+  }
+
+  function buildTimeline(tiles, key, R) {
+    const checkpointTotal = Math.max(0, Math.round(tiles.checkpoints))
+    const gateTotal = Math.max(0, Math.round(tiles.gateBlocks))
+    const checkpointMarks = checkpointTotal
+      ? Math.min(6, checkpointTotal, Math.max(4, Math.round(Math.sqrt(checkpointTotal)))) : 0
+    const gateMarks = gateTotal ? Math.min(4, gateTotal) : 0
+    const order = []
+    let ci = 0, gi = 0
+    while (ci < checkpointMarks || gi < gateMarks) {
+      if (ci < checkpointMarks) order.push({ kind: 'checkpoint', ordinal: ci++ })
+      if (gi < gateMarks) order.push({ kind: 'gate', ordinal: gi++ })
+    }
+    const events = order.map((event, i) => {
+      const jitter = (noise(`${key}|event|${event.kind}|${event.ordinal}`) - 0.5) * 0.026
+      const at = clamp(0.035, 0.965, (i + 1) / (order.length + 1) + jitter)
+      if (event.kind === 'checkpoint') {
+        const number = Math.max(1, checkpointTotal - checkpointMarks + event.ordinal + 1)
+        return {
+          ...event, at, atLabel: R.xlab(at * (N - 1)),
+          label: `Checkpoint ${number}`, state: 'recorded', level: 'checkpoint',
+        }
+      }
+      const number = Math.max(1, gateTotal - gateMarks + event.ordinal + 1)
+      const held = (event.ordinal + gateTotal) % 2 === 0
+      const level = held && noise(`${key}|event|severity|${event.ordinal}`) > 0.68 ? 'serious' : held ? 'held' : 'open'
+      return {
+        ...event, at, atLabel: R.xlab(at * (N - 1)),
+        label: `Gate ${number}`, state: held ? 'held' : 'opened', level,
+      }
+    }).sort((a, b) => a.at - b.at)
+    return { checkpointTotal, gateTotal, events }
+  }
 
   /* `back` shifts the seed one equivalent period into the past, so the tile
      delta rows can print a comparison the generator actually produced rather
@@ -515,6 +682,8 @@ export function metricsView() {
       checkpoints: m.checkpoints * os,
       gateBlocks: m.gateBlocks * os,
     }
+    const burn = buildBurn(pools, key, R)
+    const timeline = buildTimeline(tiles, key, R)
 
     const sparkFor = (name, end) => {
       const pts = []
@@ -535,7 +704,7 @@ export function metricsView() {
 
     return {
       tokens, tokMax, tokTicks, tokTotal, fail, failSeries, heat, verdicts,
-      pools, tiles, spark, sankey: buildSankey(tokens, pools),
+      pools, tiles, spark, burn, timeline, sankey: buildSankey(tokens, pools),
     }
   }
 
@@ -881,6 +1050,141 @@ export function metricsView() {
     })
   }
 
+  /* ================= optional instruments ================= */
+
+  const componentPlaced = (id) => !root.querySelector(`.m-stash > [data-mc="${id}"]`)
+
+  const heartbeatRefs = new Map(heartbeat.machines.map(machine => [
+    machine.id,
+    root.querySelector(`[data-hb="${machine.id}"]`),
+  ]))
+  const heartbeatTipRefs = new Map(heartbeat.machines.map(machine => [
+    machine.id,
+    root.querySelector(`[data-hb-tip="${machine.id}"]`),
+  ]))
+
+  function moveHeartbeatTips() {
+    heartbeat.machines.forEach((machine, i) => {
+      const tip = heartbeatTipRefs.get(machine.id)
+      const point = machine.points[machine.points.length - 1]
+      if (!tip || !point) return
+      /* Mirrors heartbeatOption's y grids: top 22/114, height 60, domain
+         −0.42..1.02. This transform-only tip follows every 520ms sample
+         without asking the SVG renderer to lay out all 72 points. */
+      const y = 22 + i * 92 + ((1.02 - point.value) / 1.44) * 60
+      tip.style.transform = `translate3d(0, ${y.toFixed(2)}px, 0)`
+      tip.classList.toggle('is-muted', state.machine !== 'all' && state.machine !== machine.id)
+      tip.classList.toggle('is-hiccup', machine.hiccup)
+    })
+  }
+
+  function syncHeartbeatMeta() {
+    for (const machine of heartbeat.machines) {
+      const ref = heartbeatRefs.get(machine.id)
+      if (!ref) continue
+      const selected = state.machine === 'all' || state.machine === machine.id
+      ref.classList.toggle('is-muted', !selected)
+      ref.classList.toggle('is-hiccup', machine.hiccup)
+      const last = `last beat ${beatClock.format(machine.lastBeat)}`
+      const lastEl = ref.querySelector('.hb-last')
+      if (lastEl.textContent !== last) lastEl.textContent = last
+    }
+  }
+
+  function heartbeatTick() {
+    const at = Date.now()
+    let metaDirty = false
+    let signalDirty = false
+    heartbeat.machines.forEach((machine, machineIndex) => {
+      const computer = sim.computers.find(c => c.id === machine.id)
+      if (!computer) return
+      const signal = heartbeatHiccup(computer)
+      if (machine.cooldown > 0) machine.cooldown -= 1
+      if (signal && machine.holdRemaining === 0 && machine.cooldown === 0) {
+        machine.holdRemaining = 6                 // 3.1 s: a brief held trace
+        machine.cooldown = 24                     // do not pin flat on a long sim state
+      }
+      const held = machine.holdRemaining > 0
+      const point = heartbeatPoint(computer, machineIndex, heartbeat.sequence, at, held)
+      if (held) machine.holdRemaining -= 1
+      machine.points.push(point)
+      if (machine.points.length > HEART_POINTS) machine.points.shift()
+      if (machine.hiccup !== point.hiccup) signalDirty = true
+      machine.hiccup = point.hiccup
+      if (point.beat) { machine.lastBeat = point.at; metaDirty = true }
+    })
+    heartbeat.sequence += 1
+    if (!state.editing && componentPlaced('heartbeat')) {
+      moveHeartbeatTips()
+      if (metaDirty || signalDirty) syncHeartbeatMeta()
+      /* Sampling continues every 520ms, but the SVG trace rolls once per
+         completed waveform (or at a held-signal edge). Re-optioning 72
+         points every sample kept the SVG renderer in continuous layout;
+         this cadence preserves the live monitor while leaving the page at
+         its established settled layout rate. */
+      const waveformComplete = heartbeat.sequence % HEART_PATTERN.length === 0
+      if (waveformComplete || signalDirty) {
+        charts?.updateHeartbeat({
+          heartbeat, theme, dur: 0, entrance: false,
+          reduced: reduced(), machine: state.machine,
+        })
+      }
+    }
+    after(heartbeatTick, HEART_CADENCE)
+  }
+
+  const burnRefs = new Map([...root.querySelectorAll('[data-burn]')].map(node => [node.dataset.burn, node]))
+
+  function applyBurn(d) {
+    if (!d?.burn) return
+    for (const row of d.burn.rows) {
+      const ref = burnRefs.get(row.id)
+      if (!ref) continue
+      const runway = row.runway == null ? '—' : `~${Math.max(1, Math.round(row.runway))} d`
+      ref.querySelector('.burn-rate').textContent = row.kind === 'currency'
+        ? `$${row.rate.toFixed(2)} / machine-day`
+        : `${row.rate.toFixed(1)} pts / machine-day`
+      ref.querySelector('.burn-figure').textContent = row.kind === 'currency'
+        ? `$${row.remaining.toFixed(0)} of $${row.total.toFixed(0)} · ${runway} at current burn`
+        : `${row.remaining.toFixed(0)}% headroom · ${runway} at current burn`
+    }
+  }
+
+  const gateStage = root.querySelector('.gate-stage')
+  const gateTrack = gateStage.querySelector('.gate-track')
+  const gateTip = viewportTooltip(gateStage)
+
+  function gateTipHtml(mark) {
+    return `<div class="tt-title">${mark.dataset.label}</div><b>${mark.dataset.at}</b> · ${mark.dataset.state}`
+  }
+  gateStage.addEventListener('pointermove', (e) => {
+    const mark = e.target.closest('.gate-event')
+    if (!mark || !gateTrack.contains(mark)) { gateTip.hide(); return }
+    gateTip.show(gateTipHtml(mark), e.clientX, e.clientY)
+  })
+  gateStage.addEventListener('pointerleave', () => gateTip.hide())
+  gateStage.addEventListener('focusin', (e) => {
+    const mark = e.target.closest('.gate-event')
+    if (!mark) return
+    const r = mark.getBoundingClientRect()
+    gateTip.show(gateTipHtml(mark), r.left + r.width / 2, r.top)
+  })
+  gateStage.addEventListener('focusout', () => gateTip.hide())
+
+  function applyTimeline(d) {
+    if (!d?.timeline) return
+    const R = meta()
+    root.querySelector('#gate-counts').textContent = `${d.timeline.checkpointTotal} ckpt · ${d.timeline.gateTotal} gate blocks`
+    const axis = root.querySelectorAll('.gate-axis-labels span')
+    R.timeline.forEach((label, i) => { axis[i].textContent = label })
+    gateTrack.innerHTML = d.timeline.events.map(event => `
+      <button type="button" role="listitem" class="gate-event is-${event.level}"
+        style="--event-x:${(event.at * 100).toFixed(2)}%"
+        data-label="${event.label}" data-at="${event.atLabel}" data-state="${event.state}"
+        aria-label="${event.label}, ${event.state}, ${event.atLabel}"><i aria-hidden="true"></i></button>
+    `).join('')
+  }
+
   /* ================= hero charts (engine-rendered) =================
      buildTokens/applyTokens/applyTokenChrome, buildFail/applyFail and
      buildHeat/applyHeat are gone — metrics-charts.js renders all four hero
@@ -898,6 +1202,11 @@ export function metricsView() {
     charts.update({
       d, R: meta(), theme, dur, entrance, reduced: reduced(),
       live: liveExtras, selectedLane: state.laneFilter,
+      heartbeat, machine: state.machine,
+      placed: {
+        heartbeat: componentPlaced('heartbeat'),
+        burn: componentPlaced('burn'),
+      },
     })
   }
 
@@ -948,7 +1257,7 @@ export function metricsView() {
         <div class="vsplit">
           <div class="vbar echart" role="img" aria-label="Review verdict split"></div>
           <div class="vlegend">
-            ${VSEGS.map(s => `<span class="vk" style="--vc:${s.c}"><i></i>${s.k} <b class="vn-${s.key}">0</b> <em class="vp-${s.key}">0%</em></span>`).join('')}
+            ${VSEGS.map(s => `<span class="vk" style="--vc:${s.c}"><i></i><span class="vk-label">${s.k}</span><b class="vn-${s.key}">0</b><em class="vp-${s.key}">0%</em></span>`).join('')}
           </div>
         </div>
       </div>
@@ -1037,7 +1346,7 @@ export function metricsView() {
     table.innerHTML = `
       <thead><tr>
         ${COLS.map(c => `<th class="sortable${c.num ? ' num' : ''}" data-key="${c.key}" tabindex="0" role="button" aria-label="Sort by ${c.label}"><span class="th-in">${c.label}${ARROW}</span></th>`).join('')}
-        <th></th>
+        <th class="num trend-head">Trend</th>
       </tr></thead><tbody></tbody>`
     tbody = table.querySelector('tbody')
 
@@ -1059,7 +1368,7 @@ export function metricsView() {
           <td class="num">${a.tasksDone}</td>
           <td class="num ${failCls}">${a.failRate}%</td>
           <td class="num rt-cell">—</td>
-          <td></td>
+          <td class="trend-cell"></td>
         </tr>`)
         unsubs.push(bindRuntime(tr.querySelector('.rt-cell'), () => a.bornAt))
         // A per-render Math.random() series is decoration wearing a chart's
@@ -1198,11 +1507,18 @@ export function metricsView() {
     root.querySelector('#fail-sub').textContent = `${R.failSub}${machineSuffix()}`
     root.querySelector('#heat-sub').textContent = `${R.heatSub}${machineSuffix()}`
     root.querySelector('#verdict-sub').textContent = `${R.verdictSub}${machineSuffix()}`
+    syncOptionalChrome(R)
     root.querySelector('#table-sub').textContent = `${machineName()} · live`
     root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <i class="live-dot" aria-hidden="true"></i><b>live</b>`
     applyTileDeltas(target)
     /* the token chart's x-axis language (00:00 / weekday / −N d) rides the
        chart update itself now — retarget() re-issues options with R in them */
+  }
+
+  function syncOptionalChrome(R = meta()) {
+    if (componentPlaced('heartbeat')) root.querySelector('#heartbeat-sub').textContent = `two machines · rolling live signal${machineSuffix()}`
+    if (componentPlaced('burn')) root.querySelector('#burn-sub').textContent = `${R.word} · per machine-day${machineSuffix()}`
+    if (componentPlaced('gates')) root.querySelector('#gates-sub').textContent = `${R.word} · event log${machineSuffix()}`
   }
 
   /* ================= tween engine ================= */
@@ -1239,6 +1555,9 @@ export function metricsView() {
        its own morph over the same duration the DOM tween uses, so both
        halves of the page arrive together */
     updateCharts(next, dur)
+    if (componentPlaced('burn')) applyBurn(next)
+    if (componentPlaced('gates')) applyTimeline(next)
+    if (componentPlaced('heartbeat')) { syncHeartbeatMeta(); moveHeartbeatTips() }
     applyTileDeltas(next)
   }
 
@@ -1355,16 +1674,21 @@ export function metricsView() {
         fail: root.querySelector('#fail-chart'),
         heat: root.querySelector('#heat-chart'),
         verdict: root.querySelector('.vbar'),
+        heartbeat: root.querySelector('#heartbeat-chart'),
+        burn: root.querySelector('#burn-chart'),
       },
       lanes: LANES, days: DAYS, hourTicks: HOUR_TICKS, vsegs: VSEGS,
       onLaneClick: setLaneFilter,
     })
     syncHeatKey()
+    if (componentPlaced('burn')) applyBurn(target)
+    if (componentPlaced('gates')) applyTimeline(target)
+    if (componentPlaced('heartbeat')) { syncHeartbeatMeta(); moveHeartbeatTips() }
     applyAll(current)                  // paint the late panels at the frame the tiles are on
-    /* one observer for six instances — hosts are CSS-sized (fixed heights /
+    /* one observer for eight instances — hosts are CSS-sized (fixed heights /
        aspect-ratio / fixed bar height), the engine only ever fills them */
     const ro = new ResizeObserver(() => charts?.resize())
-    for (const id of ['#hero-chart', '#strip-chart', '#sankey-chart', '#fail-chart', '#heat-chart', '.vbar']) {
+    for (const id of ['#hero-chart', '#strip-chart', '#sankey-chart', '#fail-chart', '#heat-chart', '.vbar', '#heartbeat-chart', '#burn-chart']) {
       ro.observe(root.querySelector(id))
     }
     unsubs.push(() => ro.disconnect())
@@ -1375,6 +1699,7 @@ export function metricsView() {
     tickTileNums(target)               // no-op if a gap retarget already ticked
     if (target === settled) tweenTo(settled, 900)
     schedulePulse()                    // the band starts breathing after arrival
+    after(heartbeatTick, HEART_CADENCE)
   })
 
   /* Theme switch: main.js writes documentElement.dataset.theme; rebuild the

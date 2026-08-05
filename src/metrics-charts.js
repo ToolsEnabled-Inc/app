@@ -1,8 +1,9 @@
 // The engine charts of #/metrics.
 //
-// SCOPE — six instances now: the command band (token-flow hero with zoom +
+// SCOPE — eight instances now: the command band (token-flow hero with zoom +
 // its crosshair-synced failure strip), the token-routing Sankey, failure-rate
-// h-bars, fleet activity heatmap, review-verdict split. The KPI-tile and
+// h-bars, fleet activity heatmap, review-verdict split, machine heartbeat and
+// pool burn. The KPI-tile and
 // agent-table sparklines stay on components.js/sparkline() on purpose: they
 // are glyphs, not charts, and an engine per glyph would be all cost.
 //
@@ -87,6 +88,9 @@ function anim({ entrance, dur, reduced }) {
 const axisText = (th, color) => ({
   color, fontSize: 12.5, fontFamily: th.font, fontWeight: 400,
 })
+const axisNumberText = (th, color) => ({
+  color, fontSize: 12.5, fontFamily: th.mono, fontWeight: 450,
+})
 
 /* ================= option builders =================
    Each builder returns the COMPLETE option for its chart, every colour
@@ -123,14 +127,14 @@ function heroOption(P) {
       type: 'category', boundaryGap: false, data: bandCats(len),
       axisLine: { show: false }, axisTick: { show: false },
       axisLabel: {
-        ...axisText(th, th.ink3), interval: 0, margin: 9,
+        ...axisNumberText(th, th.ink3), interval: 0, margin: 9,
         formatter: (_, i) => tickSet.has(i) ? R.xlab(i) : '',
       },
     },
     yAxis: {
       type: 'value', min: 0, max: d.tokMax, interval: step,
       splitLine: { lineStyle: { color: th.grid, width: 1 } },
-      axisLabel: { ...axisText(th, th.ink3), margin: 8, formatter: (v) => String(v) },
+      axisLabel: { ...axisNumberText(th, th.ink3), margin: 8, formatter: (v) => String(v) },
     },
     // wheel/drag zoom only — the slider strip is gone (see the import note);
     // connect() mirrors this window into the failure strip below
@@ -172,7 +176,10 @@ function heroOption(P) {
       // hovering one provider's band recedes the other three; blur strength
       // hand-set — the engine default fades to near-invisible, which reads
       // as data disappearing rather than receding
-      emphasis: { focus: 'series' },
+      emphasis: {
+        focus: 'series',
+        lineStyle: { width: bi === top ? 2.4 : 1.8, shadowBlur: 7, shadowColor: withAlpha(th.prov[p.id], 0.28) },
+      },
       blur: { lineStyle: { opacity: 0.3 }, areaStyle: { opacity: 0.35 } },
       universalTransition: true,
     })),
@@ -198,7 +205,7 @@ function stripOption(P) {
     yAxis: {
       type: 'value', min: 0, max: 10, interval: 5,
       splitLine: { lineStyle: { color: th.grid, width: 1 } },
-      axisLabel: { ...axisText(th, th.ink3), margin: 8, formatter: (v) => v === 10 ? '10%' : String(v) },
+      axisLabel: { ...axisNumberText(th, th.ink3), margin: 8, formatter: (v) => v === 10 ? '10%' : String(v) },
     },
     // no slider of its own: connect() mirrors the hero's zoom into this
     // inside component, and wheel/drag here mirrors back
@@ -266,6 +273,15 @@ function sankeyOption(P) {
   const nodeColor = (n) => n.kind === 'pool' ? th.poolAccent
     : n.kind === 'prov' ? th.prov[n.ref] : n.color
   const cmap = new Map(d.sankey.nodes.map(n => [n.name, nodeColor(n)]))
+  const linkGradient = (l, alpha, middle = alpha) => ({
+    type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
+    colorStops: [
+      { offset: 0, color: withAlpha(cmap.get(l.source) || th.ink3, alpha) },
+      { offset: 0.46, color: withAlpha(cmap.get(l.source) || th.ink3, middle) },
+      { offset: 0.54, color: withAlpha(cmap.get(l.target) || th.ink3, middle) },
+      { offset: 1, color: withAlpha(cmap.get(l.target) || th.ink3, alpha) },
+    ],
+  })
   return {
     ...anim(P),
     backgroundColor: 'transparent',
@@ -277,25 +293,36 @@ function sankeyOption(P) {
     },
     series: [{
       id: 'routing', type: 'sankey',
-      left: 6, right: 12, top: 18, bottom: 14,
+      // Labels live OUTSIDE the outer columns, so the plot reserves their
+      // width instead of gambling on clipping at narrow builder widths.
+      left: 112, right: 160, top: 18, bottom: 14,
       nodeWidth: 12, nodeGap: 26,
       layoutIterations: 0,
       emphasis: { focus: 'adjacency' },
       data: d.sankey.nodes.map(n => ({
         name: n.name, depth: n.depth,
         itemStyle: { color: nodeColor(n), borderWidth: 0, borderRadius: 3 },
-        // the last column's labels sit LEFT of their bars, inside the plot —
-        // nothing may clip against the column edge at 1280
-        label: n.depth === 2 ? { position: 'left' } : { position: 'right' },
+        label: {
+          position: n.depth === 0 ? 'left' : 'right', distance: 7,
+          // A page-colour halo is functional: even the smallest pool flow
+          // can no longer thread through a word at the middle column.
+          textBorderColor: th.bg, textBorderWidth: 3,
+        },
       })),
       links: d.sankey.links.map(l => ({
         source: l.source, target: l.target, value: +l.value.toFixed(1),
-        lineStyle: { color: 'gradient', opacity: 0.28, curveness: 0.5 },
+        lineStyle: { color: linkGradient(l, th.sankeyRest, th.sankeyMid), opacity: 1, curveness: 0.5 },
         emphasis: {
-          lineStyle: { opacity: 0.55, shadowBlur: 10, shadowColor: withAlpha(cmap.get(l.target) || th.ink3, 0.35) },
+          lineStyle: {
+            color: linkGradient(l, th.sankeyHover, th.sankeyHover), opacity: 1,
+            shadowBlur: 10, shadowColor: withAlpha(cmap.get(l.target) || th.ink3, th.dark ? 0.46 : 0.34),
+          },
         },
       })),
-      label: { fontSize: 13, color: th.ink2, fontFamily: th.font, fontWeight: 550 },
+      label: {
+        fontSize: 13, lineHeight: 16, color: th.ink2,
+        fontFamily: th.font, fontWeight: 560,
+      },
       blur: {
         itemStyle: { opacity: 0.35 },
         lineStyle: { opacity: 0.06 },
@@ -310,14 +337,14 @@ function failOption(P) {
   return {
     ...anim(P),
     backgroundColor: 'transparent',
-    grid: { left: 118, right: 50, top: 6, bottom: 19 },
+    grid: { left: 118, right: 10, top: 6, bottom: 19 },
     xAxis: {
       // fixed 0–10 domain on purpose — bars must not rescale under the
       // reader when the filter changes; 10 is the sim's clamp ceiling
       type: 'value', min: 0, max: 10, interval: 2,
       axisLine: { show: false }, axisTick: { show: false },
       splitLine: { lineStyle: { color: th.grid, width: 1 } },
-      axisLabel: { ...axisText(th, th.ink3), formatter: (v) => v === 10 ? '10%' : String(v) },
+      axisLabel: { ...axisNumberText(th, th.ink3), formatter: (v) => v === 10 ? '10%' : String(v) },
     },
     yAxis: {
       type: 'category', inverse: true, data: lanes,
@@ -351,13 +378,23 @@ function failOption(P) {
       showBackground: true,
       backgroundStyle: { color: th.track, borderRadius: 2 },
       itemStyle: { borderRadius: [0, 3, 3, 0] },   // square baseline, soft data end
-      label: {
-        show: true, position: 'right', distance: 8,
-        color: th.ink2, fontSize: 12.5, fontWeight: 600, fontFamily: th.font,
-        formatter: ({ value }) => `${value.toFixed(1)}%`,
-      },
-      emphasis: { itemStyle: { opacity: 0.82 } },
+      label: { show: false },
+      emphasis: { focus: 'series', itemStyle: { opacity: 0.88 } },
+      blur: { itemStyle: { opacity: 0.24 } },
       universalTransition: true,
+    }, {
+      /* A silent max-domain overlay makes the values a true right-aligned
+         column. Labels used to trail each bar and form a jagged diagonal
+         over the tracks, obscuring the quantity they were meant to clarify. */
+      id: 'fail-labels', type: 'bar', silent: true, barWidth: 14, barGap: '-100%', z: 5,
+      data: d.fail.map(f => ({ value: 10, rawRate: +f.rate.toFixed(2) })),
+      itemStyle: { color: 'transparent' },
+      label: {
+        show: true, position: 'insideRight', distance: 0,
+        color: th.ink2, fontSize: 12.5, fontWeight: 600, fontFamily: th.mono,
+        formatter: ({ data }) => `${data.rawRate.toFixed(1)}%`,
+      },
+      emphasis: { disabled: true },
     }],
   }
 }
@@ -378,7 +415,7 @@ function heatOption(P) {
       // canonical 6-hour clock stops, not a generic tick picker (AXIS RULE
       // beside RANGE_META in metrics.js)
       axisLabel: {
-        ...axisText(th, th.ink3), interval: 0, margin: 8,
+        ...axisNumberText(th, th.ink3), interval: 0, margin: 8,
         formatter: (_, i) => hourTicks.includes(i) ? pad2(i) : '',
       },
     },
@@ -404,7 +441,12 @@ function heatOption(P) {
       // 1px --bg borders are the cell gutters: on flat cards the card IS the
       // page background, so the seams read as bare surface, not strokes
       itemStyle: { borderColor: th.bg, borderWidth: 1, borderRadius: 2 },
-      emphasis: { itemStyle: { borderColor: th.ink, borderWidth: 1.2 } },
+      emphasis: {
+        itemStyle: {
+          borderColor: th.ink, borderWidth: 2,
+          shadowBlur: 7, shadowColor: withAlpha(th.ink, th.dark ? 0.38 : 0.20),
+        },
+      },
       universalTransition: true,
     }],
   }
@@ -429,13 +471,146 @@ function verdictOption(P) {
         return mtip(`<div class="tt-title">${s.k}</div><b>${Math.round(value)}</b> of ${Math.round(total)} · <b>${pct.toFixed(1)}%</b>`)
       },
     },
-    series: vsegs.map(s => ({
+    series: vsegs.map((s, i) => ({
       id: s.key, name: s.k, type: 'bar', stack: 'v', barWidth: 22,
       data: [+d.verdicts[s.key].toFixed(2)],
       // 1px --bg border per segment = the 2px bare-surface gap the DOM
       // version cut out of each trailing edge; radius matches --r-sm
-      itemStyle: { color: th[s.tone], borderColor: th.bg, borderWidth: 1, borderRadius: 2 },
-      emphasis: { itemStyle: { borderColor: th.sheet, borderWidth: 2 } },
+      itemStyle: {
+        color: th[s.tone], borderColor: th.bg, borderWidth: 1,
+        borderRadius: i === 0 ? [3, 0, 0, 3] : i === vsegs.length - 1 ? [0, 3, 3, 0] : 0,
+      },
+      emphasis: { focus: 'series', itemStyle: { borderColor: th.sheet, borderWidth: 2 } },
+      blur: { itemStyle: { opacity: 0.4 } },
+      universalTransition: true,
+    })),
+  }
+}
+
+/* ---------- machine heartbeat ----------
+   Two stacked scopes share one clinical register. The line is deliberately
+   role-neutral: machine identity is written in the DOM label, while hue is
+   reserved for state. Only the moving tip glows, so the effect remains at
+   data scale and a held signal reads as a genuine flatline. */
+const heartTime = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+})
+
+function heartbeatOption(P) {
+  const { heartbeat, theme: th } = P
+  const machines = heartbeat.machines
+  const cats = machines[0]?.points.map((_, i) => String(i)) || []
+  const selected = (machine) => P.machine === 'all' || P.machine === machine.id
+  const xAxis = machines.map((_, i) => ({
+    type: 'category', gridIndex: i, boundaryGap: false, data: cats,
+    axisLine: { show: true, onZero: true, lineStyle: { color: th.grid, width: 1 } },
+    axisTick: { show: false }, axisLabel: { show: false },
+    axisPointer: { show: true, label: { show: false }, lineStyle: { color: th.cross, width: 1 } },
+  }))
+  const yAxis = machines.map((_, i) => ({
+    type: 'value', gridIndex: i, min: -0.42, max: 1.02,
+    axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { show: false },
+  }))
+  return {
+    ...anim(P),
+    backgroundColor: 'transparent',
+    grid: [
+      { left: 2, right: 2, top: 22, height: 60 },
+      { left: 2, right: 2, top: 114, height: 60 },
+    ],
+    xAxis, yAxis,
+    tooltip: {
+      ...tipBase(), trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: th.cross, width: 1 } },
+      formatter: (params) => {
+        const q = params[0]
+        if (!q?.data?.meta) return ''
+        const point = q.data.meta
+        const machine = machines[q.seriesIndex]
+        const status = point.hiccup ? 'signal held · sim hiccup'
+          : point.beat ? 'beat recorded' : 'within cadence'
+        return mtip(`<div class="tt-title">${machine.name}</div><b>${heartTime.format(point.at)}</b> · ${status}`)
+      },
+    },
+    series: machines.map((machine, i) => {
+      const on = selected(machine)
+      return {
+        id: `heartbeat-${machine.id}`, name: machine.name, type: 'line',
+        xAxisIndex: i, yAxisIndex: i,
+        data: machine.points.map(point => ({ value: point.value, meta: point })),
+        showSymbol: false, symbol: 'none',
+        smooth: false, connectNulls: true,
+        lineStyle: { color: th.signal, width: 1.35, opacity: on ? 0.9 : 0.2 },
+        itemStyle: { color: th.signal, opacity: on ? 1 : 0.25 },
+        emphasis: { focus: 'series', lineStyle: { width: 1.8, opacity: 1 }, scale: 1.35 },
+        blur: { lineStyle: { opacity: 0.14 }, itemStyle: { opacity: 0.2 } },
+        universalTransition: true,
+      }
+    }),
+  }
+}
+
+/* ---------- pool burn ----------
+   The DOM owns exact remaining/runway figures; these two quiet traces show
+   the measured rate history behind them. No categorical pool colour is
+   introduced — it follows the same neutral doctrine as the pool meters. */
+function burnOption(P) {
+  const { d, R, theme: th } = P
+  const rows = d.burn.rows
+  const cats = rows[0]?.series.map((_, i) => String(i)) || []
+  return {
+    ...anim(P),
+    backgroundColor: 'transparent',
+    grid: [
+      { left: 2, right: 2, top: 30, height: 48 },
+      { left: 2, right: 2, top: 118, height: 48 },
+    ],
+    xAxis: rows.map((_, i) => ({
+      type: 'category', gridIndex: i, boundaryGap: false, data: cats,
+      axisLine: { show: true, lineStyle: { color: th.grid, width: 1 } },
+      axisTick: { show: false }, axisLabel: { show: false },
+      axisPointer: { show: true, label: { show: false }, lineStyle: { color: th.cross, width: 1 } },
+    })),
+    yAxis: rows.map((_, i) => ({
+      type: 'value', gridIndex: i, min: 0,
+      max: ({ max }) => max ? max * 1.14 : 1,
+      axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { show: false },
+    })),
+    tooltip: {
+      ...tipBase(), trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: th.cross, width: 1 } },
+      formatter: (params) => {
+        const q = params[0]
+        if (!q) return ''
+        const row = rows.find(x => x.id === q.seriesId)
+        if (!row) return ''
+        const value = Number(q.value)
+        const rate = row.kind === 'currency' ? `$${value.toFixed(2)}` : `${value.toFixed(1)} pts`
+        return mtip(`<div class="tt-title">${row.id} · ${R.word}</div><b>${rate}</b> / machine-day`)
+      },
+    },
+    series: rows.map((row, i) => ({
+      id: row.id, name: row.id, type: 'line', xAxisIndex: i, yAxisIndex: i,
+      data: row.series,
+      showSymbol: true, symbol: 'circle',
+      symbolSize: (_, q) => q.dataIndex === row.series.length - 1 ? 3.5 : 0,
+      smooth: 0.34,
+      lineStyle: { color: th.signal, width: 1.4, opacity: i === 0 ? 0.78 : 0.62 },
+      itemStyle: {
+        color: th.signal, shadowBlur: 5,
+        shadowColor: withAlpha(th.signal, th.dark ? 0.5 : 0.26),
+      },
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: withAlpha(th.signal, th.dark ? 0.10 : 0.055) },
+            { offset: 1, color: withAlpha(th.signal, 0) },
+          ],
+        },
+      },
+      emphasis: { focus: 'series', lineStyle: { width: 1.9, opacity: 1 }, scale: 1.25 },
+      blur: { lineStyle: { opacity: 0.18 }, areaStyle: { opacity: 0.25 } },
       universalTransition: true,
     })),
   }
@@ -444,8 +619,8 @@ function verdictOption(P) {
 /* ================= lifecycle ================= */
 
 /**
- * Init the six instances and return { update, resize, dispose }.
- * `hosts` = { hero, strip, sankey, fail, heat, verdict } — sized by CSS
+ * Init the eight instances and return { update, updateHeartbeat, updateBurn, resize, dispose }.
+ * `hosts` = { hero, strip, sankey, fail, heat, verdict, heartbeat, burn } — sized by CSS
  * (fixed heights for the band and sankey, aspect-ratio for the plots, 22px
  * for the verdict bar), so the engine only ever fills, never sizes.
  * Payload per update: { d, R, theme, dur, entrance, reduced, live,
@@ -462,6 +637,8 @@ export function createCharts({ hosts, lanes, days, hourTicks, vsegs, onLaneClick
     fail: echarts.init(hosts.fail, null, opts),
     heat: echarts.init(hosts.heat, null, opts),
     verdict: echarts.init(hosts.verdict, null, opts),
+    heartbeat: echarts.init(hosts.heartbeat, null, opts),
+    burn: echarts.init(hosts.burn, null, opts),
   }
   const statics = { lanes, days, hourTicks, vsegs }
 
@@ -494,6 +671,18 @@ export function createCharts({ hosts, lanes, days, hourTicks, vsegs, onLaneClick
       inst.fail.setOption(failOption(P))
       inst.heat.setOption(heatOption(P))
       inst.verdict.setOption(verdictOption(P))
+      // Tray-first instruments stay paint-cold while absent from the layout.
+      // Their view-side onArrange callback issues the first complete option
+      // the instant they are placed, so default-layout pulses do no hidden
+      // SVG work in the off-screen stash.
+      if (P.placed?.heartbeat) inst.heartbeat.setOption(heartbeatOption(P))
+      if (P.placed?.burn) inst.burn.setOption(burnOption(P))
+    },
+    updateHeartbeat(payload) {
+      inst.heartbeat.setOption(heartbeatOption({ ...payload, ...statics }))
+    },
+    updateBurn(payload) {
+      inst.burn.setOption(burnOption({ ...payload, ...statics }))
     },
     resize() {
       for (const c of Object.values(inst)) if (!c.isDisposed()) c.resize()

@@ -28,6 +28,7 @@ const read = (cs, name, fallback) => {
 export function buildTheme(metricsEl) {
   const rootCS = getComputedStyle(document.documentElement)
   const scopeCS = getComputedStyle(metricsEl)
+  const dark = document.documentElement.dataset.theme === 'black'
 
   // Carbon sequential ramp — metrics.css re-steps these per theme inside
   // .metrics, so the read must be scoped (the :root --heat-* set in glow.css
@@ -47,6 +48,7 @@ export function buildTheme(metricsEl) {
     // wear — pools are deliberately NOT categorical (see metrics.css), and
     // the routing diagram must not re-introduce a hue the pools gave up
     poolAccent: read(scopeCS, '--pool-accent', '#5c6b7a'),
+    signal: read(scopeCS, '--heartbeat-ink', dark ? '#b8c4d1' : '#34495e'),
     ink25: read(rootCS, '--ink-25', '#5a6876'),
     ink3: read(rootCS, '--ink-3', '#64727f'),
     grid: read(rootCS, '--chart-grid', 'rgba(14,23,38,0.07)'),
@@ -65,6 +67,14 @@ export function buildTheme(metricsEl) {
     prov,
     // the resolved stack, so chart text measures with the face it renders in
     font: getComputedStyle(document.body).fontFamily || 'system-ui, sans-serif',
+    mono: read(getComputedStyle(document.body), '--font-mono', 'ui-monospace, monospace'),
+    dark,
+    // Sankey links carry their opacity in explicit gradient stops rather
+    // than a blanket series alpha. The dark surface needs a little more
+    // body at rest; light/tan need less ink to stay airy.
+    sankeyRest: dark ? 0.34 : 0.24,
+    sankeyMid: dark ? 0.42 : 0.31,
+    sankeyHover: dark ? 0.72 : 0.58,
   }
 }
 

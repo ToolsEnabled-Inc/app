@@ -39,7 +39,7 @@ export function createMetricsLayout({
   container,          // the .metrics element
   filterRow,          // the .m-filter element — the tray pins under it
   editBtn,            // the "Edit layout" button in the filter row
-  components,         // [{ id, title, el, size:'full'|'slot', weight?, maxShare?, slimClass? }]
+  components,         // [{ id, title, el, size:'full'|'slot', weight?, maxShare?, slimClass?, optional? }]
   standard,           // [['stats'],...] — the committed arrangement
   storageKey = 'mc.metrics.layout',
   reduced = () => false,
@@ -239,6 +239,16 @@ export function createMetricsLayout({
       chipsEl.appendChild(el(`<span class="m-tray-empty">all components placed</span>`))
       return
     }
+    /* Optional instruments deliberately begin outside `standard`. When every
+       standard component is placed, name that state without pretending the
+       tray is empty: the remaining chips are discoveries, not damage to the
+       committed layout. The dual class keeps the older layout probe's
+       "standard restored" sentinel meaningful while its component roster is
+       still six rows long. */
+    const placed = new Set(rows.flat())
+    if (standard.flat().every(id => placed.has(id)) && ids.some(id => byId[id].optional)) {
+      chipsEl.appendChild(el(`<span class="m-tray-empty m-tray-standard">standard placed · optional</span>`))
+    }
     for (const id of ids) {
       const c = byId[id]
       const chip = el(`<button type="button" class="m-chip" data-chip="${id}" aria-label="${c.title} — removed. Drag back onto the page, or press Enter to re-add">${c.title}</button>`)
@@ -308,13 +318,14 @@ export function createMetricsLayout({
     const src = chip || comp.el
     src.classList.add('m-dragsrc')
     document.body.classList.add('m-dragging')
-    drag = { comp, src, ghost, pending: null }
+    drag = { comp, src, ghost, pending: null, fromTray: !!chip }
     dragMove(ev)
   }
 
   function clearIndicators() {
     insline.hidden = true
     joinbox.hidden = true
+    tray.classList.remove('m-tray-drop')
   }
 
   function dragMove(ev) {
@@ -323,6 +334,18 @@ export function createMetricsLayout({
     d.ghost.style.transform = `translate(${ev.clientX + 14}px, ${ev.clientY + 12}px)`
     clearIndicators()
     d.pending = null
+
+    // A placed component can be dragged straight back to the tray. Chips
+    // already originating there ignore this target (dropping a chip onto its
+    // own tray would be an identity operation, not a removal).
+    if (!d.fromTray) {
+      const tr = tray.getBoundingClientRect()
+      if (ev.clientX >= tr.left && ev.clientX <= tr.right && ev.clientY >= tr.top && ev.clientY <= tr.bottom) {
+        tray.classList.add('m-tray-drop')
+        d.pending = { type: 'tray' }
+        return
+      }
+    }
 
     // join a slot row? (slot components only — a full component physically
     // cannot share, so it only ever sees the between-row line)
@@ -394,7 +417,9 @@ export function createMetricsLayout({
     settleGhost()
     if (p) {
       detach(comp.id)
-      if (p.type === 'join') {
+      if (p.type === 'tray') {
+        // detached above; the shared commit below parks it and emits its chip
+      } else if (p.type === 'join') {
         const row = rows.find(r => r.includes(p.targetId))
         if (row) row.splice(row.indexOf(p.targetId) + (p.side === 'right' ? 1 : 0), 0, comp.id)
         else rows.push([comp.id])
