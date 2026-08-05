@@ -1,9 +1,10 @@
-// The four hero charts of #/metrics, rebuilt on the ECharts engine.
+// The engine charts of #/metrics.
 //
-// SCOPE — exactly four: token-flow stacked area, failure-rate h-bars, fleet
-// activity heatmap, review-verdict split. The KPI-tile and agent-table
-// sparklines stay on components.js/sparkline() on purpose: they are glyphs,
-// not charts, and an engine per glyph would be all cost.
+// SCOPE — six instances now: the command band (token-flow hero with zoom +
+// its crosshair-synced failure strip), the token-routing Sankey, failure-rate
+// h-bars, fleet activity heatmap, review-verdict split. The KPI-tile and
+// agent-table sparklines stay on components.js/sparkline() on purpose: they
+// are glyphs, not charts, and an engine per glyph would be all cost.
 //
 // The library must be INVISIBLE as a library. Three mechanisms enforce that:
 //   1. Tree-shaken imports only, and Legend/Title/Toolbox are never
@@ -22,14 +23,27 @@
 // text nodes (the styles.css tabular-nums rule keeps applying).
 
 import * as echarts from 'echarts/core'
-import { LineChart, BarChart, HeatmapChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
+import { LineChart, BarChart, HeatmapChart, SankeyChart } from 'echarts/charts'
+// DataZoomComponent alone would install both interactions, but the two
+// sub-components are named explicitly so the tree-shaken registration reads
+// as the exact capability list this page uses — nothing arrives implicitly.
+// Legend/Title/Toolbox stay unregistered on purpose (the demo look cannot
+// physically leak in), same rule as day one.
+import {
+  GridComponent, TooltipComponent, VisualMapComponent,
+  DataZoomComponent, DataZoomInsideComponent, DataZoomSliderComponent,
+} from 'echarts/components'
 import { UniversalTransition } from 'echarts/features'
 import { SVGRenderer } from 'echarts/renderers'
 import { PROVIDERS } from './vocab.js'
 import { withAlpha } from './echarts-theme.js'
 
-echarts.use([LineChart, BarChart, HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, UniversalTransition, SVGRenderer])
+echarts.use([
+  LineChart, BarChart, HeatmapChart, SankeyChart,
+  GridComponent, TooltipComponent, VisualMapComponent,
+  DataZoomComponent, DataZoomInsideComponent, DataZoomSliderComponent,
+  UniversalTransition, SVGRenderer,
+])
 
 /* Severity thresholds — the same numbers the failure card's legend chips
    print (<2 / 2–5 / >5) and the agent table's fail column uses. */
@@ -79,19 +93,33 @@ const axisText = (th, color) => ({
    sim drift and theme flips alike — setOption merges by series id, so a
    re-issue animates rather than rebuilds. */
 
-function tokenOption(P) {
-  const { d, R, theme: th } = P
+/* Both command-band charts must plot on IDENTICAL horizontal extents or the
+   shared crosshair lies about x — one constant, consumed by both grids. */
+const BAND_L = 46
+const BAND_R = 26
+
+/* x-axis for the band: the base 24 buckets keep the range's own canonical
+   labels; live-appended buckets past them are the stream's continuation and
+   are labelled as exactly that ("live +n") rather than borrowing a clock
+   stop the range vocabulary never issued for them. */
+const bandCats = (len) => len === N ? CATS : Array.from({ length: len }, (_, i) => String(i))
+const bandLabel = (R, i) => i >= N ? `live +${i - N + 1}` : R.xlab(i)
+
+function heroOption(P) {
+  const { d, R, theme: th, live = [] } = P
   // canonical ticks stay OURS: d3-array picked d.tokTicks (1/2/5×10ⁿ) and
   // RANGE_META picked R.ticks (clock/weekday/elapsed-days stops); the engine
   // is only allowed to draw them, never to choose them
   const tickSet = new Set(R.ticks.map(t => Math.round(t)))
   const step = d.tokTicks.length > 1 ? d.tokTicks[1] - d.tokTicks[0] : d.tokMax
+  const len = N + live.length
   return {
     ...anim(P),
     backgroundColor: 'transparent',
-    grid: { left: 38, right: 26, top: 10, bottom: 24 },
+    // bottom clears the axis labels AND the 28px slider strip below them
+    grid: { left: BAND_L, right: BAND_R, top: 12, bottom: 64 },
     xAxis: {
-      type: 'category', boundaryGap: false, data: CATS,
+      type: 'category', boundaryGap: false, data: bandCats(len),
       axisLine: { show: false }, axisTick: { show: false },
       axisLabel: {
         ...axisText(th, th.ink3), interval: 0, margin: 9,
@@ -103,6 +131,37 @@ function tokenOption(P) {
       splitLine: { lineStyle: { color: th.grid, width: 1 } },
       axisLabel: { ...axisText(th, th.ink3), margin: 8, formatter: (v) => String(v) },
     },
+    /* the zoom pair: wheel/drag inside the plot, plus a slim slider strip.
+       Every visible slider surface is restyled from the theme snapshot —
+       the engine's stock blue brush would be the loudest object on the page
+       and would out itself as a library default in one glance. */
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+      {
+        type: 'slider', xAxisIndex: 0, filterMode: 'none',
+        bottom: 6, height: 28, left: BAND_L, right: BAND_R,
+        borderRadius: 3,                       // the page's square-ish corner
+        showDetail: false, brushSelect: false, // no floating numbers, no brush
+        backgroundColor: 'transparent',
+        borderColor: th.grid,
+        /* washes at whisper strength: at the default full window the entire
+           strip is "selected", so filler + selected-shadow stack — anything
+           stronger reads as a grey slab pinned under the hero (measured on
+           the white theme) rather than as a quiet instrument */
+        fillerColor: withAlpha(th.ink, 0.035),
+        dataBackground: {
+          lineStyle: { color: th.ink3, width: 1, opacity: 0.3 },
+          areaStyle: { color: th.ink3, opacity: 0.05 },
+        },
+        selectedDataBackground: {
+          lineStyle: { color: th.ink2, width: 1, opacity: 0.5 },
+          areaStyle: { color: th.ink2, opacity: 0.09 },
+        },
+        handleStyle: { color: th.sheet, borderColor: th.ink3, borderWidth: 1 },
+        moveHandleSize: 0,                     // no fat grab-bar above the strip
+        emphasis: { handleStyle: { borderColor: th.ink } },
+      },
+    ],
     tooltip: {
       ...tipBase(), trigger: 'axis',
       axisPointer: { type: 'line', lineStyle: { color: th.cross, width: 1, type: 'solid' } },
@@ -113,12 +172,12 @@ function tokenOption(P) {
           total += q.value
           return `<div class="tt-row"><i class="tt-key" style="background:${th.prov[q.seriesId]}"></i>${q.seriesName} <b>${Math.round(q.value)}k</b></div>`
         }).join('')
-        return mtip(`<div class="tt-title">${R.xlab(i)}</div>${rows}<div class="tt-row tt-total">Total <b>${Math.round(total)}k</b></div>`)
+        return mtip(`<div class="tt-title">${bandLabel(R, i)}</div>${rows}<div class="tt-row tt-total">Total <b>${Math.round(total)}k</b></div>`)
       },
     },
     series: PROVIDERS.map((p, bi) => ({
       id: p.id, name: p.label, type: 'line', stack: 'tok',
-      data: d.tokens[p.id].map(v => +v.toFixed(2)),
+      data: d.tokens[p.id].map(v => +v.toFixed(2)).concat(live.map(e => +e.tok[p.id].toFixed(2))),
       symbol: 'none', smooth: false,
       color: th.prov[p.id],
       lineStyle: { width: 2, color: th.prov[p.id], join: 'round' },
@@ -140,6 +199,127 @@ function tokenOption(P) {
       blur: { lineStyle: { opacity: 0.22 }, areaStyle: { opacity: 0.25 } },
       universalTransition: true,
     })),
+  }
+}
+
+/* The companion strip: failure-% on the hero's exact time axis. Its own axis
+   chrome is nearly silent (the hero directly above carries the time labels);
+   what it adds is the severity story — a hidden piecewise visualMap splits
+   the line at the same 2/5 thresholds the failure card's legend prints, so
+   the strip and the bars speak one language. */
+function stripOption(P) {
+  const { d, theme: th, live = [] } = P
+  const series = d.failSeries.concat(live.map(e => e.fail))
+  return {
+    ...anim(P),
+    backgroundColor: 'transparent',
+    grid: { left: BAND_L, right: BAND_R, top: 6, bottom: 6 },
+    xAxis: {
+      type: 'category', boundaryGap: false, data: bandCats(series.length),
+      axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false },
+    },
+    yAxis: {
+      type: 'value', min: 0, max: 10, interval: 5,
+      splitLine: { lineStyle: { color: th.grid, width: 1 } },
+      axisLabel: { ...axisText(th, th.ink3), margin: 8, formatter: (v) => v === 10 ? '10%' : String(v) },
+    },
+    // no slider of its own: connect() mirrors the hero's zoom into this
+    // inside component, and wheel/drag here mirrors back
+    dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+    visualMap: {
+      show: false, type: 'piecewise', seriesIndex: 0, dimension: 1,
+      pieces: [
+        { lt: 2, color: th.good },
+        { gte: 2, lt: 5, color: th.warn },
+        { gte: 5, color: th.serious },
+      ],
+    },
+    tooltip: {
+      ...tipBase(), trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: th.cross, width: 1, type: 'solid' } },
+      formatter: (params) => {
+        const q = params[0]
+        if (!q) return ''
+        const v = Array.isArray(q.value) ? q.value[1] : q.value
+        return mtip(`<div class="tt-title">${bandLabel(P.R, q.dataIndex)}</div><b>${v.toFixed(1)}%</b> failure · ${bandWord(v)}`)
+      },
+    },
+    series: [{
+      id: 'fail-strip', type: 'line',
+      data: series.map((v, i) => [i, +v.toFixed(2)]),   // pairs so the visualMap reads dim 1
+      symbol: 'none', smooth: false,
+      lineStyle: { width: 1.5 },
+      // a whisper of area so the strip reads as a chart, not a stray wire;
+      // neutral ink, not a severity wash — the LINE carries the judgement
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: withAlpha(th.ink, 0.05) },
+            { offset: 1, color: withAlpha(th.ink, 0) },
+          ],
+        },
+      },
+      universalTransition: true,
+    }],
+  }
+}
+
+/* ---------- token routing sankey ----------
+   The view derives the flows (metrics.js buildSankey — data stays with the
+   data owner); this builder only dresses them. Clinical dress: slim 12px
+   node bars, generous gaps, hairline gradient links at 0.25 that lift to 0.5
+   with a soft glow on hover — the one place the page spends its "kind of
+   glowy" budget at data scale. layoutIterations: 0 keeps OUR declared node
+   order; the solver's reshuffles read as the library deciding the page. */
+const fmtFlow = (v) => v >= 1000 ? (v / 1000).toFixed(1) + 'M' : Math.round(v) + 'k'
+
+function sankeyOption(P) {
+  const { d, theme: th } = P
+  /* pool and provider node colours resolve from the THEME SNAPSHOT here (the
+     --prov-* set re-steps on black/tan, the pool neutral is the cards' own
+     slate); role hexes are theme-constant and travel with the data. The map
+     also feeds each link's hover glow — the glow is the target's hue, so a
+     lifted link answers "flowing INTO what?" */
+  const nodeColor = (n) => n.kind === 'pool' ? th.poolAccent
+    : n.kind === 'prov' ? th.prov[n.ref] : n.color
+  const cmap = new Map(d.sankey.nodes.map(n => [n.name, nodeColor(n)]))
+  return {
+    ...anim(P),
+    backgroundColor: 'transparent',
+    tooltip: {
+      ...tipBase(), trigger: 'item',
+      formatter: (q) => q.dataType === 'edge'
+        ? mtip(`<div class="tt-title">${q.data.source} → ${q.data.target}</div><b>${fmtFlow(q.value)}</b> tokens`)
+        : mtip(`<div class="tt-title">${q.name}</div><b>${fmtFlow(q.value)}</b> routed`),
+    },
+    series: [{
+      id: 'routing', type: 'sankey',
+      left: 6, right: 10, top: 14, bottom: 10,
+      nodeWidth: 12, nodeGap: 16,
+      layoutIterations: 0,
+      emphasis: { focus: 'adjacency' },
+      data: d.sankey.nodes.map(n => ({
+        name: n.name, depth: n.depth,
+        itemStyle: { color: nodeColor(n), borderWidth: 0, borderRadius: 3 },
+        // the last column's labels sit LEFT of their bars, inside the plot —
+        // nothing may clip against the card edge at 1280
+        label: n.depth === 2 ? { position: 'left' } : { position: 'right' },
+      })),
+      links: d.sankey.links.map(l => ({
+        source: l.source, target: l.target, value: +l.value.toFixed(1),
+        lineStyle: { color: 'gradient', opacity: 0.25, curveness: 0.5 },
+        emphasis: {
+          lineStyle: { opacity: 0.5, shadowBlur: 10, shadowColor: withAlpha(cmap.get(l.target) || th.ink3, 0.35) },
+        },
+      })),
+      label: { fontSize: 12.5, color: th.ink2, fontFamily: th.font, fontWeight: 500 },
+      blur: {
+        itemStyle: { opacity: 0.35 },
+        lineStyle: { opacity: 0.06 },
+        label: { opacity: 0.4 },
+      },
+    }],
   }
 }
 
@@ -170,10 +350,22 @@ function failOption(P) {
     series: [{
       id: 'fail-rate', type: 'bar', barWidth: 14,
       // groupId per lane so a future reorder glides rows rather than swaps
-      data: d.fail.map(f => ({
-        value: +f.rate.toFixed(2), groupId: f.lane,
-        itemStyle: { color: sevColor(f.rate, th) },
-      })),
+      data: d.fail.map(f => {
+        const c = sevColor(f.rate, th)
+        const sel = P.selectedLane === f.lane
+        return {
+          value: +f.rate.toFixed(2), groupId: f.lane,
+          /* selection is a state of the DATA, restated on every re-issue so
+             sim drift / theme flips cannot wash it away: the chosen lane at
+             full saturation with a soft same-hue glow, the others receded —
+             the same figure/ground move the token bands make on hover */
+          itemStyle: {
+            color: c,
+            opacity: P.selectedLane && !sel ? 0.35 : 1,
+            ...(sel ? { shadowBlur: 9, shadowColor: withAlpha(c, 0.45) } : {}),
+          },
+        }
+      }),
       showBackground: true,
       backgroundStyle: { color: th.track, borderRadius: 2 },
       itemStyle: { borderRadius: [0, 3, 3, 0] },   // square baseline, soft data end
@@ -270,26 +462,53 @@ function verdictOption(P) {
 /* ================= lifecycle ================= */
 
 /**
- * Init the four instances and return { update, resize, dispose }.
- * `hosts` = { tokens, fail, heat, verdict } — sized by CSS (aspect-ratio for
- * the three plots, fixed 22px for the verdict bar), so the engine only ever
- * fills, never sizes. Payload per update: { d, R, theme, dur, entrance,
- * reduced } plus the static vocab (lanes/days/hourTicks/vsegs) given here.
+ * Init the six instances and return { update, resize, dispose }.
+ * `hosts` = { hero, strip, sankey, fail, heat, verdict } — sized by CSS
+ * (fixed heights for the band and sankey, aspect-ratio for the plots, 22px
+ * for the verdict bar), so the engine only ever fills, never sizes.
+ * Payload per update: { d, R, theme, dur, entrance, reduced, live,
+ * selectedLane } plus the static vocab (lanes/days/hourTicks/vsegs) here.
+ * `onLaneClick(lane)` fires when a failure bar is clicked — the view owns
+ * what "select a lane" means (table filter + selectedLane round-trip).
  */
-export function createCharts({ hosts, lanes, days, hourTicks, vsegs }) {
+export function createCharts({ hosts, lanes, days, hourTicks, vsegs, onLaneClick }) {
   const opts = { renderer: 'svg' }        // crisp at any DPR, real text nodes
   const inst = {
-    tokens: echarts.init(hosts.tokens, null, opts),
+    hero: echarts.init(hosts.hero, null, opts),
+    strip: echarts.init(hosts.strip, null, opts),
+    sankey: echarts.init(hosts.sankey, null, opts),
     fail: echarts.init(hosts.fail, null, opts),
     heat: echarts.init(hosts.heat, null, opts),
     verdict: echarts.init(hosts.verdict, null, opts),
   }
   const statics = { lanes, days, hourTicks, vsegs }
 
+  /* the command band is ONE reading instrument in two panes: connect()
+     mirrors axisPointer moves and dataZoom windows between them, so the
+     crosshair draws on both charts at the same x and zooming either zooms
+     both. The group id is constant — dispose() empties it and disconnects. */
+  inst.hero.group = 'mc-band'
+  inst.strip.group = 'mc-band'
+  echarts.connect('mc-band')
+
+  if (onLaneClick) {
+    inst.fail.on('click', (q) => {
+      if (q.componentType === 'series' && q.seriesId === 'fail-rate') onLaneClick(q.name)
+    })
+  }
+
+  /* Probe hook, NOT app state: the Playwright verification scripts must
+     assert zoom-window equality and live-append counts, and the tree-shaken
+     module scope is unreachable from the page console. Nothing in the app
+     reads this; dispose() removes it. */
+  window.__mcCharts = inst
+
   return {
     update(payload) {
       const P = { ...payload, ...statics }
-      inst.tokens.setOption(tokenOption(P))
+      inst.hero.setOption(heroOption(P))
+      inst.strip.setOption(stripOption(P))
+      inst.sankey.setOption(sankeyOption(P))
       inst.fail.setOption(failOption(P))
       inst.heat.setOption(heatOption(P))
       inst.verdict.setOption(verdictOption(P))
@@ -299,6 +518,8 @@ export function createCharts({ hosts, lanes, days, hourTicks, vsegs }) {
     },
     dispose() {
       for (const c of Object.values(inst)) if (!c.isDisposed()) c.dispose()
+      echarts.disconnect('mc-band')
+      if (window.__mcCharts === inst) delete window.__mcCharts
     },
   }
 }

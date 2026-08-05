@@ -43,6 +43,10 @@ export function buildTheme(metricsEl) {
   return {
     ink: read(rootCS, '--ink', '#0e1726'),
     ink2: read(rootCS, '--ink-2', '#4f5f70'),
+    // the Sankey's pool nodes wear the same single neutral the pool cards
+    // wear — pools are deliberately NOT categorical (see metrics.css), and
+    // the routing diagram must not re-introduce the hue the cards gave up
+    poolAccent: read(scopeCS, '--pool-accent', '#5c6b7a'),
     ink25: read(rootCS, '--ink-25', '#5a6876'),
     ink3: read(rootCS, '--ink-3', '#64727f'),
     grid: read(rootCS, '--chart-grid', 'rgba(14,23,38,0.07)'),

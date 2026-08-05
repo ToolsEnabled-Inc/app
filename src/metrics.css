@@ -229,18 +229,37 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--pc) 14%, transparent);
 }
 
-/* ---------- engine-rendered hero charts ----------
-   The four hero charts are ECharts instances (SVG renderer) now, so their
-   geometry moved out of this sheet's reach: the .tk-area/.fbar/.heat-cell/
-   .vseg rules that skinned the hand-rolled SVG are gone with the SVG. What
-   CSS still owns is the CONTAINER: the engine fills whatever box it is
-   given, so the old viewBox aspect becomes an aspect-ratio here and the
-   page's grid/card layout is untouched. Heights follow card width exactly
-   as the scaled viewBox did — but text inside is now real 12.5px at every
-   width, where the old SVG scaled its type with the card. */
-.metrics #tokens-chart { aspect-ratio: 640 / 210; }
+/* ---------- engine-rendered charts ----------
+   All engine charts are ECharts instances (SVG renderer): CSS owns only the
+   CONTAINER — the engine fills whatever box it is given. The command band
+   and the sankey take FIXED heights (they are full-width/2-col heroes whose
+   reading depends on absolute plot room, not on card proportion); the
+   smaller plots keep their aspect-ratios. Text inside is real 12.5px at
+   every width. */
+.metrics #hero-chart { height: 300px; }     /* plot + axis labels + slider strip */
+.metrics #strip-chart { height: 80px; }
+.metrics #sankey-chart { height: 340px; }
 .metrics #fail-chart { aspect-ratio: 420 / 207; }
 .metrics #heat-chart { aspect-ratio: 476 / 152; }
+
+/* the caption row between the band's two panes — the strip's entire header.
+   11px uppercase micro-label tier (a label, never a fact); the hairline
+   above it is what makes hero and strip read as two panes of ONE instrument
+   rather than two stacked cards. */
+.m-band .band-cap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 2px;
+  padding: 8px 2px 6px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+  font-weight: 640;
+}
+.m-band .band-cap .bc-note { font-weight: 550; letter-spacing: 0.06em; }
 /* the shared .chart-body svg rule says height:auto (right for the scaling
    hand-rolled charts elsewhere); the engine sizes its own svg to the box,
    so pin it to the box and let chart.resize() own the geometry */
@@ -380,6 +399,43 @@
 .mtable tbody tr { will-change: transform; }
 .mtable tbody tr.row-hidden { display: none; }
 .mtable tbody tr.flip { position: relative; z-index: 1; }
+
+/* ---------- failure-lane filter state ----------
+   A filtered row is MARKED, not just a survivor of hiding: the tint plus a
+   2px inset left edge say "you are looking at a selection", so a narrowed
+   table cannot be mistaken for a small fleet. Neutral ink at 4% — the row's
+   own role/status colours keep doing the identifying. */
+.mtable tbody tr.lane-filtered td {
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+}
+.mtable tbody tr.lane-filtered td:first-child {
+  box-shadow: inset 2px 0 0 var(--ink-3);
+}
+
+/* the clear affordance in the table header: chip idiom, hairline border,
+   3px corners, 12.5px — quiet until hovered, like the sort headers */
+.lane-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color .22s var(--ease), border-color .22s var(--ease);
+}
+.lane-clear b { font-weight: 640; color: var(--ink); }
+.lane-clear .lc-x { font-size: 13px; line-height: 1; color: var(--ink-3); }
+.lane-clear:hover { color: var(--ink); border-color: var(--ink-3); }
+.lane-clear:hover .lc-x { color: var(--ink); }
+.lane-clear:focus-visible {
+  outline: 3px solid var(--focus-ring, #0079a8);
+  outline-offset: 1px;
+}
 
 /* ---------- C6: type floor for text owned by src/styles.css ----------
    Chart text lives in the SVG markup itself (metrics.js, next to the chart

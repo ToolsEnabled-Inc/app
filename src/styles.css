@@ -1521,9 +1521,14 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   .m-tiles { grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; }
 }
 .m-pools { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-.m-charts2 { grid-template-columns: 3fr 2fr; }
+/* sankey (2fr) beside failure-by-lane (1fr) since the command-band rework:
+   the routing diagram is the row's reading centre and needs the width for
+   its three labelled columns; align start, not stretch — the pair is
+   deliberately unequal in height and stretched glass under the shorter card
+   would read as an unfinished panel */
+.m-charts2 { grid-template-columns: 2fr 1fr; align-items: start; }
 /* start, not stretch: three unequal cards stretched to the tallest left the
-   shorter two mostly blank glass; .m-charts2 keeps stretch (near-equal pair) */
+   shorter two mostly blank glass */
 .m-charts3 { grid-template-columns: 2fr 1.2fr 1fr; align-items: start; }
 @media (max-width: 1000px) { .m-charts2, .m-charts3 { grid-template-columns: 1fr; } }
 

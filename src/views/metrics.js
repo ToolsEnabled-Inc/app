@@ -5,14 +5,15 @@
 // TWEENS to the new simulated dataset; tiles count up; the agent table sorts
 // with a FLIP reorder; tooltips cover every mark.
 //
-// The four hero charts (token flow, failure bars, activity heat, verdict
-// split) render through the ECharts engine now — metrics-charts.js owns the
-// option builders, echarts-theme.js snapshots the design tokens the engine
-// cannot read through var(). This view still owns the DATA (buildData and
-// its deterministic noise are unchanged) and the DOM numbers; the engine
-// owns shape morphing, the crosshair and per-series focus. Tiles, pools,
-// sparklines, ops and the agent table stay hand-rolled — they were already
-// right.
+// The engine charts (the command band — token-flow hero with zoom + synced
+// failure strip — the token-routing sankey, failure bars, activity heat,
+// verdict split) render through ECharts — metrics-charts.js owns the option
+// builders, echarts-theme.js snapshots the design tokens the engine cannot
+// read through var(). This view still owns the DATA (buildData, buildSankey
+// and their deterministic noise) and the DOM numbers; the engine owns
+// geometry, morph animation, the crosshair, zoom and per-series focus.
+// Tiles, pools, sparklines, ops and the agent table stay hand-rolled —
+// they were already right.
 
 import '../metrics.css'
 import { ticks as d3ticks } from 'd3-array'
@@ -292,8 +293,17 @@ export function metricsView() {
   const timers = new Set()
   const after = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn() }, ms); timers.add(t); return t }
 
-  const state = { range: '24h', machine: 'all' }
+  const state = { range: '24h', machine: 'all', laneFilter: null }
   const meta = () => RANGE_META[state.range]
+
+  /* live-pulse buffer: buckets appended to the command band since the last
+     filter settle. Kept OUT of buildData so the settled dataset stays pure
+     (tiles, deltas and the sankey all reconcile against the base 24) — the
+     charts compose base + extras at option-build time. Capped: past 12
+     appends the oldest extra falls off, so a page left open all day cannot
+     compress the hero into a ribbon. */
+  const liveExtras = []
+  let liveN = 0
   const machineName = () => state.machine === 'all'
     ? 'all machines'
     : (sim.computers.find(c => c.id === state.machine)?.name || state.machine)
@@ -325,14 +335,19 @@ export function metricsView() {
           <span class="mf-note" id="mf-note">simulated fleet · <b>live</b></span>
         </div>
         <div class="m-row m-tiles" id="tiles"></div>
-        <div class="m-row m-pools" id="pools"></div>
+        <div class="chart-card glass m-band" id="band-card">
+          <div class="chart-head"><span class="ct">Token flow</span><span class="cs" id="tokens-sub">last 24 h · thousands</span>
+            <span class="spacer"></span>
+            <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
+          </div>
+          <div class="chart-body echart" id="hero-chart" role="img" aria-label="Token flow by provider, stacked area with zoom"></div>
+          <div class="band-cap"><span>failure %</span><span class="bc-note">same window · crosshair synced</span></div>
+          <div class="chart-body echart" id="strip-chart" role="img" aria-label="Failure percent over the same time axis"></div>
+        </div>
         <div class="m-row m-charts2">
-          <div class="chart-card glass" id="tokens-card">
-            <div class="chart-head"><span class="ct">Token flow</span><span class="cs" id="tokens-sub">last 24 h · thousands</span>
-              <span class="spacer"></span>
-              <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
-            </div>
-            <div class="chart-body echart" id="tokens-chart" role="img" aria-label="Token flow by provider, stacked area"></div>
+          <div class="chart-card glass" id="sankey-card">
+            <div class="chart-head"><span class="ct">Token routing</span><span class="cs" id="sankey-sub">pools → providers → roles</span></div>
+            <div class="chart-body echart" id="sankey-chart" role="img" aria-label="Token routing from account pools through providers to agent roles"></div>
           </div>
           <div class="chart-card glass" id="fail-card">
             <div class="chart-head"><span class="ct">Failure rate by lane</span><span class="cs" id="fail-sub">rolling 24 h</span>
@@ -343,7 +358,7 @@ export function metricsView() {
                 <span class="ck" style="--kc:var(--s-serious)"><i></i>&gt; 5%</span>
               </span>
             </div>
-            <div class="chart-body echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent"></div>
+            <div class="chart-body echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent — click a bar to filter the agent table"></div>
           </div>
         </div>
         <div class="m-row m-charts3">
@@ -363,8 +378,12 @@ export function metricsView() {
             <div class="chart-body" id="ops-body"></div>
           </div>
         </div>
+        <div class="m-row m-pools" id="pools"></div>
         <div class="chart-card glass">
-          <div class="chart-head"><span class="ct">Agents</span><span class="cs" id="table-sub">all machines · live</span></div>
+          <div class="chart-head"><span class="ct">Agents</span><span class="cs" id="table-sub">all machines · live</span>
+            <span class="spacer"></span>
+            <button type="button" class="lane-clear" id="lane-clear" hidden></button>
+          </div>
           <div style="overflow-x:auto"><table class="mtable" id="agent-table"></table></div>
         </div>
       </div>
@@ -415,6 +434,13 @@ export function metricsView() {
       return { lane, rate: clamp(0.2, 9.9, live.rate * R.fail * M.fail * j) }
     })
     const failAvg = fail.reduce((s, f) => s + f.rate, 0) / fail.length
+
+    /* the band strip: failure-% over the hero's 24 buckets, seeded from the
+       same live lane rates the bars draw (failAvg carries the sim drift), so
+       the strip's level and the bars' centre of mass always agree */
+    const failSeries = smoothArr(
+      Array.from({ length: N }, (_, i) =>
+        clamp(0.2, 9.9, failAvg * (0.55 + 0.9 * noise(`${key}|fs|${i}`)))), 0.35)
 
     /* activity heat */
     const heat = m.heat.map((row, d) => row.map((v, h) =>
@@ -477,7 +503,91 @@ export function metricsView() {
       gates: sparkFor('gates', tiles.gateBlocks),
     }
 
-    return { tokens, tokMax, tokTicks, tokTotal, fail, heat, verdicts, pools, ops, tiles, spark }
+    return {
+      tokens, tokMax, tokTicks, tokTotal, fail, failSeries, heat, verdicts,
+      pools, ops, tiles, spark, sankey: buildSankey(tokens, pools),
+    }
+  }
+
+  /* ---------------- token routing (sankey data) ----------------
+     Flows are DERIVED, never invented: provider column totals are the exact
+     sums of the token chart's own series (so the sankey's grand total equals
+     the Token-flow tile by construction), and each provider's split across
+     pools and roles is weighted by its own agents' throughput series — the
+     same agentSeries the table sparklines draw. Nothing new is asserted;
+     the diagram only re-arranges numbers already on the page. */
+  const ROLE_ORDER = ['coordinator', 'helper', 'shadow', 'manager', 'default']
+  const provOf = (a) => a.model.startsWith('gemini') ? 'gemini'
+    : a.model === 'local' ? 'local'
+    : a.model.startsWith('fable') ? 'claude' : 'codex'
+
+  function buildSankey(tokens, pools) {
+    const agents = machineComputers().flatMap(c => c.agents)
+    const meanW = (a) => { const s = agentSeries(a); return s.reduce((x, y) => x + y, 0) / s.length }
+
+    const links = []
+    const poolFlow = {}          // poolId -> provider label -> value
+    const roleFlow = {}          // roleKey -> value per provider handled inline
+    const rolesSeen = new Set()
+
+    for (const p of PROVIDERS) {
+      const total = tokens[p.id].reduce((a, b) => a + b, 0)
+      const mine = agents.filter(a => provOf(a) === p.id)
+      let wsum = 0
+      const byPool = {}, byRole = {}
+      for (const a of mine) {
+        const w = meanW(a); wsum += w
+        byPool[a.pool] = (byPool[a.pool] || 0) + w
+        byRole[a.role] = (byRole[a.role] || 0) + w
+      }
+      /* every current agent on a provider can be reaped between drifts; the
+         flow must not vanish with them — fall back to the sub pool and the
+         default role rather than dropping a column total */
+      if (!wsum) { byPool.jpinckard21 = 1; byRole.default = 1; wsum = 1 }
+
+      /* university carve-out: jpinc005 spawns no compute lanes, so no agent
+         weight ever routes it — but its pool card reports a small used-%
+         (SSO checks riding the local lane), and that same page number is the
+         share drawn here. Carved out of the subscription pool's local flow
+         so the three totals stay conserved. */
+      if (p.id === 'local' && byPool.jpinckard21) {
+        const uni = clamp(0.01, 0.2, pools[2] / 100)
+        const carve = wsum * uni
+        byPool.jpinckard21 = Math.max(0.001, byPool.jpinckard21 - carve)
+        byPool.jpinc005 = (byPool.jpinc005 || 0) + carve
+        wsum = Object.values(byPool).reduce((a, b) => a + b, 0)
+      }
+
+      for (const [pool, w] of Object.entries(byPool)) {
+        poolFlow[pool] = poolFlow[pool] || {}
+        poolFlow[pool][p.label] = (poolFlow[pool][p.label] || 0) + total * (w / wsum)
+      }
+      const rsum = Object.values(byRole).reduce((a, b) => a + b, 0)
+      for (const [role, w] of Object.entries(byRole)) {
+        rolesSeen.add(role)
+        links.push({ source: p.label, target: ROLES[role].label, value: total * (w / rsum) })
+      }
+    }
+    for (const pool of Object.keys(poolFlow)) {
+      for (const [prov, v] of Object.entries(poolFlow[pool])) {
+        links.unshift({ source: pool, target: prov, value: v })
+      }
+    }
+
+    const nodes = [
+      /* pools keep POOLS' declared order; a pool with zero routed flow this
+         instant is omitted (a zero-height bar with a floating label reads as
+         a rendering bug, not as "dormant") */
+      ...POOLS.filter(p => poolFlow[p.id]).map(p => ({ name: p.id, depth: 0, kind: 'pool' })),
+      ...PROVIDERS.map(p => ({ name: p.label, depth: 1, kind: 'prov', ref: p.id })),
+      /* role hexes are the shell's fixed identity system (identical across
+         themes — the table dots inline them), so they may travel with the
+         data; pool/provider colours resolve from the theme snapshot at
+         option-build time instead */
+      ...ROLE_ORDER.filter(r => rolesSeen.has(r))
+        .map(r => ({ name: ROLES[r].label, depth: 2, kind: 'role', color: ROLES[r].hex })),
+    ]
+    return { nodes, links }
   }
 
   /* Interpolates only what the rAF tween still paints: DOM numbers and the
@@ -539,11 +649,13 @@ export function metricsView() {
     }
   }
 
+  /* Units and sparklines still ride the page tween's frames; the NUMBER does
+     not — tickTileNums below owns it. Two writers on one text node meant the
+     tween's 780ms count could overwrite the tick's 300ms count mid-flight,
+     and the slower writer always won the last frame. One owner per readout. */
   function applyTiles(d) {
     const R = meta()
     for (const ref of tileRefs) {
-      const v = ref.def.val(d)
-      ref.num.textContent = ref.def.fmt(v)
       ref.unit.textContent = ref.def.unit(d, R)
       if (ref.path) {
         const g = sparkGeom(d.spark[ref.def.id], 150, 34)
@@ -551,6 +663,32 @@ export function metricsView() {
         ref.tip.setAttribute('cx', g.lx.toFixed(1)); ref.tip.setAttribute('cy', g.ly.toFixed(1))
         ref.halo.setAttribute('cx', g.lx.toFixed(1)); ref.halo.setAttribute('cy', g.ly.toFixed(1))
       }
+    }
+  }
+
+  /* Number craft: a ~300ms count on the value itself, engine-free (plain
+     rAF), one atomic textContent swap per frame — never two glyphs blended
+     or overlapped, so the readout is a legal reading at every instant (the
+     rail badge lesson: decorative motion must not make a readout lie).
+     reduced() snaps to the final value in one swap. */
+  function tickTileNums(next) {
+    for (const ref of tileRefs) {
+      const to = ref.def.val(next)
+      const from = ref.lastVal ?? 0
+      ref.lastVal = to
+      ref.cancelTick?.()
+      const fmt = ref.def.fmt
+      if (reduced() || from === to) { ref.num.textContent = fmt(to); continue }
+      const t0 = performance.now()
+      let raf = 0
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / 300)
+        const e = 1 - Math.pow(1 - p, 3)                // out-cubic, settles quietly
+        ref.num.textContent = fmt(from + (to - from) * e)
+        if (p < 1) raf = requestAnimationFrame(step)
+      }
+      raf = requestAnimationFrame(step)
+      ref.cancelTick = () => cancelAnimationFrame(raf)
     }
   }
 
@@ -725,7 +863,10 @@ export function metricsView() {
 
   function updateCharts(d, dur, entrance = false) {
     if (!charts || !theme) return
-    charts.update({ d, R: meta(), theme, dur, entrance, reduced: reduced() })
+    charts.update({
+      d, R: meta(), theme, dur, entrance, reduced: reduced(),
+      live: liveExtras, selectedLane: state.laneFilter,
+    })
   }
 
   /* The sequential key mirrors the exact stops the visualMap interpolates —
@@ -963,9 +1104,49 @@ export function metricsView() {
     for (const r of ordered) tbody.appendChild(r.tr)
   }
 
+  /* ---------------- failure-lane ↔ table linking ----------------
+     A failure lane is a MODEL lane (the sim names them after the models that
+     run them), so membership is matched on the row's model string — the same
+     fact the table already prints in its Model column. "looks-like-it-works"
+     level: shadow-mgr rides the 0.5x lane with terra because both run the
+     0.5x model, which is exactly what the lane's own name claims. */
+  const LANE_MATCH = {
+    'gemini worktree': (mdl) => mdl.startsWith('gemini'),
+    'luna 0.2x': (mdl) => mdl.includes('0.2x'),
+    'terra 0.5x': (mdl) => mdl.includes('0.5x'),
+    'codex 1.0x': (mdl) => mdl.includes('1.0x'),
+    'claude': (mdl) => mdl.startsWith('fable'),
+    'jarvis local': (mdl) => mdl === 'local',
+  }
+
   function applyTableFilter() {
+    const match = state.laneFilter ? LANE_MATCH[state.laneFilter] : null
     for (const r of tableRows) {
-      r.tr.classList.toggle('row-hidden', state.machine !== 'all' && r.meta.comp !== state.machine)
+      const machineOut = state.machine !== 'all' && r.meta.comp !== state.machine
+      const laneIn = !match || match(r.meta.model)
+      r.tr.classList.toggle('row-hidden', machineOut || !laneIn)
+      r.tr.classList.toggle('lane-filtered', !!match && laneIn && !machineOut)
+    }
+  }
+
+  /** Click a failure bar → the table narrows to that lane's agents; click the
+      same bar (or the header chip) again → full table. The bar's selected
+      state rides the next option re-issue (selectedLane in the payload). */
+  function setLaneFilter(lane) {
+    state.laneFilter = state.laneFilter === lane ? null : lane
+    syncLaneChrome()
+    relayoutRows(() => { applyTableFilter(); applySortOrder() })
+    updateCharts(target, 240)
+  }
+
+  function syncLaneChrome() {
+    const btn = root.querySelector('#lane-clear')
+    if (state.laneFilter) {
+      btn.hidden = false
+      btn.innerHTML = `lane: <b>${state.laneFilter}</b><span class="lc-x" aria-hidden="true">×</span>`
+      btn.setAttribute('aria-label', `Clear lane filter: ${state.laneFilter}`)
+    } else {
+      btn.hidden = true
     }
   }
 
@@ -1005,6 +1186,7 @@ export function metricsView() {
   function applyChrome() {
     const R = meta()
     root.querySelector('#tokens-sub').textContent = `${R.word} · thousands${machineSuffix()}`
+    root.querySelector('#sankey-sub').textContent = `pools → providers → roles · ${R.word}${machineSuffix()}`
     root.querySelector('#fail-sub').textContent = `${R.failSub}${machineSuffix()}`
     root.querySelector('#heat-sub').textContent = `${R.heatSub}${machineSuffix()}`
     root.querySelector('#verdict-sub').textContent = `${R.verdictSub}${machineSuffix()}`
@@ -1044,6 +1226,7 @@ export function metricsView() {
     prevPeriod = buildData(1)
     if (!sessionBase) captureSessionBase(next)      // first settle, or post-filter rebaseline
     pulseTiles(target, next)
+    tickTileNums(next)
     tweenTo(next, dur)
     /* charts get the SETTLED dataset, never lerp frames — the engine runs
        its own morph over the same duration the DOM tween uses, so both
@@ -1051,6 +1234,30 @@ export function metricsView() {
     updateCharts(next, dur)
     applyTileDeltas(next)
   }
+
+  /* ================= live pulse =================
+     The command band appends a bucket every 4–8 s — the cadence the filter
+     row's `live` badge already promises. Values continue the same generator
+     the base buckets came from (the sim's daily wave through the same range/
+     machine transform), so the stream reads as the day continuing, not as
+     new noise. reduced(): the point still appends (data must not stall), the
+     600ms slide is gated off inside anim(). */
+  function pulse() {
+    const R = meta(), M = MACHINE_META[state.machine]
+    const key = `${state.range}|${state.machine}`
+    const n = liveN++
+    const tok = {}
+    for (const p of PROVIDERS) {
+      const base = m.tokensByProvider[p.id][(N + n) % N]
+      tok[p.id] = Math.max(2, base * M.share * R.vol * (0.74 + 0.52 * noise(`${key}|tok|${p.id}|live${n}`)))
+    }
+    const failPt = clamp(0.2, 9.9, target.tiles.failAvg * (0.55 + 0.9 * noise(`${key}|fs|live${n}`)))
+    liveExtras.push({ tok, fail: failPt })
+    if (liveExtras.length > 12) liveExtras.shift()
+    updateCharts(target, 600)
+    schedulePulse()
+  }
+  function schedulePulse() { after(pulse, 4000 + Math.random() * 4000) }
 
   /* ================= filter row wiring ================= */
 
@@ -1075,9 +1282,17 @@ export function metricsView() {
       p.setAttribute('aria-pressed', String(on))
     })
     sessionBase = null                 // a new filter is a new baseline, not a jump
+    liveExtras.length = 0; liveN = 0   // a new window restarts the live stream
     applyChrome()
     if (key === 'machine') relayoutRows(() => { applyTableFilter(); applySortOrder() })
     retarget(780)
+  })
+
+  /* the header chip is the always-reachable exit from a lane filter — the
+     bar that set it may have scrolled off-screen by the time the reader is
+     at the table */
+  root.querySelector('#lane-clear').addEventListener('click', () => {
+    if (state.laneFilter) setLaneFilter(state.laneFilter)
   })
 
   /* ================= boot ================= */
@@ -1124,25 +1339,32 @@ export function metricsView() {
     theme = buildTheme(root.querySelector('.metrics'))
     charts = createCharts({
       hosts: {
-        tokens: root.querySelector('#tokens-chart'),
+        hero: root.querySelector('#hero-chart'),
+        strip: root.querySelector('#strip-chart'),
+        sankey: root.querySelector('#sankey-chart'),
         fail: root.querySelector('#fail-chart'),
         heat: root.querySelector('#heat-chart'),
         verdict: root.querySelector('.vbar'),
       },
       lanes: LANES, days: DAYS, hourTicks: HOUR_TICKS, vsegs: VSEGS,
+      onLaneClick: setLaneFilter,
     })
     syncHeatKey()
     applyAll(current)                  // paint the late panels at the frame the tiles are on
-    /* one observer for four instances — hosts are CSS-sized (aspect-ratio /
-       fixed bar height), the engine only ever fills them */
+    /* one observer for six instances — hosts are CSS-sized (fixed heights /
+       aspect-ratio / fixed bar height), the engine only ever fills them */
     const ro = new ResizeObserver(() => charts?.resize())
-    for (const id of ['#tokens-chart', '#fail-chart', '#heat-chart', '.vbar']) ro.observe(root.querySelector(id))
+    for (const id of ['#hero-chart', '#strip-chart', '#sankey-chart', '#fail-chart', '#heat-chart', '.vbar']) {
+      ro.observe(root.querySelector(id))
+    }
     unsubs.push(() => ro.disconnect())
     /* if a sim event already retargeted inside the gap, that tween owns the
        data now — do not restart the arrival one on top of it. The charts'
        first options always aim at whatever the current target is. */
     updateCharts(target, 900, true)
+    tickTileNums(target)               // no-op if a gap retarget already ticked
     if (target === settled) tweenTo(settled, 900)
+    schedulePulse()                    // the band starts breathing after arrival
   })
 
   /* Theme switch: main.js writes documentElement.dataset.theme; rebuild the
@@ -1169,8 +1391,9 @@ export function metricsView() {
     destroy() {
       cancelAnimationFrame(rafId)
       if (bootRaf) cancelAnimationFrame(bootRaf)     // a route swap inside the mount gap
-      timers.forEach(t => clearTimeout(t))
+      timers.forEach(t => clearTimeout(t))           // includes the pulse chain
       timers.clear()
+      tileRefs.forEach(r => r.cancelTick?.())        // tile counts hold their own rAFs
       unsubs.forEach(u => u())
       /* engine instances hold their own rAF + DOM (and the body-appended
          tooltip) — dispose is what releases them on route cycling */
