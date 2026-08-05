@@ -84,6 +84,9 @@ function monitorContextFor(agent) {
     current: agent.context?.at(-1),
     previous: agent.context?.at(-2),
     chat: recent?.text || '',
+    tasks: agent.tasksDone,
+    failRate: agent.failRate,
+    model: agent.model,
   }
 }
 

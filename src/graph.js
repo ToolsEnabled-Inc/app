@@ -517,6 +517,9 @@ export class FleetGraph {
       previous: clean(supplied?.previous ?? rows.at(-2)),
       chat: clean(supplied?.chat?.text ?? supplied?.recentChat?.text
         ?? supplied?.chat ?? supplied?.recentChat),
+      tasks: Number(supplied?.tasks ?? rec.agent.tasksDone),
+      failRate: Number(supplied?.failRate ?? rec.agent.failRate),
+      model: clean(supplied?.model ?? rec.agent.model),
     }
   }
 
@@ -524,14 +527,18 @@ export class FleetGraph {
     const pv = rec.chip.querySelector('.chip-preview')
     if (!pv.querySelector('.chip-monitor-name')) {
       pv.innerHTML = `
-        <div class="cl cl-name">
-          <i class="chip-role-dot" aria-hidden="true"></i>
+        <div class="cl cl-name" data-monitor-row="1">
           <b class="chip-monitor-name"></b>
           <span class="chip-runtime"></span>
         </div>
-        <div class="cl cl-current"></div>
-        <div class="cl cl-previous"></div>
-        <div class="cl cl-chat"></div>
+        <div class="cl cl-facts" data-monitor-row="2">
+          <span class="chip-tasks"></span><i aria-hidden="true">&middot;</i>
+          <span class="chip-fail"></span><i aria-hidden="true">&middot;</i>
+          <span class="chip-model"></span>
+        </div>
+        <div class="cl cl-current" data-monitor-row="3-4"></div>
+        <div class="cl cl-previous" data-monitor-row="5"></div>
+        <div class="cl cl-chat" data-monitor-row="6"></div>
       `
       pv.querySelector('.chip-monitor-name').textContent = rec.agent.name
       const runtime = pv.querySelector('.chip-runtime')
@@ -539,6 +546,14 @@ export class FleetGraph {
       rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
     }
     const feed = this._screenContext(rec)
+    const tasks = Number.isFinite(feed.tasks) ? Math.max(0, Math.round(feed.tasks)) : 0
+    const failRate = Number.isFinite(feed.failRate) ? Math.max(0, feed.failRate) : 0
+    pv.querySelector('.chip-tasks').textContent = `${tasks} tasks`
+    const fail = pv.querySelector('.chip-fail')
+    fail.textContent = `${failRate}% fail`
+    fail.classList.remove('sev-good', 'sev-warn', 'sev-serious')
+    fail.classList.add(`sev-${failRate < 2 ? 'good' : failRate < 5 ? 'warn' : 'serious'}`)
+    pv.querySelector('.chip-model').textContent = feed.model || 'unknown model'
     const update = (selector, text, prefix = '') => {
       const row = pv.querySelector(selector)
       const next = text ? prefix + text : ''
