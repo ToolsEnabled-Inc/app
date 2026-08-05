@@ -13,6 +13,7 @@ import { computersView } from './views/computers.js'
 import { agentView } from './views/agent.js'
 import { metricsView } from './views/metrics.js'
 import { commsView } from './views/comms.js'
+import { ledgerView } from './views/ledger.js'
 import { rangeFill } from './views/computers.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
@@ -23,7 +24,7 @@ const crumb = document.getElementById('crumb')   // removed from the markup; kep
 const navEl = document.getElementById('tb-nav')   // ditto — the strip is arrows + settings only
 
 let current = null           // { el(wrapper), view, route }
-const ORDER = ['home', 'computers', 'metrics', 'comms']
+const ORDER = ['home', 'computers', 'metrics', 'comms', 'ledger']
 
 function parse() {
   const h = location.hash || '#/'
@@ -32,6 +33,7 @@ function parse() {
   if (parts[0] === 'agent' && parts.length >= 3) return { name: 'agent', comp: parts[1], agent: parts[2] }
   if (parts[0] === 'metrics') return { name: 'metrics' }
   if (parts[0] === 'comms') return { name: 'comms' }
+  if (parts[0] === 'ledger') return { name: 'ledger' }
   return { name: 'home' }
 }
 
@@ -42,6 +44,7 @@ function makeView(route) {
     case 'agent': return agentView({ compId: route.comp, agentId: route.agent, navigate })
     case 'metrics': return metricsView()
     case 'comms': return commsView()
+    case 'ledger': return ledgerView()
     default: return homeView()
   }
 }
@@ -53,6 +56,7 @@ function crumbFor(route) {
     case 'agent': return `${base} / agent / <b>${route.agent}</b>`
     case 'metrics': return `${base} / metrics`
     case 'comms': return `${base} / comms`
+    case 'ledger': return `${base} / ledger`
     default: return `${base} / home`
   }
 }
