@@ -378,7 +378,9 @@
 .metrics .pool-stat .l { font-size: 12.5px; }
 .metrics .mtable th { font-size: 13px; padding: 9px 12px; }
 .metrics .mtable td { font-size: 13px; padding: 10px 12px; }
-.metrics .tooltip { font-size: 12.5px; }
+/* body 13px — the multi-word prose floor, matching the styles.css base
+   (a 12.5 restatement here would silently undo that raise in this scope) */
+.metrics .tooltip { font-size: 13px; }
 .metrics .tooltip .tt-title { font-size: 12.5px; }
 
 /* professional-pass: the C6 overrides that used to live here (quieter dot/

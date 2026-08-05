@@ -929,6 +929,7 @@ export function commsView() {
   const EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
   const boxEls = new Map()            // convId -> chip element (this mount)
   let dragTeardown = null
+  { const esc = (ev) => { if (ev.key === 'Escape' && drag) dragTeardown?.() }; window.addEventListener('keydown', esc); unsubs.push(() => window.removeEventListener('keydown', esc)) } // audit #27: Escape aborts an in-flight box drag through the SAME teardown destroy() uses (abortDrag + listener cleanup); guarded on `drag` so a stray Escape outside a drag is a no-op
 
   /* ----- tree helpers ----- */
   function locate(target, list = W.stack, parentSplit = null) {
@@ -1205,6 +1206,10 @@ export function commsView() {
     // per split: the side holding the most important agent takes the larger
     // share (~1.7×); a branch pairing always favours the parent conversation
     const childEl = (n) => n._el
+    // .lead is this function's own mark — cleared wholesale before re-weighing
+    // so a box that left its split, or a side whose weight flipped, never
+    // keeps yesterday's emphasis
+    for (const box of boxEls.values()) box.classList.remove('lead')
     function weigh(node) {
       if (node.t === 'leaf') return impOf(W.convs.get(node.c))
       const ia = weigh(node.ch[0])
@@ -1215,6 +1220,12 @@ export function commsView() {
       else if (ib > ia) wb = 1.7
       childEl(node.ch[0])?.style.setProperty('--w', wa)
       childEl(node.ch[1])?.style.setProperty('--w', wb)
+      // the winner also wears the emphasis (.lead): extra width alone reads
+      // as layout, not importance — the box must LOOK like the lead too.
+      // Only a leaf can wear it; when a whole sub-split wins, its own weigh()
+      // pass has already crowned the best box inside it. A tie crowns nobody.
+      const win = wa > wb ? node.ch[0] : wb > wa ? node.ch[1] : null
+      if (win?.t === 'leaf') boxEls.get(win.c)?.classList.add('lead')
       return Math.max(ia, ib)
     }
     for (const entry of W.stack) if (entry.t === 'split') weigh(entry)
@@ -1333,7 +1344,7 @@ export function commsView() {
   function beginDrag(cid, node, box, ev) {
     const ghost = box.cloneNode(true)
     ghost.querySelector('.chat')?.remove()
-    ghost.classList.remove('as-chat', 'pulse', 'dominant', 'stack-leaf', 'in-split', 'branch-child', 'can-restack')
+    ghost.classList.remove('as-chat', 'pulse', 'dominant', 'lead', 'stack-leaf', 'in-split', 'branch-child', 'can-restack')
     ghost.classList.add('wb-ghost')
     const r = box.getBoundingClientRect()
     ghost.style.width = Math.min(r.width, 320) + 'px'

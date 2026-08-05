@@ -163,6 +163,13 @@ export class FleetGraph {
     this.zoomHost.addEventListener('pointermove', this._onHostMove)
     this.zoomHost.addEventListener('pointerup', this._onHostUp)
     this.zoomHost.addEventListener('pointercancel', this._onHostUp)
+    // audit #27: Escape closes the topmost open chat. Document-level (the
+    // same idiom main.js uses for the drawer) rather than on the container,
+    // because the chat panel holds focus in its input — a container keydown
+    // still catches that, but NOT the pointer-user case where focus never
+    // entered the graph at all. Removed in destroy() like the host listeners.
+    this._onKeyDown = (e) => this._escTopChat(e)
+    document.addEventListener('keydown', this._onKeyDown)
 
     this.simulation = forceSimulation([])
       .velocityDecay(0.32)
@@ -374,6 +381,20 @@ export class FleetGraph {
     nodeEl.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`
     nodeEl.dataset.agentId = agent.id                  // C8: hierarchy is
     nodeEl.dataset.parentId = agent.parentId || ''     // assertable in the DOM
+    // audit #26: the bubble is click-activated but was pointer-only — put it
+    // in the tab order at creation so keyboard users can reach what mouse
+    // users can. aria-label because the computed name would otherwise be the
+    // runtime readout ("0:00:00 Runtime …") before the agent's actual name.
+    nodeEl.tabIndex = 0
+    nodeEl.setAttribute('role', 'button')
+    nodeEl.setAttribute('aria-label', `${agent.name} — ${role.label}`)
+    nodeEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      if (e.repeat) return                    // a held Space is one activation
+      if (this.editMode) return               // clicks are inert while editing
+      e.preventDefault()                      // Space must not scroll the page
+      this.handleClick(rec)                   // same path the pointer click takes
+    })
     this.nodes.set(agent.id, rec)
 
     this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
@@ -392,6 +413,18 @@ export class FleetGraph {
     this.container.appendChild(chip)
     rec.chip = chip
     this.renderChipPreview(rec)
+    // audit #26: the chip opens a chat on click — keyboard parity. role is
+    // swapped off in openChat (an open panel full of inputs is not a button)
+    // and back on in closeChat; tabindex STAYS through both states so Escape
+    // has a live element to hand focus back to.
+    chip.tabIndex = 0
+    chip.setAttribute('role', 'button')
+    chip.addEventListener('keydown', (e) => {
+      if (rec.chatOpen) return                // open panel: keys belong to the chat
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault()                      // Space must not scroll the page
+      this.openChat(rec)
+    })
     chip.addEventListener('click', () => { if (!rec.chatOpen) this.openChat(rec) })
     // raise on the way DOWN, so the click that follows lands on this panel and
     // not on whatever was covering it
@@ -428,6 +461,7 @@ export class FleetGraph {
     chip.style.height = rec.prevH + 'px'
     void chip.offsetWidth
     chip.classList.add('as-chat')
+    chip.removeAttribute('role')    // it is a panel now, not a button (see makeChip)
     if (rec._chipDim) { rec._chipDim = false; chip.classList.remove('chip-dim') }
     rec.chatOpen = true
     chip.style.zIndex = String(++chatZ)
@@ -466,6 +500,7 @@ export class FleetGraph {
     chip.style.height = chip.offsetHeight + 'px'
     void chip.offsetWidth
     chip.classList.remove('as-chat')
+    chip.setAttribute('role', 'button')   // resting chip is a button again
     chip.style.zIndex = ''        // back to the resting chip's own stacking
     rec.chatOpen = false
     chip.style.width = CHIP_W + 'px'
@@ -489,6 +524,28 @@ export class FleetGraph {
     if (this.simulation.alpha() < 0.02) {             // asleep sim: re-place now
       this._snapChips = true; this.tick(); this._snapChips = false
     }
+  }
+
+  /** Escape → close the most recently raised open chat (audit #27). */
+  _escTopChat(e) {
+    if (e.key !== 'Escape' || this._destroyed) return
+    // the settings drawer is modal (page inert behind it) and owns Escape
+    // while open — closing a chat underneath it would be action at a distance
+    if (document.querySelector('.drawer.open')) return
+    let top = null, topZ = -1
+    for (const n of this.nodes.values()) {
+      if (!n.chatOpen || !n.chip) continue
+      // open chats carry ascending inline z-indexes (chatZ, written on open
+      // and on pointerdown-raise) — the largest one is the visually topmost
+      const z = Number(n.chip.style.zIndex) || 0
+      if (z > topZ) { topZ = z; top = n }
+    }
+    if (!top) return
+    this.closeChat(top)
+    // hand focus to the surviving chip (tabindex persists through the morph)
+    // so a keyboard user is not dropped onto <body> when the chat's input
+    // disappears under them
+    top.chip.focus()
   }
 
   removeNode(rec, animate, delay = 0) {
@@ -1396,6 +1453,10 @@ export class FleetGraph {
       else if (!focusable && was) this._sleepFocusRing(rec)
       if (rec.chip) rec.chip.style.opacity = (n >= DENSE_AT && !rec.chatOpen) ? '0' : ''
       if (rec.chip) rec.chip.style.pointerEvents = (n >= DENSE_AT && !rec.chatOpen) ? 'none' : ''
+      // tab order must track visibility: opacity 0 + pointer-events none hides
+      // a chip from the eye and the mouse but NOT from Tab (the .graph-fit
+      // lesson in graph.css) — a keyboard user would land on nothing
+      if (rec.chip) rec.chip.tabIndex = (n >= DENSE_AT && !rec.chatOpen) ? -1 : 0
     }
     this.onDensity?.(dense)
   }
@@ -1761,6 +1822,9 @@ export class FleetGraph {
     this.editMode = !!on
     if (on) {
       this.container.setAttribute('data-edit-mode', 'true')
+      // graph.css hides every chip while editing (opacity 0 !important) —
+      // mirror that in the tab order so focus cannot land on invisible boxes
+      for (const n of this.nodes.values()) { if (n.chip) n.chip.tabIndex = -1 }
       if (this._zt !== 1 || this.panX || this.panY) this.resetZoom()
       this._applyLayout(true)                    // _treeActive() is now true
     } else {
@@ -1768,6 +1832,8 @@ export class FleetGraph {
       for (const n of this.nodes.values()) {
         n._editDragging = false
         n.el.classList.remove('drop-ok', 'refuse')
+        // restore per the same visibility rule updateDensity() enforces
+        if (n.chip) n.chip.tabIndex = (this.nodes.size >= DENSE_AT && !n.chatOpen) ? -1 : 0
       }
       this._applyLayout(true)                    // back to the chosen layout
     }
@@ -2002,6 +2068,7 @@ export class FleetGraph {
       clearTimeout(n._ringTimer); clearTimeout(n._settleTimer)
     }
     this.unsubs.forEach(u => u())
+    document.removeEventListener('keydown', this._onKeyDown)
     this.zoomHost.removeEventListener('wheel', this._onWheel)
     this.zoomHost.removeEventListener('pointerdown', this._onHostDown)
     this.zoomHost.removeEventListener('pointermove', this._onHostMove)

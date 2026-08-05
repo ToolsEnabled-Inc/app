@@ -311,7 +311,15 @@ document.addEventListener('keydown', (e) => {
    Pointer-down outside dismisses instead. (The gear itself sits underneath
    the open drawer, so it is not a toggle — the drawer takes that hit.) */
 document.addEventListener('pointerdown', (e) => {
-  if (drawerOpen && !drawer.contains(e.target)) closeDrawer()
+  if (!drawerOpen || drawer.contains(e.target)) return
+  /* closeDrawer() hands focus back to the gear, but the browser's DEFAULT
+     action for this same pointerdown runs after us and moves focus to the
+     clicked target (<body>, since the page is inert) — clobbering the
+     restore and leaving keyboard users to re-Tab from the top. Cancelling
+     the pointerdown suppresses that default focus pass; the page behind is
+     inert, so the press had no other job this could break. */
+  e.preventDefault()
+  closeDrawer()
 })
 setDrawer(false)
 

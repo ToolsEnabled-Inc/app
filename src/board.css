@@ -188,8 +188,9 @@
 .board-page .bc-cross, .board-page .bc-dot { transition: opacity .16s var(--ease); }
 .board-page .bc-hit { fill: transparent; pointer-events: all; cursor: crosshair; }
 
-/* the shared tooltip is part of the board — it obeys the type floor too */
-.board-page .tooltip { font-size: 12.5px; color: var(--ink-2); border-radius: var(--board-r); }
+/* the shared tooltip is part of the board — it obeys the type floor too
+   (body at 13px: multi-word prose floor, tracking styles.css's base) */
+.board-page .tooltip { font-size: 13px; color: var(--ink-2); border-radius: var(--board-r); }
 .board-page .tooltip .tt-title { font-size: 12.5px; color: var(--ink-2); letter-spacing: 0.04em; }
 
 /* ------------------------------------------------------------

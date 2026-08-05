@@ -458,6 +458,11 @@
 .watch-pane[data-size="s"] { --pv-h: 92px; --pv-dom: 158px; }
 .watch-pane[data-size="m"] { --pv-h: 152px; --pv-dom: 258px; }
 .watch-pane[data-size="l"] { --pv-h: 232px; --pv-dom: 392px; }
+/* measured box chrome — everything between a tile's edge and its preview:
+   8px padding ×2 + 1px hairline ×2 + 27px header row + 7px header margin
+   = 52px (probe-measured, identical on every box). Split heights derive
+   from preview steps + this, so the two never drift apart silently. */
+.watch-pane { --wb-chrome: 52px; }
 
 /* ---------- the reused chip, re-seated as a board tile ----------
    The shared .chip is now transparent at rest — on the graph that is right,
@@ -519,6 +524,16 @@
   border-color: color-mix(in oklab, var(--ink-4) 42%, transparent);
 }
 .wb-box.dominant .wb-name { font-size: 14.5px; }
+/* .lead — the same emphasis inside a split. renderNode strips .dominant from
+   any box entering a split (its --pv-dom height clamp fights the cell's
+   flexed height), which silently took the hairline + name treatment with it:
+   the winner was wider but stopped READING as the lead. applyWeights pins
+   .lead on the winning side's box, so emphasis and width always agree — the
+   two rules here are exactly dominance minus the height clamp. */
+.watch-pane .chip.wb-box.lead:not(.as-chat) {
+  border-color: color-mix(in oklab, var(--ink-4) 42%, transparent);
+}
+.wb-box.lead .wb-name { font-size: 14.5px; }
 /* readable, wrapping context lines — the board is for reading, 13px floor */
 .watch-pane .chip .cl {
   font-size: 13px; line-height: 1.55;
@@ -560,9 +575,35 @@
 .wb-split { display: flex; gap: var(--s3, 12px); min-height: 0; min-width: 0; flex: var(--w, 1); }
 .wb-split.row { flex-direction: row; }
 .wb-split.col { flex-direction: column; }
-.watch-stack > .wb-split { min-height: 340px; max-height: 64vh; }
-.watch-stack > .wb-split.col { min-height: 420px; }
+/* Top-level split heights FOLLOW the S/M/L step. They were fixed literals
+   (340px / 420px min, 64vh max), so the one control the board offers went
+   dead the moment a box entered a split — preview content pushed every split
+   to the 64vh guard at all three sizes. Derived instead from the same
+   --pv-h/--pv-dom scale the stack reads, plus the measured chrome:
+   · row: winner reads at the dominant preview height — a row split stands
+     exactly as tall as the dominant stack box at the same step;
+   · col: two stacked boxes at the plain step, plus the gap between them.
+   min pinned to max keeps the flex mechanics but hands the height to the
+   step instead of the content; the 64vh viewport guard survives as the
+   outer min(). */
+.watch-stack > .wb-split {
+  min-height: min(calc(var(--pv-dom) + var(--wb-chrome)), 64vh);
+  max-height: min(calc(var(--pv-dom) + var(--wb-chrome)), 64vh);
+  /* same 0.45s step the previews glide on, so one size click moves the
+     whole board in a single motion (FLIP's .no-trans still overrides) */
+  transition: min-height 0.45s var(--ease), max-height 0.45s var(--ease);
+}
+.watch-stack > .wb-split.col {
+  min-height: min(calc(2 * var(--pv-h) + 2 * var(--wb-chrome) + var(--s3, 12px)), 64vh);
+  max-height: min(calc(2 * var(--pv-h) + 2 * var(--wb-chrome) + var(--s3, 12px)), 64vh);
+}
 .wb-cell { flex: var(--w, 1); min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* 0px basis, not the shorthand's 0%: a percentage basis needs a definite
+   container height and falls back to CONTENT size without one, so col splits
+   divided ~fifty-fifty no matter who won the importance weights (measured
+   144/144 where --w said 1.7/1). A length basis always resolves — the
+   winner's larger share now works down the page as well as across it. */
+.wb-split.col > .wb-cell, .wb-split.col > .wb-split { flex-basis: 0px; }
 .wb-cell > .chip { flex: 1; min-height: 0; }
 .wb-cell .chip-preview { max-height: none; flex: 1; }
 
