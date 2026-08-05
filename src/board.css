@@ -359,6 +359,68 @@
 }
 
 /* ------------------------------------------------------------
+   10 · the rail chat — owner: "under runtime in that panel should
+   be the chatbox again"
+
+   The shared buildChat component (components.js) drops in unchanged —
+   .chat-* classes are shared with the graph chips and the agent page, so
+   everything here is a SCOPED override, sized for the rail's tight
+   ~400px column. The chat is the main event of the board now: the box
+   reserves a fixed slice tall enough to read (log + input ≈ 340px)
+   instead of flexing, because a chat that changes height as the rail
+   scrolls can never keep its pinned-to-newest promise steady.
+   ------------------------------------------------------------ */
+.board-page .board-chat-box { padding: 10px 13px 12px; }
+.board-page .board-chat-box .chat { height: 380px; min-height: 0; }
+.board-page .board-chat-box .chat-head { padding-bottom: 9px; margin-bottom: 7px; }
+/* wheel at the log's edge stays in the log: without the containment the
+   scroll chains straight into the rail scroller and carries the whole chat
+   away from under the pointer mid-read */
+.board-page .board-chat-box .chat-log {
+  gap: 7px;
+  overscroll-behavior: contain;
+}
+/* the 400px column: bubbles give back some of their padding and claim more
+   of the row, so two-line messages stay two lines. 13px reading floor holds
+   (message size is inherited from styles.css and deliberately not restated). */
+.board-page .board-chat-box .msg { max-width: 92%; padding: 7px 10px; }
+.board-page .board-chat-box .chat-input input { height: 34px; font-size: 13px; }
+.board-page .board-chat-box .chat-send { height: 34px; width: 34px; }
+
+/* ------------------------------------------------------------
+   11 · pinned actions bar
+
+   The four agent actions + "Open full view" leave the scroller: they are
+   the board's exits and must be reachable without scrolling past a chat,
+   a plot and three sliders. Flex sibling of .rail-scroll, so it simply
+   never scrolls; the hairline above it is the same rule the rail title
+   draws below itself, closing the frame.
+   ------------------------------------------------------------ */
+.board-page .board-actions {
+  flex: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.board-page .board-actions .ctl-grid { gap: 7px; }
+.board-page .board-actions [data-a="open"] { width: 100%; }
+
+/* ------------------------------------------------------------
+   12 · a leaving rail page stops asserting numbers
+
+   During the stats ⇄ board crossfade both rail pages paint in the same
+   rect, and two half-opacity VALUES landing on the same spot read as one
+   struck-through value (the owner's tan screenshot: "80%" with another
+   glyph through it). Labels and structure may blend — that is what a
+   crossfade is — but a number that can be misread as data must never
+   blend with another number. The instant a page starts leaving, its
+   numeric readouts (the chart badge, the load-bar values) stop painting.
+   ------------------------------------------------------------ */
+.computers .rail-page.mc-out .bh-v,
+.computers .rail-page.mc-out .bv { visibility: hidden; }
+
+/* ------------------------------------------------------------
    reduce-motion: the drawn-in axes and plot appear finished
    ------------------------------------------------------------ */
 body.reduce-motion .board-page .bc-ax,

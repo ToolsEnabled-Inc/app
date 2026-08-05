@@ -17,7 +17,7 @@ import { ticks as d3ticks } from 'd3-array'
 import { readLayout, writeLayout } from '../layout-pref.js'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES } from '../vocab.js'
-import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip, attachSeg } from '../components.js'
+import { el, uptimeRing, bindRuntime, countUp, setViewMorph, makeTooltip, attachSeg, buildChat } from '../components.js'
 import { FleetGraph } from '../graph.js'
 import '../board.css'
 
@@ -158,7 +158,7 @@ function agentChartBox(agent) {
   const tip = makeTooltip(plot)
 
   let W = 0, g = null, p = null
-  let frozen = true, lastStep = 0, shown = -1, stopCount = null
+  let frozen = true, lastStep = 0, shown = -1
   let introDelay = null, introDone = false, safety = 0
 
   const minsAgo = (i) => Math.round((CHART_N - 1 - i) * (CHART_SPAN_MIN / (CHART_N - 1)))
@@ -271,11 +271,17 @@ function agentChartBox(agent) {
     tip.hide()
   }
 
+  // The badge is written here and ONLY here, as one plain text swap. It used
+  // to run a 600ms countUp tween, which meant the badge spent over half of
+  // every sample interval displaying values the series never contained — and
+  // during the rail crossfade a screenshot could catch that in-between glyph
+  // blended with the other page's text, reading as two values struck through
+  // each other. A single writer doing a single atomic write cannot show a
+  // stale or intermediate value, so that overlap is structurally impossible.
   function readout() {
     const v = Math.round(s.vals[CHART_N - 1])
     if (v === shown) return
-    stopCount?.()
-    stopCount = countUp(nowEl, shown < 0 ? v : shown, v, 600)
+    nowEl.textContent = String(v)
     shown = v
   }
 
@@ -361,7 +367,6 @@ function agentChartBox(agent) {
     destroy() {
       ro.disconnect()
       clearTimeout(safety)
-      stopCount?.()
       tip.hide()
       p?.hit.removeEventListener('pointermove', onHover)
       p?.hit.removeEventListener('pointerleave', offHover)
@@ -574,12 +579,19 @@ export function computersView({ initialComputer = null, navigate }) {
     if (title) items.push(title)
     const scroll = page.querySelector('.rail-scroll')
     if (scroll) items.push(...scroll.children)
+    // the pinned actions bar sits OUTSIDE the scroller (it must not scroll
+    // away), but it still belongs to the same morph: left out of this list it
+    // would hang fully opaque over the crossfade and then pop off with the
+    // page, the one block moving on a different clock from the cascade
+    const pinned = page.querySelector('.board-actions')
+    if (pinned) items.push(pinned)
     let g = -1
     items.forEach((node, i) => {
       const starts = i === 0
         || node.classList.contains('rail-sec')
         || node.classList.contains('stat-hero')
         || node.classList.contains('agent-head')
+        || node.classList.contains('board-actions')
         || node.classList.contains('board-box')   // each board box is its own cascade step
       if (starts) g++
       node.style.setProperty('--mi', String(g))
@@ -889,25 +901,10 @@ export function computersView({ initialComputer = null, navigate }) {
           <span>${agent.tasksDone} tasks · ${agent.failRate}% fail</span>
         </div>
         <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">Agent Controls</span></div>
-          <div class="ctl-grid">
-            <button class="ctl-btn armed" data-a="pause">
-              <svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Pause</button>
-            <button class="ctl-btn" data-a="resume">
-              <svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>Resume</button>
-            <button class="ctl-btn" data-a="respawn">
-              <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M6 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Respawn</button>
-            <button class="ctl-btn danger" data-a="terminate">
-              <svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Terminate</button>
-          </div>
-          <div class="rail-sec">Tuning</div>
+          <div class="board-box-h"><span class="bh-t">Tuning</span></div>
           <div class="ctl-row" data-t="ctx"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv">124k</span></div>
           <div class="ctl-row" data-t="wake"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv">20m</span></div>
           <div class="ctl-row" data-t="auto"><span class="cl">Autonomy</span><input type="range" min="0" max="100" value="80"/><span class="cv">high</span></div>
-          <div class="rail-sec">Session</div>
-          <button class="ctl-btn" style="width:100%" data-a="open">
-            <svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Open full view</button>
         </div>
         <div class="board-box board-legend-box">
           <div class="board-box-h"><span class="bh-t">Legend</span></div>
@@ -919,9 +916,49 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
         </div>
       </div>
+      <div class="board-actions">
+        <div class="ctl-grid">
+          <button class="ctl-btn armed" data-a="pause">
+            <svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Pause</button>
+          <button class="ctl-btn" data-a="resume">
+            <svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>Resume</button>
+          <button class="ctl-btn" data-a="respawn">
+            <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M6 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Respawn</button>
+          <button class="ctl-btn danger" data-a="terminate">
+            <svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>Terminate</button>
+        </div>
+        <button class="ctl-btn" data-a="open">
+          <svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Open full view</button>
+      </div>
     `
     const scroll = ctlPage.querySelector('.rail-scroll')
     const ringWrap = ctlPage.querySelector('.agent-ring-wrap')
+
+    // The owner's direction, verbatim: "under runtime in that panel should be
+    // the chatbox again. it can still have a full view available." So the
+    // agent's OWN chat — the same seeded, working buildChat every other
+    // surface uses — sits directly under the runtime block. The title is the
+    // agent's name on purpose: buildChat derives its seeded history from the
+    // title, so each agent replays its own thread and switching bubbles
+    // genuinely switches conversations.
+    const chatBox = el(`<div class="board-box board-chat-box"></div>`)
+    chatBox.appendChild(buildChat({
+      title: agent.name,
+      subtitle: `${role.label} · direct line`,
+      roleKey: agent.role,
+      seed: 6,
+    }))
+    // Escape while typing here belongs to this chat: without the stop, the
+    // graph's document-level Escape handler would close the topmost open
+    // CHIP chat from a keystroke aimed at the rail's input.
+    chatBox.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && e.target.closest?.('.chat-input')) {
+        e.stopPropagation()
+        e.target.blur()
+      }
+    })
+    scroll.insertBefore(chatBox, scroll.querySelector('.board-ctl-box'))
 
     // the ring scales with the rail, but never wider than the panel: at a
     // 320px rail this stays 190px, exactly where the digits already fit
@@ -933,8 +970,8 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     ringWrap.appendChild(ctlRing.el)
 
-    // the per-agent plot sits between the runtime and the controls, exactly
-    // where "Runtime Statistics" sits on the sketch
+    // the per-agent plot follows the chat: the rail now reads ring → chat →
+    // activity → tuning, with the actions bar pinned under the scroller
     chart = agentChartBox(agent)
     scroll.insertBefore(chart.el, ctlPage.querySelector('.board-ctl-box'))
 
