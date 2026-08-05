@@ -495,6 +495,9 @@ const CONV_DEFS = [
         'verify the floor at both test sizes before the handback',
         'route the packet through builder/handback/9',
         'no opportunistic refactors in a fix round — rejected items only',
+        'the packet answers the rejection, not the neighbourhood around it',
+        'if a second criterion fails while you fix the first, say so, do not fold it in',
+        'the reviewer sees the diff before the summary; write for that order',
         'if the shared component has to move, stop and say so first',
         'measure the floor, do not read it off a screenshot',
         'handback closes the round; anything else opens a new one',
@@ -504,6 +507,9 @@ const CONV_DEFS = [
         'both sizes re-captured; floor holds at 12px',
         'handback 9 posted; re-review requested',
         'computed the floor off the rendered box, not the stylesheet',
+        'diff touches the named files only; the shared component is clean',
+        'second size re-measured after the rebuild, not before',
+        'round stays open on my side until the verdict lands',
         'one file touched; diff is 4 lines including the comment',
         'held the round open until the second size was measured',
         'no other criterion regressed; re-ran the full sweep',
@@ -543,6 +549,9 @@ const CONV_DEFS = [
         'collision check: nobody else on graph.css this phase',
         'heartbeat before you sleep; stale leases get swept',
         'a truncated run is a continuation, not a completion — resume it',
+        'if the packet cannot name its evidence, it is not ready',
+        'two quiet heartbeats in a row and the lease gets swept — plan for it',
+        'roll-up is due whether the phase closed or not; say which it is',
         'name your file territory in the claim or the next lane collides',
         'evidence paths in every packet; intent is not a status',
         'if the phase fence lands mid-work, checkpoint and stop',
@@ -555,6 +564,9 @@ const CONV_DEFS = [
         'resumed from the phase-2 checkpoint; nothing re-run',
         'roll-up posted — 3 phases, 2 closed, 1 fenced',
         'swept my own stale lease from the last wake before claiming',
+        'phase 3 blocked on the fence; checkpointed rather than waited',
+        'evidence paths verified readable before they went in the packet',
+        'nothing to report is a report; posting it so the sweep sees life',
       ],
     },
   },
@@ -566,6 +578,9 @@ const CONV_DEFS = [
         'yielding config/agent-org.json to q38; re-claiming after checkpoint',
         'junior lane yields on collision; that is the contract',
         'the fence is on the directory, not on the individual file',
+        'a fence you have to re-read every claim is a fence that is working',
+        'the worktree is yours; the checkout you cloned it from is not',
+        'claims name files, not areas — an area is how two lanes collide',
         'two lanes cannot both own the ledger — one of you drops it',
         'reverting the dirty file before the claim, not after',
         'shared dir is writable; reviewer-owned paths inside it are not',
@@ -578,6 +593,9 @@ const CONV_DEFS = [
         're-claimed after the checkpoint, territory unchanged',
         'wrote outside my fence once; reverted and re-read the map',
         'artifact dir was over quota — pruned before the run, not during',
+        'checkpoint written outside the fence window; moved it inside',
+        're-read the map after the yield; my re-claim is still disjoint',
+        'the dirty file was mine from last wake — reverted, then claimed',
       ],
     },
   },
@@ -599,23 +617,33 @@ const CONV_DEFS = [
 function bagDraw(bags, side, lines) {
   let bag = bags[side]
   if (!bag || !bag.length) {
-    bag = lines.slice()
-    for (let i = bag.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[bag[i], bag[j]] = [bag[j], bag[i]]
+    /* Refill as a PARTITION, not a shuffle-and-patch: everything said
+       recently goes to the draw-last end wholesale, so a recent line cannot
+       come round again until the whole non-recent half has been spoken —
+       spacing of (pool − recent) side-draws by construction. The previous
+       repair swept the shuffled tail and swapped offenders toward the front,
+       which was best-effort: with small pools the sweep ran out of clean
+       lines to swap with and quietly degenerated (measured: repeats-within-4
+       jumped 0 -> 30 at depth 6). A partition cannot degenerate — its worst
+       case IS its guarantee. Recent depth stays 4: deep enough that the two
+       halves stay real halves on the smallest (10-line) pools. */
+    const recent = bags.recent[side]
+    const shuffle = (arr) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[arr[i], arr[j]] = [arr[j], arr[i]]
+      }
+      return arr
     }
-    // per side, not per conversation: the two speakers draw from separate
-    // vocabularies, so the line that must not open a's new bag is the last
-    // line A said — checking against whichever side spoke most recently
-    // compares two strings that could never have matched anyway
-    const lastHere = bags.last[side]
-    if (bag.length > 1 && bag[bag.length - 1] === lastHere) {
-      ;[bag[bag.length - 1], bag[0]] = [bag[0], bag[bag.length - 1]]
-    }
+    const hot = shuffle(lines.filter(l => recent.includes(l)))
+    const cold = shuffle(lines.filter(l => !recent.includes(l)))
+    bag = hot.concat(cold)          // pop() draws from the end: cold first
     bags[side] = bag
   }
   const t = bag.pop()
-  bags.last[side] = t
+  const rec = bags.recent[side]
+  rec.push(t)
+  if (rec.length > 4) rec.shift()
   return t
 }
 
@@ -644,7 +672,7 @@ function watchInit() {
       // one bag pair per conversation, carried from the seed into the live
       // stream — a fresh bag at hand-over would let the newest line repeat
       // one the seeded history had only just used
-      const bags = { a: null, b: null, last: { a: '', b: '' } }
+      const bags = { a: null, b: null, recent: { a: [], b: [] } }
       return [d.id, { ...d, hist: seedConv(d, bags), side: 'a', bags }]
     })),
     stack: ['coord-sync', 'review-gem', 'helper-fanout', 'build-status', 'fence-watch'].map(wbLeaf),

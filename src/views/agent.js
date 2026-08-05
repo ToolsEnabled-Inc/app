@@ -417,7 +417,14 @@ export function agentView({ compId, agentId, navigate }) {
           <section class="apanel glass ctl-panel">
             <div class="apanel-title">Controls</div>
             <div class="rail-scroll">
-              <div class="agent-ring-wrap"></div>
+              <!-- Controls above the dial, on purpose. With the dial first,
+                   every viewport below ~1700px opened this panel on a section
+                   heading with nothing under it — "TUNING" announcing rows
+                   that lived below the fold (201px window vs 341px content at
+                   1440/1600; at 1280 the heading itself was under the fold).
+                   The sliders are the panel's JOB; the dial is decoration and
+                   repeats the runtime the agent's own bubble already shows —
+                   so the decoration is what scrolls. -->
               <div class="rail-sec">Tuning</div>
               <!-- The visible name of each slider is a SIBLING span, not a
                    label, so all three reported no accessible name at all —
@@ -429,6 +436,7 @@ export function agentView({ compId, agentId, navigate }) {
               <div class="ctl-row"><span class="cl">Context budget</span><input type="range" aria-label="Context budget" min="0" max="100" value="62"/><span class="cv">124k</span></div>
               <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" aria-label="Wake interval" min="0" max="100" value="35"/><span class="cv">20m</span></div>
               <div class="ctl-row"><span class="cl">Verbosity</span><input type="range" aria-label="Verbosity" min="0" max="100" value="20"/><span class="cv">low</span></div>
+              <div class="agent-ring-wrap"></div>
             </div>
             <div class="ctl-grid ctl-actions">
               <button class="ctl-btn armed">Active</button>

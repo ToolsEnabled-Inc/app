@@ -193,6 +193,29 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     return m
   }
   history.forEach((m, i) => addMsg(m.from, m.text, i === 0 ? (m.from === 'them' ? title : 'you') : null))
+  /* The seeded history above is written while the panel is still DETACHED
+     (the agent view assembles its chat before mount), where scrollHeight is 0
+     and the per-message snap inside addMsg is a no-op — the pane then sat
+     anchored to its OLDEST message, with the newest sliding under the
+     composer and reading as clipped text. A one-shot snap on first layout was
+     tried and was not enough: the panel keeps resizing after mount (fonts,
+     the strip settling), and any growth after the snap unseated it again.
+     So the pane keeps the standard chat contract instead: pinned to the
+     newest message through every resize until the reader scrolls away, and
+     re-pinned the moment they return to the bottom. */
+  let pinned = true
+  log.addEventListener('scroll', () => {
+    pinned = log.scrollTop >= log.scrollHeight - log.clientHeight - 24
+  }, { passive: true })
+  const anchorRo = new ResizeObserver(() => {
+    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+  })
+  anchorRo.observe(log)
+  // content growth (a new message wrapping taller) moves scrollHeight without
+  // resizing the box — the same pin applies
+  new MutationObserver(() => {
+    if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+  }).observe(log, { childList: true })
 
   const send = () => {
     const v = input.value.trim()

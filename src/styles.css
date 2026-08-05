@@ -1095,6 +1095,18 @@ body {
 }
 /* .7s again: nodeIn's 0/40/100 staging is choreography, not UI response */
 .node.enter .node-glass { animation: nodeIn .7s var(--ease-spring); }
+/* The contents arrive AFTER the vessel. The bloom scales the glass from 0.15,
+   and everything riding it used to scale too: mid-animation stills showed a
+   ~30px bubble wearing illegible micro-runtime, and the name label — which
+   lives OUTSIDE .node-glass and never animated at all — floating at full
+   opacity beside a bubble that wasn't there yet. Text and labels now fade in
+   over the bloom's tail, so at any instant the node is either a clean empty
+   disc or a legible one, never a smudge with a caption. */
+.node.enter .node-glass .rt, .node.enter .node-glass .rl,
+.node.enter .node-name, .node.enter .node-role {
+  animation: nodeTextIn .9s var(--ease) both;
+}
+@keyframes nodeTextIn { 0%, 55% { opacity: 0; } 100% { opacity: 1; } }
 @keyframes nodeIn { 0% { opacity: 0; transform: scale(0.15); } 40% { opacity: 1; } 100% { transform: scale(1); } }
 .node.leave { opacity: 0; transition: opacity var(--dur-3) var(--ease); }
 .node.leave .node-glass { transform: scale(0.4); }

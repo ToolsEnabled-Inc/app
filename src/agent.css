@@ -322,6 +322,9 @@
 .agentv .apanel-title { font-size: 12.5px; margin-bottom: 12px; }
 .agentv .agent-ring-wrap { padding: 10px 0 12px; }
 .agentv .rail-sec { font-size: 12.5px; margin: 26px 0 14px; }
+/* first thing in the Controls scroller now (the dial moved below the rows);
+   26px of lead-in against the panel title above it read as a hole */
+.agentv .rail-scroll > .rail-sec:first-child { margin-top: 2px; }
 .agentv .ctl-grid { gap: 10px; }
 .agentv .ctl-row { padding: 11px 2px; }
 .agentv .ctl-row .cl { font-size: 12.5px; }
