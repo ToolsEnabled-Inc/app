@@ -58,7 +58,10 @@
   /* Stacked-area fill alphas, band 0 (baseline) → band 3 (top).
      Four identical washes at 0.1 muddied every boundary; a descending ramp
      gives the stack an implied light direction and keeps the band that is
-     read against the axis the most substantial one. */
+     read against the axis the most substantial one.
+     CONSUMED BY JS now (echarts-theme.js buildTheme): each alpha is the top
+     stop of that band's vertical fade-to-transparent gradient. They stay CSS
+     custom properties so the black theme's re-step below keeps working. */
   --area-a0: 0.30;
   --area-a1: 0.22;
   --area-a2: 0.16;
@@ -226,20 +229,22 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--pc) 14%, transparent);
 }
 
-/* ---------- chart affordances ---------- */
-.fbar { transition: opacity .25s var(--ease); }
-.fhit { cursor: default; pointer-events: all; }
-.f-row.hot .fbar { opacity: 0.82; }
-.f-row.hot .flabel { fill: var(--ink); }
-
-/* stacked-area bands — differentiated alphas, deepest band strongest */
-.tk-area[data-band="0"] { fill-opacity: var(--area-a0, 0.30); }
-.tk-area[data-band="1"] { fill-opacity: var(--area-a1, 0.22); }
-.tk-area[data-band="2"] { fill-opacity: var(--area-a2, 0.16); }
-.tk-area[data-band="3"] { fill-opacity: var(--area-a3, 0.11); }
-/* a 5th provider added to vocab.js later would have no band rule; keep it
-   visible at the faintest step rather than fully opaque */
-.tk-area { fill-opacity: var(--area-a3, 0.11); }
+/* ---------- engine-rendered hero charts ----------
+   The four hero charts are ECharts instances (SVG renderer) now, so their
+   geometry moved out of this sheet's reach: the .tk-area/.fbar/.heat-cell/
+   .vseg rules that skinned the hand-rolled SVG are gone with the SVG. What
+   CSS still owns is the CONTAINER: the engine fills whatever box it is
+   given, so the old viewBox aspect becomes an aspect-ratio here and the
+   page's grid/card layout is untouched. Heights follow card width exactly
+   as the scaled viewBox did — but text inside is now real 12.5px at every
+   width, where the old SVG scaled its type with the card. */
+.metrics #tokens-chart { aspect-ratio: 640 / 210; }
+.metrics #fail-chart { aspect-ratio: 420 / 207; }
+.metrics #heat-chart { aspect-ratio: 476 / 152; }
+/* the shared .chart-body svg rule says height:auto (right for the scaling
+   hand-rolled charts elsewhere); the engine sizes its own svg to the box,
+   so pin it to the box and let chart.resize() own the geometry */
+.metrics .echart svg { width: 100%; height: 100%; }
 
 /* ---------- verdict split: one 100% stacked bar + a hero total ----------
    Replaced the donut. An arc solver spent ~40 lines of trigonometry to make
@@ -260,15 +265,10 @@
 }
 .vsplit { flex: 1 1 180px; min-width: 0; }
 /* No track behind it: a 100% stacked bar has no empty remainder, so the 2px
-   inter-segment gaps read as bare surface rather than a second grey. */
+   inter-segment gaps read as bare surface rather than a second grey. The
+   segments are engine-drawn now (metrics-charts.js verdictOption) — this box
+   just holds the 22px lane the bar has always occupied. */
 .vbar { position: relative; height: 22px; }
-.vseg {
-  position: absolute; top: 0; bottom: 0;
-  border-radius: var(--r-sm);
-  min-width: 3px;
-  transition: box-shadow .22s var(--ease);
-}
-.vseg.hot { box-shadow: inset 0 0 0 2px var(--sheet); }
 .vlegend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 11px; }
 .vlegend .vk {
   display: flex; align-items: center; gap: 6px;
@@ -294,10 +294,6 @@
 .vf-v { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 640; }
 .vf-v em { font-style: normal; color: var(--ink-3); font-weight: 550; margin-left: 6px; }
 
-.heat-cell { transition: none; }
-/* was a hardcoded near-black stroke, invisible on the black theme */
-.heat-cell.hot { stroke: var(--chart-cross); stroke-width: 1.2; }
-
 /* sequential scale key for the heatmap (single-hue ramp) */
 .heat-key { display: flex; align-items: center; gap: 5px; }
 .heat-key em {
@@ -315,10 +311,37 @@
   box-shadow: inset 0 0 0 1px rgba(14, 23, 38, 0.04);
 }
 
-/* tooltip series keys — colour lives in the swatch, text stays on ink */
-.tooltip .tt-row { display: flex; align-items: center; gap: 6px; line-height: 1.65; }
-.tooltip .tt-row b { margin-left: auto; padding-left: 10px; }
-.tooltip .tt-key {
+/* ---------- engine tooltip skin (.mtip) ----------
+   The ECharts tooltip container is stripped to transparent (metrics-charts
+   tipBase) and the formatter wraps its content in .mtip, so the skin is one
+   CSS rule that follows the theme through the cascade — same recipe as the
+   shared .tooltip in styles.css (3px radius, the glass surface, the shadow
+   token, 13px ink-2). It is appended to <body>, hence no .metrics prefix. */
+.mtip {
+  padding: var(--s2) var(--s3);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, calc(0.86 * var(--wa)));
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, calc(0.95 * var(--wa)));
+  box-shadow: 0 10px 26px -10px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
+  font-family: var(--font-ui);
+  font-size: 13px; color: var(--ink-2);
+}
+.mtip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.mtip .tt-title {
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  color: var(--ink-25); font-weight: 640; margin-bottom: var(--s1);
+}
+/* the crosshair tooltip lists four providers + a total: the total row takes
+   a hairline so the sum reads as a sum, not a fifth series */
+.mtip .tt-total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+
+/* tooltip series keys — colour lives in the swatch, text stays on ink
+   (.tooltip = the pool meters' hand-rolled tip; .mtip = the engine's) */
+.tooltip .tt-row, .mtip .tt-row { display: flex; align-items: center; gap: 6px; line-height: 1.65; }
+.tooltip .tt-row b, .mtip .tt-row b { margin-left: auto; padding-left: 10px; }
+.tooltip .tt-key, .mtip .tt-key {
   width: 7px; height: 7px; border-radius: 50%; flex: none; display: block;
 }
 
@@ -388,8 +411,9 @@
    .tile .tl i, .mtable .aname i, and .meter .mf are flat now, so there is
    nothing left to override. */
 
-/* ---------- reduced motion ---------- */
+/* ---------- reduced motion ----------
+   (the engine charts read the same gate in JS: reduced() sets
+   animation:false / animationDurationUpdate:0 on every setOption) */
 body.reduce-motion .spark-halo,
 body.reduce-motion .spark-halo.ping { animation: none; opacity: 0; }
 body.reduce-motion .tile .tv.bump { animation: none; }
-body.reduce-motion .vseg { transition-duration: 0.12s; }

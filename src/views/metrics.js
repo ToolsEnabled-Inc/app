@@ -4,12 +4,23 @@
 // T4: a glass filter row (time range × machine) retargets every chart and
 // TWEENS to the new simulated dataset; tiles count up; the agent table sorts
 // with a FLIP reorder; tooltips cover every mark.
+//
+// The four hero charts (token flow, failure bars, activity heat, verdict
+// split) render through the ECharts engine now — metrics-charts.js owns the
+// option builders, echarts-theme.js snapshots the design tokens the engine
+// cannot read through var(). This view still owns the DATA (buildData and
+// its deterministic noise are unchanged) and the DOM numbers; the engine
+// owns shape morphing, the crosshair and per-series focus. Tiles, pools,
+// sparklines, ops and the agent table stay hand-rolled — they were already
+// right.
 
 import '../metrics.css'
 import { ticks as d3ticks } from 'd3-array'
 import { sim, fmtRuntime } from '../sim.js'
 import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
 import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../components.js'
+import { buildTheme } from '../echarts-theme.js'
+import { createCharts } from '../metrics-charts.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
 
@@ -54,51 +65,12 @@ function smoothArr(a, k) {
   return out
 }
 
-/* Sequential single-hue ramp for the heatmap, read from CSS so it follows
-   the theme. The previous hardcoded light ramp INVERTED on the black theme:
-   its low end (#edf6fa, near-white) became the brightest mark on a #0d0f12
-   page, so an idle hour out-glowed a saturated one. Ramps are generated per
-   theme in src/glow.css (tools/gen-glow.mjs) and always run low-contrast ->
-   high-contrast against that theme's own background. */
-const hexToRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
-let HEAT_STOPS = []
-function readHeatRamp() {
-  const cs = getComputedStyle(document.documentElement)
-  const out = []
-  for (let i = 0; i < 6; i++) {
-    const v = cs.getPropertyValue(`--heat-${i}`).trim()
-    if (/^#[0-9a-f]{6}$/i.test(v)) out.push(hexToRgb(v))
-  }
-  HEAT_STOPS = out.length === 6 ? out
-    : ['#edf6fa', '#d3ecf5', '#a8dcec', '#6ec4de', '#35a8cc', '#0b86ab'].map(hexToRgb)
-}
-readHeatRamp()
-
-/* The ramp is read ONCE per theme, into JS, because the cells are painted with
-   interpolated rgb() values rather than a CSS variable — a tween between two
-   stops has no CSS expression. That made the read a snapshot: switching theme
-   left every cell on the previous theme's ramp until the view was rebuilt, so
-   the black theme kept painting the near-white light ramp and an idle hour
-   out-glowed a saturated one all over again. Re-read on the attribute the
-   theme switch actually writes (main.js sets documentElement.dataset.theme);
-   each mounted view registers a repaint here and unregisters on destroy. */
-const heatSubscribers = new Set()
-function onHeatRampChange(fn) {
-  heatSubscribers.add(fn)
-  return () => heatSubscribers.delete(fn)
-}
-if (typeof MutationObserver !== 'undefined') {
-  new MutationObserver(() => {
-    readHeatRamp()
-    heatSubscribers.forEach(fn => fn())
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-}
-function heatShade(v) {
-  const t = clamp(0, 1, v) * (HEAT_STOPS.length - 1)
-  const i = Math.min(HEAT_STOPS.length - 2, Math.floor(t)), f = t - i
-  const a = HEAT_STOPS[i], b = HEAT_STOPS[i + 1]
-  return `rgb(${Math.round(lerp(a[0], b[0], f))},${Math.round(lerp(a[1], b[1], f))},${Math.round(lerp(a[2], b[2], f))})`
-}
+/* The heat ramp machinery that lived here (readHeatRamp / HEAT_STOPS /
+   heatShade / the module-level repaint subscriber) is gone: cells are painted
+   by the engine's visualMap from the same --heat-0..5 stops, snapshotted by
+   buildTheme(), and each mounted view watches data-theme itself — one
+   observer per view, disconnected on destroy, instead of a process-lifetime
+   one fanning out to subscribers. */
 
 /** Same geometry components.js/sparkline() uses, so the path can be redrawn per frame. */
 function sparkGeom(points, w, h) {
@@ -126,14 +98,14 @@ const provInk = (id) => `var(--prov-${id}, var(--ink-3))`
 /* ---------------- viewport-clamped tooltip ----------------
    makeTooltip() in src/components.js clamps a tip against its CONTAINER's
    right edge and its container's top — never against the window — so at
-   1280x800 the two extreme tips in this view leave the screen. The pool
-   meter tip is the widest in the app (272 px): it flips left and lands at
-   x = −44, eating the first ~5 characters of 'jpinckard21 · subscription'.
-   The token-flow tip is the tallest (120 px, a title plus four provider
-   rows): when it will not fit above the cursor it is forced below and lands
-   at bottom = 808 in an 800 px viewport, cutting the 'Local' row. Both are
-   clean at 1920x1080, which is why a container-relative clamp looked right.
+   1280x800 the pool meter tip, the widest in the app (272 px), flips left
+   and lands at x = −44, eating the first ~5 characters of 'jpinckard21 ·
+   subscription'. It is clean at 1920x1080, which is why a container-relative
+   clamp looked right.
 
+   This wrapper now serves ONLY the pool meters: the four hero charts moved
+   to the engine tooltip (appendToBody + confine = the same viewport clamp,
+   natively), which deleted the tall token-flow case that used to live here.
    The real fix is four lines inside makeTooltip.show, but components.js is
    another lane's file this wave, so this wrapper re-clamps after the shared
    code has positioned the element: same math it uses (container rect +
@@ -360,7 +332,7 @@ export function metricsView() {
               <span class="spacer"></span>
               <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
             </div>
-            <div class="chart-body" id="tokens-chart"></div>
+            <div class="chart-body echart" id="tokens-chart" role="img" aria-label="Token flow by provider, stacked area"></div>
           </div>
           <div class="chart-card glass" id="fail-card">
             <div class="chart-head"><span class="ct">Failure rate by lane</span><span class="cs" id="fail-sub">rolling 24 h</span>
@@ -371,7 +343,7 @@ export function metricsView() {
                 <span class="ck" style="--kc:var(--s-serious)"><i></i>&gt; 5%</span>
               </span>
             </div>
-            <div class="chart-body" id="fail-chart"></div>
+            <div class="chart-body echart" id="fail-chart" role="img" aria-label="Failure rate by lane, percent"></div>
           </div>
         </div>
         <div class="m-row m-charts3">
@@ -380,7 +352,7 @@ export function metricsView() {
               <span class="spacer"></span>
               <span class="heat-key" id="heat-key"></span>
             </div>
-            <div class="chart-body" id="heat-chart"></div>
+            <div class="chart-body echart" id="heat-chart" role="img" aria-label="Fleet activity heatmap"></div>
           </div>
           <div class="chart-card glass">
             <div class="chart-head"><span class="ct">Review verdicts</span><span class="cs" id="verdict-sub">this week</span></div>
@@ -425,7 +397,15 @@ export function metricsView() {
     // labels that were NOT the gridline's value whenever tokMax/50 was odd —
     // e.g. peak 42 rendered "0,13,25,38,50" for true stops 0,12.5,25,37.5,50.
     const tokTicks = d3ticks(0, Math.max(50, peak * 1.06), 5)
-    const tokMax = Math.max(tokTicks[tokTicks.length - 1], Math.max(50, peak * 1.06))
+    // The axis ceiling is the next STEP MULTIPLE above the padded peak, not
+    // the raw padded peak: the engine labels its axis max, so a non-multiple
+    // ceiling printed the float itself (measured: "332.4637058685107") where
+    // the hand-rolled chart just left it as silent headroom. Rounding the
+    // ceiling up keeps "the label IS the gridline" true for every line, top
+    // included.
+    const tokStep = tokTicks.length > 1 ? tokTicks[1] - tokTicks[0] : 50
+    const tokMax = Math.max(tokTicks[tokTicks.length - 1],
+      Math.ceil(Math.max(50, peak * 1.06) / tokStep) * tokStep)
     const tokTotal = PROVIDERS.reduce((s, p) => s + tokens[p.id].reduce((a, b) => a + b, 0), 0)
 
     /* failure rates (live sim drift is the base, so bars keep breathing) */
@@ -500,26 +480,17 @@ export function metricsView() {
     return { tokens, tokMax, tokTicks, tokTotal, fail, heat, verdicts, pools, ops, tiles, spark }
   }
 
+  /* Interpolates only what the rAF tween still paints: DOM numbers and the
+     tile sparklines. The chart keys (tokens/tokMax/tokTicks/fail/heat) left
+     with the hand-rolled charts — the engine tweens its own shapes from one
+     settled dataset to the next, which also retired the tokTicks-blackout
+     carry this function used to need. verdicts stays: the hero number,
+     legend counts and vfoot rows are DOM and still ride these frames. */
   function lerpData(a, b, t) {
     const L = (x, y) => lerp(x, y, t)
     const arr = (x, y) => x.map((v, i) => L(v, y[i]))
     const obj = (x, y) => Object.fromEntries(Object.keys(x).map(k => [k, L(x[k], y[k])]))
     return {
-      tokens: Object.fromEntries(PROVIDERS.map(p => [p.id, arr(a.tokens[p.id], b.tokens[p.id])])),
-      tokMax: L(a.tokMax, b.tokMax),
-      tokTotal: L(a.tokTotal, b.tokTotal),
-      /* Carried, not interpolated — and NOT omitted, which is what it was.
-         applyTokens reads `d.tokTicks || []` and hides every gridline and
-         every label it has no tick for, so an interpolated frame without
-         this key blanked the whole y axis for the length of the tween: 45 of
-         272 sampled frames over a 14 s idle window (16.5% of wall clock) in
-         blackouts of 420–769 ms, once per sim retarget, plus 780 ms on every
-         filter click and 900 ms at mount. The ticks belong to the dataset
-         being travelled TO; holding them fixed while tokMax lerps is what
-         makes the gridlines slide into place instead of vanishing. */
-      tokTicks: b.tokTicks,
-      fail: a.fail.map((f, i) => ({ lane: f.lane, rate: L(f.rate, b.fail[i].rate) })),
-      heat: a.heat.map((row, d) => arr(row, b.heat[d])),
       verdicts: obj(a.verdicts, b.verdicts),
       pools: arr(a.pools, b.pools),
       ops: arr(a.ops, b.ops),
@@ -740,247 +711,30 @@ export function metricsView() {
     })
   }
 
-  /* ================= token stacked area ================= */
+  /* ================= hero charts (engine-rendered) =================
+     buildTokens/applyTokens/applyTokenChrome, buildFail/applyFail and
+     buildHeat/applyHeat are gone — metrics-charts.js renders all four hero
+     charts from the settled dataset. The canonical tick maths stayed HERE
+     (d.tokTicks from d3-array in buildData, R.ticks/R.xlab in RANGE_META,
+     HOUR_TICKS) and is fed to the engine as data, so the axis language is
+     still ours. The engine owns geometry, morph animation, the crosshair
+     and hover focus. */
 
-  /* Chart text is 12.5px throughout this view — the interface floor, and one
-     of the three sizes styles.css declares (11px uppercase micro-labels /
-     12.5px interface / 13px reading). The y ticks, hour labels and lane names
-     were an invented 11.5px; the failure axis matched them, so the page
-     carried 11.5 next to 12.5 next to 13.5. TL gains the 2px the wider tick
-     labels need to keep the same gap to the axis. */
-  const TW = 640, TH = 210, TL = 38, TRr = 26, TT = 10, TB = 24
-  const xTok = (i) => TL + (i / (N - 1)) * (TW - TL - TRr)
-  const tok = {}
+  let charts = null
+  let theme = null
 
-  function buildTokens() {
-    const host = root.querySelector('#tokens-chart')
-    host.innerHTML = ''
-    let grid = ''
-    for (let g = 0; g < 8; g++) {                       // pool; only ticks.length are shown
-      grid += `<line class="tk-grid" x1="${TL}" x2="${TW - TRr}" y1="0" y2="0" stroke="var(--chart-grid)" stroke-width="1"/>` +
-        `<text class="tk-gl" x="${TL - 8}" y="0" font-size="12.5" fill="var(--ink-3)" text-anchor="end"></text>`
-    }
-    /* STACK ORDER — fixed, and the legend is printed in the same order:
-         band 0  codex   (sits on the baseline, strongest fill)
-         band 1  claude
-         band 2  gemini
-         band 3  local   (rides the total, faintest fill)
-       Order is PROVIDERS' own order in src/vocab.js, so it never depends on
-       the data and a filtered series never repaints its neighbours. The
-       per-band alphas live in metrics.css (--area-a0..a3) so the black theme
-       can re-tune them; four uniform 0.1 washes left every boundary to be
-       carried by the 2px topline alone. */
-    const areas = PROVIDERS.map((p, i) => `<polygon class="tk-area" data-band="${i}" points="" fill="${provInk(p.id)}"/>`).join('')
-    const lines = PROVIDERS.map(p => `<polyline class="tk-line" points="" fill="none" stroke="${provInk(p.id)}" stroke-width="2" stroke-linejoin="round"/>`).join('')
-    let xl = ''
-    for (let t = 0; t < 7; t++) xl += `<text class="tk-xl" x="0" y="${TH - 6}" font-size="12.5" fill="var(--ink-3)" text-anchor="middle"></text>`
-
-    const svg = el(`<svg viewBox="0 0 ${TW} ${TH}" role="img" aria-label="Token flow by provider">
-      ${grid}${areas}${lines}${xl}
-      <line id="xh" y1="${TT}" y2="${TH - TB}" stroke="var(--chart-cross)" stroke-width="1" opacity="0"/>
-    </svg>`)
-    host.appendChild(svg)
-
-    tok.svg = svg
-    tok.grid = [...svg.querySelectorAll('.tk-grid')]
-    tok.glabels = [...svg.querySelectorAll('.tk-gl')]
-    tok.areas = [...svg.querySelectorAll('.tk-area')]
-    tok.lines = [...svg.querySelectorAll('.tk-line')]
-    tok.xl = [...svg.querySelectorAll('.tk-xl')]
-    tok.xh = svg.querySelector('#xh')
-
-    const tip = viewportTooltip(host)
-    svg.addEventListener('pointermove', (e) => {
-      const r = svg.getBoundingClientRect()
-      const px = ((e.clientX - r.left) / r.width) * TW
-      const i = clamp(0, N - 1, Math.round(((px - TL) / (TW - TL - TRr)) * (N - 1)))
-      tok.xh.setAttribute('x1', xTok(i)); tok.xh.setAttribute('x2', xTok(i)); tok.xh.setAttribute('opacity', '1')
-      /* series identity carried by the swatch, never by coloured text */
-      tip.show(`<div class="tt-title">${meta().xlab(i)}</div>` +
-        PROVIDERS.map(p => `<div class="tt-row"><i class="tt-key" style="background:${provInk(p.id)}"></i>${p.label} <b>${Math.round(current.tokens[p.id][i])}k</b></div>`).join(''),
-        e.clientX, e.clientY)
-    })
-    svg.addEventListener('pointerleave', () => { tok.xh.setAttribute('opacity', '0'); tip.hide() })
+  function updateCharts(d, dur, entrance = false) {
+    if (!charts || !theme) return
+    charts.update({ d, R: meta(), theme, dur, entrance, reduced: reduced() })
   }
 
-  function applyTokens(d) {
-    if (!tok.grid) return                 // built on the frame after mount
-    const maxY = d.tokMax
-    const y = (v) => TT + (1 - v / maxY) * (TH - TT - TB)
-    const tv = d.tokTicks || []
-    for (let g = 0; g < tok.grid.length; g++) {
-      const on = g < tv.length
-      tok.grid[g].style.display = on ? '' : 'none'
-      tok.glabels[g].style.display = on ? '' : 'none'
-      if (!on) continue
-      const val = tv[g]
-      const gy = y(val)
-      tok.grid[g].setAttribute('y1', gy.toFixed(1)); tok.grid[g].setAttribute('y2', gy.toFixed(1))
-      tok.glabels[g].setAttribute('y', (gy + 3.5).toFixed(1))
-      tok.glabels[g].textContent = String(val)     // the label IS the gridline
-    }
-    const stacked = []
-    for (let i = 0; i < N; i++) {
-      let acc = 0
-      stacked.push(PROVIDERS.map(p => { const y0 = acc; acc += d.tokens[p.id][i]; return [y0, acc] }))
-    }
-    PROVIDERS.forEach((p, si) => {
-      const top = stacked.map((c, i) => `${xTok(i).toFixed(1)},${y(c[si][1]).toFixed(1)}`)
-      const bot = stacked.map((c, i) => `${xTok(i).toFixed(1)},${y(c[si][0]).toFixed(1)}`).reverse()
-      tok.areas[si].setAttribute('points', `${top.join(' ')} ${bot.join(' ')}`)
-      tok.lines[si].setAttribute('points', top.join(' '))
-    })
-  }
-
-  function applyTokenChrome() {
-    if (!tok.xl) return                   // built on the frame after mount
-    const R = meta()
-    tok.xl.forEach((t, k) => {
-      const i = R.ticks[k]
-      if (i === undefined) { t.textContent = ''; return }
-      t.setAttribute('x', xTok(i).toFixed(1))
-      t.textContent = R.xlab(i)
-    })
-  }
-
-  /* ================= failure bars ================= */
-
-  const FW = 420, FROW = 30, FL = 118, FR = 50                     // C6: FR +6 headroom for 12.5px value labels
-  const FAXH = 19                                                  // bottom band for the x-axis labels
-  /* The bar chart had a domain (0–10, the clamp ceiling on a lane's rate) but
-     no axis: the reader had only the printed value, so bar LENGTH — the thing
-     the chart is made of — meant nothing. Same rule as the token chart's y
-     axis: d3-array picks the canonical 1/2/5×10ⁿ stops, and the domain is the
-     LAST STOP rather than a hand-rounded number, so every gridline is a real
-     labelled value. Fixed rather than data-driven on purpose — bars must not
-     rescale under the reader when the filter changes. */
-  const FTICKS = d3ticks(0, 10, 5)
-  const FMAX = FTICKS[FTICKS.length - 1]
-  const fx = (v) => FL + (v / FMAX) * (FW - FL - FR)
-  const fbars = []
-
-  function buildFail() {
-    const host = root.querySelector('#fail-chart')
-    host.innerHTML = ''
-    const H = LANES.length * FROW + 8 + FAXH
-    const gridTop = 6, gridBot = 6 + LANES.length * FROW
-    /* Three explicit layers so the hairline grid sits ON the recessive track
-       but UNDER the bars — a gridline crossing a data mark reads as a tick on
-       the mark itself. */
-    const tracks = LANES.map((_, i) =>
-      `<rect x="${FL}" y="${6 + i * FROW + 3}" width="${FW - FL - FR}" height="14" rx="2" fill="var(--chart-track)"/>`).join('')
-    const grid = FTICKS.map(t =>
-      `<line x1="${fx(t).toFixed(1)}" x2="${fx(t).toFixed(1)}" y1="${gridTop}" y2="${gridBot}" stroke="var(--chart-grid)" stroke-width="1"/>`).join('')
-    const axis = FTICKS.map(t =>
-      `<text x="${fx(t).toFixed(1)}" y="${H - 6}" font-size="12.5" fill="var(--ink-3)" text-anchor="middle">${t === FMAX ? `${t}%` : t}</text>`).join('')
-    const rows = LANES.map((lane, i) => {
-      const y = 6 + i * FROW
-      return `<g class="f-row" data-i="${i}">
-        <text class="flabel" x="${FL - 10}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" text-anchor="end" font-weight="560">${lane}</text>
-        <path class="fbar" d="" data-lane="${lane}"/>
-        <text class="fval" x="${FL}" y="${y + 13.5}" font-size="12.5" fill="var(--ink-2)" font-weight="640" font-variant-numeric="tabular-nums"></text>
-        <rect class="fhit" x="0" y="${y}" width="${FW}" height="${FROW - 2}" fill="transparent"/>
-      </g>`
-    }).join('')
-    const svg = el(`<svg viewBox="0 0 ${FW} ${H}" role="img" aria-label="Failure rate by lane, percent">
-      <g class="f-tracks">${tracks}</g><g class="f-grid">${grid}</g>${rows}<g class="f-axis">${axis}</g>
-    </svg>`)
-    host.appendChild(svg)
-    fbars.length = 0
-    svg.querySelectorAll('.f-row').forEach((g, i) => {
-      fbars.push({ g, i, bar: g.querySelector('.fbar'), val: g.querySelector('.fval') })
-    })
-
-    const tip = viewportTooltip(host)
-    let hot = -1
-    svg.addEventListener('pointermove', (e) => {
-      const g = e.target.closest('.f-row')
-      if (!g) { if (hot >= 0) { fbars[hot].g.classList.remove('hot'); hot = -1 } tip.hide(); return }
-      const i = +g.dataset.i
-      if (i !== hot) { if (hot >= 0) fbars[hot].g.classList.remove('hot'); hot = i; g.classList.add('hot') }
-      const r = current.fail[i]
-      tip.show(`<div class="tt-title">${r.lane}</div><b>${r.rate.toFixed(1)}%</b> failure · ${band(r.rate)} · ${meta().failSub}`, e.clientX, e.clientY)
-    })
-    svg.addEventListener('pointerleave', () => {
-      if (hot >= 0) { fbars[hot].g.classList.remove('hot'); hot = -1 }
-      tip.hide()
-    })
-  }
-
-  const sev = (r) => r < 2 ? 'var(--s-good)' : r < 5 ? 'var(--s-warn)' : 'var(--s-serious)'
-  const band = (r) => r < 2 ? 'within budget' : r < 5 ? 'watch' : 'serious'
-
-  function applyFail(d) {
-    for (const ref of fbars) {
-      const rate = d.fail[ref.i].rate
-      const y = 6 + ref.i * FROW
-      const w = Math.max(3, fx(rate) - FL)
-      /* square baseline at x=FL, rounded data-end; bar height 14 px (<= 24) */
-      ref.bar.setAttribute('d', `M${FL} ${y + 3} h${Math.max(0, w - 4)} a4 4 0 0 1 4 4 v6 a4 4 0 0 1 -4 4 h-${Math.max(0, w - 4)} z`)
-      ref.bar.setAttribute('fill', sev(rate))
-      ref.val.setAttribute('x', (FL + w + 8).toFixed(1))
-      ref.val.textContent = `${rate.toFixed(1)}%`
-    }
-  }
-
-  /* ================= heatmap ================= */
-
-  const HCW = 17, HCH = 17, HGAP = 1, HL = 36, HT = 6, HR = 8        // C6: HL/HR margin for 11.5px labels, HGAP -1 to hold canvas width
-  const HW = HL + 24 * (HCW + HGAP) + HR, HH = HT + 7 * (HCH + HGAP) + 20
-  const heatCells = []
-
-  function buildHeat() {
-    const host = root.querySelector('#heat-chart')
-    host.innerHTML = ''
-    let cells = ''
-    for (let d = 0; d < 7; d++) {
-      cells += `<text x="${HL - 8}" y="${HT + d * (HCH + HGAP) + 12.5}" font-size="12.5" fill="var(--ink-3)" text-anchor="end">${DAYS[d]}</text>`
-      for (let h = 0; h < 24; h++) {
-        /* seed fill from the ramp's own low stop, not a light-theme literal —
-           applyHeat overwrites it immediately, but a hardcoded near-white was
-           the exact bug the per-theme ramp exists to prevent */
-        cells += `<rect class="heat-cell" x="${HL + h * (HCW + HGAP)}" y="${HT + d * (HCH + HGAP)}" width="${HCW}" height="${HCH}" rx="2" fill="var(--heat-0)" data-d="${d}" data-h="${h}" data-v="0"/>`
-      }
-    }
-    /* Band axis over 24 hour cells — canonical 6-hour clock stops, not
-       d3ticks (see the AXIS RULE beside RANGE_META). */
-    const xl = HOUR_TICKS.map(h =>
-      `<text x="${HL + h * (HCW + HGAP) + HCW / 2}" y="${HH - 4}" font-size="12.5" fill="var(--ink-3)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('')
-    const svg = el(`<svg viewBox="0 0 ${HW} ${HH}" role="img" aria-label="Fleet activity heatmap">${cells}${xl}</svg>`)
-    host.appendChild(svg)
-    heatCells.length = 0
-    svg.querySelectorAll('.heat-cell').forEach(r => heatCells.push(r))
-
-    const tip = viewportTooltip(host)
-    let hot = null
-    svg.addEventListener('pointermove', (e) => {
-      const t = e.target
-      if (t.classList && t.classList.contains('heat-cell')) {
-        if (hot !== t) { hot?.classList.remove('hot'); hot = t; t.classList.add('hot') }
-        tip.show(`<div class="tt-title">${DAYS[t.dataset.d]} ${String(t.dataset.h).padStart(2, '0')}:00</div><b>${t.dataset.v}%</b> lane activity`, e.clientX, e.clientY)
-      } else { hot?.classList.remove('hot'); hot = null; tip.hide() }
-    })
-    svg.addEventListener('pointerleave', () => { hot?.classList.remove('hot'); hot = null; tip.hide() })
-  }
-
-  /* The sequential key is generated from the same stops the cells interpolate,
-     so it re-renders with them on a theme change instead of advertising the
-     previous theme's ramp. */
+  /* The sequential key mirrors the exact stops the visualMap interpolates —
+     regenerated with the theme snapshot so it never advertises the previous
+     theme's ramp. */
   function syncHeatKey() {
+    if (!theme) return
     root.querySelector('#heat-key').innerHTML =
-      `<em>low</em>${HEAT_STOPS.map((_, i) => `<i style="background:${heatShade(i / (HEAT_STOPS.length - 1))}"></i>`).join('')}<em>high</em>`
-  }
-
-  const heatLast = []
-  function applyHeat(d) {
-    for (let i = 0; i < heatCells.length; i++) {
-      const c = heatCells[i]
-      const v = d.heat[(i / 24) | 0][i % 24]
-      const fill = heatShade(v)
-      if (heatLast[i] !== fill) { c.setAttribute('fill', fill); heatLast[i] = fill }
-      const pct = String(Math.round(v * 100))
-      if (c.dataset.v !== pct) c.dataset.v = pct
-    }
+      `<em>low</em>${theme.heat.map(c => `<i style="background:${c}"></i>`).join('')}<em>high</em>`
   }
 
   /* ================= verdict split =================
@@ -999,13 +753,15 @@ export function metricsView() {
      state, so it wears the reserved status scale, not categorical hues), and
      each one ships with a label and its value, never colour alone. */
 
+  /* `c` (a var() string) skins the DOM legend chips through the cascade;
+     `tone` names the theme-snapshot key the engine paints the segment with —
+     same status token, two consumers. */
   const VSEGS = [
-    { k: 'Accept', key: 'accept', c: 'var(--s-good)' },
-    { k: 'Retry', key: 'retry', c: 'var(--s-warn)' },
-    { k: 'Reject', key: 'reject', c: 'var(--s-serious)' },
+    { k: 'Accept', key: 'accept', c: 'var(--s-good)', tone: 'good' },
+    { k: 'Retry', key: 'retry', c: 'var(--s-warn)', tone: 'warn' },
+    { k: 'Reject', key: 'reject', c: 'var(--s-serious)', tone: 'serious' },
   ]
-  const VGAP = 2                 // px of bare surface between segments
-  const verdict = { segs: [], vals: [], pcts: [] }
+  const verdict = { vals: [], pcts: [] }
 
   function buildVerdicts() {
     const host = root.querySelector('#verdict-chart')
@@ -1017,9 +773,7 @@ export function metricsView() {
           <div class="vh-l">verdicts</div>
         </div>
         <div class="vsplit">
-          <div class="vbar" role="img" aria-label="Review verdict split">
-            ${VSEGS.map(s => `<div class="vseg" data-k="${s.key}" style="background:${s.c};left:0;width:0"></div>`).join('')}
-          </div>
+          <div class="vbar echart" role="img" aria-label="Review verdict split"></div>
           <div class="vlegend">
             ${VSEGS.map(s => `<span class="vk" style="--vc:${s.c}"><i></i>${s.k} <b class="vn-${s.key}">0</b> <em class="vp-${s.key}">0%</em></span>`).join('')}
           </div>
@@ -1042,46 +796,26 @@ export function metricsView() {
     `)
     host.appendChild(foot)
     verdict.total = wrap.querySelector('#verdict-total')
-    verdict.segs = [...wrap.querySelectorAll('.vseg')]
     verdict.vals = VSEGS.map(s => wrap.querySelector(`.vn-${s.key}`))
     verdict.pcts = VSEGS.map(s => wrap.querySelector(`.vp-${s.key}`))
     verdict.acc = foot.querySelector('#vf-acc'); verdict.accd = foot.querySelector('#vf-accd')
     verdict.rr = foot.querySelector('#vf-rr'); verdict.rrd = foot.querySelector('#vf-rrd')
     verdict.rej = foot.querySelector('#vf-rej'); verdict.rejd = foot.querySelector('#vf-rejd')
-
-    const bar = wrap.querySelector('.vbar')
-    const tip = viewportTooltip(host)
-    let hot = null
-    bar.addEventListener('pointermove', (e) => {
-      const t = e.target.closest('.vseg')
-      if (t) {
-        if (hot !== t) { hot?.classList.remove('hot'); hot = t; t.classList.add('hot') }
-        const key = t.dataset.k
-        const v = current.verdicts
-        const total = v.accept + v.retry + v.reject
-        const s = VSEGS.find(x => x.key === key)
-        tip.show(`<div class="tt-title">${s.k}</div><b>${Math.round(v[key])}</b> of ${Math.round(total)} · <b>${((v[key] / total) * 100).toFixed(1)}%</b>`, e.clientX, e.clientY)
-      } else { hot?.classList.remove('hot'); hot = null; tip.hide() }
-    })
-    bar.addEventListener('pointerleave', () => { hot?.classList.remove('hot'); hot = null; tip.hide() })
+    /* the bar itself (and its tooltip) is engine-rendered now — this builder
+       owns only the DOM that was already right: hero, legend, vfoot */
   }
 
+  /* DOM numbers only — the bar's segments tween in the engine from the same
+     d.verdicts, so the legend count and the segment length always agree at
+     settle (both read the identical generator output). */
   function applyVerdicts(d) {
     if (!verdict.total) return            // built on the frame after mount
     const v = d.verdicts
     const total = v.accept + v.retry + v.reject
-    let acc = 0
     VSEGS.forEach((s, i) => {
       const frac = total ? v[s.key] / total : 0
-      const last = i === VSEGS.length - 1
-      const seg = verdict.segs[i]
-      seg.style.left = `${(acc * 100).toFixed(3)}%`
-      /* The gap comes out of each segment's trailing edge, so the segments
-         still tile the full 100% and the last one lands flush on the right. */
-      seg.style.width = last ? `${(frac * 100).toFixed(3)}%` : `calc(${(frac * 100).toFixed(3)}% - ${VGAP}px)`
       verdict.vals[i].textContent = Math.round(v[s.key]).toLocaleString('en-US')
       verdict.pcts[i].textContent = `${(frac * 100).toFixed(1)}%`
-      acc += frac
     })
     verdict.total.textContent = Math.round(total).toLocaleString('en-US')
 
@@ -1277,8 +1011,9 @@ export function metricsView() {
     root.querySelector('#ops-sub').textContent = R.opsSub
     root.querySelector('#table-sub').textContent = `${machineName()} · live`
     root.querySelector('#mf-note').innerHTML = `${R.word} · ${machineName()} · <b>live</b>`
-    applyTokenChrome()
     applyTileDeltas(target)
+    /* the token chart's x-axis language (00:00 / weekday / −N d) rides the
+       chart update itself now — retarget() re-issues options with R in them */
   }
 
   /* ================= tween engine ================= */
@@ -1286,7 +1021,7 @@ export function metricsView() {
   let rafId = 0
 
   function applyAll(d) {
-    applyTiles(d); applyPools(d); applyTokens(d); applyFail(d); applyHeat(d); applyVerdicts(d); applyOps(d)
+    applyTiles(d); applyPools(d); applyVerdicts(d); applyOps(d)
   }
 
   function tweenTo(next, dur) {
@@ -1310,6 +1045,10 @@ export function metricsView() {
     if (!sessionBase) captureSessionBase(next)      // first settle, or post-filter rebaseline
     pulseTiles(target, next)
     tweenTo(next, dur)
+    /* charts get the SETTLED dataset, never lerp frames — the engine runs
+       its own morph over the same duration the DOM tween uses, so both
+       halves of the page arrive together */
+    updateCharts(next, dur)
     applyTileDeltas(next)
   }
 
@@ -1343,13 +1082,13 @@ export function metricsView() {
 
   /* ================= boot ================= */
 
-  /** Flattened twin of a dataset — the charts grow out of it on first paint. */
+  /** Flattened twin of a dataset — the DOM numbers grow out of it on first
+      paint. Chart keys are carried through untouched: the engine plays its
+      own build-in (`entrance`), so flattening tokens/fail/heat here would
+      only make the first setOption animate twice. */
   function flattened(d) {
     return {
       ...d,
-      tokens: Object.fromEntries(PROVIDERS.map(p => [p.id, d.tokens[p.id].map(() => 2)])),
-      fail: d.fail.map(f => ({ lane: f.lane, rate: 0.2 })),
-      heat: d.heat.map(row => row.map(() => 0)),
       verdicts: { accept: 1, retry: 1, reject: 1 },
       pools: d.pools.map(() => 0),
       ops: d.ops.map(() => 0),
@@ -1357,11 +1096,6 @@ export function metricsView() {
       spark: Object.fromEntries(Object.keys(d.spark).map(k => [k, d.spark[k].map(() => 0.01)])),
     }
   }
-
-  /* The ramp was read at module load, which can predate both the theme being
-     applied and the stylesheet being injected. Re-read before the key and the
-     first cells are painted. */
-  readHeatRamp()
 
   /* TWO-STAGE MOUNT — the top strip in this task, the rest on the next frame.
      Every route swap stalled the main thread for 100–190 ms building the
@@ -1371,9 +1105,12 @@ export function metricsView() {
      with it) — it is one long synchronous construction task.
      So stage 1 builds only what the reader lands on: the filter row (static
      markup), the tile row and the pool row. Stage 2 builds the four chart
-     cards, the 7x24 = 168-cell heatmap and the agent table in a post-paint
-     rAF. Every apply*() below is a no-op until its own refs exist, so a sim
-     retarget landing inside that one-frame window is harmless. */
+     cards, the agent table and the engine instances in a post-paint rAF —
+     which is also the earliest the theme snapshot is safe: buildTheme reads
+     .metrics-scoped custom properties, and those only resolve once the view
+     is in the document. Every apply*() below is a no-op until its own refs
+     exist, so a sim retarget landing inside that one-frame window is
+     harmless. */
   buildTiles(); buildPools()
   captureSessionBase(current)
   applyChrome()
@@ -1383,22 +1120,44 @@ export function metricsView() {
 
   let bootRaf = requestAnimationFrame(() => {
     bootRaf = 0
-    buildTokens(); buildFail(); buildHeat(); buildVerdicts(); buildOps(); buildTable()
+    buildVerdicts(); buildOps(); buildTable()
+    theme = buildTheme(root.querySelector('.metrics'))
+    charts = createCharts({
+      hosts: {
+        tokens: root.querySelector('#tokens-chart'),
+        fail: root.querySelector('#fail-chart'),
+        heat: root.querySelector('#heat-chart'),
+        verdict: root.querySelector('.vbar'),
+      },
+      lanes: LANES, days: DAYS, hourTicks: HOUR_TICKS, vsegs: VSEGS,
+    })
     syncHeatKey()
-    applyTokenChrome()
     applyAll(current)                  // paint the late panels at the frame the tiles are on
+    /* one observer for four instances — hosts are CSS-sized (aspect-ratio /
+       fixed bar height), the engine only ever fills them */
+    const ro = new ResizeObserver(() => charts?.resize())
+    for (const id of ['#tokens-chart', '#fail-chart', '#heat-chart', '.vbar']) ro.observe(root.querySelector(id))
+    unsubs.push(() => ro.disconnect())
     /* if a sim event already retargeted inside the gap, that tween owns the
-       data now — do not restart the arrival one on top of it */
+       data now — do not restart the arrival one on top of it. The charts'
+       first options always aim at whatever the current target is. */
+    updateCharts(target, 900, true)
     if (target === settled) tweenTo(settled, 900)
   })
 
-  /* Theme switch: re-read the per-theme --heat-* stops, drop the paint cache
-     so every cell is forced through the new ramp, and regenerate the key. */
-  unsubs.push(onHeatRampChange(() => {
-    heatLast.length = 0
-    syncHeatKey()
-    applyHeat(current)
-  }))
+  /* Theme switch: main.js writes documentElement.dataset.theme; rebuild the
+     token snapshot from the NEW computed values, regenerate the heat key, and
+     re-issue full options — colours, ramps and gradients glide to the new
+     theme on live instances instead of waiting for a remount. */
+  if (typeof MutationObserver !== 'undefined') {
+    const themeMO = new MutationObserver(() => {
+      theme = buildTheme(root.querySelector('.metrics'))
+      syncHeatKey()
+      updateCharts(target, 240)
+    })
+    themeMO.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    unsubs.push(() => themeMO.disconnect())
+  }
 
   /* live drift keeps every mark breathing — a short tween, never a snap */
   unsubs.push(sim.on('metrics', () => retarget(420)))
@@ -1413,6 +1172,10 @@ export function metricsView() {
       timers.forEach(t => clearTimeout(t))
       timers.clear()
       unsubs.forEach(u => u())
+      /* engine instances hold their own rAF + DOM (and the body-appended
+         tooltip) — dispose is what releases them on route cycling */
+      charts?.dispose()
+      charts = null
     },
   }
 }
