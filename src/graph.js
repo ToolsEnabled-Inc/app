@@ -11,6 +11,12 @@ import './graph.css'
 const RADII = { coordinator: 62, helper: 52, shadow: 52, manager: 47, default: 39 }
 const CHIP_ROLES = new Set(['coordinator', 'helper', 'shadow'])
 const DENSE_AT = 12
+const SCREEN_CHIP_W = 300
+const SCREEN_CHIP_H = 126
+const SCREEN_EDGE = 8
+const SCREEN_CHIP_GAP = 10
+const SCREEN_SLOT_HYSTERESIS = 52
+const SCREEN_PRIORITY = { coordinator: 4, helper: 3, shadow: 3, manager: 2, default: 1, spawned: 0 }
 
 /* ---------- motion weight (see the header block in graph.css) ----------
    Two registers, deliberately not one. The motion audit found a single
@@ -102,8 +108,10 @@ export const CHIP_W = 248
 export const CHIP_H = 100
 
 export class FleetGraph {
-  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null }) {
+  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null }) {
     this.chipPredicate = chipPredicate
+    this.screenChips = screenChips === true
+    this.contextFeed = typeof contextFeed === 'function' ? contextFeed : null
     this.container = container
     this.computer = computer
     this.rootId = rootId
@@ -153,6 +161,16 @@ export class FleetGraph {
     container.classList.add('zoomable')
     this.zoomHost = container.parentElement || container
     this.zoomHost.classList.add('graph-zoom-host')
+    if (this.screenChips) {
+      this._buildScreenChipOverlay()
+      this._wrapW = this.zoomHost.clientWidth || this.W
+      this._wrapH = this.zoomHost.clientHeight || this.H
+      this._screenUiRects = []
+      this._screenUiDirty = true
+      this._screenUiVersion = 0
+      this._screenLayoutKey = ''
+      this.ro.observe(this.zoomHost)
+    }
     this._buildFitControl()
     this._onWheel = (e) => this._wheel(e)
     this._onHostDown = (e) => this._panStart(e)
@@ -225,7 +243,15 @@ export class FleetGraph {
     // already flagged) and self-limiting; no-op if fonts were already ready.
     document.fonts?.ready.then(() => {
       if (this._destroyed) return
-      for (const n of this.nodes.values()) n._labelMeasured = false
+      for (const n of this.nodes.values()) {
+        n._labelMeasured = false
+        if (this.screenChips) n._chipHMeasured = false
+      }
+      if (this.screenChips) {
+        this._screenUiDirty = true
+        this._screenLayoutKey = ''
+        this.tick()
+      }
     })
 
     this.unsubs.push(
@@ -240,6 +266,14 @@ export class FleetGraph {
           n.el.classList.add('bloom')              // graphite → role color, ~900ms + glow burst
           clearTimeout(n._bloomTimer)
           n._bloomTimer = setTimeout(() => n.el.classList.remove('bloom'), 950)
+        }
+        if (this.screenChips) {
+          // A just-arrived default ranks below every established lane until
+          // this state transition. Re-run the option-only budget now rather
+          // than leaving its old "spawned = 0" rank cached until some
+          // unrelated context or zoom event happens to wake the graph.
+          this._screenLayoutKey = ''
+          this.tick()
         }
       }),
       sim.on('context', ({ comp, agent }) => {
@@ -361,10 +395,12 @@ export class FleetGraph {
     )
     const finalLabelW = realLabelW > 0 ? Math.max(labelW, realLabelW + 6) : labelW
 
+    const restingChipW = this.screenChips ? SCREEN_CHIP_W : CHIP_W
     const rec = {
       id: agent.id, agent, el: nodeEl, r,
       x: cx, y: cy, vx: 0, vy: 0,
-      chip: null, chatOpen: false, chipW: CHIP_W, chipH: CHIP_H,
+      chip: null, chatOpen: false, chipW: restingChipW,
+      chipH: this.screenChips ? SCREEN_CHIP_H : CHIP_H,
       // this._labelH — NOT a hardcoded 41: on a compact canvas the role row
       // is hidden, and a node spawned after the mode flipped would otherwise
       // keep reserving the full-label height forever (the flip loop only
@@ -400,7 +436,8 @@ export class FleetGraph {
     this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
     this.wireInteractions(rec)
 
-    const wantsChip = this.chipPredicate ? this.chipPredicate(agent) : this.chipsFor.has(agent.role)
+    const wantsChip = this.screenChips
+      || (this.chipPredicate ? this.chipPredicate(agent) : this.chipsFor.has(agent.role))
     if (wantsChip) this.makeChip(rec)
     return rec
   }
@@ -409,15 +446,25 @@ export class FleetGraph {
     const chip = el(`<div class="chip role-${rec.agent.role}"><div class="chip-preview"></div></div>`)
     // CSS states no width for .chip (see CHIP_W) -- without this the box would
     // shrink to its text and every placement rectangle would be a fiction
-    chip.style.width = CHIP_W + 'px'
-    this.container.appendChild(chip)
+    chip.style.width = (this.screenChips ? SCREEN_CHIP_W : CHIP_W) + 'px'
+    ;(this.screenChips ? this.screenOverlay : this.container).appendChild(chip)
     rec.chip = chip
+    if (this.screenChips) {
+      chip.dataset.agentId = rec.id
+      chip.setAttribute('aria-label', `${rec.agent.name} monitoring context; open chat`)
+      const leader = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+      leader.setAttribute('class', 'graph-chip-leader')
+      leader.setAttribute('stroke', ROLES[rec.agent.role]?.hex || ROLES.default.hex)
+      leader.setAttribute('data-agent-id', rec.id)
+      this.screenLeaderSvg.appendChild(leader)
+      rec.chipLeader = leader
+    }
     this.renderChipPreview(rec)
     // audit #26: the chip opens a chat on click — keyboard parity. role is
     // swapped off in openChat (an open panel full of inputs is not a button)
     // and back on in closeChat; tabindex STAYS through both states so Escape
     // has a live element to hand focus back to.
-    chip.tabIndex = 0
+    chip.tabIndex = this.screenChips ? (rec._screenPlaced ? 0 : -1) : 0
     chip.setAttribute('role', 'button')
     chip.addEventListener('keydown', (e) => {
       if (rec.chatOpen) return                // open panel: keys belong to the chat
@@ -434,6 +481,10 @@ export class FleetGraph {
   }
 
   renderChipPreview(rec) {
+    if (this.screenChips) {
+      this._renderScreenChipPreview(rec)
+      return
+    }
     const pv = rec.chip.querySelector('.chip-preview')
     /* The name is its own row, not a prefix on the first context line. It is
        the thing the box exists to tell you -- "which agent is this" -- and
@@ -452,6 +503,59 @@ export class FleetGraph {
     if (this.simulation.alpha() < 0.02) this.tick()
   }
 
+  _screenContext(rec) {
+    let supplied = null
+    try { supplied = this.contextFeed?.(rec.agent) }
+    catch { supplied = null }
+    const activity = Array.isArray(supplied)
+      ? supplied
+      : (supplied?.activities || supplied?.context || rec.agent.context || [])
+    const rows = Array.isArray(activity) ? activity : [activity]
+    const clean = (value) => value == null ? '' : String(value).replace(/\s+/g, ' ').trim()
+    return {
+      current: clean(supplied?.current ?? rows.at(-1)),
+      previous: clean(supplied?.previous ?? rows.at(-2)),
+      chat: clean(supplied?.chat?.text ?? supplied?.recentChat?.text
+        ?? supplied?.chat ?? supplied?.recentChat),
+    }
+  }
+
+  _renderScreenChipPreview(rec) {
+    const pv = rec.chip.querySelector('.chip-preview')
+    if (!pv.querySelector('.chip-monitor-name')) {
+      pv.innerHTML = `
+        <div class="cl cl-name">
+          <i class="chip-role-dot" aria-hidden="true"></i>
+          <b class="chip-monitor-name"></b>
+          <span class="chip-runtime"></span>
+        </div>
+        <div class="cl cl-current"></div>
+        <div class="cl cl-previous"></div>
+        <div class="cl cl-chat"></div>
+      `
+      pv.querySelector('.chip-monitor-name').textContent = rec.agent.name
+      const runtime = pv.querySelector('.chip-runtime')
+      runtime.textContent = fmtRuntime(rec.agent.bornAt)
+      rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
+    }
+    const feed = this._screenContext(rec)
+    const update = (selector, text, prefix = '') => {
+      const row = pv.querySelector(selector)
+      const next = text ? prefix + text : ''
+      row.hidden = !next
+      if (row.textContent !== next) row.textContent = next
+    }
+    update('.cl-current', feed.current)
+    update('.cl-previous', feed.previous)
+    update('.cl-chat', feed.chat, '› ')
+
+    const h = rec.chip.offsetHeight
+    if (h > 0 && h !== rec.chipH) rec._screenSlot = null
+    rec.chipH = h || SCREEN_CHIP_H
+    rec._chipHMeasured = h > 0
+    this.tick()
+  }
+
   openChat(rec) {
     const chip = rec.chip
     clearTimeout(rec._chipTimer)
@@ -464,6 +568,11 @@ export class FleetGraph {
     chip.removeAttribute('role')    // it is a panel now, not a button (see makeChip)
     if (rec._chipDim) { rec._chipDim = false; chip.classList.remove('chip-dim') }
     rec.chatOpen = true
+    if (this.screenChips) {
+      rec._screenSlot = null
+      chip.classList.add('screen-chip-visible')
+      rec.chipLeader?.classList.add('visible')
+    }
     chip.style.zIndex = String(++chatZ)
     /* 368 is the design height, not a promise the canvas can keep. The
        computers graph is ~338px tall at 1280x800, so a fixed 368 panel could
@@ -471,7 +580,8 @@ export class FleetGraph {
        it still hung past the bottom, with its message input measured 104px
        BELOW the viewport -- unclickable, and not because anything covered it.
        Fit the panel to the canvas it lives in and it stays whole. */
-    const chatH = Math.max(240, Math.min(368, this.H - 12))
+    const availableH = this.screenChips ? (this._wrapH || this.H) : this.H
+    const chatH = Math.max(240, Math.min(368, availableH - 12))
     rec.chipW = 316; rec.chipH = chatH
 
     const chat = buildChat({
@@ -484,17 +594,28 @@ export class FleetGraph {
 
     chip.style.width = '316px'
     chip.style.height = chatH + 'px'
-    rec._chipTimer = setTimeout(() => { if (rec.chatOpen) { chip.style.width = ''; chip.style.height = '' } }, 520)
+    rec._chipTimer = setTimeout(() => {
+      if (!rec.chatOpen) return
+      if (this.screenChips) {
+        chip.style.width = '316px'
+        chip.style.height = chatH + 'px'
+      } else {
+        chip.style.width = ''
+        chip.style.height = ''
+      }
+    }, 520)
     // the sim may be asleep — re-place now (snapped: a lone tick's ease
     // would strand the chat mid-glide) so the 316×368 chat is clamped and
     // slotted for its real size instead of the old preview's
-    if (this.simulation.alpha() < 0.02) {
+    if (this.screenChips || this.simulation.alpha() < 0.02) {
       this._snapChips = true; this.tick(); this._snapChips = false
     }
   }
 
   closeChat(rec) {
     const chip = rec.chip
+    const restingW = this.screenChips ? SCREEN_CHIP_W : CHIP_W
+    const restingH = this.screenChips ? SCREEN_CHIP_H : CHIP_H
     clearTimeout(rec._chipTimer)
     chip.style.width = chip.offsetWidth + 'px'
     chip.style.height = chip.offsetHeight + 'px'
@@ -503,8 +624,8 @@ export class FleetGraph {
     chip.setAttribute('role', 'button')   // resting chip is a button again
     chip.style.zIndex = ''        // back to the resting chip's own stacking
     rec.chatOpen = false
-    chip.style.width = CHIP_W + 'px'
-    chip.style.height = (rec.prevH || CHIP_H) + 'px'
+    chip.style.width = restingW + 'px'
+    chip.style.height = (rec.prevH || restingH) + 'px'
     rec._chipTimer = setTimeout(() => {
       chip.querySelector('.chat')?.remove()
       /* Back to CHIP_W, not to nothing. Clearing the inline width is the right
@@ -516,12 +637,13 @@ export class FleetGraph {
          reasoning about a 224px rectangle. That is how a closed chat left a
          box printed through the codex bubble and another hanging 26px past the
          panel edge. Height stays cleared -- renderChipPreview re-measures it. */
-      chip.style.width = CHIP_W + 'px'
+      chip.style.width = restingW + 'px'
       chip.style.height = ''
       this.renderChipPreview(rec)
     }, 500)
-    rec.chipW = CHIP_W; rec.chipH = rec.prevH || CHIP_H
-    if (this.simulation.alpha() < 0.02) {             // asleep sim: re-place now
+    rec.chipW = restingW; rec.chipH = rec.prevH || restingH
+    if (this.screenChips) rec._screenSlot = null
+    if (this.screenChips || this.simulation.alpha() < 0.02) { // asleep sim / screen overlay: re-place now
       this._snapChips = true; this.tick(); this._snapChips = false
     }
   }
@@ -553,7 +675,10 @@ export class FleetGraph {
     clearTimeout(rec._ringTimer)                   // bounded pulse / settle timers
     clearTimeout(rec._settleTimer)                 // must not outlive the node
     this.nodes.delete(rec.id)
+    rec._screenRuntimeUnsub?.()
+    rec._screenRuntimeUnsub = null
     if (rec.chip) { rec.chip.remove() }
+    rec.chipLeader?.remove()
     if (animate) {
       const go = () => {
         rec.el.classList.add('leave')
@@ -814,7 +939,10 @@ export class FleetGraph {
         // slot chosen against the wrong height would simply persist. Dropping
         // the slot is what actually converts a corrected measurement into a
         // corrected position.
-        if (h !== n.chipH) n._chipSlot = null
+        if (h !== n.chipH) {
+          if (this.screenChips) n._screenSlot = null
+          else n._chipSlot = null
+        }
         n.chipH = h; n.prevH = h; n._chipHMeasured = true
       }
     }
@@ -838,10 +966,17 @@ export class FleetGraph {
     this._resolveClampedLabels(nodesArr, padX, padTop, padBot)
 
     // once per tick, not once per chip — every chip reasons about the same set
-    this._uiRects = this._uiObstacles()
-    for (const n of nodesArr) {
-      n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
-      if (n.chip) this._placeChip(n, cx0, cy0)
+    if (this.screenChips) {
+      for (const n of nodesArr) {
+        n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
+      }
+      this._placeScreenChips(nodesArr)
+    } else {
+      this._uiRects = this._uiObstacles()
+      for (const n of nodesArr) {
+        n.el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%,-50%)`
+        if (n.chip) this._placeChip(n, cx0, cy0)
+      }
     }
     for (const l of this.links || []) {
       const s = l.source, t = l.target
@@ -1042,7 +1177,356 @@ export class FleetGraph {
       overlay someone adds is reserved without anyone remembering to. Divided
       by the zoom because these elements are siblings of the canvas and so sit
       outside its transform, while the boxes are placed inside it. */
+  _buildScreenChipOverlay() {
+    this.zoomHost.classList.add('screen-chips')
+    const layer = document.createElement('div')
+    layer.className = 'graph-chip-overlay'
+    layer.setAttribute('aria-label', 'Fleet monitoring context')
+    const leaders = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    leaders.setAttribute('class', 'graph-chip-leaders')
+    leaders.setAttribute('aria-hidden', 'true')
+    layer.appendChild(leaders)
+    this.zoomHost.appendChild(layer)
+    this.screenOverlay = layer
+    this.screenLeaderSvg = leaders
+  }
+
+  _queueScreenGeometryRefresh() {
+    if (!this.screenChips || this._destroyed || this._screenGeometryRaf) return
+    this._screenGeometryRaf = requestAnimationFrame(() => {
+      this._screenGeometryRaf = null
+      if (this._destroyed) return
+      this._screenUiDirty = true
+      this._screenLayoutKey = ''
+      this._placeScreenChips([...this.nodes.values()])
+    })
+  }
+
+  _refreshScreenUiObstacles() {
+    const host = this.zoomHost
+    if (!host?.isConnected) return this._screenUiRects || []
+    const hb = host.getBoundingClientRect()
+    const originX = hb.left + host.clientLeft
+    const originY = hb.top + host.clientTop
+    const out = []
+    for (const ov of host.children) {
+      if (ov === this.container || ov === this.screenOverlay) continue
+      if (ov === this.fitEl && !ov.classList.contains('show')) continue
+      if (ov.classList.contains('graph-hint') && !ov.classList.contains('show')) continue
+      if (ov.classList.contains('graph-crumb') && !ov.textContent.trim()) continue
+      if (ov.classList.contains('graph-edit-note') && !host.classList.contains('editing')) continue
+      const cs = getComputedStyle(ov)
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue
+      if (parseFloat(cs.opacity) < 0.05 && ov !== this.fitEl) continue
+      const r = ov.getBoundingClientRect()
+      if (r.width < 1 || r.height < 1) continue
+      const pad = 6
+      out.push({
+        x: r.left - originX - pad,
+        y: r.top - originY - pad,
+        w: r.width + pad * 2,
+        h: r.height + pad * 2,
+        weight: 8,
+      })
+    }
+    this._screenUiRects = out
+    this._screenUiDirty = false
+    this._screenUiVersion = (this._screenUiVersion || 0) + 1
+    return out
+  }
+
+  _screenNodeObstacles(nodesArr) {
+    const z = this.zoom || 1
+    const pad = 4
+    const out = []
+    for (const n of nodesArr) {
+      const x = n.x * z + this.panX
+      const y = n.y * z + this.panY
+      const r = n.r * z
+      out.push({ x: x - r - pad, y: y - r - pad, w: r * 2 + pad * 2, h: r * 2 + pad * 2, weight: 3 })
+      const lw = Math.max(1, (n.labelW || 100) * z)
+      const lh = Math.max(1, (n.labelH || 41) * z)
+      out.push({
+        x: x - lw / 2 - pad,
+        y: y + r + 2 * z - pad,
+        w: lw + pad * 2,
+        h: lh + pad * 2,
+        weight: 4,
+      })
+    }
+    return out
+  }
+
+  _screenChipCandidates(n, cw, ch) {
+    const W = this._wrapW || this.W
+    const H = this._wrapH || this.H
+    const maxX = W - cw - SCREEN_EDGE
+    const maxY = H - ch - SCREEN_EDGE
+    if (maxX < SCREEN_EDGE || maxY < SCREEN_EDGE) return []
+    const z = this.zoom || 1
+    const sx = n.x * z + this.panX
+    const sy = n.y * z + this.panY
+    const sr = n.r * z
+    const labelH = (n.labelH || 41) * z
+    const out = []
+    const seen = new Set()
+    const add = (key, x, y) => {
+      const bx = Math.max(SCREEN_EDGE, Math.min(maxX, x))
+      const by = Math.max(SCREEN_EDGE, Math.min(maxY, y))
+      const tag = `${Math.round(bx * 2)}:${Math.round(by * 2)}`
+      if (seen.has(tag)) return
+      seen.add(tag)
+      out.push({ key, x: bx, y: by })
+    }
+    const side = sr + 18
+    add('near:right', sx + side, sy - ch / 2)
+    add('near:left', sx - side - cw, sy - ch / 2)
+    add('near:above', sx - cw / 2, sy - sr - ch - 14)
+    add('near:below', sx - cw / 2, sy + sr + labelH + 12)
+    add('near:upper-right', sx + sr * 0.55, sy - sr - ch - 8)
+    add('near:upper-left', sx - sr * 0.55 - cw, sy - sr - ch - 8)
+    add('near:lower-right', sx + side, sy + sr * 0.25)
+    add('near:lower-left', sx - side - cw, sy + sr * 0.25)
+
+    const radii = [sr + Math.max(96, Math.min(cw, ch) * 0.78), sr + Math.max(178, cw * 0.72)]
+    for (let ring = 0; ring < radii.length; ring++) {
+      for (let k = 0; k < 12; k++) {
+        const ang = (k / 12) * Math.PI * 2
+        add(`ring:${ring}:${k}`,
+          sx + Math.cos(ang) * radii[ring] - cw / 2,
+          sy + Math.sin(ang) * radii[ring] - ch / 2)
+      }
+    }
+
+    const cols = Math.max(1, Math.floor((W - SCREEN_EDGE * 2 + SCREEN_CHIP_GAP) / (cw + SCREEN_CHIP_GAP)))
+    const rows = Math.max(1, Math.floor((H - SCREEN_EDGE * 2 + SCREEN_CHIP_GAP) / (ch + SCREEN_CHIP_GAP)))
+    const dx = cols > 1 ? (W - SCREEN_EDGE * 2 - cw) / (cols - 1) : 0
+    const dy = rows > 1 ? (H - SCREEN_EDGE * 2 - ch) / (rows - 1) : 0
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        add(`grid:${row}:${col}`, SCREEN_EDGE + col * dx, SCREEN_EDGE + row * dy)
+      }
+    }
+
+    // The coarse full-box grid above is an excellent first pass, but a
+    // 300px instrument can still fit in a pocket whose left edge lies between
+    // those columns. Sample a staggered half-box lattice too. This remains
+    // pure arithmetic (no layout reads) and turns the room revealed at low
+    // zoom into useful capacity instead of leaving narrow dead strips unused.
+    const stepX = Math.max(72, Math.min(108, cw * 0.34))
+    const stepY = Math.max(54, Math.min(76, ch * 0.5))
+    let latticeRow = 0
+    for (let y = SCREEN_EDGE; y <= maxY + 0.5; y += stepY, latticeRow++) {
+      const offset = latticeRow % 2 ? stepX / 2 : 0
+      for (let x = SCREEN_EDGE + offset; x <= maxX + 0.5; x += stepX) {
+        add(`lattice:${latticeRow}:${Math.round(x)}`, x, y)
+      }
+      add(`lattice:${latticeRow}:edge`, maxX, y)
+    }
+    for (let x = SCREEN_EDGE; x <= maxX + 0.5; x += stepX) {
+      add(`lattice:floor:${Math.round(x)}`, x, maxY)
+    }
+    add('lattice:floor:edge', maxX, maxY)
+    return out
+  }
+
+  _screenCandidate(rec, cand, cw, ch, obstacles, placed) {
+    let overlap = 0
+    for (const o of obstacles) overlap += rectOverlap(cand.x, cand.y, cw, ch, o.x, o.y, o.w, o.h) * (o.weight || 1)
+    for (const p of placed) {
+      overlap += rectOverlap(
+        cand.x, cand.y, cw, ch,
+        p.x - SCREEN_CHIP_GAP / 2, p.y - SCREEN_CHIP_GAP / 2,
+        p.w + SCREEN_CHIP_GAP, p.h + SCREEN_CHIP_GAP,
+      ) * 12
+    }
+    const z = this.zoom || 1
+    const sx = rec.x * z + this.panX
+    const sy = rec.y * z + this.panY
+    const bx = Math.max(cand.x, Math.min(sx, cand.x + cw))
+    const by = Math.max(cand.y, Math.min(sy, cand.y + ch))
+    const leader = Math.hypot(sx - bx, sy - by)
+    // At low zoom, the transformed canvas exposes a real screen-space margin.
+    // Prefer spending that newly available room before covering the topology;
+    // this is what makes zooming out reveal more monitoring instruments.
+    const canvasArea = z < 1
+      ? rectOverlap(cand.x, cand.y, cw, ch, this.panX, this.panY, this.W * z, this.H * z)
+      : cw * ch
+    const revealedMargin = Math.max(0, cw * ch - canvasArea)
+    return { ...cand, overlap, leader, score: overlap * 80 + leader - revealedMargin * 0.012 }
+  }
+
+  _chooseScreenSlot(rec, cw, ch, obstacles, placed, allowBuried = false) {
+    const evaluated = this._screenChipCandidates(rec, cw, ch)
+      .map(c => this._screenCandidate(rec, c, cw, ch, obstacles, placed))
+    if (!evaluated.length) return null
+    const clear = evaluated.filter(c => c.overlap < 0.01)
+    const pool = clear.length ? clear : (allowBuried ? evaluated : [])
+    if (!pool.length) return null
+    let best = pool[0]
+    for (let i = 1; i < pool.length; i++) if (pool[i].score < best.score) best = pool[i]
+    if (rec._screenSlot) {
+      const prior = pool.find(c => c.key === rec._screenSlot.key)
+      if (prior && prior.score <= best.score + SCREEN_SLOT_HYSTERESIS) best = prior
+    }
+    return best
+  }
+
+  _screenPreviewSlots(ranked, obstacles, fixedPlaced) {
+    // A one-choice greedy walk can spend the only useful pocket on the first
+    // agent and unnecessarily withhold every lower-ranked one. Keep a small,
+    // bounded beam of clear arrangements instead: rank order is inviolate and
+    // the search still stops at the first agent for which no clear placement
+    // exists, but each early box considers the monitoring capacity behind it.
+    const BEAM = 36
+    const BRANCHES = 16
+    let states = [{ placed: fixedPlaced.slice(), picks: [], score: 0 }]
+
+    for (const rec of ranked) {
+      const cw = rec.chipW || SCREEN_CHIP_W
+      const ch = rec.chipH || SCREEN_CHIP_H
+      const base = this._screenChipCandidates(rec, cw, ch)
+        .map(c => this._screenCandidate(rec, c, cw, ch, obstacles, []))
+        .filter(c => c.overlap < 0.01)
+        .map(c => ({
+          ...c,
+          stableScore: c.score - (rec._screenSlot?.key === c.key ? SCREEN_SLOT_HYSTERESIS : 0),
+        }))
+        .sort((a, b) => a.stableScore - b.stableScore)
+      if (!base.length) break
+
+      const next = []
+      for (const state of states) {
+        let branches = 0
+        for (const cand of base) {
+          let blocked = false
+          for (const p of state.placed) {
+            if (rectOverlap(
+              cand.x, cand.y, cw, ch,
+              p.x - SCREEN_CHIP_GAP / 2, p.y - SCREEN_CHIP_GAP / 2,
+              p.w + SCREEN_CHIP_GAP, p.h + SCREEN_CHIP_GAP,
+            ) > 0) { blocked = true; break }
+          }
+          if (blocked) continue
+          next.push({
+            placed: state.placed.concat({ x: cand.x, y: cand.y, w: cw, h: ch }),
+            picks: state.picks.concat({ rec, slot: cand, cw, ch }),
+            score: state.score + cand.stableScore,
+          })
+          if (++branches >= BRANCHES) break
+        }
+      }
+      if (!next.length) break
+      next.sort((a, b) => a.score - b.score)
+      const unique = new Set()
+      states = next.filter(state => {
+        const key = state.picks.map(p => `${p.slot.key}:${p.slot.x.toFixed(0)},${p.slot.y.toFixed(0)}`).join('|')
+        if (unique.has(key)) return false
+        unique.add(key)
+        return true
+      }).slice(0, BEAM)
+    }
+    states.sort((a, b) => b.picks.length - a.picks.length || a.score - b.score)
+    return states[0]?.picks || []
+  }
+
+  _setScreenChipVisible(rec, visible) {
+    if (!rec.chip) return
+    rec._screenPlaced = visible
+    rec.chip.classList.toggle('screen-chip-visible', visible)
+    rec.chip.tabIndex = visible && !this.editMode ? 0 : -1
+    rec.chipLeader?.classList.toggle('visible', visible)
+  }
+
+  _drawScreenLeader(rec, x, y, cw, ch) {
+    const line = rec.chipLeader
+    if (!line) return
+    const z = this.zoom || 1
+    const sx = rec.x * z + this.panX
+    const sy = rec.y * z + this.panY
+    const bx = Math.max(x, Math.min(sx, x + cw))
+    const by = Math.max(y, Math.min(sy, y + ch))
+    const dx = sx - bx, dy = sy - by
+    const d = Math.hypot(dx, dy) || 1
+    const rim = rec.r * z + 3
+    const values = {
+      x1: bx.toFixed(1), y1: by.toFixed(1),
+      x2: (sx - (dx / d) * rim).toFixed(1),
+      y2: (sy - (dy / d) * rim).toFixed(1),
+    }
+    for (const [name, value] of Object.entries(values)) {
+      if (line.getAttribute(name) !== value) line.setAttribute(name, value)
+    }
+  }
+
+  _applyScreenSlot(rec, slot, cw, ch, placed) {
+    rec._screenSlot = { key: slot.key }
+    rec._screenX = slot.x
+    rec._screenY = slot.y
+    const transform = `translate3d(${slot.x.toFixed(1)}px, ${slot.y.toFixed(1)}px, 0)`
+    if (rec.chip.style.transform !== transform) rec.chip.style.transform = transform
+    this._setScreenChipVisible(rec, true)
+    this._drawScreenLeader(rec, slot.x, slot.y, cw, ch)
+    placed.push({ x: slot.x, y: slot.y, w: cw, h: ch })
+  }
+
+  _placeScreenChips(nodesArr) {
+    if (!this.screenChips || !this.screenOverlay) return
+    if (this._screenUiDirty) this._refreshScreenUiObstacles()
+    const rank = (rec) => rec.agent.state === 'spawning'
+      ? SCREEN_PRIORITY.spawned
+      : (SCREEN_PRIORITY[rec.agent.role] ?? 1)
+    const ranked = nodesArr.filter(n => n.chip).sort((a, b) => {
+      const delta = rank(b) - rank(a)
+      return delta || a.agent.name.localeCompare(b.agent.name)
+    })
+    if (this.editMode) {
+      for (const rec of ranked) this._setScreenChipVisible(rec, false)
+      this._screenLayoutKey = 'edit'
+      return
+    }
+    const key = `${this._wrapW || this.W}x${this._wrapH || this.H}`
+      + `|${this.zoom.toFixed(4)},${this.panX.toFixed(2)},${this.panY.toFixed(2)}`
+      + `|ui${this._screenUiVersion || 0}`
+      + ranked.map(n => `|${n.id}:${n.x.toFixed(1)},${n.y.toFixed(1)},${n.r},${n.labelW.toFixed(1)},${n.labelH},${n.chipW},${n.chipH},${n.chatOpen ? 1 : 0}`).join('')
+    if (key === this._screenLayoutKey) return
+    this._screenLayoutKey = key
+
+    const obstacles = this._screenNodeObstacles(nodesArr).concat(this._screenUiRects || [])
+    // The fit control fades in on the same turn that zoom geometry changes.
+    // Keep a conservative cached-shape reservation as well as the measured UI
+    // obstacle so no chip can win its bottom-right slot during that transition.
+    if (this._fitActive) obstacles.push({
+      x: (this._wrapW || this.W) - 112,
+      y: (this._wrapH || this.H) - 57,
+      w: 104,
+      h: 49,
+      weight: 8,
+    })
+    const placed = []
+    const open = ranked.filter(n => n.chatOpen)
+    for (const rec of open) {
+      const cw = rec.chipW || 316
+      const ch = rec.chipH || 368
+      const slot = this._chooseScreenSlot(rec, cw, ch, obstacles, placed, true)
+      if (slot) this._applyScreenSlot(rec, slot, cw, ch, placed)
+      else this._setScreenChipVisible(rec, false)
+    }
+
+    const previews = ranked.filter(n => !n.chatOpen)
+    const picks = this._screenPreviewSlots(previews, obstacles, placed)
+    const picked = new Map(picks.map(p => [p.rec.id, p]))
+    for (const rec of previews) {
+      const choice = picked.get(rec.id)
+      if (choice) this._applyScreenSlot(rec, choice.slot, choice.cw, choice.ch, placed)
+      else this._setScreenChipVisible(rec, false)
+    }
+  }
+
   _uiObstacles() {
+    if (this.screenChips) {
+      return this._screenUiDirty ? this._refreshScreenUiObstacles() : (this._screenUiRects || [])
+    }
     const host = this.container.parentElement
     if (!host) return []
     const cb = this.container.getBoundingClientRect()
@@ -1453,14 +1937,17 @@ export class FleetGraph {
       // loop by another route.
       if (focusable && !was) this._wakeFocusRing(rec)
       else if (!focusable && was) this._sleepFocusRing(rec)
-      if (rec.chip) rec.chip.style.opacity = (n >= DENSE_AT && !rec.chatOpen) ? '0' : ''
-      if (rec.chip) rec.chip.style.pointerEvents = (n >= DENSE_AT && !rec.chatOpen) ? 'none' : ''
-      // tab order must track visibility: opacity 0 + pointer-events none hides
-      // a chip from the eye and the mouse but NOT from Tab (the .graph-fit
-      // lesson in graph.css) — a keyboard user would land on nothing
-      if (rec.chip) rec.chip.tabIndex = (n >= DENSE_AT && !rec.chatOpen) ? -1 : 0
+      if (rec.chip && !this.screenChips) {
+        rec.chip.style.opacity = (n >= DENSE_AT && !rec.chatOpen) ? '0' : ''
+        rec.chip.style.pointerEvents = (n >= DENSE_AT && !rec.chatOpen) ? 'none' : ''
+        // tab order must track visibility: opacity 0 + pointer-events none hides
+        // a chip from the eye and the mouse but NOT from Tab (the .graph-fit
+        // lesson in graph.css) — a keyboard user would land on nothing
+        rec.chip.tabIndex = (n >= DENSE_AT && !rec.chatOpen) ? -1 : 0
+      }
     }
     this.onDensity?.(dense)
+    if (this.screenChips) this._queueScreenGeometryRefresh()
   }
 
   setRoot(id) {
@@ -1482,6 +1969,7 @@ export class FleetGraph {
     if (rec) this.glideToRoot(rec)
     this.onRootChange?.(id, this.ancestryOf(id))   // extra arg is additive
     this.renderAncestry()
+    if (this.screenChips) this._queueScreenGeometryRefresh()
   }
 
   /** Tween the newly-chosen root into the root slot (arrives ≤800ms). */
@@ -1563,16 +2051,35 @@ export class FleetGraph {
     this.build()
     if (this._zt !== 1 || this.panX || this.panY) this.resetZoom()
     this.onRootChange?.(null, [])
+    if (this.screenChips) this._queueScreenGeometryRefresh()
   }
 
   resize() {
     const w = this.container.clientWidth || this.W
     const h = this.container.clientHeight || this.H
+    const wrapW = this.screenChips ? (this.zoomHost.clientWidth || w) : 0
+    const wrapH = this.screenChips ? (this.zoomHost.clientHeight || h) : 0
+    const screenChanged = this.screenChips && (wrapW !== this._wrapW || wrapH !== this._wrapH)
+    if (screenChanged) {
+      this._wrapW = wrapW; this._wrapH = wrapH
+      this._screenUiDirty = true
+      this._screenLayoutKey = ''
+      for (const n of this.nodes.values()) {
+        n._screenSlot = null
+        if (!n.chatOpen) continue
+        const chatH = Math.max(240, Math.min(368, wrapH - 12))
+        n.chipH = chatH
+        n.chip.style.height = chatH + 'px'
+      }
+    }
     const boot = this._bootResize
     this._bootResize = false
     // the RO's initial delivery at an unchanged size must NOT reheat the
     // just-settled sim (this refresh was part of the slow-arrival churn)
-    if (w === this.W && h === this.H) return
+    if (w === this.W && h === this.H) {
+      if (screenChanged) this._placeScreenChips([...this.nodes.values()])
+      return
+    }
     this.W = w; this.H = h
     for (const n of this.nodes.values()) {
       n.x = Math.max(n.r + 34, Math.min(this.W - n.r - 34, n.x))
@@ -1618,6 +2125,7 @@ export class FleetGraph {
       `translate3d(${this.panX}px, ${this.panY}px, 0) scale(${this.zoom})`
     this.zoomHost.classList.toggle('zoomed', Math.abs(this.zoom - 1) > 0.004)
     this._syncFit()
+    if (this.screenChips) this._placeScreenChips([...this.nodes.values()])
   }
 
   _syncFit() {
@@ -1625,6 +2133,11 @@ export class FleetGraph {
     const active = Math.abs(this.zoom - 1) > 0.004 || Math.abs(this._zt - 1) > 0.004
       || !!this.panX || !!this.panY
     this.fitEl.classList.toggle('show', active)
+    if (this.screenChips && active !== this._fitActive) {
+      this._fitActive = active
+      this._screenUiDirty = true
+      this._screenLayoutKey = ''
+    }
     const z = this.fitEl.querySelector('.gf-z')
     const txt = `${this.zoom.toFixed(2)}×`
     if (z && z.textContent !== txt) z.textContent = txt
@@ -1824,6 +2337,7 @@ export class FleetGraph {
     this.editMode = !!on
     if (on) {
       this.container.setAttribute('data-edit-mode', 'true')
+      if (this.screenChips) this.screenOverlay?.setAttribute('data-edit-mode', 'true')
       // graph.css hides every chip while editing (opacity 0 !important) —
       // mirror that in the tab order so focus cannot land on invisible boxes
       for (const n of this.nodes.values()) { if (n.chip) n.chip.tabIndex = -1 }
@@ -1831,13 +2345,20 @@ export class FleetGraph {
       this._applyLayout(true)                    // _treeActive() is now true
     } else {
       this.container.removeAttribute('data-edit-mode')
+      if (this.screenChips) this.screenOverlay?.removeAttribute('data-edit-mode')
       for (const n of this.nodes.values()) {
         n._editDragging = false
         n.el.classList.remove('drop-ok', 'refuse')
         // restore per the same visibility rule updateDensity() enforces
-        if (n.chip) n.chip.tabIndex = (this.nodes.size >= DENSE_AT && !n.chatOpen) ? -1 : 0
+        if (n.chip) n.chip.tabIndex = this.screenChips
+          ? (n._screenPlaced ? 0 : -1)
+          : ((this.nodes.size >= DENSE_AT && !n.chatOpen) ? -1 : 0)
       }
       this._applyLayout(true)                    // back to the chosen layout
+    }
+    if (this.screenChips) {
+      this._screenLayoutKey = ''
+      this._queueScreenGeometryRefresh()
     }
   }
 
@@ -2064,10 +2585,13 @@ export class FleetGraph {
         window.__graphTickMs = window.__graphNodeCount = undefined
     }
     if (this._zoomRaf) cancelAnimationFrame(this._zoomRaf)
+    if (this._screenGeometryRaf) cancelAnimationFrame(this._screenGeometryRaf)
     clearTimeout(this._zoomHotTimer)
     for (const n of this.nodes.values()) {
       if (n._flingRaf) cancelAnimationFrame(n._flingRaf)
       clearTimeout(n._ringTimer); clearTimeout(n._settleTimer)
+      n._screenRuntimeUnsub?.()
+      n._screenRuntimeUnsub = null
     }
     this.unsubs.forEach(u => u())
     document.removeEventListener('keydown', this._onKeyDown)
@@ -2076,8 +2600,9 @@ export class FleetGraph {
     this.zoomHost.removeEventListener('pointermove', this._onHostMove)
     this.zoomHost.removeEventListener('pointerup', this._onHostUp)
     this.zoomHost.removeEventListener('pointercancel', this._onHostUp)
-    this.zoomHost.classList.remove('graph-zoom-host', 'panning', 'zoomed')
+    this.zoomHost.classList.remove('graph-zoom-host', 'screen-chips', 'panning', 'zoomed')
     this.fitEl?.remove()
+    this.screenOverlay?.remove()
     this.container.style.transform = ''
     this.container.innerHTML = ''
     this.container.classList.remove('graph-canvas', 'zoomable')

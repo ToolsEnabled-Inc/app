@@ -19,7 +19,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import { readLayout, writeLayout } from '../layout-pref.js'
 import { sim, fmtRuntime } from '../sim.js'
-import { ROLES } from '../vocab.js'
+import { CHAT, ROLES } from '../vocab.js'
 import { el, uptimeRing, bindRuntime, countUp, setViewMorph, attachSeg, buildChat } from '../components.js'
 import { FleetGraph } from '../graph.js'
 import { withAlpha } from '../echarts-theme.js'
@@ -67,6 +67,25 @@ const motionQuery = typeof window.matchMedia === 'function'
   : null
 const reduceMotion = () => document.body.classList.contains('reduce-motion') || !!motionQuery?.matches
 const rectCenter = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+
+// Match buildChat's deterministic per-agent excerpt so the ambient monitor
+// can show the newest line from the same thread the click-through opens.
+function monitorContextFor(agent) {
+  let hash = 2166136261
+  for (let i = 0; i < agent.name.length; i++) {
+    hash ^= agent.name.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  const seed = 3
+  const span = Math.max(1, CHAT.length - seed)
+  const history = CHAT.slice((hash >>> 0) % span, (hash >>> 0) % span + seed)
+  const recent = history.at(-1)
+  return {
+    current: agent.context?.at(-1),
+    previous: agent.context?.at(-2),
+    chat: recent?.text || '',
+  }
+}
 
 /* ---------- board: the per-agent Runtime Statistics plot ---------- */
 const CHART_N = 24                 // samples on screen
@@ -496,6 +515,8 @@ export function computersView({ initialComputer = null, navigate }) {
     graphWrap.insertBefore(canvas, crumbEl)
     graph = new FleetGraph(canvas, {
       computer,
+      screenChips: true,
+      contextFeed: monitorContextFor,
       onSelect: () => {},
       onOpenControls: (agent) => showControls(agent),
       onRootChange: (id) => renderCrumb(id),

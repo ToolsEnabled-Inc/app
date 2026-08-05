@@ -272,6 +272,136 @@
 .chip.chip-dim { opacity: 0.25; }
 .chip.chip-dim:hover { opacity: 1; }
 
+/* Computers-only monitoring overlay. The canvas may zoom and pan underneath;
+   these boxes remain in wrap/screen space so their 13px type never shrinks. */
+.graph-chip-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+.graph-chip-leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.graph-chip-leader {
+  stroke-width: 1;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  transition: opacity .24s var(--ease);
+}
+.graph-chip-leader.visible { opacity: 0.42; }
+
+.graph-chip-overlay .chip {
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity .24s var(--ease),
+    visibility 0s linear .24s,
+    width .5s var(--ease),
+    height .5s var(--ease),
+    box-shadow .4s var(--ease),
+    background .25s var(--ease);
+}
+.graph-chip-overlay .chip.screen-chip-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.graph-chip-overlay .chip:not(.screen-chip-visible) { animation: none !important; }
+.graph-chip-overlay .chip:not(.as-chat) {
+  box-sizing: border-box;
+  padding: 11px 13px 12px 16px;
+  cursor: pointer;
+  background: color-mix(in oklab, var(--sheet) 94%, var(--ink) 6%);
+  border-color: var(--line-2);
+  box-shadow: var(--elev-1);
+}
+.graph-chip-overlay .chip:not(.as-chat):hover {
+  background: color-mix(in oklab, var(--sheet) 90%, var(--ink) 10%);
+  border-color: color-mix(in oklab, var(--rc) 28%, var(--line-2));
+}
+.graph-chip-overlay .chip .cl {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.42;
+}
+.graph-chip-overlay .chip .cl[hidden] { display: none; }
+.graph-chip-overlay .chip .cl-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+.graph-chip-overlay .chip-role-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--rc);
+}
+.graph-chip-overlay .chip-monitor-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-chip-overlay .chip-runtime {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.graph-chip-overlay .chip:not(.as-chat) .cl-current,
+.graph-chip-overlay .chip:not(.as-chat) .cl-previous,
+.graph-chip-overlay .chip:not(.as-chat) .cl-chat {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.graph-chip-overlay .chip:not(.as-chat) .cl-current {
+  -webkit-line-clamp: 2;
+  color: var(--ink-2);
+}
+.graph-chip-overlay .chip:not(.as-chat) .cl-previous {
+  -webkit-line-clamp: 1;
+  margin-top: 4px;
+  opacity: 0.72;
+}
+.graph-chip-overlay .chip:not(.as-chat) .cl-chat {
+  -webkit-line-clamp: 1;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  opacity: 0.78;
+}
+.graph-chip-overlay[data-edit-mode] .chip {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.graph-chip-overlay[data-edit-mode] .graph-chip-leader { opacity: 0 !important; }
+
+/* The outgoing canvas and its screen-space instrument dissolve as one view. */
+.graph-canvas.mc-graph-out ~ .graph-chip-overlay {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--ease);
+}
+
 /* ============================================================
    Keyboard reachability (audit #26)
    Bubbles and context chips are click-activated divs; graph.js now puts
@@ -306,6 +436,14 @@ body.reduce-motion .graph-canvas .node.focusable .node-glass::before {
    transition wholesale, and without it the fade-out would be cut off by an
    instant visibility:hidden rather than shortened */
 body.reduce-motion .graph-fit { transition: opacity .2s linear, visibility .2s linear; transform: none; }
+body.reduce-motion .graph-chip-overlay .chip,
+body.reduce-motion .graph-chip-overlay .graph-chip-leader,
+body.reduce-motion .graph-canvas.mc-graph-out ~ .graph-chip-overlay {
+  transition: none !important;
+}
+body.reduce-motion .graph-zoom-host.screen-chips .graph-canvas {
+  transition: none !important;
+}
 /* The tier guides' draw-in delay is written inline by graph.js from the live
    layout duration. Under reduced motion there is no layout animation to wait
    for, so the hairlines must be present immediately rather than sit
@@ -322,6 +460,10 @@ body.reduce-motion .graph-canvas .tier-guide {
 }
 @media (prefers-reduced-motion: reduce) {
   .tier-guide { animation-delay: 0ms !important; transform: none !important; }
+  .graph-chip-overlay .chip,
+  .graph-chip-overlay .graph-chip-leader,
+  .graph-canvas.mc-graph-out ~ .graph-chip-overlay,
+  .graph-zoom-host.screen-chips .graph-canvas { transition: none !important; }
 }
 
 /* ============================================================
@@ -420,6 +562,7 @@ body.reduce-motion .graph-canvas .tier-guide {
 .graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-under { opacity: 0.1; }
 .graph-canvas[data-layout="tree"] .node.focusable .node-glass::before { animation: none; }
 .graph-canvas[data-edit-mode] .chip { opacity: 0 !important; pointer-events: none !important; }
+.graph-chip-overlay[data-edit-mode] .chip { opacity: 0 !important; pointer-events: none !important; }
 .graph-canvas[data-edit-mode] .node { cursor: grab; }
 .graph-canvas[data-edit-mode] .node.dragging { cursor: grabbing; }
 .graph-canvas[data-edit-mode] .node.focusable .node-glass { animation: none; }
