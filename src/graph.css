@@ -273,9 +273,10 @@
 .chip.chip-dim:hover { opacity: 1; }
 
 /* Computers-only monitoring overlay. The canvas may zoom and pan underneath;
-   these bare-text instruments remain in wrap/screen space so their data type
-   never shrinks. The feathered --bg wash is deliberately edge-less: it only
-   quiets a connector where it passes behind glyphs, never reads as a card. */
+   these braced instruments remain in wrap/screen space so their data type
+   never shrinks. The feathered --bg wash is deliberately edge-less: it
+   gathers the text between the braces and quiets connectors behind glyphs
+   without turning the object back into a card. */
 .graph-chip-overlay {
   position: absolute;
   inset: 0;
@@ -322,16 +323,16 @@
 .graph-chip-overlay .chip:not(.screen-chip-visible) { animation: none !important; }
 .graph-chip-overlay .chip:not(.as-chat) {
   box-sizing: border-box;
-  padding: 6px;
+  padding: 6px 0;
   cursor: pointer;
   border: 0;
   border-radius: 0;
   box-shadow: none;
   background: radial-gradient(
     ellipse at 48% 50%,
-    color-mix(in srgb, var(--bg) 85%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 70%, transparent) 38%,
-    color-mix(in srgb, var(--bg) 34%, transparent) 72%,
+    color-mix(in srgb, var(--bg) 92%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 82%, transparent) 42%,
+    color-mix(in srgb, var(--bg) 48%, transparent) 74%,
     transparent 100%
   );
 }
@@ -340,29 +341,76 @@
   box-shadow: none;
   background: radial-gradient(
     ellipse at 48% 50%,
-    color-mix(in srgb, var(--bg) 91%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 76%, transparent) 42%,
-    color-mix(in srgb, var(--bg) 40%, transparent) 74%,
+    color-mix(in srgb, var(--bg) 95%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 86%, transparent) 44%,
+    color-mix(in srgb, var(--bg) 54%, transparent) 76%,
     transparent 100%
   );
 }
 .graph-chip-overlay .chip:not(.as-chat)::before {
-  left: 6px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  background: color-mix(in oklab, var(--rc) 76%, var(--ink) 24%);
-  opacity: 0.72;
-  transition: opacity .2s var(--ease), background .2s var(--ease);
-}
-.graph-chip-overlay .chip:not(.as-chat):hover::before {
-  opacity: 1;
-  background: var(--rc);
+  display: none; /* the role spine is retired; the paired braces own identity */
 }
 .graph-chip-overlay .chip:not(.as-chat) .chip-preview {
   min-width: 0;
-  padding-left: 8px;
+  padding: 0 14px;
+  position: relative;
+  z-index: 1;
 }
+
+/* Page 1's five-piece mechanism, redrawn at 12px rather than distorted.
+   Caps and centre point never flex; only the two arm rects absorb height.
+   Both braces are inside the chip's measured 328px / 344px footprint. */
+.graph-chip-overlay .monitor-brace {
+  --mbx: 1;
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 1px;
+  width: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  color: color-mix(in oklab, var(--rc) 40%, var(--line-2));
+  pointer-events: none;
+  user-select: none;
+  z-index: 2;
+  transform: scaleX(var(--mbx));
+  transform-origin: center;
+}
+.graph-chip-overlay .monitor-brace.is-right {
+  --mbx: -1;
+  left: auto;
+  right: 1px;
+}
+.graph-chip-overlay .monitor-brace > svg {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.graph-chip-overlay .monitor-brace > svg.monitor-brace-arm {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 12px;
+}
+.graph-chip-overlay .monitor-brace > svg + svg { margin-top: -1px; }
+
+/* A context event makes the gathered object breathe once. Runtime ticks do
+   not retrigger it, and there is no per-frame JS work. */
+.graph-chip-overlay .chip.monitor-brace-pulse .monitor-brace {
+  animation: monitor-brace-pulse .3s var(--ease);
+}
+@keyframes monitor-brace-pulse {
+  0%   { transform: scaleX(var(--mbx)); }
+  42%  { transform: scaleX(calc(var(--mbx) * 1.08)); }
+  100% { transform: scaleX(var(--mbx)); }
+}
+
+/* The braces stay present through the existing preview-to-chat morph and
+   simply take the panel's settled height. The inline width written by
+   graph.js includes their 28px gutter, so collision/edge placement sees the
+   same rectangle the user sees. */
+.graph-chip-overlay .chip.as-chat { box-sizing: border-box; }
+.graph-chip-overlay .chip.as-chat .monitor-brace { top: 10px; bottom: 10px; }
 .graph-chip-overlay .chip .cl {
   min-width: 0;
   font-size: 12.5px;
@@ -486,6 +534,7 @@ body.reduce-motion .node.leave .node-glass,
 body.reduce-motion .graph-canvas .node.focusable .node-glass::before {
   animation: none !important;
 }
+body.reduce-motion .graph-chip-overlay .monitor-brace { animation: none !important; }
 /* keeps `visibility` in the list — this shorthand replaces the base
    transition wholesale, and without it the fade-out would be cut off by an
    instant visibility:hidden rather than shortened */
@@ -514,6 +563,7 @@ body.reduce-motion .graph-canvas .tier-guide {
 }
 @media (prefers-reduced-motion: reduce) {
   .tier-guide { animation-delay: 0ms !important; transform: none !important; }
+  .graph-chip-overlay .monitor-brace { animation: none !important; }
   .graph-chip-overlay .chip,
   .graph-chip-overlay .graph-chip-leader,
   .graph-canvas.mc-graph-out ~ .graph-chip-overlay,

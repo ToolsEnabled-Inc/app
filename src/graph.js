@@ -11,8 +11,17 @@ import './graph.css'
 const RADII = { coordinator: 62, helper: 52, shadow: 52, manager: 47, default: 39 }
 const CHIP_ROLES = new Set(['coordinator', 'helper', 'shadow'])
 const DENSE_AT = 12
-const SCREEN_CHIP_W = 300
+/* Computers-page monitoring blocks keep their 300px reading measure. The
+   two 14px brace gutters are real layout, not paint hanging outside it, so
+   the same measured rectangle used by placement also reserves the signature
+   container. Open chat follows the same rule around its existing 316px
+   panel. */
+const SCREEN_CHIP_BODY_W = 300
+const SCREEN_BRACE_GUTTER = 14
+const SCREEN_CHIP_W = SCREEN_CHIP_BODY_W + SCREEN_BRACE_GUTTER * 2
 const SCREEN_CHIP_H = 126
+const CHAT_W = 316
+const SCREEN_CHAT_W = CHAT_W + SCREEN_BRACE_GUTTER * 2
 const SCREEN_EDGE = 8
 const SCREEN_CHIP_GAP = 10
 const SCREEN_SLOT_HYSTERESIS = 52
@@ -78,6 +87,19 @@ const hashStr = (s) => {
   return Math.abs(h)
 }
 
+/* Page 1's brace is five pieces so its curls never stretch with the thread.
+   These are redrawn at the computers-page scale rather than squeezing that
+   22px drawing: three fixed curls at 1:1 CSS pixels, with only the two solid
+   arms allowed to flex. */
+const monitorBrace = (right = false) => `
+  <span class="monitor-brace${right ? ' is-right' : ''}" aria-hidden="true">
+    <svg width="12" height="14" viewBox="0 0 12 14"><path d="M11.25 1.25 C7.2 1.25 4.25 2.3 4.25 6.3 L4.25 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="monitor-brace-arm" viewBox="0 0 12 8" preserveAspectRatio="none"><rect x="3.625" y="0" width="1.25" height="8" fill="currentColor"/></svg>
+    <svg width="12" height="28" viewBox="0 0 12 28"><path d="M4.25 0 L4.25 8 C4.25 12.1 3 13.3 .75 14 C3 14.7 4.25 15.9 4.25 20 L4.25 28" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="monitor-brace-arm" viewBox="0 0 12 8" preserveAspectRatio="none"><rect x="3.625" y="0" width="1.25" height="8" fill="currentColor"/></svg>
+    <svg width="12" height="14" viewBox="0 0 12 14"><path d="M4.25 0 L4.25 7.7 C4.25 11.7 7.2 12.75 11.25 12.75" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </span>`
+
 // The graph instance that currently owns the window.__graph*/__pageFrameMs
 // perf globals. Module-scoped rather than a window key so a page script can't
 // forge ownership and so it dies with the module.
@@ -92,9 +114,10 @@ let probeOwner = null
    this is and roughly what it is doing. At 168 with the name and the task
    sharing one line, the task truncated to "promotin..." / "watc..." /
    "matchi..." and the box read as broken rather than terse. */
-/* Open chat panels stack in the order they were raised. They are 316x368 on a
-   canvas that often cannot hold two of them apart, so overlap is not a bug to
-   be placed away -- but every panel carrying the same z-index is, because then
+/* Open chat panels stack in the order they were raised. Their content is
+   316x368 (the computers overlay adds its 28px brace footprint) on a canvas
+   that often cannot hold two of them apart, so overlap is not a bug to be
+   placed away -- but every panel carrying the same z-index is, because then
    DOM order decides and an earlier chat can sit on top of a later one's
    message input. Measured at 1280: the second panel opened had an input that
    elementFromPoint did not return, i.e. it could not be clicked at all. */
@@ -443,7 +466,9 @@ export class FleetGraph {
   }
 
   makeChip(rec) {
-    const chip = el(`<div class="chip role-${rec.agent.role}"><div class="chip-preview"></div></div>`)
+    const chip = el(this.screenChips
+      ? `<div class="chip role-${rec.agent.role}">${monitorBrace()}<div class="chip-preview"></div>${monitorBrace(true)}</div>`
+      : `<div class="chip role-${rec.agent.role}"><div class="chip-preview"></div></div>`)
     // CSS states no width for .chip (see CHIP_W) -- without this the box would
     // shrink to its text and every placement rectangle would be a fiction
     chip.style.width = (this.screenChips ? SCREEN_CHIP_W : CHIP_W) + 'px'
@@ -564,11 +589,28 @@ export class FleetGraph {
     update('.cl-previous', feed.previous)
     update('.cl-chat', feed.chat, '› ')
 
+    const contentSig = [tasks, failRate, feed.model, feed.current, feed.previous, feed.chat].join('\u001f')
+    const contentChanged = rec._screenContentSig != null && rec._screenContentSig !== contentSig
+    rec._screenContentSig = contentSig
+    if (contentChanged && !prefersCalm()) this._pulseScreenBraces(rec)
+
     const h = rec.chip.offsetHeight
     if (h > 0 && h !== rec.chipH) rec._screenSlot = null
     rec.chipH = h || SCREEN_CHIP_H
     rec._chipHMeasured = h > 0
     this.tick()
+  }
+
+  _pulseScreenBraces(rec) {
+    const chip = rec.chip
+    if (!chip?.isConnected) return
+    clearTimeout(rec._bracePulseTimer)
+    chip.classList.remove('monitor-brace-pulse')
+    // Content events are rare; this one layout read deliberately restarts the
+    // short CSS animation without adding any tick/rAF work to the 24/7 graph.
+    void chip.offsetWidth
+    chip.classList.add('monitor-brace-pulse')
+    rec._bracePulseTimer = setTimeout(() => chip.classList.remove('monitor-brace-pulse'), 340)
   }
 
   openChat(rec) {
@@ -597,7 +639,8 @@ export class FleetGraph {
        Fit the panel to the canvas it lives in and it stays whole. */
     const availableH = this.screenChips ? (this._wrapH || this.H) : this.H
     const chatH = Math.max(240, Math.min(368, availableH - 12))
-    rec.chipW = 316; rec.chipH = chatH
+    const chatW = this.screenChips ? SCREEN_CHAT_W : CHAT_W
+    rec.chipW = chatW; rec.chipH = chatH
 
     const chat = buildChat({
       title: rec.agent.name,
@@ -607,12 +650,12 @@ export class FleetGraph {
     })
     chip.appendChild(chat)
 
-    chip.style.width = '316px'
+    chip.style.width = chatW + 'px'
     chip.style.height = chatH + 'px'
     rec._chipTimer = setTimeout(() => {
       if (!rec.chatOpen) return
       if (this.screenChips) {
-        chip.style.width = '316px'
+        chip.style.width = SCREEN_CHAT_W + 'px'
         chip.style.height = chatH + 'px'
       } else {
         chip.style.width = ''
@@ -689,6 +732,7 @@ export class FleetGraph {
     if (rec._flingRaf) { cancelAnimationFrame(rec._flingRaf); rec._flingRaf = null }
     clearTimeout(rec._ringTimer)                   // bounded pulse / settle timers
     clearTimeout(rec._settleTimer)                 // must not outlive the node
+    clearTimeout(rec._bracePulseTimer)
     this.nodes.delete(rec.id)
     rec._screenRuntimeUnsub?.()
     rec._screenRuntimeUnsub = null
@@ -1521,7 +1565,7 @@ export class FleetGraph {
     const placed = []
     const open = ranked.filter(n => n.chatOpen)
     for (const rec of open) {
-      const cw = rec.chipW || 316
+      const cw = rec.chipW || SCREEN_CHAT_W
       const ch = rec.chipH || 368
       const slot = this._chooseScreenSlot(rec, cw, ch, obstacles, placed, true)
       if (slot) this._applyScreenSlot(rec, slot, cw, ch, placed)
@@ -1566,7 +1610,7 @@ export class FleetGraph {
   }
 
   _placeChip(n, cx0, cy0) {
-    const cw = n.chatOpen ? 316 : n.chipW
+    const cw = n.chatOpen ? CHAT_W : n.chipW
     const ch = n.chipH        // chatOpen already carries the fitted chat height
     const bx = (x) => Math.max(6, Math.min(this.W - cw - 6, x))
     const by = (y) => Math.max(6, Math.min(this.H - ch - 6, y))
@@ -1608,7 +1652,7 @@ export class FleetGraph {
         else { s += bub + lab * 1.1; occ += bub + lab }
         if (o !== n && o.chip && o._cx != null) {
           s += rectOverlap(x, y, cw, ch, o._cx, o._cy,
-            o.chatOpen ? 316 : o.chipW, o.chipH) * 0.5
+            o.chatOpen ? CHAT_W : o.chipW, o.chipH) * 0.5
         }
       }
       // the panel's own chrome is weighted above a neighbouring bubble: a box
@@ -2604,7 +2648,7 @@ export class FleetGraph {
     clearTimeout(this._zoomHotTimer)
     for (const n of this.nodes.values()) {
       if (n._flingRaf) cancelAnimationFrame(n._flingRaf)
-      clearTimeout(n._ringTimer); clearTimeout(n._settleTimer)
+      clearTimeout(n._ringTimer); clearTimeout(n._settleTimer); clearTimeout(n._bracePulseTimer)
       n._screenRuntimeUnsub?.()
       n._screenRuntimeUnsub = null
     }
