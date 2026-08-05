@@ -370,3 +370,10 @@
    ------------------------------------------------------------ */
 .computers .rail-page.mc-out .bh-v,
 .computers .rail-page.mc-out .bv { visibility: hidden; }
+
+/* The rail's fail readout wears severity like everywhere else — the same
+   2/5 thresholds and the same text-safe Carbon steps the metrics page and
+   agent table read, so 6% means one colour on every surface it appears. */
+.board-meta .sev-good { color: var(--s-good-text, var(--s-good)); font-style: normal; }
+.board-meta .sev-warn { color: var(--s-warn-text, var(--s-warn)); font-style: normal; }
+.board-meta .sev-serious { color: var(--s-serious-text, var(--s-serious)); font-style: normal; }

@@ -90,29 +90,15 @@
   --g-manager:     #7d9bff;
   --g-default:     #ffd84d;
 
-  /* STATUS. Re-stepped per theme exactly the way --ink-*, --heat-*, --chart-*
-     and --prov-* already are — this trio was the one palette still declared
-     once and then drawn on three different grounds. It is not decoration: it
-     carries the Fail column's 13px numbers, the failure bars, the legend keys
-     and the verdict bar's segments, so it needs 4.5:1 as text and 3:1 as a
-     mark on EVERY ground it lands on.
-
-     These are the light values (white + tan). Measured on the real composited
-     surfaces — the page/card (cards are flat, so card == --bg) and the chart
-     track the bars are drawn on:
-
-       --s-good    #0a6d3c   white 6.05 card / 5.48 track · tan 5.12 / 4.52
-       --s-warn    #8f5902   white 5.49 / 4.97           · tan 4.64 / 4.10
-       --s-serious #b23811   white 5.70 / 5.16           · tan 4.82 / 4.26
-
-     The old trio (#0f8a4d / #c77d00 / #d24317) is the BLACK step and moves
-     there intact — see :root[data-theme="black"] — because those values were
-     only ever tuned against a dark ground. On tan, #c77d00 measured 2.63:1
-     against the page and 2.32:1 against the track: below the 3:1 mark floor,
-     let alone the 4.5:1 it needed as a number. */
-  --s-good: #0a6d3c;
-  --s-warn: #8f5902;
-  --s-serious: #b23811;
+  /* SEVERITY TEXT — the same Carbon families as the metrics alert marks,
+     stepped for readable characters. On the white page (#f7f8fa), the
+     resolved green60 / yellow60 / red60 trio at 4.72 / 4.69 / 4.71:1.
+     Metrics keeps its separate --sev-* mark palette; sitewide marks that
+     reuse these darker text steps still clear the non-text floor. Tan needs
+     its own text re-step below, while the dark mark hues already clear AA. */
+  --s-good: #198038;
+  --s-warn: #8e6a00;
+  --s-serious: #da1e28;
   --s-critical: #b3123e;
 
   --glow: 1;                  /* glow multiplier (settings) */
@@ -329,6 +315,11 @@
   --ink-25: #504945;
   --ink-3:  #665c54;
   --ink-4:  #7c6f64;
+  /* severity text — Carbon green70 / yellow70 / red70; composited on the
+     tan page #f2e5bc they measure 6.14 / 6.24 / 6.20:1 */
+  --s-good: #0e6027;
+  --s-warn: #684e00;
+  --s-serious: #a2191f;
   --line:   rgba(40, 40, 40, 0.10);
   --line-2: rgba(40, 40, 40, 0.17);
   /* same neutral the hairlines already use — navy shadows read cold
@@ -375,15 +366,11 @@
      read at all against a near-black surface. */
   --shadow-rgb: 0, 0, 0;
   --shadow-k: 1.7;
-  /* status re-stepped for a dark ground (see the :root block). Against the
-     page #0d0f12 / the sheet #14171b:
-       --s-good    #19a05e   5.69 / 5.33
-       --s-warn    #c77d00   5.81 / 5.45
-       --s-serious #e35733   5.19 / 4.86
-     The light trio would have read 2.98 / 3.29 / 3.17 here. */
-  --s-good: #19a05e;
-  --s-warn: #c77d00;
-  --s-serious: #e35733;
+  /* severity text — the Carbon dark mark steps (green40 / yellow30 / red50)
+     are already text-safe on #0d0f12 at 8.03 / 11.40 / 5.72:1 */
+  --s-good: #42be65;
+  --s-warn: #f1c21b;
+  --s-serious: #fa4d56;
   /* the ink ramp inverts, so these must too: the navy literals they replace
      were 1.01:1 here — invisible. White-ink alphas solved against the
      sampled black drawer glass rgb(23,26,31) and the #0d0f12 page. The

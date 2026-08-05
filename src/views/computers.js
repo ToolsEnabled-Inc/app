@@ -900,7 +900,7 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="agent-ring-wrap"></div>
         <div class="rail-sub board-meta">
           <span>${agent.model} · ${agent.pool}</span>
-          <span>${agent.tasksDone} tasks · ${agent.failRate}% fail</span>
+          <span>${agent.tasksDone} tasks · <em class="sev-${agent.failRate < 2 ? 'good' : agent.failRate < 5 ? 'warn' : 'serious'}">${agent.failRate}% fail</em></span>
         </div>
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">Tuning</span></div>
