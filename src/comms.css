@@ -454,15 +454,21 @@
 .watch-stack { display: flex; flex-direction: column; gap: var(--s3, 12px); max-width: 1060px; margin: 0 auto; }
 .watch-pane.no-trans * { transition: none !important; }
 
-/* preview height scale — the size control; dominant boxes read ~1.7× */
-.watch-pane[data-size="s"] { --pv-h: 92px; --pv-dom: 158px; }
-.watch-pane[data-size="m"] { --pv-h: 152px; --pv-dom: 258px; }
-.watch-pane[data-size="l"] { --pv-h: 232px; --pv-dom: 392px; }
+/* preview height scale — the size control; dominant boxes read ~1.7×.
+   Re-tuned for full 2-3 sentence messages (a message now runs ~2 wrapped
+   lines ≈ 48px with its gap, vs ~23px for the old one-line bits): each step
+   shows roughly what it used to show in MESSAGES — S ≈ the newest two,
+   M ≈ three, L ≈ five — rather than shrinking to a fixed count of pixels
+   that now cuts mid-sentence. */
+.watch-pane[data-size="s"] { --pv-h: 116px; --pv-dom: 196px; }
+.watch-pane[data-size="m"] { --pv-h: 188px; --pv-dom: 320px; }
+.watch-pane[data-size="l"] { --pv-h: 292px; --pv-dom: 472px; }
 /* measured box chrome — everything between a tile's edge and its preview:
-   8px padding ×2 + 1px hairline ×2 + 27px header row + 7px header margin
-   = 52px (probe-measured, identical on every box). Split heights derive
-   from preview steps + this, so the two never drift apart silently. */
-.watch-pane { --wb-chrome: 52px; }
+   8px padding ×2 + 1px hairline ×2 + 27px header row + 4px header margin
+   + 19px purpose line + 8px purpose margin = 76px (probe-measured,
+   identical on every box). Split heights derive from preview steps + this,
+   so the two never drift apart silently. */
+.watch-pane { --wb-chrome: 76px; }
 
 /* ---------- the reused chip, re-seated as a board tile ----------
    The shared .chip is now transparent at rest — on the graph that is right,
@@ -502,8 +508,19 @@
 .wb-box { display: flex; flex-direction: column; min-height: 0; }
 .wb-box .chip-preview {
   overflow-y: auto; min-height: 0;
-  display: flex; flex-direction: column; gap: 3px;
-  max-height: var(--pv-h, 152px);
+  /* Two-column grid, not a flex stack: column 1 is a shared name rail every
+     .cl line slots into via subgrid, so the senders align down the pane and
+     "who is talking" reads without reading a message. max-content sizes the
+     rail to the longer of the pane's two names — no magic width to drift.
+     The 8px row gap is the between-message spacing; wrapped lines inside a
+     message sit at line-height only, so message boundaries stay legible now
+     that messages run 2-3 lines. */
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 8px;
+  align-content: start;
+  max-height: var(--pv-h, 188px);
   transition: max-height 0.45s var(--ease);
   scrollbar-width: thin;
   /* These panes are pinned to their newest line, so their top edge always cuts
@@ -516,7 +533,7 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--wb-fade));
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--wb-fade));
 }
-.wb-box.dominant .chip-preview { max-height: var(--pv-dom, 258px); }
+.wb-box.dominant .chip-preview { max-height: var(--pv-dom, 320px); }
 /* dominance is size plus a firmer hairline — the old white-alpha fill was
    invisible once the tile itself became an opaque sheet (and near-invisible
    on the black theme's --wa 0.075 regardless) */
@@ -534,16 +551,50 @@
   border-color: color-mix(in oklab, var(--ink-4) 42%, transparent);
 }
 .wb-box.lead .wb-name { font-size: 14.5px; }
-/* readable, wrapping context lines — the board is for reading, 13px floor */
+/* readable, wrapping context lines — the board is for reading, 13px floor.
+   overflow-wrap keeps the long evidence paths (reports/q44-…md) from pushing
+   the text column wide in a narrow split. */
 .watch-pane .chip .cl {
+  grid-column: 1 / -1;
   font-size: 13px; line-height: 1.55;
   white-space: normal; overflow: visible; text-overflow: clip;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;   /* run counts and timings align down the box */
 }
 .watch-pane .chip .cl b { font-weight: 640; }
+/* fallback separator for browsers without subgrid: name and text sit inline,
+   so they need the old " · " seam back or they run together */
+.watch-pane .chip .cl > b::after { content: " · "; color: var(--ink-4); font-weight: 480; }
+@supports (grid-template-columns: subgrid) {
+  .watch-pane .chip .cl { display: grid; grid-template-columns: subgrid; }
+  /* names right-align against the text column's seam (the IRC convention):
+     the rail edge stays ruler-straight however long each name is */
+  .watch-pane .chip .cl > b { justify-self: end; white-space: nowrap; }
+  .watch-pane .chip .cl > b::after { content: none; }
+}
+/* speaker identity, quiet: each side's name takes the same role hue its
+   header dot wears (set as --au-a/--au-b on the box), mixed well toward ink
+   so the rail reads as ink with a cast, not as colour noise. */
+.watch-pane .chip .cl.side-a > b { color: color-mix(in oklab, var(--au-a, var(--ink)) 45%, var(--ink)); }
+.watch-pane .chip .cl.side-b > b { color: color-mix(in oklab, var(--au-b, var(--ink)) 45%, var(--ink)); }
 
-/* box header: pair · key · actions */
-.wb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; min-width: 0; }
+/* box header: pair · key · actions — tightened to 4px so the purpose line
+   below it reads as part of the header block, not as a first message */
+.wb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; min-width: 0; }
+/* one-line channel purpose under the header: the pane answers "what is this
+   channel for" before a single message is read. Prose, so it takes the UI
+   face, not the machine-token mono; one line always — it is a label, and a
+   wrapping label would compete with the messages it introduces. */
+.wb-desc {
+  margin: 0 0 8px;
+  font-family: var(--font-ui);
+  font-size: 13px; line-height: 1.45;
+  color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* the expanded chat's own header already names the pair and the key — the
+   purpose line would just push the log down */
+.watch-pane .chip.as-chat .wb-desc { display: none; }
 .wb-pair { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; }
 .wb-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .wb-name { font-size: 13.5px; font-weight: 650; color: var(--ink); white-space: nowrap; }
