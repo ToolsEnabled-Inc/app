@@ -33,7 +33,7 @@ import { LineChart, BarChart, HeatmapChart, SankeyChart } from 'echarts/charts'
 // unregistered on purpose (the demo look cannot physically leak in).
 import {
   GridComponent, TooltipComponent, VisualMapComponent,
-  DataZoomComponent, DataZoomInsideComponent,
+  DataZoomComponent, DataZoomInsideComponent, MarkAreaComponent,
 } from 'echarts/components'
 import { UniversalTransition } from 'echarts/features'
 import { SVGRenderer } from 'echarts/renderers'
@@ -43,7 +43,7 @@ import { withAlpha } from './echarts-theme.js'
 echarts.use([
   LineChart, BarChart, HeatmapChart, SankeyChart,
   GridComponent, TooltipComponent, VisualMapComponent,
-  DataZoomComponent, DataZoomInsideComponent,
+  DataZoomComponent, DataZoomInsideComponent, MarkAreaComponent,
   UniversalTransition, SVGRenderer,
 ])
 
@@ -496,6 +496,20 @@ const heartTime = new Intl.DateTimeFormat('en-US', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 })
 
+const heartbeatHiccupBands = (points) => {
+  const bands = []
+  let start = -1
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].hiccup && start < 0) start = i
+    const closes = start >= 0 && (!points[i].hiccup || i === points.length - 1)
+    if (!closes) continue
+    const end = points[i].hiccup ? i : i - 1
+    bands.push([{ xAxis: String(start) }, { xAxis: String(end) }])
+    start = -1
+  }
+  return bands
+}
+
 function heartbeatOption(P) {
   const { heartbeat, theme: th } = P
   const machines = heartbeat.machines
@@ -534,6 +548,7 @@ function heartbeatOption(P) {
     },
     series: machines.map((machine, i) => {
       const on = selected(machine)
+      const hiccups = heartbeatHiccupBands(machine.points)
       return {
         id: `heartbeat-${machine.id}`, name: machine.name, type: 'line',
         xAxisIndex: i, yAxisIndex: i,
@@ -542,6 +557,21 @@ function heartbeatOption(P) {
         smooth: false, connectNulls: true,
         lineStyle: { color: th.signal, width: 1.35, opacity: on ? 0.9 : 0.2 },
         itemStyle: { color: th.signal, opacity: on ? 1 : 0.25 },
+        /* A flat span is an event, never the neutral operating pattern. The
+           warning underlay is rebuilt from the actual held points on every
+           option issue, and its literal theme snapshot cannot go stale on a
+           white/tan/black flip. */
+        markArea: {
+          silent: true,
+          animation: false,
+          label: { show: false },
+          itemStyle: {
+            color: withAlpha(th.warn, on ? 0.12 : 0.045),
+            borderColor: withAlpha(th.warn, on ? 0.32 : 0.12),
+            borderWidth: 0.75,
+          },
+          data: hiccups,
+        },
         emphasis: { focus: 'series', lineStyle: { width: 1.8, opacity: 1 }, scale: 1.35 },
         blur: { lineStyle: { opacity: 0.14 }, itemStyle: { opacity: 0.2 } },
         universalTransition: true,

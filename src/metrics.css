@@ -195,6 +195,12 @@
   font-variant-numeric: tabular-nums;
   transition: color .3s var(--ease);
 }
+/* Failure rate alone has a defined absolute verdict (<2 / 2–5 / >5).
+   These are the same text-safe theme steps as the agent table's fail column;
+   the other five count values remain neutral because they have no threshold. */
+.stat[data-tile="fail"] .tv.fail-ok { color: var(--s-good); }
+.stat[data-tile="fail"] .tv.fail-warn { color: var(--s-warn); }
+.stat[data-tile="fail"] .tv.fail-bad { color: var(--s-serious); }
 .stat .tv .unit {
   font-size: 12.5px; color: var(--ink-25); font-weight: 550;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -266,7 +266,7 @@ const TILE_DEFS = [
   },
   {
     id: 'gates', l: 'Gate blocks', spark: true,
-    val: (d) => d.tiles.gateBlocks, fmt: (v) => String(Math.round(v)), unit: () => 'held safely',
+    val: (d) => d.tiles.gateBlocks, fmt: (v) => String(Math.round(v)), unit: () => 'held · by design',
     delta: { kind: 'session', noun: 'held', signed: false },
   },
 ]
@@ -330,6 +330,7 @@ export function metricsView() {
      cross a threshold. */
   const HEART_POINTS = 72
   const HEART_CADENCE = 520
+  const HEART_WINDOW_SECONDS = Math.round(((HEART_POINTS - 1) * HEART_CADENCE) / 1000)
   const heartbeatHiccup = (c) => c.agents.some(a => a.state === 'spawning')
     || c.stats.net < 12 || c.stats.cpu > 90 || c.stats.disk > 56
   const heartbeatPoint = (c, machineIndex, sequence, at, forcedHiccup = null) => {
@@ -867,6 +868,19 @@ export function metricsView() {
     }
   }
 
+  /* Only failure rate has an absolute site-wide verdict. Keep the class on
+     the value wrapper so the number itself uses the same text-safe severity
+     steps as the agent table; the percent unit remains in the quiet register. */
+  function paintTileValue(ref, value) {
+    ref.num.textContent = ref.def.fmt(value)
+    if (ref.def.id !== 'fail') return
+    const cls = value < 2 ? 'fail-ok' : value <= 5 ? 'fail-warn' : 'fail-bad'
+    if (ref.failCls === cls) return
+    if (ref.failCls) ref.tv.classList.remove(ref.failCls)
+    ref.tv.classList.add(cls)
+    ref.failCls = cls
+  }
+
   /* Number craft: a ~300ms count on the value itself, engine-free (plain
      rAF), one atomic textContent swap per frame — never two glyphs blended
      or overlapped, so the readout is a legal reading at every instant (the
@@ -878,14 +892,13 @@ export function metricsView() {
       const from = ref.lastVal ?? 0
       ref.lastVal = to
       ref.cancelTick?.()
-      const fmt = ref.def.fmt
-      if (reduced() || from === to) { ref.num.textContent = fmt(to); continue }
+      if (reduced() || from === to) { paintTileValue(ref, to); continue }
       const t0 = performance.now()
       let raf = 0
       const step = (now) => {
         const p = Math.min(1, (now - t0) / 300)
         const e = 1 - Math.pow(1 - p, 3)                // out-cubic, settles quietly
-        ref.num.textContent = fmt(from + (to - from) * e)
+        paintTileValue(ref, from + (to - from) * e)
         if (p < 1) raf = requestAnimationFrame(step)
       }
       raf = requestAnimationFrame(step)
@@ -1054,6 +1067,37 @@ export function metricsView() {
 
   const componentPlaced = (id) => !root.querySelector(`.m-stash > [data-mc="${id}"]`)
 
+  const heartbeatMachinesInScope = () => state.machine === 'all'
+    ? heartbeat.machines
+    : heartbeat.machines.filter(machine => machine.id === state.machine)
+
+  function heartbeatHiccupSummary() {
+    let count = 0
+    let lastAt = 0
+    for (const machine of heartbeatMachinesInScope()) {
+      let held = false
+      for (const point of machine.points) {
+        if (point.hiccup && !held) {
+          count += 1
+          lastAt = Math.max(lastAt, point.at)
+        }
+        held = point.hiccup
+      }
+    }
+    return count
+      ? `${count} hiccup${count === 1 ? '' : 's'} · last ${beatClock.format(lastAt)}`
+      : 'no hiccups'
+  }
+
+  function syncHeartbeatChrome() {
+    const sub = root.querySelector('#heartbeat-sub')
+    if (!sub) return
+    const caption = `last ${HEART_WINDOW_SECONDS} s · ${HEART_CADENCE} ms samples · ${heartbeatHiccupSummary()}${machineSuffix()}`
+    if (sub.textContent !== caption) sub.textContent = caption
+    const host = root.querySelector('#heartbeat-chart')
+    if (host) host.setAttribute('aria-label', `Machine heartbeat traces, ${caption}`)
+  }
+
   const heartbeatRefs = new Map(heartbeat.machines.map(machine => [
     machine.id,
     root.querySelector(`[data-hb="${machine.id}"]`),
@@ -1124,6 +1168,10 @@ export function metricsView() {
          its established settled layout rate. */
       const waveformComplete = heartbeat.sequence % HEART_PATTERN.length === 0
       if (waveformComplete || signalDirty) {
+        /* Keep the measured sub-caption on the same snapshot as the trace;
+           otherwise a rolled-out hiccup could disappear from the counter up
+           to one waveform before its warning band left the SVG. */
+        syncHeartbeatChrome()
         charts?.updateHeartbeat({
           heartbeat, theme, dur: 0, entrance: false,
           reduced: reduced(), machine: state.machine,
@@ -1516,7 +1564,7 @@ export function metricsView() {
   }
 
   function syncOptionalChrome(R = meta()) {
-    if (componentPlaced('heartbeat')) root.querySelector('#heartbeat-sub').textContent = `two machines · rolling live signal${machineSuffix()}`
+    if (componentPlaced('heartbeat')) syncHeartbeatChrome()
     if (componentPlaced('burn')) root.querySelector('#burn-sub').textContent = `${R.word} · per machine-day${machineSuffix()}`
     if (componentPlaced('gates')) root.querySelector('#gates-sub').textContent = `${R.word} · event log${machineSuffix()}`
   }
