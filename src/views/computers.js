@@ -76,12 +76,18 @@ const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, char => 
 // Fleet graph roles are deliberately broader than the visual palette. Keep
 // the declared role separately (for the projection register) and only map it
 // to an existing role colour so the graph grammar remains intact.
+/* All five palette hues earn their keep: builders and workers had both been
+   flattened to default mustard, which made six of thirteen live nodes
+   identical — the exact "coloring is a mess" the owner flagged. Builders
+   take helper orange (the working hands), workers take spawned grey
+   (background labour), and the coordinator's assistant is semantically the
+   shadow role, freeing helper for the population that acts like one. */
 const graphRole = (role) => ({
   controller: 'coordinator',
-  'coordinator-assistant': 'helper',
+  'coordinator-assistant': 'shadow',
   manager: 'manager',
-  worker: 'default',
-  builder: 'default',
+  worker: 'spawned',
+  builder: 'helper',
 }[role] || 'default')
 
 function projectedComputer(computer, graph) {
@@ -158,7 +164,10 @@ function projectionMonitorContext(agent) {
   return {
     current: `role: ${agent.declaredRole}`,
     previous: `state: ${agent.state}`,
-    chat: 'messages unavailable',
+    // null, not "messages unavailable": a slot with nothing to say stays
+    // silent (the row hides); the block's quiet footer already declares the
+    // projection's limits once. The chat click-through is unaffected.
+    chat: null,
     tasks: null,
     failRate: null,
     model: agent.provider,
@@ -520,7 +529,7 @@ export function computersView({ initialComputer = null, navigate }) {
       <div class="comp-body">
         <div class="graph-wrap glass">
           <div class="graph-crumb"></div>
-          <div class="graph-hint glass">Graph is getting dense — select a bottom node to focus its branch</div>
+          <div class="graph-hint glass">Select a node to focus its branch</div>
           <div class="seg graph-layout-seg" role="group" aria-label="Graph layout">
             <button type="button" data-layout="tree" title="Tidy hierarchy view">Tree</button>
             <button type="button" data-layout="force" title="Live force-directed view">Physics</button>
@@ -945,7 +954,15 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="rail-sec">Services</div>
         <div class="task-list projection-state">
           ${services.length
-            ? services.map(service => `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b> · ${escapeMarkup(service.state)}${service.detail ? ` · ${escapeMarkup(service.detail)}` : ''}</div>`).join('')
+            ? services.map(service => {
+              /* meta wraps as one unit under the name — a separator that
+                 lands at a line start reads as an orphaned "·". Typography
+                 normalization only: the projection's "--" becomes an
+                 em-dash; content is the generator's to say. */
+              const meta = [service.state, service.detail].filter(Boolean)
+                .join(' · ').replace(/\s--\s/g, ' — ')
+              return `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b><span class="svc-meta">${escapeMarkup(meta)}</span></div>`
+            }).join('')
             : '<div class="rail-sub">No services declared by fleet projection</div>'}
         </div>
         <div class="rail-sec">Declared graph</div>

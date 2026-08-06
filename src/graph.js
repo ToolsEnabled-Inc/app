@@ -446,7 +446,10 @@ export class FleetGraph {
     // both the label-avoid force and chip placement
     const labelW = Math.max(
       70,
-      agent.name.length * 7.6 + 18,                    // 12.5px/600 name + status dot
+      // name row is CSS-clamped at --d+112 (live projection names run to 40+
+      // characters); the physics reserve must mirror the render, or the
+      // label-avoid force defends ~300px of text that isn't on screen
+      Math.min(agent.name.length * 7.6 + 18, r * 2 + 112),
       Math.min(role.label.length * 7.4, r * 2 + 68),   // role row is CSS-capped at --d+68
     )
 
@@ -458,7 +461,7 @@ export class FleetGraph {
             <div class="rl">Runtime</div>
           </div>
         </div>
-        <span class="node-name"><i></i>${escapeMarkup(agent.name)}</span>
+        <span class="node-name" title="${escapeMarkup(agent.name)}"><i></i><span class="nn-t">${escapeMarkup(agent.name)}</span></span>
         <span class="node-role">${role.label}</span>
       </div>
     `)
@@ -525,12 +528,12 @@ export class FleetGraph {
     if (Number.isFinite(agent.bornAt)) {
       this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
     } else {
-      const runtime = nodeEl.querySelector('.rt')
-      runtime.textContent = 'Unavailable'
-      runtime.title = `Runtime unavailable · ${agent.projectionUnavailableReason || 'not provided'}`
-      runtime.hidden = true
-      nodeEl.querySelector('.rl').textContent = 'Runtime unavailable'
-      nodeEl.querySelector('.rl').title = runtime.title
+      // A node with no telemetry is a bare sphere: the role rim and label
+      // are its whole statement. Thirteen copies of any placeholder — even
+      // a quiet "— RUNTIME" — is the same repetition the owner called a
+      // mess; the projection's limits are stated once, in the rail.
+      nodeEl.classList.add('no-telemetry')
+      nodeEl.title = `Runtime unavailable · ${agent.projectionUnavailableReason || 'not provided'}`
     }
     this.wireInteractions(rec)
 
@@ -636,6 +639,7 @@ export class FleetGraph {
           <span class="chip-tasks"></span><i aria-hidden="true">&middot;</i>
           <span class="chip-fail"></span><i aria-hidden="true">&middot;</i>
           <span class="chip-model"></span>
+          <span class="chip-quiet" hidden>telemetry unavailable · fleet projection</span>
         </div>
         <div class="cl cl-current" data-monitor-row="3-4"></div>
         <div class="cl cl-previous" data-monitor-row="5"></div>
@@ -651,34 +655,52 @@ export class FleetGraph {
         runtime.textContent = fmtRuntime(rec.agent.bornAt)
         rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
       } else {
-        runtime.textContent = 'runtime unavailable'
+        // absent runtime = absent slot; the sphere's em-dash and the quiet
+        // footer below already say it, and saying it in every register was
+        // the noise the owner called a mess
+        runtime.hidden = true
         runtime.title = `Runtime unavailable · ${rec.agent.projectionUnavailableReason || 'not provided'}`
       }
     }
     const feed = this._screenContext(rec)
     const tasks = Number.isFinite(feed.tasks) ? Math.max(0, Math.round(feed.tasks)) : null
     const failRate = Number.isFinite(feed.failRate) ? Math.max(0, feed.failRate) : null
-    pv.querySelector('.chip-tasks').innerHTML = formatInlineText(tasks == null
-      ? 'tasks unavailable'
-      : `${tasks} tasks`, {
-      agents: this.computer.agents,
-      roleKey: rec.agent.role,
-    })
-    const fail = pv.querySelector('.chip-fail')
-    fail.innerHTML = formatInlineText(failRate == null
-      ? 'fail unavailable'
-      : `${failRate}% fail`, {
-      agents: this.computer.agents,
-      roleKey: rec.agent.role,
-    })
-    fail.classList.remove('sev-good', 'sev-warn', 'sev-serious')
-    if (failRate != null) fail.classList.add(`sev-${failRate < 2 ? 'good' : failRate < 5 ? 'warn' : 'serious'}`)
-    pv.querySelector('.chip-model').innerHTML = formatInlineText(rec.agent.projectionUnavailableReason
-      ? `provider: ${feed.model || 'unavailable · not provided'}`
-      : (feed.model || 'unknown model'), {
-      agents: this.computer.agents,
-      roleKey: rec.agent.role,
-    })
+    /* Facts render only what exists. A block that printed "tasks unavailable
+       · fail unavailable · provider: unavailable" six times over was honesty
+       repeated into noise — absence hides the segment, and when nothing at
+       all survives, ONE muted line owns the admission. */
+    const factsRow = pv.querySelector('.cl-facts')
+    const segTasks = pv.querySelector('.chip-tasks')
+    const segFail = pv.querySelector('.chip-fail')
+    const segModel = pv.querySelector('.chip-model')
+    const seps = factsRow.querySelectorAll('i')
+    const modelText = feed.model || (rec.agent.projectionUnavailableReason ? null : 'unknown model')
+    segTasks.hidden = tasks == null
+    if (tasks != null) {
+      segTasks.innerHTML = formatInlineText(`${tasks} tasks`, {
+        agents: this.computer.agents,
+        roleKey: rec.agent.role,
+      })
+    }
+    segFail.hidden = failRate == null
+    segFail.classList.remove('sev-good', 'sev-warn', 'sev-serious')
+    if (failRate != null) {
+      segFail.innerHTML = formatInlineText(`${failRate}% fail`, {
+        agents: this.computer.agents,
+        roleKey: rec.agent.role,
+      })
+      segFail.classList.add(`sev-${failRate < 2 ? 'good' : failRate < 5 ? 'warn' : 'serious'}`)
+    }
+    segModel.hidden = !modelText
+    if (modelText) {
+      segModel.innerHTML = formatInlineText(modelText, {
+        agents: this.computer.agents,
+        roleKey: rec.agent.role,
+      })
+    }
+    seps[0].hidden = segTasks.hidden || (segFail.hidden && segModel.hidden)
+    seps[1].hidden = segFail.hidden || segModel.hidden
+    pv.querySelector('.chip-quiet').hidden = !(segTasks.hidden && segFail.hidden && segModel.hidden)
     const update = (selector, text, prefix = '') => {
       const row = pv.querySelector(selector)
       const next = text ? prefix + text : ''
@@ -1007,13 +1029,18 @@ export class FleetGraph {
       const hv = hashStr(`${l.source.id}→${l.target.id}`)
       l.side = hv % 2 ? 1 : -1
       l.bendMul = 0.85 + (hv % 8) * 0.04
+      // Hierarchy edges carry the structure; everything else declared
+      // (reviews, escalations, …) is annotation and rests at a whisper —
+      // nineteen full-strength strokes through the block zone was spaghetti,
+      // not information. Matches the settings' "Link detail: quiet" register.
+      const soft = l.type && l.type !== 'manages' && l.type !== 'delegates_to'
       const under = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      under.setAttribute('class', 'link-under')
+      under.setAttribute('class', soft ? 'link-under link-soft' : 'link-under')
       under.setAttribute('stroke', hex)
       under.setAttribute('stroke-width', '6')
       if (l.type) under.dataset.edgeType = l.type
       const top = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      top.setAttribute('class', 'link-top')
+      top.setAttribute('class', soft ? 'link-top link-soft' : 'link-top')
       top.setAttribute('stroke', hex)
       top.setAttribute('stroke-width', '1.6')
       if (l.type) top.dataset.edgeType = l.type
@@ -2642,22 +2669,71 @@ export class FleetGraph {
       const naiveOk = naive.every((x, i) =>
         i === 0 || x - naive[i - 1] >= list[i - 1].r + list[i].r + 2)
       let xs = naive
-      if (!naiveOk && list.length > 1) {
+      let solved = naiveOk || list.length <= 1
+      if (!solved) {
         for (const [edge, air] of [[44, 10], [12, 10], [12, 0], [12, -6]]) {
           const gaps = list.map((n, i) => i ? list[i - 1].r + n.r + air : 0)
           const span = gaps.reduce((a, b) => a + b, 0)
           const avail = this.W - 2 * edge - list[0].r - list[list.length - 1].r
-          if (span <= avail || air === -6) {
-            // last resort compresses proportionally — a fleet that outgrows
-            // even the overlap floor still never stacks bubbles concentric
-            const k = span > avail ? avail / span : 1
+          if (span <= avail) {
             let x = edge + list[0].r + Math.max(0, (avail - span) / 2)
-            xs = list.map((n, i) => (x += gaps[i] * k))
+            xs = list.map((n, i) => (x += gaps[i]))
+            solved = true
             break
           }
         }
       }
-      list.forEach((n, i) => slots.set(n.id, { x: xs[i], y }))
+      if (solved) {
+        list.forEach((n, i) => {
+          n.el.style.removeProperty('--nn-max')
+          const t = n.el.querySelector('.nn-t')
+          if (t && t.textContent !== n.agent.name) t.textContent = n.agent.name
+          slots.set(n.id, { x: xs[i], y })
+        })
+      } else {
+        /* Past the -6px near-tangent floor the old last resort compressed
+           proportionally — twelve flat-projection siblings on a
+           rail-narrowed canvas came out as one smear of interpenetrating
+           spheres (the owner's verdict: "a mess"). A tier that outgrows one
+           row now wraps into two real rows: every bubble keeps its size,
+           and each node gets a label budget equal to its in-row pitch so
+           the name rows cannot re-create the smear the spheres just
+           escaped. Full names stay in the title and the monitoring block. */
+        const halves = [list.filter((_, i) => i % 2 === 0), list.filter((_, i) => i % 2 === 1)]
+        const lift = Math.min(156, Math.max(120, rowH * 0.4))
+        halves.forEach((sub, si) => {
+          const stepS = this.W / (sub.length + 1)
+          let xsS = sub.map((n, i) =>
+            Math.max(n.r + 24, Math.min(this.W - n.r - 24, stepS * (i + 1))))
+          const okS = xsS.every((x, i) => i === 0 || x - xsS[i - 1] >= sub[i - 1].r + sub[i].r + 2)
+          if (!okS && sub.length > 1) {
+            const gaps = sub.map((n, i) => i ? sub[i - 1].r + n.r + 10 : 0)
+            const span = gaps.reduce((a, b) => a + b, 0)
+            const avail = this.W - 24 - sub[0].r - sub[sub.length - 1].r
+            const k = span > avail ? avail / span : 1
+            let x = 12 + sub[0].r + Math.max(0, (avail - span) / 2)
+            xsS = sub.map((n, i) => (x += gaps[i] * k))
+          }
+          const yS = si === 0 ? y - lift : y
+          sub.forEach((n, i) => {
+            const budget = Math.max(70, Math.round(stepS - 14))
+            n.el.style.setProperty('--nn-max', budget + 'px')
+            /* End-ellipsis rendered four sibling managers as four identical
+               "Codex Manag…" labels — the tail is where live names differ,
+               so middle-truncate to the pitch budget instead. ~7.2px/char at
+               the 12.5px/640 name register; CSS ellipsis stays as backstop. */
+            const t = n.el.querySelector('.nn-t')
+            if (t) {
+              const chars = Math.max(8, Math.floor((budget - 16) / 7.2))
+              const name = n.agent.name
+              t.textContent = name.length > chars
+                ? name.slice(0, Math.ceil(chars / 2)) + '…' + name.slice(-(Math.floor(chars / 2) - 1))
+                : name
+            }
+            slots.set(n.id, { x: xsS[i], y: yS })
+          })
+        })
+      }
     })
     return { slots, rowYs }
   }

@@ -641,6 +641,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Live names carry their status in the tail ("… SUSPENDED R1151") — an
+   end-ellipsis was clipping exactly the load-bearing word. Titles wrap to
+   two lines instead; the block's measured-height self-heal re-places it. */
+.graph-chip-overlay .chip:not(.as-chat) .chip-monitor-name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+/* The one quiet admission a projection-only block makes: lowercase, muted,
+   never repeated across segments. It rides the facts row's slot but opts out
+   of the caps register — it is a footnote, not a fact. */
+.graph-chip-overlay .cl-facts .chip-quiet {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11.5px;
+}
 .graph-chip-overlay .chip-fail.sev-good { color: var(--s-good); }
 .graph-chip-overlay .chip-fail.sev-warn { color: var(--s-warn); }
 .graph-chip-overlay .chip-fail.sev-serious { color: var(--s-serious); }
@@ -855,6 +879,13 @@ body.reduce-motion .graph-canvas .tier-guide {
   stroke-width: 1.6;
 }
 .graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-under { opacity: 0.1; }
+/* Non-hierarchy declared edges (reviews, escalations, …) rest at a whisper
+   in every mode — annotation, not structure. Placed after the tree rules so
+   the soft register wins there too. */
+.graph-canvas .link-soft.link-under { opacity: 0; }
+.graph-canvas .link-soft.link-top { opacity: 0.15; stroke-width: 1.1; }
+.graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-soft.link-top { opacity: 0.15; }
+.graph-canvas[data-layout="tree"]:not([data-edit-mode]) .link-soft.link-under { opacity: 0; }
 .graph-canvas[data-layout="tree"] .node.focusable .node-glass::before { animation: none; }
 .graph-canvas[data-edit-mode] .chip { opacity: 0 !important; pointer-events: none !important; }
 .graph-chip-overlay[data-edit-mode] .chip { opacity: 0 !important; pointer-events: none !important; }

@@ -1233,7 +1233,10 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
   white-space: nowrap;
-  max-width: calc(100% - 220px);
+  /* centered between the crumb (left) and the seg + Edit cluster (right):
+     the worse side is ~250px, so symmetric clearance costs 500 — the 220
+     allowance let live-mode hint copy run beneath the layout seg */
+  max-width: calc(100% - 500px);
   overflow: hidden; text-overflow: ellipsis;
 }
 .graph-hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -1401,7 +1404,16 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   font-size: 12.5px; font-weight: 640; color: var(--ink-2);
   white-space: nowrap;
   display: flex; align-items: center; gap: var(--s1);
+  /* live projection names run 40+ characters — clamp the row near the
+     bubble's own width (mirrored by the labelW estimate in graph.js) and
+     let the full name live in the title + monitoring block. --nn-max is the
+     per-node pitch budget the wrapped-tier packer sets when a flat fleet
+     outgrows one row. */
+  max-width: min(calc(var(--d) + 112px), var(--nn-max, 9999px));
 }
+.node .node-name .nn-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* projection nodes without telemetry present as bare role-rimmed spheres */
+.node.no-telemetry .rt, .node.no-telemetry .rl { display: none; }
 .node .node-name i {
   width: 6px; height: 6px; border-radius: 50%; background: var(--rc);
 }
@@ -1673,6 +1685,12 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   white-space: nowrap;
 }
 @keyframes chipIn { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+/* Projection service rows carry real sentences ("conflict / health …"), not
+   the sim's short task names — nowrap was amputating them mid-word in the
+   rail. Data rows wrap; the chip skin holds. The name/meta split keeps a
+   wrapped line from ever opening on a bare separator. */
+.projection-state .task-chip { white-space: normal; line-height: 1.5; flex-wrap: wrap; }
+.projection-state .task-chip .svc-meta { color: var(--ink-3); min-width: 0; }
 .task-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--tc); flex: none; }
 /* done reads from the strike-through and the ink step, not from a 0.45
    opacity wash that dropped finished task names to ~1.6:1 */

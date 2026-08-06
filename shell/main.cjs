@@ -11,6 +11,11 @@ const fs = require('fs')
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
+/* Fixed, not ephemeral: the action bridge authorizes by exact origin, and a
+   listen(0) port gave the app a different origin every launch (R1137 known
+   issue). EADDRINUSE is a loud failure by design — a silent fallback port
+   would just recreate the drifting-origin bug with extra steps. */
+const SHELL_PORT = 4601
 
 /* Boot theme for the first frame: the renderer reports live colours the
    moment it paints, but the window background and caption buttons exist
@@ -59,7 +64,15 @@ function serveDist() {
         res.end(data)
       })
     })
-    server.listen(0, '127.0.0.1', () => resolve(server))
+    server.on('error', (err) => {
+      const { dialog } = require('electron')
+      const detail = err && err.code === 'EADDRINUSE'
+        ? `Port ${SHELL_PORT} is already in use — another Mission Control shell (or a stray server) is holding it. Close it and relaunch.`
+        : String(err)
+      dialog.showErrorBox('Mission Control could not start', detail)
+      app.exit(1)
+    })
+    server.listen(SHELL_PORT, '127.0.0.1', () => resolve(server))
   })
 }
 
