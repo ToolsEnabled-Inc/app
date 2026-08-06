@@ -125,20 +125,24 @@ function projectedComputer(computer, graph) {
     child.parentId = parent.id
   }
 
-  /* Owner render rules (2026-08-06). One: "if they are all subagents they
-     should be a gray tree under it exactly the same" — role hues belong to
-     STRUCTURAL nodes (root and anything with declared children); leaf
-     children of a flat swarm draw as the uniform grey spawned register the
-     sim always used for spawned agents. Two: when the tier overflows,
-     self-spawned subagents disappear before user-spawned ones ("they take
-     priority in visualizing") — cullRank feeds the graph's tier culler.
-     node.origin ('user' | 'self') is honored the day the generator emits
-     it; until then every node ties as user-spawned and the tie-breakers
-     (enabled first, then name) decide. */
-  const structural = new Set([...byId.values()].filter(a => a.parentId).map(a => a.parentId))
+  /* Owner render rules (2026-08-06, refined the same day). The structure
+     the beloved tree drew from sim data lives in the ROLES, not in the
+     projection's flat manages-edges: "the bubbles weren't all at the
+     bottom, they were fixed in places on the way down the tree." So the
+     tree tiers by role rank — controller, then the coloured org tier
+     (managers, the coordinator's assistant), then the grey subagent pool —
+     regardless of edge shape. Colours belong to the org tier and never
+     cull; workers and builders draw as the uniform grey spawned register,
+     and ONLY grey is cullable: "allowing colored bubbles to make subagents
+     disappear." Cull priority within grey: user-spawned before self-
+     spawned (node.origin honored the day the generator emits it), enabled
+     before disabled, then name. */
+  const TIER = { controller: 0, manager: 1, 'coordinator-assistant': 1 }
   for (const agent of byId.values()) {
     const selfSpawned = graph.nodes.find(n => n.id === agent.id)?.origin === 'self'
-    if (agent.parentId && !structural.has(agent.id)) agent.role = 'spawned'
+    agent.tierRank = TIER[agent.declaredRole] ?? 2
+    if (agent.tierRank === 2) agent.role = 'spawned'
+    agent.cullable = agent.tierRank === 2
     agent.cullRank = (selfSpawned ? 2 : 0) + (agent.state === 'enabled' ? 0 : 1)
   }
 

@@ -1048,7 +1048,10 @@ export class FleetGraph {
       // (reviews, escalations, …) is annotation and rests at a whisper —
       // nineteen full-strength strokes through the block zone was spaghetti,
       // not information. Matches the settings' "Link detail: quiet" register.
-      const soft = l.type && l.type !== 'manages' && l.type !== 'delegates_to'
+      // Links into the grey subagent pool whisper too: a fan of full-
+      // strength root-to-swarm lines was the owner's "what are these lines".
+      const soft = (l.type && l.type !== 'manages' && l.type !== 'delegates_to')
+        || l.target.agent.role === 'spawned'
       const under = document.createElementNS('http://www.w3.org/2000/svg', 'path')
       under.setAttribute('class', soft ? 'link-under link-soft' : 'link-under')
       under.setAttribute('stroke', hex)
@@ -1292,6 +1295,12 @@ export class FleetGraph {
   }
 
   _resolveClampedLabels(nodesArr, padX, padTop, padBot) {
+    /* Physics-mode tool only. In tree mode the packer owns geometry — label
+       widths are pitch-budgeted and wrapped rows carry clearance — and this
+       per-tick resolver was silently shoving slotted bubbles 4-34px off the
+       tier grid (the sim is parked, so nothing ever snapped them back; the
+       owner's rule is that tree bubbles move only on role change or edit). */
+    if (this._treeActive()) return
     const edgePad = Math.max(4, padX - 12)
     for (let pass = 0; pass < 6; pass++) {
       let moved = false
@@ -2625,6 +2634,10 @@ export class FleetGraph {
     const nodes = [...this.nodes.values()]
     const byId = new Map(nodes.map(n => [n.id, n]))
     const depthOfNode = (n) => {
+      // a projection can declare its edges flat while its ROLES carry the
+      // real structure — an explicit tierRank wins over the parent walk,
+      // so the org tier stays "fixed in places on the way down the tree"
+      if (Number.isFinite(n.agent.tierRank)) return n.agent.tierRank
       let d = 0, cur = n.agent
       while (cur.parentId && byId.has(cur.parentId) && d < 9) { cur = byId.get(cur.parentId).agent; d++ }
       return d
@@ -2704,10 +2717,14 @@ export class FleetGraph {
       if (solved) {
         list.forEach((n, i) => {
           n.culled = false
-          this._setLabelBudget(n, null)
+          // the pitch budget applies on EVERY multi-node tier, not just
+          // wrapped/culled ones — six grey siblings that "fit" as spheres
+          // still smeared their full prose names across each other. Wide
+          // pitches are a no-op: a name inside its budget renders whole.
+          this._setLabelBudget(n, list.length > 1 ? step : null)
           slots.set(n.id, { x: xs[i], y })
         })
-      } else if (this.cullTierOverflow) {
+      } else if (this.cullTierOverflow && list.every(n => n.agent.cullable)) {
         /* Owner rule: past the budget, the tier does not wrap or squeeze —
            the overflow disappears. Priority: user-spawned agents hold the
            tree, self-spawned ones vanish first ("they take priority in
@@ -2755,7 +2772,12 @@ export class FleetGraph {
            the name rows cannot re-create the smear the spheres just
            escaped. Full names stay in the title and the monitoring block. */
         const halves = [list.filter((_, i) => i % 2 === 0), list.filter((_, i) => i % 2 === 1)]
-        const lift = Math.min(156, Math.max(120, rowH * 0.4))
+        // the lift must CLEAR the upper row's bubbles + hanging labels over
+        // the lower row's bubble tops — anything less re-creates the exact
+        // overlap the label resolver used to fight the packer over
+        const maxR = Math.max(...list.map(n => n.r))
+        const maxLabelH = Math.max(...list.map(n => n.labelH || 41))
+        const lift = Math.min(200, Math.max(2 * maxR + maxLabelH + 10, 120))
         halves.forEach((sub, si) => {
           const stepS = this.W / (sub.length + 1)
           let xsS = sub.map((n, i) =>
@@ -2861,22 +2883,28 @@ export class FleetGraph {
     // to this run's real duration they arrive as a consequence of the layout
     // settling, which is what a tier guide actually means.
     this._renderTierGuides(rowYs, D ? D + TIER_GUIDE_BEAT_MS : 0)
-    this._treeSettleTimer = setTimeout(() => {
-      if (this._destroyed || !this._treeActive()) return
-      /* Recompute at fire time — NOT the closure's map. Mount races arm
-         several of these (one from the pre-attach 800×600 fallback canvas),
-         and whichever fires last would otherwise snap the tree to ITS stale
-         geometry: measured as a 9-survivor row parked on an 8-survivor
-         grid, sign-flipping deltas and all. An instant re-layout converges
-         in one hop (its own timer then finds zero drift and stops). */
-      const { slots: fresh } = this._treeSlots()
-      let drift = false
-      for (const n of this.nodes.values()) {
-        const s = fresh.get(n.id)
-        if (s && !n._editDragging && (Math.abs(n.x - s.x) > 1 || Math.abs(n.y - s.y) > 1)) { drift = true; break }
-      }
-      if (drift) this._layoutTree(false)
-    }, D + 140)
+    /* A verification SERIES, not a single check: slots are recomputed at
+       fire time (a first fix snapped to a stale closure map from the
+       pre-attach 800×600 canvas), and the checks repeat because the freeze
+       is not always inside the first window — QA measured a tree parked at
+       ~90% of an ease, static forever, AFTER a first check had already
+       passed. Whatever animator loses its frames, the last check within
+       ~2.4s of the last layout lands everything on the true slots. */
+    const SETTLE_AT = [D + 140, D + 1000, D + 2400]
+    const verify = (i) => {
+      this._treeSettleTimer = setTimeout(() => {
+        if (this._destroyed || !this._treeActive()) return
+        const { slots: fresh } = this._treeSlots()
+        let drift = false
+        for (const n of this.nodes.values()) {
+          const s = fresh.get(n.id)
+          if (s && !n._editDragging && (Math.abs(n.x - s.x) > 1 || Math.abs(n.y - s.y) > 1)) { drift = true; break }
+        }
+        if (drift) { this._layoutTree(false); return }   // restarts its own series
+        if (i + 1 < SETTLE_AT.length) verify(i + 1)
+      }, SETTLE_AT[i] - (i ? SETTLE_AT[i - 1] : 0))
+    }
+    verify(0)
     const step = (t) => {
       const u = D ? Math.min(1, (t - t0) / D) : 1
       // STRUCTURAL register (see EASE_STRUCTURAL): a tree relayout is the
