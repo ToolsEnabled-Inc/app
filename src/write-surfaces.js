@@ -80,9 +80,9 @@ export function mountAgentWriteSurface(root, { agentId }) {
     <header><strong>Audited actions</strong><span data-write-status role="status">not connected</span></header>
     <div class="write-surface-grid">
       ${dispatchEnabled ? `<form class="write-form" data-dispatch-form>
-        <span class="write-form-title">Dispatch Codex lane</span>
+        <span class="write-form-title">Dispatch agent lane</span>
         <label>Root<select data-root-select aria-label="Dispatch worktree root"></select></label>
-        <label>Tier<select name="tier"><option value="luna">Luna · medium</option><option value="terra">Terra · high</option><option value="sol">Sol · ultra</option></select></label>
+        <label>Tier<select name="tier"><optgroup label="Codex"><option value="luna">Luna · medium</option><option value="terra">Terra · high</option><option value="sol">Sol · ultra</option></optgroup><optgroup label="Claude"><option value="claude-fable">Fable</option><option value="claude-sonnet">Sonnet</option><option value="claude-opus">Opus</option></optgroup></select></label>
         <label>Objective<input name="objectiveRef" maxlength="80" value="agent-${esc(agentId)}" required /></label>
         <label class="write-wide">Brief<textarea name="brief" maxlength="16000" rows="2" required></textarea></label>
         <button type="submit">Dispatch</button>

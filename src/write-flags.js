@@ -1,7 +1,7 @@
 export const WRITE_FLAGS_EVENT = 'mc:write-flags-changed'
 
 export const WRITE_ACTION_FLAGS = Object.freeze([
-  Object.freeze({ id: 'dispatch', label: 'Dispatch Codex lanes', description: 'Show the audited sol / terra / luna dispatch form.' }),
+  Object.freeze({ id: 'dispatch', label: 'Dispatch agent lanes', description: 'Show the audited Codex and Claude dispatch form.' }),
   Object.freeze({ id: 'decision', label: 'Approve or decline', description: 'Show durable decision controls in the ledger.' }),
   Object.freeze({ id: 'queue', label: 'Claim or close queue', description: 'Show strict BUILD-QUEUE claim and close controls.' }),
   Object.freeze({ id: 'thread-reply', label: 'Coordinator replies', description: 'Enable the durable coordinator-thread composer.' }),
