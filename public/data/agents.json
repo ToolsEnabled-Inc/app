@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "agents",
-  "generatedAt": "2026-08-06T03:38:58.946Z",
+  "generatedAt": "2026-08-06T08:30:53.190Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -18,7 +18,7 @@
       "kind": "canonical-config",
       "path": "config/agent-org.json",
       "ok": true,
-      "observedAt": "2026-08-05T21:34:59.291Z",
+      "observedAt": "2026-08-06T08:30:52.345Z",
       "reason": null
     },
     {
@@ -26,13 +26,13 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T03:38:59.007Z",
+      "observedAt": "2026-08-06T08:30:53.252Z",
       "reason": null
     }
   ],
   "data": {
-    "revision": 15,
-    "contentHash": "3e9a1ae29039382323c672756a944ee66bc5541e763420a853784f99d8300fce",
+    "revision": 16,
+    "contentHash": "d9769bbd97ebc053ad7af8a6fe58f12911c124d9a3fd43516d5faddec6797300",
     "declared": [
       {
         "id": "claude",
@@ -45,34 +45,52 @@
       },
       {
         "id": "codex-manager-reconcile",
-        "displayName": "Codex Manager - Reconcile",
+        "displayName": "Codex Manager - Reconcile DISABLED R1135",
         "role": "manager",
         "provider": "codex",
-        "enabled": true,
+        "enabled": false,
         "assignedPhase": null,
         "phasePriority": []
       },
       {
         "id": "codex-manager-platform",
-        "displayName": "Codex Manager - Platform and Topology",
+        "displayName": "Codex Manager - Platform and Topology DISABLED R1135",
         "role": "manager",
         "provider": "codex",
-        "enabled": true,
+        "enabled": false,
         "assignedPhase": null,
         "phasePriority": []
       },
       {
         "id": "codex-manager-release",
-        "displayName": "Codex Manager - V1 Release",
+        "displayName": "Codex Manager - V1 Release DISABLED R1135",
         "role": "manager",
         "provider": "codex",
-        "enabled": true,
+        "enabled": false,
         "assignedPhase": null,
         "phasePriority": []
       },
       {
         "id": "codex-manager-deep-systems",
-        "displayName": "Codex Manager - Deep Systems (Sol)",
+        "displayName": "Codex Manager - Deep Systems (Sol) DISABLED R1135",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": false,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-adjudication",
+        "displayName": "Codex Manager - Design and Adjudication (Sol) DISABLED R1135",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": false,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-seat-1",
+        "displayName": "Codex Manager Seat 1 (Sol R1135)",
         "role": "manager",
         "provider": "codex",
         "enabled": true,
@@ -80,8 +98,17 @@
         "phasePriority": []
       },
       {
-        "id": "codex-manager-adjudication",
-        "displayName": "Codex Manager - Design and Adjudication (Sol)",
+        "id": "codex-manager-seat-2",
+        "displayName": "Codex Manager Seat 2 (Sol R1135)",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-seat-3",
+        "displayName": "Codex Manager Seat 3 (Sol R1135)",
         "role": "manager",
         "provider": "codex",
         "enabled": true,
@@ -247,12 +274,42 @@
         "from": "terra",
         "to": "luna",
         "type": "reviews"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-seat-1",
+        "type": "manages"
+      },
+      {
+        "from": "codex-manager-seat-1",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-seat-2",
+        "type": "manages"
+      },
+      {
+        "from": "codex-manager-seat-2",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-seat-3",
+        "type": "manages"
+      },
+      {
+        "from": "codex-manager-seat-3",
+        "to": "claude",
+        "type": "escalates_to"
       }
     ],
     "observedSessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:38:59.007Z",
+      "observedAt": "2026-08-06T08:30:53.252Z",
       "value": [
         {
           "provider": "codex",
@@ -297,17 +354,17 @@
         {
           "provider": "claude",
           "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T03:38:54.889Z"
+          "updatedAt": "2026-08-06T08:30:52.362Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
+          "updatedAt": "2026-08-06T08:27:38.218Z"
         },
         {
           "provider": "claude",
           "sessionId": "4d31c982-3bbf-4edb-85f1-e86b9fb503bb",
           "updatedAt": "2026-08-06T03:16:22.138Z"
-        },
-        {
-          "provider": "claude",
-          "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
-          "updatedAt": "2026-08-06T02:35:35.779Z"
         },
         {
           "provider": "claude",

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "metrics",
-  "generatedAt": "2026-08-06T03:38:59.107Z",
+  "generatedAt": "2026-08-06T08:30:53.351Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -10,7 +10,7 @@
       "kind": "cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T03:38:59.152Z",
+      "observedAt": "2026-08-06T08:30:53.406Z",
       "reason": null
     },
     {
@@ -18,7 +18,7 @@
       "kind": "reader",
       "path": "tools/ledger-query.js",
       "ok": true,
-      "observedAt": "2026-08-06T02:54:16.748Z",
+      "observedAt": "2026-08-06T08:04:39.380Z",
       "reason": null
     },
     {
@@ -26,7 +26,7 @@
       "kind": "reader",
       "path": "BUILD-QUEUE.md",
       "ok": true,
-      "observedAt": "2026-08-06T03:37:24.574Z",
+      "observedAt": "2026-08-06T08:22:18.148Z",
       "reason": null
     },
     {
@@ -50,7 +50,7 @@
     "sessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:38:59.152Z",
+      "observedAt": "2026-08-06T08:30:53.406Z",
       "value": {
         "codex": 8,
         "claude": 6
@@ -59,13 +59,13 @@
     "fleetSupervisor": {
       "ok": false,
       "reason": "source-unavailable",
-      "observedAt": "2026-08-06T03:38:59.152Z",
+      "observedAt": "2026-08-06T08:30:53.406Z",
       "value": null
     },
     "services": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:38:59.152Z",
+      "observedAt": "2026-08-06T08:30:53.406Z",
       "value": {
         "total": 5,
         "stale": 1
@@ -74,22 +74,22 @@
     "requests": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T02:54:16.748Z",
+      "observedAt": "2026-08-06T08:04:39.380Z",
       "value": {
-        "total": 449,
-        "open": 399
+        "total": 452,
+        "open": 402
       }
     },
     "queue": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:37:24.574Z",
+      "observedAt": "2026-08-06T08:22:18.148Z",
       "value": {
         "total": 68,
         "blocked": 22,
         "done": 21,
-        "open": 16,
-        "in_progress": 9
+        "open": 15,
+        "in_progress": 10
       }
     },
     "audit": {

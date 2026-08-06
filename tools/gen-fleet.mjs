@@ -21,6 +21,7 @@ import {
   sourceFromResult,
   timestampFromAge,
   unavailableEnvelope,
+  terseDetail,
 } from './gen-projection-lib.mjs'
 
 const ORG_READER_PATH = 'src/lib/agent-org.js'
@@ -82,7 +83,7 @@ function normalizePreflight(preflight) {
       name: cleanText(entry.name, 120),
       state: serviceState(entry),
       observedAt: timestampFromAge(preflight.generatedAt, entry.ageSec * 1000),
-      detail: cleanText(entry.detail, 240),
+      detail: terseDetail(cleanText(entry.detail, 240)),
     })
   }
 

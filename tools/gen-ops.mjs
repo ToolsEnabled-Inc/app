@@ -18,6 +18,7 @@ import {
   timestampFromAge,
   unavailable,
   unavailableEnvelope,
+  terseDetail,
 } from './gen-projection-lib.mjs'
 
 const DOMAIN = 'ops'
@@ -96,7 +97,7 @@ function channelsObservation(preflight) {
       name,
       state: channelState(entry),
       observedAt: timestampFromAge(preflight.generatedAt, entry.ageSec * 1000),
-      detail,
+      detail: terseDetail(detail),
     })
   }
   return available(channels, preflight.generatedAt)

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "coordinator",
-  "generatedAt": "2026-08-06T03:38:59.535Z",
+  "generatedAt": "2026-08-06T08:30:53.784Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -18,7 +18,7 @@
       "kind": "canonical-config",
       "path": "config/agent-org.json",
       "ok": true,
-      "observedAt": "2026-08-05T21:34:59.291Z",
+      "observedAt": "2026-08-06T08:30:52.345Z",
       "reason": null
     },
     {
@@ -34,7 +34,7 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T03:38:59.596Z",
+      "observedAt": "2026-08-06T08:30:53.834Z",
       "reason": null
     }
   ],
@@ -48,19 +48,19 @@
     "sessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:38:59.596Z",
+      "observedAt": "2026-08-06T08:30:53.834Z",
       "value": [
         {
           "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T03:38:54.889Z"
+          "updatedAt": "2026-08-06T08:30:52.362Z"
+        },
+        {
+          "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
+          "updatedAt": "2026-08-06T08:27:38.218Z"
         },
         {
           "sessionId": "4d31c982-3bbf-4edb-85f1-e86b9fb503bb",
           "updatedAt": "2026-08-06T03:16:22.138Z"
-        },
-        {
-          "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
-          "updatedAt": "2026-08-06T02:35:35.779Z"
         },
         {
           "sessionId": "7f927500-b87f-4302-a53f-c9206a956824",

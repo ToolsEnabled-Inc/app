@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "fleet",
-  "generatedAt": "2026-08-06T03:38:58.713Z",
+  "generatedAt": "2026-08-06T08:30:53.017Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -18,7 +18,7 @@
       "kind": "declared",
       "path": "config/agent-org.json",
       "ok": true,
-      "observedAt": "2026-08-05T21:34:59.291Z",
+      "observedAt": "2026-08-06T08:30:52.345Z",
       "reason": null
     },
     {
@@ -26,7 +26,7 @@
       "kind": "observed",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T03:38:58.792Z",
+      "observedAt": "2026-08-06T08:30:53.090Z",
       "reason": null
     }
   ],
@@ -36,50 +36,50 @@
         "id": "machine-a",
         "label": "Machine A",
         "sourceKind": "observed",
-        "observedAt": "2026-08-06T03:38:58.792Z",
-        "activeSessions": 3,
+        "observedAt": "2026-08-06T08:30:53.090Z",
+        "activeSessions": 2,
         "services": [
           {
             "id": "service-health-observer-snapshot",
             "name": "health-observer snapshot",
             "state": "stale",
-            "observedAt": "2026-08-04T01:01:23.792Z",
-            "detail": "11 subsystems, but the observer itself is stale -- this whole snapshot is UNTRUSTWORTHY"
+            "observedAt": "2026-08-04T01:01:24.090Z",
+            "detail": "11 subsystems, but the observer itself is stale — this whole snapshot is untrustworthy"
           },
           {
             "id": "service-linkbus-8787",
             "name": "linkBus (:8787)",
             "state": "healthy",
-            "observedAt": "2026-08-06T03:38:06.792Z",
-            "detail": "owned / healthy"
+            "observedAt": "2026-08-06T08:30:08.090Z",
+            "detail": "owned · healthy"
           },
           {
             "id": "service-remotebridge-8788",
             "name": "remoteBridge (:8788)",
             "state": "conflict",
-            "observedAt": "2026-08-06T03:38:06.792Z",
-            "detail": "conflict / healthy (listener_identity_mismatch)"
+            "observedAt": "2026-08-06T08:30:08.090Z",
+            "detail": "conflict · healthy — listener identity mismatch"
           },
           {
             "id": "service-fra-8790",
             "name": "FRA (:8790)",
             "state": "healthy",
-            "observedAt": "2026-08-04T11:17:36.792Z",
-            "detail": "owned / healthy / operational=true"
+            "observedAt": "2026-08-04T11:17:37.090Z",
+            "detail": "owned · healthy · operational"
           },
           {
             "id": "service-rendezvous-8795",
             "name": "rendezvous (:8795)",
             "state": "unknown",
-            "observedAt": "2026-08-03T05:35:13.792Z",
-            "detail": "role=receiver, committed key generation=9"
+            "observedAt": "2026-08-03T05:35:14.090Z",
+            "detail": "role receiver · committed key generation 9"
           }
         ]
       }
     ],
     "graph": {
-      "revision": 15,
-      "contentHash": "3e9a1ae29039382323c672756a944ee66bc5541e763420a853784f99d8300fce",
+      "revision": 16,
+      "contentHash": "d9769bbd97ebc053ad7af8a6fe58f12911c124d9a3fd43516d5faddec6797300",
       "nodes": [
         {
           "id": "claude",
@@ -90,35 +90,56 @@
         },
         {
           "id": "codex-manager-reconcile",
-          "label": "Codex Manager - Reconcile",
+          "label": "Codex Manager - Reconcile DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": true
+          "enabled": false
         },
         {
           "id": "codex-manager-platform",
-          "label": "Codex Manager - Platform and Topology",
+          "label": "Codex Manager - Platform and Topology DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": true
+          "enabled": false
         },
         {
           "id": "codex-manager-release",
-          "label": "Codex Manager - V1 Release",
+          "label": "Codex Manager - V1 Release DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": true
+          "enabled": false
         },
         {
           "id": "codex-manager-deep-systems",
-          "label": "Codex Manager - Deep Systems (Sol)",
+          "label": "Codex Manager - Deep Systems (Sol) DISABLED R1135",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": false
+        },
+        {
+          "id": "codex-manager-adjudication",
+          "label": "Codex Manager - Design and Adjudication (Sol) DISABLED R1135",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": false
+        },
+        {
+          "id": "codex-manager-seat-1",
+          "label": "Codex Manager Seat 1 (Sol R1135)",
           "role": "manager",
           "provider": "codex",
           "enabled": true
         },
         {
-          "id": "codex-manager-adjudication",
-          "label": "Codex Manager - Design and Adjudication (Sol)",
+          "id": "codex-manager-seat-2",
+          "label": "Codex Manager Seat 2 (Sol R1135)",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex-manager-seat-3",
+          "label": "Codex Manager Seat 3 (Sol R1135)",
           "role": "manager",
           "provider": "codex",
           "enabled": true
@@ -268,6 +289,36 @@
           "from": "terra",
           "to": "luna",
           "type": "reviews"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-seat-1",
+          "type": "manages"
+        },
+        {
+          "from": "codex-manager-seat-1",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-seat-2",
+          "type": "manages"
+        },
+        {
+          "from": "codex-manager-seat-2",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-seat-3",
+          "type": "manages"
+        },
+        {
+          "from": "codex-manager-seat-3",
+          "to": "claude",
+          "type": "escalates_to"
         }
       ]
     }

@@ -440,3 +440,30 @@ function resolveUnder(root, relativePath) {
 function slash(value) {
   return String(value).replaceAll('\\', '/')
 }
+
+/* Terse, content-preserving typesetting for raw service detail strings.
+ * Mechanical transforms only — never invents or drops a fact:
+ * separators normalize to " · ", "--" becomes an em-dash, key=true flattens
+ * to the key, key=value to "key value", snake_case opens up, SHOUTED words
+ * lower to sentence case, and immediately repeated tokens collapse. */
+export function terseDetail(value) {
+  if (typeof value !== 'string') return null
+  let text = value.trim()
+  if (!text) return null
+  text = text.replace(/\s*--\s*/g, ' — ')
+  text = text.replace(/,\s+(?=(?:but|and|or|so|yet|while)\b)/gi, ', ')
+  text = text.replace(/\s*\/\s*/g, ' · ')
+  text = text.replace(/,\s+(?!(?:but|and|or|so|yet|while)\b)/gi, ' · ')
+  text = text.replace(/\s*;\s*/g, ' · ')
+  text = text.replace(/\(([^)]+)\)/g, (_, inner) => `— ${inner.replace(/_/g, ' ')}`)
+  text = text.replace(/\b([A-Za-z][A-Za-z0-9_.-]*)=(\S+)/g, (_, key, raw) => {
+    const k = key.replace(/_/g, ' ')
+    if (/^true$/i.test(raw)) return k
+    if (/^false$/i.test(raw)) return `not ${k}`
+    return `${k} ${raw}`
+  })
+  text = text.replace(/\b[A-Z]{3,}\b/g, word => word.toLowerCase())
+  const parts = text.split(' · ').map(part => part.trim()).filter(Boolean)
+  const deduped = parts.filter((part, index) => index === 0 || part.toLowerCase() !== parts[index - 1].toLowerCase())
+  return deduped.join(' · ').replace(/\s{2,}/g, ' ').trim() || null
+}

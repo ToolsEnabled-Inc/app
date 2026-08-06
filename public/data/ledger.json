@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "ledger",
-  "generatedAt": "2026-08-06T03:38:59.435Z",
+  "generatedAt": "2026-08-06T08:30:53.690Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -18,7 +18,7 @@
       "kind": "canonical-data",
       "path": "reports/OWNER-REQUEST-LEDGER.json",
       "ok": true,
-      "observedAt": "2026-08-06T02:54:16.748Z",
+      "observedAt": "2026-08-06T08:04:39.380Z",
       "reason": null
     },
     {
@@ -42,7 +42,7 @@
       "kind": "canonical-data",
       "path": "BUILD-QUEUE.md",
       "ok": true,
-      "observedAt": "2026-08-06T03:37:24.574Z",
+      "observedAt": "2026-08-06T08:22:18.148Z",
       "reason": null
     }
   ],
@@ -2741,12 +2741,30 @@
         "status": "in-progress",
         "gateCount": 0,
         "unmetGateCount": 0
+      },
+      {
+        "id": "R1136",
+        "status": "in-progress",
+        "gateCount": 0,
+        "unmetGateCount": 0
+      },
+      {
+        "id": "R1137",
+        "status": "in-progress",
+        "gateCount": 0,
+        "unmetGateCount": 0
+      },
+      {
+        "id": "R1138",
+        "status": "in-progress",
+        "gateCount": 2,
+        "unmetGateCount": 2
       }
     ],
     "questions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:37:24.574Z",
+      "observedAt": "2026-08-06T08:22:18.148Z",
       "value": [
         {
           "id": "Q7",
@@ -3192,8 +3210,8 @@
         {
           "id": "Q100",
           "title": "Own internal git system (research -> design -> implement pipeline)",
-          "status": "OPEN",
-          "statusClass": "open",
+          "status": "IN-PROGRESS",
+          "statusClass": "in-progress",
           "packageId": null
         },
         {
