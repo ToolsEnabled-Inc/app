@@ -166,7 +166,11 @@ export function ledgerView() {
     const counts = Object.fromEntries(SUMMARY_STATES.map(state => [state, 0]))
     for (const item of items) counts[stateFor(item, mode)] += 1
     for (const state of SUMMARY_STATES) {
-      root.querySelector(`[data-summary="${state}"]`).textContent = counts[state]
+      const node = root.querySelector(`[data-summary="${state}"]`)
+      node.textContent = counts[state]
+      // presentation only: a zero has no state to colour, and the Q register
+      // leaves three of the five at zero. See .ledger-stat[data-empty].
+      node.closest('.ledger-stat').toggleAttribute('data-empty', counts[state] === 0)
     }
   }
 

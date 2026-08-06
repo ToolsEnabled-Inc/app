@@ -293,6 +293,22 @@
   padding: var(--s3, 12px) var(--cg) var(--s4, 16px);
   display: flex;
   flex-direction: column;
+  /* Channels-mode parity with the watch panes. This log is pinned to its
+     newest line exactly as they are, so its top edge cuts an older message in
+     half exactly as theirs does — but it was the one surface still doing it
+     with a hard guillotine, and the message it cut is always one that has
+     lost its [name] time header to the same cut, so the reader gets an
+     unattributed fragment presented at full strength. Same eased recipe,
+     shorter: the log carries 12px of its own top padding, which already
+     covers half the ramp, so at the true top of a history nothing legible is
+     ever dimmed. */
+  --wb-fade: 18px;
+  --wb-fade-ramp: linear-gradient(to bottom,
+    transparent 0,
+    rgba(0, 0, 0, 0.09) calc(var(--wb-fade) * 0.5),
+    #000 var(--wb-fade));
+  -webkit-mask-image: var(--wb-fade-ramp);
+  mask-image: var(--wb-fade-ramp);
 }
 .ch-log::before { content: ""; flex: 1 0 0; } /* bottom-anchor short histories, Discord-style */
 .ch-log > * { flex: 0 0 auto; }               /* messages never squash in the column */
@@ -525,13 +541,22 @@
   scrollbar-width: thin;
   /* These panes are pinned to their newest line, so their top edge always cuts
      through the middle of an older one — and a hard cut through the waist of a
-     row of type reads as a rendering fault, not as "there is more above". The
-     mask spends one line-height dissolving it instead. Deliberately shorter
-     than the 20px line box: the clipped row should fade, not vanish, or the
-     pane looks like it starts one line later than it does. */
-  --wb-fade: 16px;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--wb-fade));
-  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--wb-fade));
+     row of type reads as a rendering fault, not as "there is more above".
+     A LINEAR 16px ramp did not fix that: over a 20.15px line box it left the
+     clipped row's cap-height ink sitting at 30–70% opacity, which is not a
+     dissolve, it is a legible second line of type printed faintly ten pixels
+     under the purpose line — the eye read it as double-exposure and tried to
+     parse it. The ramp is now eased and one line box longer: it holds under
+     10% across the whole first line (a texture that says "there is more
+     above", not words), then rises to solid before the first COMPLETE line
+     starts, so nothing a reader can actually read is ever dimmed. */
+  --wb-fade: 24px;
+  --wb-fade-ramp: linear-gradient(to bottom,
+    transparent 0,
+    rgba(0, 0, 0, 0.09) calc(var(--wb-fade) * 0.5),
+    #000 var(--wb-fade));
+  -webkit-mask-image: var(--wb-fade-ramp);
+  mask-image: var(--wb-fade-ramp);
 }
 .wb-box.dominant .chip-preview { max-height: var(--pv-dom, 320px); }
 /* dominance is size plus a firmer hairline — the old white-alpha fill was
@@ -553,34 +578,52 @@
 .wb-box.lead .wb-name { font-size: 14.5px; }
 /* readable, wrapping context lines — the board is for reading, 13px floor.
    overflow-wrap keeps the long evidence paths (reports/q44-…md) from pushing
-   the text column wide in a narrow split. */
-.watch-pane .chip .cl {
+   the text column wide in a narrow split.
+
+   THE GHOST READS THESE TOO. Every rule below was scoped to `.watch-pane
+   .chip`, and the drag ghost is a clone appended to document.body — outside
+   the pane, so it matched none of them. The consequence was not subtle: the
+   ghost kept the two-column preview grid (that rule is not pane-scoped) but
+   lost `grid-column: 1 / -1`, so its lines stopped spanning and PAIRED UP,
+   two messages per row with names welded to the wrong text, at the wrong size
+   and with no name rail. The one element a reader stares at for the whole
+   duration of a drag was the only one rendering the board's own type wrong.
+   :is() adds the ghost to each selector at identical specificity. */
+:is(.watch-pane .chip, .chip.wb-ghost) .cl {
   grid-column: 1 / -1;
   font-size: 13px; line-height: 1.55;
   white-space: normal; overflow: visible; text-overflow: clip;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;   /* run counts and timings align down the box */
 }
-.watch-pane .chip .cl b { font-weight: 640; }
+:is(.watch-pane .chip, .chip.wb-ghost) .cl b { font-weight: 640; }
 /* fallback separator for browsers without subgrid: name and text sit inline,
    so they need the old " · " seam back or they run together */
-.watch-pane .chip .cl > b::after { content: " · "; color: var(--ink-4); font-weight: 480; }
+:is(.watch-pane .chip, .chip.wb-ghost) .cl > b::after { content: " · "; color: var(--ink-4); font-weight: 480; }
 @supports (grid-template-columns: subgrid) {
-  .watch-pane .chip .cl { display: grid; grid-template-columns: subgrid; }
+  :is(.watch-pane .chip, .chip.wb-ghost) .cl { display: grid; grid-template-columns: subgrid; }
   /* names right-align against the text column's seam (the IRC convention):
      the rail edge stays ruler-straight however long each name is */
-  .watch-pane .chip .cl > b { justify-self: end; white-space: nowrap; }
-  .watch-pane .chip .cl > b::after { content: none; }
+  :is(.watch-pane .chip, .chip.wb-ghost) .cl > b { justify-self: end; white-space: nowrap; }
+  :is(.watch-pane .chip, .chip.wb-ghost) .cl > b::after { content: none; }
 }
 /* speaker identity, quiet: each side's name takes the same role hue its
    header dot wears (set as --au-a/--au-b on the box), mixed well toward ink
    so the rail reads as ink with a cast, not as colour noise. */
-.watch-pane .chip .cl.side-a > b { color: color-mix(in oklab, var(--au-a, var(--ink)) 45%, var(--ink)); }
-.watch-pane .chip .cl.side-b > b { color: color-mix(in oklab, var(--au-b, var(--ink)) 45%, var(--ink)); }
+:is(.watch-pane .chip, .chip.wb-ghost) .cl.side-a > b { color: color-mix(in oklab, var(--au-a, var(--ink)) 45%, var(--ink)); }
+:is(.watch-pane .chip, .chip.wb-ghost) .cl.side-b > b { color: color-mix(in oklab, var(--au-b, var(--ink)) 45%, var(--ink)); }
 
 /* box header: pair · key · actions — tightened to 4px so the purpose line
    below it reads as part of the header block, not as a first message */
-.wb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; min-width: 0; }
+/* The header row and the purpose line are the tile's natural grab area, and a
+   tile is dragged. `body.wb-dragging` only suppresses selection AFTER the
+   drag threshold is crossed, so the first few pixels of every drag highlight
+   whatever the cursor started on and leave that highlight behind on drop.
+   These two rows are labels — nothing anyone copies — so they opt out and a
+   drag begun where a drag is meant to begin leaves nothing behind. The
+   messages below stay selectable: they are the one thing on this board worth
+   copying. */
+.wb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; min-width: 0; user-select: none; -webkit-user-select: none; }
 /* one-line channel purpose under the header: the pane answers "what is this
    channel for" before a single message is read. Prose, so it takes the UI
    face, not the machine-token mono; one line always — it is a label, and a
@@ -591,6 +634,7 @@
   font-size: 13px; line-height: 1.45;
   color: var(--ink-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  user-select: none; -webkit-user-select: none;   /* see .wb-head */
 }
 /* the expanded chat's own header already names the pair and the key — the
    purpose line would just push the log down */
@@ -684,10 +728,18 @@ body.wb-dragging { cursor: grabbing; user-select: none; -webkit-user-select: non
 }
 .wb-drop { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; border-radius: inherit; transition: opacity 0.16s var(--ease); }
 .wb-drop.show { opacity: 1; }
+/* The drop target is a RULE, not a slab. At 13% fill it was a solid pale
+   panel dropped over half a tile: it tinted the message text underneath
+   (which stayed readable through the wash, so the two fought), and on a page
+   whose whole register is hairlines and whitespace it was the one childish
+   highlight. A 3px-square hairline rectangle at the pair hue says exactly the
+   same thing — "the tile lands in this half" — and leaves the type alone.
+   Mixed against transparent, not white: against white the outline washed out
+   on the light themes and stayed pale on the dark ones. */
 .wb-drop i {
   position: absolute; inset: 6px; border-radius: 3px;
-  background: color-mix(in oklab, var(--c-coordinator) 13%, transparent);
-  border: 1.5px solid color-mix(in oklab, var(--c-coordinator) 45%, white);
+  background: color-mix(in oklab, var(--c-coordinator) 6%, transparent);
+  border: 1.5px solid color-mix(in oklab, var(--c-coordinator) 62%, transparent);
   transition: inset 0.15s var(--ease);
 }
 .wb-drop[data-half="left"] i { right: 50%; }

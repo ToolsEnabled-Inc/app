@@ -1577,6 +1577,29 @@ export function commsView() {
       b.classList.toggle('on', on)
       b.setAttribute('aria-pressed', String(on))
     })
+    /* A size step changes every pane's height, and a followed pane that was
+       pinned to its newest line ended up showing a hard mid-line cut at its
+       BOTTOM until the next arrival happened to re-pin it (final-wave
+       finding). Re-pin followed panes the frame after the new heights land —
+       the same _pvFollow/_chatFollow contract arrivals honour, invoked from
+       the one mutation that was skipping it. A reader-scrolled pane
+       (follow=false) is left exactly where they put it. */
+    const repin = () => {
+      pane.querySelectorAll('.wb-box').forEach((box) => {
+        const pv = box.querySelector('.chip-preview')
+        if (box._pvFollow && pv) pv.scrollTop = pv.scrollHeight
+        const log = box.querySelector('.chat-log')
+        if (box._chatFollow && log) log.scrollTop = log.scrollHeight
+      })
+    }
+    /* twice, deliberately: the pane heights TRANSITION (0.45s), so the
+       frame-after pin measures a mid-animation height — fine when growing
+       (the gap only closes), wrong when shrinking (the gap keeps opening
+       after the pin; measured 72-124px adrift on the S step). The second
+       pass lands after the transition settles. */
+    requestAnimationFrame(repin)
+    clearTimeout(setSize._repinTimer)
+    setSize._repinTimer = setTimeout(repin, 520)
   }
   modeBtns.forEach(b => b.addEventListener('click', () => setMode(b.dataset.wmode)))
   sizeBtns.forEach(b => b.addEventListener('click', () => setSize(b.dataset.size)))
