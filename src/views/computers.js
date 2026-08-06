@@ -128,7 +128,13 @@ function projectedComputer(computer, graph) {
     }
     return current?.id === child.id
   }
-  for (const edge of edges) {
+  // The declared org intentionally stays flat. A resolvable observed dispatch
+  // is the runtime parent, so consume those edges first; the later declared
+  // relationship remains visible but cannot flatten the observed lane back to
+  // the coordinator.
+  const layoutEdges = [...edges].sort((left, right) =>
+    (left.sourceKind === 'observed' ? 0 : 1) - (right.sourceKind === 'observed' ? 0 : 1))
+  for (const edge of layoutEdges) {
     if (edge.type !== 'manages' && edge.type !== 'delegates_to') continue
     const parent = byId.get(edge.from)
     const child = byId.get(edge.to)
