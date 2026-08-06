@@ -7,6 +7,7 @@ import { el, uptimeRing, buildChat } from '../components.js'
 import { FleetGraph, CHIP_W, CHIP_H } from '../graph.js'
 import { readLayout } from '../layout-pref.js'
 import { isLiveView } from '../live-flags.js'
+import { mountAgentWriteSurface } from '../write-surfaces.js'
 import { fetchAgents } from '../live-status.js'
 import { rangeFill } from './computers.js'
 import '../agent.css'
@@ -572,6 +573,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
       </div>
     </div>
   `)
+  const destroyWriteSurface = mountAgentWriteSurface(root, { agentId })
 
   if (live) {
     root.classList.add('data-live-mode')
@@ -1251,6 +1253,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   return {
     el: root,
     destroy() {
+      destroyWriteSurface()
       cancelAnimationFrame(raf)
       rimObserver.disconnect()
       ctlResize.disconnect()

@@ -6,6 +6,7 @@ import { el, attachSeg } from '../components.js'
 import { R_ITEMS, Q_ITEMS, liveAgeMs, formatLedgerAge } from '../ledger-data.js'
 import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
 import { fetchLedger } from '../live-status.js'
+import { mountLedgerWriteSurface } from '../write-surfaces.js'
 import '../ledger.css'
 
 const MODE_KEY = 'mc.ledger.mode'
@@ -223,6 +224,7 @@ export function ledgerView() {
     </main>`)
 
   const register = root.querySelector('.ledger-register')
+  const destroyWriteSurface = mountLedgerWriteSurface(root)
   const modeGroup = root.querySelector('.ledger-mode')
   const collapsedRoots = new Set(branchRoots.filter(item => readCollapsed(item.id)).map(item => item.id))
   const expandedRows = new Set()
@@ -426,6 +428,7 @@ export function ledgerView() {
   return {
     el: root,
     destroy() {
+      destroyWriteSurface()
       destroyed = true
       requestVersion += 1
       stopAgeUpdates()

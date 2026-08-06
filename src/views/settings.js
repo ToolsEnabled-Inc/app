@@ -4,6 +4,7 @@
 import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
+import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import '../settings.css'
 
 const SECTIONS = [
@@ -17,6 +18,7 @@ const SECTIONS = [
   'Ledger',
   'Performance',
   'Data & Sim',
+  'Write',
   'Developer',
 ]
 
@@ -113,6 +115,16 @@ export const SETTINGS = [
   { id: 'sample_bucket', section: 'Data & Sim', name: 'Sample bucket width', desc: 'Aggregate raw simulation ticks into wider time buckets.', depth: 3, type: 'stepper', min: 1, max: 60, step: 1, unit: 's', def: 5 },
   { id: 'sim_worker_tick_bias', section: 'Data & Sim', name: 'Sim worker tick bias', desc: 'Offset worker scheduling toward freshness or batch efficiency.', depth: 4, type: 'range', min: -100, max: 100, step: 5, unit: '%', def: 0 },
 
+  ...WRITE_ACTION_FLAGS.map(flag => ({
+    id: `write_${flag.id}`,
+    section: 'Write',
+    name: flag.label,
+    desc: `${flag.description} Off is the shipped default until live review.`,
+    depth: ['dispatch', 'report-read'].includes(flag.id) ? 1 : 2,
+    type: 'toggle',
+    def: false,
+  })),
+
   { id: 'diagnostic_labels', section: 'Developer', name: 'Diagnostic labels', desc: 'Expose bounded component identifiers beside live surfaces.', depth: 1, type: 'toggle', def: false },
   { id: 'log_level', section: 'Developer', name: 'Console detail', desc: 'Set the simulated diagnostic detail written by the client.', depth: 1, type: 'seg', options: ['quiet', 'normal', 'verbose'], def: 'normal' },
   { id: 'copy_ids', section: 'Developer', name: 'Copy stable identifiers', desc: 'Prefer stable IDs when copying rows, agents, or channels.', depth: 1, type: 'toggle', def: true },
@@ -124,6 +136,7 @@ export const SETTINGS = [
 
 const byId = new Map(SETTINGS.map(setting => [setting.id, setting]))
 const liveSettingViews = new Map(LIVE_VIEW_FLAGS.map(flag => [`live_${flag.id}`, flag.id]))
+const writeSettingActions = new Map(WRITE_ACTION_FLAGS.map(flag => [`write_${flag.id}`, flag.id]))
 const storageKey = id => `mc.set.${id}`
 const escapeHtml = value => String(value)
   .replace(/&/g, '&amp;')
@@ -158,6 +171,8 @@ function readStored(setting) {
 function readValue(setting) {
   const liveView = liveSettingViews.get(setting.id)
   if (liveView) return isLiveView(liveView)
+  const writeAction = writeSettingActions.get(setting.id)
+  if (writeAction) return isWriteEnabled(writeAction)
   if (setting.id === 'theme') {
     const current = document.documentElement.dataset.theme
     return current === 'tan' || current === 'black' ? current : 'white'
@@ -416,6 +431,8 @@ export function settingsView() {
     const liveView = liveSettingViews.get(setting.id)
     if (liveView) {
       value = setLiveView(liveView, Boolean(value))
+    } else if (writeSettingActions.has(setting.id)) {
+      value = setWriteEnabled(writeSettingActions.get(setting.id), Boolean(value))
     } else if (setting.id === 'theme') {
       try { localStorage.setItem('mc.theme', String(value)) } catch {}
       document.documentElement.dataset.theme = String(value)
