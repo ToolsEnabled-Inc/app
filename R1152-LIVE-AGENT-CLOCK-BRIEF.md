@@ -2,6 +2,8 @@
 
 You are the bounded Sol manager for one UI defect blocking launch-gate step 3. The seated coordinator retains merge, visual acceptance, live-service, and owner-facing authority.
 
+Dashboard launch record: `launch_j7uRp2OtiikI2MECY7NLLeSQ8G6dm2Xv` (informational; it grants no authority).
+
 ## Authority and observed defect
 
 Shadow-manager verbatim finding: "on the live agent page for a genuinely running lane, no `h:mm:ss` string exists anywhere in the DOM" and "in `mission-control/src/views/agent.js` the uptime ring is built inside `if (!live) { ring = uptimeRing(...) }`. It is simulation-only. Live mode never constructs it."
