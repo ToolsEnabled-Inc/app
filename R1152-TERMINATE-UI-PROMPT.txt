@@ -1,0 +1,1 @@
+Implement the bounded truthful terminate UI exactly as specified in R1152-TERMINATE-UI-BRIEF.md, verify it deterministically, commit only owned files, do not alert the owner or claim the launch gate passed, and finish with one single-line VERDICT containing real numbers and the commit hash.
