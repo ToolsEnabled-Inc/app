@@ -2,6 +2,7 @@
 import {
   CANONICAL_ROOT,
   LIVE_ROOT,
+  agentControlTarget,
   agentProjectionFields,
   available,
   availableEnvelope,
@@ -100,6 +101,7 @@ await emitProjection(DOMAIN, async at => {
       enabled: agent.enabled,
       assignedPhase: agent.assignedPhase,
       phasePriority: [...agent.phasePriority],
+      controlTarget: agentControlTarget(agent.id, telemetry.registry),
       ...agentProjectionFields(agent.id, telemetry.registry, telemetry.tasks),
     })),
     relationships: projectAgentRelationships(org.relationships, telemetry.registry, agentIds),
