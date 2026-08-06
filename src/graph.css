@@ -925,6 +925,18 @@ body.reduce-motion .graph-canvas .tier-guide {
 }
 
 /* ============================================================
+   Packed tier role labels
+   The tree packer writes --nn-max from each tier's centre pitch. Names
+   already consume that budget; role rows must too. Otherwise the seven
+   identical AGENT SPAWNED rows keep their wider global cap and collide even
+   while their sibling names remain separated. The full role stays in the
+   DOM and in the node's aria-label; this only bounds its painted width.
+   ============================================================ */
+.graph-canvas .node .node-role {
+  max-width: min(calc(var(--d) + 96px), var(--nn-max, 9999px));
+}
+
+/* ============================================================
    Compact labels — short canvas (see FleetGraph.tick())
    Below ~340px of canvas height the geometry cannot host two
    labelled bubbles in a vertical stack at all (QA-verified:
