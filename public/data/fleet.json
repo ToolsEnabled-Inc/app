@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "domain": "fleet",
+  "generatedAt": "2026-08-06T03:29:40.015Z",
+  "ok": true,
+  "reason": null,
+  "sources": [
+    {
+      "id": "agent-org-reader",
+      "kind": "reader",
+      "path": "src/lib/agent-org.js",
+      "ok": true,
+      "observedAt": "2026-08-05T21:20:33.653Z",
+      "reason": null
+    },
+    {
+      "id": "agent-org",
+      "kind": "declared",
+      "path": "config/agent-org.json",
+      "ok": true,
+      "observedAt": "2026-08-05T21:34:59.291Z",
+      "reason": null
+    },
+    {
+      "id": "agent-preflight",
+      "kind": "observed",
+      "path": "tools/agent-preflight.js",
+      "ok": true,
+      "observedAt": "2026-08-06T03:29:40.058Z",
+      "reason": null
+    }
+  ],
+  "data": {
+    "computers": [
+      {
+        "id": "machine-a",
+        "label": "Machine A",
+        "sourceKind": "observed",
+        "observedAt": "2026-08-06T03:29:40.058Z",
+        "activeSessions": 3,
+        "services": [
+          {
+            "id": "service-health-observer-snapshot",
+            "name": "health-observer snapshot",
+            "state": "stale",
+            "observedAt": "2026-08-04T01:01:24.058Z",
+            "detail": "11 subsystems, but the observer itself is stale -- this whole snapshot is UNTRUSTWORTHY"
+          },
+          {
+            "id": "service-linkbus-8787",
+            "name": "linkBus (:8787)",
+            "state": "healthy",
+            "observedAt": "2026-08-06T03:28:08.058Z",
+            "detail": "owned / healthy"
+          },
+          {
+            "id": "service-remotebridge-8788",
+            "name": "remoteBridge (:8788)",
+            "state": "conflict",
+            "observedAt": "2026-08-06T03:28:08.058Z",
+            "detail": "conflict / healthy (listener_identity_mismatch)"
+          },
+          {
+            "id": "service-fra-8790",
+            "name": "FRA (:8790)",
+            "state": "healthy",
+            "observedAt": "2026-08-04T11:17:37.058Z",
+            "detail": "owned / healthy / operational=true"
+          },
+          {
+            "id": "service-rendezvous-8795",
+            "name": "rendezvous (:8795)",
+            "state": "unknown",
+            "observedAt": "2026-08-03T05:35:14.058Z",
+            "detail": "role=receiver, committed key generation=9"
+          }
+        ]
+      }
+    ],
+    "graph": {
+      "revision": 15,
+      "contentHash": "3e9a1ae29039382323c672756a944ee66bc5541e763420a853784f99d8300fce",
+      "nodes": [
+        {
+          "id": "claude",
+          "label": "Claude Code (coordinator)",
+          "role": "controller",
+          "provider": "claude",
+          "enabled": true
+        },
+        {
+          "id": "codex-manager-reconcile",
+          "label": "Codex Manager - Reconcile",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex-manager-platform",
+          "label": "Codex Manager - Platform and Topology",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex-manager-release",
+          "label": "Codex Manager - V1 Release",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex-manager-deep-systems",
+          "label": "Codex Manager - Deep Systems (Sol)",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex-manager-adjudication",
+          "label": "Codex Manager - Design and Adjudication (Sol)",
+          "role": "manager",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex",
+          "label": "Codex (subagent pool)",
+          "role": "worker",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "codex-assistant",
+          "label": "Codex (coordinator assistant) DISABLED R1131",
+          "role": "coordinator-assistant",
+          "provider": "codex",
+          "enabled": false
+        },
+        {
+          "id": "luna",
+          "label": "Luna (Codex cheap tier)",
+          "role": "builder",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "terra",
+          "label": "Terra (Codex mid tier)",
+          "role": "builder",
+          "provider": "codex",
+          "enabled": true
+        },
+        {
+          "id": "sol",
+          "label": "Sol (Codex high tier)",
+          "role": "builder",
+          "provider": "codex",
+          "enabled": false
+        },
+        {
+          "id": "jarvis",
+          "label": "JARVIS worker DISABLED R1131",
+          "role": "worker",
+          "provider": "local",
+          "enabled": false
+        },
+        {
+          "id": "gemini",
+          "label": "Gemini agentic worktree SUSPENDED R1131",
+          "role": "builder",
+          "provider": "gemini",
+          "enabled": false
+        }
+      ],
+      "edges": [
+        {
+          "from": "claude",
+          "to": "codex-manager-reconcile",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-platform",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-release",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-deep-systems",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "codex-manager-adjudication",
+          "type": "manages"
+        },
+        {
+          "from": "codex-manager-deep-systems",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "codex-manager-adjudication",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "claude",
+          "to": "codex",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "luna",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "terra",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "sol",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "jarvis",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "gemini",
+          "type": "manages"
+        },
+        {
+          "from": "claude",
+          "to": "codex-assistant",
+          "type": "manages"
+        },
+        {
+          "from": "codex-manager-reconcile",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "codex-manager-platform",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "codex-manager-release",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "codex",
+          "to": "claude",
+          "type": "escalates_to"
+        },
+        {
+          "from": "terra",
+          "to": "luna",
+          "type": "reviews"
+        }
+      ]
+    }
+  }
+}

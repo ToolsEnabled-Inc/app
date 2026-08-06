@@ -1,0 +1,330 @@
+{
+  "schemaVersion": 1,
+  "domain": "agents",
+  "generatedAt": "2026-08-06T03:29:40.169Z",
+  "ok": true,
+  "reason": null,
+  "sources": [
+    {
+      "id": "canonical-agent-org-reader",
+      "kind": "canonical-reader",
+      "path": "src/lib/agent-org.js",
+      "ok": true,
+      "observedAt": "2026-08-05T21:20:33.653Z",
+      "reason": null
+    },
+    {
+      "id": "canonical-agent-org",
+      "kind": "canonical-config",
+      "path": "config/agent-org.json",
+      "ok": true,
+      "observedAt": "2026-08-05T21:34:59.291Z",
+      "reason": null
+    },
+    {
+      "id": "live-agent-preflight",
+      "kind": "live-cli",
+      "path": "tools/agent-preflight.js",
+      "ok": true,
+      "observedAt": "2026-08-06T03:29:40.232Z",
+      "reason": null
+    }
+  ],
+  "data": {
+    "revision": 15,
+    "contentHash": "3e9a1ae29039382323c672756a944ee66bc5541e763420a853784f99d8300fce",
+    "declared": [
+      {
+        "id": "claude",
+        "displayName": "Claude Code (coordinator)",
+        "role": "controller",
+        "provider": "claude",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-reconcile",
+        "displayName": "Codex Manager - Reconcile",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-platform",
+        "displayName": "Codex Manager - Platform and Topology",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-release",
+        "displayName": "Codex Manager - V1 Release",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-deep-systems",
+        "displayName": "Codex Manager - Deep Systems (Sol)",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-manager-adjudication",
+        "displayName": "Codex Manager - Design and Adjudication (Sol)",
+        "role": "manager",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex",
+        "displayName": "Codex (subagent pool)",
+        "role": "worker",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "codex-assistant",
+        "displayName": "Codex (coordinator assistant) DISABLED R1131",
+        "role": "coordinator-assistant",
+        "provider": "codex",
+        "enabled": false,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "luna",
+        "displayName": "Luna (Codex cheap tier)",
+        "role": "builder",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "terra",
+        "displayName": "Terra (Codex mid tier)",
+        "role": "builder",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "sol",
+        "displayName": "Sol (Codex high tier)",
+        "role": "builder",
+        "provider": "codex",
+        "enabled": false,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "jarvis",
+        "displayName": "JARVIS worker DISABLED R1131",
+        "role": "worker",
+        "provider": "local",
+        "enabled": false,
+        "assignedPhase": null,
+        "phasePriority": []
+      },
+      {
+        "id": "gemini",
+        "displayName": "Gemini agentic worktree SUSPENDED R1131",
+        "role": "builder",
+        "provider": "gemini",
+        "enabled": false,
+        "assignedPhase": null,
+        "phasePriority": []
+      }
+    ],
+    "relationships": [
+      {
+        "from": "claude",
+        "to": "codex-manager-reconcile",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-platform",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-release",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-deep-systems",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "codex-manager-adjudication",
+        "type": "manages"
+      },
+      {
+        "from": "codex-manager-deep-systems",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "codex-manager-adjudication",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "claude",
+        "to": "codex",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "luna",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "terra",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "sol",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "jarvis",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "gemini",
+        "type": "manages"
+      },
+      {
+        "from": "claude",
+        "to": "codex-assistant",
+        "type": "manages"
+      },
+      {
+        "from": "codex-manager-reconcile",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "codex-manager-platform",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "codex-manager-release",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "codex",
+        "to": "claude",
+        "type": "escalates_to"
+      },
+      {
+        "from": "terra",
+        "to": "luna",
+        "type": "reviews"
+      }
+    ],
+    "observedSessions": {
+      "ok": true,
+      "reason": null,
+      "observedAt": "2026-08-06T03:29:40.232Z",
+      "value": [
+        {
+          "provider": "codex",
+          "sessionId": "019fd391-2fb3-7790-b530-5fa99fddcf72",
+          "updatedAt": "2026-08-05T20:16:27.296Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fd38f-51ed-7991-8d9a-8624af3c6bb2",
+          "updatedAt": "2026-08-05T20:14:03.798Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fcd52-2976-7b91-8e38-4b6e5446bb0d",
+          "updatedAt": "2026-08-04T15:10:44.955Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fc922-934d-76b2-86e2-716c57eea3e7",
+          "updatedAt": "2026-08-03T19:38:46.839Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fc462-a47f-7da0-9cf3-762491eda732",
+          "updatedAt": "2026-08-02T21:33:06.702Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fc438-0038-7f30-b18f-3721fbbb6afe",
+          "updatedAt": "2026-08-02T20:46:31.528Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fc3c6-70f3-7510-9214-bb6bb8787a9d",
+          "updatedAt": "2026-08-02T18:40:32.987Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fc246-33dc-78a3-88d5-728b79f0b286",
+          "updatedAt": "2026-08-02T11:40:22.283Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "4d31c982-3bbf-4edb-85f1-e86b9fb503bb",
+          "updatedAt": "2026-08-06T03:16:22.138Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
+          "updatedAt": "2026-08-06T03:11:08.104Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
+          "updatedAt": "2026-08-06T02:35:35.779Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "7f927500-b87f-4302-a53f-c9206a956824",
+          "updatedAt": "2026-08-05T20:41:50.520Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "aa440297-eef2-4700-9014-0a920f0976b1",
+          "updatedAt": "2026-08-05T03:49:41.718Z"
+        },
+        {
+          "provider": "claude",
+          "sessionId": "ebf3c80e-c152-49ee-8ed6-92b57bcac739",
+          "updatedAt": "2026-08-05T01:47:40.792Z"
+        }
+      ]
+    }
+  }
+}

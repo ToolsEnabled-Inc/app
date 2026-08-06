@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "domain": "metrics",
+  "generatedAt": "2026-08-06T03:29:40.355Z",
+  "ok": true,
+  "reason": null,
+  "sources": [
+    {
+      "id": "live-preflight",
+      "kind": "cli",
+      "path": "tools/agent-preflight.js",
+      "ok": true,
+      "observedAt": "2026-08-06T03:29:40.403Z",
+      "reason": null
+    },
+    {
+      "id": "canonical-ledger",
+      "kind": "reader",
+      "path": "tools/ledger-query.js",
+      "ok": true,
+      "observedAt": "2026-08-06T02:54:16.748Z",
+      "reason": null
+    },
+    {
+      "id": "canonical-queue",
+      "kind": "reader",
+      "path": "BUILD-QUEUE.md",
+      "ok": true,
+      "observedAt": "2026-08-05T22:02:13.256Z",
+      "reason": null
+    },
+    {
+      "id": "audit-sqlite",
+      "kind": "sqlite",
+      "path": "state/audit.sqlite3",
+      "ok": false,
+      "observedAt": null,
+      "reason": "source-unreadable-safely"
+    },
+    {
+      "id": "memory-sqlite",
+      "kind": "sqlite",
+      "path": "state/toolsenabled.sqlite3",
+      "ok": false,
+      "observedAt": null,
+      "reason": "source-unreadable-safely"
+    }
+  ],
+  "data": {
+    "sessions": {
+      "ok": true,
+      "reason": null,
+      "observedAt": "2026-08-06T03:29:40.403Z",
+      "value": {
+        "codex": 8,
+        "claude": 6
+      }
+    },
+    "fleetSupervisor": {
+      "ok": false,
+      "reason": "source-unavailable",
+      "observedAt": "2026-08-06T03:29:40.403Z",
+      "value": null
+    },
+    "services": {
+      "ok": true,
+      "reason": null,
+      "observedAt": "2026-08-06T03:29:40.403Z",
+      "value": {
+        "total": 5,
+        "stale": 1
+      }
+    },
+    "requests": {
+      "ok": true,
+      "reason": null,
+      "observedAt": "2026-08-06T02:54:16.748Z",
+      "value": {
+        "total": 449,
+        "open": 399
+      }
+    },
+    "queue": {
+      "ok": true,
+      "reason": null,
+      "observedAt": "2026-08-05T22:02:13.256Z",
+      "value": {
+        "total": 68,
+        "blocked": 22,
+        "done": 21,
+        "open": 16,
+        "in_progress": 9
+      }
+    },
+    "audit": {
+      "ok": false,
+      "reason": "source-unreadable-safely",
+      "observedAt": null,
+      "value": null
+    },
+    "memory": {
+      "ok": false,
+      "reason": "source-unreadable-safely",
+      "observedAt": null,
+      "value": null
+    }
+  }
+}
