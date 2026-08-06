@@ -17,15 +17,23 @@ function rgbToHex(rgb) {
   return '#' + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')
 }
 
+let settleTimer = null
 function report() {
-  requestAnimationFrame(() => {
+  const send = () => {
     const cs = getComputedStyle(document.body)
     ipcRenderer.send('mc-theme', {
       theme: document.documentElement.dataset.theme || 'white',
       bg: rgbToHex(cs.backgroundColor),
       ink: rgbToHex(cs.color),
     })
-  })
+  }
+  /* Two passes: the page's surface eases between themes, so a single
+     next-frame read sampled the OLD colour whenever the transition won the
+     race — the owner saw the caption buttons stuck on the previous theme.
+     The settle pass re-reads after the ease and always wins. */
+  requestAnimationFrame(send)
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(send, 600)
 }
 
 /* The titlebar strip is injected from here, not built into the app source:
@@ -66,4 +74,6 @@ window.addEventListener('DOMContentLoaded', () => {
   new MutationObserver(report).observe(document.documentElement, {
     attributes: true, attributeFilter: ['data-theme'],
   })
+  // a missed update (backgrounded window, throttled frames) heals on return
+  window.addEventListener('focus', report)
 })
