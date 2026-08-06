@@ -23,6 +23,8 @@ import { CHAT, ROLES } from '../vocab.js'
 import { el, uptimeRing, bindRuntime, countUp, setViewMorph, attachSeg, buildChat } from '../components.js'
 import { FleetGraph } from '../graph.js'
 import { withAlpha } from '../echarts-theme.js'
+import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
+import { fetchFleet } from '../live-status.js'
 import '../board.css'
 
 // Keep this surface on the same tree-shaken ECharts build as Metrics. No
@@ -67,6 +69,101 @@ const motionQuery = typeof window.matchMedia === 'function'
   : null
 const reduceMotion = () => document.body.classList.contains('reduce-motion') || !!motionQuery?.matches
 const rectCenter = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[char]))
+
+// Fleet graph roles are deliberately broader than the visual palette. Keep
+// the declared role separately (for the projection register) and only map it
+// to an existing role colour so the graph grammar remains intact.
+const graphRole = (role) => ({
+  controller: 'coordinator',
+  'coordinator-assistant': 'helper',
+  manager: 'manager',
+  worker: 'default',
+  builder: 'default',
+}[role] || 'default')
+
+function projectedComputer(computer, graph) {
+  const byId = new Map(graph.nodes.map(node => [node.id, {
+    id: node.id,
+    name: node.label,
+    role: graphRole(node.role),
+    declaredRole: node.role,
+    provider: node.provider,
+    state: node.enabled ? 'enabled' : 'disabled',
+    bornAt: null,
+    context: [],
+    projectionUnavailableReason: 'not provided by fleet projection',
+  }]))
+  const edges = graph.edges.map(edge => ({ ...edge }))
+
+  // Tree slots require one acyclic parent per node. Prefer the declared
+  // hierarchy relationships for that layout-only projection; FleetGraph still
+  // renders every declared relationship below, including reviews/escalations.
+  const wouldCycle = (child, parent) => {
+    let current = parent
+    const seen = new Set()
+    while (current?.parentId && !seen.has(current.id)) {
+      if (current.id === child.id) return true
+      seen.add(current.id)
+      current = byId.get(current.parentId)
+    }
+    return current?.id === child.id
+  }
+  for (const edge of edges) {
+    if (edge.type !== 'manages' && edge.type !== 'delegates_to') continue
+    const parent = byId.get(edge.from)
+    const child = byId.get(edge.to)
+    if (!parent || !child || child.parentId || parent.id === child.id || wouldCycle(child, parent)) continue
+    child.parentId = parent.id
+  }
+
+  const agents = [...byId.values()]
+  return {
+    id: computer.id,
+    name: computer.label,
+    ip: `${computer.services.length} services`,
+    note: computer.sourceKind,
+    spawnedTotal: agents.length,
+    agents,
+    services: computer.services,
+    graphEdges: edges,
+    graphRevision: graph.revision,
+    projection: true,
+    reparentAgent(agentId, parentId) {
+      const agent = byId.get(agentId)
+      const parent = byId.get(parentId)
+      if (!agent || !parent || agent === parent || agent.role === 'coordinator') return false
+      let current = parent
+      const seen = new Set()
+      while (current && !seen.has(current.id)) {
+        if (current.id === agent.id) return false
+        seen.add(current.id)
+        current = current.parentId ? byId.get(current.parentId) : null
+      }
+      agent.parentId = parent.id
+      return true
+    },
+  }
+}
+
+function projectionComputers(data) {
+  const graph = data?.graph
+  if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges) || !Array.isArray(data?.computers)) return []
+  return data.computers.map(computer => projectedComputer(computer, graph))
+}
+
+function projectionMonitorContext(agent) {
+  return {
+    current: `role: ${agent.declaredRole}`,
+    previous: `state: ${agent.state}`,
+    chat: 'messages unavailable',
+    tasks: null,
+    failRate: null,
+    model: agent.provider,
+  }
+}
 
 // Match buildChat's deterministic per-agent excerpt so the ambient monitor
 // can show the newest line from the same thread the click-through opens.
@@ -400,9 +497,14 @@ function agentChartBox(agent) {
 }
 
 export function computersView({ initialComputer = null, navigate }) {
-  let computer = sim.computers.find(c => c.id === initialComputer) || sim.computers[0]
+  let liveMode = isLiveView('computers')
+  let liveComputers = []
+  let computer = liveMode ? null : (sim.computers.find(c => c.id === initialComputer) || sim.computers[0])
   let graph = null
   const unsubs = []
+  let sourceUnsubs = []
+  let destroyed = false
+  let fetchVersion = 0
 
   // two timer pools: rail morph timers are cancelled whenever the rail morphs
   // again; view timers only die with the view.
@@ -486,14 +588,17 @@ export function computersView({ initialComputer = null, navigate }) {
   /* ---------- tabs ---------- */
   function renderTabs() {
     tabsEl.innerHTML = ''
-    for (const c of sim.computers) {
+    const computers = liveMode ? liveComputers : sim.computers
+    for (const c of computers) {
       const t = el(`<button class="tab ${c === computer ? 'active' : ''}">${c.name}<span class="ip">${c.ip}</span></button>`)
       t.addEventListener('click', () => switchComputer(c))
       tabsEl.appendChild(t)
     }
-    const add = el(`<button class="tab add" title="Connect a computer">+</button>`)
-    add.addEventListener('click', () => { const c = sim.addComputer(); switchComputer(c); renderTabs() })
-    tabsEl.appendChild(add)
+    if (!liveMode) {
+      const add = el(`<button class="tab add" title="Connect a computer">+</button>`)
+      add.addEventListener('click', () => { const c = sim.addComputer(); switchComputer(c); renderTabs() })
+      tabsEl.appendChild(add)
+    }
   }
 
   // Tab switch: dissolve the outgoing graph, cascade the incoming bubbles in,
@@ -519,7 +624,9 @@ export function computersView({ initialComputer = null, navigate }) {
     graph = new FleetGraph(canvas, {
       computer,
       screenChips: true,
-      contextFeed: monitorContextFor,
+      contextFeed: liveMode ? projectionMonitorContext : monitorContextFor,
+      edges: liveMode ? computer.graphEdges : null,
+      onReparent: liveMode ? ((agentId, parentId) => computer.reparentAgent(agentId, parentId)) : null,
       onSelect: () => {},
       onOpenControls: (agent) => showControls(agent),
       onRootChange: (id) => renderCrumb(id),
@@ -795,6 +902,10 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function renderStats() {
+    if (liveMode) {
+      renderLiveStats()
+      return
+    }
     const active = computer.agents.length
     statsPage.innerHTML = `
       <div class="rail-title">Runtime Statistics</div>
@@ -822,6 +933,25 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>
     `
     updateBars(); updateTasks()
+  }
+
+  function renderLiveStats() {
+    const services = computer.services || []
+    statsPage.innerHTML = `
+      <div class="rail-title">Fleet Projection</div>
+      <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
+        <div class="stat-hero"><span class="v" id="agent-count" data-v="${computer.spawnedTotal}">${computer.spawnedTotal}</span><span class="l">Declared graph nodes</span></div>
+        <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
+        <div class="rail-sec">Services</div>
+        <div class="task-list projection-state">
+          ${services.length
+            ? services.map(service => `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b> · ${escapeMarkup(service.state)}${service.detail ? ` · ${escapeMarkup(service.detail)}` : ''}</div>`).join('')
+            : '<div class="rail-sub">No services declared by fleet projection</div>'}
+        </div>
+        <div class="rail-sec">Declared graph</div>
+        <div class="rail-sub">${computer.graphEdges.length} declared relationships · runtime, load, tasks, and messages unavailable · not provided by fleet projection</div>
+      </div>
+    `
   }
 
   function updateBars() {
@@ -898,6 +1028,10 @@ export function computersView({ initialComputer = null, navigate }) {
   let chart = null
 
   function showControls(agent) {
+    if (liveMode) {
+      showProjectionControls(agent)
+      return
+    }
     clearRailTimers()
     chart?.destroy(); chart = null
     const role = ROLES[agent.role] || ROLES.default
@@ -1045,14 +1179,145 @@ export function computersView({ initialComputer = null, navigate }) {
     startLoop()          // the board is the only thing that needs a frame loop
   }
 
-  /* ---------- boot ---------- */
-  renderTabs()
-  mountGraph()
-  showStats()
+  function showProjectionControls(agent) {
+    clearRailTimers()
+    chart?.destroy(); chart = null
+    const role = ROLES[agent.role] || ROLES.default
+    ctlPage.style.setProperty('--rc', role.hex)
+    ctlPage.style.setProperty('--role-glow', role.glow)
+    ctlPage.innerHTML = `
+      <div class="rail-title">
+        <button class="rail-back">‹ Fleet projection</button>
+        <span class="spacer"></span>Declared node
+      </div>
+      <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
+        <div class="agent-head board-head">
+          <span class="role-dot"></span>
+          <div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div>
+        </div>
+        <div class="board-box board-ctl-box projection-state">
+          <div class="board-box-h"><span class="bh-t">Projection register</span></div>
+          <div class="rail-sub">ID · ${escapeMarkup(agent.id)}</div>
+          <div class="rail-sub">Provider · ${escapeMarkup(agent.provider)}</div>
+          <div class="rail-sub">State · ${escapeMarkup(agent.state)}</div>
+          <div class="projection-unavailable">Runtime, chat, tuning, and activity unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
+        </div>
+      </div>
+      <div class="board-actions">
+        <button class="ctl-btn" data-a="open">
+          <svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Open full view</button>
+      </div>
+    `
+    ctlPage.querySelector('.rail-back').addEventListener('click', () => showStats())
+    ctlPage.querySelector('[data-a="open"]').addEventListener('click', () => {
+      const rec = graph?.nodes?.get(agent.id)
+      const target = rec?.el || graphWrap
+      const r = target.getBoundingClientRect()
+      setViewMorph({ kind: 'zoom', x: r.left + r.width / 2, y: r.top + r.height / 2 })
+      navigate(`#/agent/${computer.id}/${agent.id}`)
+    })
+    cascadeIn(ctlPage)
+    hidePage(statsPage, 'off-l')
+  }
 
-  unsubs.push(sim.on('stats', updateBars))
-  unsubs.push(sim.on('tasks', updateTasks))
-  unsubs.push(sim.on('spawn', ({ comp }) => { if (comp === computer) updateBars() }))
+  /* ---------- source wiring ---------- */
+  function clearSourceUnsubs() {
+    sourceUnsubs.forEach(unsub => unsub())
+    sourceUnsubs = []
+  }
+
+  function clearMountedGraph() {
+    graph?.destroy()
+    graph = null
+    canvas?.remove()
+    canvas = null
+    fadingGraph?.destroy()
+    fadingGraph = null
+  }
+
+  function mountSimulation() {
+    fetchVersion++
+    clearSourceUnsubs()
+    clearMountedGraph()
+    liveMode = false
+    liveComputers = []
+    root.dataset.liveMode = 'simulated'
+    root.dataset.projectionState = 'simulated'
+    computer = sim.computers.find(c => c.id === initialComputer) || sim.computers[0]
+    renderTabs()
+    mountGraph()
+    showStats()
+    sourceUnsubs.push(sim.on('stats', updateBars))
+    sourceUnsubs.push(sim.on('tasks', updateTasks))
+    sourceUnsubs.push(sim.on('spawn', ({ comp }) => { if (comp === computer) updateBars() }))
+  }
+
+  function showProjectionUnavailable(reason, loading = false) {
+    clearSourceUnsubs()
+    clearMountedGraph()
+    liveMode = true
+    liveComputers = []
+    computer = null
+    root.dataset.liveMode = 'live'
+    root.dataset.projectionState = loading ? 'loading' : 'unavailable'
+    tabsEl.innerHTML = ''
+    crumbEl.innerHTML = ''
+    hintEl.classList.remove('show')
+    const message = loading
+      ? 'Fleet projection loading…'
+      : `Fleet projection unavailable · ${escapeMarkup(reason)}`
+    statsPage.classList.remove('off-l', 'off-r', 'mc-in', 'mc-out')
+    statsPage.innerHTML = `<div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${message}</div>`
+    ctlPage.innerHTML = ''
+    ctlPage.classList.add('off-r')
+  }
+
+  function mountProjection(data) {
+    const next = projectionComputers(data)
+    if (!next.length) {
+      showProjectionUnavailable('fleet projection has no usable computers or declared graph')
+      return
+    }
+    clearSourceUnsubs()
+    clearMountedGraph()
+    liveMode = true
+    liveComputers = next
+    root.dataset.liveMode = 'live'
+    root.dataset.projectionState = 'available'
+    computer = next.find(c => c.id === initialComputer) || next[0]
+    ctlPage.classList.add('off-r')
+    renderTabs()
+    mountGraph()
+    showStats()
+  }
+
+  function loadProjection() {
+    const version = ++fetchVersion
+    showProjectionUnavailable('', true)
+    fetchFleet().then(result => {
+      if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
+      if (!result.ok) {
+        showProjectionUnavailable(result.reason)
+        return
+      }
+      mountProjection(result.data.data)
+    }).catch(err => {
+      if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
+      showProjectionUnavailable(`fleet projection request failed: ${err?.message || err}`)
+    })
+  }
+
+  const onLiveFlag = (event) => {
+    if (event.detail?.view !== 'computers' || destroyed) return
+    if (event.detail.live) loadProjection()
+    else mountSimulation()
+  }
+  window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlag)
+  unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
+
+  if (liveMode) loadProjection()
+  else mountSimulation()
 
   // The rAF used to be started at boot and never stopped, so on the DEFAULT
   // rail state — Runtime Statistics, where both ctlRing and chart are null —
@@ -1078,11 +1343,14 @@ export function computersView({ initialComputer = null, navigate }) {
   return {
     el: root,
     destroy() {
+      destroyed = true
+      fetchVersion++
       cancelAnimationFrame(raf)
       heroCount?.()
       chart?.destroy(); chart = null
       clearRailTimers()
       viewTimers.forEach(clearTimeout); viewTimers = []
+      clearSourceUnsubs()
       graph?.destroy()
       fadingGraph?.destroy()
       unsubs.forEach(u => u())

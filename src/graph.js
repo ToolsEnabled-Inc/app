@@ -26,6 +26,9 @@ const SCREEN_EDGE = 8
 const SCREEN_CHIP_GAP = 10
 const SCREEN_SLOT_HYSTERESIS = 52
 const SCREEN_PRIORITY = { coordinator: 4, helper: 3, shadow: 3, manager: 2, default: 1, spawned: 0 }
+const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[char]))
 
 /* ---------- motion weight (see the header block in graph.css) ----------
    Two registers, deliberately not one. The motion audit found a single
@@ -132,12 +135,17 @@ export const CHIP_W = 248
 export const CHIP_H = 100
 
 export class FleetGraph {
-  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, onGeometry = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null }) {
+  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, onGeometry = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null, edges = null, onReparent = null }) {
     this.chipPredicate = chipPredicate
     this.screenChips = screenChips === true
     this.contextFeed = typeof contextFeed === 'function' ? contextFeed : null
     this.container = container
     this.computer = computer
+    // A projection can carry relationships that are not a single parent tree
+    // (reviews and escalation loops included). Keep those exact edges for
+    // rendering/physics while parentId remains the tree-layout contract.
+    this.declaredEdges = Array.isArray(edges) ? edges : null
+    this.onReparent = typeof onReparent === 'function' ? onReparent : null
     this.rootId = rootId
     this.onRootChange = onRootChange
     this.onSelect = onSelect
@@ -450,7 +458,7 @@ export class FleetGraph {
             <div class="rl">Runtime</div>
           </div>
         </div>
-        <span class="node-name"><i></i>${agent.name}</span>
+        <span class="node-name"><i></i>${escapeMarkup(agent.name)}</span>
         <span class="node-role">${role.label}</span>
       </div>
     `)
@@ -514,7 +522,16 @@ export class FleetGraph {
     })
     this.nodes.set(agent.id, rec)
 
-    this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
+    if (Number.isFinite(agent.bornAt)) {
+      this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
+    } else {
+      const runtime = nodeEl.querySelector('.rt')
+      runtime.textContent = 'Unavailable'
+      runtime.title = `Runtime unavailable · ${agent.projectionUnavailableReason || 'not provided'}`
+      runtime.hidden = true
+      nodeEl.querySelector('.rl').textContent = 'Runtime unavailable'
+      nodeEl.querySelector('.rl').title = runtime.title
+    }
     this.wireInteractions(rec)
 
     const wantsChip = this.screenChips
@@ -630,24 +647,35 @@ export class FleetGraph {
       })
       const runtime = pv.querySelector('.chip-runtime')
       runtime.classList.add('inline-number')
-      runtime.textContent = fmtRuntime(rec.agent.bornAt)
-      rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
+      if (Number.isFinite(rec.agent.bornAt)) {
+        runtime.textContent = fmtRuntime(rec.agent.bornAt)
+        rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
+      } else {
+        runtime.textContent = 'runtime unavailable'
+        runtime.title = `Runtime unavailable · ${rec.agent.projectionUnavailableReason || 'not provided'}`
+      }
     }
     const feed = this._screenContext(rec)
-    const tasks = Number.isFinite(feed.tasks) ? Math.max(0, Math.round(feed.tasks)) : 0
-    const failRate = Number.isFinite(feed.failRate) ? Math.max(0, feed.failRate) : 0
-    pv.querySelector('.chip-tasks').innerHTML = formatInlineText(`${tasks} tasks`, {
+    const tasks = Number.isFinite(feed.tasks) ? Math.max(0, Math.round(feed.tasks)) : null
+    const failRate = Number.isFinite(feed.failRate) ? Math.max(0, feed.failRate) : null
+    pv.querySelector('.chip-tasks').innerHTML = formatInlineText(tasks == null
+      ? 'tasks unavailable'
+      : `${tasks} tasks`, {
       agents: this.computer.agents,
       roleKey: rec.agent.role,
     })
     const fail = pv.querySelector('.chip-fail')
-    fail.innerHTML = formatInlineText(`${failRate}% fail`, {
+    fail.innerHTML = formatInlineText(failRate == null
+      ? 'fail unavailable'
+      : `${failRate}% fail`, {
       agents: this.computer.agents,
       roleKey: rec.agent.role,
     })
     fail.classList.remove('sev-good', 'sev-warn', 'sev-serious')
-    fail.classList.add(`sev-${failRate < 2 ? 'good' : failRate < 5 ? 'warn' : 'serious'}`)
-    pv.querySelector('.chip-model').innerHTML = formatInlineText(feed.model || 'unknown model', {
+    if (failRate != null) fail.classList.add(`sev-${failRate < 2 ? 'good' : failRate < 5 ? 'warn' : 'serious'}`)
+    pv.querySelector('.chip-model').innerHTML = formatInlineText(rec.agent.projectionUnavailableReason
+      ? `provider: ${feed.model || 'unavailable · not provided'}`
+      : (feed.model || 'unknown model'), {
       agents: this.computer.agents,
       roleKey: rec.agent.role,
     })
@@ -847,11 +875,16 @@ export class FleetGraph {
 
   refreshForces(hard = false) {
     const nodes = [...this.nodes.values()]
-    const links = []
-    for (const n of nodes) {
-      const p = this.nodes.get(n.agent.parentId)
-      if (p) links.push({ source: p, target: n })
-    }
+    const links = this.declaredEdges
+      ? this.declaredEdges.flatMap(edge => {
+        const source = this.nodes.get(edge.from)
+        const target = this.nodes.get(edge.to)
+        return source && target ? [{ source, target, type: edge.type }] : []
+      })
+      : nodes.flatMap(n => {
+        const source = this.nodes.get(n.agent.parentId)
+        return source ? [{ source, target: n }] : []
+      })
     this.links = links
     this.renderLinkEls()
 
@@ -969,7 +1002,7 @@ export class FleetGraph {
   renderLinkEls() {
     this.svg.innerHTML = ''
     for (const l of this.links) {
-      const hex = ROLES[l.target.agent.role].hex
+      const hex = (ROLES[l.target.agent.role] || ROLES.default).hex
       // deterministic per-link curvature so curves never flip between rebuilds
       const hv = hashStr(`${l.source.id}→${l.target.id}`)
       l.side = hv % 2 ? 1 : -1
@@ -978,10 +1011,12 @@ export class FleetGraph {
       under.setAttribute('class', 'link-under')
       under.setAttribute('stroke', hex)
       under.setAttribute('stroke-width', '6')
+      if (l.type) under.dataset.edgeType = l.type
       const top = document.createElementNS('http://www.w3.org/2000/svg', 'path')
       top.setAttribute('class', 'link-top')
       top.setAttribute('stroke', hex)
       top.setAttribute('stroke-width', '1.6')
+      if (l.type) top.dataset.edgeType = l.type
       this.svg.appendChild(under); this.svg.appendChild(top)
       l.underEl = under; l.topEl = top
     }
@@ -2731,8 +2766,18 @@ export class FleetGraph {
     const target = this._dropRec
     if (this._dropRec) { this._dropRec.el.classList.remove('drop-ok'); this._dropRec = null }
     rec.fx = null; rec.fy = null                   // relayout re-pins everything
-    if (target && sim.reparentAgent(this.computer, rec.agent.id, target.agent.id)) {
-      return                                       // 'reparent' handler relays out
+    const reparented = target && (this.onReparent
+      ? this.onReparent(rec.agent.id, target.agent.id)
+      : sim.reparentAgent(this.computer, rec.agent.id, target.agent.id))
+    if (reparented) {
+      // Simulation emits its own reparent event. A read projection instead
+      // owns a local layout draft, so refresh it here without inventing or
+      // rewriting any declared edge.
+      if (this.onReparent) {
+        this.refreshForces()
+        if (this._treeActive()) this._layoutTree(true)
+      }
+      return
     }
     // refused: released over an invalid perch (or tried to move the root)
     let overNode = false

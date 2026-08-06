@@ -27,6 +27,8 @@ import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../component
 import { buildTheme } from '../echarts-theme.js'
 import { createCharts } from '../metrics-charts.js'
 import { createMetricsLayout } from '../metrics-layout.js'
+import { isLiveView } from '../live-flags.js'
+import { fetchMetrics } from '../live-status.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
 
@@ -297,13 +299,54 @@ function agentSeries(a) {
 }
 
 export function metricsView() {
+  const liveMode = isLiveView('metrics')
   const m = sim.metrics
   const unsubs = []
   const timers = new Set()
   const after = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn() }, ms); timers.add(t); return t }
+  let destroyed = false
+  let projection = liveMode ? { ok: false, reason: 'loading projection' } : null
 
   const state = { range: '24h', machine: 'all', laneFilter: null, editing: false }
   const meta = () => RANGE_META[state.range]
+
+  /* Live metrics deliberately consume only the aggregate facts their
+     projection declares. The existing simulation remains intact below and is
+     selected by one flag flip; no live branch borrows its series, roster, or
+     derived claims from the sim. */
+  const LIVE_TILES = [
+    { id: 'agents', label: 'Codex sessions', field: 'sessions', key: 'codex', unit: 'observed' },
+    { id: 'tasks', label: 'Claude sessions', field: 'sessions', key: 'claude', unit: 'observed' },
+    { id: 'fail', label: 'Services', field: 'services', key: 'total', unit: (v) => `${v.stale} stale` },
+    { id: 'tokens', label: 'Requests', field: 'requests', key: 'total', unit: 'total' },
+    { id: 'ckpt', label: 'Open requests', field: 'requests', key: 'open', unit: 'open' },
+    { id: 'gates', label: 'Queue', field: 'queue', key: 'total', unit: (v) => `${v.blocked} blocked · ${v.done} done` },
+  ]
+
+  function liveObservation(field) {
+    if (!projection?.ok || !projection.data?.data) {
+      return { ok: false, reason: projection?.reason || 'projection unavailable', value: null }
+    }
+    return projection.data.data[field] || { ok: false, reason: 'observation missing from projection', value: null }
+  }
+
+  function liveTile(tile) {
+    const observation = liveObservation(tile.field)
+    const value = observation?.value
+    const number = observation?.ok && Number.isFinite(value?.[tile.key]) ? value[tile.key] : null
+    return { observation, number, value }
+  }
+
+  /* This is intentionally shape-free. It lets the shared mount plumbing keep
+     its element identities without inventing a chart or a zero while the
+     aggregate projection is loading or unavailable. */
+  function buildLiveData() {
+    return {
+      live: true,
+      tiles: Object.fromEntries(LIVE_TILES.map(tile => [tile.id, liveTile(tile).number])),
+      spark: Object.fromEntries(LIVE_TILES.map(tile => [tile.id, []])),
+    }
+  }
 
   /* live-pulse buffer: buckets appended to the command band since the last
      filter settle. Kept OUT of buildData so the settled dataset stays pure
@@ -472,6 +515,10 @@ export function metricsView() {
       </div>
     </div>
   `)
+  const metricsSurface = root.querySelector('.metrics')
+  root.dataset.liveMode = liveMode ? 'live' : 'simulated'
+  metricsSurface.dataset.liveMode = liveMode ? 'live' : 'simulated'
+  if (!liveMode) root.dataset.projectionState = metricsSurface.dataset.projectionState = 'simulated'
 
   /* ================= layout customization =================
      The registry: each band is a movable module. `full` must span the
@@ -836,9 +883,9 @@ export function metricsView() {
     }
   }
 
-  let current = buildData()
+  let current = liveMode ? buildLiveData() : buildData()
   let target = current
-  let prevPeriod = buildData(1)          // the same period, one period back
+  let prevPeriod = liveMode ? current : buildData(1) // the same period, one period back
   let sessionBase = null                 // tile values at mount / last filter change
 
   /* ================= tiles ================= */
@@ -859,7 +906,7 @@ export function metricsView() {
           <div class="td flat"></div>
         </div>
       `)
-      const ref = { def: t, el: tile, num: tile.querySelector('.tvn'), unit: tile.querySelector('.unit'), tv: tile.querySelector('.tv'), delta: tile.querySelector('.td') }
+      const ref = { def: t, el: tile, label: tile.querySelector('.tl'), num: tile.querySelector('.tvn'), unit: tile.querySelector('.unit'), tv: tile.querySelector('.tv'), delta: tile.querySelector('.td') }
       if (t.spark) {
         const svg = sparkline({ points: [1, 2, 3], color: TILE_MARK })
         const tip = svg.querySelector('circle')
@@ -879,11 +926,36 @@ export function metricsView() {
     }
   }
 
+  function applyLiveTiles() {
+    for (const ref of tileRefs) {
+      const tile = LIVE_TILES.find(item => item.id === ref.def.id)
+      if (!tile) continue
+      const { observation, number, value } = liveTile(tile)
+      const unavailable = number == null
+      ref.label.textContent = tile.label
+      ref.el.classList.toggle('projection-unavailable', unavailable)
+      ref.num.textContent = unavailable ? '—' : Math.round(number).toLocaleString('en-US')
+      ref.unit.textContent = unavailable
+        ? 'unavailable'
+        : (typeof tile.unit === 'function' ? tile.unit(value) : tile.unit)
+      ref.delta.textContent = unavailable
+        ? `unavailable · ${observation.reason || 'projection unavailable'}`
+        : 'aggregate projection · no series'
+      ref.delta.className = `td flat${unavailable ? ' projection-unavailable' : ''}`
+      /* A sparkline asserts a sequence. The aggregate contract supplies none,
+         so preserve this protected stat-strip DOM while clearing its path. */
+      ref.path?.setAttribute('d', '')
+      ref.tip?.setAttribute('opacity', '0')
+      ref.halo?.setAttribute('opacity', '0')
+    }
+  }
+
   /* Units and sparklines still ride the page tween's frames; the NUMBER does
      not — tickTileNums below owns it. Two writers on one text node meant the
      tween's 780ms count could overwrite the tick's 300ms count mid-flight,
      and the slower writer always won the last frame. One owner per readout. */
   function applyTiles(d) {
+    if (liveMode) { applyLiveTiles(); return }
     const R = meta()
     for (const ref of tileRefs) {
       ref.unit.textContent = ref.def.unit(d, R)
@@ -901,7 +973,7 @@ export function metricsView() {
      steps as the agent table; the percent unit remains in the quiet register. */
   function paintTileValue(ref, value) {
     ref.num.textContent = ref.def.fmt(value)
-    if (ref.def.id !== 'fail') return
+    if (liveMode || ref.def.id !== 'fail') return
     const cls = value < 2 ? 'fail-ok' : value <= 5 ? 'fail-warn' : 'fail-bad'
     if (ref.failCls === cls) return
     if (ref.failCls) ref.tv.classList.remove(ref.failCls)
@@ -915,6 +987,7 @@ export function metricsView() {
      rail badge lesson: decorative motion must not make a readout lie).
      reduced() snaps to the final value in one swap. */
   function tickTileNums(next) {
+    if (liveMode) { applyLiveTiles(); return }
     for (const ref of tileRefs) {
       const to = ref.def.val(next)
       const from = ref.lastVal ?? 0
@@ -962,6 +1035,7 @@ export function metricsView() {
 
   /** Delta rows, measured. `d` is the settled dataset the tiles are heading to. */
   function applyTileDeltas(d) {
+    if (liveMode) return
     const R = meta()
     for (const ref of tileRefs) {
       const spec = ref.def.delta
@@ -1600,6 +1674,7 @@ export function metricsView() {
   /* ================= chrome (labels that follow the filter) ================= */
 
   function applyChrome() {
+    if (liveMode) { applyLiveProjection(); return }
     const R = meta()
     /* the zoom hint lives in words because the slider chrome is gone —
        wheel/drag inside the plot is the only zoom, and an instrument
@@ -1628,15 +1703,99 @@ export function metricsView() {
     root.querySelector('#gates-sub').textContent = `${R.word} · event log${machineSuffix()}${ongoing ? ` · ${ongoing} still held` : ''}`
   }
 
+  /* ================= live aggregate projection =================
+     These modules keep their registered hosts and layout identities. Their
+     charts are intentionally never initialized in live mode: a simulated
+     shape, even for a frame, would be a false live claim and would leave
+     idle ECharts/rAF work behind for information the projection lacks. */
+  function projectionReason(field, absent) {
+    const observation = field ? liveObservation(field) : null
+    if (observation && !observation.ok) return `${absent} · ${observation.reason}`
+    if (!projection?.ok) return `unavailable · ${projection?.reason || 'projection unavailable'}`
+    return `unavailable · ${absent}`
+  }
+
+  function setProjectionUnavailable(componentId, subId, detail, hosts = []) {
+    const component = root.querySelector(`[data-mc="${componentId}"]`)
+    component?.classList.add('projection-unavailable')
+    const sub = root.querySelector(subId)
+    if (sub) sub.textContent = detail
+    for (const hostId of hosts) {
+      const host = root.querySelector(hostId)
+      if (!host) continue
+      host.classList.add('projection-unavailable')
+      host.setAttribute('aria-label', detail)
+      host.replaceChildren(document.createTextNode(detail))
+    }
+  }
+
+  function applyLiveProjection() {
+    root.dataset.liveMode = 'live'
+    metricsSurface.dataset.liveMode = 'live'
+    root.dataset.projectionState = projection?.ok ? 'aggregate' : 'unavailable'
+    metricsSurface.dataset.projectionState = root.dataset.projectionState
+    root.querySelector('#mf-note').textContent = projection?.ok
+      ? 'live aggregate projection'
+      : `live projection unavailable · ${projection?.reason || 'projection unavailable'}`
+    applyLiveTiles()
+
+    setProjectionUnavailable('sankey', '#sankey-sub',
+      projectionReason(null, 'aggregate projection has no token-routing observation'), ['#sankey-chart'])
+    setProjectionUnavailable('tokenflow', '#tokens-sub',
+      projectionReason(null, 'aggregate projection has no token-flow time series'), ['#hero-chart', '#strip-chart'])
+    setProjectionUnavailable('heatmap', '#heat-sub',
+      projectionReason(null, 'aggregate projection has no fleet-activity time series'), ['#heat-chart'])
+    setProjectionUnavailable('verdicts', '#verdict-sub',
+      projectionReason('audit', 'audit unavailable'), ['#verdict-chart'])
+    setProjectionUnavailable('lanes', '#fail-sub',
+      projectionReason(null, 'aggregate projection has no failure-lane observation'), ['#fail-chart'])
+    setProjectionUnavailable('heartbeat', '#heartbeat-sub',
+      projectionReason('fleetSupervisor', 'fleet supervisor unavailable'), ['#heartbeat-chart'])
+    setProjectionUnavailable('burn', '#burn-sub',
+      projectionReason('memory', 'durable memory unavailable'), ['#burn-chart'])
+    setProjectionUnavailable('gates', '#gates-sub',
+      projectionReason(null, 'aggregate projection has no checkpoint event timeline'))
+    setProjectionUnavailable('pools', null,
+      projectionReason(null, 'aggregate projection has no account-pool observation'), ['#pools'])
+    setProjectionUnavailable('agents', '#table-sub',
+      projectionReason(null, 'aggregate projection has no agent roster'), ['#agent-table'])
+
+    /* The static optional-instrument labels originate in the simulation.
+       Clear them rather than let two simulated machine identities remain
+       beside the fleet-supervisor unavailable result. */
+    root.querySelectorAll('.hb-meta').forEach(node => { node.textContent = '' })
+    root.querySelectorAll('.hb-signal-tip').forEach(node => { node.hidden = true })
+    root.querySelector('.gate-track')?.replaceChildren(document.createTextNode(
+      projectionReason(null, 'aggregate projection has no checkpoint event timeline')))
+    root.querySelector('.gate-legend')?.replaceChildren()
+    root.querySelectorAll('.gate-axis-labels span').forEach(node => { node.textContent = '' })
+  }
+
+  async function loadLiveProjection() {
+    let result
+    try {
+      result = await fetchMetrics()
+    } catch (err) {
+      result = { ok: false, reason: `metrics projection failed: ${err?.message || err}` }
+    }
+    if (destroyed) return
+    projection = result
+    current = target = buildLiveData()
+    prevPeriod = current
+    applyLiveProjection()
+  }
+
   /* ================= tween engine ================= */
 
   let rafId = 0
 
   function applyAll(d) {
+    if (liveMode) { applyLiveProjection(); return }
     applyTiles(d); applyPools(d); applyVerdicts(d)
   }
 
   function tweenTo(next, dur) {
+    if (liveMode) { current = target = next; applyLiveProjection(); return }
     const from = current
     target = next
     const ms = reduced() ? 120 : dur
@@ -1652,6 +1811,7 @@ export function metricsView() {
   }
 
   function retarget(dur) {
+    if (liveMode) return
     const next = buildData()
     prevPeriod = buildData(1)
     if (!sessionBase) captureSessionBase(next)      // first settle, or post-filter rebaseline
@@ -1676,6 +1836,7 @@ export function metricsView() {
      new noise. reduced(): the point still appends (data must not stall), the
      600ms slide is gated off inside anim(). */
   function pulse() {
+    if (liveMode) return
     /* edit mode stills the stream: appends hold (a chart must not reflow
        under a drag), but the chain keeps scheduling so exiting edit resumes
        the cadence without a restart */
@@ -1694,7 +1855,7 @@ export function metricsView() {
     updateCharts(target, 600)
     schedulePulse()
   }
-  function schedulePulse() { after(pulse, 4000 + Math.random() * 4000) }
+  function schedulePulse() { if (!liveMode) after(pulse, 4000 + Math.random() * 4000) }
 
   /* ================= filter row wiring ================= */
 
@@ -1762,14 +1923,21 @@ export function metricsView() {
      is in the document. Every apply*() below is a no-op until its own refs
      exist, so a sim retarget landing inside that one-frame window is
      harmless. */
-  buildTiles(); buildPools()
-  captureSessionBase(current)
-  applyChrome()
-  const settled = current
-  current = flattened(settled)
-  applyAll(current)
+  buildTiles()
+  let bootRaf = 0
 
-  let bootRaf = requestAnimationFrame(() => {
+  if (liveMode) {
+    applyLiveProjection()
+    loadLiveProjection()
+  } else {
+    buildPools()
+    captureSessionBase(current)
+    applyChrome()
+    const settled = current
+    current = flattened(settled)
+    applyAll(current)
+
+    bootRaf = requestAnimationFrame(() => {
     bootRaf = 0
     buildVerdicts(); buildTable()
     theme = buildTheme(root.querySelector('.metrics'))
@@ -1806,14 +1974,15 @@ export function metricsView() {
     tickTileNums(target)               // no-op if a gap retarget already ticked
     if (target === settled) tweenTo(settled, 900)
     schedulePulse()                    // the band starts breathing after arrival
-    after(heartbeatTick, HEART_CADENCE)
-  })
+      after(heartbeatTick, HEART_CADENCE)
+    })
+  }
 
   /* Theme switch: main.js writes documentElement.dataset.theme; rebuild the
      token snapshot from the NEW computed values, regenerate the heat key, and
      re-issue full options — colours, ramps and gradients glide to the new
      theme on live instances instead of waiting for a remount. */
-  if (typeof MutationObserver !== 'undefined') {
+  if (!liveMode && typeof MutationObserver !== 'undefined') {
     const themeMO = new MutationObserver(() => {
       theme = buildTheme(root.querySelector('.metrics'))
       syncHeatKey()
@@ -1826,13 +1995,16 @@ export function metricsView() {
   /* live drift keeps every mark breathing — a short tween, never a snap.
      Edit mode gates it (with the pulse): a page being rearranged must not
      move under the pointer; onEditChange fires one retarget on exit. */
-  unsubs.push(sim.on('metrics', () => { if (!state.editing) retarget(420) }))
-  unsubs.push(sim.on('spawn', () => { if (!state.editing) retarget(520) }))
-  unsubs.push(sim.on('reap', () => { if (!state.editing) retarget(520) }))
+  if (!liveMode) {
+    unsubs.push(sim.on('metrics', () => { if (!state.editing) retarget(420) }))
+    unsubs.push(sim.on('spawn', () => { if (!state.editing) retarget(520) }))
+    unsubs.push(sim.on('reap', () => { if (!state.editing) retarget(520) }))
+  }
 
   return {
     el: root,
     destroy() {
+      destroyed = true
       cancelAnimationFrame(rafId)
       if (bootRaf) cancelAnimationFrame(bootRaf)     // a route swap inside the mount gap
       timers.forEach(t => clearTimeout(t))           // includes the pulse chain

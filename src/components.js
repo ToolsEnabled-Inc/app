@@ -433,21 +433,34 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   log.addEventListener('scroll', () => {
     pinned = log.scrollTop >= log.scrollHeight - log.clientHeight - 24
   }, { passive: true })
-  const anchorRo = new ResizeObserver(() => {
+  const pinToBottom = () => {
     if (!disposed && pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+  }
+  const anchorRo = new ResizeObserver(() => {
+    pinToBottom()
   })
   anchorRo.observe(log)
   // content growth (a new message wrapping taller) moves scrollHeight without
   // resizing the box — the same pin applies
   const contentObserver = new MutationObserver(() => {
-    if (!disposed && pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
+    pinToBottom()
   })
   contentObserver.observe(log, { childList: true })
-  // the webfont swap grows text with no mutation and no box resize — the one
-  // path the two observers above cannot see (measured on the home thread)
-  document.fonts?.ready?.then(() => {
-    if (!disposed && pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
-  })
+  // The webfont swap grows text with no mutation and no box resize. `ready`
+  // can also settle while this chat is still detached, so doing the write in
+  // that promise callback is another zero-measurement no-op. Re-elect the pin
+  // after two painted frames, and listen for later font generations too.
+  let firstPinFrame = 0
+  let settledPinFrame = 0
+  const pinAfterMount = () => {
+    firstPinFrame = requestAnimationFrame(() => {
+      settledPinFrame = requestAnimationFrame(pinToBottom)
+    })
+  }
+  const onFontsLoaded = () => pinAfterMount()
+  document.fonts?.addEventListener?.('loadingdone', onFontsLoaded)
+  document.fonts?.ready?.then(pinAfterMount)
+  pinAfterMount()
 
   const pinGrowingReply = () => {
     if (pinned && log.scrollHeight) log.scrollTop = log.scrollHeight
@@ -643,6 +656,9 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     log.removeAttribute('aria-busy')
     anchorRo.disconnect()
     contentObserver.disconnect()
+    cancelAnimationFrame(firstPinFrame)
+    cancelAnimationFrame(settledPinFrame)
+    document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     sendButton.removeEventListener('click', send)
     input.removeEventListener('keydown', onInputKeydown)
     if (onClose) root.querySelector('.chat-close')?.removeEventListener('click', onCloseClick)

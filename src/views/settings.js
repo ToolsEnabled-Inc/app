@@ -3,6 +3,7 @@
 
 import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
+import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import '../settings.css'
 
 const SECTIONS = [
@@ -98,6 +99,15 @@ export const SETTINGS = [
   { id: 'seed_mode', section: 'Data & Sim', name: 'Seed mode', desc: 'Choose stable sessions or varied simulated histories.', depth: 1, type: 'seg', options: ['stable', 'varied'], def: 'stable' },
   { id: 'retain_samples', section: 'Data & Sim', name: 'Retain samples on navigation', desc: 'Keep simulated view data when moving around the route ring.', depth: 1, type: 'toggle', def: true },
   { id: 'offline_fallback', section: 'Data & Sim', name: 'Offline fallback', desc: 'Use the local simulation when a live source is unavailable.', depth: 1, type: 'toggle', def: true },
+  ...LIVE_VIEW_FLAGS.map(flag => ({
+    id: `live_${flag.id}`,
+    section: 'Data & Sim',
+    name: `${flag.label} live data`,
+    desc: `Read ${flag.domain}.json on this surface; turn off for the preserved simulation.`,
+    depth: 1,
+    type: 'toggle',
+    def: true,
+  })),
   { id: 'event_variance', section: 'Data & Sim', name: 'Event variance', desc: 'Adjust the spread of simulated workload arrivals.', depth: 2, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 35 },
   { id: 'failure_rate', section: 'Data & Sim', name: 'Synthetic failure rate', desc: 'Set the background rate of recoverable simulated failures.', depth: 2, type: 'range', min: 0, max: 20, step: 1, unit: '%', def: 3 },
   { id: 'sample_bucket', section: 'Data & Sim', name: 'Sample bucket width', desc: 'Aggregate raw simulation ticks into wider time buckets.', depth: 3, type: 'stepper', min: 1, max: 60, step: 1, unit: 's', def: 5 },
@@ -113,6 +123,7 @@ export const SETTINGS = [
 ]
 
 const byId = new Map(SETTINGS.map(setting => [setting.id, setting]))
+const liveSettingViews = new Map(LIVE_VIEW_FLAGS.map(flag => [`live_${flag.id}`, flag.id]))
 const storageKey = id => `mc.set.${id}`
 const escapeHtml = value => String(value)
   .replace(/&/g, '&amp;')
@@ -145,6 +156,8 @@ function readStored(setting) {
 }
 
 function readValue(setting) {
+  const liveView = liveSettingViews.get(setting.id)
+  if (liveView) return isLiveView(liveView)
   if (setting.id === 'theme') {
     const current = document.documentElement.dataset.theme
     return current === 'tan' || current === 'black' ? current : 'white'
@@ -400,7 +413,10 @@ export function settingsView() {
   }
 
   function applyValue(setting, value) {
-    if (setting.id === 'theme') {
+    const liveView = liveSettingViews.get(setting.id)
+    if (liveView) {
+      value = setLiveView(liveView, Boolean(value))
+    } else if (setting.id === 'theme') {
       try { localStorage.setItem('mc.theme', String(value)) } catch {}
       document.documentElement.dataset.theme = String(value)
       setDrawerSegment('#theme-seg', 'theme', value)
