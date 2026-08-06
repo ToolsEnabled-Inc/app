@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "fleet",
-  "generatedAt": "2026-08-06T11:32:28.898Z",
+  "generatedAt": "2026-08-06T11:42:14.794Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "observed",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T11:32:29.023Z",
+      "observedAt": "2026-08-06T11:42:14.843Z",
       "reason": null
     },
     {
@@ -42,7 +42,7 @@
       "kind": "observed-registry",
       "path": "state/agent-presence.json",
       "ok": true,
-      "observedAt": "2026-08-06T11:28:34.087Z",
+      "observedAt": "2026-08-06T11:41:18.292Z",
       "reason": null
     },
     {
@@ -60,42 +60,42 @@
         "id": "machine-a",
         "label": "Machine A",
         "sourceKind": "observed",
-        "observedAt": "2026-08-06T11:32:29.023Z",
-        "activeSessions": 2,
+        "observedAt": "2026-08-06T11:42:14.843Z",
+        "activeSessions": 1,
         "services": [
           {
             "id": "service-health-observer-snapshot",
             "name": "health-observer snapshot",
             "state": "stale",
-            "observedAt": "2026-08-04T01:01:24.023Z",
+            "observedAt": "2026-08-04T01:01:23.843Z",
             "detail": "11 subsystems, but the observer itself is stale — this whole snapshot is untrustworthy"
           },
           {
             "id": "service-linkbus-8787",
             "name": "linkBus (:8787)",
             "state": "healthy",
-            "observedAt": "2026-08-06T11:32:08.023Z",
+            "observedAt": "2026-08-06T11:42:07.843Z",
             "detail": "owned · healthy"
           },
           {
             "id": "service-remotebridge-8788",
             "name": "remoteBridge (:8788)",
             "state": "conflict",
-            "observedAt": "2026-08-06T11:32:08.023Z",
+            "observedAt": "2026-08-06T11:42:07.843Z",
             "detail": "conflict · healthy — listener identity mismatch"
           },
           {
             "id": "service-fra-8790",
             "name": "FRA (:8790)",
             "state": "healthy",
-            "observedAt": "2026-08-04T11:17:37.023Z",
+            "observedAt": "2026-08-04T11:17:36.843Z",
             "detail": "owned · healthy · operational"
           },
           {
             "id": "service-rendezvous-8795",
             "name": "rendezvous (:8795)",
             "state": "unknown",
-            "observedAt": "2026-08-03T05:35:14.023Z",
+            "observedAt": "2026-08-03T05:35:13.843Z",
             "detail": "role receiver · committed key generation 9"
           }
         ]
@@ -191,7 +191,11 @@
           "role": "manager",
           "provider": "codex",
           "enabled": true,
-          "tasksDone": 0
+          "bornAt": 1786016143127,
+          "stoppedAt": 1786016478292,
+          "origin": "self",
+          "tasksDone": 1,
+          "failRate": 0
         },
         {
           "id": "codex",
@@ -416,6 +420,12 @@
         {
           "from": "coordinator-sol",
           "to": "codex-manager-seat-2",
+          "type": "delegates_to",
+          "sourceKind": "observed"
+        },
+        {
+          "from": "coordinator-sol",
+          "to": "codex-manager-seat-3",
           "type": "delegates_to",
           "sourceKind": "observed"
         }
