@@ -17,6 +17,7 @@ import { ledgerView } from './views/ledger.js'
 import { settingsView } from './views/settings.js'
 import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
+import { WRITE_FLAGS_EVENT } from './write-flags.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
 import './morphs.css'
@@ -204,6 +205,9 @@ window.addEventListener('hashchange', render)
 // an immediate rollback, while the settings page keeps its inline controls in
 // place and updates them locally.
 window.addEventListener(LIVE_FLAGS_EVENT, () => {
+  if (current?.route?.name !== 'settings') queueMicrotask(render)
+})
+window.addEventListener(WRITE_FLAGS_EVENT, () => {
   if (current?.route?.name !== 'settings') queueMicrotask(render)
 })
 

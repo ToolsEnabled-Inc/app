@@ -386,6 +386,140 @@
   --bub-me-2: #0e1726;
 }
 
+/* Phase 5 audited write surfaces. They are inserted only when their
+   mc.write.* flag is enabled, so the shipped flag-off DOM remains unchanged. */
+.write-surface {
+  position: relative;
+  flex: none;
+  margin-block: var(--s2);
+  padding: var(--s3) clamp(18px, 2.4vw, 30px);
+  border-block: 1px solid var(--line-2);
+  color: var(--ink-2);
+}
+.write-surface::before,
+.write-surface::after {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+}
+.write-surface::before { content: "{"; left: 0; }
+.write-surface::after { content: "}"; right: 0; }
+.write-surface > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+.write-surface > header strong,
+.write-form-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.write-surface > header span,
+.session-write-state,
+.write-form output {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+.write-surface [data-state="confirmed"],
+.session-write-state[data-state="confirmed"] { color: var(--s-good); }
+.write-surface [data-state="refused"],
+.write-surface [data-state="unavailable"],
+.session-write-state[data-state="refused"],
+.session-write-state[data-state="unavailable"] { color: var(--s-serious); }
+.write-surface-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(18px, 3vw, 36px);
+}
+.write-form {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--s2) var(--s3);
+}
+.write-form-title,
+.write-form .write-wide,
+.write-form output,
+.write-form .write-report { grid-column: 1 / -1; }
+.write-form label {
+  min-width: 0;
+  display: grid;
+  gap: var(--s1);
+  font-size: 12.5px;
+  color: var(--ink-25);
+}
+.write-form input,
+.write-form select,
+.write-form textarea {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/1.35 var(--font-mono);
+}
+.write-form textarea { resize: vertical; }
+.write-form button {
+  justify-self: start;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  font: 620 12.5px/1 var(--font-ui);
+  cursor: pointer;
+}
+.write-form button:hover { border-color: var(--ink-4); color: var(--ink); }
+.write-form button:disabled,
+.write-form input:disabled,
+.write-form select:disabled,
+.write-form textarea:disabled { cursor: not-allowed; opacity: .55; }
+.write-form :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.write-choice { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.write-report {
+  max-height: 240px;
+  overflow: auto;
+  margin: var(--s1) 0 0;
+  padding: var(--s3) 0;
+  border-block: 1px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-25);
+  font: 13px/1.55 var(--font-mono);
+}
+.agent-write-surface { width: 100%; }
+.ledger-write-surface { margin-bottom: var(--s3); }
+.session-write-state {
+  margin: 5px 0 0;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .write-surface-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .write-surface > header { align-items: flex-start; flex-direction: column; }
+  .write-form { grid-template-columns: 1fr; }
+  .write-form > * { grid-column: 1 !important; }
+}
+
 /* Phase 2 read-source register. One quiet line names whether a surface is
    reading its projection or the preserved simulation; unavailable readings
    stay bare on the page instead of becoming another card. */

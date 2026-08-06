@@ -19,6 +19,8 @@
 import { el, uptimeRing } from '../components.js'
 import { fetchStatus, fetchCoordinator, ageMs, fmtAge } from '../live-status.js'
 import { isLiveView } from '../live-flags.js'
+import { isWriteEnabled } from '../write-flags.js'
+import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 import '../home.css'
 
 const POLL_MS = 45_000
@@ -33,6 +35,7 @@ const DASH = '—' // em dash — used for "no reading", never "0"
    ============================================================ */
 const SPEAKERS = {
   owner: { cls: 'is-owner', label: 'owner' },
+  claude: { cls: 'is-coord', label: 'claude · coordinator', hue: 'var(--c-coordinator)' },
   codex: { cls: 'is-coord', label: 'codex · coordinator', hue: 'var(--c-coordinator)' },
   'codex-b': { cls: 'is-agent', label: 'codex-b', hue: 'var(--c-coordinator)' },
   'luna-02': { cls: 'is-agent', label: 'luna-02', hue: 'var(--c-manager)' },
@@ -159,6 +162,7 @@ function makeBag(items) {
 
 export function homeView() {
   const liveMode = isLiveView('home')
+  const writeReplyEnabled = liveMode && isWriteEnabled('thread-reply')
   const root = el(`
     <div class="home" data-live-mode="${liveMode ? 'live' : 'simulated'}">
       <div class="home-ring-wrap"></div>
@@ -255,6 +259,11 @@ export function homeView() {
      ============================================================ */
   const logEl = root.querySelector('.session-log')
   const input = root.querySelector('.session-input input')
+  const sendButton = root.querySelector('.chat-send')
+  const writeState = writeReplyEnabled
+    ? el('<div class="session-write-state" data-state="checking" role="status">checking audited bridge…</div>')
+    : null
+  if (writeState) root.querySelector('.session-input').insertAdjacentElement('afterend', writeState)
   const timers = []
   let destroyed = false
 
@@ -327,7 +336,7 @@ export function homeView() {
     }
     const projection = result.data.data
     const identity = projection.identity
-    if (sessionTitle) sessionTitle.textContent = `session — ${identity.displayName} · read-only projection`
+    if (sessionTitle) sessionTitle.textContent = `session — ${identity.displayName} · ${writeReplyEnabled ? 'audited write' : 'read-only projection'}`
     const sessions = projection.sessions
     const observed = sessions.ok ? sessions.value : null
     const latestAt = observed?.reduce((latest, session) => {
@@ -351,9 +360,27 @@ export function homeView() {
   if (liveMode) {
     showThreadState('coordinator thread', 'reading live projection…', '', true)
     input.disabled = true
-    input.placeholder = 'Read-only projection'
-    root.querySelector('.chat-send').disabled = true
+    input.placeholder = writeReplyEnabled ? 'Checking audited bridge…' : 'Read-only projection'
+    sendButton.disabled = true
     loadCoordinatorThread()
+    if (writeReplyEnabled) {
+      void bridgeStatus().then(result => {
+        if (destroyed) return
+        if (!result.ok) {
+          writeState.dataset.state = 'unavailable'
+          writeState.textContent = `bridge unavailable · ${result.reason}`
+          input.placeholder = 'Audited bridge unavailable'
+          return
+        }
+        writeState.dataset.state = 'ready'
+        writeState.textContent = result.channels?.discord?.ok === false
+          ? 'audited replies ready · discord channel unavailable'
+          : 'audited replies ready'
+        input.disabled = false
+        sendButton.disabled = false
+        input.placeholder = 'Reply through audited bridge…'
+      })
+    }
   }
 
   /* ---- live continuation: rare, whole-message arrivals ----
@@ -377,10 +404,37 @@ export function homeView() {
   /* ---- the composer: the owner speaks, the coordinator answers ---- */
   const drawReply = makeBag(REPLIES)
   const drawReplyAct = makeBag(REPLY_ACTS)
-  const send = () => {
-    if (liveMode) return
+  const send = async () => {
+    if (liveMode && !writeReplyEnabled) return
     const v = input.value.trim()
     if (!v) return
+    if (liveMode) {
+      input.disabled = true
+      sendButton.disabled = true
+      writeState.dataset.state = 'pending'
+      writeState.textContent = 'recording durable reply…'
+      const result = await postBridgeAction('thread-reply', {
+        idempotencyKey: crypto.randomUUID(),
+        threadId: 'owner-thread',
+        message: v,
+      })
+      if (destroyed) return
+      if (!result.ok) {
+        writeState.dataset.state = 'refused'
+        writeState.textContent = `reply refused · ${result.reason}`
+      } else {
+        input.value = ''
+        addTurn(result.receipt.actor || 'codex', v, true)
+        addTurn('act', `durable reply · revision ${result.receipt.revision}`, true)
+        pulseBraces()
+        writeState.dataset.state = 'confirmed'
+        writeState.textContent = 'reply confirmed by audited bridge'
+      }
+      input.disabled = false
+      sendButton.disabled = false
+      input.focus()
+      return
+    }
     input.value = ''
     addTurn('owner', v, true)
     // Sometimes the tool line the coordinator ran to answer arrives first —
@@ -393,8 +447,8 @@ export function homeView() {
       pulseBraces()
     }, replyAt + (withAct ? 500 : 0)))
   }
-  root.querySelector('.chat-send').addEventListener('click', send)
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send() })
+  sendButton.addEventListener('click', send)
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void send() } })
 
   /* ---- apply a fetched (or failed) status result to the ring widgets ---- */
   function applyResult(result) {
