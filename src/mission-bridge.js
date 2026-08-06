@@ -15,8 +15,15 @@ const WELL_KNOWN_BRIDGES = Object.freeze(
   WELL_KNOWN_BRIDGE_PORTS.map(port => `http://127.0.0.1:${port}`),
 )
 
-function timeoutSignal() {
-  return AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+// `/v1/status` is deliberately expensive on the bridge side: it parses every
+// root's BUILD-QUEUE.md and writes durable audit receipts per root, measured at
+// ~12s. It is a snapshot call, NOT a heartbeat, so it gets its own budget while
+// ordinary actions keep the tight one. Availability is probed separately via
+// the cheap unauthenticated /v1/runtime — see bridgeReachable().
+const STATUS_TIMEOUT_MS = 30_000
+
+function timeoutSignal(ms = REQUEST_TIMEOUT_MS) {
+  return AbortSignal.timeout(ms)
 }
 
 function unavailable(error) {
@@ -99,7 +106,7 @@ async function session() {
   return result
 }
 
-async function request(pathname, { method = 'GET', body = null } = {}) {
+async function request(pathname, { method = 'GET', body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const active = await session()
   if (!active.ok) return active
   try {
@@ -111,7 +118,7 @@ async function request(pathname, { method = 'GET', body = null } = {}) {
         ...(body === null ? {} : { 'content-type': 'application/json' }),
       },
       cache: 'no-store',
-      signal: timeoutSignal(),
+      signal: timeoutSignal(timeoutMs),
       ...(body === null ? {} : { body: JSON.stringify(body) }),
     })
     const value = await response.json().catch(() => null)
@@ -127,7 +134,20 @@ async function request(pathname, { method = 'GET', body = null } = {}) {
 }
 
 export function bridgeStatus() {
-  return request('/v1/status')
+  return request('/v1/status', { timeoutMs: STATUS_TIMEOUT_MS })
+}
+
+/**
+ * Cheap availability probe. Uses the unauthenticated, side-effect-free
+ * /v1/runtime discovery endpoint (measured ~3ms) rather than /v1/status, so the
+ * write surfaces can enable as soon as the bridge is genuinely reachable
+ * instead of blocking on a snapshot call that parses queues and writes audit
+ * receipts. Returns the same {ok,reason,code} shape as every other call here.
+ */
+export async function bridgeReachable() {
+  const active = await session()
+  if (!active.ok) return active
+  return { ok: true, baseUrl: active.baseUrl }
 }
 
 export function postBridgeAction(action, body) {

@@ -1,5 +1,5 @@
 import { el } from './components.js'
-import { bridgeStatus, postBridgeAction } from './mission-bridge.js'
+import { bridgeStatus, bridgeReachable, postBridgeAction } from './mission-bridge.js'
 import { isWriteEnabled } from './write-flags.js'
 
 const esc = value => String(value)
@@ -53,6 +53,17 @@ async function prepareSurface(surface) {
   const status = surface.querySelector('[data-write-status]')
   for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
   actionState(status, 'checking', 'checking audited bridge…')
+  // Reachability first, on the cheap unauthenticated probe. /v1/status parses
+  // every root's queue and writes audit receipts (~12s measured), which is a
+  // snapshot cost, not a heartbeat cost — blocking the panel on it made a
+  // healthy bridge read as "unavailable · timed out".
+  const reach = await bridgeReachable()
+  if (!reach.ok) {
+    actionState(status, 'unavailable', `bridge unavailable · ${reach.reason}`)
+    surface.dataset.bridgeState = 'unavailable'
+    for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
+    return reach
+  }
   const result = await bridgeStatus()
   if (!result.ok) {
     actionState(status, 'unavailable', `bridge unavailable · ${result.reason}`)
