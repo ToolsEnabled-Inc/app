@@ -13,13 +13,13 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 
 import {
+  CANONICAL_ROOT,
   PROJECT_ROOT,
   assertValidProjection,
   readSchema,
   validateAgainstSchema,
 } from '../gen-projection-lib.mjs'
 
-const REAL_CANONICAL = 'C:/Users/joshp/Desktop/toolsenabled-current'
 const FIXED_NOW = '2026-08-06T19:00:00.000Z'
 const DECLARED = Object.freeze({
   running: 'coordinator-sol',
@@ -52,14 +52,14 @@ function copyCanonicalReaders(root) {
   for (const name of ['agent-org.js', 'agent-presence.js']) {
     const target = join(root, 'src', 'lib', name)
     mkdirSync(dirname(target), { recursive: true })
-    copyFileSync(join(REAL_CANONICAL, 'src', 'lib', name), target)
+    copyFileSync(join(CANONICAL_ROOT, 'src', 'lib', name), target)
   }
   const fleetState = join(root, 'src', 'lib', 'fleet-supervisor', 'state.js')
   mkdirSync(dirname(fleetState), { recursive: true })
-  copyFileSync(join(REAL_CANONICAL, 'src', 'lib', 'fleet-supervisor', 'state.js'), fleetState)
+  copyFileSync(join(CANONICAL_ROOT, 'src', 'lib', 'fleet-supervisor', 'state.js'), fleetState)
   const orgConfig = join(root, 'config', 'agent-org.json')
   mkdirSync(dirname(orgConfig), { recursive: true })
-  copyFileSync(join(REAL_CANONICAL, 'config', 'agent-org.json'), orgConfig)
+  copyFileSync(join(CANONICAL_ROOT, 'config', 'agent-org.json'), orgConfig)
 }
 
 function liveFixture(root) {

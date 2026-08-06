@@ -31,6 +31,10 @@ Focused fixtures cover:
 - exact target keys and absence of fixture values from worktree, brief, console log, launch spec, checkpoint, prompt, task handle, verdict, mailbox, path, command, and other registry-only fields;
 - schema rejection of an extra target field, malformed run id, zero/negative/string PID, unknown status, missing/array target shapes, null non-nullable fields, and fractional revision.
 
+## Coordinator review correction
+
+Coordinator review found that the new focused fixture had introduced a machine-specific user-directory literal. The fixture now imports the existing resolved `CANONICAL_ROOT` from `tools/gen-projection-lib.mjs` and uses it for all canonical reader/config copies. No pre-existing hardcode was changed, and a true-base added-line scan found no user-directory literal in this lane's delta.
+
 ## Generation
 
 Exact command:
@@ -53,6 +57,8 @@ No other projection was regenerated.
 | Focused `node --test tools/test/agent-control-target.test.mjs` | exit 0; 18/18 tests passed, 3 top-level | 0.4994751 s Node |
 | First post-change `npm run test:data` | exit 1; 47/48 passed | 0.980929 s Node / 1.427 s wrapper |
 | Final post-change `npm run test:data` retry | exit 0; 48/48 tests passed, 28 top-level | 2.3367668 s Node / 2.719 s wrapper |
+| Review-correction focused `node --test tools/test/agent-control-target.test.mjs` | exit 0; 18/18 tests passed, 3 top-level | 0.4973903 s Node / 0.543 s wrapper |
+| Review-correction `npm run test:data` | exit 0; 48/48 tests passed, 28 top-level | 2.2764 s Node / 2.725 s wrapper |
 | Initial `npm run build` before dependency install | exit 1; Vite executable absent | 0.311 s wrapper |
 | `npm ci` | exit 0; 41 packages installed, 0 vulnerabilities | 4.774 s wrapper |
 | Final `npm run build` | exit 0; 729 modules transformed | 6.46 s Vite / 7.248 s wrapper |
