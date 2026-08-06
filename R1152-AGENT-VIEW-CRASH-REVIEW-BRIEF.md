@@ -2,6 +2,8 @@
 
 Review commit `25f9c6b42092938c7c7a20b3cb9d0cc4ca0a10bc` against baseline `ae7b51ba9bf3cf9c23c057c9d8c9a50ecdb59150`. Read `R1152-AGENT-VIEW-CRASH-BRIEF.md` and `R1152-AGENT-VIEW-CRASH-REPORT.md` first.
 
+Dashboard launch record: `launch_v1a3k9dNzl5gzpg4sioogC-7W9ctEv3e` (audit sequence 4125; `gpt-5.6-terra`, standard, 30 turns, 1,200,000 ms cap).
+
 This is a read-only review of implementation files. You may create and commit only `R1152-AGENT-VIEW-CRASH-REVIEW.md`; do not modify source, tests, generated data, packages, or other reports. Do not drive a browser or contact the owner.
 
 Verify independently:
