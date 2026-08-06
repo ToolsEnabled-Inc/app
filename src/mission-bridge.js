@@ -4,6 +4,7 @@ const ACTION_ROUTES = Object.freeze({
   queue: '/v1/actions/queue',
   'thread-reply': '/v1/actions/thread-reply',
   decision: '/v1/actions/decision',
+  terminate: '/v1/actions/terminate',
 })
 
 let bootstrapPromise = null
@@ -164,12 +165,236 @@ export async function bridgeReachable() {
 // registry, ran, and exited 0 while the operator was told it was refused.
 // Misreporting a completed spawn as a failure invites a retry, and dispatch
 // carries no idempotency key, so the retry would spawn a second agent.
-const ACTION_TIMEOUT_MS = Object.freeze({ dispatch: 120_000, queue: 30_000 })
+const ACTION_TIMEOUT_MS = Object.freeze({ dispatch: 120_000, queue: 30_000, terminate: 120_000 })
 
 export function postBridgeAction(action, body) {
   const pathname = ACTION_ROUTES[action]
   if (!pathname) return Promise.resolve({ ok: false, reason: 'unknown bridge action', code: 'BRIDGE_ACTION_UNKNOWN' })
   return request(pathname, { method: 'POST', body, timeoutMs: ACTION_TIMEOUT_MS[action] ?? REQUEST_TIMEOUT_MS })
+}
+
+const TERMINAL_AGENT_STATUSES = new Set(['finished', 'failed'])
+const SAME_INTENT_RETRY_CODES = new Set([
+  'BRIDGE_BOOTSTRAP_REFUSED',
+  'BRIDGE_DISCOVERY_UNAVAILABLE',
+  'BRIDGE_REQUEST_FAILED',
+  'BRIDGE_REQUEST_REFUSED',
+  'BRIDGE_TERMINATE_AUDIT_UNAVAILABLE',
+  'BRIDGE_TERMINATE_IN_PROGRESS',
+  'BRIDGE_TIMEOUT',
+  'BRIDGE_UNREACHABLE',
+])
+
+function exactNonEmptyId(value) {
+  return typeof value === 'string' && value.length > 0 && value.trim() === value
+}
+
+function canonicalIso(value) {
+  if (typeof value !== 'string') return false
+  const epoch = Date.parse(value)
+  return Number.isFinite(epoch) && new Date(epoch).toISOString() === value
+}
+
+/**
+ * Decide whether the selected declared agent has a real, exact process target.
+ * This deliberately consumes only the projection's controlTarget; it never
+ * manufactures one from a declared enabled flag, a route id, or an observed
+ * session.
+ */
+export function terminateTargetAvailability({ live, selectedAgentId, controlTarget }) {
+  if (!live) {
+    return Object.freeze({
+      enabled: false,
+      reason: 'Terminate unavailable in simulated mode; no live bridge request will be sent.',
+    })
+  }
+  if (!controlTarget || typeof controlTarget !== 'object' || Array.isArray(controlTarget)) {
+    return Object.freeze({
+      enabled: false,
+      reason: 'Terminate unavailable: no observed control target is mapped to this declared agent.',
+    })
+  }
+  if (!exactNonEmptyId(controlTarget.agentId) || !exactNonEmptyId(controlTarget.runId)) {
+    return Object.freeze({
+      enabled: false,
+      reason: 'Terminate unavailable: the observed control target has no exact agent and run ids.',
+    })
+  }
+  if (controlTarget.agentId !== selectedAgentId) {
+    return Object.freeze({
+      enabled: false,
+      reason: 'Terminate unavailable: the observed control target does not match this declared agent.',
+    })
+  }
+  if (controlTarget.status !== 'running') {
+    return Object.freeze({
+      enabled: false,
+      reason: `Terminate unavailable: observed control target status is ${String(controlTarget.status || 'unknown')}, not running.`,
+    })
+  }
+  if (!Number.isSafeInteger(controlTarget.pid) || controlTarget.pid <= 0) {
+    return Object.freeze({
+      enabled: false,
+      reason: 'Terminate unavailable: the observed control target has no positive integer PID.',
+    })
+  }
+  return Object.freeze({
+    enabled: true,
+    reason: `Terminate available for observed run ${controlTarget.runId} (PID ${controlTarget.pid}). Select once to review.`,
+  })
+}
+
+/** Validate the full durable bridge receipt before the UI may claim success. */
+export function verifiedTerminateReceipt(result, requestBody) {
+  const receipt = result?.receipt
+  return result?.ok === true
+    && receipt && typeof receipt === 'object' && !Array.isArray(receipt)
+    && receipt.action === 'terminate'
+    && receipt.idempotencyKey === requestBody?.idempotencyKey
+    && receipt.agentId === requestBody?.agentId
+    && receipt.runId === requestBody?.expectedRunId
+    && receipt.pid === requestBody?.expectedPid
+    && receipt.verifiedGone === true
+    && TERMINAL_AGENT_STATUSES.has(receipt.terminalStatus)
+    && Number.isSafeInteger(receipt.exitCode)
+    && canonicalIso(receipt.verifiedGoneAt)
+    && Number.isSafeInteger(receipt.terminalAt) && receipt.terminalAt > 0
+    && Number.isSafeInteger(receipt.auditSequence) && receipt.auditSequence > 0
+    && /^[a-f0-9]{64}$/.test(String(receipt.auditEventHash || ''))
+}
+
+function freshTerminateIdempotencyKey() {
+  const key = globalThis.crypto?.randomUUID?.()
+  if (!exactNonEmptyId(key)) throw new Error('secure idempotency key generation is unavailable')
+  return key
+}
+
+function frozenControlState(phase, enabled, label, note, message) {
+  return Object.freeze({ phase, enabled, label, note, message })
+}
+
+/**
+ * DOM-independent two-step controller used by the agent view and its focused
+ * deterministic probe. An uncertain response retries the exact same request
+ * body and idempotency key; a typed target refusal disables the stale control.
+ */
+export function createTerminateController({
+  live,
+  selectedAgentId,
+  controlTarget,
+  postAction = postBridgeAction,
+  createIdempotencyKey = freshTerminateIdempotencyKey,
+  onState = () => {},
+} = {}) {
+  const availability = terminateTargetAvailability({ live, selectedAgentId, controlTarget })
+  let destroyed = false
+  let requestBody = null
+  let state = frozenControlState(
+    availability.enabled ? 'idle' : 'unavailable',
+    availability.enabled,
+    'Terminate',
+    availability.enabled ? 'Available' : 'Unavailable',
+    availability.reason,
+  )
+
+  const publish = (next) => {
+    state = next
+    if (!destroyed) onState(state)
+  }
+  publish(state)
+
+  const submit = async () => {
+    const submittedBody = requestBody
+    publish(frozenControlState(
+      'pending',
+      false,
+      'Terminating',
+      'Pending',
+      'Terminate request pending. No stop has been confirmed.',
+    ))
+
+    let result
+    try {
+      result = await postAction('terminate', submittedBody)
+    } catch (error) {
+      result = {
+        ok: false,
+        code: 'BRIDGE_REQUEST_FAILED',
+        reason: error?.message || 'terminate request failed',
+      }
+    }
+    if (destroyed || requestBody !== submittedBody) return state
+
+    if (verifiedTerminateReceipt(result, submittedBody)) {
+      const receipt = result.receipt
+      publish(frozenControlState(
+        'success',
+        false,
+        'Terminated',
+        'Verified',
+        `Termination verified: run ${receipt.runId} is ${receipt.terminalStatus} with exit ${receipt.exitCode}, and PID ${receipt.pid} is gone.`,
+      ))
+      return state
+    }
+
+    const responseWasShapedSuccess = result?.ok === true
+    const code = responseWasShapedSuccess
+      ? 'BRIDGE_TERMINATE_RECEIPT_INVALID'
+      : (typeof result?.code === 'string' ? result.code : 'BRIDGE_REQUEST_FAILED')
+    const reason = responseWasShapedSuccess
+      ? 'The terminate response was incomplete or did not match the requested agent, run, and PID.'
+      : (result?.reason || 'The terminate request failed without a verified receipt.')
+    const retrySameIntent = responseWasShapedSuccess || SAME_INTENT_RETRY_CODES.has(code)
+    publish(frozenControlState(
+      retrySameIntent ? 'retry' : 'refused',
+      retrySameIntent,
+      retrySameIntent ? 'Retry terminate' : 'Terminate',
+      retrySameIntent ? 'Same intent' : 'Unavailable',
+      `${code}: ${reason} No stop has been confirmed.${retrySameIntent ? ' Retry reuses the same request.' : ' Refresh the projection before trying again.'}`,
+    ))
+    return state
+  }
+
+  return Object.freeze({
+    click() {
+      if (destroyed || !state.enabled || state.phase === 'pending' || state.phase === 'success') {
+        return Promise.resolve(state)
+      }
+      if (state.phase === 'idle') {
+        publish(frozenControlState(
+          'confirm',
+          true,
+          'Confirm terminate?',
+          'Select again',
+          `Terminate agent ${controlTarget.agentId}, run ${controlTarget.runId}, PID ${controlTarget.pid}? Select again to confirm.`,
+        ))
+        return Promise.resolve(state)
+      }
+      if (state.phase === 'confirm') {
+        let idempotencyKey
+        try { idempotencyKey = createIdempotencyKey() }
+        catch (error) {
+          publish(frozenControlState(
+            'idle',
+            true,
+            'Terminate',
+            'Available',
+            `BRIDGE_IDEMPOTENCY_UNAVAILABLE: ${error?.message || 'A fresh idempotency key could not be created.'} No request was sent.`,
+          ))
+          return Promise.resolve(state)
+        }
+        requestBody = Object.freeze({
+          idempotencyKey,
+          agentId: controlTarget.agentId,
+          expectedRunId: controlTarget.runId,
+          expectedPid: controlTarget.pid,
+        })
+      }
+      return submit()
+    },
+    destroy() { destroyed = true },
+    getState() { return state },
+  })
 }
 
 export function resetBridgeSession() {

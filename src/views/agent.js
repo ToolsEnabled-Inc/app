@@ -7,6 +7,7 @@ import { el, uptimeRing, buildChat } from '../components.js'
 import { FleetGraph, CHIP_W, CHIP_H } from '../graph.js'
 import { readLayout } from '../layout-pref.js'
 import { isLiveView } from '../live-flags.js'
+import { createTerminateController } from '../mission-bridge.js'
 import { mountAgentWriteSurface } from '../write-surfaces.js'
 import { fetchAgents } from '../live-status.js'
 import { rangeFill } from './computers.js'
@@ -79,6 +80,10 @@ function declaredAgentProjection(compId, agentId, data) {
       projectionUnavailableReason: 'not provided by agents projection',
       model: declaredAgent.provider,
       pool: 'declared',
+      // Preserve only the selected declared agent's exact schema-validated
+      // target. Related nodes stay topology-only, and no runtime target is
+      // synthesized from their ids, declared state, or observed sessions.
+      ...(declaredAgent.id === agentId ? { controlTarget: declaredAgent.controlTarget } : {}),
       context: [
         `Declared · ${declaredAgent.enabled ? 'enabled' : 'disabled'} · ${declaredAgent.provider}`,
         labels.length ? `Relationship · ${labels.join('; ')}` : 'No declared relationship',
@@ -501,6 +506,8 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   const role = ROLES[agent.role] || ROLES.default
   const declaredRole = live ? agent.declaredRole : role.label
   const sessionState = projection?.sessionState
+  const declaredState = live ? (agent.state === 'active' ? 'Enabled' : 'Disabled') : 'Simulated'
+  const declaredStateNote = live ? 'Declared state' : 'No declared state'
 
   const root = el(`
     <div class="agentv" data-live-mode="${live ? 'live' : 'simulated'}">
@@ -563,17 +570,50 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
               <div class="agent-ring-wrap"></div>
             </div>
             <div class="ctl-grid ctl-actions">
-              <button class="ctl-btn armed">Active</button>
-              <button class="ctl-btn">Pause</button>
-              <button class="ctl-btn">Respawn</button>
-              <button class="ctl-btn danger">Terminate</button>
+              <div class="ctl-btn ctl-declared-state" data-control="declared-state" aria-label="Declared state: ${declaredState}">
+                <span class="ctl-label">${declaredState}</span><span class="ctl-note">${declaredStateNote}</span>
+              </div>
+              <button type="button" class="ctl-btn" data-control="pause" disabled aria-label="Pause unavailable: no bridge action exists.">
+                <span class="ctl-label">Pause</span><span class="ctl-note">Unavailable</span>
+              </button>
+              <button type="button" class="ctl-btn" data-control="respawn" disabled aria-label="Respawn unavailable: no bridge action exists.">
+                <span class="ctl-label">Respawn</span><span class="ctl-note">Unavailable</span>
+              </button>
+              <button type="button" class="ctl-btn danger" data-control="terminate" disabled>
+                <span class="ctl-label">Terminate</span><span class="ctl-note">Unavailable</span>
+              </button>
             </div>
+            <div class="ctl-result" data-phase="unavailable" role="status" aria-live="polite"></div>
           </section>
         </div>
       </div>
     </div>
   `)
   const destroyWriteSurface = mountAgentWriteSurface(root, { agentId })
+  const terminateButton = root.querySelector('[data-control="terminate"]')
+  const terminateLabel = terminateButton.querySelector('.ctl-label')
+  const terminateNote = terminateButton.querySelector('.ctl-note')
+  const terminateResult = root.querySelector('.ctl-result')
+  const renderTerminateState = (state) => {
+    terminateButton.disabled = !state.enabled
+    terminateButton.dataset.phase = state.phase
+    terminateButton.classList.toggle('is-confirming', state.phase === 'confirm')
+    terminateButton.classList.toggle('is-pending', state.phase === 'pending')
+    terminateButton.classList.toggle('is-success', state.phase === 'success')
+    terminateLabel.textContent = state.label
+    terminateNote.textContent = state.note
+    terminateButton.setAttribute('aria-label', `${state.label}. ${state.message}`)
+    terminateResult.dataset.phase = state.phase
+    terminateResult.textContent = state.message
+  }
+  const terminateController = createTerminateController({
+    live,
+    selectedAgentId: agent.id,
+    controlTarget: live ? agent.controlTarget : null,
+    onState: renderTerminateState,
+  })
+  const onTerminateClick = () => { void terminateController.click() }
+  terminateButton.addEventListener('click', onTerminateClick)
 
   if (live) {
     root.classList.add('data-live-mode')
@@ -612,8 +652,6 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
       }
       rail.appendChild(row)
     }
-    // These remain local interaction affordances, not observed agent state.
-    root.querySelector('.ctl-actions .armed').textContent = 'Local'
   }
 
   // subtree graph, rooted at this agent, chips on every bubble
@@ -1227,10 +1265,6 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   ctlResize.observe(ctlScroll)
   ctlResize.observe(canvas)
   root.querySelectorAll('input[type="range"]').forEach(rangeFill)
-  root.querySelectorAll('.ctl-grid .ctl-btn').forEach(btn => btn.addEventListener('click', () => {
-    root.querySelectorAll('.ctl-grid .ctl-btn.armed').forEach(b => b.classList.remove('armed'))
-    btn.classList.add('armed')
-  }))
 
   // The runtime ring is a live clock, so this loop legitimately has to keep a
   // heartbeat — but it does not need sixty of them a second. The sweep
@@ -1253,6 +1287,8 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   return {
     el: root,
     destroy() {
+      terminateButton.removeEventListener('click', onTerminateClick)
+      terminateController.destroy()
       destroyWriteSurface()
       cancelAnimationFrame(raf)
       rimObserver.disconnect()
