@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --port 4600 --strictPort"
+    "preview": "vite preview --port 4600 --strictPort",
+    "app": "node shell/launch.cjs"
   },
   "devDependencies": {
     "culori": "^4.0.2",
+    "electron": "^43.3.0",
     "vite": "^6.3.5"
   },
   "dependencies": {
@@ -19,5 +21,6 @@
     "d3-array": "^3.2.4",
     "d3-force": "^3.0.0",
     "echarts": "6.1.0"
-  }
+  },
+  "productName": "Mission Control"
 }
