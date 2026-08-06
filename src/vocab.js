@@ -88,26 +88,46 @@ export const SUBSYSTEMS = [
   'Role Operations', 'Sandbox', 'Scheduler',
 ]
 
+/* ROLE IDENTITY — the JS half of the palette. `hex` MUST equal the matching
+   --c-* token in src/styles.css, which is where the palette is derived and
+   documented (Carbon-style luminance row at oklch L 0.595, on the site's own
+   hue angles; every figure and every dE2000 is written out there).
+   `color` is for CSS contexts that can take a var(); `hex` is for the ones
+   that cannot — SVG stroke attributes, ECharts option literals, and the
+   inline styles the views write when a view is BUILT.
+   That last case is why there is exactly one hex per role and no per-theme
+   variant: only the metrics view re-renders on a theme flip, so a
+   theme-dependent hex would leave the computers legend, the comms name rail
+   and the graph's links holding a stale colour. Themes adapt in the CSS
+   recipes instead.
+   `glow` is the light sibling — glow layers and the light stop of the
+   uptime ring's gradient only, never text. */
 export const ROLES = {
-  coordinator: { label: 'Coordinator', color: 'var(--c-coordinator)', hex: '#00a9d8', glow: '#45d6ff' },
-  helper: { label: "Coordinator's Helper", color: 'var(--c-helper)', hex: '#f57b00', glow: '#ffab4d' },
-  shadow: { label: 'Shadow Manager', color: 'var(--c-shadow)', hex: '#00bd8a', glow: '#35eab7' },
+  coordinator: { label: 'Coordinator', color: 'var(--c-coordinator)', hex: '#008dab', glow: '#45d6ff' },
+  helper: { label: "Coordinator's Helper", color: 'var(--c-helper)', hex: '#c85900', glow: '#ffab4d' },
+  shadow: { label: 'Shadow Manager', color: 'var(--c-shadow)', hex: '#00956c', glow: '#35eab7' },
   manager: { label: 'Manager', color: 'var(--c-manager)', hex: '#3e63f0', glow: '#7d9bff' },
-  default: { label: 'Default', color: 'var(--c-default)', hex: '#dba400', glow: '#ffd84d' },
-  spawned: { label: 'Agent spawned', color: 'var(--c-spawned)', hex: '#26313f', glow: '#93a1af' },
+  default: { label: 'Default', color: 'var(--c-default)', hex: '#9d7900', glow: '#ffd84d' },
+  spawned: { label: 'Agent spawned', color: 'var(--c-spawned)', hex: '#697077', glow: '#a2a9b0' },
 }
 
+/* POOLS.color / .glow and PROVIDERS.color are the ROLE hexes verbatim, and
+   src/views/metrics.js deliberately reads NEITHER — pools take one neutral
+   and providers take their own --prov-* categorical set, because a pool card
+   and a role dot share a scroll and colour has to follow one entity. They
+   are kept in step with ROLES above only so that stated invariant stays
+   literally true for whoever checks it next. */
 export const POOLS = [
-  { id: 'jpinckard21', kind: 'Subscription', desc: 'subscription-cli · vertex-seat · antigravity', color: '#00a9d8', glow: '#45d6ff' },
+  { id: 'jpinckard21', kind: 'Subscription', desc: 'subscription-cli · vertex-seat · antigravity', color: '#008dab', glow: '#45d6ff' },
   { id: 'jpinckard95', kind: 'Vertex trial', desc: 'vertex credit · agentic worktree lanes', color: '#3e63f0', glow: '#7d9bff' },
-  { id: 'jpinc005', kind: 'University', desc: 'campus SSO · no compute lanes', color: '#00bd8a', glow: '#35eab7' },
+  { id: 'jpinc005', kind: 'University', desc: 'campus SSO · no compute lanes', color: '#00956c', glow: '#35eab7' },
 ]
 
 export const PROVIDERS = [
-  { id: 'codex', label: 'Codex', color: '#00a9d8' },
-  { id: 'claude', label: 'Claude', color: '#f57b00' },
+  { id: 'codex', label: 'Codex', color: '#008dab' },
+  { id: 'claude', label: 'Claude', color: '#c85900' },
   { id: 'gemini', label: 'Gemini', color: '#3e63f0' },
-  { id: 'local', label: 'Local', color: '#00bd8a' },
+  { id: 'local', label: 'Local', color: '#00956c' },
 ]
 
 export function pick(arr, rng = Math.random) {

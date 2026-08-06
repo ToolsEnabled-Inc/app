@@ -4,7 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mission Control</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='38' fill='none' stroke='%2300a9d8' stroke-width='9'/><circle cx='50' cy='50' r='12' fill='%2300bd8a'/></svg>" />
+  <!-- the favicon is the palette at 16px: the coordinator's ring around the
+       shadow manager's core. Hexes are --c-coordinator / --c-shadow and move
+       with them (see the role palette block in src/styles.css). The ring
+       thickened 9 -> 10 and the core grew 12 -> 13 because the deeper hues
+       are read at a tab's scale as area, not as line. -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='38' fill='none' stroke='%23008dab' stroke-width='10'/><circle cx='50' cy='50' r='13' fill='%2300956c'/></svg>" />
   <!-- theme before first paint: /src/main.js is a module (deferred), so
        reading the stored theme there alone flashed the white page at every
        tan/black user. Same key and same guarded read as main.js. -->
@@ -80,9 +85,15 @@
         <span class="set-label">Reduce motion</span>
         <span class="toggle"><input type="checkbox" id="set-motion" /><i></i></span>
       </label>
+      <!-- one machine per line. The two used to share a line joined by
+           "&nbsp;·&nbsp;", which cannot fit 13px mono inside a 320px drawer:
+           it wrapped mid-list and left the separator orphaned at the end of
+           the line, so the note read as a broken sentence rather than as a
+           two-entry list. -->
       <div class="drawer-note">
         Appearance only — the fleet keeps running.<br/>
-        Machine A · 192.168.214.2 &nbsp;·&nbsp; Machine B · 192.168.214.1
+        Machine A · 192.168.214.2<br/>
+        Machine B · 192.168.214.1
       </div>
     </div>
   </aside>

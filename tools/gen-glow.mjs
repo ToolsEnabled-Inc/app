@@ -23,14 +23,17 @@ import { dirname, join } from 'node:path'
 const toOklch = converter('oklch')
 const here = dirname(fileURLToPath(import.meta.url))
 
-// the site's role palette (validated earlier for CVD separation + contrast)
+// the site's role palette — MUST match --c-* in src/styles.css (where the
+// derivation, the measured contrasts and the dE2000 separations are written
+// out) and ROLES[].hex in src/vocab.js. Regenerate after any change there,
+// or a selected bubble blooms in the previous palette's hue.
 const ROLES = {
-  coordinator: '#00a9d8',
-  helper: '#f57b00',
-  shadow: '#00bd8a',
+  coordinator: '#008dab',
+  helper: '#c85900',
+  shadow: '#00956c',
   manager: '#3e63f0',
-  default: '#dba400',
-  accent: '#21b7e4',      // the shared interactive accent
+  default: '#9d7900',
+  accent: '#008dab',      // the shared interactive accent IS the coordinator cyan
 }
 
 /** One layer of the falloff. `t` is 0 (core) → 1 (outermost halo). */
@@ -109,8 +112,11 @@ const header = `/* ============================================================
 `
 
 // heatmap ramps: [theme background, the theme's saturated end]
+// (the :root --heat-* set these emit currently has no consumer — metrics.css
+// declares its own Carbon blue ramp scoped to .metrics — but the anchors
+// follow the palette so a future reader does not inherit a dead hue)
 const THEMES = {
-  white: ['#f7f8fa', '#00a9d8'],
+  white: ['#f7f8fa', '#008dab'],
   tan:   ['#f2e5bc', '#0b7285'],
   black: ['#0d0f12', '#45d6ff'],
 }

@@ -75,20 +75,121 @@
   --line: rgba(14, 23, 38, 0.07);
   --line-2: rgba(14, 23, 38, 0.12);
 
-  /* role palette (validated) */
-  --c-coordinator: #00a9d8;
-  --c-helper:      #f57b00;
-  --c-shadow:      #00bd8a;
-  --c-manager:     #3e63f0;
-  --c-default:     #dba400;
-  --c-spawned:     #26313f;
+  /* ROLE PALETTE — the identity system. Solved, not picked.
+     Owner verdict on the previous set, at bubble scale: "mostly the colour
+     is meh." It was: every hue sat at oklch L 0.69–0.75, i.e. the light end
+     of the sRGB gamut, where a hue has already spent all the chroma it can
+     hold. Against the white page that measured 2.14–2.64:1 and against tan
+     2.0–2.2:1 — pale marks, and pale by construction rather than by choice.
+     Colour cannot be added at that lightness; it can only be added by going
+     DOWN, which is why the fix is a step, not a saturation tweak.
 
-  /* neon glow tints (lighter siblings used only for glow, never text) */
+     THE ROW. Carbon's steps are luminance-rows (every hue in its 60 row
+     lands at Y=0.160, every hue in its 50 row at Y=0.264 — see
+     tools/hue-lab.mjs `dump`), and each row entry is the maximum in-gamut
+     chroma at that lightness for its hue. This palette is built the same
+     way, on the site's OWN hue angles, at oklch L 0.595. That step is
+     solved, not chosen: contrast against white (#f7f8fa) and against black
+     (#0d0f12) pull in opposite directions, tan (#f2e5bc) is the tightest of
+     the three for a warm hue, and 0.595 is the LIGHTEST row at which every
+     hue clears 3:1 on all three page surfaces at once — the non-text floor,
+     which is what a role dot, a rim and a link are. Measured, per hue,
+     white / black / tan:
+
+       --c-coordinator  #008dab   3.66 / 4.93 / 3.10   was 2.58 / 7.01 / 2.18
+       --c-helper       #c85900   4.05 / 4.46 / 3.42   was 2.56 / 7.05 / 2.17
+       --c-shadow       #00956c   3.58 / 5.04 / 3.03   was 2.29 / 7.90 / 1.93
+       --c-manager      #3e63f0   4.65 / 3.88 / 3.93   unchanged
+       --c-default      #9d7900   3.82 / 4.72 / 3.23   was 2.12 / 8.52 / 1.79
+       --c-spawned      #697077   4.72 / 3.82 / 3.99   was 12.40 / 1.46 / 10.49
+
+     The old set cleared 3:1 on exactly one surface (black) and failed the
+     other two everywhere except the manager — which is the measurement
+     behind "mostly the colour is meh."
+
+     Each lands on or between named Carbon steps (dE2000 to the nearest):
+       coordinator  between cyan 50 #1192e8 (14.6) and teal 50 #009d9a (13.7)
+       helper       between orange 60 #ba4e00 (4.6) and orange 50 #eb6200 (7.5)
+       shadow       between green 50 #24a148 (10.7) and teal 50 #009d9a
+       manager      Carbon blue 60 #0f62fe (2.3 — inside a JND, see below)
+       default      Carbon yellow 50 #b28600 (5.7)
+       spawned      Carbon coolGray 60 #697077, exactly
+
+     MANAGER IS UNCHANGED ON PURPOSE. #3e63f0 already sat at L 0.559 with
+     its family's chroma cap; re-deriving it onto the row moved it by
+     dE 1.3, under the just-noticeable difference. A palette pass that
+     repaints a hue nobody can see change is churn, so it was left.
+
+     SPAWNED was #26313f — near-black graphite, which measured 1.34:1 on the
+     black page: an invisible mark, not a quiet one. Carbon coolGray 60 is
+     the same neutral intent at a lightness that survives all three grounds.
+
+     HUE ANGLES are the site's existing identities, nudged only where two
+     roles had to be told apart at 6px:
+       coordinator  226.6 -> 220.0   (equidistant from shadow and manager)
+       helper        53.1 ->  48.0   (away from default's gold)
+       default       84.3 ->  88.0   (away from helper's orange)
+       shadow       165.3            manager 267.5   unchanged
+     Resulting dE2000, solid at dot scale: coordinator/manager 23.3 (the
+     hard pair — roughly ten JNDs, and they part in lightness as well as in
+     hue, which is what carries at 6px), coordinator/shadow 26.8,
+     helper/default 21.5, minimum over all fifteen pairs 18.5
+     (manager/spawned, a saturated blue against a neutral grey). Re-measured
+     at the two scales the pair is actually DRAWN at, not just as swatches:
+     composited node rim 21.8 white / 20.9 black / 24.1 tan, and the 1.6px
+     link at 0.52 alpha under the canvas's saturate(0.72) 18.6 / 17.9 / 21.9.
+     `node .mc-role-hue.mjs` re-runs all of it against the live pages.
+
+     WHY NOT PER-THEME STEPS, as the metrics provider palette does. --prov-*
+     can re-step per theme because every consumer re-reads it through the
+     ECharts theme snapshot on a theme flip. These hues cannot: half the
+     consumers (the graph's link strokes, the computers legend, the comms
+     name rail, the metrics agent table) take ROLES[].hex from src/vocab.js
+     and write it into an inline style when the VIEW is built, and only the
+     metrics view re-renders on a theme change. A per-theme hue would leave
+     a stale legend beside a fresh graph. One hex per role, on every theme,
+     is also the stronger reading of the rule the whole system is built on:
+     a role hue is the same colour everywhere, ever. Themes adapt through
+     the RECIPES instead (see --rim-role on .node-glass), which are CSS and
+     re-resolve instantly.
+
+     KEEP IN SYNC: ROLES[].hex in src/vocab.js, the ROLES table in
+     tools/gen-glow.mjs (regenerate src/glow.css after editing), and the
+     favicon in index.html. tools/hue-lab.mjs re-derives and re-checks. */
+  --c-coordinator: #008dab;
+  --c-helper:      #c85900;
+  --c-shadow:      #00956c;
+  --c-manager:     #3e63f0;
+  --c-default:     #9d7900;
+  --c-spawned:     #697077;
+
+  /* Neon glow tints (lighter siblings used only for glow, never text).
+     Deliberately NOT re-derived with the bases above: they are the light
+     end of each identity, they never carry a fact, and their hues already
+     sit within a few degrees of the new angles. A deeper body under the
+     same highlight is exactly what the uptime ring's glow->hex gradient
+     wants; repainting them would have churned glow.css and every legend
+     chip for no measurable gain. */
   --g-coordinator: #45d6ff;
   --g-helper:      #ffab4d;
   --g-shadow:      #35eab7;
   --g-manager:     #7d9bff;
   --g-default:     #ffd84d;
+
+  /* THE INTERACTIVE ACCENT is the coordinator's cyan, not a fourth one.
+     Seven controls (selection, the send button and its lift, the chat
+     input's focus, the press ring, the slider fill and its press ring, the
+     reduce-motion toggle) carried #21b7e4 or rgba(0,169,216,·) as literals
+     — an accent hue that existed nowhere in the token layer and that a
+     palette pass could not reach. They now all read --c-coordinator, which
+     is what the site already meant: cyan is the system's own voice, and the
+     coordinator is the agent that speaks it (.ctl-btn.armed, .cmsg-pin and
+     the ledger's in-progress glyph were already mixing --c-coordinator
+     directly). --accent-2 is the send button's gradient floor, one step
+     below the accent at the same hue; white on the gradient's light end
+     measures 3.61:1 and on its dark end 5.12:1, so the icon clears the 3:1
+     non-text floor across the whole sweep (it was 2.5:1 flat). */
+  --accent-2: #007892;
 
   /* SEVERITY TEXT — the same Carbon families as the metrics alert marks,
      stepped for readable characters. On the white page (#f7f8fa), the
@@ -197,7 +298,13 @@
 
   /* --wa scales every white-glass alpha in the whole sheet set, so a theme
      re-tunes all frosted surfaces from one number instead of hundreds of
-     hand-edited rgba()s. --sheet is the one opaque surface. */
+     hand-edited rgba()s. --sheet is the one opaque surface.
+     Six top-sheen hairlines (.glass:hover, .icon-btn:hover, .tab.active,
+     .ctl-btn and its hover, .drawer) were still written `inset 0 1px 0 #fff`
+     — the last literals escaping this knob, and on the black theme a hard
+     white 1px line is precisely the "lit edge" the dark build exists to
+     avoid. They now read rgba(255,255,255,var(--wa)): byte-identical on
+     white, where --wa is 1. */
   --wa: 1;
 
   /* --sheen scales the card's top-to-bottom WASH — the extra white the
@@ -231,11 +338,15 @@
      (metrics.css and home.css already read it and fall back to a literal).
      The old literal rgba(0,169,216,.72) composited to 2.01:1 on the white
      page and 1.82 on tan — under the 3:1 WCAG 1.4.11 floor for the ONE
-     indicator keyboard focus has (black passed at 4.11). #0079a8 is the
-     same hue darkened until it clears 3:1 SOLID against all three page
-     surfaces — measured 4.60 white / 3.89 tan / 3.93 black — so a single
-     value serves every theme and no per-theme override is needed. */
-  --focus-ring: #0079a8;
+     indicator keyboard focus has (black passed at 4.11). The token is the
+     accent hue darkened until it clears 3:1 SOLID against all three page
+     surfaces, so a single value serves every theme and no per-theme
+     override is needed. Re-solved with the palette above onto its cyan
+     angle (220°, was 234.5°) at oklch L 0.545: the sentence "the same hue
+     darkened" has to stay TRUE, or the one indicator keyboard focus has
+     drifts off the system it belongs to. Measured 4.50 white / 4.01 black /
+     3.81 tan (was 4.60 / 3.93 / 3.89 — same quality, now the same hue). */
+  --focus-ring: #007d98;
 
   /* SEGMENTED CONTROL — one height and one trough for the five call sites
      (metrics range/machine, computers Tree/Physics, comms S/M/L and
@@ -259,6 +370,13 @@
   --toggle-track: rgba(14, 23, 38, 0.479);
   --scrollbar-thumb: rgba(14, 23, 38, 0.348);
   --scrollbar-thumb-hover: rgba(14, 23, 38, 0.46);
+
+  /* the graph bubble's rim dose — see .node-glass for the derivation. Two
+     rungs, so a hovered bubble intensifies its identity rather than washing
+     it: the old hover mixed 55% role into literal WHITE, which on a 70%
+     resting rim would have made hover the PALER state. */
+  --rim-role: 70%;
+  --rim-hover: 88%;
 
   /* the OWN-message chat bubble: the one surface in the set that is dark on
      every theme, so it carries its own pair rather than riding the sheet
@@ -347,6 +465,11 @@
   --brace: rgba(255, 255, 255, 0.238);
   --node-a: 0.2;
   --ring-track: rgba(255, 255, 255, 0.13);
+  /* --line-2 is WHITE ink on this theme, so the rim mix lightens instead of
+     darkening; the dose steps up so the ring keeps the hue's own colour
+     rather than drifting toward a lit white edge. See .node-glass. */
+  --rim-role: 84%;
+  --rim-hover: 95%;
   /* the shared pair's bottom stop (#0e1726) is DARKER than this theme's
      sheet (#14171b), so an own-message bubble sank into the log across its
      lower half instead of sitting on it. Same hue, lifted so both stops
@@ -400,7 +523,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-::selection { background: rgba(0, 169, 216, 0.18); }
+/* the accent at the same 0.18 it always was, but as a token mix — the
+   literal was the pre-palette coordinator hex and could not follow it */
+::selection { background: color-mix(in oklab, var(--c-coordinator) 18%, transparent); }
 
 /* The aurora — six drifting neon fields behind the glass — is gone.
    The owner asked for a clinically clean, single-colour background;
@@ -466,7 +591,7 @@ body {
 .glass:hover {                /* crisp rim light + lifted depth */
   border-color: rgba(255,255,255,calc(0.95 * var(--wa)));
   box-shadow:
-    inset 0 1px 0 #fff,
+    inset 0 1px 0 rgba(255,255,255,var(--wa)),
     inset 0 0 0 1px rgba(255,255,255,calc(0.55 * var(--wa))),
     inset 0 -14px 26px -18px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k))),
     /* bespoke: a wider, deeper pool than --elev-3 — this is the lift, and
@@ -532,7 +657,7 @@ body {
   transition: background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), color var(--dur-2), transform var(--dur-1) var(--ease);
 }
 .icon-btn svg { width: 20px; height: 20px; }
-.icon-btn:hover { background: rgba(255,255,255,calc(0.8 * var(--wa))); color: var(--ink); box-shadow: inset 0 1px 0 #fff, var(--elev-1); }
+.icon-btn:hover { background: rgba(255,255,255,calc(0.8 * var(--wa))); color: var(--ink); box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-1); }
 .icon-btn:active { transform: scale(0.93); }
 .icon-btn[disabled] { opacity: 0.42; pointer-events: none; }
 
@@ -806,19 +931,19 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   outline: none;
   transition: box-shadow var(--dur-2) var(--ease);
 }
-.chat-input input:focus { box-shadow: inset 0 1px 3px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))), 0 0 0 3px rgba(0,169,216,0.2); }
+.chat-input input:focus { box-shadow: inset 0 1px 3px rgba(var(--shadow-rgb), calc(0.05 * var(--shadow-k))), 0 0 0 3px color-mix(in oklab, var(--c-coordinator) 20%, transparent); }
 .chat-input input::placeholder { color: var(--ink-3); }
 .chat-send {
   height: 38px; width: 38px; flex: none;
   border-radius: 3px; border: none; cursor: pointer;
   display: grid; place-items: center;
   color: #fff;
-  background: linear-gradient(160deg, #21b7e4, #0092c4);
+  background: linear-gradient(160deg, var(--c-coordinator), var(--accent-2));
   /* neutral lift, no aura (professional-pass — this button lives inside
      every context-box chat on the graph) */
   /* accent-tinted on purpose (it is the one send affordance), so it is not
      an --elev-* step even though it shares their geometry */
-  box-shadow: 0 6px 16px -6px rgba(0,169,216,0.5);
+  box-shadow: 0 6px 16px -6px color-mix(in oklab, var(--c-coordinator) 50%, transparent);
   transition: transform var(--dur-1) var(--ease), box-shadow var(--dur-2);
 }
 .chat-send:hover { transform: translateY(-1px); }
@@ -850,7 +975,7 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .tab.active {
   color: var(--ink);
   background: rgba(255,255,255,calc(0.8 * var(--wa)));
-  box-shadow: inset 0 1px 0 #fff, var(--elev-2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-2);
 }
 .tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 400; }
 .tab.add { padding: var(--s2) var(--s3); font-size: 16px; color: var(--ink-25); }
@@ -983,12 +1108,27 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
     radial-gradient(120% 120% at 30% 22%, rgba(255,255,255,calc(0.74 * var(--node-a, 1))), rgba(255,255,255,calc(0.32 * var(--node-a, 1))) 55%, rgba(255,255,255,calc(0.19 * var(--node-a, 1))));
   /* no filter / backdrop-filter here — frost lives on the static .node::before;
      glow is box-shadow layers only (60fps clause) */
-  /* identity on the rim, restraint in the mix: role colour folded into the
-     themed hairline rather than into white — 40% role in white IS pastel by
-     construction (baby blue, peach), which is most of what read as
-     "childish". Saturation belongs at small scale (the status dot, the
-     legend); at bubble scale the colour should be a machined tint. */
-  border: 1.5px solid color-mix(in oklab, var(--rc) 34%, var(--line-2));
+  /* IDENTITY ON THE RIM. Folding the role colour into the themed hairline
+     rather than into white is right and stays — 40% role in white IS pastel
+     by construction (baby blue, peach), which is most of what read as
+     "childish". But the DOSE was the other half of "mostly the colour is
+     meh": --line-2 is a 12–17% alpha, so a 34% mix resolved to a 0.42-alpha
+     rim, i.e. a hue at 42% strength over a near-white disc. That is a
+     pastel too — arrived at from the other direction.
+
+     --rim-role is the dose, and it is a token because the three grounds do
+     not want the same one. On white and tan the mix runs toward a dark
+     hairline, so 70% lands a rim that reads as a drawn line at its own hue
+     (measured against the bubble's own interior: 2.6:1 white, 2.4:1 tan —
+     a line, not a slab). On black --line-2 is WHITE ink, so the same 70%
+     would lighten the rim toward a lit edge, the one thing the black theme
+     is built to avoid; 84% keeps it the hue's own colour there. Above ~90%
+     on any ground the ring starts to read as a coloured outline drawn ON a
+     white disc — candy — which is the failure mode on the other side.
+     A 1.5px ring at full identity hue is the machined register: precise,
+     confident, and still not a glow. (Token declared in :root and re-stepped
+     in the black theme block; --rim-hover is the same ladder's next rung.) */
+  border: 1.5px solid color-mix(in oklab, var(--rc) var(--rim-role), var(--line-2));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--node-a, 1))),
     inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
@@ -1002,7 +1142,7 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
    .node-glass exactly so box-shadow interpolates instead of snapping. */
 .node:hover .node-glass {
   transform: scale(1.03);
-  border-color: color-mix(in oklab, var(--rc) 55%, white);
+  border-color: color-mix(in oklab, var(--rc) var(--rim-hover), var(--line-2));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),
     inset 0 -5px 12px -12px color-mix(in oklab, var(--rc) 20%, transparent),
@@ -1156,7 +1296,12 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .chip::before {
   content: "";
   position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px;
-  background: color-mix(in oklab, var(--rc, #93a1af) 45%, white);
+  /* the context box's one identity mark. It mixed toward literal WHITE,
+     which made it a pastel on the light themes and a LIT bar on black —
+     the same fault the node rim had. Same fix, same ladder: the themed
+     hairline, at the resting rim's dose. The fallback is the neutral role
+     token now that one exists, not a loose grey. */
+  background: color-mix(in oklab, var(--rc, var(--c-spawned)) var(--rim-role), var(--line-2));
 }
 .chip:hover { background: rgba(127,127,127,0.07); border-color: var(--line); z-index: 6; }
 .chip .cl {
@@ -1351,7 +1496,7 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
   background: rgba(255,255,255,calc(0.62 * var(--wa)));
-  box-shadow: inset 0 1px 0 #fff, var(--elev-1);   /* --elev-1's source recipe */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-1);   /* --elev-1's source recipe */
   font-family: var(--font-ui); font-size: 13px; font-weight: 640; color: var(--ink-2);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center; gap: var(--s2);
@@ -1359,7 +1504,7 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 }
 .ctl-btn svg { width: 15px; height: 15px; }
 .ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 #fff, var(--elev-2); }
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-2); }
 .ctl-btn:active { transform: scale(0.97); }
 /* armed is the DEFAULT state of the first control, so it is what loads —
    and white-on-cyan measured 2.58:1, identical on all three themes because
@@ -1393,16 +1538,25 @@ input[type="range"] {
   appearance: none; -webkit-appearance: none;
   height: 22px; background: transparent; cursor: pointer;
 }
+/* The UNFILLED half was rgba(14,23,38,0.08) — light-theme navy, the exact
+   bug the toggle track and the scrollbar were already fixed for: on the
+   black drawer it measured 1.02:1, so the two Settings sliders showed a
+   filled bar ending in nothing and the control never said how much travel
+   was left. --ring-track is the per-theme solved track this sheet already
+   keeps for the uptime ring, which is the same job on the same grounds. */
 input[type="range"]::-webkit-slider-runnable-track {
   height: 5px; border-radius: 3px;
-  background: linear-gradient(90deg, #21b7e4 var(--fill, 50%), rgba(14,23,38,0.08) var(--fill, 50%));
+  background: linear-gradient(90deg, var(--c-coordinator) var(--fill, 50%), var(--ring-track) var(--fill, 50%));
 }
 input[type="range"]::-webkit-slider-thumb {
   appearance: none; -webkit-appearance: none;
   width: 17px; height: 17px; border-radius: 50%;
   margin-top: -6px;
+  /* the knob stays white on every theme — it is the lit part of the control,
+     the same read as the toggle's knob — but its hairline is themed, or it
+     is invisible navy on black */
   background: #fff;
-  border: 1px solid rgba(14,23,38,0.08);
+  border: 1px solid var(--line-2);
   /* bespoke: a 17px thumb needs a tight contact shadow, not a card's pool */
   box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k)));
   transition: transform var(--dur-1) var(--ease);
@@ -1426,7 +1580,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   background: #fff; box-shadow: 0 2px 6px rgba(var(--shadow-rgb), calc(0.3 * var(--shadow-k)));
   transition: transform var(--dur-2) var(--ease-spring);
 }
-.toggle input:checked + i { background: #21b7e4; }
+.toggle input:checked + i { background: var(--c-coordinator); }
 .toggle input:checked + i::after { transform: translateX(18px); }
 
 /* ---------- segmented control — ONE build, five call sites ----------
@@ -1688,7 +1842,7 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   border: 1px solid rgba(255,255,255,calc(0.85 * var(--wa)));
   border-radius: var(--r-lg);
   /* overlay: a full-height sheet over the whole app, above --elev-3 */
-  box-shadow: inset 0 1px 0 #fff, 0 30px 70px -25px rgba(var(--shadow-rgb), calc(0.4 * var(--shadow-k)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), 0 30px 70px -25px rgba(var(--shadow-rgb), calc(0.4 * var(--shadow-k)));
   display: flex; flex-direction: column;
 }
 .drawer.open { transform: translateX(0); }
@@ -1702,6 +1856,16 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 }
 .drawer-body { padding: var(--s4) 20px; display: flex; flex-direction: column; gap: var(--s4); }
 .set-row { display: flex; flex-direction: column; gap: var(--s2); }
+/* A range input is a 5px track inside a 22px box (the 17px thumb needs the
+   room), so it carries 8.5px of dead space on each side that the segmented
+   rows above it do not. Spending the same --s2/--s4 steps on both therefore
+   DRAWS a different rhythm: the two slider labels floated 16.5px off their
+   tracks where the seg labels sit at 8, and the gap after a slider opened to
+   24.5 against the block's 16. These two corrections cancel the dead space
+   rather than re-tuning the scale — measured, so they stay literal: 0 gap
+   puts the label 8.5px off the track, and −8px bottom returns the block
+   gap to 16.5. Both land inside a pixel of the rows they now match. */
+.set-row:has(input[type="range"]) { gap: 0; margin-bottom: -8px; }
 .set-row.set-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
 .set-label { font-size: 13px; font-weight: 550; color: var(--ink-2); }
 /* 13px: a three-line mono paragraph — prose, so it obeys the 13px floor */
@@ -1719,14 +1883,14 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
     inset 0 1px 0 rgba(255,255,255,calc(0.85 * var(--wa))),
     /* pressed sits BELOW --elev-1 by design — the control is going down */
     0 2px 8px -4px rgba(var(--shadow-rgb), calc(0.2 * var(--shadow-k))),
-    0 0 0 2px rgba(0,169,216,0.28);
+    0 0 0 2px color-mix(in oklab, var(--c-coordinator) 28%, transparent);
 }
 .chat-input input:active { transform: scale(0.99); }
 
 /* slider press: thumb grows under the pointer, neutral shadow only */
 input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.18);
-  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k))), 0 0 0 4px rgba(0,169,216,0.16);
+  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k))), 0 0 0 4px color-mix(in oklab, var(--c-coordinator) 16%, transparent);
 }
 
 /* toggle press: liquid thumb stretch, no bloom */
@@ -1773,7 +1937,16 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
      the 3px inset rounds to --s1 */
   display: flex; gap: 2px; padding: var(--s1);
   border-radius: 3px;
-  background: rgba(127, 127, 127, 0.12);
+  /* The trough was rgba(127,127,127,0.12) — a fixed neutral grey, and the
+     only segmented control in the app that did not read --seg-bg. It showed:
+     on tan, this drawer's two troughs were cold grey slabs while the very
+     same control on #/metrics resolved warm cream, three feet away in the
+     same theme. --seg-bg is ink-tinted glass, so it is warm on tan and cool
+     on white by construction. The BORDER stays --line-2 rather than
+     --seg-border: this is the small build of the control (--s1 inset, 12.5px
+     buttons) and it wants a defined hairline on all three grounds, where
+     --seg-border's 0.7×--wa white would nearly vanish on black. */
+  background: var(--seg-bg);
   border: 1px solid var(--line-2);
 }
 .theme-seg button {
@@ -1853,21 +2026,42 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
 
 /* The arrows carry ALL navigation now, so each names its destination — but
    only once you reach for it. The label sits BELOW its arrow (to its side it
-   collided with the gear), centred, and is silent at rest. */
+   collided with the gear) and is silent at rest.
+
+   It hangs from the OUTER edge of its own arrow rather than from the arrow's
+   centre. Centring was the intent, and it does not fit: each arrow sits at
+   its end of the page column, so a centred caption puts half its width
+   outside the column — and the longest destination ("computers", 82.2px at
+   this size and tracking) then left the VIEWPORT by 1.1px at 1280 and 5.1px
+   at 1024, clipped silently under body{overflow:hidden}. Anchoring outward
+   costs nothing at wide sizes (the caption still reads as this arrow's
+   label, 46px of it under the arrow), can never leave the page at any
+   width, and makes the pair bracket the column the way the arrows do. */
 .topbar .icon-btn { position: relative; }
 .topbar .icon-btn[data-dest]:not([data-dest=""])::after {
   content: attr(data-dest);
-  position: absolute; top: calc(100% - 2px); left: 50%;
-  transform: translateX(-50%) translateY(-3px);
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  position: absolute; top: calc(100% - 2px);
+  transform: translateY(-3px);
+  /* 11px + uppercase is the caps micro-label role, so it spends the role's
+     one tracking value. This was the last 0.14em holdout in the sheet —
+     it survived the tracking sweep only because the rule above kept it
+     invisible, so nobody could see it disagreeing. */
+  font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase;
   color: var(--ink-3);
   white-space: nowrap; pointer-events: none;
   opacity: 0;
   transition: opacity var(--dur-2, 240ms) var(--ease),
               transform var(--dur-2, 240ms) var(--ease);
 }
-.topbar .icon-btn:hover::after,
-.topbar .icon-btn:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* These two selectors have to repeat the [data-dest] guard above. Without it
+   the reveal is (0,3,1) against a resting rule at (0,4,1) — LOWER specificity
+   — so `opacity: 0` won its own cascade and this caption has never once
+   appeared, on any route, for anyone. It measures 0 while hovered; it now
+   measures 1. Same reveal, same timing, nothing else changed. */
+.topbar .tb-left  .icon-btn[data-dest]:not([data-dest=""])::after { left: 0; right: auto; }
+.topbar .tb-right .icon-btn[data-dest]:not([data-dest=""])::after { right: 0; left: auto; }
+.topbar .icon-btn[data-dest]:not([data-dest=""]):hover::after,
+.topbar .icon-btn[data-dest]:not([data-dest=""]):focus-visible::after { opacity: 1; transform: translateY(0); }
 
 /* no hover slab anywhere on this strip — the glyph itself answers, by
    darkening and leaning the way it travels */
