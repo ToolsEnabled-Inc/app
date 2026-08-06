@@ -2,6 +2,8 @@
 
 You are the sole builder for this urgent regression. Work only in this worktree. Read the canonical continuation brief at `C:\Users\joshp\Desktop\toolsenabled-current\docs\coordinator\COORDINATOR-RUN7-BRIEF.md` before editing; treat it as read-only authority.
 
+Dashboard launch record: `launch_Pu7-5nthWJXI-SwiQs1MpPBiaKsmixmT` (audit sequence 3981; `gpt-5.6-sol`, premium, 40 turns, 1,800,000 ms cap).
+
 ## Objective
 
 Repair the live agent page so a genuinely running agent cannot crash the whole view when the runtime ring is mounted. The observed failure is:
