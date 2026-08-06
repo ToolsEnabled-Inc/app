@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "agents",
-  "generatedAt": "2026-08-06T08:30:53.190Z",
+  "generatedAt": "2026-08-06T08:36:08.629Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:30:53.252Z",
+      "observedAt": "2026-08-06T08:36:08.690Z",
       "reason": null
     }
   ],
@@ -309,7 +309,7 @@
     "observedSessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:30:53.252Z",
+      "observedAt": "2026-08-06T08:36:08.690Z",
       "value": [
         {
           "provider": "codex",
@@ -354,7 +354,7 @@
         {
           "provider": "claude",
           "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T08:30:52.362Z"
+          "updatedAt": "2026-08-06T08:35:59.615Z"
         },
         {
           "provider": "claude",

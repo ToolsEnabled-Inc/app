@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "metrics",
-  "generatedAt": "2026-08-06T08:30:53.351Z",
+  "generatedAt": "2026-08-06T08:36:08.796Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -10,7 +10,7 @@
       "kind": "cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:30:53.406Z",
+      "observedAt": "2026-08-06T08:36:08.858Z",
       "reason": null
     },
     {
@@ -18,7 +18,7 @@
       "kind": "reader",
       "path": "tools/ledger-query.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:04:39.380Z",
+      "observedAt": "2026-08-06T08:32:25.510Z",
       "reason": null
     },
     {
@@ -50,7 +50,7 @@
     "sessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:30:53.406Z",
+      "observedAt": "2026-08-06T08:36:08.858Z",
       "value": {
         "codex": 8,
         "claude": 6
@@ -59,13 +59,13 @@
     "fleetSupervisor": {
       "ok": false,
       "reason": "source-unavailable",
-      "observedAt": "2026-08-06T08:30:53.406Z",
+      "observedAt": "2026-08-06T08:36:08.858Z",
       "value": null
     },
     "services": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:30:53.406Z",
+      "observedAt": "2026-08-06T08:36:08.858Z",
       "value": {
         "total": 5,
         "stale": 1
@@ -74,7 +74,7 @@
     "requests": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:04:39.380Z",
+      "observedAt": "2026-08-06T08:32:25.510Z",
       "value": {
         "total": 452,
         "open": 402

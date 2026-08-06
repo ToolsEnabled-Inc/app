@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "ledger",
-  "generatedAt": "2026-08-06T08:30:53.690Z",
+  "generatedAt": "2026-08-06T08:36:09.186Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -18,7 +18,7 @@
       "kind": "canonical-data",
       "path": "reports/OWNER-REQUEST-LEDGER.json",
       "ok": true,
-      "observedAt": "2026-08-06T08:04:39.380Z",
+      "observedAt": "2026-08-06T08:32:25.510Z",
       "reason": null
     },
     {
@@ -2758,7 +2758,7 @@
         "id": "R1138",
         "status": "in-progress",
         "gateCount": 2,
-        "unmetGateCount": 2
+        "unmetGateCount": 0
       }
     ],
     "questions": {

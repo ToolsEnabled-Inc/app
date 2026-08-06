@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "ops",
-  "generatedAt": "2026-08-06T08:30:53.534Z",
+  "generatedAt": "2026-08-06T08:36:09.002Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:30:53.590Z",
+      "observedAt": "2026-08-06T08:36:09.068Z",
       "reason": null
     },
     {
@@ -93,41 +93,41 @@
     "channels": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:30:53.590Z",
+      "observedAt": "2026-08-06T08:36:09.068Z",
       "value": [
         {
           "id": "channel-health-observer-snapshot",
           "name": "health-observer snapshot",
           "state": "stale",
-          "observedAt": "2026-08-04T01:01:23.590Z",
+          "observedAt": "2026-08-04T01:01:24.068Z",
           "detail": "11 subsystems, but the observer itself is stale — this whole snapshot is untrustworthy"
         },
         {
           "id": "channel-linkbus-8787",
           "name": "linkBus (:8787)",
           "state": "healthy",
-          "observedAt": "2026-08-06T08:30:08.590Z",
+          "observedAt": "2026-08-06T08:34:08.068Z",
           "detail": "owned · healthy"
         },
         {
           "id": "channel-remotebridge-8788",
           "name": "remoteBridge (:8788)",
           "state": "conflict",
-          "observedAt": "2026-08-06T08:30:08.590Z",
+          "observedAt": "2026-08-06T08:34:08.068Z",
           "detail": "conflict · healthy — listener identity mismatch"
         },
         {
           "id": "channel-fra-8790",
           "name": "FRA (:8790)",
           "state": "healthy",
-          "observedAt": "2026-08-04T11:17:36.590Z",
+          "observedAt": "2026-08-04T11:17:37.068Z",
           "detail": "owned · healthy · operational"
         },
         {
           "id": "channel-rendezvous-8795",
           "name": "rendezvous (:8795)",
           "state": "unknown",
-          "observedAt": "2026-08-03T05:35:13.590Z",
+          "observedAt": "2026-08-03T05:35:14.068Z",
           "detail": "role receiver · committed key generation 9"
         }
       ]
@@ -135,7 +135,7 @@
     "mcp": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:30:53.590Z",
+      "observedAt": "2026-08-06T08:36:09.068Z",
       "value": {
         "live": [
           "toolsenabled-readonly",
