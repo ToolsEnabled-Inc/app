@@ -26,7 +26,7 @@
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" }, "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
         "role": { "type": "string", "minLength": 1, "maxLength": 40 }, "provider": { "type": "string", "minLength": 1, "maxLength": 32 }, "enabled": { "type": "boolean" },
         "assignedPhase": { "type": ["string", "null"], "pattern": "^Q[0-9]{1,3}$" }, "phasePriority": { "type": "array", "maxItems": 128, "items": { "type": "string", "pattern": "^Q[0-9]{1,3}$" } },
-        "bornAt": { "type": "integer", "minimum": 0 }, "origin": { "enum": ["user", "self"] },
+        "bornAt": { "type": "integer", "minimum": 0 }, "stoppedAt": { "type": "integer", "minimum": 0 }, "origin": { "enum": ["user", "self"] },
         "tasksDone": { "type": "integer", "minimum": 0 }, "failRate": { "type": "number", "minimum": 0, "maximum": 100 }
       }
     },

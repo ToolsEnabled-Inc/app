@@ -70,6 +70,7 @@
         "provider": { "type": "string", "minLength": 1, "maxLength": 32 },
         "enabled": { "type": "boolean" },
         "bornAt": { "type": "integer", "minimum": 0 },
+        "stoppedAt": { "type": "integer", "minimum": 0 },
         "origin": { "enum": ["user", "self"] },
         "tasksDone": { "type": "integer", "minimum": 0 },
         "failRate": { "type": "number", "minimum": 0, "maximum": 100 }

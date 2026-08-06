@@ -22,7 +22,7 @@ import {
 
 const REAL_CANONICAL = 'C:/Users/joshp/Desktop/toolsenabled-current'
 const FIXED_NOW = '2026-08-06T12:00:00.000Z'
-const SECRET = 'sk-abcdefghijklmnopqrstuvwxyz123456'
+const SENSITIVE_MARKER = 'fixture-sensitive-marker-abcdefghijklmnopqrstuvwxyz123456'
 
 function write(path, content) {
   mkdirSync(dirname(path), { recursive: true })
@@ -41,16 +41,16 @@ function taskStore(rowsByStatus, agentByTask) {
       assert.equal(includeCheckpoint, false)
       const agentId = agentByTask[taskId]
       return {
-        payload: { title: `ignored ${SECRET}`, objective: `ignored ${SECRET}`, context: JSON.stringify({ agentId, ignoredSecret: SECRET }) },
-        result: { ignoredSecret: SECRET },
-        error: { message: SECRET },
-        claimToken: SECRET,
+        payload: { title: `ignored ${SENSITIVE_MARKER}`, objective: `ignored ${SENSITIVE_MARKER}`, context: JSON.stringify({ agentId, ignoredSecret: SENSITIVE_MARKER }) },
+        result: { ignoredSecret: SENSITIVE_MARKER },
+        error: { message: SENSITIVE_MARKER },
+        claimToken: SENSITIVE_MARKER,
       }
     },
   }
 }
 
-function presenceRecord({ agentId, dispatcher, reportsTo, startedAt, runId }) {
+function presenceRecord({ agentId, dispatcher, reportsTo, startedAt, runId, status = 'running', terminalAt = null }) {
   return {
     agentId,
     runId,
@@ -69,10 +69,10 @@ function presenceRecord({ agentId, dispatcher, reportsTo, startedAt, runId }) {
     pid: null,
     startedAt,
     lastHeartbeat: startedAt,
-    status: 'running',
+    status,
     exitCode: null,
     lastVerdict: null,
-    terminalAt: null,
+    terminalAt,
     staleReason: null,
     mailboxOffset: 0,
     respawnCount: 0,
@@ -130,7 +130,7 @@ test('terminal task aggregation covers every outcome, zero denominator, and secr
   assert.equal(aggregate.byAgent['agent-a'].failRate, 66.7)
   assert.equal(aggregate.byAgent['agent-b'].tasksDone, 1)
   assert.equal(Object.hasOwn(aggregate.byAgent['agent-b'], 'failRate'), false)
-  assert.equal(JSON.stringify(aggregate).includes(SECRET), false)
+  assert.equal(JSON.stringify(aggregate).includes(SENSITIVE_MARKER), false)
 })
 
 test('a saturated 200-row status read fails closed instead of publishing a partial lifetime count', () => {
@@ -152,16 +152,19 @@ test('malformed task attribution fails closed without publishing partial per-age
   assert.deepEqual(agentProjectionFields('agent-a', null, aggregate), {})
 })
 
-test('registry fields preserve exact epochs/origins and omit unresolved or malformed values', () => {
+test('registry fields preserve exact epochs/origins, stop only on exact terminal evidence, and omit malformed values', () => {
   const registry = {
     agents: {
-      exact: { agentId: 'exact', startedAt: 1_786_000_123_456, origin: 'user', reportsTo: null },
+      exact: { agentId: 'exact', startedAt: 1_786_000_123_456, status: 'finished', terminalAt: 1_786_000_223_456, origin: 'user', reportsTo: null },
       malformed: { agentId: 'malformed', startedAt: '1786000123456', origin: 'user-spawned', reportsTo: null },
-      unresolved: { agentId: 'unresolved', startedAt: 42, origin: 'self', reportsTo: null },
+      unresolved: { agentId: 'unresolved', startedAt: 42, status: 'running', terminalAt: 84, origin: 'self', reportsTo: null },
+      badTerminal: { agentId: 'badTerminal', startedAt: 100, status: 'failed', terminalAt: 99, origin: 'self', reportsTo: null },
     },
   }
-  assert.deepEqual(agentProjectionFields('exact', registry, null), { bornAt: 1_786_000_123_456, origin: 'user' })
+  assert.deepEqual(agentProjectionFields('exact', registry, null), { bornAt: 1_786_000_123_456, stoppedAt: 1_786_000_223_456, origin: 'user' })
   assert.deepEqual(agentProjectionFields('malformed', registry, null), {})
+  assert.deepEqual(agentProjectionFields('unresolved', registry, null), { bornAt: 42, origin: 'self' })
+  assert.deepEqual(agentProjectionFields('badTerminal', registry, null), { bornAt: 100, origin: 'self' })
   assert.deepEqual(agentProjectionFields('not-in-registry', registry, null), {})
 })
 
@@ -242,6 +245,8 @@ test('both generators emit matching live fields and declared/observed provenance
         reportsTo: 'coordinator-sol',
         startedAt: 1_786_000_222_000,
         runId: 'aaaaaaaa-bbbb-2222',
+        status: 'finished',
+        terminalAt: 1_786_000_333_000,
       }),
     },
   }))
@@ -253,7 +258,7 @@ module.exports = {
   createStateStore() {
     return {
       listTasks({ status }) { return (rows[status] || []).map(id => ({ id, type: 'codex-agent-lane' })); },
-      getTask({ taskId }) { return { payload: { context: JSON.stringify({ agentId: agents[taskId], secret: '${SECRET}' }) }, result: '${SECRET}', error: '${SECRET}', claimToken: '${SECRET}' }; },
+      getTask({ taskId }) { return { payload: { context: JSON.stringify({ agentId: agents[taskId], secret: '${SENSITIVE_MARKER}' }) }, result: '${SENSITIVE_MARKER}', error: '${SENSITIVE_MARKER}', claimToken: '${SENSITIVE_MARKER}' }; },
       close() {}
     };
   }
@@ -274,6 +279,7 @@ module.exports = {
 
   for (const node of [fleetSeat2, agentSeat2]) {
     assert.equal(node.bornAt, 1_786_000_222_000)
+    assert.equal(node.stoppedAt, 1_786_000_333_000)
     assert.equal(node.origin, 'user')
     assert.equal(node.tasksDone, 4)
     assert.equal(node.failRate, 66.7)
@@ -281,6 +287,7 @@ module.exports = {
   }
   for (const node of [fleetSeat1, agentSeat1]) {
     assert.equal(node.bornAt, 1_786_000_111_000)
+    assert.equal(Object.hasOwn(node, 'stoppedAt'), false)
     assert.equal(node.origin, 'self')
     assert.equal(node.tasksDone, 1)
     assert.equal(Object.hasOwn(node, 'failRate'), false)
@@ -293,5 +300,5 @@ module.exports = {
     assert.ok(relationships.some(edge => edge.from === 'coordinator-sol'
       && edge.to === 'codex-manager-seat-1' && edge.type === 'delegates_to' && edge.sourceKind === 'observed'))
   }
-  assert.equal(JSON.stringify({ fleet, agents }).includes(SECRET), false)
+  assert.equal(JSON.stringify({ fleet, agents }).includes(SENSITIVE_MARKER), false)
 })

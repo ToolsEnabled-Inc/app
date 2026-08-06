@@ -279,6 +279,11 @@ export function agentProjectionFields(agentId, registry, taskTelemetry) {
   const record = plainObject(registry?.agents) ? registry.agents[agentId] : null
   if (plainObject(record)) {
     if (Number.isSafeInteger(record.startedAt) && record.startedAt >= 0) fields.bornAt = record.startedAt
+    if ((record.status === 'finished' || record.status === 'failed')
+      && Number.isSafeInteger(record.startedAt) && record.startedAt >= 0
+      && Number.isSafeInteger(record.terminalAt) && record.terminalAt >= record.startedAt) {
+      fields.stoppedAt = record.terminalAt
+    }
     if (record.origin === 'user' || record.origin === 'self') fields.origin = record.origin
   }
   if (taskTelemetry?.ok === true && plainObject(taskTelemetry.byAgent)) {

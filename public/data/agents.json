@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "agents",
-  "generatedAt": "2026-08-06T11:26:08.409Z",
+  "generatedAt": "2026-08-06T11:32:29.174Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T11:26:08.461Z",
+      "observedAt": "2026-08-06T11:32:29.242Z",
       "reason": null
     },
     {
@@ -42,7 +42,7 @@
       "kind": "observed-registry",
       "path": "state/agent-presence.json",
       "ok": true,
-      "observedAt": "2026-08-06T11:25:59.285Z",
+      "observedAt": "2026-08-06T11:28:34.087Z",
       "reason": null
     },
     {
@@ -137,6 +137,7 @@
         "assignedPhase": null,
         "phasePriority": [],
         "bornAt": 1786014109414,
+        "stoppedAt": 1786014152587,
         "origin": "self",
         "tasksDone": 2,
         "failRate": 0
@@ -150,8 +151,10 @@
         "assignedPhase": null,
         "phasePriority": [],
         "bornAt": 1786014898747,
+        "stoppedAt": 1786015714086,
         "origin": "self",
-        "tasksDone": 0
+        "tasksDone": 1,
+        "failRate": 0
       },
       {
         "id": "codex-manager-seat-3",
@@ -407,7 +410,7 @@
     "observedSessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T11:26:08.461Z",
+      "observedAt": "2026-08-06T11:32:29.242Z",
       "value": [
         {
           "provider": "codex",
@@ -452,7 +455,7 @@
         {
           "provider": "claude",
           "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T11:25:04.212Z"
+          "updatedAt": "2026-08-06T11:32:26.197Z"
         },
         {
           "provider": "claude",
