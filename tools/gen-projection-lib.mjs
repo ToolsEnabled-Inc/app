@@ -41,6 +41,8 @@ export const TERMINAL_LANE_TASK_STATUSES = Object.freeze(['succeeded', 'failed',
 export const TERMINAL_LANE_TASK_LIMIT = 200
 
 const AGENT_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const PRESENCE_RUN_ID = /^[a-f0-9-]{16,64}$/
+const PRESENCE_STATUSES = new Set(['starting', 'running', 'stale', 'finished', 'failed'])
 const PRESENCE_READER_PATH = 'src/lib/agent-presence.js'
 const PRESENCE_STATE_PATH = 'state/agent-presence.json'
 const STATE_STORE_READER_PATH = 'src/lib/state-store.js'
@@ -297,6 +299,31 @@ export function agentProjectionFields(agentId, registry, taskTelemetry) {
     }
   }
   return fields
+}
+
+/** Return only the exact current presence fence for one declared agent. */
+export function agentControlTarget(agentId, registry) {
+  const record = plainObject(registry?.agents) ? registry.agents[agentId] : null
+  if (!plainObject(record)
+    || record.agentId !== agentId
+    || !AGENT_ID.test(record.agentId)
+    || !PRESENCE_RUN_ID.test(record.runId)
+    || !(record.pid === null || (Number.isSafeInteger(record.pid) && record.pid > 0))
+    || !PRESENCE_STATUSES.has(record.status)
+    || !Number.isSafeInteger(record.recordRevision) || record.recordRevision < 1
+    || !Number.isSafeInteger(record.startedAt) || record.startedAt < 0
+    || !Number.isSafeInteger(record.lastHeartbeat) || record.lastHeartbeat < 0) {
+    return null
+  }
+  return Object.freeze({
+    agentId: record.agentId,
+    runId: record.runId,
+    pid: record.pid,
+    status: record.status,
+    recordRevision: record.recordRevision,
+    startedAt: record.startedAt,
+    lastHeartbeat: record.lastHeartbeat,
+  })
 }
 
 /**

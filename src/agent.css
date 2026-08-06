@@ -478,10 +478,95 @@ body.reduce-motion .node-rim.pulse .rim-arc {
    whole at every viewport instead of straddling the panel's bottom edge */
 .agentv-panels .ctl-panel > .ctl-actions {
   flex: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
   margin-top: var(--s3, 12px);
   padding-top: var(--s3, 12px);
   border-top: 1px solid var(--line);
 }
+.agentv-panels .ctl-actions .ctl-btn {
+  min-width: 0;
+  height: 48px;
+  padding: 5px 6px;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.05;
+}
+.agentv-panels .ctl-actions .ctl-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agentv-panels .ctl-actions .ctl-note {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 550;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+.agentv-panels .ctl-actions .ctl-declared-state {
+  cursor: default;
+  color: var(--ink-2);
+  background: color-mix(in oklab, var(--sheet) 88%, var(--c-coordinator));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.75 * var(--wa)));
+}
+.agentv-panels .ctl-actions .ctl-declared-state:hover {
+  color: var(--ink-2);
+  transform: none;
+  background: color-mix(in oklab, var(--sheet) 88%, var(--c-coordinator));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.75 * var(--wa)));
+}
+.agentv-panels .ctl-actions button.ctl-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.6 * var(--wa)));
+}
+.agentv-panels .ctl-actions button.ctl-btn:disabled:hover {
+  color: var(--ink-2);
+  border-color: rgba(255,255,255,calc(0.85 * var(--wa)));
+  background: rgba(255,255,255,calc(0.62 * var(--wa)));
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.6 * var(--wa)));
+}
+.agentv-panels .ctl-actions .ctl-btn.is-confirming {
+  color: var(--s-serious);
+  border-color: color-mix(in oklab, var(--s-serious) 48%, var(--sheet));
+  background: color-mix(in oklab, var(--s-serious) 12%, var(--sheet));
+}
+.agentv-panels .ctl-actions button.ctl-btn.is-pending:disabled {
+  opacity: 1;
+  color: var(--s-warn);
+  border-color: color-mix(in oklab, var(--s-warn) 42%, var(--sheet));
+  background: color-mix(in oklab, var(--s-warn) 10%, var(--sheet));
+}
+.agentv-panels .ctl-actions button.ctl-btn.is-success:disabled {
+  opacity: 1;
+  color: var(--s-good);
+  border-color: color-mix(in oklab, var(--s-good) 42%, var(--sheet));
+  background: color-mix(in oklab, var(--s-good) 10%, var(--sheet));
+}
+.agentv-panels .ctl-panel > .ctl-result {
+  flex: none;
+  min-height: 30px;
+  padding: 7px 2px 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.agentv-panels .ctl-result[data-phase="confirm"],
+.agentv-panels .ctl-result[data-phase="refused"] { color: var(--s-serious); }
+.agentv-panels .ctl-result[data-phase="pending"],
+.agentv-panels .ctl-result[data-phase="retry"] { color: var(--s-warn); }
+.agentv-panels .ctl-result[data-phase="success"] { color: var(--s-good); }
 
 /* both panels are on screen, so the wayfinding for a hidden one is noise */
 .panel-dots, .agentv-panels-wrap > .scroll-cue { display: none; }

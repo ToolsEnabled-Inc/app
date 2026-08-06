@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "agents",
-  "generatedAt": "2026-08-06T11:42:14.981Z",
+  "generatedAt": "2026-08-06T18:11:25.351Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T11:42:15.028Z",
+      "observedAt": "2026-08-06T18:11:25.415Z",
       "reason": null
     },
     {
@@ -34,7 +34,7 @@
       "kind": "canonical-reader",
       "path": "src/lib/agent-presence.js",
       "ok": true,
-      "observedAt": "2026-08-06T11:00:00.274Z",
+      "observedAt": "2026-08-06T13:51:39.425Z",
       "reason": null
     },
     {
@@ -42,7 +42,7 @@
       "kind": "observed-registry",
       "path": "state/agent-presence.json",
       "ok": true,
-      "observedAt": "2026-08-06T11:41:18.292Z",
+      "observedAt": "2026-08-06T18:11:23.639Z",
       "reason": null
     },
     {
@@ -66,7 +66,19 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
-        "tasksDone": 0
+        "controlTarget": {
+          "agentId": "coordinator-sol",
+          "runId": "889b9917-1e27-4591-b7cb-1b51522e31ec",
+          "pid": 26236,
+          "status": "running",
+          "recordRevision": 369,
+          "startedAt": 1786036210866,
+          "lastHeartbeat": 1786039883636
+        },
+        "bornAt": 1786036210866,
+        "origin": "self",
+        "tasksDone": 4,
+        "failRate": 50
       },
       {
         "id": "claude",
@@ -76,7 +88,20 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
-        "tasksDone": 0
+        "controlTarget": {
+          "agentId": "claude",
+          "runId": "667f9948-93b2-4e73-8f03-292e818513e2",
+          "pid": 46796,
+          "status": "finished",
+          "recordRevision": 10,
+          "startedAt": 1786035083032,
+          "lastHeartbeat": 1786035157918
+        },
+        "bornAt": 1786035083032,
+        "stoppedAt": 1786035157918,
+        "origin": "self",
+        "tasksDone": 5,
+        "failRate": 40
       },
       {
         "id": "codex-manager-reconcile",
@@ -86,6 +111,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -96,6 +122,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -106,6 +133,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -116,6 +144,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -126,6 +155,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -136,10 +166,19 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
-        "bornAt": 1786014109414,
-        "stoppedAt": 1786014152587,
+        "controlTarget": {
+          "agentId": "codex-manager-seat-1",
+          "runId": "0d3a767f-9b17-4e6a-b742-6f408e420a71",
+          "pid": 42356,
+          "status": "finished",
+          "recordRevision": 65,
+          "startedAt": 1786017698298,
+          "lastHeartbeat": 1786018317610
+        },
+        "bornAt": 1786017698298,
+        "stoppedAt": 1786018317610,
         "origin": "self",
-        "tasksDone": 2,
+        "tasksDone": 3,
         "failRate": 0
       },
       {
@@ -150,10 +189,19 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
-        "bornAt": 1786014898747,
-        "stoppedAt": 1786015714086,
+        "controlTarget": {
+          "agentId": "codex-manager-seat-2",
+          "runId": "efe634f8-3fb7-4921-9af5-512d5915c9ef",
+          "pid": 2968,
+          "status": "finished",
+          "recordRevision": 50,
+          "startedAt": 1786017786550,
+          "lastHeartbeat": 1786018252871
+        },
+        "bornAt": 1786017786550,
+        "stoppedAt": 1786018252871,
         "origin": "self",
-        "tasksDone": 1,
+        "tasksDone": 2,
         "failRate": 0
       },
       {
@@ -164,10 +212,19 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
-        "bornAt": 1786016143127,
-        "stoppedAt": 1786016478292,
+        "controlTarget": {
+          "agentId": "codex-manager-seat-3",
+          "runId": "86dcc924-28fb-4a91-bef1-a6a0ca687e81",
+          "pid": 44844,
+          "status": "finished",
+          "recordRevision": 115,
+          "startedAt": 1786020781628,
+          "lastHeartbeat": 1786021895600
+        },
+        "bornAt": 1786020781628,
+        "stoppedAt": 1786021895600,
         "origin": "self",
-        "tasksDone": 1,
+        "tasksDone": 4,
         "failRate": 0
       },
       {
@@ -178,6 +235,7 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -188,6 +246,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -198,7 +257,20 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
-        "tasksDone": 0
+        "controlTarget": {
+          "agentId": "luna",
+          "runId": "46ebddcf-766c-40f2-bc7b-be0c303a92c4",
+          "pid": 26508,
+          "status": "finished",
+          "recordRevision": 13,
+          "startedAt": 1786032345863,
+          "lastHeartbeat": 1786032445558
+        },
+        "bornAt": 1786032345863,
+        "stoppedAt": 1786032445558,
+        "origin": "self",
+        "tasksDone": 5,
+        "failRate": 0
       },
       {
         "id": "terra",
@@ -208,6 +280,7 @@
         "enabled": true,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -218,6 +291,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -228,6 +302,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       },
       {
@@ -238,6 +313,7 @@
         "enabled": false,
         "assignedPhase": null,
         "phasePriority": [],
+        "controlTarget": null,
         "tasksDone": 0
       }
     ],
@@ -400,6 +476,12 @@
       },
       {
         "from": "coordinator-sol",
+        "to": "claude",
+        "type": "delegates_to",
+        "sourceKind": "observed"
+      },
+      {
+        "from": "coordinator-sol",
         "to": "codex-manager-seat-1",
         "type": "delegates_to",
         "sourceKind": "observed"
@@ -415,13 +497,29 @@
         "to": "codex-manager-seat-3",
         "type": "delegates_to",
         "sourceKind": "observed"
+      },
+      {
+        "from": "coordinator-sol",
+        "to": "luna",
+        "type": "delegates_to",
+        "sourceKind": "observed"
       }
     ],
     "observedSessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T11:42:15.028Z",
+      "observedAt": "2026-08-06T18:11:25.415Z",
       "value": [
+        {
+          "provider": "codex",
+          "sessionId": "019fd76b-d6bc-76c0-9a1d-deb63750576c",
+          "updatedAt": "2026-08-06T14:14:21.694Z"
+        },
+        {
+          "provider": "codex",
+          "sessionId": "019fd747-d934-7fd1-837a-598f09de02f4",
+          "updatedAt": "2026-08-06T13:35:19.322Z"
+        },
         {
           "provider": "codex",
           "sessionId": "019fd391-2fb3-7790-b530-5fa99fddcf72",
@@ -453,19 +551,9 @@
           "updatedAt": "2026-08-02T20:46:31.528Z"
         },
         {
-          "provider": "codex",
-          "sessionId": "019fc3c6-70f3-7510-9214-bb6bb8787a9d",
-          "updatedAt": "2026-08-02T18:40:32.987Z"
-        },
-        {
-          "provider": "codex",
-          "sessionId": "019fc246-33dc-78a3-88d5-728b79f0b286",
-          "updatedAt": "2026-08-02T11:40:22.283Z"
-        },
-        {
           "provider": "claude",
           "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T11:33:50.212Z"
+          "updatedAt": "2026-08-06T17:11:14.036Z"
         },
         {
           "provider": "claude",
