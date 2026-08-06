@@ -23,6 +23,24 @@ const RIM_ARCS = [[-52, -30], [122, 144], [212, 234]]
 // to any agent page — criterion 2 requires "permanently", not per-visit.
 let panelsCueDismissed = false
 
+/* Normalize the one runtime source shared by FleetGraph and the controls
+   ring. A terminal control target without its exact stop epoch fails closed;
+   a finite stoppedAt is the only value allowed to freeze elapsed time. */
+export function liveAgentRuntimeSource(agent, observedAt = Date.now()) {
+  const bornAt = Number.isFinite(agent?.bornAt) ? agent.bornAt : null
+  if (bornAt === null) return null
+  const stoppedAt = Number.isFinite(agent?.stoppedAt) ? agent.stoppedAt : null
+  const terminalWithoutStop = (agent?.controlTarget?.status === 'finished'
+    || agent?.controlTarget?.status === 'failed') && stoppedAt === null
+  if (terminalWithoutStop) return null
+  return {
+    bornAt,
+    stoppedAt,
+    elapsedMs: Math.max(0, (stoppedAt ?? observedAt) - bornAt),
+    running: stoppedAt === null,
+  }
+}
+
 /* The agent projection deliberately separates declared topology from observed
    sessions.  Session ids are opaque and the contract gives us no safe bridge
    from one to a declared agent, so this adapter never turns one into a
@@ -67,6 +85,7 @@ function declaredAgentProjection(compId, agentId, data) {
 
   const asGraphAgent = (declaredAgent, parentId = null) => {
     const labels = labelsFor(declaredAgent.id)
+    const runtime = liveAgentRuntimeSource(declaredAgent)
     return {
       id: declaredAgent.id,
       name: declaredAgent.displayName,
@@ -76,7 +95,8 @@ function declaredAgentProjection(compId, agentId, data) {
       declaredRole: declaredAgent.role,
       parentId,
       state: declaredAgent.enabled ? 'active' : 'inactive',
-      bornAt: null,
+      bornAt: runtime?.bornAt ?? null,
+      stoppedAt: runtime?.stoppedAt ?? null,
       projectionUnavailableReason: 'not provided by agents projection',
       model: declaredAgent.provider,
       pool: 'declared',
@@ -1233,11 +1253,20 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   // the digits outside the disc — the small ring gets its own digit step
   // (.ctl-ring-sm in agent.css, ~95px of digits inside a 100px chord).
   let ring = null
-  if (!live) {
+  let ringUpdates = false
+  const liveRuntime = live ? liveAgentRuntimeSource(agent) : null
+  if (!live || liveRuntime) {
     const smallRing = window.innerHeight < 960
-    ring = uptimeRing({ size: smallRing ? 132 : 180, epoch: agent.bornAt, colors: [role.glow, role.hex], caption: 'Runtime', showDays: false })
+    // uptimeRing renders Date.now() - epoch. Translate an exact stopped
+    // duration into that coordinate once, then leave the existing ring still;
+    // running and simulated clocks keep their real source epoch and heartbeat.
+    const ringEpoch = live && !liveRuntime.running
+      ? Date.now() - liveRuntime.elapsedMs
+      : agent.bornAt
+    ring = uptimeRing({ size: smallRing ? 132 : 180, epoch: ringEpoch, colors: [role.glow, role.hex], caption: 'Runtime', showDays: false })
     if (smallRing) ring.el.classList.add('ctl-ring-sm')
     root.querySelector('.agent-ring-wrap').appendChild(ring.el)
+    ringUpdates = !live || liveRuntime.running
   }
 
   // The Controls scroller keeps a bottom fade while there is more below it
@@ -1278,7 +1307,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   let raf = 0
   let lastRingAt = 0
   const loop = (ts) => {
-    if (ring && ts - lastRingAt >= 80) { lastRingAt = ts; ring.update() }
+    if (ring && ringUpdates && ts - lastRingAt >= 80) { lastRingAt = ts; ring.update() }
     placeOpenChips()
     raf = requestAnimationFrame(loop)
   }
