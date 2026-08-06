@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "fleet",
-  "generatedAt": "2026-08-06T08:36:08.464Z",
+  "generatedAt": "2026-08-06T11:26:08.198Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -10,7 +10,7 @@
       "kind": "reader",
       "path": "src/lib/agent-org.js",
       "ok": true,
-      "observedAt": "2026-08-05T21:20:33.653Z",
+      "observedAt": "2026-08-06T10:12:27.418Z",
       "reason": null
     },
     {
@@ -18,7 +18,7 @@
       "kind": "declared",
       "path": "config/agent-org.json",
       "ok": true,
-      "observedAt": "2026-08-06T08:30:52.345Z",
+      "observedAt": "2026-08-06T10:12:47.927Z",
       "reason": null
     },
     {
@@ -26,7 +26,31 @@
       "kind": "observed",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:36:08.524Z",
+      "observedAt": "2026-08-06T11:26:08.253Z",
+      "reason": null
+    },
+    {
+      "id": "agent-presence-reader",
+      "kind": "canonical-reader",
+      "path": "src/lib/agent-presence.js",
+      "ok": true,
+      "observedAt": "2026-08-06T11:00:00.274Z",
+      "reason": null
+    },
+    {
+      "id": "agent-presence",
+      "kind": "observed-registry",
+      "path": "state/agent-presence.json",
+      "ok": true,
+      "observedAt": "2026-08-06T11:25:59.285Z",
+      "reason": null
+    },
+    {
+      "id": "state-store-reader",
+      "kind": "durable-reader",
+      "path": "src/lib/state-store.js",
+      "ok": true,
+      "observedAt": "2026-08-03T06:16:42.162Z",
       "reason": null
     }
   ],
@@ -36,289 +60,361 @@
         "id": "machine-a",
         "label": "Machine A",
         "sourceKind": "observed",
-        "observedAt": "2026-08-06T08:36:08.524Z",
+        "observedAt": "2026-08-06T11:26:08.253Z",
         "activeSessions": 2,
         "services": [
           {
             "id": "service-health-observer-snapshot",
             "name": "health-observer snapshot",
             "state": "stale",
-            "observedAt": "2026-08-04T01:01:23.524Z",
+            "observedAt": "2026-08-04T01:01:23.253Z",
             "detail": "11 subsystems, but the observer itself is stale — this whole snapshot is untrustworthy"
           },
           {
             "id": "service-linkbus-8787",
             "name": "linkBus (:8787)",
             "state": "healthy",
-            "observedAt": "2026-08-06T08:34:08.524Z",
+            "observedAt": "2026-08-06T11:26:08.253Z",
             "detail": "owned · healthy"
           },
           {
             "id": "service-remotebridge-8788",
             "name": "remoteBridge (:8788)",
             "state": "conflict",
-            "observedAt": "2026-08-06T08:34:08.524Z",
+            "observedAt": "2026-08-06T11:26:08.253Z",
             "detail": "conflict · healthy — listener identity mismatch"
           },
           {
             "id": "service-fra-8790",
             "name": "FRA (:8790)",
             "state": "healthy",
-            "observedAt": "2026-08-04T11:17:36.524Z",
+            "observedAt": "2026-08-04T11:17:37.253Z",
             "detail": "owned · healthy · operational"
           },
           {
             "id": "service-rendezvous-8795",
             "name": "rendezvous (:8795)",
             "state": "unknown",
-            "observedAt": "2026-08-03T05:35:13.524Z",
+            "observedAt": "2026-08-03T05:35:13.253Z",
             "detail": "role receiver · committed key generation 9"
           }
         ]
       }
     ],
     "graph": {
-      "revision": 16,
-      "contentHash": "d9769bbd97ebc053ad7af8a6fe58f12911c124d9a3fd43516d5faddec6797300",
+      "revision": 17,
+      "contentHash": "7b1397656f90d1648eb259c0b9adde7025d88cc2c607978e95faedbf005d7e12",
       "nodes": [
         {
-          "id": "claude",
-          "label": "Claude Code (coordinator)",
+          "id": "coordinator-sol",
+          "label": "Sol Coordinator",
           "role": "controller",
+          "provider": "codex",
+          "enabled": true,
+          "tasksDone": 0
+        },
+        {
+          "id": "claude",
+          "label": "Claude Code (shadow manager)",
+          "role": "shadow-manager",
           "provider": "claude",
-          "enabled": true
+          "enabled": true,
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-reconcile",
           "label": "Codex Manager - Reconcile DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-platform",
           "label": "Codex Manager - Platform and Topology DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-release",
           "label": "Codex Manager - V1 Release DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-deep-systems",
           "label": "Codex Manager - Deep Systems (Sol) DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-adjudication",
           "label": "Codex Manager - Design and Adjudication (Sol) DISABLED R1135",
           "role": "manager",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-seat-1",
           "label": "Codex Manager Seat 1 (Sol R1135)",
           "role": "manager",
           "provider": "codex",
-          "enabled": true
+          "enabled": true,
+          "bornAt": 1786014109414,
+          "origin": "self",
+          "tasksDone": 2,
+          "failRate": 0
         },
         {
           "id": "codex-manager-seat-2",
           "label": "Codex Manager Seat 2 (Sol R1135)",
           "role": "manager",
           "provider": "codex",
-          "enabled": true
+          "enabled": true,
+          "bornAt": 1786014898747,
+          "origin": "self",
+          "tasksDone": 0
         },
         {
           "id": "codex-manager-seat-3",
           "label": "Codex Manager Seat 3 (Sol R1135)",
           "role": "manager",
           "provider": "codex",
-          "enabled": true
+          "enabled": true,
+          "tasksDone": 0
         },
         {
           "id": "codex",
           "label": "Codex (subagent pool)",
           "role": "worker",
           "provider": "codex",
-          "enabled": true
+          "enabled": true,
+          "tasksDone": 0
         },
         {
           "id": "codex-assistant",
           "label": "Codex (coordinator assistant) DISABLED R1131",
           "role": "coordinator-assistant",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "luna",
           "label": "Luna (Codex cheap tier)",
           "role": "builder",
           "provider": "codex",
-          "enabled": true
+          "enabled": true,
+          "tasksDone": 0
         },
         {
           "id": "terra",
           "label": "Terra (Codex mid tier)",
           "role": "builder",
           "provider": "codex",
-          "enabled": true
+          "enabled": true,
+          "tasksDone": 0
         },
         {
           "id": "sol",
           "label": "Sol (Codex high tier)",
           "role": "builder",
           "provider": "codex",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "jarvis",
           "label": "JARVIS worker DISABLED R1131",
           "role": "worker",
           "provider": "local",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         },
         {
           "id": "gemini",
           "label": "Gemini agentic worktree SUSPENDED R1131",
           "role": "builder",
           "provider": "gemini",
-          "enabled": false
+          "enabled": false,
+          "tasksDone": 0
         }
       ],
       "edges": [
         {
           "from": "claude",
+          "to": "coordinator-sol",
+          "type": "reviews",
+          "sourceKind": "declared"
+        },
+        {
+          "from": "coordinator-sol",
           "to": "codex-manager-reconcile",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-platform",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-release",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-deep-systems",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-adjudication",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-deep-systems",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-adjudication",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "luna",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "terra",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "sol",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "jarvis",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "gemini",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-assistant",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-reconcile",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-platform",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-release",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
           "from": "codex",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
           "from": "terra",
           "to": "luna",
-          "type": "reviews"
+          "type": "reviews",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-seat-1",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-seat-1",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-seat-2",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-seat-2",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
         },
         {
-          "from": "claude",
+          "from": "coordinator-sol",
           "to": "codex-manager-seat-3",
-          "type": "manages"
+          "type": "manages",
+          "sourceKind": "declared"
         },
         {
           "from": "codex-manager-seat-3",
-          "to": "claude",
-          "type": "escalates_to"
+          "to": "coordinator-sol",
+          "type": "escalates_to",
+          "sourceKind": "declared"
+        },
+        {
+          "from": "coordinator-sol",
+          "to": "codex-manager-seat-1",
+          "type": "delegates_to",
+          "sourceKind": "observed"
+        },
+        {
+          "from": "coordinator-sol",
+          "to": "codex-manager-seat-2",
+          "type": "delegates_to",
+          "sourceKind": "observed"
         }
       ]
     }

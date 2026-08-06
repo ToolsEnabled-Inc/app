@@ -68,16 +68,21 @@
         "label": { "type": "string", "minLength": 1, "maxLength": 80 },
         "role": { "type": "string", "minLength": 1, "maxLength": 40 },
         "provider": { "type": "string", "minLength": 1, "maxLength": 32 },
-        "enabled": { "type": "boolean" }
+        "enabled": { "type": "boolean" },
+        "bornAt": { "type": "integer", "minimum": 0 },
+        "origin": { "enum": ["user", "self"] },
+        "tasksDone": { "type": "integer", "minimum": 0 },
+        "failRate": { "type": "number", "minimum": 0, "maximum": 100 }
       }
     },
     "graphEdge": {
       "type": "object", "additionalProperties": false,
-      "required": ["from", "to", "type"],
+      "required": ["from", "to", "type", "sourceKind"],
       "properties": {
         "from": { "type": "string", "minLength": 1, "maxLength": 64 },
         "to": { "type": "string", "minLength": 1, "maxLength": 64 },
-        "type": { "enum": ["manages", "reviews", "delegates_to", "escalates_to"] }
+        "type": { "enum": ["manages", "reviews", "delegates_to", "escalates_to"] },
+        "sourceKind": { "enum": ["declared", "observed"] }
       }
     },
     "data": {

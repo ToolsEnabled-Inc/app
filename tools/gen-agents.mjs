@@ -2,10 +2,13 @@
 import {
   CANONICAL_ROOT,
   LIVE_ROOT,
+  agentProjectionFields,
   available,
   availableEnvelope,
   emitProjection,
+  loadAgentProjectionTelemetry,
   loadReader,
+  projectAgentRelationships,
   readJsonFile,
   runJsonCli,
   source,
@@ -82,6 +85,10 @@ await emitProjection(DOMAIN, async at => {
     reason: sessions.reason,
   }))
 
+  const telemetry = loadAgentProjectionTelemetry(CANONICAL_ROOT)
+  sources.push(...telemetry.results.map(result => sourceFromResult(result, result.kind)))
+  const agentIds = new Set(org.agents.map(agent => agent.id))
+
   return availableEnvelope(DOMAIN, {
     revision: org.revision,
     contentHash: org.contentHash,
@@ -93,8 +100,9 @@ await emitProjection(DOMAIN, async at => {
       enabled: agent.enabled,
       assignedPhase: agent.assignedPhase,
       phasePriority: [...agent.phasePriority],
+      ...agentProjectionFields(agent.id, telemetry.registry, telemetry.tasks),
     })),
-    relationships: org.relationships.map(({ from, to, type }) => ({ from, to, type })),
+    relationships: projectAgentRelationships(org.relationships, telemetry.registry, agentIds),
     observedSessions: sessions,
   }, sources, at)
 })
