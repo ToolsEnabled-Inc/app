@@ -8,6 +8,7 @@ const ACTION_ROUTES = Object.freeze({
 
 let bootstrapPromise = null
 const REQUEST_TIMEOUT_MS = 5_000
+const WELL_KNOWN_BRIDGE = 'http://127.0.0.1:4610'
 
 function timeoutSignal() {
   return AbortSignal.timeout(REQUEST_TIMEOUT_MS)
@@ -18,11 +19,7 @@ function unavailable(error) {
   return { ok: false, reason: timedOut ? 'action bridge timed out' : (error?.message || 'action bridge unreachable'), code: timedOut ? 'BRIDGE_TIMEOUT' : 'BRIDGE_UNREACHABLE' }
 }
 
-function configuredBaseUrl() {
-  const globalValue = window.__MC_MISSION_BRIDGE_URL__
-  const queryValue = new URLSearchParams(window.location.search).get('bridge')
-  const candidate = typeof globalValue === 'string' && globalValue ? globalValue : queryValue
-  if (!candidate) return { ok: false, reason: 'action bridge not configured' }
+function normalizedBaseUrl(candidate) {
   let url
   try { url = new URL(candidate) } catch { return { ok: false, reason: 'action bridge address is malformed' } }
   if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
@@ -31,8 +28,38 @@ function configuredBaseUrl() {
   return { ok: true, baseUrl: url.origin }
 }
 
+async function configuredBaseUrl() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('bridge')) return normalizedBaseUrl(params.get('bridge'))
+  try {
+    const response = await fetch(`${WELL_KNOWN_BRIDGE}/v1/runtime`, {
+      method: 'GET', headers: { accept: 'application/json' }, cache: 'no-store',
+      signal: timeoutSignal(),
+    })
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.ok !== true) {
+      return {
+        ok: false,
+        reason: body?.error?.message || `action bridge discovery refused (${response.status})`,
+        code: body?.error?.code || 'BRIDGE_DISCOVERY_REFUSED',
+      }
+    }
+    const configured = normalizedBaseUrl(body.baseUrl)
+    const startedAtMs = typeof body.startedAt === 'string' ? Date.parse(body.startedAt) : NaN
+    if (!configured.ok || !Number.isSafeInteger(body.port) || body.port < 1 || body.port > 65535
+        || new URL(configured.baseUrl).port !== String(body.port)
+        || !Number.isSafeInteger(body.pid) || body.pid < 1
+        || !Number.isFinite(startedAtMs) || new Date(startedAtMs).toISOString() !== body.startedAt) {
+      return { ok: false, reason: 'action bridge discovery returned an invalid runtime record', code: 'BRIDGE_DISCOVERY_INVALID' }
+    }
+    return configured
+  } catch (error) {
+    return unavailable(error)
+  }
+}
+
 async function bootstrap() {
-  const configured = configuredBaseUrl()
+  const configured = await configuredBaseUrl()
   if (!configured.ok) return configured
   try {
     const response = await fetch(`${configured.baseUrl}/v1/bootstrap`, {
