@@ -6,15 +6,13 @@ export const LIVE_FLAGS_EVENT = 'mc:live-flags-changed'
 
 export const LIVE_VIEW_FLAGS = Object.freeze([
   Object.freeze({ id: 'home', label: 'Home / coordinator', domain: 'coordinator' }),
-  /* defaultLive:false is an OWNER ruling (2026-08-06, on seeing the live
-     graph: "page 2 is NOT my vision. This is not the tree we had or that I
-     like… go back to the old version"). The fleet projection is honest but
-     flat (one root, twelve direct children) and carries no telemetry — that
-     data shape cannot render the tree this page was designed around. The
-     graph stays on the simulation until the projection can carry the
-     design (real depth + runtime); live remains one toggle away in
-     Settings → Data & Sim. */
-  Object.freeze({ id: 'computers', label: 'Computers graph', domain: 'fleet', defaultLive: false }),
+  /* Computers ran simulated-by-default for a few hours on 2026-08-06; the
+     owner overruled it the same day: "changing source is the worst way to
+     fix the problem." The graph reads live and the RENDER absorbs the data
+     shape instead — a flat swarm of subagents draws as the uniform grey
+     spawned tree, culled to the density budget (see computers.js/graph.js).
+     defaultLive stays supported for any future view that needs it. */
+  Object.freeze({ id: 'computers', label: 'Computers graph', domain: 'fleet' }),
   Object.freeze({ id: 'agent', label: 'Agent drill-in', domain: 'agents' }),
   Object.freeze({ id: 'metrics', label: 'Metrics panel', domain: 'metrics' }),
   Object.freeze({ id: 'comms', label: 'Ops-channel board', domain: 'ops' }),

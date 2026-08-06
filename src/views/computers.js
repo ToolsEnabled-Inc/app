@@ -125,6 +125,23 @@ function projectedComputer(computer, graph) {
     child.parentId = parent.id
   }
 
+  /* Owner render rules (2026-08-06). One: "if they are all subagents they
+     should be a gray tree under it exactly the same" — role hues belong to
+     STRUCTURAL nodes (root and anything with declared children); leaf
+     children of a flat swarm draw as the uniform grey spawned register the
+     sim always used for spawned agents. Two: when the tier overflows,
+     self-spawned subagents disappear before user-spawned ones ("they take
+     priority in visualizing") — cullRank feeds the graph's tier culler.
+     node.origin ('user' | 'self') is honored the day the generator emits
+     it; until then every node ties as user-spawned and the tie-breakers
+     (enabled first, then name) decide. */
+  const structural = new Set([...byId.values()].filter(a => a.parentId).map(a => a.parentId))
+  for (const agent of byId.values()) {
+    const selfSpawned = graph.nodes.find(n => n.id === agent.id)?.origin === 'self'
+    if (agent.parentId && !structural.has(agent.id)) agent.role = 'spawned'
+    agent.cullRank = (selfSpawned ? 2 : 0) + (agent.state === 'enabled' ? 0 : 1)
+  }
+
   const agents = [...byId.values()]
   return {
     id: computer.id,
@@ -635,6 +652,7 @@ export function computersView({ initialComputer = null, navigate }) {
       screenChips: true,
       contextFeed: liveMode ? projectionMonitorContext : monitorContextFor,
       edges: liveMode ? computer.graphEdges : null,
+      cullTierOverflow: liveMode,
       onReparent: liveMode ? ((agentId, parentId) => computer.reparentAgent(agentId, parentId)) : null,
       onSelect: () => {},
       onOpenControls: (agent) => showControls(agent),
@@ -642,6 +660,7 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     graph.onDensity = (dense) => hintEl.classList.toggle('show', dense)
     graph.updateDensity()
+    window.__mcGraph = graph                       // probe handle, nothing reads it in-app
     // apply the sticky layout preference to every freshly-mounted graph
     // (initial mount and each tab switch), un-animated so it arrives settled
     if (layoutPref === 'tree') graph.setLayout('tree', { animate: false })

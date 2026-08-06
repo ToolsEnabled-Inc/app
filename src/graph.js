@@ -135,7 +135,7 @@ export const CHIP_W = 248
 export const CHIP_H = 100
 
 export class FleetGraph {
-  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, onGeometry = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null, edges = null, onReparent = null }) {
+  constructor(container, { computer, rootId = null, onRootChange = null, onSelect = null, onOpenControls = null, onGeometry = null, chipsFor = CHIP_ROLES, chipPredicate = null, screenChips = false, contextFeed = null, edges = null, onReparent = null, cullTierOverflow = false }) {
     this.chipPredicate = chipPredicate
     this.screenChips = screenChips === true
     this.contextFeed = typeof contextFeed === 'function' ? contextFeed : null
@@ -145,6 +145,11 @@ export class FleetGraph {
     // (reviews and escalation loops included). Keep those exact edges for
     // rendering/physics while parentId remains the tree-layout contract.
     this.declaredEdges = Array.isArray(edges) ? edges : null
+    /* Owner render rule for over-capacity tiers (projection graphs only):
+       nodes past the density budget DISAPPEAR — "it should disappear when
+       too many appear" — instead of wrapping or squeezing. The rail keeps
+       the true declared count; focus mode reveals any branch. */
+    this.cullTierOverflow = cullTierOverflow === true
     this.onReparent = typeof onReparent === 'function' ? onReparent : null
     this.rootId = rootId
     this.onRootChange = onRootChange
@@ -896,6 +901,16 @@ export class FleetGraph {
   /* ---------- forces ---------- */
 
   refreshForces(hard = false) {
+    // physics has room the tree row does not — culling is a tree-layout
+    // verdict, so leaving the tree restores every hidden node
+    if (!this._treeActive()) {
+      for (const n of this.nodes.values()) {
+        if (n.culled) {
+          n.culled = false
+          if (n.el.style.display) n.el.style.display = ''
+        }
+      }
+    }
     const nodes = [...this.nodes.values()]
     const links = this.declaredEdges
       ? this.declaredEdges.flatMap(edge => {
@@ -1677,6 +1692,9 @@ export class FleetGraph {
   _placeScreenChips(nodesArr) {
     if (!this.screenChips || !this.screenOverlay) return
     if (this._screenUiDirty) this._refreshScreenUiObstacles()
+    // culled nodes are gone from the canvas — no block, no budget, no
+    // obstacle presence
+    nodesArr = nodesArr.filter(n => !n.culled)
     const rank = (rec) => rec.agent.state === 'spawning'
       ? SCREEN_PRIORITY.spawned
       : (SCREEN_PRIORITY[rec.agent.role] ?? 1)
@@ -2685,11 +2703,48 @@ export class FleetGraph {
       }
       if (solved) {
         list.forEach((n, i) => {
-          n.el.style.removeProperty('--nn-max')
-          const t = n.el.querySelector('.nn-t')
-          if (t && t.textContent !== n.agent.name) t.textContent = n.agent.name
+          n.culled = false
+          this._setLabelBudget(n, null)
           slots.set(n.id, { x: xs[i], y })
         })
+      } else if (this.cullTierOverflow) {
+        /* Owner rule: past the budget, the tier does not wrap or squeeze —
+           the overflow disappears. Priority: user-spawned agents hold the
+           tree, self-spawned ones vanish first ("they take priority in
+           visualizing"); cullRank is stamped by the projection layer. */
+        const byPriority = [...list].sort((a, b) =>
+          (a.agent.cullRank ?? 0) - (b.agent.cullRank ?? 0)
+          || a.agent.name.localeCompare(b.agent.name))
+        const keep = new Set()
+        let span = 0
+        for (const n of byPriority) {
+          const next = span + 2 * n.r + (keep.size ? 10 : 0)
+          if (next > this.W - 24 && keep.size) break
+          keep.add(n)
+          span = next
+        }
+        const survivors = list.filter(n => keep.has(n))
+        const stepK = this.W / (survivors.length + 1)
+        let xsK = survivors.map((n, i) =>
+          Math.max(n.r + 44, Math.min(this.W - n.r - 44, stepK * (i + 1))))
+        const okK = xsK.every((x, i) =>
+          i === 0 || x - xsK[i - 1] >= survivors[i - 1].r + survivors[i].r + 2)
+        if (!okK && survivors.length > 1) {
+          const gaps = survivors.map((n, i) => i ? survivors[i - 1].r + n.r + 10 : 0)
+          const gspan = gaps.reduce((a, b) => a + b, 0)
+          const avail = this.W - 24 - survivors[0].r - survivors[survivors.length - 1].r
+          let x = 12 + survivors[0].r + Math.max(0, (avail - gspan) / 2)
+          xsK = survivors.map((n, i) => (x += gaps[i]))
+        }
+        survivors.forEach((n, i) => {
+          n.culled = false
+          // a culled-tier survivor lives at packed pitch — it needs the same
+          // label budget the wrap path uses, or nine full-length names fight
+          // the label-avoid force and shove the row off its own slots
+          this._setLabelBudget(n, stepK)
+          slots.set(n.id, { x: xsK[i], y })
+        })
+        for (const n of list) if (!keep.has(n)) n.culled = true
       } else {
         /* Past the -6px near-tangent floor the old last resort compressed
            proportionally — twelve flat-projection siblings on a
@@ -2716,20 +2771,8 @@ export class FleetGraph {
           }
           const yS = si === 0 ? y - lift : y
           sub.forEach((n, i) => {
-            const budget = Math.max(70, Math.round(stepS - 14))
-            n.el.style.setProperty('--nn-max', budget + 'px')
-            /* End-ellipsis rendered four sibling managers as four identical
-               "Codex Manag…" labels — the tail is where live names differ,
-               so middle-truncate to the pitch budget instead. ~7.2px/char at
-               the 12.5px/640 name register; CSS ellipsis stays as backstop. */
-            const t = n.el.querySelector('.nn-t')
-            if (t) {
-              const chars = Math.max(8, Math.floor((budget - 16) / 7.2))
-              const name = n.agent.name
-              t.textContent = name.length > chars
-                ? name.slice(0, Math.ceil(chars / 2)) + '…' + name.slice(-(Math.floor(chars / 2) - 1))
-                : name
-            }
+            n.culled = false
+            this._setLabelBudget(n, stepS)
             slots.set(n.id, { x: xsS[i], y: yS })
           })
         })
@@ -2738,9 +2781,75 @@ export class FleetGraph {
     return { slots, rowYs }
   }
 
+  /** Pitch-budgeted labels for packed tiers. null pitch = restore the full
+      name and the default clamp. Middle-truncation, not end-ellipsis: live
+      sibling names differ in their TAILS ("… Seat 1" / "… Release"), and
+      end-ellipsis once rendered four managers as four identical labels.
+      ~7.2px/char at the 12.5px/640 name register; CSS ellipsis is backstop. */
+  _setLabelBudget(n, pitch) {
+    const t = n.el.querySelector('.nn-t')
+    if (pitch == null) {
+      n.el.style.removeProperty('--nn-max')
+      if (t && t.textContent !== n.agent.name) t.textContent = n.agent.name
+      if (n._labelWFull) { n.labelW = n._labelWFull; n._labelWFull = null }
+      return
+    }
+    const budget = Math.max(70, Math.round(pitch - 14))
+    n.el.style.setProperty('--nn-max', budget + 'px')
+    // the label-avoid force must defend the BUDGETED width, not the full
+    // name's phantom extent — that mismatch shoved packed rows off-slot
+    n._labelWFull ??= n.labelW
+    n.labelW = Math.min(n._labelWFull, budget + 6)
+    if (!t) return
+    const chars = Math.max(6, Math.floor((budget - 16) / 7.2))
+    const name = n.agent.name
+    let want = name
+    if (name.length > chars) {
+      /* At swarm pitch, prose names collapse into identical stumps
+         ("Code……" nine times over). The id's TAIL segments are where
+         siblings actually differ — "seat-1", "deep-systems", "luna" — so
+         take as many trailing segments as the budget seats. Middle-cut of
+         the name is the fallback for segmentless ids. */
+      let disp = ''
+      const segs = String(n.id).split(/[-_.]/)
+      for (let i = segs.length - 1; i >= 0; i--) {
+        const cand = segs.slice(i).join('-')
+        if (cand.length > chars) break
+        disp = cand
+      }
+      // fallback: the id's final segment mid-cut ("adjudication" →
+      // "adju…ion") — a name mid-cut gave nine identical "Code…" stumps
+      const tail = segs[segs.length - 1] || name
+      want = disp || (tail.length > chars
+        ? tail.slice(0, Math.max(2, chars - 4)) + '…' + tail.slice(-3)
+        : tail)
+    }
+    if (t.textContent !== want) t.textContent = want
+  }
+
   _layoutTree(animate = true) {
     const { slots, rowYs } = this._treeSlots()
+    // apply the cull verdict before anything animates: hidden means GONE —
+    // node, block, leader, and both strokes of every touching link
+    for (const n of this.nodes.values()) {
+      const want = n.culled ? 'none' : ''
+      if (n.el.style.display !== want) n.el.style.display = want
+      if (n.culled) this._setScreenChipVisible(n, false)
+    }
+    for (const l of this.links || []) {
+      const off = (l.source.culled || l.target.culled) ? 'none' : ''
+      if (l.topEl && l.topEl.style.display !== off) l.topEl.style.display = off
+      if (l.underEl && l.underEl.style.display !== off) l.underEl.style.display = off
+    }
     if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
+    /* Settle guarantee. The glide is a rAF chain, and rAF chains die: a
+       competing relayout cancels this one and is itself cancelled, a
+       background tab starves frames — QA caught a live tree frozen at ~80%
+       of the ease, every bubble 8-25px off its slot with the sim parked and
+       nothing left to move it. The layout's truth is the slot map, so a
+       one-shot timer lands every non-dragged bubble exactly there after
+       the glide's window, no matter what happened to the frames. */
+    clearTimeout(this._treeSettleTimer)
     this._setInteracting(true)
     this._wakeFrameProbe()
     const starts = new Map()
@@ -2752,6 +2861,22 @@ export class FleetGraph {
     // to this run's real duration they arrive as a consequence of the layout
     // settling, which is what a tier guide actually means.
     this._renderTierGuides(rowYs, D ? D + TIER_GUIDE_BEAT_MS : 0)
+    this._treeSettleTimer = setTimeout(() => {
+      if (this._destroyed || !this._treeActive()) return
+      /* Recompute at fire time — NOT the closure's map. Mount races arm
+         several of these (one from the pre-attach 800×600 fallback canvas),
+         and whichever fires last would otherwise snap the tree to ITS stale
+         geometry: measured as a 9-survivor row parked on an 8-survivor
+         grid, sign-flipping deltas and all. An instant re-layout converges
+         in one hop (its own timer then finds zero drift and stops). */
+      const { slots: fresh } = this._treeSlots()
+      let drift = false
+      for (const n of this.nodes.values()) {
+        const s = fresh.get(n.id)
+        if (s && !n._editDragging && (Math.abs(n.x - s.x) > 1 || Math.abs(n.y - s.y) > 1)) { drift = true; break }
+      }
+      if (drift) this._layoutTree(false)
+    }, D + 140)
     const step = (t) => {
       const u = D ? Math.min(1, (t - t0) / D) : 1
       // STRUCTURAL register (see EASE_STRUCTURAL): a tree relayout is the
@@ -2874,6 +2999,7 @@ export class FleetGraph {
     this._stopSimulation()
     this.ro.disconnect()
     if (this._treeRaf) cancelAnimationFrame(this._treeRaf)
+    clearTimeout(this._treeSettleTimer)
     this._clearTierGuides()
     if (this._glideRaf) cancelAnimationFrame(this._glideRaf)
     if (this._perfRaf) cancelAnimationFrame(this._perfRaf)
