@@ -7,7 +7,14 @@ const ACTION_ROUTES = Object.freeze({
 })
 
 let bootstrapPromise = null
-const REQUEST_TIMEOUT_MS = 5_000
+// Measured against the live bridge 2026-08-06, not guessed: every audited
+// action pays for durable audit-chain writes, and the old 5s budget was below
+// the floor for all of them — report-read 5.38s, thread-reply 7.79s, status
+// 12.34s, dispatch longer still because it spawns a process. A budget under
+// the measured cost does not make anything faster; it just turns completed
+// work into a false "timed out". The real fix is server-side audit latency;
+// see the shadow report to the coordinator.
+const REQUEST_TIMEOUT_MS = 30_000
 export const WELL_KNOWN_BRIDGE_PORTS = Object.freeze(
   Array.from({ length: 10 }, (_value, index) => 4610 + index),
 )
@@ -150,10 +157,19 @@ export async function bridgeReachable() {
   return { ok: true, baseUrl: active.baseUrl }
 }
 
+// Per-action budgets. These are not arbitrary: `dispatch` spawns a real agent
+// process (launch record, task lease, child spawn) and was measured taking
+// longer than the 5s action budget, which made the UI report BRIDGE_TIMEOUT for
+// a dispatch that had ALREADY SUCCEEDED server-side — a lane appeared in the
+// registry, ran, and exited 0 while the operator was told it was refused.
+// Misreporting a completed spawn as a failure invites a retry, and dispatch
+// carries no idempotency key, so the retry would spawn a second agent.
+const ACTION_TIMEOUT_MS = Object.freeze({ dispatch: 120_000, queue: 30_000 })
+
 export function postBridgeAction(action, body) {
   const pathname = ACTION_ROUTES[action]
   if (!pathname) return Promise.resolve({ ok: false, reason: 'unknown bridge action', code: 'BRIDGE_ACTION_UNKNOWN' })
-  return request(pathname, { method: 'POST', body })
+  return request(pathname, { method: 'POST', body, timeoutMs: ACTION_TIMEOUT_MS[action] ?? REQUEST_TIMEOUT_MS })
 }
 
 export function resetBridgeSession() {
