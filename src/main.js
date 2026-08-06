@@ -14,6 +14,7 @@ import { agentView } from './views/agent.js'
 import { metricsView } from './views/metrics.js'
 import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
+import { settingsView } from './views/settings.js'
 import { rangeFill } from './views/computers.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
@@ -34,6 +35,7 @@ function parse() {
   if (parts[0] === 'metrics') return { name: 'metrics' }
   if (parts[0] === 'comms') return { name: 'comms' }
   if (parts[0] === 'ledger') return { name: 'ledger' }
+  if (parts[0] === 'settings') return { name: 'settings' }
   return { name: 'home' }
 }
 
@@ -45,6 +47,7 @@ function makeView(route) {
     case 'metrics': return metricsView()
     case 'comms': return commsView()
     case 'ledger': return ledgerView()
+    case 'settings': return settingsView()
     default: return homeView()
   }
 }
@@ -57,6 +60,7 @@ function crumbFor(route) {
     case 'metrics': return `${base} / metrics`
     case 'comms': return `${base} / comms`
     case 'ledger': return `${base} / ledger`
+    case 'settings': return `${base} / settings`
     default: return `${base} / home`
   }
 }
@@ -304,6 +308,7 @@ const openDrawer = () => {
 }
 openSettingsBtn.addEventListener('click', openDrawer)
 document.getElementById('close-settings').addEventListener('click', closeDrawer)
+document.querySelector('.drawer-all').addEventListener('click', closeDrawer)
 document.addEventListener('keydown', (e) => {
   if (!drawerOpen) return
   if (e.key === 'Escape') { closeDrawer(); return }

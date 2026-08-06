@@ -1,0 +1,380 @@
+/* Settings is a bare clinical register: headings, whitespace and hairlines.
+   Only the existing control skins are allowed to form enclosed surfaces. */
+
+.drawer .drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.drawer .drawer-all {
+  flex: none;
+  display: block;
+  padding: var(--s3) calc(var(--s4) + var(--s1));
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 550;
+  text-decoration: none;
+  transition: color var(--dur-2) var(--ease);
+}
+
+.drawer .drawer-all:hover { color: var(--ink); }
+.drawer .drawer-all:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--s1));
+  border-radius: var(--r-md);
+}
+
+.settings-shell {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+}
+
+.settings-header.m-head {
+  align-items: center;
+  margin-bottom: calc(var(--s5) + var(--s2));
+  padding-inline: 0;
+}
+
+.settings-header .mt { margin: 0; }
+
+.settings-search {
+  width: min(calc(var(--s5) * 12), 42vw);
+}
+
+.settings-search input {
+  width: 100%;
+  padding: var(--s2) 0;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  outline: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.2;
+  transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+
+.settings-search input::placeholder { color: var(--ink-3); }
+.settings-search input:hover { border-bottom-color: var(--ink-3); }
+.settings-search input:focus {
+  color: var(--ink);
+  border-bottom-color: var(--focus-ring);
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: calc(var(--s5) * 6) minmax(0, 1fr);
+  align-items: start;
+  gap: calc(var(--s5) * 2);
+}
+
+.settings-rail {
+  position: sticky;
+  top: var(--s2);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+
+.settings-rail button {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  line-height: 1.3;
+  text-align: left;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease);
+}
+
+.settings-rail button:hover,
+.settings-rail button.is-active { color: var(--ink); }
+.settings-rail button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-main { min-width: 0; }
+
+.settings-section,
+.settings-results {
+  margin-bottom: calc(var(--s5) * 2);
+  scroll-margin-top: var(--s3);
+}
+
+.settings-section-title {
+  margin: 0 0 var(--s1);
+  padding: 0 0 var(--s2);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 660;
+  letter-spacing: var(--track-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.settings-section-rows,
+.settings-tier-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(calc(var(--s5) * 9), auto);
+  align-items: center;
+  gap: var(--s5);
+  min-height: calc(var(--s5) * 3);
+  padding-block: var(--s2);
+}
+
+.settings-row + .settings-row { margin-top: var(--s1); }
+.settings-copy { min-width: 0; }
+.settings-name {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.settings-desc {
+  margin-top: var(--s1);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.settings-prefix {
+  margin-bottom: var(--s1);
+  color: var(--ink-25);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.settings-row.is-engineer .settings-name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.settings-control {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.settings-seg { max-width: 100%; }
+.settings-seg > button { padding-inline: var(--s2); }
+.settings-toggle { flex: none; }
+
+.settings-range {
+  display: grid;
+  grid-template-columns: minmax(calc(var(--s5) * 5), calc(var(--s5) * 8)) calc(var(--s5) * 3);
+  align-items: center;
+  justify-content: end;
+  gap: var(--s3);
+  width: 100%;
+}
+
+.settings-range input { width: 100%; }
+.settings-range output,
+.settings-stepper output {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.settings-stepper {
+  display: inline-grid;
+  grid-template-columns: var(--s5) minmax(calc(var(--s5) * 4), auto) var(--s5);
+  align-items: center;
+  gap: var(--s2);
+}
+
+.settings-stepper button {
+  width: var(--s5);
+  height: var(--s5);
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+
+.settings-stepper button:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.settings-stepper button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+}
+
+.settings-reveal {
+  display: block;
+  margin-top: var(--s2);
+  padding: var(--s1) 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 550;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease);
+}
+
+.settings-reveal:hover { color: var(--ink); }
+.settings-reveal-glyph {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: -1px;
+  transition: transform 160ms var(--ease);
+}
+.settings-reveal:hover .settings-reveal-glyph { transform: translateY(2px); }
+body.reduce-motion .settings-reveal-glyph { transition: none; transform: none; }
+.settings-reveal:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: var(--s1);
+  border-radius: var(--r-md);
+}
+
+.settings-tier {
+  position: relative;
+  max-height: 0;
+  margin-left: var(--s3);
+  padding-left: var(--s4);
+  overflow: hidden;
+  border-left: 1px solid var(--line-2);
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--s1)));
+  transition: max-height 220ms var(--ease), opacity 220ms var(--ease), transform 220ms var(--ease);
+}
+
+.settings-tier::before,
+.settings-tier::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: var(--s2);
+  height: 0;
+  border-top: 1px solid var(--line-2);
+}
+
+.settings-tier::before { top: 0; }
+.settings-tier::after { bottom: 0; }
+.settings-tier.is-open {
+  max-height: 2600px;
+  opacity: 1;
+  transform: none;
+}
+
+.settings-tier .settings-reveal { margin-left: 0; }
+.settings-empty {
+  padding-block: var(--s4);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-footer {
+  padding: var(--s3) 0 var(--s5);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.settings-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+body.reduce-motion .settings-tier {
+  transition: none;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-tier { transform: none; }
+}
+
+@media (max-width: 760px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: var(--s5);
+  }
+
+  .settings-rail {
+    top: 0;
+    flex-direction: row;
+    gap: var(--s4);
+    padding: var(--s2) 0;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+
+  .settings-rail button { flex: none; }
+}
+
+@media (max-width: 620px) {
+  .settings-header.m-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--s3);
+  }
+
+  .settings-header .spacer { display: none; }
+  .settings-search { width: 100%; }
+  .settings-row {
+    grid-template-columns: 1fr;
+    gap: var(--s3);
+    padding-block: var(--s3);
+  }
+
+  .settings-control { justify-content: flex-start; }
+  .settings-range { justify-content: start; }
+  .settings-tier {
+    margin-left: var(--s2);
+    padding-left: var(--s3);
+  }
+}
