@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "agents",
-  "generatedAt": "2026-08-06T08:36:08.629Z",
+  "generatedAt": "2026-08-06T11:26:08.409Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -10,7 +10,7 @@
       "kind": "canonical-reader",
       "path": "src/lib/agent-org.js",
       "ok": true,
-      "observedAt": "2026-08-05T21:20:33.653Z",
+      "observedAt": "2026-08-06T10:12:27.418Z",
       "reason": null
     },
     {
@@ -18,7 +18,7 @@
       "kind": "canonical-config",
       "path": "config/agent-org.json",
       "ok": true,
-      "observedAt": "2026-08-06T08:30:52.345Z",
+      "observedAt": "2026-08-06T10:12:47.927Z",
       "reason": null
     },
     {
@@ -26,22 +26,57 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:36:08.690Z",
+      "observedAt": "2026-08-06T11:26:08.461Z",
+      "reason": null
+    },
+    {
+      "id": "agent-presence-reader",
+      "kind": "canonical-reader",
+      "path": "src/lib/agent-presence.js",
+      "ok": true,
+      "observedAt": "2026-08-06T11:00:00.274Z",
+      "reason": null
+    },
+    {
+      "id": "agent-presence",
+      "kind": "observed-registry",
+      "path": "state/agent-presence.json",
+      "ok": true,
+      "observedAt": "2026-08-06T11:25:59.285Z",
+      "reason": null
+    },
+    {
+      "id": "state-store-reader",
+      "kind": "durable-reader",
+      "path": "src/lib/state-store.js",
+      "ok": true,
+      "observedAt": "2026-08-03T06:16:42.162Z",
       "reason": null
     }
   ],
   "data": {
-    "revision": 16,
-    "contentHash": "d9769bbd97ebc053ad7af8a6fe58f12911c124d9a3fd43516d5faddec6797300",
+    "revision": 17,
+    "contentHash": "7b1397656f90d1648eb259c0b9adde7025d88cc2c607978e95faedbf005d7e12",
     "declared": [
       {
-        "id": "claude",
-        "displayName": "Claude Code (coordinator)",
+        "id": "coordinator-sol",
+        "displayName": "Sol Coordinator",
         "role": "controller",
+        "provider": "codex",
+        "enabled": true,
+        "assignedPhase": null,
+        "phasePriority": [],
+        "tasksDone": 0
+      },
+      {
+        "id": "claude",
+        "displayName": "Claude Code (shadow manager)",
+        "role": "shadow-manager",
         "provider": "claude",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-reconcile",
@@ -50,7 +85,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-platform",
@@ -59,7 +95,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-release",
@@ -68,7 +105,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-deep-systems",
@@ -77,7 +115,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-adjudication",
@@ -86,7 +125,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-seat-1",
@@ -95,7 +135,11 @@
         "provider": "codex",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "bornAt": 1786014109414,
+        "origin": "self",
+        "tasksDone": 2,
+        "failRate": 0
       },
       {
         "id": "codex-manager-seat-2",
@@ -104,7 +148,10 @@
         "provider": "codex",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "bornAt": 1786014898747,
+        "origin": "self",
+        "tasksDone": 0
       },
       {
         "id": "codex-manager-seat-3",
@@ -113,7 +160,8 @@
         "provider": "codex",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex",
@@ -122,7 +170,8 @@
         "provider": "codex",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "codex-assistant",
@@ -131,7 +180,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "luna",
@@ -140,7 +190,8 @@
         "provider": "codex",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "terra",
@@ -149,7 +200,8 @@
         "provider": "codex",
         "enabled": true,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "sol",
@@ -158,7 +210,8 @@
         "provider": "codex",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "jarvis",
@@ -167,7 +220,8 @@
         "provider": "local",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       },
       {
         "id": "gemini",
@@ -176,140 +230,184 @@
         "provider": "gemini",
         "enabled": false,
         "assignedPhase": null,
-        "phasePriority": []
+        "phasePriority": [],
+        "tasksDone": 0
       }
     ],
     "relationships": [
       {
         "from": "claude",
+        "to": "coordinator-sol",
+        "type": "reviews",
+        "sourceKind": "declared"
+      },
+      {
+        "from": "coordinator-sol",
         "to": "codex-manager-reconcile",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-platform",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-release",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-deep-systems",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-adjudication",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-deep-systems",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-adjudication",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "luna",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "terra",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "sol",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "jarvis",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "gemini",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-assistant",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-reconcile",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-platform",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-release",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
         "from": "codex",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
         "from": "terra",
         "to": "luna",
-        "type": "reviews"
+        "type": "reviews",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-seat-1",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-seat-1",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-seat-2",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-seat-2",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
       },
       {
-        "from": "claude",
+        "from": "coordinator-sol",
         "to": "codex-manager-seat-3",
-        "type": "manages"
+        "type": "manages",
+        "sourceKind": "declared"
       },
       {
         "from": "codex-manager-seat-3",
-        "to": "claude",
-        "type": "escalates_to"
+        "to": "coordinator-sol",
+        "type": "escalates_to",
+        "sourceKind": "declared"
+      },
+      {
+        "from": "coordinator-sol",
+        "to": "codex-manager-seat-1",
+        "type": "delegates_to",
+        "sourceKind": "observed"
+      },
+      {
+        "from": "coordinator-sol",
+        "to": "codex-manager-seat-2",
+        "type": "delegates_to",
+        "sourceKind": "observed"
       }
     ],
     "observedSessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:36:08.690Z",
+      "observedAt": "2026-08-06T11:26:08.461Z",
       "value": [
         {
           "provider": "codex",
@@ -354,12 +452,12 @@
         {
           "provider": "claude",
           "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T08:35:59.615Z"
+          "updatedAt": "2026-08-06T11:25:04.212Z"
         },
         {
           "provider": "claude",
           "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
-          "updatedAt": "2026-08-06T08:27:38.218Z"
+          "updatedAt": "2026-08-06T10:09:51.484Z"
         },
         {
           "provider": "claude",

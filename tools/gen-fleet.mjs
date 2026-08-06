@@ -12,10 +12,13 @@
 import {
   CANONICAL_ROOT,
   LIVE_ROOT,
+  agentProjectionFields,
   availableEnvelope,
   emitProjection,
+  loadAgentProjectionTelemetry,
   loadReader,
   plainObject,
+  projectAgentRelationships,
   readJsonFile,
   runJsonCli,
   sourceFromResult,
@@ -104,7 +107,8 @@ function normalizePreflight(preflight) {
   }
 }
 
-function normalizeGraph(org) {
+function normalizeGraph(org, telemetry) {
+  const agentIds = new Set(org.agents.map(agent => agent.id))
   return {
     revision: org.revision,
     contentHash: org.contentHash,
@@ -114,12 +118,9 @@ function normalizeGraph(org) {
       role: agent.role,
       provider: agent.provider,
       enabled: agent.enabled,
+      ...agentProjectionFields(agent.id, telemetry.registry, telemetry.tasks),
     })),
-    edges: org.relationships.map(relation => ({
-      from: relation.from,
-      to: relation.to,
-      type: relation.type,
-    })),
+    edges: projectAgentRelationships(org.relationships, telemetry.registry, agentIds),
   }
 }
 
@@ -145,8 +146,11 @@ await emitProjection('fleet', async at => {
   const observed = normalizePreflight(preflight.value)
   if (!observed) return unavailableFrom('fleet', 'source-malformed', [reader, declared, { ...preflight, ok: false, reason: 'source-malformed' }], at)
 
+  const telemetry = loadAgentProjectionTelemetry(CANONICAL_ROOT)
+  sources.push(...telemetry.results)
+
   return availableEnvelope('fleet', {
     computers: [observed.computer],
-    graph: normalizeGraph(org),
+    graph: normalizeGraph(org, telemetry),
   }, sources.map(result => sourceFromResult(result, result.kind)), at)
 })

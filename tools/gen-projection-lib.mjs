@@ -37,6 +37,15 @@ export const SCHEMA_VERSION = 1
 
 export const DOMAINS = Object.freeze(['fleet', 'agents', 'metrics', 'ops', 'ledger', 'coordinator'])
 
+export const TERMINAL_LANE_TASK_STATUSES = Object.freeze(['succeeded', 'failed', 'uncertain', 'cancelled'])
+export const TERMINAL_LANE_TASK_LIMIT = 200
+
+const AGENT_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const PRESENCE_READER_PATH = 'src/lib/agent-presence.js'
+const PRESENCE_STATE_PATH = 'state/agent-presence.json'
+const STATE_STORE_READER_PATH = 'src/lib/state-store.js'
+const LANE_TASK_TYPE = 'codex-agent-lane'
+
 const SECRET_PATTERNS = Object.freeze([
   /sk_live_[A-Za-z0-9]+/,
   /sk-[A-Za-z0-9]{20,}/,
@@ -194,6 +203,172 @@ export function sourceFromResult(result, kind) {
     ok: result.ok,
     observedAt: result.observedAt,
     reason: result.reason,
+  })
+}
+
+function taskTelemetryUnavailable(reason) {
+  return Object.freeze({ ok: false, reason, byAgent: null, outcomes: null })
+}
+
+/**
+ * Read the four terminal lane-task states through the StateStore public reader
+ * methods. The per-status cap is deliberately treated as saturated at exactly
+ * the cap: listTasks has no cursor, so 200 rows cannot prove a complete
+ * lifetime aggregate. Only payload.context is inspected for attribution; no
+ * task body, result, error, checkpoint, or lease material is retained.
+ */
+export function aggregateTerminalLaneTasks(store, { limit = TERMINAL_LANE_TASK_LIMIT } = {}) {
+  if (!plainObject(store) || typeof store.listTasks !== 'function' || typeof store.getTask !== 'function') {
+    return taskTelemetryUnavailable('source-reader-failed')
+  }
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > TERMINAL_LANE_TASK_LIMIT) {
+    return taskTelemetryUnavailable('source-reader-failed')
+  }
+
+  const counts = new Map()
+  const seenTaskIds = new Set()
+  try {
+    for (const status of TERMINAL_LANE_TASK_STATUSES) {
+      const rows = store.listTasks({ type: LANE_TASK_TYPE, status, limit })
+      if (!Array.isArray(rows)) return taskTelemetryUnavailable('source-malformed')
+      if (rows.length >= limit) return taskTelemetryUnavailable('source-truncated')
+
+      for (const row of rows) {
+        if (!plainObject(row) || typeof row.id !== 'string' || row.type !== LANE_TASK_TYPE) {
+          return taskTelemetryUnavailable('source-malformed')
+        }
+        if (seenTaskIds.has(row.id)) return taskTelemetryUnavailable('source-malformed')
+        seenTaskIds.add(row.id)
+
+        // StateStore.getTask has a bounded generic payload envelope. Deliberately
+        // select only its context string and let every other returned field die
+        // with this expression.
+        const context = store.getTask({ taskId: row.id, includePayload: true, includeCheckpoint: false })?.payload?.context
+        if (typeof context !== 'string' || context.length > 32_000) return taskTelemetryUnavailable('source-malformed')
+        let metadata
+        try { metadata = JSON.parse(context) } catch { return taskTelemetryUnavailable('source-malformed') }
+        const agentId = plainObject(metadata) && typeof metadata.agentId === 'string' ? metadata.agentId : ''
+        if (!AGENT_ID.test(agentId)) return taskTelemetryUnavailable('source-malformed')
+
+        const current = counts.get(agentId) || { succeeded: 0, failed: 0, uncertain: 0, cancelled: 0 }
+        current[status] += 1
+        counts.set(agentId, current)
+      }
+    }
+  } catch {
+    return taskTelemetryUnavailable('source-reader-failed')
+  }
+
+  const byAgent = Object.create(null)
+  const outcomes = { succeeded: 0, failed: 0, uncertain: 0, cancelled: 0, attributed: 0 }
+  for (const [agentId, current] of [...counts].sort(([left], [right]) => left.localeCompare(right))) {
+    const tasksDone = TERMINAL_LANE_TASK_STATUSES.reduce((sum, status) => sum + current[status], 0)
+    const denominator = current.succeeded + current.failed + current.uncertain
+    const entry = { tasksDone }
+    if (denominator > 0) entry.failRate = Math.round((((current.failed + current.uncertain) / denominator) * 100) * 10) / 10
+    byAgent[agentId] = Object.freeze({ ...current, ...entry })
+    for (const status of TERMINAL_LANE_TASK_STATUSES) outcomes[status] += current[status]
+    outcomes.attributed += tasksDone
+  }
+  return Object.freeze({ ok: true, reason: null, byAgent: Object.freeze(byAgent), outcomes: Object.freeze(outcomes) })
+}
+
+/** Return only announced optional node/detail fields, never raw registry/task data. */
+export function agentProjectionFields(agentId, registry, taskTelemetry) {
+  const fields = {}
+  const record = plainObject(registry?.agents) ? registry.agents[agentId] : null
+  if (plainObject(record)) {
+    if (Number.isSafeInteger(record.startedAt) && record.startedAt >= 0) fields.bornAt = record.startedAt
+    if (record.origin === 'user' || record.origin === 'self') fields.origin = record.origin
+  }
+  if (taskTelemetry?.ok === true && plainObject(taskTelemetry.byAgent)) {
+    const aggregate = taskTelemetry.byAgent[agentId]
+    fields.tasksDone = plainObject(aggregate) && Number.isSafeInteger(aggregate.tasksDone) && aggregate.tasksDone >= 0
+      ? aggregate.tasksDone
+      : 0
+    if (plainObject(aggregate) && typeof aggregate.failRate === 'number'
+      && Number.isFinite(aggregate.failRate) && aggregate.failRate >= 0 && aggregate.failRate <= 100) {
+      fields.failRate = aggregate.failRate
+    }
+  }
+  return fields
+}
+
+/**
+ * Combine declared relationships with resolvable observed reporting edges.
+ * Declared rows are inserted first so same-endpoint, same-type duplicates keep
+ * declared provenance.
+ */
+export function projectAgentRelationships(declaredRelationships, registry, agentIds) {
+  const nodes = agentIds instanceof Set ? agentIds : new Set(agentIds)
+  const relationships = []
+  const seen = new Set()
+  const add = (relation, sourceKind) => {
+    const key = `${relation.from}\0${relation.to}\0${relation.type}`
+    if (seen.has(key)) return
+    seen.add(key)
+    relationships.push({ from: relation.from, to: relation.to, type: relation.type, sourceKind })
+  }
+  for (const relation of declaredRelationships) add(relation, 'declared')
+
+  if (plainObject(registry?.agents)) {
+    const records = Object.values(registry.agents)
+      .filter(plainObject)
+      .sort((left, right) => String(left.agentId || '').localeCompare(String(right.agentId || '')))
+    for (const record of records) {
+      if (!AGENT_ID.test(String(record.agentId || '')) || !AGENT_ID.test(String(record.reportsTo || ''))) continue
+      if (!nodes.has(record.agentId) || !nodes.has(record.reportsTo)) continue
+      add({ from: record.reportsTo, to: record.agentId, type: 'delegates_to' }, 'observed')
+    }
+  }
+  return relationships
+}
+
+/**
+ * Load optional Phase 2 telemetry. Presence is normalized exclusively through
+ * the canonical reader; durable tasks are accessed exclusively through the
+ * StateStore's bounded listTasks/getTask reader APIs.
+ */
+export function loadAgentProjectionTelemetry(root = CANONICAL_ROOT) {
+  let presenceReader = { ...loadReader(root, PRESENCE_READER_PATH, 'agent-presence-reader'), kind: 'canonical-reader' }
+  let presenceState = { ...readJsonFile(root, PRESENCE_STATE_PATH, 'agent-presence'), kind: 'observed-registry' }
+  let registry = null
+  if (presenceReader.ok && presenceState.ok) {
+    if (typeof presenceReader.value?.normalizeRegistry !== 'function') {
+      presenceReader = { ...presenceReader, ok: false, reason: 'source-reader-failed' }
+    } else {
+      try { registry = presenceReader.value.normalizeRegistry(presenceState.value) }
+      catch { presenceState = { ...presenceState, ok: false, reason: 'source-malformed' } }
+    }
+  }
+
+  let taskReader = { ...loadReader(root, STATE_STORE_READER_PATH, 'state-store-reader'), kind: 'durable-reader' }
+  let tasks = taskTelemetryUnavailable(taskReader.reason || 'source-reader-failed')
+  if (taskReader.ok && typeof taskReader.value?.createStateStore === 'function') {
+    let store = null
+    let closeFailed = false
+    try {
+      const file = taskReader.value.DEFAULT_STATE_PATH
+      store = taskReader.value.createStateStore(typeof file === 'string' ? { file } : {})
+      tasks = aggregateTerminalLaneTasks(store)
+    } catch {
+      tasks = taskTelemetryUnavailable('source-reader-failed')
+    } finally {
+      if (store && typeof store.close === 'function') {
+        try { store.close() } catch { closeFailed = true }
+      }
+    }
+    if (closeFailed) tasks = taskTelemetryUnavailable('source-reader-failed')
+    if (!tasks.ok) taskReader = { ...taskReader, ok: false, reason: tasks.reason }
+  } else if (taskReader.ok) {
+    taskReader = { ...taskReader, ok: false, reason: 'source-reader-failed' }
+  }
+
+  return Object.freeze({
+    registry,
+    tasks,
+    outcomes: tasks.ok ? tasks.outcomes : null,
+    results: Object.freeze([presenceReader, presenceState, taskReader]),
   })
 }
 
