@@ -12,6 +12,14 @@ function loadRuntimeSource() {
   return { runtime, source }
 }
 
+function loadRingAppender() {
+  const source = readFileSync(AGENT_SOURCE, 'utf8')
+  const match = source.match(/export function appendAgentRingNode\([\s\S]*?^\}/m)
+  assert.ok(match, 'agent view must expose its guarded runtime-ring appender')
+  const append = Function(`${match[0].replace(/^export /, '')}\nreturn appendAgentRingNode`)()
+  return { append, source }
+}
+
 test('live agent runtime advances, freezes, and stays unavailable without epochs', () => {
   const { runtime, source } = loadRuntimeSource()
   const bornAt = 1_000
@@ -50,4 +58,44 @@ test('live agent runtime advances, freezes, and stays unavailable without epochs
   })
   assert.match(source, /const runtime = liveAgentRuntimeSource\(declaredAgent\)/)
   assert.match(source, /if \(!live \|\| liveRuntime\) \{[\s\S]*epoch: ringEpoch[\s\S]*ringUpdates = !live \|\| liveRuntime\.running/)
+})
+
+test('live rail rebuild restores the runtime-ring mount and contains bad appends', () => {
+  const { append, source } = loadRingAppender()
+  const railChildren = [{ stale: true }]
+  const ringChildren = []
+  const rail = {
+    replaceChildren() { railChildren.length = 0 },
+    appendChild(child) { railChildren.push(child) },
+  }
+  const mount = { appendChild(child) { ringChildren.push(child) } }
+  const ring = { kind: 'runtime-ring' }
+
+  rail.replaceChildren()
+  assert.equal(append(rail, mount), true)
+  assert.deepEqual(railChildren, [mount])
+  assert.equal(append(mount, ring), true)
+  assert.deepEqual(ringChildren, [ring])
+
+  const missingMount = { querySelector() { return null } }.querySelector('.agent-ring-wrap')
+  assert.throws(
+    () => missingMount.appendChild(ring),
+    { name: 'TypeError', message: /appendChild/ },
+    'the baseline direct append crashes on the destroyed mount',
+  )
+  assert.equal(append(missingMount, ring), false)
+
+  let corruptAttempts = 0
+  const corruptMount = {
+    appendChild() {
+      corruptAttempts += 1
+      throw new TypeError('corrupt mount')
+    },
+  }
+  assert.equal(append(corruptMount, ring), false)
+  assert.equal(corruptAttempts, 1)
+
+  assert.match(source, /runtimeRingMount = el\('<div class="agent-ring-wrap"><\/div>'\)/)
+  assert.match(source, /appendAgentRingNode\(rail, runtimeRingMount\)/)
+  assert.match(source, /appendAgentRingNode\(runtimeRingMount, ring\.el\)/)
 })

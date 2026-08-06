@@ -41,6 +41,19 @@ export function liveAgentRuntimeSource(agent, observedAt = Date.now()) {
   }
 }
 
+/* Runtime telemetry is optional, and its decorative ring must be optional too.
+   Keep a missing or malformed mount from aborting the rest of the agent view,
+   especially the live controls that own the Terminate action. */
+export function appendAgentRingNode(parent, child) {
+  try {
+    if (!parent || !child || typeof parent.appendChild !== 'function') return false
+    parent.appendChild(child)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /* The agent projection deliberately separates declared topology from observed
    sessions.  Session ids are opaque and the contract gives us no safe bridge
    from one to a declared agent, so this adapter never turns one into a
@@ -634,6 +647,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   })
   const onTerminateClick = () => { void terminateController.click() }
   terminateButton.addEventListener('click', onTerminateClick)
+  let runtimeRingMount = root.querySelector('.agent-ring-wrap')
 
   if (live) {
     root.classList.add('data-live-mode')
@@ -672,6 +686,8 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
       }
       rail.appendChild(row)
     }
+    runtimeRingMount = el('<div class="agent-ring-wrap"></div>')
+    if (!appendAgentRingNode(rail, runtimeRingMount)) runtimeRingMount = null
   }
 
   // subtree graph, rooted at this agent, chips on every bubble
@@ -1265,8 +1281,8 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
       : agent.bornAt
     ring = uptimeRing({ size: smallRing ? 132 : 180, epoch: ringEpoch, colors: [role.glow, role.hex], caption: 'Runtime', showDays: false })
     if (smallRing) ring.el.classList.add('ctl-ring-sm')
-    root.querySelector('.agent-ring-wrap').appendChild(ring.el)
-    ringUpdates = !live || liveRuntime.running
+    if (appendAgentRingNode(runtimeRingMount, ring.el)) ringUpdates = !live || liveRuntime.running
+    else ring = null
   }
 
   // The Controls scroller keeps a bottom fade while there is more below it
