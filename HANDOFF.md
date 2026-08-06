@@ -10,18 +10,27 @@ message carries its rationale, measurements, and the failures en route.
 
 ## 1. What this is
 
-A localhost dashboard (Vite, vanilla JS, no framework) visualizing the
-owner's multi-agent fleet across a six-page ring: coordinator chat home,
-computers graph board, per-agent drill-in, metrics instrument panel,
-ops-channel watch board, and an R/Q request ledger. **Everything is
+A dashboard (Vite, vanilla JS, no framework) visualizing the owner's
+multi-agent fleet: coordinator chat home, computers graph board, per-agent
+drill-in, metrics instrument panel, ops-channel watch board, an R/Q request
+ledger (those six loop on the nav-arrow ring), plus a `#/settings` page
+outside the ring (entry: the drawer's "all settings" link). **Everything is
 simulation** — the owner's standing rule: "you dont have to worry about
 wiring any functionality at all, only make it look like it works." One
 parallel workstream (live-status.js, by another session) feeds real data to
 the home hero only; do not extend live wiring without an explicit owner ask
 ("dont worry about the wiring into my software").
 
-Serve: `npm run preview` → port 4600. The running server binds **IPv6
-localhost only** — `http://localhost:4600`, never 127.0.0.1.
+It ships two ways:
+- **Browser**: `npm run preview` → port 4600. The server binds **IPv6
+  localhost only** — `http://localhost:4600`, never 127.0.0.1.
+- **Desktop app** (the ToolsEnabled packaging): `npm run app` or the
+  "Mission Control" shortcut on the Desktop. An Electron shell in `shell/`
+  hosts the same dist/ — frameless window, the app draws a 36px titlebar
+  strip, Windows draws native min/max/close recolored to the live theme.
+  The app source knows nothing about the shell: every piece of chrome is
+  injected from `shell/preload.cjs`, so the browser build stays
+  byte-identical. See §7a.
 
 ## 2. The owner's laws (taste doctrine, ranked, their words)
 
@@ -91,8 +100,10 @@ localhost only** — `http://localhost:4600`, never 127.0.0.1.
 
 ## 4. State at handoff — FINAL, everything committed
 
-The tree is clean at `c6f73aa` ("Close the cold-read loop on the last four
-metrics modules"). The arc from `b153556` to here is: audited-fix phases
+The tree is clean at `ee36b85`. The last four commits are the closing arc:
+`c6f73aa` (cold-read loop closed on the final metrics modules) → `14aad6b`
+(this document) → `2e6d937` (the settings page) → `ee36b85` (the desktop
+shell). The arc from `b153556` to here is: audited-fix phases
 A–F → feature wave (streaming chat `776e2fd`, screen-space monitoring
 blocks `a9905a6`, text-size `5f32b2f`, ledger page `e044c10`, metrics
 beauty + tray modules `c936d8e`) → brace framing `de51078` → first
@@ -126,6 +137,17 @@ What the final wave and closure delivered, beyond the earlier arc:
   moving DOM, not a bug to chase. (A phantom "regression" was chased once:
   pre-surgery baseline was bimodal 2.6–10.5 with sim worker-spawn bursts.
   A/B against a stash-rebuilt baseline before believing any perf delta.)
+- **Settings page** (owner-ordered, last wave): 80 settings / 11 sections /
+  4 depth tiers. Depth 1 shows by default; each section drills
+  "N more ⌄" → "advanced" → "everything", indented behind brace rails,
+  depth-4 names in mono (the register is dry specificity — "Brace stroke
+  width … at subpixel precision"). Search reaches ALL depths and shows
+  matches flat with a SECTION · DEPTH prefix. Four settings are REAL and
+  mirror the drawer bidirectionally (theme / text size / glow / reduce
+  motion — same storage keys, both UIs stay in sync live); everything else
+  persists to `mc.set.<id>` and only looks alive. Casual users always land
+  on the clean depth-1 page; reveal state is deliberately ephemeral.
+- **Desktop shell** (owner-ordered, last wave): see §1 and §7a.
 
 **Known opens — documented, deliberately unfixed:**
 - Graph agent strip places 3 of 5 chips at rest: pre-existing placement
@@ -263,16 +285,50 @@ What the final wave and closure delivered, beyond the earlier arc:
   tweens are scaleX; infinite idle animations are banned (breathing effects
   gate on state, not `infinite` on rest).
 
+## 7a. The desktop shell (`shell/` — how the packaging works)
+
+- `shell/main.cjs` — Electron main: serves dist/ over loopback HTTP
+  (file:// would break fetch and absolute asset paths; SPA-fallback to
+  index.html), frameless BrowserWindow with `titleBarOverlay` (native
+  caption buttons at 36px), bounds/maximize persistence in userData,
+  single-instance lock, F12/Ctrl+R kept via before-input-event.
+- `shell/preload.cjs` — ALL the chrome: injects the titlebar strip + the
+  three CSS offsets (`#stage` height, `.topbar`/`.drawer` top) and watches
+  `data-theme` to report the page's real composited surface/ink to main,
+  which recolors the native buttons + window background. The strip's own
+  background is transparent — the themed body shows through, so it CANNOT
+  mismatch. Boot flash is prevented by a measured per-theme seed persisted
+  from the last run.
+- `shell/launch.cjs` — strips `ELECTRON_RUN_AS_NODE` before spawning.
+  **Gotcha that burned this session**: VSCode extension hosts and agent
+  harnesses export that variable; with it set, the Electron binary is plain
+  Node and `require('electron')` returns a path string (the symptom:
+  `ipcMain` undefined). `npm run app` goes through the launcher; the
+  Desktop shortcut targets the exe directly (Explorer's env is clean).
+- Repo files are CJS (`.cjs`) because package.json is `"type": "module"`.
+- Electron's npm postinstall sometimes skips the binary download — if
+  `node_modules/electron/dist/` is missing, run
+  `node node_modules/electron/install.js`.
+- Probes: `.mc-app.mjs` (boot + bridge + theme flip), `.mc-app3.mjs`
+  (three themes: window bg + strip offsets). They pass `executablePath` and
+  a cleaned env to Playwright's `_electron`.
+
 ## 8. The gate battery (run before every commit; all must pass)
 
 `smoke` (18/18) → route-relevant placement probes (`collide` 0/30, `comp`
 0/24, `ui` 0/64 for graph work) → page-specific (`brace`+`thread` for home,
 `layout-verify` 43/43 for metrics, `dupes`+`visiblerepeats`+`comms-behave`
-for comms) → `contrast` (braces 2.10 ±0.02 all themes — the token-bleed
-canary) → `role-hue` after any colour work (101 assertions) → screenshots
-of every changed surface in all three themes, looked at with your own
-eyes → for perf-adjacent work, CDP LayoutCount settled. Full `gallery` at
-wave ends.
+for comms, `settingsgate` 18/18 for settings, `app`/`app3` for shell work)
+→ `contrast` (braces 2.10 ±0.02 all themes — the token-bleed canary) →
+`role-hue` after any colour work (101 assertions) → screenshots of every
+changed surface in all three themes, looked at with your own eyes → for
+perf-adjacent work, CDP LayoutCount settled. Full `gallery` at wave ends.
+
+Commit-message hygiene: write long messages to a temp file and use
+`git commit -F <file>` — a PowerShell 5.1 here-string once silently
+shredded a `-m` message into pathspecs and the follow-up commit swept two
+changesets into one (caught and split immediately; `git reset --soft` is
+the cure when nothing is pushed).
 
 ## 9. The cold-read loop (the glance doctrine's enforcement — run to closure)
 
@@ -312,7 +368,7 @@ possible, RESUME STATE into the plan file, memory pointer updated).
 ## 11. Records
 
 - **Git log** — the true documentation; read the last ~40 commit messages
-  end to end before your first change. `c6f73aa` is the handoff point.
+  end to end before your first change. `ee36b85` is the handoff point.
 - `C:\Users\joshp\.claude\plans\mossy-humming-mochi.md` — the audited-fix
   plan arc (complete) with its RESUME STATE pattern worth copying.
 - Memory files (`…\memory\`): `mission-control-dashboard`,
