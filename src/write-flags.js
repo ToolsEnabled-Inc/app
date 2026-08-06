@@ -17,16 +17,21 @@ function assertAction(id) {
 
 export function isWriteEnabled(id) {
   assertAction(id)
-  try { return localStorage.getItem(storageKey(id)) === 'enabled' }
-  catch { return false }
+  try {
+    const stored = localStorage.getItem(storageKey(id))
+    if (stored === 'simulated' || stored === 'disabled') return false
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function setWriteEnabled(id, enabled) {
   assertAction(id)
   const on = Boolean(enabled)
   try {
-    if (on) localStorage.setItem(storageKey(id), 'enabled')
-    else localStorage.removeItem(storageKey(id))
+    if (on) localStorage.removeItem(storageKey(id))
+    else localStorage.setItem(storageKey(id), 'disabled')
   } catch {}
   window.dispatchEvent(new CustomEvent(WRITE_FLAGS_EVENT, { detail: Object.freeze({ action: id, enabled: on }) }))
   return on

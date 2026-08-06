@@ -16,11 +16,27 @@ const browser = await chromium.launch({ headless: true, args: [`--host-resolver-
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 })
 const page = await context.newPage()
 const origin = `http://localhost:${previewPort}`
-const writeKeys = ['dispatch', 'decision', 'queue', 'thread-reply', 'report-read'].map(id => `mc.write.${id}`)
+const writeActions = ['dispatch', 'decision', 'queue', 'thread-reply', 'report-read']
+const writeKeys = writeActions.map(id => `mc.write.${id}`)
+await page.addInitScript(keys => {
+  if (sessionStorage.getItem('p5-write-seeded') !== 'true') {
+    for (const key of keys) localStorage.setItem(key, 'disabled')
+    sessionStorage.setItem('p5-write-seeded', 'true')
+  }
+}, writeKeys)
 const errors = []
 let navigationId = 0
 page.on('pageerror', error => errors.push(String(error?.message || error)))
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+let refusedDiscoveryRequests = 0
+await context.route('http://127.0.0.1:4610/**', async routeRequest => {
+  refusedDiscoveryRequests += 1
+  await routeRequest.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'BRIDGE_TEST_UNAVAILABLE', message: 'bridge unavailable in worktree probe' } }),
+  })
+})
 
 const sha = value => crypto.createHash('sha256').update(value).digest('hex')
 async function route(hash, selector) {
@@ -29,23 +45,24 @@ async function route(hash, selector) {
   await page.waitForSelector(selector, { state: 'visible', timeout: 15_000 })
 }
 async function setWrites(enabled) {
-  await page.evaluate(({ keys, enabled }) => {
+  await page.evaluate(({ actions, keys, enabled }) => {
     for (const key of keys) {
-      if (enabled) localStorage.setItem(key, 'enabled')
-      else localStorage.removeItem(key)
+      if (enabled) localStorage.removeItem(key)
+      else localStorage.setItem(key, 'disabled')
     }
-  }, { keys: writeKeys, enabled })
+    for (const action of actions) {
+      window.dispatchEvent(new CustomEvent('mc:write-flags-changed', { detail: { action, enabled } }))
+    }
+  }, { actions: writeActions, keys: writeKeys, enabled })
 }
 
 const results = { checks: {}, screenshots: [], errors }
 await route('#/', '.home')
+await setWrites(false)
 await page.waitForTimeout(700)
 const homeBefore = await page.locator('.home-feed').evaluate(node => node.outerHTML)
 results.checks.flagOffWriteDomCount = await page.locator('.write-surface,.session-write-state').count()
-await page.evaluate(keys => {
-  for (const key of keys) localStorage.setItem(key, 'disabled')
-  window.dispatchEvent(new CustomEvent('mc:write-flags-changed', { detail: { action: 'dispatch', enabled: false } }))
-}, writeKeys)
+results.checks.flagOffUsesExplicitDisabled = await page.evaluate(keys => keys.every(key => localStorage.getItem(key) === 'disabled'), writeKeys)
 await page.waitForSelector('.home-feed')
 await page.waitForTimeout(700)
 const homeAfter = await page.locator('.home-feed').evaluate(node => node.outerHTML)
@@ -54,6 +71,7 @@ results.checks.flagOffProtectedHomeBeforeSha256 = sha(homeBefore)
 results.checks.flagOffProtectedHomeAfterSha256 = sha(homeAfter)
 
 await setWrites(true)
+results.checks.defaultOnUsesMissingStorage = await page.evaluate(keys => keys.every(key => localStorage.getItem(key) === null), writeKeys)
 await route('#/', '.session-write-state')
 await page.waitForSelector('.session-write-state[data-state="unavailable"]')
 results.checks.homeBridgeDownHonest = (await page.locator('.session-write-state').textContent()).includes('bridge unavailable')
@@ -96,8 +114,7 @@ for (const theme of ['white', 'tan', 'black']) {
 
 const readyPage = await context.newPage()
 await readyPage.addInitScript(({ keys }) => {
-  window.__MC_MISSION_BRIDGE_URL__ = 'http://127.0.0.1:49999'
-  for (const key of keys) localStorage.setItem(key, 'enabled')
+  for (const key of keys) localStorage.removeItem(key)
 }, { keys: writeKeys })
 await readyPage.route('http://127.0.0.1:49999/**', async routeRequest => {
   const url = new URL(routeRequest.request().url())
@@ -117,11 +134,14 @@ await readyPage.route('http://127.0.0.1:49999/**', async routeRequest => {
     await routeRequest.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'FIXTURE_ROUTE_MISSING', message: 'missing fixture route' } }) })
   }
 })
-await readyPage.goto(`${origin}/?p5=ready#/ledger`, { waitUntil: 'domcontentloaded' })
+const refusedBeforeExplicit = refusedDiscoveryRequests
+const explicitBridge = encodeURIComponent('http://127.0.0.1:49999')
+await readyPage.goto(`${origin}/?bridge=${explicitBridge}&p5=ready#/ledger`, { waitUntil: 'domcontentloaded' })
 await readyPage.waitForSelector('.ledger-write-surface[data-bridge-state="ready"]')
+results.checks.explicitBridgeSkipsWellKnownDiscovery = refusedDiscoveryRequests === refusedBeforeExplicit
 results.checks.queueHashPrefilledFromStrictStatus = await readyPage.locator('[data-queue-form] input[name="expectedHash"]').inputValue() === 'b'.repeat(64)
 results.checks.queueButtonsEnabledAfterSnapshot = await readyPage.locator('[data-queue-form] button[data-queue-operation]:enabled').count() === 2
-await readyPage.goto(`${origin}/?p5=reply#/`, { waitUntil: 'domcontentloaded' })
+await readyPage.goto(`${origin}/?bridge=${explicitBridge}&p5=reply#/`, { waitUntil: 'domcontentloaded' })
 await readyPage.waitForSelector('.session-write-state[data-state="ready"]')
 const turnsBeforeReply = await readyPage.locator('.session-log .turn').count()
 await readyPage.locator('.session-input input').fill('Confirmed coordinator reply.')
@@ -132,10 +152,40 @@ await readyPage.waitForSelector('.session-write-state[data-state="confirmed"]')
 results.checks.threadReplyUsesReceiptActor = (await readyPage.locator('.session-log .turn').nth(turnsBeforeReply).textContent()).includes('claude')
 await readyPage.close()
 
+const discoveryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 })
+const discoveryPage = await discoveryContext.newPage()
+const discoveryRoutes = []
+await discoveryPage.route('http://127.0.0.1:4610/**', async routeRequest => {
+  const url = new URL(routeRequest.request().url())
+  discoveryRoutes.push(url.pathname)
+  if (url.pathname === '/v1/runtime') {
+    await routeRequest.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ok: true, baseUrl: 'http://127.0.0.1:4610', port: 4610,
+      startedAt: '2026-08-06T08:00:00.000Z', pid: 4610,
+    }) })
+  } else if (url.pathname === '/v1/bootstrap') {
+    await routeRequest.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, token: 'c'.repeat(43) }) })
+  } else if (url.pathname === '/v1/status') {
+    await routeRequest.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ok: true, roots: ['primary'], queues: { primary: { ok: true, hash: 'd'.repeat(64), indexed: true } },
+      channels: { discord: { ok: false, reason: 'channel-unavailable' } },
+    }) })
+  } else {
+    await routeRequest.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false }) })
+  }
+})
+await discoveryPage.goto(`${origin}/?p5=well-known#/ledger`, { waitUntil: 'domcontentloaded' })
+await discoveryPage.waitForSelector('.ledger-write-surface[data-bridge-state="ready"]')
+results.checks.wellKnownRuntimeDiscoveryReady = ['/v1/runtime', '/v1/bootstrap', '/v1/status']
+  .every(pathname => discoveryRoutes.includes(pathname))
+await discoveryContext.close()
+
 await browser.close()
 const required = {
   flagOffWriteDomCount: 0,
+  flagOffUsesExplicitDisabled: true,
   flagOffProtectedHomeByteStable: true,
+  defaultOnUsesMissingStorage: true,
   homeBridgeDownHonest: true,
   agentForms: 2,
   agentBridgeDownHonest: true,
@@ -146,6 +196,8 @@ const required = {
   queueButtonsEnabledAfterSnapshot: true,
   threadReplyNotOptimistic: true,
   threadReplyUsesReceiptActor: true,
+  explicitBridgeSkipsWellKnownDiscovery: true,
+  wellKnownRuntimeDiscoveryReady: true,
 }
 const failed = Object.entries(required).filter(([key, value]) => results.checks[key] !== value)
 results.ok = failed.length === 0 && errors.length === 0 && results.screenshots.length === 12
