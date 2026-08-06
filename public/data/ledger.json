@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "ledger",
-  "generatedAt": "2026-08-06T03:29:40.687Z",
+  "generatedAt": "2026-08-06T03:38:59.435Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -42,7 +42,7 @@
       "kind": "canonical-data",
       "path": "BUILD-QUEUE.md",
       "ok": true,
-      "observedAt": "2026-08-05T22:02:13.256Z",
+      "observedAt": "2026-08-06T03:37:24.574Z",
       "reason": null
     }
   ],
@@ -2746,7 +2746,7 @@
     "questions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-05T22:02:13.256Z",
+      "observedAt": "2026-08-06T03:37:24.574Z",
       "value": [
         {
           "id": "Q7",

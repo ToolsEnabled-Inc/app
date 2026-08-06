@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "fleet",
-  "generatedAt": "2026-08-06T03:29:40.015Z",
+  "generatedAt": "2026-08-06T03:38:58.713Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "observed",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T03:29:40.058Z",
+      "observedAt": "2026-08-06T03:38:58.792Z",
       "reason": null
     }
   ],
@@ -36,42 +36,42 @@
         "id": "machine-a",
         "label": "Machine A",
         "sourceKind": "observed",
-        "observedAt": "2026-08-06T03:29:40.058Z",
+        "observedAt": "2026-08-06T03:38:58.792Z",
         "activeSessions": 3,
         "services": [
           {
             "id": "service-health-observer-snapshot",
             "name": "health-observer snapshot",
             "state": "stale",
-            "observedAt": "2026-08-04T01:01:24.058Z",
+            "observedAt": "2026-08-04T01:01:23.792Z",
             "detail": "11 subsystems, but the observer itself is stale -- this whole snapshot is UNTRUSTWORTHY"
           },
           {
             "id": "service-linkbus-8787",
             "name": "linkBus (:8787)",
             "state": "healthy",
-            "observedAt": "2026-08-06T03:28:08.058Z",
+            "observedAt": "2026-08-06T03:38:06.792Z",
             "detail": "owned / healthy"
           },
           {
             "id": "service-remotebridge-8788",
             "name": "remoteBridge (:8788)",
             "state": "conflict",
-            "observedAt": "2026-08-06T03:28:08.058Z",
+            "observedAt": "2026-08-06T03:38:06.792Z",
             "detail": "conflict / healthy (listener_identity_mismatch)"
           },
           {
             "id": "service-fra-8790",
             "name": "FRA (:8790)",
             "state": "healthy",
-            "observedAt": "2026-08-04T11:17:37.058Z",
+            "observedAt": "2026-08-04T11:17:36.792Z",
             "detail": "owned / healthy / operational=true"
           },
           {
             "id": "service-rendezvous-8795",
             "name": "rendezvous (:8795)",
             "state": "unknown",
-            "observedAt": "2026-08-03T05:35:14.058Z",
+            "observedAt": "2026-08-03T05:35:13.792Z",
             "detail": "role=receiver, committed key generation=9"
           }
         ]

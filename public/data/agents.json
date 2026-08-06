@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "agents",
-  "generatedAt": "2026-08-06T03:29:40.169Z",
+  "generatedAt": "2026-08-06T03:38:58.946Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -26,7 +26,7 @@
       "kind": "live-cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T03:29:40.232Z",
+      "observedAt": "2026-08-06T03:38:59.007Z",
       "reason": null
     }
   ],
@@ -252,7 +252,7 @@
     "observedSessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T03:29:40.232Z",
+      "observedAt": "2026-08-06T03:38:59.007Z",
       "value": [
         {
           "provider": "codex",
@@ -296,13 +296,13 @@
         },
         {
           "provider": "claude",
-          "sessionId": "4d31c982-3bbf-4edb-85f1-e86b9fb503bb",
-          "updatedAt": "2026-08-06T03:16:22.138Z"
+          "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
+          "updatedAt": "2026-08-06T03:38:54.889Z"
         },
         {
           "provider": "claude",
-          "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
-          "updatedAt": "2026-08-06T03:11:08.104Z"
+          "sessionId": "4d31c982-3bbf-4edb-85f1-e86b9fb503bb",
+          "updatedAt": "2026-08-06T03:16:22.138Z"
         },
         {
           "provider": "claude",

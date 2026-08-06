@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
+    "test:data": "node --test tools/test/*.test.mjs",
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
     "preview": "vite preview --port 4600 --strictPort",
