@@ -326,8 +326,29 @@
    26px of lead-in against the panel title above it read as a hole */
 .agentv .rail-scroll > .rail-sec:first-child { margin-top: 2px; }
 .agentv .ctl-grid { gap: 10px; }
-.agentv .ctl-row { padding: 11px 2px; }
-.agentv .ctl-row .cl { font-size: 12.5px; }
+/* --s3 rather than the inherited --s2: with the label flexing (below) the
+   slider's right end is now a fixed 8px from the value instead of floating
+   ~130px away from it, and at 8px the track end and the figure read as one
+   glued object. One step up gives the pair a seam without moving the value. */
+.agentv .ctl-row { padding: 11px 2px; gap: var(--s3, 12px); }
+/* The label takes the free space so the slider and the value form ONE fixed
+   right-hand cluster. .ctl-row is justify-content:space-between over a
+   shrink-wrapped label, a fixed 118px slider and a 4ch value; with the label
+   sizing itself, the middle item's position was a function of how long the
+   word was, so on this panel — much wider than the rail the row was tuned in
+   — the three sliders started at 1102.4 / 1096.5 / 1084.8px: a 17.6px
+   stagger down a stack of three, under three values that were already
+   perfectly flush (the 4ch rule below). Flexing the label pins the sliders to
+   the same edge as the values. nowrap is inherited, so the shrink case gets
+   an ellipsis rather than a spill; at every shipping width the labels are
+   ~60-93px against ~250px of room and it never engages. */
+.agentv .ctl-row .cl {
+  font-size: 12.5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* .ctl-row is `justify-content: space-between` over a fixed-width label, a
    fixed-width slider and an auto-width value, so the value's own width was
    deciding where the slider sat: "124k" (4 mono chars) pushed its row's
@@ -417,11 +438,27 @@ body.reduce-motion .node-rim.pulse .rim-arc {
   overscroll-behavior: contain;
   padding-right: var(--s2, 8px);
   scrollbar-width: thin;
-  scrollbar-color: var(--ink-4) transparent;
-  /* the same bottom fade Home already ships; 28px is the fade band, not
-     spacing, so it stays literal */
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+  /* --scrollbar-thumb, not --ink-4. This is the one scroller on the site that
+     was picking its own thumb colour: everything else lands on the global
+     clinical scrollbar at the foot of styles.css, whose thumb is a
+     per-theme-solved token, and --ink-4 is the sheet's decoration-only grey.
+     (scrollbar-color also suppresses the ::-webkit- rules below in Chromium,
+     so the colour stated here is the only one that ever painted.) Thin stays:
+     a 6px gutter is right for a panel this tight. */
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  /* The bottom fade, reshaped. It was a straight 28px ramp, and at 1600x900
+     the runtime dial's top arc lands 28px above this edge — so the sliver of
+     saturated cyan sat at the ramp's FULL-opacity end and read as a stray
+     swoosh under the tuning rows rather than as content continuing. The band
+     is longer and, more to the point, spends most of its length near zero:
+     whatever lands in the last ~30px is a hint of something below, not a
+     fragment asserting itself. Measured at the dial's top edge: 1.00 -> 0.39.
+     Content above 44px is untouched, and .at-end below still lifts the mask
+     entirely once the scroller is at the bottom, so nothing is ever ghosted
+     at rest. The numbers are literal — they are a measured fade band, not
+     spacing. */
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 44px), rgba(0,0,0,0.42) calc(100% - 30px), rgba(0,0,0,0.10) calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 44px), rgba(0,0,0,0.42) calc(100% - 30px), rgba(0,0,0,0.10) calc(100% - 12px), transparent 100%);
 }
 /* mask-image cannot tween between a gradient and none, so this snaps on
    purpose rather than pretending to animate */
@@ -433,9 +470,9 @@ body.reduce-motion .node-rim.pulse .rim-arc {
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar { width: 6px; }
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-track { background: transparent; }
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb {
-  background: var(--ink-4); border-radius: 3px;
+  background: var(--scrollbar-thumb); border-radius: 3px;
 }
-.agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+.agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 /* the pinned action row — outside the scroller, so all four buttons are
    whole at every viewport instead of straddling the panel's bottom edge */
@@ -480,4 +517,17 @@ body.reduce-motion .node-rim.pulse .rim-arc {
   stroke-linecap: round;
   transition: opacity .2s var(--ease);
 }
-.agentv-graph .chip:hover ~ .cx-links .cx-link { opacity: 0.7; }
+/* placeOpenChips() withholds a box it cannot place clear of every bubble, and
+   hides that box's connector with setAttribute('opacity', '0') — removing the
+   attribute again when the box does get a slot. Those are SVG presentation
+   attributes, which sit below every author stylesheet in the cascade, so the
+   flat 0.38 above was overriding the hide and the withheld boxes' hairlines
+   went on painting: at 1600/1440/1280 two of the five boxes are withheld, so
+   the strip carried two stubs running from nothing to a bubble rim (the
+   36px and 110px blue ones, verified in the DOM). Matching the attribute the
+   JS actually writes hands the decision back to the code that makes it, and
+   the transition above now fades them rather than blinking them.
+   The hover rule has to opt out explicitly — at (0,4,0) it would otherwise
+   out-rank the hide and bring an orphan stub back on any chip hover. */
+.agentv-graph .cx-links .cx-link[opacity="0"] { opacity: 0; }
+.agentv-graph .chip:hover ~ .cx-links .cx-link:not([opacity="0"]) { opacity: 0.7; }

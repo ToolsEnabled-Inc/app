@@ -39,7 +39,28 @@
   --role-ink: color-mix(in oklab, var(--role) 52%, var(--ink));
 }
 
-.board-page .rail-scroll { padding-right: 6px; }
+/* The board rail scrolls — 1265px of content through a 511px window at
+   1600x900 — and it was doing it with no edge treatment at all, so the boundary
+   fell wherever it fell: on load that is the middle of the chat log, and a
+   message bubble (a filled slab, especially on the black theme) came out
+   guillotined flat against the pinned action bar's hairline. It read as a
+   rendering fault rather than as content continuing.
+   The agent page's Controls scroller already solved this with a bottom fade,
+   but it can afford one because views/agent.js drives an .at-end class that
+   lifts the mask at the end of the scroll; this rail has no such hook, and a
+   permanent fade would have left the LAST box — the legend — with a dissolved
+   bottom border for good. So the fade gets its own clearance instead: the
+   scroller carries 26px of bottom padding, which is empty by construction, so
+   at the end of the scroll the 24px band has nothing but padding inside it and
+   the legend's real edge sits clear above it. Mid-scroll the cut dissolves;
+   at the end nothing is ghosted. No JS required.
+   26/24 are a measured fade band and its clearance, so they stay literal. */
+.board-page .rail-scroll {
+  padding-right: 6px;
+  padding-bottom: 26px;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 24px), rgba(0,0,0,0.34) calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 24px), rgba(0,0,0,0.34) calc(100% - 10px), transparent 100%);
+}
 
 /* --- title: role-coloured name, role beneath, rule under the block --- */
 .board-page .agent-head {
@@ -97,7 +118,12 @@
   background: linear-gradient(180deg, rgba(255,255,255,calc(0.6 * var(--wa))), rgba(255,255,255,calc(0.32 * var(--wa))));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),          /* inner top highlight */
-    0 1px 2px rgba(14, 23, 38, 0.035);
+    /* theme-scaled, like every other elevation on the site: the literal
+       14,23,38 this used to carry is the white theme's shadow ink, so on
+       black these boxes were laying a faint navy contact shadow instead of
+       the neutral one the sheet's --shadow-rgb/--shadow-k pair defines.
+       Unchanged on white, where those tokens ARE 14,23,38 at k=1. */
+    0 1px 2px rgba(var(--shadow-rgb), calc(0.035 * var(--shadow-k)));
 }
 
 .board-page .board-box-h {
@@ -215,7 +241,9 @@
     var(--role) var(--fill, 50%), var(--chart-track) var(--fill, 50%));   /* themed unfilled half */
 }
 .board-page input[type="range"]::-webkit-slider-thumb {
-  box-shadow: 0 2px 7px rgba(14, 23, 38, 0.25);
+  /* same theme-scaled pair as the shared thumb in styles.css, which this
+     rule was otherwise restating with the white theme's ink baked in */
+  box-shadow: 0 2px 7px rgba(var(--shadow-rgb), calc(0.25 * var(--shadow-k)));
 }
 
 /* ------------------------------------------------------------

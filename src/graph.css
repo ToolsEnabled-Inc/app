@@ -108,7 +108,16 @@
   border: 1.5px solid color-mix(in oklab, var(--rc, #00a9d8) 55%, white);
   opacity: 0;
   pointer-events: none;
-  animation: bloomBurst 0.9s var(--ease) forwards;
+  /* linear, for the reason the hover ripple 40 lines up is already linear:
+     these two are the same object — one crisp ring expanding and fading — and
+     var(--ease) is front-loaded enough (68% of the distance covered by u=0.20)
+     that the ring reached 1.20 of its 1.24 scale inside the first ~270ms and
+     then hung nearly still for the remaining 630ms while it faded. A spawn is
+     the one arrival on this canvas worth watching; on a steady rate the ring
+     actually travels for the whole 0.9s it is given. The colour bloom on the
+     glass itself (the transition above) stays front-loaded — arriving fast and
+     settling is right for a fill, and wrong for a ring. */
+  animation: bloomBurst 0.9s linear forwards;
 }
 @keyframes bloomBurst {
   0%   { opacity: 0;   transform: scale(0.94); }
@@ -138,9 +147,23 @@
               border-color 0.68s var(--ease-structural);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 18px 40px -14px rgba(14, 23, 38, 0.34),
-    0 3px 8px rgba(14, 23, 38, 0.1);
+    0 18px 40px -14px rgba(var(--shadow-rgb), calc(0.34 * var(--shadow-k))),
+    0 3px 8px rgba(var(--shadow-rgb), calc(0.1 * var(--shadow-k)));
 }
+
+/* ---- theme-scaled elevation, applied through this sheet ----------------
+   Every literal rgba(14, 23, 38, a) below was this sheet writing the WHITE
+   theme's shadow ink by hand. styles.css turned that pair into tokens
+   precisely so a theme could restate it: tan casts 40,40,40 and black casts
+   0,0,0 at --shadow-k 1.7, because near-black needs a heavier, neutral
+   shadow to lift anything at all. Left literal, six lifts on the two graph
+   pages — the re-root, the drop target, the Edit button and the zoom pill in
+   three states — were casting a faint NAVY shadow on the black theme at 1/1.7
+   of the strength the rest of the page had already agreed on, i.e. they
+   barely lifted. The numbers are unchanged; only the ink and the multiplier
+   now come from the theme. Identical rendering on white (--shadow-rgb IS
+   14,23,38 there, --shadow-k 1), corrected on tan and black.
+   ----------------------------------------------------------------------- */
 
 /* --- dense-mode focus pulse: expanding ring that never clips labels ---
    (name/role labels are siblings painted after .node-glass so they stay on
@@ -201,7 +224,20 @@
   background: rgba(255,255,255,calc(0.55 * var(--wa)));
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
+  /* The leading inset hairline is the EDGE. This pill and the Edit button are
+     the two controls on this canvas that float with no trough under them, and
+     their border is rgba(255,255,255,0.75 x --wa) — a rim light, which is
+     exactly right on the black sheet and literally invisible on the white
+     one, where it resolves to opaque white sitting on a white card. On white
+     and tan the only thing defining these controls was a soft drop shadow, so
+     they read as smudges beside the Tree|Physics segment, which gets a real
+     edge for free from its 6%-ink trough. --line is the sheet's own
+     structural-hairline token and is theme-signed (dark ink on the light
+     sheets, light on the dark one), so this states the edge where it is
+     missing and adds a barely-there step where the rim light already works.
+     Restated in :hover and :focus-visible below — both replace the whole
+     box-shadow, and an edge that disappears on hover is worse than none. */
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k)));
   color: var(--ink-2);
   /* 12 → 12.5px: this was one of the two smallest strings in the app, below
      the 12.5px control floor everything else respects (13px is the multi-word
@@ -237,14 +273,18 @@
 .graph-fit:hover {
   background: rgba(255,255,255,calc(0.75 * var(--wa)));
   color: var(--ink);
-  box-shadow: inset 0 1px 0 #fff, 0 12px 26px -12px rgba(14, 23, 38, 0.24);
+  /* the hover highlight rides --wa like the resting one directly above it:
+     a literal #fff put a full-strength white hairline across the top of this
+     pill on hover under the black theme, where its resting value is
+     0.9 x 0.075 — a 13x jump on one edge, on a dark sheet, from a hover */
+  box-shadow: inset 0 0 0 1px var(--line-2), inset 0 1px 0 rgba(255,255,255,var(--wa)), 0 12px 26px -12px rgba(var(--shadow-rgb), calc(0.24 * var(--shadow-k)));
 }
 .graph-fit:active { transform: scale(0.95); }
 .graph-fit:focus-visible {
   outline: none;
   /* --focus-ring at full strength: the old 0.28-alpha cyan composited to
      1.32:1 on white — a focus indicator in name only */
-  box-shadow: inset 0 1px 0 #fff, 0 8px 20px -12px rgba(14, 23, 38, 0.18),
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 1px 0 rgba(255,255,255,var(--wa)), 0 8px 20px -12px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k))),
     0 0 0 3px var(--focus-ring);
 }
 
@@ -314,6 +354,17 @@
 .graph-chip-overlay .chip-runtime.inline-number,
 .graph-chip-overlay .cl-current .inline-number,
 .graph-chip-overlay .cl-chat .inline-number { color: var(--ink); }
+/* The header's other half. formatInlineText wraps the agent name in
+   .inline-agent, whose site-wide recipe anchors the role hue to --ink-2 —
+   correct where it was designed to run (mid-sentence inside chat prose), one
+   step short here, because the runtime beside it is re-inked to full --ink by
+   the rule directly above. The block was drawing its own identity quieter
+   than its clock. Identical hue, identical 36% ratio, anchored to --ink so the
+   name and the runtime read as the matched header pair they are; scoped to
+   the monitor name so every other .inline-agent on the site is untouched. */
+.graph-chip-overlay .chip-monitor-name .inline-agent {
+  color: color-mix(in oklab, var(--rc, var(--c-coordinator)) 36%, var(--ink));
+}
 .inline-agent {
   color: color-mix(in oklab, var(--rc, var(--c-coordinator)) 36%, var(--ink-2));
   font-weight: 620;
@@ -369,27 +420,69 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
+  background: none;              /* the wash moved to ::before — see below */
+  /* the wash has to be allowed OUT of the measured box (see ::before). Every
+     preview row already clips itself — .chip-monitor-name and .cl-facts carry
+     overflow:hidden, the three activity rows are -webkit-box line clamps — so
+     nothing but the wash escapes. .as-chat is excluded and keeps the
+     overflow:hidden that its width/height morph depends on. */
+  overflow: visible;
+}
+/* THE WASH. It was on the chip's own background, and a background cannot
+   feather past the box it paints. Measured consequence: `ellipse at 48% 50%`
+   defaults to farthest-CORNER sizing, whose 100% stop sits on the corner — so
+   along all four edge MIDLINES the ramp was truncated at 1/√2 ≈ 70.7% of its
+   radius, where it still carried ~0.51 of --bg. On the white theme --bg and
+   the card are near-identical so nothing showed; on black and tan the object
+   the comment above calls "deliberately edge-less" was drawing four visible
+   straight edges (verified at DPR4 on both).
+   The wash is now its own layer, inset NEGATIVE, so it has room to reach zero
+   outside the rectangle the text lives in. Three things fall out of that:
+     · the ellipse is stated explicitly at 50%/50% from the centre, so the ramp
+       lands on zero exactly at each edge midpoint and the corners — which hold
+       no text — are clear. No truncation on any theme.
+     · the text now sits at ~73-81% of the radius instead of ~90%, i.e. on
+       roughly half wash rather than on the last of it, which is what the row
+       actually needs to sit clear of a connector.
+     · the leader hairline dissolves into the halo on its way in instead of
+       stopping dead at an invisible rectangle edge.
+   PERF: this is a MOVE, not an addition — the same one gradient is painted per
+   chip, on a static layer with no transition, and the element loses a clip in
+   exchange. graph.js measures offsetHeight (the border box) for placement, and
+   getBoundingClientRect ignores overflowing descendants, so the collision
+   rectangle is byte-for-byte the one it was. */
+.graph-chip-overlay .chip:not(.as-chat)::before {
+  content: "";
+  position: absolute;
+  /* replaces the retired role spine's 2px x 6px-from-left box wholesale —
+     width/height are reset because that rule states a width */
+  inset: -14px -22px;
+  width: auto; height: auto;
+  border-radius: 0;
+  z-index: 0;
+  pointer-events: none;
   background: radial-gradient(
-    ellipse at 48% 50%,
+    ellipse 50% 50% at 50% 50%,
     color-mix(in srgb, var(--bg) 92%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 82%, transparent) 42%,
-    color-mix(in srgb, var(--bg) 48%, transparent) 74%,
+    color-mix(in srgb, var(--bg) 86%, transparent) 48%,
+    color-mix(in srgb, var(--bg) 48%, transparent) 78%,
     transparent 100%
   );
+  transition: background .25s var(--ease);
 }
 .graph-chip-overlay .chip:not(.as-chat):hover {
   border: 0;
   box-shadow: none;
+  background: none;
+}
+.graph-chip-overlay .chip:not(.as-chat):hover::before {
   background: radial-gradient(
-    ellipse at 48% 50%,
-    color-mix(in srgb, var(--bg) 95%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 86%, transparent) 44%,
-    color-mix(in srgb, var(--bg) 54%, transparent) 76%,
+    ellipse 50% 50% at 50% 50%,
+    color-mix(in srgb, var(--bg) 96%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 91%, transparent) 48%,
+    color-mix(in srgb, var(--bg) 55%, transparent) 78%,
     transparent 100%
   );
-}
-.graph-chip-overlay .chip:not(.as-chat)::before {
-  display: none; /* the role spine is retired; the paired braces own identity */
 }
 .graph-chip-overlay .chip:not(.as-chat) .chip-preview {
   min-width: 0;
@@ -435,6 +528,37 @@
 }
 .graph-chip-overlay .monitor-brace > svg + svg { margin-top: -1px; }
 
+/* THE ARM JOINS. The five pieces overlap by 1px each (above) so a fractional
+   arm height can never open a hairline gap between them — correct, except
+   that the colour they are drawn in is not opaque: color-mix with --line-2
+   yields alpha 0.47 / 0.48 / 0.50 (white / black / tan), so at every one of
+   the four joins the stroke composited over ITSELF. Two passes of a 0.47
+   alpha land at 1 - 0.53^2 = 0.72, i.e. a ~52% darker 1px tick, four to a
+   brace and twenty on a settled Computers page. At DPR4 it reads as regular
+   beading down both arms; at DPR2 it is a soft dark dot at each join, which
+   is the answer to "are the joins crisp" and the answer was no.
+   The fix is to stop painting the alpha per PIECE and paint it once for the
+   whole brace: the colour is taken to full opacity with relative colour
+   syntax (identical L/a/b — this strips the alpha channel and changes nothing
+   else) and the group carries the weight instead. Opaque over opaque cannot
+   double-composite, so the overlap does its job and leaves no trace.
+   0.48 is the three themes' own alphas (0.473 / 0.485 / 0.501) to within 3%,
+   which is under a JND on a 1.25px hairline; stating one number keeps the
+   brace's weight a decision rather than a side effect of a border token.
+   Guarded by @supports: an engine without relative colour keeps the rule
+   above verbatim — today's rendering, ticks and all — rather than losing the
+   colour entirely to an invalid declaration. */
+@supports (color: oklab(from white l a b)) {
+  .graph-chip-overlay .monitor-brace {
+    /* `/ 1` is load-bearing: relative colour syntax defaults an omitted alpha
+       to the ORIGIN's alpha, so without it this reproduces the mix exactly —
+       including the 0.47 that is the whole problem — and the group opacity
+       below would then multiply on top of it. */
+    color: oklab(from color-mix(in oklab, var(--rc) 40%, var(--line-2)) l a b / 1);
+    opacity: 0.48;
+  }
+}
+
 /* A context event makes the gathered object breathe once. Runtime ticks do
    not retrigger it, and there is no per-frame JS work. */
 .graph-chip-overlay .chip.monitor-brace-pulse .monitor-brace {
@@ -464,7 +588,14 @@
   gap: 6px;
   margin-bottom: 2px;
 }
-.graph-chip-overlay .chip-monitor-name {
+/* `.chip .cl b` (styles.css, 0-2-1) was quietly outranking this rule's old
+   0-2-0 selector, so the agent NAME rendered at --ink-2 while the runtime
+   beside it — reached by .chip-runtime.inline-number at 0-3-0 — rendered at
+   full --ink. The block's identity was the second-loudest thing in its own
+   header, under the clock. One class deeper is all it takes; the value below
+   is the one this rule always asked for. Name and runtime are now the block's
+   matched header pair at full ink and every row under them steps down. */
+.graph-chip-overlay .chip .chip-monitor-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -480,13 +611,21 @@
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
+/* --ink-25, not --ink-3. Two reasons, and they are the same reason:
+   the sheet's own ramp reserves --ink-25 for informational text at or below
+   12.5px (5.71 : 5.31 on white/tan; --ink-3 measures 4.52 there, i.e. no
+   margin) and this row is 11px; and this row is the one place a SEVERITY
+   colour lands. With the neutrals underweight the tinted token was not
+   reading as a tint applied to a row, it was reading as the only lit word in
+   a grey line. Lifting the neutrals one step restores the row as a row — the
+   severity still separates, on hue, which is how it is supposed to separate. */
 .graph-chip-overlay .chip:not(.as-chat) .cl-facts {
   display: flex;
   align-items: baseline;
   gap: 4px;
   margin-bottom: 2px;
   overflow: hidden;
-  color: var(--ink-3);
+  color: var(--ink-25);
   font-size: 11px;
   font-weight: 620;
   letter-spacing: 0.035em;
@@ -625,7 +764,8 @@ body.reduce-motion .graph-canvas .tier-guide {
   background: rgba(255,255,255,calc(0.55 * var(--wa)));
   backdrop-filter: blur(12px) saturate(1.6);
   -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(14, 23, 38, 0.18);
+  /* same floating-control edge as .graph-fit — see the note there */
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 8px 20px -12px rgba(var(--shadow-rgb), calc(0.18 * var(--shadow-k)));
   color: var(--ink-2);
   font-family: var(--font-ui); font-size: 12.5px; font-weight: 640; line-height: 1;
   cursor: pointer;
@@ -676,7 +816,17 @@ body.reduce-motion .graph-canvas .tier-guide {
    MOVE its guides instead of blinking them out (see _renderTierGuides). */
 .tier-guide {
   position: absolute; left: 28px; right: 28px; height: 0; z-index: 0;
-  border-top: 1px dashed var(--line-2);
+  /* --line, not --line-2. A tier guide is the quietest mark the canvas draws
+     and it is also the LONGEST — a hairline that runs the full width reads at
+     an alpha a short mark would disappear at, so --line-2 was buying presence
+     the guide does not need and paying for it where it hurts: these lines
+     cross bubble labels and, on the agent strip, whole rows of context prose,
+     and a 0.12-alpha dash through six characters of 13px mono reads as a
+     strikethrough (verified at DPR3 on "agent org"). At --line the row is
+     still plainly stated end to end and the crossing is below notice.
+     Same token the panels use for their internal rules, so the guide now
+     matches the weight of every other structural hairline on the page. */
+  border-top: 1px dashed var(--line);
   opacity: 0; transform: scaleX(0.55); transform-origin: 50% 50%;
   animation: tierIn 0.5s var(--ease-structural) both;
   transition: top 0.62s var(--ease-structural);
@@ -719,9 +869,18 @@ body.reduce-motion .graph-canvas .tier-guide {
   transform: scale(1.06);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.95 * var(--wa))),
-    0 10px 26px -12px rgba(14, 23, 38, 0.28),
-    0 0 0 3px color-mix(in oklab, var(--rc) 38%, transparent),
-    var(--rg-loud);
+    0 10px 26px -12px rgba(var(--shadow-rgb), calc(0.28 * var(--shadow-k))),
+    0 0 0 3px color-mix(in oklab, var(--rc) 38%, transparent);
+  /* var(--rg-loud) used to close this stack, which is a four-layer coloured
+     glow reaching a 94px blur radius (glow.css) — the exact "blur bloom" the
+     comment above says this state does not need, left behind by the
+     professional pass, and left behind on the hottest path there is: it
+     painted on every valid parent under the pointer, for every frame of an
+     edit-mode drag, while the same element is being transform-scaled. The
+     canvas strips a single shadow layer during interaction on purpose
+     (.graph-canvas.interacting .node-glass, "one fewer pass"); this was
+     adding four with the largest radii on the page. The solid 3px ring is the
+     affordance, and it is legible on all three themes without it. */
 }
 
 /* gentle refusal: the bubble shakes its head and glides home */
