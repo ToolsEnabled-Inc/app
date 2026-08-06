@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "domain": "coordinator",
+  "generatedAt": "2026-08-06T03:29:40.813Z",
+  "ok": true,
+  "reason": null,
+  "sources": [
+    {
+      "id": "canonical-agent-org-reader",
+      "kind": "canonical-reader",
+      "path": "src/lib/agent-org.js",
+      "ok": true,
+      "observedAt": "2026-08-05T21:20:33.653Z",
+      "reason": null
+    },
+    {
+      "id": "canonical-agent-org",
+      "kind": "canonical-config",
+      "path": "config/agent-org.json",
+      "ok": true,
+      "observedAt": "2026-08-05T21:34:59.291Z",
+      "reason": null
+    },
+    {
+      "id": "live-coordinator-memory",
+      "kind": "live-reader",
+      "path": "state/toolsenabled.sqlite3",
+      "ok": false,
+      "observedAt": null,
+      "reason": "source-unreadable-safely"
+    },
+    {
+      "id": "live-agent-preflight",
+      "kind": "live-cli",
+      "path": "tools/agent-preflight.js",
+      "ok": true,
+      "observedAt": "2026-08-06T03:29:40.861Z",
+      "reason": null
+    }
+  ],
+  "data": {
+    "identity": {
+      "id": "claude",
+      "displayName": "Claude Code (coordinator)",
+      "provider": "claude",
+      "enabled": true
+    },
+    "sessions": {
+      "ok": true,
+      "reason": null,
+      "observedAt": "2026-08-06T03:29:40.861Z",
+      "value": [
+        {
+          "sessionId": "4d31c982-3bbf-4edb-85f1-e86b9fb503bb",
+          "updatedAt": "2026-08-06T03:16:22.138Z"
+        },
+        {
+          "sessionId": "b5345074-17db-4d74-9865-d1bbee818636",
+          "updatedAt": "2026-08-06T03:11:08.104Z"
+        },
+        {
+          "sessionId": "9001a6af-de18-4b47-b197-6f00ee60b72e",
+          "updatedAt": "2026-08-06T02:35:35.779Z"
+        },
+        {
+          "sessionId": "7f927500-b87f-4302-a53f-c9206a956824",
+          "updatedAt": "2026-08-05T20:41:50.520Z"
+        },
+        {
+          "sessionId": "aa440297-eef2-4700-9014-0a920f0976b1",
+          "updatedAt": "2026-08-05T03:49:41.718Z"
+        },
+        {
+          "sessionId": "ebf3c80e-c152-49ee-8ed6-92b57bcac739",
+          "updatedAt": "2026-08-05T01:47:40.792Z"
+        }
+      ]
+    },
+    "thread": {
+      "ok": false,
+      "reason": "source-unreadable-safely",
+      "observedAt": null,
+      "value": null
+    }
+  }
+}
