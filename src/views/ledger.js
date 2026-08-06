@@ -4,6 +4,8 @@
 
 import { el, attachSeg } from '../components.js'
 import { R_ITEMS, Q_ITEMS, liveAgeMs, formatLedgerAge } from '../ledger-data.js'
+import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
+import { fetchLedger } from '../live-status.js'
 import '../ledger.css'
 
 const MODE_KEY = 'mc.ledger.mode'
@@ -16,6 +18,7 @@ const STATE = {
   gated: { glyph: '■', label: 'Gated' },
   done: { glyph: '✓', label: 'Done' },
   blocked: { glyph: '✕', label: 'Blocked' },
+  unknown: { glyph: '?', label: 'Unclassified status' },
 }
 
 const itemByKey = new Map([
@@ -62,6 +65,16 @@ function writeCollapsed(id, collapsed) {
 function stateFor(item, mode) {
   if (mode === 'q') return item.status === 'answered' ? 'done' : 'open'
   return item.status
+}
+
+function liveRequestState(status) {
+  if (Object.hasOwn(STATE, status)) return status
+  if (status.startsWith('blocked')) return 'blocked'
+  return 'unknown'
+}
+
+function liveQuestionState(statusClass) {
+  return Object.hasOwn(STATE, statusClass) ? statusClass : 'unknown'
 }
 
 function descendantCount(id) {
@@ -121,6 +134,68 @@ function recordMarkup(item, { mode, depth = 0, expanded = false, collapsed = fal
     </div>`
 }
 
+function liveRequestMarkup(item, { expanded = false }) {
+  const state = liveRequestState(item.status)
+  const meta = STATE[state]
+  const key = `r:${item.id}`
+  const detailId = `ledger-detail-r-${item.id.replace(/\./g, '-')}`
+
+  return `
+    <div class="ledger-record" style="--depth:0" role="treeitem" aria-level="1" data-record-key="${key}">
+      <div class="ledger-line" data-state="${state}">
+        <button class="ledger-row" type="button" data-expand="${key}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${detailId}">
+          <span class="ledger-state" title="${esc(item.status)}"><span class="ledger-glyph" aria-hidden="true">${meta.glyph}</span><span class="ledger-sr-only">${esc(item.status)}</span></span>
+          <span class="ledger-id-cell"><span class="ledger-guides" aria-hidden="true"></span><span class="ledger-id">${esc(item.id)}</span></span>
+          <span class="ledger-title">${esc(item.status)}</span>
+          <span class="ledger-meta">
+            <span class="ledger-agent">gates ${item.gateCount}</span>
+            <span class="ledger-age">unmet ${item.unmetGateCount}</span>
+          </span>
+        </button>
+      </div>
+      <div class="ledger-detail" id="${detailId}" ${expanded ? '' : 'hidden'}>
+        <span class="ledger-detail-label">status</span>
+        <code>${esc(item.status)}</code>
+        <span class="ledger-detail-sep" aria-hidden="true">·</span>
+        <span class="ledger-detail-label">gates</span>
+        <code>${item.gateCount}</code>
+        <span class="ledger-detail-sep" aria-hidden="true">·</span>
+        <span class="ledger-detail-label">unmet</span>
+        <code>${item.unmetGateCount}</code>
+      </div>
+    </div>`
+}
+
+function liveQuestionMarkup(item, { expanded = false }) {
+  const state = liveQuestionState(item.statusClass)
+  const meta = STATE[state]
+  const key = `q:${item.id}`
+  const detailId = `ledger-detail-q-${item.id.replace(/\./g, '-')}`
+  const packageId = item.packageId ?? '—'
+
+  return `
+    <div class="ledger-record is-question" role="listitem" data-record-key="${key}">
+      <div class="ledger-line" data-state="${state}">
+        <button class="ledger-row" type="button" data-expand="${key}" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${detailId}">
+          <span class="ledger-state" title="${esc(item.status)}"><span class="ledger-glyph" aria-hidden="true">${meta.glyph}</span><span class="ledger-sr-only">${esc(item.status)}</span></span>
+          <span class="ledger-id-cell"><span class="ledger-guides" aria-hidden="true"></span><span class="ledger-id">${esc(item.id)}</span></span>
+          <span class="ledger-title">${esc(item.title)}</span>
+          <span class="ledger-meta">
+            <span class="ledger-agent">${esc(item.status)}</span>
+            <span class="ledger-age">${esc(packageId)}</span>
+          </span>
+        </button>
+      </div>
+      <div class="ledger-detail" id="${detailId}" ${expanded ? '' : 'hidden'}>
+        <span class="ledger-detail-label">status-class</span>
+        <code>${esc(item.statusClass)}</code>
+        <span class="ledger-detail-sep" aria-hidden="true">·</span>
+        <span class="ledger-detail-label">package-id</span>
+        <code>${esc(packageId)}</code>
+      </div>
+    </div>`
+}
+
 export function ledgerView() {
   const root = el(`
     <main class="view-pad ledger-page">
@@ -131,7 +206,7 @@ export function ledgerView() {
             <div class="ledger-stat" data-state="${state}">
               <span class="ledger-stat-value" data-summary="${state}">0</span>
               <span class="ledger-stat-label">${STATE[state].label}</span>
-              <span class="ledger-stat-note">· this session</span>
+              <span class="ledger-stat-note" data-summary-note>· this session</span>
             </div>`).join('')}
         </section>
 
@@ -152,6 +227,10 @@ export function ledgerView() {
   const collapsedRoots = new Set(branchRoots.filter(item => readCollapsed(item.id)).map(item => item.id))
   const expandedRows = new Set()
   let mode = readMode()
+  let source = null
+  let ageTimer = null
+  let requestVersion = 0
+  let destroyed = false
 
   function syncModeButtons() {
     for (const button of modeGroup.querySelectorAll('button[data-mode]')) {
@@ -161,16 +240,23 @@ export function ledgerView() {
     }
   }
 
-  function renderSummary() {
-    const items = mode === 'r' ? R_ITEMS : Q_ITEMS
+  function renderSummary(items, { unavailable = false, live = false } = {}) {
     const counts = Object.fromEntries(SUMMARY_STATES.map(state => [state, 0]))
-    for (const item of items) counts[stateFor(item, mode)] += 1
+    for (const item of items) {
+      const state = live
+        ? (mode === 'r' ? liveRequestState(item.status) : liveQuestionState(item.statusClass))
+        : stateFor(item, mode)
+      if (Object.hasOwn(counts, state)) counts[state] += 1
+    }
     for (const state of SUMMARY_STATES) {
       const node = root.querySelector(`[data-summary="${state}"]`)
-      node.textContent = counts[state]
+      node.textContent = unavailable ? '—' : counts[state]
       // presentation only: a zero has no state to colour, and the Q register
       // leaves three of the five at zero. See .ledger-stat[data-empty].
-      node.closest('.ledger-stat').toggleAttribute('data-empty', counts[state] === 0)
+      node.closest('.ledger-stat').toggleAttribute('data-empty', !unavailable && counts[state] === 0)
+    }
+    for (const note of root.querySelectorAll('[data-summary-note]')) {
+      note.textContent = unavailable ? '· unavailable' : (live ? '· projection' : '· this session')
     }
   }
 
@@ -186,34 +272,75 @@ export function ledgerView() {
   }
 
   function renderRegister({ focusRoot = null } = {}) {
-    renderSummary()
     const rows = []
 
+    if (source.kind === 'loading' || source.kind === 'unavailable') {
+      const reason = source.kind === 'loading' ? 'ledger projection loading' : source.reason
+      renderSummary([], { unavailable: true, live: true })
+      register.removeAttribute('role')
+      register.setAttribute('aria-label', 'Ledger projection unavailable')
+      register.innerHTML = `<p class="ledger-empty projection-unavailable">ledger projection unavailable · ${esc(reason)}</p>`
+      root.querySelector('[data-visible-count]').textContent = source.kind === 'loading' ? 'source loading' : 'source unavailable'
+      root.dataset.projectionState = source.kind
+      return
+    }
+
+    const live = source.kind === 'live'
+    const rItems = live ? source.data.requests : R_ITEMS
+    const qObservation = live ? source.data.questions : null
+    const qItems = live ? qObservation?.value : Q_ITEMS
+
+    if (mode === 'q' && live && !qObservation.ok) {
+      renderSummary([], { unavailable: true, live: true })
+      register.removeAttribute('role')
+      register.setAttribute('aria-label', 'Questions projection unavailable')
+      register.innerHTML = `<p class="ledger-empty projection-unavailable">questions projection unavailable · ${esc(qObservation.reason)}</p>`
+      root.querySelector('[data-visible-count]').textContent = 'questions source unavailable'
+      root.dataset.projectionState = 'questions-unavailable'
+      return
+    }
+
+    renderSummary(mode === 'r' ? rItems : qItems, { live })
+
     if (mode === 'r') {
-      for (const item of childrenByParent.get('') || []) renderRBranch(item, 0, rows)
+      if (live) {
+        for (const item of rItems) rows.push(liveRequestMarkup(item, { expanded: expandedRows.has(`r:${item.id}`) }))
+      } else {
+        for (const item of childrenByParent.get('') || []) renderRBranch(item, 0, rows)
+      }
       register.setAttribute('role', 'tree')
-      register.setAttribute('aria-label', 'Owner request outline')
+      register.setAttribute('aria-label', live ? 'Request projection' : 'Owner request outline')
       register.innerHTML = rows.length
         ? rows.join('')
         : '<p class="ledger-empty">no requests in this register · the ledger is quiet</p>'
-      root.querySelector('[data-visible-count]').textContent = `${R_ITEMS.length} requests · 3 decomposed roots`
+      root.querySelector('[data-visible-count]').textContent = live
+        ? `${rItems.length} requests · status and gate projection`
+        : `${R_ITEMS.length} requests · 3 decomposed roots`
     } else {
-      for (const item of Q_ITEMS) {
-        rows.push(recordMarkup(item, { mode: 'q', expanded: expandedRows.has(`q:${item.id}`) }))
+      for (const item of qItems) {
+        rows.push(live
+          ? liveQuestionMarkup(item, { expanded: expandedRows.has(`q:${item.id}`) })
+          : recordMarkup(item, { mode: 'q', expanded: expandedRows.has(`q:${item.id}`) }))
       }
       register.setAttribute('role', 'list')
-      register.setAttribute('aria-label', 'Questions to the owner')
+      register.setAttribute('aria-label', live ? 'Questions projection' : 'Questions to the owner')
       register.innerHTML = rows.length
         ? rows.join('')
         : '<p class="ledger-empty">no owner questions in this register · nothing waiting on a decision</p>'
-      const pending = Q_ITEMS.filter(item => item.status === 'pending').length
-      root.querySelector('[data-visible-count]').textContent = `${Q_ITEMS.length} questions · ${pending} pending`
+      const open = live
+        ? qItems.filter(item => item.statusClass === 'open').length
+        : Q_ITEMS.filter(item => item.status === 'pending').length
+      root.querySelector('[data-visible-count]').textContent = live
+        ? `${qItems.length} questions · ${open} open`
+        : `${Q_ITEMS.length} questions · ${open} pending`
     }
 
+    root.dataset.projectionState = live ? 'ready' : 'simulated'
     if (focusRoot) register.querySelector(`[data-root="${focusRoot}"]`)?.focus()
   }
 
   function updateAges() {
+    if (source.kind !== 'simulated') return
     const now = Date.now()
     for (const node of root.querySelectorAll('[data-ledger-age]')) {
       const item = itemByKey.get(node.dataset.ledgerAge)
@@ -254,13 +381,55 @@ export function ledgerView() {
 
   syncModeButtons()
   const detachSeg = attachSeg(modeGroup)
-  renderRegister()
-  const ageTimer = setInterval(updateAges, 30_000)
+
+  function stopAgeUpdates() {
+    if (ageTimer != null) clearInterval(ageTimer)
+    ageTimer = null
+  }
+
+  function showSimulation() {
+    requestVersion += 1
+    stopAgeUpdates()
+    source = { kind: 'simulated' }
+    root.dataset.liveMode = 'simulated'
+    renderRegister()
+    ageTimer = setInterval(updateAges, 30_000)
+  }
+
+  function showLive() {
+    const version = ++requestVersion
+    stopAgeUpdates()
+    source = { kind: 'loading' }
+    root.dataset.liveMode = 'live'
+    renderRegister()
+    fetchLedger().then(result => {
+      if (destroyed || version !== requestVersion) return
+      source = result.ok ? { kind: 'live', data: result.data.data } : { kind: 'unavailable', reason: result.reason }
+      renderRegister()
+    }, error => {
+      if (destroyed || version !== requestVersion) return
+      source = { kind: 'unavailable', reason: error?.message || String(error) }
+      renderRegister()
+    })
+  }
+
+  function onLiveFlagsChanged(event) {
+    if (event.detail?.view !== 'ledger') return
+    if (event.detail.live) showLive()
+    else showSimulation()
+  }
+
+  window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlagsChanged)
+  if (isLiveView('ledger')) showLive()
+  else showSimulation()
 
   return {
     el: root,
     destroy() {
-      clearInterval(ageTimer)
+      destroyed = true
+      requestVersion += 1
+      stopAgeUpdates()
+      window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlagsChanged)
       detachSeg()
     },
   }

@@ -17,7 +17,8 @@
 // tool-action lines a session transcript carries between turns.
 
 import { el, uptimeRing } from '../components.js'
-import { fetchStatus, ageMs, fmtAge } from '../live-status.js'
+import { fetchStatus, fetchCoordinator, ageMs, fmtAge } from '../live-status.js'
+import { isLiveView } from '../live-flags.js'
 import '../home.css'
 
 const POLL_MS = 45_000
@@ -157,13 +158,14 @@ function makeBag(items) {
 }
 
 export function homeView() {
+  const liveMode = isLiveView('home')
   const root = el(`
-    <div class="home">
+    <div class="home" data-live-mode="${liveMode ? 'live' : 'simulated'}">
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
         <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <div class="home-feed">
-          <div class="session-head">session — codex/coordinator · owner channel</div>
+          <div class="session-head"><span data-session-title>session — codex/coordinator · owner channel</span><span class="projection-mode">${liveMode ? 'live' : 'simulated'}</span></div>
           <div class="session-view">
             <div class="session-log" tabindex="0" role="log" aria-label="Coordinator session transcript"></div>
           </div>
@@ -254,6 +256,7 @@ export function homeView() {
   const logEl = root.querySelector('.session-log')
   const input = root.querySelector('.session-input input')
   const timers = []
+  let destroyed = false
 
   const braces = [...root.querySelectorAll('.brace')]
   braces.forEach(b => b.addEventListener('animationend', () => b.classList.remove('brace-pulse')))
@@ -269,7 +272,7 @@ export function homeView() {
     logEl.appendChild(node)
     return node
   }
-  SESSION.forEach(([who, text]) => addTurn(who, text))
+  if (!liveMode) SESSION.forEach(([who, text]) => addTurn(who, text))
 
   /* The seeded history renders while the view is still DETACHED (the router
      mounts it after assembly), where scrollHeight is 0 and any snap here is a
@@ -281,21 +284,77 @@ export function homeView() {
   logEl.addEventListener('scroll', () => {
     pinned = logEl.scrollTop >= logEl.scrollHeight - logEl.clientHeight - 24
   }, { passive: true })
+  const pinToBottom = () => {
+    if (!destroyed && pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
+  }
   const anchorRo = new ResizeObserver(() => {
-    if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
+    pinToBottom()
   })
   anchorRo.observe(logEl)
   const anchorMo = new MutationObserver(() => {
-    if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
+    pinToBottom()
   })
   anchorMo.observe(logEl, { childList: true })
   /* ...and the webfont swap, the one growth path with NO mutation and NO box
-     resize: mono text re-wrapping in the just-landed face grew the thread
-     44px past a pin taken before fonts were ready (measured; the same lesson
-     the placement cache learned). Fonts settle once — one re-pin then. */
-  document.fonts?.ready?.then(() => {
-    if (pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
-  })
+     resize. `fonts.ready` may settle while the assembled view is detached,
+     so its immediate measurement is still zero. Re-elect the pin after two
+     painted frames, and repeat for any later font-loading generation. */
+  let firstPinFrame = 0
+  let settledPinFrame = 0
+  const pinAfterMount = () => {
+    firstPinFrame = requestAnimationFrame(() => {
+      settledPinFrame = requestAnimationFrame(pinToBottom)
+    })
+  }
+  const onFontsLoaded = () => pinAfterMount()
+  document.fonts?.addEventListener?.('loadingdone', onFontsLoaded)
+  document.fonts?.ready?.then(pinAfterMount)
+  pinAfterMount()
+
+  const sessionTitle = root.querySelector('[data-session-title]')
+  function showThreadState(title, reason, detail = '', loading = false) {
+    logEl.innerHTML = `<div class="projection-state ${loading ? 'is-loading' : 'projection-unavailable'}" role="status"><strong>${escText(title)}</strong><span>${escText(reason)}</span>${detail ? `<small>${escText(detail)}</small>` : ''}</div>`
+    pinned = true
+    pinAfterMount()
+  }
+
+  async function loadCoordinatorThread() {
+    const result = await fetchCoordinator()
+    if (destroyed) return
+    if (!result.ok) {
+      showThreadState('coordinator thread unavailable', result.reason)
+      return
+    }
+    const projection = result.data.data
+    const identity = projection.identity
+    if (sessionTitle) sessionTitle.textContent = `session — ${identity.displayName} · read-only projection`
+    const sessions = projection.sessions
+    const observed = sessions.ok ? sessions.value : null
+    const latestAt = observed?.reduce((latest, session) => {
+      const at = Date.parse(session.updatedAt)
+      return Number.isFinite(at) ? Math.max(latest, at) : latest
+    }, 0) || 0
+    const sessionDetail = sessions.ok
+      ? `${observed.length} observed session${observed.length === 1 ? '' : 's'}${latestAt ? ` · latest ${fmtAge(ageMs(latestAt))}` : ''}`
+      : `sessions unavailable · ${sessions.reason}`
+    const thread = projection.thread
+    if (!thread.ok) {
+      showThreadState('coordinator thread unavailable', thread.reason, sessionDetail)
+      return
+    }
+    logEl.replaceChildren()
+    for (const message of thread.value) addTurn(message.sender, message.text)
+    if (!thread.value.length) showThreadState('coordinator thread unavailable', 'source returned no messages', sessionDetail)
+    else pinAfterMount()
+  }
+
+  if (liveMode) {
+    showThreadState('coordinator thread', 'reading live projection…', '', true)
+    input.disabled = true
+    input.placeholder = 'Read-only projection'
+    root.querySelector('.chat-send').disabled = true
+    loadCoordinatorThread()
+  }
 
   /* ---- live continuation: rare, whole-message arrivals ----
      The old ticker re-rendered every 45s poll; a session is quieter. First
@@ -313,12 +372,13 @@ export function homeView() {
     }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
     timers.push(arrivalT)
   }
-  scheduleArrival(true)
+  if (!liveMode) scheduleArrival(true)
 
   /* ---- the composer: the owner speaks, the coordinator answers ---- */
   const drawReply = makeBag(REPLIES)
   const drawReplyAct = makeBag(REPLY_ACTS)
   const send = () => {
+    if (liveMode) return
     const v = input.value.trim()
     if (!v) return
     input.value = ''
@@ -400,7 +460,6 @@ export function homeView() {
     }
   }
 
-  let destroyed = false
   async function load() {
     const result = await fetchStatus()
     if (destroyed) return
@@ -422,6 +481,9 @@ export function homeView() {
       timers.forEach(clearTimeout)
       anchorRo.disconnect()
       anchorMo.disconnect()
+      cancelAnimationFrame(firstPinFrame)
+      cancelAnimationFrame(settledPinFrame)
+      document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     },
   }
 }

@@ -18,6 +18,8 @@
 import { sim } from '../sim.js'
 import { el, countUp, buildChat, attachSeg } from '../components.js'
 import { pick, ROLES } from '../vocab.js'
+import { isLiveView } from '../live-flags.js'
+import { fetchOps } from '../live-status.js'
 import '../comms.css'
 
 const H = 3600e3
@@ -46,6 +48,11 @@ const SENDERS = {
   gem4:       { tag: 'gem-lane-4/builder', role: 'default',    mach: 'A' },
   sandbox:    { tag: 'sandbox-w1/builder', role: 'default',    mach: 'B' },
   assistant:  { tag: 'assistant',          role: 'spawned',    mach: 'A' },
+  declared:   { tag: 'declared',           role: 'default',    mach: '—' },
+  service:    { tag: 'service',            role: 'default',    mach: '—' },
+  observed:   { tag: 'observed',           role: 'helper',     mach: '—' },
+  channel:    { tag: 'channel',            role: 'helper',     mach: '—' },
+  projection: { tag: 'projection',         role: 'shadow',     mach: '—' },
 }
 
 /* "role hues = the graph's" was a promise the literals above quietly broke:
@@ -721,6 +728,36 @@ function watchInit() {
   return WATCH
 }
 
+/* Live cards deliberately keep declared services and observed channels as
+   separate records. A matching port, name, or transport is not evidence that
+   the two are the same thing, so this view never pairs them as a relationship. */
+let LIVE_WATCH = null
+const liveCard = (id, kind, key, desc, unavailable = null) => ({
+  id,
+  a: kind === 'declared' ? 'declared' : kind === 'observed' ? 'observed' : 'projection',
+  b: kind === 'declared' ? 'service' : kind === 'observed' ? 'channel' : 'projection',
+  key,
+  desc,
+  hist: [],
+  side: 'a',
+  bags: { a: null, b: null, recent: { a: [], b: [] } },
+  unavailable,
+  child: null,
+})
+
+function liveWatchInit() {
+  if (LIVE_WATCH) return LIVE_WATCH
+  const pending = liveCard('ops-projection', 'projection', 'ops projection', 'Live ops projection is loading.', 'loading live ops projection')
+  LIVE_WATCH = {
+    convs: new Map([[pending.id, pending]]),
+    stack: [wbLeaf(pending.id)],
+    size: 'm',
+    mode: 'watch',
+    open: new Set(),
+  }
+  return LIVE_WATCH
+}
+
 /* ---------- DOM builders ---------- */
 function msgEl(m, fresh = false) {
   const sender = SENDERS[m.s]
@@ -741,13 +778,32 @@ function msgEl(m, fresh = false) {
 }
 
 const dividerEl = (dk) => el(`<div class="day-div"><span>${dayLabel(dk)}</span></div>`)
+const projectionUnavailableEl = (reason) => el(`<div class="projection-unavailable" data-projection-unavailable="true">unavailable — ${esc(reason)}</div>`)
+const projectionNoticeEl = (note) => el(`<div class="projection-state" data-projection-state="true">${esc(note)}</div>`)
+
+function liveMsgEl(m) {
+  return el(`
+    <div class="cmsg" data-live-mode="live">
+      <i class="cmsg-bar role-default"></i>
+      <div class="cmsg-main">
+        <div class="cmsg-top">
+          <span class="cmsg-au"><span class="br">[</span>${esc(m.sender)}<span class="br">]</span></span>
+          <span class="cmsg-mach">observed</span>
+          <span class="cmsg-time">${fmtTime(m.at)}</span>
+        </div>
+        <div class="cmsg-text">${esc(m.t)}</div>
+      </div>
+    </div>
+  `)
+}
 
 const PIN_SVG = `<svg viewBox="0 0 24 24"><path d="M15 3.5 20.5 9 14 12l-1.5 5.5-4-4L4 18l4.5-4.5-4-4L10 8l5-4.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>`
 
 export function commsView() {
-  const W = watchInit()
+  const liveMode = isLiveView('comms')
+  const W = liveMode ? liveWatchInit() : watchInit()
   const root = el(`
-    <div class="comms" data-mode="${W.mode}">
+    <div class="comms" data-mode="${W.mode}" data-live-mode="${liveMode ? 'live' : 'simulated'}" data-projection-state="${liveMode ? 'loading' : 'simulated'}">
       <header class="comms-head">
         <span class="head-hash">#</span><span class="head-name">directive</span>
         <span class="head-meta">agent-coord · cross-machine</span>
@@ -773,9 +829,9 @@ export function commsView() {
           </div>
           <section class="comms-sheet">
             <aside class="ch-rail">
-              <div class="ch-rail-label">Channels</div>
+              <div class="ch-rail-label">${liveMode ? 'Ops projection' : 'Channels'}</div>
               <div class="ch-list"></div>
-              <div class="ch-rail-foot">
+              <div class="ch-rail-foot" data-projection-foot="true">
                 <span class="foot-line"><i class="ok"></i><span class="ft"><b>tunnel</b> :8787 · relay up</span></span>
                 <span class="foot-line"><i class="ok"></i><span class="ft"><b>bridge</b> :8788 · tools up</span></span>
                 <span class="foot-line"><span class="ft">A 192.168.214.2</span></span>
@@ -806,10 +862,15 @@ export function commsView() {
   `)
 
   /* ---- state ---- */
-  const history = seedHistory()
-  const compose = makeComposer()
+  const history = liveMode ? {} : seedHistory()
+  const compose = liveMode ? null : makeComposer()
+  let channelDefs = liveMode
+    ? [{ id: 'ops-projection', name: 'ops projection', key: 'ops', mach: 'live', topic: 'Loading the live ops projection.', unavailable: 'loading live ops projection' }]
+    : CHANNELS
+  let liveMessagesReason = liveMode ? 'loading live ops projection' : null
+  let destroyed = false
   const state = {
-    active: 'directive',
+    active: liveMode ? channelDefs[0].id : 'directive',
     unread: new Set(),
     pinnedToBottom: true,
     newCount: 0,
@@ -818,6 +879,9 @@ export function commsView() {
   const timers = []
 
   const listEl = root.querySelector('.ch-list')
+  const railFoot = root.querySelector('[data-projection-foot]')
+  const headMeta = root.querySelector('.head-meta')
+  const headCount = root.querySelector('.head-count')
   const headName = root.querySelector('.head-name')
   const countEl = root.querySelector('.head-count b')
   const viewEl = root.querySelector('.ch-view')
@@ -851,28 +915,46 @@ export function commsView() {
 
   /* ---- channel rail (pinned entry on top, then the working channels) ---- */
   const railItems = new Map()
-  CHANNELS.forEach((def, i) => {
-    const item = el(`
-      <button class="ch${def.pinned ? ' pin' : ''}" data-id="${def.id}" title="${esc(def.key)}">
-        <span class="ch-hash">${def.pinned ? PIN_SVG : '#'}</span>
-        <span class="ch-name">${def.name}</span>
-        <span class="ch-mach">${def.mach}</span>
-        <i class="ch-dot"></i>
-      </button>
-    `)
-    item.addEventListener('click', () => switchChannel(def.id))
-    const dot = item.querySelector('.ch-dot')
-    dot.addEventListener('animationend', () => dot.classList.remove('ping'))
-    listEl.appendChild(item)
-    railItems.set(def.id, item)
-    if (i === 0) listEl.appendChild(el(`<div class="ch-rail-sep"></div>`))
-  })
+  function renderRail() {
+    listEl.textContent = ''
+    railItems.clear()
+    channelDefs.forEach((def, i) => {
+      if (def.dividerBefore || (!liveMode && i === 1)) listEl.appendChild(el(`<div class="ch-rail-sep"></div>`))
+      const item = el(`
+        <button class="ch${def.pinned ? ' pin' : ''}" data-id="${esc(def.id)}" title="${esc(def.key)}">
+          <span class="ch-hash">${def.pinned ? PIN_SVG : '#'}</span>
+          <span class="ch-name">${esc(def.name)}</span>
+          <span class="ch-mach">${esc(def.mach)}</span>
+          <i class="ch-dot"></i>
+        </button>
+      `)
+      item.addEventListener('click', () => switchChannel(def.id))
+      const dot = item.querySelector('.ch-dot')
+      dot.addEventListener('animationend', () => dot.classList.remove('ping'))
+      listEl.appendChild(item)
+      railItems.set(def.id, item)
+    })
+  }
+  renderRail()
 
-  const defOf = (id) => CHANNELS.find(c => c.id === id)
+  const defOf = (id) => channelDefs.find(c => c.id === id)
 
   /* ---- timeline rendering ---- */
   function renderLog(id) {
     const def = defOf(id)
+    if (!def) return
+    if (liveMode) {
+      topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
+      logEl.innerHTML = ''
+      if (def.unavailable || liveMessagesReason) logEl.appendChild(projectionUnavailableEl(def.unavailable || liveMessagesReason))
+      else if (!history[id]?.length) logEl.appendChild(projectionNoticeEl('No observed messages for this exact projection ID.'))
+      else for (const m of history[id]) logEl.appendChild(liveMsgEl(m))
+      state.pinnedToBottom = true
+      state.newCount = 0
+      updateChip()
+      requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+      return
+    }
     topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
     logEl.innerHTML = ''
     state.lastDayKey = null
@@ -953,7 +1035,7 @@ export function commsView() {
     liveT = setTimeout(() => { arrive(); schedule() }, 5200 + Math.random() * 8800)
     timers.push(liveT)
   }
-  schedule()
+  if (!liveMode) schedule()
 
   /* ---- pinned auto-scroll + jump chip ---- */
   logEl.addEventListener('scroll', () => {
@@ -975,8 +1057,8 @@ export function commsView() {
     const next = agentTotal()
     if (next !== shownCount) { countUp(countEl, shownCount, next, 500); shownCount = next }
   }
-  countEl.textContent = String(shownCount = agentTotal())
-  const unsubs = [
+  if (!liveMode) countEl.textContent = String(shownCount = agentTotal())
+  const unsubs = liveMode ? [] : [
     sim.on('spawn', renderCount),
     sim.on('reap', renderCount),
     sim.on('computers', renderCount),
@@ -1070,11 +1152,11 @@ export function commsView() {
      speaker with the same role hue their header dot already wears. */
   function previewLineEl(d, m) {
     const side = m.s === d.a ? 'a' : 'b'
-    return el(`<div class="cl side-${side}"><b>${esc(shortName(m.s))}</b><span>${esc(m.t)}</span></div>`)
+    return el(`<div class="cl side-${side}"><b>${esc(m.sender || shortName(m.s))}</b><span>${esc(m.t)}</span></div>`)
   }
   function chatMsgEl(d, m) {
     const side = m.s === d.a ? 'them' : 'me'
-    return el(`<div class="msg ${side}"><span class="who">${esc(shortName(m.s))}</span>${esc(m.t)}</div>`)
+    return el(`<div class="msg ${side}"><span class="who">${esc(m.sender || shortName(m.s))}</span>${esc(m.t)}</div>`)
   }
 
   function boxOf(cid) {
@@ -1112,7 +1194,9 @@ export function commsView() {
       </div>
     `)
     const pv = box.querySelector('.chip-preview')
-    for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
+    if (d.unavailable) pv.appendChild(projectionUnavailableEl(d.unavailable))
+    else if (d.hist.length) for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
+    else if (liveMode) pv.appendChild(projectionNoticeEl('No observed messages for this exact projection ID.'))
     requestAnimationFrame(() => { pv.scrollTop = pv.scrollHeight })
 
     box._pvFollow = true
@@ -1180,7 +1264,9 @@ export function commsView() {
     })
     box.appendChild(chat)
     const log = chat.querySelector('.chat-log')
-    for (const m of d.hist.slice(-6)) log.appendChild(chatMsgEl(d, m))
+    if (d.unavailable) log.appendChild(projectionUnavailableEl(d.unavailable))
+    else if (d.hist.length) for (const m of d.hist.slice(-6)) log.appendChild(chatMsgEl(d, m))
+    else if (liveMode) log.appendChild(projectionNoticeEl('No observed messages for this exact projection ID.'))
     log.scrollTop = log.scrollHeight
     box._chatFollow = true
     log.addEventListener('scroll', () => {
@@ -1335,6 +1421,125 @@ export function commsView() {
     applyMarks()
     applyWeights()
     restoreScrolls(saved)
+  }
+
+  function setProjectionFoot(lines) {
+    railFoot.innerHTML = lines.map(line => `
+      <span class="foot-line"><span class="ft">${esc(line)}</span></span>
+    `).join('')
+  }
+
+  function projectionDetailCard(parent, kind, unavailable) {
+    const detail = liveCard(`${parent.id}:source`, 'projection', `${kind} status`, `${kind} is shown as its own projection record; no declared/observed mapping is inferred.`, unavailable)
+    parent.child = detail.id
+    return detail
+  }
+
+  function applyLiveProjection(result) {
+    if (destroyed) return
+    const envelope = result.ok ? result.data : null
+    if (!envelope?.data) {
+      const reason = result.reason || 'ops projection unavailable'
+      const unavailable = liveCard('ops-projection', 'projection', 'ops projection', 'Live ops projection is unavailable.', reason)
+      W.convs = new Map([[unavailable.id, unavailable]])
+      W.stack = [wbLeaf(unavailable.id)]
+      W.open.clear()
+      channelDefs = [{ id: unavailable.id, name: 'ops projection', key: 'ops', mach: 'unavailable', topic: 'Live ops projection could not be read.', unavailable: reason }]
+      liveMessagesReason = reason
+      root.dataset.projectionState = 'unavailable'
+      root.dataset.projectionUnavailable = 'true'
+      root.querySelector('.head-live').lastChild.textContent = 'unavailable'
+      headMeta.textContent = 'ops projection · unavailable'
+      countEl.textContent = '—'
+      headCount.childNodes[1].textContent = ' projection'
+      setProjectionFoot([`ops projection unavailable — ${reason}`])
+      state.active = unavailable.id
+      state.unread.clear()
+      boxEls.clear()
+      renderRail()
+      railItems.get(state.active)?.classList.add('active')
+      headName.textContent = unavailable.name
+      renderLog(state.active)
+      renderBoard()
+      return
+    }
+
+    const { data } = envelope
+    const services = data.declaredServices
+    const observed = data.channels.ok ? data.channels.value : null
+    const messages = data.messages
+    liveMessagesReason = messages.ok ? null : messages.reason || 'messages observation unavailable'
+    const rawMessages = messages.ok ? messages.value : []
+    const cards = []
+    const defs = []
+    const messageRows = (sourceId) => rawMessages
+      .filter(message => message.channelId === sourceId)
+      .map(message => ({ at: new Date(message.at).getTime(), s: 'observed', sender: message.sender, t: message.text }))
+
+    for (const service of services) {
+      const id = `declared:${service.id}`
+      const card = liveCard(id, 'declared', service.displayName, `Declared service · ${service.transport} · :${service.port} · ${service.resolution}`, liveMessagesReason)
+      card.hist = messageRows(service.id)
+      cards.push(card, projectionDetailCard(card, 'Declared service', liveMessagesReason))
+      defs.push({ id, sourceId: service.id, name: service.displayName, key: `declared/${service.id}`, mach: 'declared', topic: `Declared service · ${service.transport} · port ${service.port} · ${service.resolution}`, unavailable: liveMessagesReason })
+      history[id] = card.hist
+    }
+    if (!services.length) {
+      const id = 'declared:empty'
+      const card = liveCard(id, 'projection', 'declared services', 'The live projection declared no services.', liveMessagesReason)
+      cards.push(card, projectionDetailCard(card, 'Declared services', liveMessagesReason))
+      defs.push({ id, name: 'declared services', key: 'declared', mach: 'empty', topic: 'The live projection declared no services.', unavailable: liveMessagesReason })
+      history[id] = []
+    }
+
+    if (observed) {
+      for (const item of observed) {
+        const id = `observed:${item.id}`
+        const detail = item.detail ? ` · ${item.detail}` : ''
+        const card = liveCard(id, 'observed', item.name, `Observed channel · ${item.state}${detail}`, liveMessagesReason)
+        card.hist = messageRows(item.id)
+        cards.push(card, projectionDetailCard(card, 'Observed channel', liveMessagesReason))
+        defs.push({ id, sourceId: item.id, name: item.name, key: `observed/${item.id}`, mach: item.state, topic: `Observed channel · ${item.state}${detail}`, unavailable: liveMessagesReason, dividerBefore: defs.length > 0 && !defs.some(def => def.dividerBefore) })
+        history[id] = card.hist
+      }
+    } else {
+      const id = 'observed:unavailable'
+      const reason = data.channels.reason || 'observed channels unavailable'
+      const card = liveCard(id, 'projection', 'observed channels', 'Observed channels are unavailable in this projection.', reason)
+      cards.push(card, projectionDetailCard(card, 'Observed channels', reason))
+      defs.push({ id, name: 'observed channels', key: 'observed', mach: 'unavailable', topic: 'Observed channels are unavailable in this projection.', unavailable: reason, dividerBefore: defs.length > 0 })
+      history[id] = []
+    }
+
+    W.convs = new Map(cards.map(card => [card.id, card]))
+    W.stack = cards.filter(card => !card.id.endsWith(':source')).map(card => wbLeaf(card.id))
+    W.open.clear()
+    channelDefs = defs
+    state.active = channelDefs[0].id
+    state.unread.clear()
+    root.dataset.projectionState = liveMessagesReason ? 'partial-unavailable' : 'ready'
+    if (liveMessagesReason) root.dataset.projectionUnavailable = 'messages'
+    else delete root.dataset.projectionUnavailable
+    root.querySelector('.head-live').lastChild.textContent = liveMessagesReason ? 'partial' : 'live'
+    headMeta.textContent = `ops projection · ${services.length} declared · ${observed ? observed.length : 'channels unavailable'} observed`
+    countEl.textContent = String(services.length)
+    headCount.childNodes[1].textContent = ' declared'
+    wtMeta.textContent = `ops projection · ${services.length + (observed?.length || 0)} separate records`
+    const mcpLine = data.mcp.ok
+      ? `MCP observed · ${data.mcp.value.live.length} live · ${data.mcp.value.dead.length} dead`
+      : `MCP unavailable — ${data.mcp.reason || 'observation unavailable'}`
+    setProjectionFoot([
+      `${services.length} declared services`,
+      observed ? `${observed.length} observed channels` : `observed channels unavailable — ${data.channels.reason}`,
+      mcpLine,
+      liveMessagesReason ? `messages unavailable — ${liveMessagesReason}` : 'messages observation available',
+    ])
+    boxEls.clear()
+    renderRail()
+    railItems.get(state.active)?.classList.add('active')
+    headName.textContent = channelDefs[0].name
+    renderLog(state.active)
+    renderBoard()
   }
 
   /* FLIP the whole board through a structural change: measure every box,
@@ -1541,7 +1746,7 @@ export function commsView() {
     watchT = setTimeout(() => { watchArrive(); watchSchedule() }, 3600 + Math.random() * 5200)
     timers.push(watchT)
   }
-  watchSchedule()
+  if (!liveMode) watchSchedule()
 
   /* ----- mode + size controls ----- */
   const modeBtns = [...root.querySelectorAll('.mode-seg button')]
@@ -1609,15 +1814,22 @@ export function commsView() {
   renderBoard()
 
   /* ---- initial channel ---- */
-  railItems.get('directive').classList.add('active')
-  headName.textContent = 'directive'
-  renderLog('directive')
+  railItems.get(state.active)?.classList.add('active')
+  headName.textContent = defOf(state.active).name
+  renderLog(state.active)
+  if (liveMode) {
+    fetchOps().then(applyLiveProjection).catch((err) => {
+      applyLiveProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
+    })
+  }
 
   return {
     el: root,
     destroy() {
+      destroyed = true
       dragTeardown?.()
       timers.forEach(clearTimeout)
+      clearTimeout(setSize._repinTimer)
       unsubs.forEach(fn => fn())
     },
   }

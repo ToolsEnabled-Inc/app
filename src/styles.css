@@ -386,6 +386,86 @@
   --bub-me-2: #0e1726;
 }
 
+/* Phase 2 read-source register. One quiet line names whether a surface is
+   reading its projection or the preserved simulation; unavailable readings
+   stay bare on the page instead of becoming another card. */
+.projection-mode {
+  margin-left: auto;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.home .session-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.projection-state {
+  min-height: 96px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 20px 24px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.projection-state strong {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.projection-state span,
+.projection-state small {
+  max-width: 64ch;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.projection-state small { color: var(--ink-4); }
+.projection-state.is-loading span { color: var(--ink-4); }
+
+.projection-unavailable {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.comms .projection-unavailable {
+  color: var(--ink-2);
+}
+
+.comms .wb-box .chip-preview:has(.projection-unavailable):not(:has(.cl)) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.home .session-log > .projection-state,
+.data-live-mode > .projection-state {
+  min-height: 100%;
+}
+
+.stats-page > .projection-unavailable,
+.metrics [id$="-chart"].projection-unavailable,
+.metrics #pools.projection-unavailable,
+.metrics #agent-table.projection-unavailable {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  padding: 20px 24px;
+  text-align: center;
+}
+
 /* ============================================================
    THEMES — clinically flat, one colour per surface. Chosen in
    Settings, sticky across sessions. Role hues and status colours are

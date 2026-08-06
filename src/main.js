@@ -16,6 +16,7 @@ import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { settingsView } from './views/settings.js'
 import { rangeFill } from './views/computers.js'
+import { LIVE_FLAGS_EVENT } from './live-flags.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
 import './morphs.css'
@@ -198,6 +199,13 @@ function swapView(route, morph, zoom, snapshotted) {
 }
 
 window.addEventListener('hashchange', render)
+// A source flag can also be flipped from a diagnostic harness or another
+// same-page control. Rebuild the active read surface so LIVE <-> SIMULATED is
+// an immediate rollback, while the settings page keeps its inline controls in
+// place and updates them locally.
+window.addEventListener(LIVE_FLAGS_EVENT, () => {
+  if (current?.route?.name !== 'settings') queueMicrotask(render)
+})
 
 const hashFor = (name) => (name === 'home' ? '#/' : `#/${name}`)
 document.getElementById('nav-back').addEventListener('click', () => {
