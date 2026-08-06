@@ -118,7 +118,7 @@ export function mountAgentWriteSurface(root, { agentId }) {
     setBusy(dispatchForm, false)
     actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
       ? `confirmed · ${result.receipt.launchId}`
-      : `refused · ${result.reason}`)
+      : `refused · ${result.code || 'BRIDGE_REFUSED'} · ${result.reason}`)
   })
 
   const reportForm = surface.querySelector('[data-report-form]')
