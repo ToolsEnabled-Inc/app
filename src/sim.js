@@ -257,8 +257,8 @@ export const sim = new Sim()
 
 /* ---------- formatting helpers ---------- */
 
-export function fmtRuntime(bornAt) {
-  let s = Math.max(0, Math.floor((now() - bornAt) / 1000))
+export function fmtRuntime(bornAt, stoppedAt = now()) {
+  let s = Math.max(0, Math.floor((stoppedAt - bornAt) / 1000))
   const d = Math.floor(s / 86400); s -= d * 86400
   const h = Math.floor(s / 3600); s -= h * 3600
   const m = Math.floor(s / 60); s -= m * 60

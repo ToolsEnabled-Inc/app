@@ -531,13 +531,22 @@ export class FleetGraph {
     this.nodes.set(agent.id, rec)
 
     if (Number.isFinite(agent.bornAt)) {
-      this.unsubs.push(bindRuntime(nodeEl.querySelector('.rt'), () => agent.bornAt))
+      const runtime = nodeEl.querySelector('.rt')
+      if (Number.isFinite(agent.stoppedAt)) {
+        runtime.textContent = fmtRuntime(agent.bornAt, agent.stoppedAt)
+        runtime.title = 'Stopped runtime · exact terminal observation'
+        nodeEl.dataset.runtimeState = 'stopped'
+      } else {
+        this.unsubs.push(bindRuntime(runtime, () => agent.bornAt))
+        nodeEl.dataset.runtimeState = 'running'
+      }
     } else {
       // A node with no telemetry is a bare sphere: the role rim and label
       // are its whole statement. Thirteen copies of any placeholder — even
       // a quiet "— RUNTIME" — is the same repetition the owner called a
       // mess; the projection's limits are stated once, in the rail.
       nodeEl.classList.add('no-telemetry')
+      nodeEl.dataset.runtimeState = 'unavailable'
       nodeEl.title = `Runtime unavailable · ${agent.projectionUnavailableReason || 'not provided'}`
     }
     this.wireInteractions(rec)
@@ -657,8 +666,13 @@ export class FleetGraph {
       const runtime = pv.querySelector('.chip-runtime')
       runtime.classList.add('inline-number')
       if (Number.isFinite(rec.agent.bornAt)) {
-        runtime.textContent = fmtRuntime(rec.agent.bornAt)
-        rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
+        if (Number.isFinite(rec.agent.stoppedAt)) {
+          runtime.textContent = fmtRuntime(rec.agent.bornAt, rec.agent.stoppedAt)
+          runtime.title = 'Stopped runtime · exact terminal observation'
+        } else {
+          runtime.textContent = fmtRuntime(rec.agent.bornAt)
+          rec._screenRuntimeUnsub = bindRuntime(runtime, () => rec.agent.bornAt)
+        }
       } else {
         // absent runtime = absent slot; the sphere's em-dash and the quiet
         // footer below already say it, and saying it in every register was

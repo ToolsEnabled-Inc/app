@@ -91,17 +91,28 @@ const graphRole = (role) => ({
 }[role] || 'default')
 
 function projectedComputer(computer, graph) {
-  const byId = new Map(graph.nodes.map(node => [node.id, {
-    id: node.id,
-    name: node.label,
-    role: graphRole(node.role),
-    declaredRole: node.role,
-    provider: node.provider,
-    state: node.enabled ? 'enabled' : 'disabled',
-    bornAt: null,
-    context: [],
-    projectionUnavailableReason: 'not provided by fleet projection',
-  }]))
+  const byId = new Map(graph.nodes.map(node => {
+    const bornAt = Number.isSafeInteger(node.bornAt) && node.bornAt >= 0 ? node.bornAt : null
+    const stoppedAt = bornAt !== null && Number.isSafeInteger(node.stoppedAt) && node.stoppedAt >= bornAt
+      ? node.stoppedAt
+      : null
+    return [node.id, {
+      id: node.id,
+      name: node.label,
+      role: graphRole(node.role),
+      declaredRole: node.role,
+      provider: node.provider,
+      model: node.provider,
+      state: node.enabled ? 'enabled' : 'disabled',
+      origin: node.origin === 'user' || node.origin === 'self' ? node.origin : null,
+      bornAt,
+      stoppedAt,
+      tasksDone: Number.isSafeInteger(node.tasksDone) && node.tasksDone >= 0 ? node.tasksDone : null,
+      failRate: Number.isFinite(node.failRate) && node.failRate >= 0 && node.failRate <= 100 ? node.failRate : null,
+      context: [],
+      projectionUnavailableReason: 'not provided by fleet projection',
+    }]
+  }))
   const edges = graph.edges.map(edge => ({ ...edge }))
 
   // Tree slots require one acyclic parent per node. Prefer the declared
@@ -139,11 +150,11 @@ function projectedComputer(computer, graph) {
      before disabled, then name. */
   const TIER = { controller: 0, manager: 1, 'coordinator-assistant': 1 }
   for (const agent of byId.values()) {
-    const selfSpawned = graph.nodes.find(n => n.id === agent.id)?.origin === 'self'
     agent.tierRank = TIER[agent.declaredRole] ?? 2
     if (agent.tierRank === 2) agent.role = 'spawned'
     agent.cullable = agent.tierRank === 2
-    agent.cullRank = (selfSpawned ? 2 : 0) + (agent.state === 'enabled' ? 0 : 1)
+    const originRank = agent.origin === 'user' ? 0 : agent.origin === 'self' ? 2 : 1
+    agent.cullRank = originRank * 2 + (agent.state === 'enabled' ? 0 : 1)
   }
 
   const agents = [...byId.values()]
@@ -189,8 +200,8 @@ function projectionMonitorContext(agent) {
     // silent (the row hides); the block's quiet footer already declares the
     // projection's limits once. The chat click-through is unaffected.
     chat: null,
-    tasks: null,
-    failRate: null,
+    tasks: agent.tasksDone,
+    failRate: agent.failRate,
     model: agent.provider,
   }
 }
@@ -1225,6 +1236,18 @@ export function computersView({ initialComputer = null, navigate }) {
     const role = ROLES[agent.role] || ROLES.default
     ctlPage.style.setProperty('--rc', role.hex)
     ctlPage.style.setProperty('--role-glow', role.glow)
+    const runtime = Number.isFinite(agent.bornAt)
+      ? fmtRuntime(agent.bornAt, Number.isFinite(agent.stoppedAt) ? agent.stoppedAt : Date.now())
+      : null
+    const runtimeState = Number.isFinite(agent.stoppedAt) ? 'stopped' : 'running'
+    const taskSummary = Number.isFinite(agent.tasksDone)
+      ? `${agent.tasksDone} tasks${Number.isFinite(agent.failRate) ? ` · ${agent.failRate}% fail` : ''}`
+      : null
+    const missing = [
+      runtime === null ? 'runtime' : null,
+      taskSummary === null ? 'task telemetry' : null,
+      'chat', 'tuning', 'activity',
+    ].filter(Boolean)
     ctlPage.innerHTML = `
       <div class="rail-title">
         <button class="rail-back">‹ Fleet projection</button>
@@ -1240,7 +1263,10 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-sub">ID · ${escapeMarkup(agent.id)}</div>
           <div class="rail-sub">Provider · ${escapeMarkup(agent.provider)}</div>
           <div class="rail-sub">State · ${escapeMarkup(agent.state)}</div>
-          <div class="projection-unavailable">Runtime, chat, tuning, and activity unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
+          <div class="rail-sub">Origin · ${escapeMarkup(agent.origin || 'unresolved')}</div>
+          ${runtime === null ? '' : `<div class="rail-sub">Runtime · ${escapeMarkup(runtime)} · ${runtimeState}</div>`}
+          ${taskSummary === null ? '' : `<div class="rail-sub">${escapeMarkup(taskSummary)}</div>`}
+          <div class="projection-unavailable">${escapeMarkup(missing.join(', '))} unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
         </div>
       </div>
       <div class="board-actions">
