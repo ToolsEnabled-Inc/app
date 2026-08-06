@@ -462,16 +462,16 @@
   white-space: nowrap;
 }
 .gate-stage { height: 176px; padding: 6px 2px 0; }
-.gate-track { position: relative; height: 58px; }
+.gate-track { position: relative; height: 64px; }
 .gate-track::before {
   content: "";
-  position: absolute; left: 2px; right: 2px; top: 30px;
+  position: absolute; left: 2px; right: 2px; top: 31px;
   height: 1px; background: var(--line-2);
 }
 .gate-event {
   --gate-color: var(--ink-3);
   position: absolute; z-index: 1;
-  left: var(--event-x); top: 23px;
+  left: var(--event-x); top: calc(7px + var(--event-row, 1) * 16px);
   width: 15px; height: 15px;
   padding: 0; margin: 0;
   transform: translateX(-50%);
@@ -500,6 +500,13 @@
   width: 9px; height: 9px; border-radius: 2px;
   background: var(--gate-color);
   transform: translate(-50%, -50%) rotate(45deg);
+}
+.gate-event.is-ongoing i::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1px solid color-mix(in oklab, var(--gate-color) 48%, transparent);
+  border-radius: 50%;
 }
 .gate-event:hover i {
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--gate-color) 16%, transparent);
@@ -533,6 +540,20 @@
 
 /* severity + provider legend chips ride the shared .chart-legend skin */
 .metrics .chart-legend { font-size: 12.5px; }
+.metrics .token-legend { column-gap: 14px; row-gap: 4px; }
+.metrics .token-legend .ck { gap: 4px; }
+/* names the legend numbers as the window's sums — the axis is instantaneous
+   thousands, and a cold reader shouldn't have to reconcile the two scales */
+.metrics .token-legend .ck-cap {
+  color: var(--ink-3); font-size: 11px; font-weight: 550;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.metrics .token-legend .ck i { margin-right: 2px; }
+.metrics .token-legend .ck-name { color: var(--ink-3); font-weight: 550; }
+.metrics .token-legend .ck-value {
+  color: var(--ink-2); font-family: var(--font-mono); font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---------- engine tooltip skin (.mtip) ----------
    The one glass survivor: a transient overlay, not a page surface.

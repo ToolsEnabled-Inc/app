@@ -295,15 +295,18 @@ function sankeyOption(P) {
       id: 'routing', type: 'sankey',
       // Labels live OUTSIDE the outer columns, so the plot reserves their
       // width instead of gambling on clipping at narrow builder widths.
-      left: 112, right: 160, top: 18, bottom: 14,
+      left: 150, right: 160, top: 18, bottom: 14,
       nodeWidth: 12, nodeGap: 26,
       layoutIterations: 0,
       emphasis: { focus: 'adjacency' },
       data: d.sankey.nodes.map(n => ({
-        name: n.name, depth: n.depth,
+        name: n.name, depth: n.depth, kind: n.kind, routed: n.routed,
         itemStyle: { color: nodeColor(n), borderWidth: 0, borderRadius: 3 },
         label: {
           position: n.depth === 0 ? 'left' : 'right', distance: 7,
+          formatter: n.kind === 'role'
+            ? `{name|${n.name}}`
+            : `{name|${n.name}}{value| · ${fmtFlow(n.routed)}}`,
           // A page-colour halo is functional: even the smallest pool flow
           // can no longer thread through a word at the middle column.
           textBorderColor: th.bg, textBorderWidth: 3,
@@ -320,8 +323,18 @@ function sankeyOption(P) {
         },
       })),
       label: {
-        fontSize: 13, lineHeight: 16, color: th.ink2,
+        fontSize: 12.5, lineHeight: 16, color: th.ink2,
         fontFamily: th.font, fontWeight: 560,
+        rich: {
+          name: {
+            fontSize: 12.5, lineHeight: 16, color: th.ink2,
+            fontFamily: th.font, fontWeight: 560,
+          },
+          value: {
+            fontSize: 12.5, lineHeight: 16, color: th.ink3,
+            fontFamily: th.mono, fontWeight: 450,
+          },
+        },
       },
       blur: {
         itemStyle: { opacity: 0.35 },

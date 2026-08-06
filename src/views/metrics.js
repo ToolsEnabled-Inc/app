@@ -398,7 +398,7 @@ export function metricsView() {
         <section class="m-sec m-band" data-mc="tokenflow">
           <div class="m-head"><span class="mt">Token flow</span><span class="ms" id="tokens-sub">last 24 h · thousands</span>
             <span class="spacer"></span>
-            <span class="chart-legend">${PROVIDERS.map(p => `<span class="ck" style="--kc:${provInk(p.id)}"><i></i>${p.label}</span>`).join('')}</span>
+            <span class="chart-legend token-legend"><span class="ck-cap">window totals</span>${PROVIDERS.map(p => `<span class="ck" data-token-provider="${p.id}" style="--kc:${provInk(p.id)}"><i></i><span class="ck-name">${p.label}</span><span class="ck-value">—</span></span>`).join('')}</span>
           </div>
           <div class="echart" id="hero-chart" role="img" aria-label="Token flow by provider, solid stacked bands with wheel zoom"></div>
           <div class="band-cap"><span>failure %</span><span class="bc-note">same window · crosshair synced</span></div>
@@ -546,7 +546,7 @@ export function metricsView() {
     const machineDays = Math.max(0.25, R.days * Math.max(1, machineComputers().length))
     const vertexTotal = m.spend.vertexTotal
     const defs = [
-      { id: 'jpinckard21', label: 'subscription seat', kind: 'percent', total: 100, used: pools[0] },
+      { id: 'jpinckard21', label: 'subscription seat', kind: 'percent', total: 100, used: pools[0], window: 'seat window, resets monthly' },
       { id: 'jpinckard95', label: 'vertex trial', kind: 'currency', total: vertexTotal, used: vertexTotal * pools[1] / 100 },
     ]
     const rows = defs.map((def) => {
@@ -557,7 +557,10 @@ export function metricsView() {
       const recent = series.slice(-6)
       const rate = recent.reduce((sum, v) => sum + v, 0) / recent.length
       const remaining = Math.max(0, def.total - def.used)
-      return { ...def, remaining, rate, runway: rate ? remaining / rate : null, series }
+      /* A percent seat quota is a resetting window, not a depleting asset.
+         Only the true dollar budget gets remaining/rate runway math. */
+      const runway = def.kind === 'currency' && rate ? remaining / rate : null
+      return { ...def, remaining, rate, runway, series }
     })
     return { rows, machineDays }
   }
@@ -565,22 +568,30 @@ export function metricsView() {
   function buildTimeline(tiles, key, R) {
     const checkpointTotal = Math.max(0, Math.round(tiles.checkpoints))
     const gateTotal = Math.max(0, Math.round(tiles.gateBlocks))
+    /* The summary and the marks are the same population. The former sqrt/
+       max caps turned 14 checkpoints into six dots, so a cold read could
+       never reconcile the stated count with the strip. */
     const checkpointMarks = checkpointTotal
-      ? Math.min(6, checkpointTotal, Math.max(4, Math.round(Math.sqrt(checkpointTotal)))) : 0
-    const gateMarks = gateTotal ? Math.min(4, gateTotal) : 0
+    const gateMarks = gateTotal
     const order = []
     let ci = 0, gi = 0
     while (ci < checkpointMarks || gi < gateMarks) {
       if (ci < checkpointMarks) order.push({ kind: 'checkpoint', ordinal: ci++ })
       if (gi < gateMarks) order.push({ kind: 'gate', ordinal: gi++ })
     }
+    /* Events are recorded at bucket precision, so up to three may share one
+       time-x. Give every colliding event its own row instead of painting the
+       last one over the first; ceil(count / 3) keeps the beeswarm to exactly
+       the strip's three available rows. */
+    const slotCount = Math.max(1, Math.ceil(order.length / 3))
     const events = order.map((event, i) => {
-      const jitter = (noise(`${key}|event|${event.kind}|${event.ordinal}`) - 0.5) * 0.026
-      const at = clamp(0.035, 0.965, (i + 1) / (order.length + 1) + jitter)
+      const slot = Math.floor(i / 3)
+      const at = clamp(0.035, 0.965, (slot + 1) / (slotCount + 1))
+      const row = i % 3
       if (event.kind === 'checkpoint') {
         const number = Math.max(1, checkpointTotal - checkpointMarks + event.ordinal + 1)
         return {
-          ...event, at, atLabel: R.xlab(at * (N - 1)),
+          ...event, at, row, atLabel: R.xlab(at * (N - 1)),
           label: `Checkpoint ${number}`, state: 'recorded', level: 'checkpoint',
         }
       }
@@ -588,11 +599,20 @@ export function metricsView() {
       const held = (event.ordinal + gateTotal) % 2 === 0
       const level = held && noise(`${key}|event|severity|${event.ordinal}`) > 0.68 ? 'serious' : held ? 'held' : 'open'
       return {
-        ...event, at, atLabel: R.xlab(at * (N - 1)),
-        label: `Gate ${number}`, state: held ? 'held' : 'opened', level,
+        ...event, at, row, atLabel: R.xlab(at * (N - 1)), held,
+        label: `Gate ${number}`, state: 'resolved', level,
       }
     }).sort((a, b) => a.at - b.at)
-    return { checkpointTotal, gateTotal, events }
+    /* A current hold is the latest held gate in the selected event data.
+       Earlier held marks explicitly say they resolved; the current one gets
+       its own persistent halo and supplies the caption count. */
+    const heldEvents = events.filter(event => event.kind === 'gate' && event.held)
+    heldEvents.forEach((event, i) => {
+      event.ongoing = i === heldEvents.length - 1
+      event.state = event.ongoing ? 'still held' : 'resolved after hold'
+    })
+    const ongoingTotal = events.filter(event => event.ongoing).length
+    return { checkpointTotal, gateTotal, ongoingTotal, events }
   }
 
   /* `back` shifts the seed one equivalent period into the past, so the tile
@@ -774,12 +794,20 @@ export function metricsView() {
       }
     }
 
+    const providerTotals = Object.fromEntries(PROVIDERS.map(p => [
+      p.id, tokens[p.id].reduce((sum, value) => sum + value, 0),
+    ]))
     const nodes = [
       /* pools keep POOLS' declared order; a pool with zero routed flow this
          instant is omitted (a zero-height bar with a floating label reads as
          a rendering bug, not as "dormant") */
-      ...POOLS.filter(p => poolFlow[p.id]).map(p => ({ name: p.id, depth: 0, kind: 'pool' })),
-      ...PROVIDERS.map(p => ({ name: p.label, depth: 1, kind: 'prov', ref: p.id })),
+      ...POOLS.filter(p => poolFlow[p.id]).map(p => ({
+        name: p.id, depth: 0, kind: 'pool',
+        routed: Object.values(poolFlow[p.id]).reduce((sum, value) => sum + value, 0),
+      })),
+      ...PROVIDERS.map(p => ({
+        name: p.label, depth: 1, kind: 'prov', ref: p.id, routed: providerTotals[p.id],
+      })),
       /* role hexes are the shell's fixed identity system (identical across
          themes — the table dots inline them), so they may travel with the
          data; pool/provider colours resolve from the theme snapshot at
@@ -1194,7 +1222,7 @@ export function metricsView() {
         : `${row.rate.toFixed(1)} pts / machine-day`
       ref.querySelector('.burn-figure').textContent = row.kind === 'currency'
         ? `$${row.remaining.toFixed(0)} of $${row.total.toFixed(0)} · ${runway} at current burn`
-        : `${row.remaining.toFixed(0)}% headroom · ${runway} at current burn`
+        : `${row.remaining.toFixed(0)}% headroom · ${row.window}`
     }
   }
 
@@ -1222,12 +1250,15 @@ export function metricsView() {
   function applyTimeline(d) {
     if (!d?.timeline) return
     const R = meta()
-    root.querySelector('#gate-counts').textContent = `${d.timeline.checkpointTotal} ckpt · ${d.timeline.gateTotal} gate blocks`
+    /* count in the legend's own nouns — "blocks" made a cold reader hunt for
+       a third mark family that doesn't exist (gates = the open + held glyphs) */
+    root.querySelector('#gate-counts').textContent = `${d.timeline.checkpointTotal} ckpt · ${d.timeline.gateTotal} gates`
+    syncGatesChrome(d, R)
     const axis = root.querySelectorAll('.gate-axis-labels span')
     R.timeline.forEach((label, i) => { axis[i].textContent = label })
     gateTrack.innerHTML = d.timeline.events.map(event => `
-      <button type="button" role="listitem" class="gate-event is-${event.level}"
-        style="--event-x:${(event.at * 100).toFixed(2)}%"
+      <button type="button" role="listitem" class="gate-event is-${event.level}${event.ongoing ? ' is-ongoing' : ''}"
+        style="--event-x:${(event.at * 100).toFixed(2)}%;--event-row:${event.row}"
         data-label="${event.label}" data-at="${event.atLabel}" data-state="${event.state}"
         aria-label="${event.label}, ${event.state}, ${event.atLabel}"><i aria-hidden="true"></i></button>
     `).join('')
@@ -1245,7 +1276,30 @@ export function metricsView() {
   let charts = null
   let theme = null
 
+  const tokenLegendRefs = new Map([...root.querySelectorAll('[data-token-provider]')]
+    .map(node => [node.dataset.tokenProvider, node]))
+
+  function syncTokenLegend(d) {
+    if (!d?.tokens) return
+    for (const provider of PROVIDERS) {
+      const ref = tokenLegendRefs.get(provider.id)
+      if (!ref) continue
+      /* heroOption rounds each plotted point to two decimals before the
+         tooltip sums it; mirror that exact series population here. */
+      const base = d.tokens[provider.id]
+        .reduce((sum, value) => sum + Number(value.toFixed(2)), 0)
+      const appended = liveExtras
+        .reduce((sum, event) => sum + Number(event.tok[provider.id].toFixed(2)), 0)
+      const value = fmtK(Math.round(base + appended))
+      ref.querySelector('.ck-value').textContent = value
+      ref.setAttribute('aria-label', `${provider.label}, ${value} tokens in selected window`)
+    }
+  }
+
   function updateCharts(d, dur, entrance = false) {
+    /* The DOM ranking rides every existing chart update path: boot, filter
+       retargets, sim drift, theme flips and live bucket appends. */
+    syncTokenLegend(d)
     if (!charts || !theme) return
     charts.update({
       d, R: meta(), theme, dur, entrance, reduced: reduced(),
@@ -1566,7 +1620,12 @@ export function metricsView() {
   function syncOptionalChrome(R = meta()) {
     if (componentPlaced('heartbeat')) syncHeartbeatChrome()
     if (componentPlaced('burn')) root.querySelector('#burn-sub').textContent = `${R.word} · per machine-day${machineSuffix()}`
-    if (componentPlaced('gates')) root.querySelector('#gates-sub').textContent = `${R.word} · event log${machineSuffix()}`
+    if (componentPlaced('gates')) syncGatesChrome(target, R)
+  }
+
+  function syncGatesChrome(d = target, R = meta()) {
+    const ongoing = d?.timeline?.ongoingTotal || 0
+    root.querySelector('#gates-sub').textContent = `${R.word} · event log${machineSuffix()}${ongoing ? ` · ${ongoing} still held` : ''}`
   }
 
   /* ================= tween engine ================= */
