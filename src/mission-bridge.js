@@ -5,6 +5,7 @@ const ACTION_ROUTES = Object.freeze({
   'thread-reply': '/v1/actions/thread-reply',
   decision: '/v1/actions/decision',
   terminate: '/v1/actions/terminate',
+  'ledger-archive': '/v1/actions/ledger-archive',
 })
 
 let bootstrapPromise = null
@@ -165,12 +166,178 @@ export async function bridgeReachable() {
 // registry, ran, and exited 0 while the operator was told it was refused.
 // Misreporting a completed spawn as a failure invites a retry, and dispatch
 // carries no idempotency key, so the retry would spawn a second agent.
-const ACTION_TIMEOUT_MS = Object.freeze({ dispatch: 120_000, queue: 30_000, terminate: 120_000 })
+const ACTION_TIMEOUT_MS = Object.freeze({ dispatch: 120_000, queue: 30_000, terminate: 120_000, 'ledger-archive': 120_000 })
 
 export function postBridgeAction(action, body) {
   const pathname = ACTION_ROUTES[action]
   if (!pathname) return Promise.resolve({ ok: false, reason: 'unknown bridge action', code: 'BRIDGE_ACTION_UNKNOWN' })
   return request(pathname, { method: 'POST', body, timeoutMs: ACTION_TIMEOUT_MS[action] ?? REQUEST_TIMEOUT_MS })
+}
+
+function validAuditReceipt(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Number.isSafeInteger(value.sequence) && value.sequence > 0
+    && /^[a-f0-9]{64}$/.test(String(value.eventHash || ''))
+}
+
+const ARCHIVE_REQUEST_ID_RE = /^R[0-9]{1,4}(?:\.[0-9]{1,4})?$/
+
+function validArchiveCandidate(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Reflect.ownKeys(value).some(key => !['id', 'reasonCode', 'reason', 'supersedingRequestIds'].includes(key))
+      || !['id', 'reasonCode', 'reason'].every(key => Object.hasOwn(value, key))
+      || !ARCHIVE_REQUEST_ID_RE.test(String(value.id || ''))
+      || !['completed', 'fully-superseded'].includes(value.reasonCode)
+      || typeof value.reason !== 'string' || value.reason.length === 0 || value.reason.length > 300
+      || /[\r\n]/.test(value.reason)) return false
+  const superseding = value.supersedingRequestIds === undefined ? [] : value.supersedingRequestIds
+  return Array.isArray(superseding)
+    && new Set(superseding).size === superseding.length
+    && superseding.every(id => ARCHIVE_REQUEST_ID_RE.test(id))
+    && (value.reasonCode === 'fully-superseded' ? superseding.length > 0 : superseding.length === 0)
+}
+
+/** Validate the bounded canonical archive receipt before the UI reports a move. */
+export function verifiedLedgerArchiveReceipt(result, dryRun) {
+  const receipt = result?.receipt
+  if (result?.ok !== true
+      || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)
+      || receipt.action !== 'ledger-archive'
+      || receipt.dryRun !== dryRun
+      || !canonicalIso(receipt.at)
+      || !/^[a-f0-9]{64}$/.test(String(receipt.planSha256 || ''))
+      || !Array.isArray(receipt.candidates) || !receipt.candidates.every(validArchiveCandidate)
+      || new Set(receipt.candidates.map(candidate => candidate.id)).size !== receipt.candidates.length
+      || !Array.isArray(receipt.inconsistencies)
+      || !receipt.inconsistencies.every(issue => issue && typeof issue === 'object' && !Array.isArray(issue)
+        && Reflect.ownKeys(issue).length === 3
+        && ['id', 'code', 'reason'].every(key => Object.hasOwn(issue, key))
+        && ARCHIVE_REQUEST_ID_RE.test(String(issue.id || ''))
+        && issue.code === 'DONE_WITH_UNMET_GATE'
+        && typeof issue.reason === 'string' && issue.reason.length > 0 && issue.reason.length <= 300)
+      || !Number.isSafeInteger(receipt.activeCount) || receipt.activeCount < 0
+      || !Number.isSafeInteger(receipt.archiveCount) || receipt.archiveCount < 0
+      || !Array.isArray(receipt.movedIds)
+      || !Number.isSafeInteger(receipt.movedCount) || receipt.movedCount !== receipt.movedIds.length
+      || !validAuditReceipt(receipt.audit)) return false
+  const candidateIds = receipt.candidates.map(candidate => candidate.id)
+  if (dryRun) return receipt.movedCount === 0
+  return receipt.movedCount === candidateIds.length
+    && JSON.stringify(receipt.movedIds) === JSON.stringify(candidateIds)
+    && validAuditReceipt(receipt.intentAudit)
+}
+
+function archiveControlState(phase, enabled, label, note, message) {
+  return Object.freeze({ phase, enabled, label, note, message })
+}
+
+function archivePreviewMessage(receipt) {
+  const candidates = receipt.candidates.map(candidate => `${candidate.id} - ${candidate.reason}`).join('; ')
+  const issues = receipt.inconsistencies.map(issue => `${issue.id} - ${issue.reason}`).join('; ')
+  return [
+    candidates ? `Preview: ${candidates}.` : 'Preview: no requests currently qualify.',
+    issues ? ` Retained inconsistencies: ${issues}.` : '',
+  ].join('')
+}
+
+/**
+ * Two-step owner control: the first click performs a real dry-run and renders
+ * every candidate; only the second click submits {dryRun:false}. Any uncertain
+ * response returns to preview instead of silently retrying a move.
+ */
+export function createLedgerArchiveController({
+  postAction = postBridgeAction,
+  onState = () => {},
+} = {}) {
+  let destroyed = false
+  let preview = null
+  let state = archiveControlState(
+    'idle',
+    true,
+    'Preview cleanup',
+    'Owner-gated',
+    'Preview completed or fully superseded R requests. Nothing moves on the first click.',
+  )
+  const publish = next => {
+    state = next
+    if (!destroyed) onState(state)
+  }
+  publish(state)
+
+  const runPreview = async () => {
+    preview = null
+    publish(archiveControlState(
+      'pending-preview', false, 'Previewing', 'Dry run',
+      'Computing the exact archive set. Nothing has moved.',
+    ))
+    let result
+    try { result = await postAction('ledger-archive', { dryRun: true }) }
+    catch (error) {
+      result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'preview failed' }
+    }
+    if (destroyed) return state
+    if (!verifiedLedgerArchiveReceipt(result, true)) {
+      publish(archiveControlState(
+        'idle', true, 'Preview again', 'No move confirmed',
+        `${result?.code || 'BRIDGE_LEDGER_ARCHIVE_PREVIEW_INVALID'}: ${result?.reason || 'The preview receipt was incomplete.'} Nothing moved.`,
+      ))
+      return state
+    }
+    preview = result.receipt
+    const message = archivePreviewMessage(preview)
+    if (preview.candidates.length === 0) {
+      publish(archiveControlState('idle', true, 'Preview again', 'Nothing eligible', `${message} Nothing moved.`))
+      return state
+    }
+    publish(archiveControlState(
+      'confirm', true,
+      `Archive ${preview.candidates.length} request${preview.candidates.length === 1 ? '' : 's'}`,
+      'Select again to confirm',
+      `${message} Select again to move exactly this preview.`,
+    ))
+    return state
+  }
+
+  const execute = async () => {
+    const submittedPreview = preview
+    publish(archiveControlState(
+      'pending-move', false, 'Archiving', 'Pending',
+      'Archive request pending. No move has been confirmed.',
+    ))
+    let result
+    try { result = await postAction('ledger-archive', { dryRun: false }) }
+    catch (error) {
+      result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'archive request failed' }
+    }
+    if (destroyed) return state
+    const exactPreview = verifiedLedgerArchiveReceipt(result, false)
+      && result.receipt.planSha256 === submittedPreview?.planSha256
+      && JSON.stringify(result.receipt.candidates) === JSON.stringify(submittedPreview?.candidates)
+    preview = null
+    if (!exactPreview) {
+      publish(archiveControlState(
+        'idle', true, 'Preview current state', 'No move confirmed',
+        `${result?.code || 'BRIDGE_LEDGER_ARCHIVE_RECEIPT_INVALID'}: ${result?.reason || 'The archive result did not match the confirmed preview.'} Preview again before any retry.`,
+      ))
+      return state
+    }
+    const ids = result.receipt.movedIds.join(', ')
+    publish(archiveControlState(
+      'success', true, 'Preview cleanup', 'Archived',
+      `Archive verified for ${ids || 'no requests'}. The durable active and archive ledgers match the confirmed preview.`,
+    ))
+    return state
+  }
+
+  return Object.freeze({
+    click() {
+      if (destroyed || state.phase.startsWith('pending')) return Promise.resolve(state)
+      if (state.phase === 'confirm' && preview) return execute()
+      return runPreview()
+    },
+    destroy() { destroyed = true },
+    getState() { return state },
+  })
 }
 
 const TERMINAL_AGENT_STATUSES = new Set(['finished', 'failed'])
