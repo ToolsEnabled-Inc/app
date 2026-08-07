@@ -7,7 +7,7 @@
 const STATUS_URL = '/data/status.json'
 
 export const PROJECTION_DOMAINS = Object.freeze([
-  'fleet', 'agents', 'metrics', 'ops', 'ledger', 'coordinator',
+  'fleet', 'agents', 'metrics', 'ops', 'ledger', 'coordinator', 'research',
 ])
 
 /** Fetch + validate the snapshot once. Read-only; no retries, no mutation. */
@@ -94,6 +94,7 @@ export const fetchMetrics = options => fetchProjection('metrics', options)
 export const fetchOps = options => fetchProjection('ops', options)
 export const fetchLedger = options => fetchProjection('ledger', options)
 export const fetchCoordinator = options => fetchProjection('coordinator', options)
+export const fetchResearch = options => fetchProjection('research', options)
 
 function recognizedProjectionSchema(schema, domain) {
   return isPlainObject(schema)
