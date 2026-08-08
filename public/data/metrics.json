@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "domain": "metrics",
-  "generatedAt": "2026-08-06T08:36:08.796Z",
+  "generatedAt": "2026-08-08T15:20:51.364Z",
   "ok": true,
   "reason": null,
   "sources": [
@@ -10,7 +10,7 @@
       "kind": "cli",
       "path": "tools/agent-preflight.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:36:08.858Z",
+      "observedAt": "2026-08-08T15:20:51.473Z",
       "reason": null
     },
     {
@@ -18,7 +18,7 @@
       "kind": "reader",
       "path": "tools/ledger-query.js",
       "ok": true,
-      "observedAt": "2026-08-06T08:32:25.510Z",
+      "observedAt": "2026-08-08T15:16:27.915Z",
       "reason": null
     },
     {
@@ -26,8 +26,16 @@
       "kind": "reader",
       "path": "BUILD-QUEUE.md",
       "ok": true,
-      "observedAt": "2026-08-06T08:22:18.148Z",
+      "observedAt": "2026-08-07T23:05:45.286Z",
       "reason": null
+    },
+    {
+      "id": "usage-attribution",
+      "kind": "cli",
+      "path": "tools/usage-attribution-query.js",
+      "ok": false,
+      "observedAt": null,
+      "reason": "source-unavailable"
     },
     {
       "id": "audit-sqlite",
@@ -50,7 +58,7 @@
     "sessions": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:36:08.858Z",
+      "observedAt": "2026-08-08T15:20:51.473Z",
       "value": {
         "codex": 8,
         "claude": 6
@@ -59,13 +67,13 @@
     "fleetSupervisor": {
       "ok": false,
       "reason": "source-unavailable",
-      "observedAt": "2026-08-06T08:36:08.858Z",
+      "observedAt": "2026-08-08T15:20:51.473Z",
       "value": null
     },
     "services": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:36:08.858Z",
+      "observedAt": "2026-08-08T15:20:51.473Z",
       "value": {
         "total": 5,
         "stale": 1
@@ -74,21 +82,21 @@
     "requests": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:32:25.510Z",
+      "observedAt": "2026-08-08T15:16:27.915Z",
       "value": {
-        "total": 452,
-        "open": 402
+        "total": 479,
+        "open": 429
       }
     },
     "queue": {
       "ok": true,
       "reason": null,
-      "observedAt": "2026-08-06T08:22:18.148Z",
+      "observedAt": "2026-08-07T23:05:45.286Z",
       "value": {
-        "total": 68,
+        "total": 78,
         "blocked": 22,
         "done": 21,
-        "open": 15,
+        "open": 25,
         "in_progress": 10
       }
     },
@@ -101,6 +109,13 @@
     "memory": {
       "ok": false,
       "reason": "source-unreadable-safely",
+      "observedAt": null,
+      "value": null
+    },
+    "usageAttribution": {
+      "ok": false,
+      "state": "unavailable",
+      "reason": "source-unavailable",
       "observedAt": null,
       "value": null
     }

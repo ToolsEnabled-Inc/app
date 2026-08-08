@@ -345,6 +345,110 @@ function sankeyOption(P) {
   }
 }
 
+/* ---------- measured live routing ----------
+   This deliberately has a separate, tiny lifecycle from createCharts().  A
+   live metrics view must never initialize the seven simulated instruments;
+   only a complete measured usage observation gets an ECharts instance. */
+const escapeHtml = (value) => String(value)
+  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
+
+function measuredSankey(rows) {
+  const nodes = new Map()
+  const links = new Map()
+  const node = (kind, value, depth) => {
+    const name = `${kind}:${value}`
+    if (!nodes.has(name)) nodes.set(name, { name, label: value, kind, depth, inbound: 0, outbound: 0, routed: 0 })
+    return name
+  }
+  const link = (source, target, row) => {
+    const key = `${source}\u0000${target}`
+    const current = links.get(key) || { source, target, value: 0, rows: [] }
+    current.value += row.tokens
+    current.rows.push(row)
+    links.set(key, current)
+  }
+  for (const row of rows) {
+    const pool = node('pool', row.pool, 0)
+    const provider = node('provider', row.provider, 1)
+    const role = node('role', row.role, 2)
+    link(pool, provider, row)
+    link(provider, role, row)
+  }
+  for (const edge of links.values()) {
+    nodes.get(edge.source).outbound += edge.value
+    nodes.get(edge.target).inbound += edge.value
+  }
+  for (const entry of nodes.values()) entry.routed = Math.max(entry.inbound, entry.outbound)
+  return {
+    nodes: [...nodes.values()].sort((a, b) => a.depth - b.depth || a.label.localeCompare(b.label)),
+    links: [...links.values()].sort((a, b) => a.source.localeCompare(b.source) || a.target.localeCompare(b.target)),
+  }
+}
+
+function measuredSankeyOption({ rows, theme: th, dur = 0, reduced = false }) {
+  const data = measuredSankey(rows)
+  const nodeColor = (n) => n.kind === 'pool' ? th.poolAccent
+    : n.kind === 'provider' ? th.prov[n.label] || th.ink2 : th.ink2
+  const cmap = new Map(data.nodes.map(n => [n.name, nodeColor(n)]))
+  const gradient = (edge, alpha) => ({
+    type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
+    colorStops: [
+      { offset: 0, color: withAlpha(cmap.get(edge.source) || th.ink3, alpha) },
+      { offset: 1, color: withAlpha(cmap.get(edge.target) || th.ink3, alpha) },
+    ],
+  })
+  return {
+    ...anim({ entrance: true, dur, reduced }),
+    backgroundColor: 'transparent',
+    tooltip: {
+      ...tipBase(), trigger: 'item',
+      formatter: (q) => {
+        if (q.dataType !== 'edge') return mtip(`<div class="tt-title">${escapeHtml(q.data.label)}</div><b>${q.data.routed.toLocaleString('en-US')}</b> measured tokens`)
+        const exact = q.data.rows.map(row =>
+          `<div class="tt-row">${escapeHtml(row.pool)} → ${escapeHtml(row.provider)} → ${escapeHtml(row.role)} <b>${row.tokens.toLocaleString('en-US')}</b> tokens · ${row.calls.toLocaleString('en-US')} calls · token ${row.tokenProvenance} · attribution ${row.attributionProvenance}</div>`
+        ).join('')
+        return mtip(`<div class="tt-title">measured tuple rows</div>${exact}`)
+      },
+    },
+    series: [{
+      id: 'live-measured-routing', type: 'sankey',
+      left: 150, right: 160, top: 18, bottom: 14,
+      nodeWidth: 12, nodeGap: 26, layoutIterations: 0,
+      emphasis: { focus: 'adjacency' },
+      data: data.nodes.map(n => ({
+        ...n,
+        itemStyle: { color: nodeColor(n), borderWidth: 0, borderRadius: 3 },
+        label: {
+          position: n.depth === 0 ? 'left' : 'right', distance: 7,
+          formatter: `{name|${escapeHtml(n.label)}}{value| · ${n.routed.toLocaleString('en-US')}}`,
+          textBorderColor: th.bg, textBorderWidth: 3,
+        },
+      })),
+      links: data.links.map(edge => ({
+        ...edge,
+        lineStyle: { color: gradient(edge, th.sankeyRest), opacity: 1, curveness: 0.5 },
+        emphasis: { lineStyle: { color: gradient(edge, th.sankeyHover), opacity: 1 } },
+      })),
+      label: {
+        fontSize: 12.5, lineHeight: 16, color: th.ink2, fontFamily: th.font, fontWeight: 560,
+        rich: {
+          name: { fontSize: 12.5, lineHeight: 16, color: th.ink2, fontFamily: th.font, fontWeight: 560 },
+          value: { fontSize: 12.5, lineHeight: 16, color: th.ink3, fontFamily: th.mono, fontWeight: 450, padding: [0, 0, 0, 8] },
+        },
+      },
+    }],
+  }
+}
+
+export function createLiveUsageSankey(host) {
+  const instance = echarts.init(host, null, { renderer: 'svg' })
+  return {
+    update(payload) { instance.setOption(measuredSankeyOption(payload), { notMerge: true }) },
+    resize() { if (!instance.isDisposed()) instance.resize() },
+    dispose() { if (!instance.isDisposed()) instance.dispose() },
+  }
+}
+
 function failOption(P) {
   const { d, R, theme: th, lanes } = P
   return {

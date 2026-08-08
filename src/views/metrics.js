@@ -25,7 +25,7 @@ import { sim, fmtRuntime } from '../sim.js'
 import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
 import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../components.js'
 import { buildTheme } from '../echarts-theme.js'
-import { createCharts } from '../metrics-charts.js'
+import { createCharts, createLiveUsageSankey } from '../metrics-charts.js'
 import { createMetricsLayout } from '../metrics-layout.js'
 import { isLiveView, setLiveView } from '../live-flags.js'
 import { fetchMetrics } from '../live-status.js'
@@ -335,6 +335,17 @@ export function metricsView() {
     const value = observation?.value
     const number = observation?.ok && Number.isFinite(value?.[tile.key]) ? value[tile.key] : null
     return { observation, number, value }
+  }
+
+  function liveUsageAttribution() {
+    const observation = liveObservation('usageAttribution')
+    if (!observation?.ok || !observation.value) {
+      return { state: 'unavailable', reason: observation?.reason || 'usage attribution unavailable', value: null }
+    }
+    if (!['complete', 'empty', 'partial'].includes(observation.state)) {
+      return { state: 'unavailable', reason: 'usage attribution state invalid', value: null }
+    }
+    return { state: observation.state, reason: null, value: observation.value }
   }
 
   /* This is intentionally shape-free. It lets the shared mount plumbing keep
@@ -1348,6 +1359,7 @@ export function metricsView() {
      and hover focus. */
 
   let charts = null
+  let liveSankey = null
   let theme = null
 
   const tokenLegendRefs = new Map([...root.querySelectorAll('[data-token-provider]')]
@@ -1730,6 +1742,8 @@ export function metricsView() {
   }
 
   function setSankeyUnavailable() {
+    liveSankey?.dispose()
+    liveSankey = null
     const component = root.querySelector('[data-mc="sankey"]')
     const host = root.querySelector('#sankey-chart')
     component?.classList.add('projection-unavailable')
@@ -1761,6 +1775,64 @@ export function metricsView() {
     host.replaceChildren(panel)
   }
 
+  function setSankeyStatePanel(label, sentence, sub) {
+    setSankeyUnavailable()
+    const panel = root.querySelector('[data-sankey-empty="true"]')
+    if (panel) {
+      panel.querySelector('.m-sankey-empty-label').textContent = label
+      panel.querySelector('p').textContent = sentence
+    }
+    const subNode = root.querySelector('#sankey-sub')
+    if (subNode) subNode.textContent = sub
+    const host = root.querySelector('#sankey-chart')
+    if (host) host.setAttribute('aria-label', sentence)
+  }
+
+  function applyLiveSankey() {
+    const usage = liveUsageAttribution()
+    if (usage.state === 'unavailable') {
+      setSankeyStatePanel(
+        'live observation unavailable',
+        `Live token routing is unavailable because ${usage.reason}.`,
+        'pools → providers → roles · unavailable',
+      )
+      return
+    }
+    if (usage.state === 'empty') {
+      setSankeyStatePanel(
+        'observed empty',
+        'The bounded signed audit window was completely observed and contains no attributed usage.',
+        'pools → providers → roles · observed empty',
+      )
+      return
+    }
+    if (usage.state === 'partial') {
+      const { totals } = usage.value
+      setSankeyStatePanel(
+        'partial observation',
+        `A complete total is unavailable. Measured lower bound: ${totals.measuredLowerBoundTokens.toLocaleString('en-US')} tokens across ${totals.calls.toLocaleString('en-US')} calls.`,
+        'pools → providers → roles · partial lower bound',
+      )
+      return
+    }
+
+    const component = root.querySelector('[data-mc="sankey"]')
+    const host = root.querySelector('#sankey-chart')
+    if (!host) return
+    component?.classList.remove('projection-unavailable')
+    host.classList.remove('projection-unavailable', 'm-sankey-empty-host')
+    host.setAttribute('role', 'img')
+    host.setAttribute('aria-live', 'polite')
+    host.setAttribute('aria-label', `Measured token routing: ${usage.value.totals.tokens.toLocaleString('en-US')} tokens across ${usage.value.totals.calls.toLocaleString('en-US')} calls.`)
+    root.querySelector('#sankey-sub').textContent = `pools → providers → roles · measured complete · ${usage.value.totals.tokens.toLocaleString('en-US')} tokens`
+    if (!liveSankey) {
+      host.replaceChildren()
+      theme = buildTheme(root.querySelector('.metrics'))
+      liveSankey = createLiveUsageSankey(host)
+    }
+    liveSankey.update({ rows: usage.value.rows, theme, dur: 240, reduced: reduced() })
+  }
+
   function applyLiveProjection() {
     root.dataset.liveMode = 'live'
     metricsSurface.dataset.liveMode = 'live'
@@ -1771,7 +1843,7 @@ export function metricsView() {
       : `live projection unavailable · ${projection?.reason || 'projection unavailable'}`
     applyLiveTiles()
 
-    setSankeyUnavailable()
+    applyLiveSankey()
     setProjectionUnavailable('tokenflow', '#tokens-sub',
       projectionReason(null, 'aggregate projection has no token-flow time series'), ['#hero-chart', '#strip-chart'])
     setProjectionUnavailable('heatmap', '#heat-sub',
@@ -2013,9 +2085,10 @@ export function metricsView() {
      token snapshot from the NEW computed values, regenerate the heat key, and
      re-issue full options — colours, ramps and gradients glide to the new
      theme on live instances instead of waiting for a remount. */
-  if (!liveMode && typeof MutationObserver !== 'undefined') {
+  if (typeof MutationObserver !== 'undefined') {
     const themeMO = new MutationObserver(() => {
       theme = buildTheme(root.querySelector('.metrics'))
+      if (liveMode) { applyLiveSankey(); return }
       syncHeatKey()
       updateCharts(target, 240)
     })
@@ -2046,6 +2119,8 @@ export function metricsView() {
          tooltip) — dispose is what releases them on route cycling */
       charts?.dispose()
       charts = null
+      liveSankey?.dispose()
+      liveSankey = null
     },
   }
 }

@@ -3,7 +3,9 @@
  * readers/CLI instead of opening live state, particularly any SQLite store.
  */
 import { statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   CANONICAL_ROOT,
   LIVE_ROOT,
@@ -24,6 +26,10 @@ const LEDGER_FILE = 'reports/OWNER-REQUEST-LEDGER.json'
 const QUEUE_CORPUS_READER = 'src/lib/build-queue-corpus.js'
 const QUEUE_PROJECTION_READER = 'src/lib/build-queue-projection.js'
 const QUEUE_ROOT = 'BUILD-QUEUE.md'
+const USAGE_ATTRIBUTION_SCRIPT = 'tools/usage-attribution-query.js'
+const USAGE_ATTRIBUTION_LIMIT = 100
+const USAGE_ATTRIBUTION_TIMEOUT_MS = 15_000
+const USAGE_ATTRIBUTION_MAX_BYTES = 256 * 1024
 
 function isMetricInteger(value) {
   return Number.isSafeInteger(value) && value >= 0
@@ -44,6 +50,163 @@ function safeMetricMap(entries) {
     output[key] = value
   }
   return output
+}
+
+function isIsoDate(value) {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+}
+
+function isUsageIdentifier(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,80}$/.test(value)
+}
+
+function isUsageInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0
+}
+
+function hasExactKeys(value, keys) {
+  return plainObject(value)
+    && Object.keys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value, key))
+}
+
+/**
+ * Validate the reader's public v1 contract before it can become part of a
+ * metrics projection.  This intentionally returns a small, reasoned result
+ * rather than throwing: usage attribution is one observation, not a
+ * prerequisite for the rest of the metrics envelope.
+ */
+export function validateUsageAttributionPayload(payload) {
+  if (!hasExactKeys(payload, ['schemaVersion', 'observation', 'generatedAt', 'source', 'window', 'coverage', 'totals', 'rows'])
+    || payload.schemaVersion !== 1
+    || payload.observation !== 'agent-role-token-usage'
+    || !isIsoDate(payload.generatedAt)
+    || !hasExactKeys(payload.source, ['kind', 'provenance', 'requestedLimit'])
+    || payload.source.kind !== 'signed-audit-tail'
+    || payload.source.provenance !== 'MEASURED'
+    || !isUsageInteger(payload.source.requestedLimit)
+    || payload.source.requestedLimit < 1
+    || payload.source.requestedLimit > 200
+    || !hasExactKeys(payload.window, ['scope', 'earliestSequence', 'latestSequence', 'earliestTimestamp', 'latestTimestamp'])
+    || payload.window.scope !== 'latest-signed-event-tail'
+    || !(payload.window.earliestSequence === null || isUsageInteger(payload.window.earliestSequence))
+    || !(payload.window.latestSequence === null || isUsageInteger(payload.window.latestSequence))
+    || (payload.window.earliestTimestamp !== null && !isIsoDate(payload.window.earliestTimestamp))
+    || (payload.window.latestTimestamp !== null && !isIsoDate(payload.window.latestTimestamp))
+    || !hasExactKeys(payload.coverage, ['state', 'complete', 'scannedEvents', 'attributedUsageEvents', 'excludedEvents'])
+    || !['complete', 'partial', 'empty'].includes(payload.coverage.state)
+    || typeof payload.coverage.complete !== 'boolean'
+    || !isUsageInteger(payload.coverage.scannedEvents)
+    || !isUsageInteger(payload.coverage.attributedUsageEvents)
+    || !hasExactKeys(payload.coverage.excludedEvents, ['nonUsage', 'overlapWrapper', 'missingAttribution', 'unknownAttribution', 'invalidTokenAccounting', 'invalidRouting'])
+    || !['nonUsage', 'overlapWrapper', 'missingAttribution', 'unknownAttribution', 'invalidTokenAccounting', 'invalidRouting']
+      .every(key => isUsageInteger(payload.coverage.excludedEvents[key]))
+    || !hasExactKeys(payload.totals, ['tokens', 'measuredLowerBoundTokens', 'calls'])
+    || !isUsageInteger(payload.totals.measuredLowerBoundTokens)
+    || !isUsageInteger(payload.totals.calls)
+    || !Array.isArray(payload.rows)
+    || payload.rows.length > 200) {
+    return { ok: false, reason: 'source-malformed' }
+  }
+
+  const complete = payload.coverage.state === 'complete'
+  const empty = payload.coverage.state === 'empty'
+  const excluded = payload.coverage.excludedEvents
+  const excludedCount = Object.values(excluded).reduce((sum, value) => sum + value, 0)
+  const incompleteCount = excluded.missingAttribution + excluded.unknownAttribution
+    + excluded.invalidTokenAccounting + excluded.invalidRouting
+  const expectedState = incompleteCount > 0
+    ? 'partial'
+    : payload.coverage.attributedUsageEvents > 0 ? 'complete' : 'empty'
+  const sequencesEmpty = payload.window.earliestSequence === null && payload.window.latestSequence === null
+  const sequencesOrdered = isUsageInteger(payload.window.earliestSequence)
+    && isUsageInteger(payload.window.latestSequence)
+    && payload.window.earliestSequence <= payload.window.latestSequence
+  if (payload.coverage.state !== expectedState
+    || payload.coverage.complete !== (incompleteCount === 0)
+    || payload.coverage.scannedEvents !== payload.coverage.attributedUsageEvents + excludedCount
+    || payload.coverage.scannedEvents > payload.source.requestedLimit
+    || (!sequencesEmpty && !sequencesOrdered)
+    || (complete && (!isUsageInteger(payload.totals.tokens) || payload.rows.length === 0))
+    || (empty && (payload.totals.tokens !== 0 || payload.rows.length !== 0))
+    || (payload.coverage.state === 'partial' && payload.totals.tokens !== null)) {
+    return { ok: false, reason: 'source-malformed' }
+  }
+
+  let tokens = 0
+  let calls = 0
+  let previousKey = ''
+  for (const row of payload.rows) {
+    if (!hasExactKeys(row, ['pool', 'provider', 'role', 'tokens', 'calls', 'tokenProvenance', 'attributionProvenance'])
+      || !isUsageIdentifier(row.pool)
+      || !isUsageIdentifier(row.provider)
+      || !isUsageIdentifier(row.role)
+      || !isUsageInteger(row.tokens)
+      || !isUsageInteger(row.calls)
+      || row.calls === 0
+      || row.tokenProvenance !== 'MEASURED'
+      || !['MEASURED', 'DERIVED'].includes(row.attributionProvenance)) {
+      return { ok: false, reason: 'source-malformed' }
+    }
+    const key = `${row.pool}\u0000${row.provider}\u0000${row.role}`
+    if (key <= previousKey) return { ok: false, reason: 'source-malformed' }
+    previousKey = key
+    tokens += row.tokens
+    calls += row.calls
+    if (!Number.isSafeInteger(tokens) || !Number.isSafeInteger(calls)) return { ok: false, reason: 'source-malformed' }
+  }
+
+  if (tokens !== payload.totals.measuredLowerBoundTokens
+    || calls !== payload.totals.calls
+    || calls !== payload.coverage.attributedUsageEvents
+    || (complete && tokens !== payload.totals.tokens)) {
+    return { ok: false, reason: 'source-malformed' }
+  }
+  return { ok: true, value: payload }
+}
+
+function usageAttributionUnavailable(reason, observedAt = null) {
+  return { ok: false, state: 'unavailable', reason, observedAt, value: null }
+}
+
+export function usageAttributionObservationFromResult(result) {
+  if (!result?.ok) return usageAttributionUnavailable(result?.reason || 'source-unavailable', result?.observedAt || null)
+  const checked = validateUsageAttributionPayload(result.value)
+  if (!checked.ok) return usageAttributionUnavailable(checked.reason, result.observedAt || null)
+  return {
+    ok: true,
+    state: checked.value.coverage.state,
+    reason: null,
+    observedAt: checked.value.generatedAt,
+    value: checked.value,
+  }
+}
+
+function runUsageAttributionQuery(root) {
+  let result
+  try {
+    result = spawnSync(process.execPath, [USAGE_ATTRIBUTION_SCRIPT, '--limit', String(USAGE_ATTRIBUTION_LIMIT)], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: USAGE_ATTRIBUTION_TIMEOUT_MS,
+      maxBuffer: USAGE_ATTRIBUTION_MAX_BYTES,
+      windowsHide: true,
+    })
+  } catch {
+    return { ok: false, reason: 'source-unavailable', observedAt: null }
+  }
+  const observedAt = null
+  if (result.error?.code === 'ETIMEDOUT') return { ok: false, reason: 'source-timeout', observedAt }
+  if (result.error?.code === 'ENOBUFS') return { ok: false, reason: 'source-output-too-large', observedAt }
+  if (result.error || result.status !== 0 || result.signal) return { ok: false, reason: 'source-unavailable', observedAt }
+  if (typeof result.stdout !== 'string' || Buffer.byteLength(result.stdout, 'utf8') > USAGE_ATTRIBUTION_MAX_BYTES) {
+    return { ok: false, reason: 'source-output-too-large', observedAt }
+  }
+  try {
+    return { ok: true, value: JSON.parse(result.stdout), observedAt }
+  } catch {
+    return { ok: false, reason: 'source-malformed', observedAt }
+  }
 }
 
 function sessionsObservation(preflight, observedAt) {
@@ -127,7 +290,8 @@ function queueObservation() {
   }
 }
 
-await emitProjection('metrics', async at => {
+export async function generateMetrics() {
+  await emitProjection('metrics', async at => {
   const preflight = runJsonCli(LIVE_ROOT, PREFLIGHT_SCRIPT, ['--json'], 'live-preflight')
   const preflightSource = source({
     id: 'live-preflight', kind: 'cli', path: PREFLIGHT_SCRIPT,
@@ -145,6 +309,11 @@ await emitProjection('metrics', async at => {
   }
 
   const [requests, queue] = await Promise.all([requestsObservation(), queueObservation()])
+  const usageAttribution = usageAttributionObservationFromResult(runUsageAttributionQuery(LIVE_ROOT))
+  const usageAttributionSource = source({
+    id: 'usage-attribution', kind: 'cli', path: USAGE_ATTRIBUTION_SCRIPT,
+    ok: usageAttribution.ok, observedAt: usageAttribution.observedAt, reason: usageAttribution.reason,
+  })
   const auditSource = source({ id: 'audit-sqlite', kind: 'sqlite', path: 'state/audit.sqlite3', ok: false, reason: 'source-unreadable-safely' })
   const memorySource = source({ id: 'memory-sqlite', kind: 'sqlite', path: 'state/toolsenabled.sqlite3', ok: false, reason: 'source-unreadable-safely' })
   const observedAt = preflight.observedAt
@@ -156,5 +325,9 @@ await emitProjection('metrics', async at => {
     queue: queue.observation,
     audit: unavailable('source-unreadable-safely'),
     memory: unavailable('source-unreadable-safely'),
-  }, [preflightSource, requests.source, queue.source, auditSource, memorySource], at)
-})
+    usageAttribution,
+  }, [preflightSource, requests.source, queue.source, usageAttributionSource, auditSource, memorySource], at)
+  })
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await generateMetrics()
