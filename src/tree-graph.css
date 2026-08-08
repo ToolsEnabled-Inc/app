@@ -1,0 +1,514 @@
+/* Page 2's static whiteboard register. This sheet is deliberately scoped to
+   .computers so FleetGraph on the agent detail route keeps its existing skin. */
+
+.computers .graph-wrap.glass,
+.computers .rail.glass {
+  background: var(--sheet);
+  border: 1px solid var(--line-2);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.computers .graph-wrap.glass::before,
+.computers .graph-wrap.glass::after,
+.computers .rail.glass::before,
+.computers .rail.glass::after { display: none; }
+.computers .graph-wrap.glass:hover,
+.computers .rail.glass:hover { border-color: var(--line-2); box-shadow: none; }
+
+.computers .tab {
+  background: var(--sheet);
+  border-color: var(--line-2);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: color 160ms var(--ease), background 160ms var(--ease), border-color 160ms var(--ease);
+}
+.computers .tab:hover { background: color-mix(in oklab, var(--ink) 4%, var(--sheet)); }
+.computers .tab.active {
+  background: color-mix(in oklab, var(--c-coordinator) 6%, var(--sheet));
+  border-color: color-mix(in oklab, var(--c-coordinator) 34%, var(--line-2));
+  box-shadow: none;
+}
+
+.computers .graph-title {
+  position: absolute;
+  top: 17px;
+  left: 18px;
+  z-index: 8;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  pointer-events: none;
+}
+.computers .graph-crumb {
+  top: 46px;
+  left: 10px;
+}
+.computers .graph-hint {
+  top: 17px;
+  background: var(--sheet);
+  border: 1px solid var(--line-2);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: translateX(-50%);
+  transition: none;
+}
+.computers .graph-hint.show { transform: translateX(-50%); }
+
+.computers .graph-tools {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.computers .graph-edit-btn,
+.computers .graph-reset-btn {
+  position: static;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 13px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--sheet);
+  color: var(--ink-2);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font: 640 12.5px/1 var(--font-ui);
+  cursor: pointer;
+  transition: color 160ms var(--ease), background 160ms var(--ease), border-color 160ms var(--ease);
+}
+.computers .graph-reset-btn {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-3);
+}
+.computers .graph-reset-btn[hidden] { display: none; }
+.computers .graph-edit-btn:hover,
+.computers .graph-reset-btn:hover {
+  color: var(--ink);
+  background: color-mix(in oklab, var(--ink) 5%, var(--sheet));
+}
+.computers .graph-edit-btn.on {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--c-coordinator) 42%, var(--line-2));
+  background: color-mix(in oklab, var(--c-coordinator) 8%, var(--sheet));
+  box-shadow: none;
+}
+.computers .graph-edit-note {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  z-index: 9;
+  color: var(--ink-3);
+  font: 600 11.5px/1.35 var(--font-ui);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: none;
+  transition: none;
+}
+.computers .graph-wrap.editing .graph-edit-note {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.static-tree-graph {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  overflow: visible;
+}
+.static-tree-graph > svg.static-tree-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: none;
+  pointer-events: none;
+}
+.computers .static-tree-graph .tree-link {
+  stroke: color-mix(in oklab, var(--ink-3) 45%, transparent);
+  stroke-width: 1.25 !important;
+  stroke-linecap: round;
+  opacity: 1 !important;
+  fill: none;
+}
+.computers .static-tree-graph .tree-link.link-soft {
+  stroke-dasharray: 2 3;
+  opacity: 0.3 !important;
+}
+.static-tree-graph[data-edit-mode] .tree-link:not(.link-soft) { stroke-dasharray: 5 7; }
+
+.static-tree-graph .node {
+  transform: translate(-50%, -50%);
+  will-change: auto;
+  cursor: default;
+  opacity: 1;
+}
+.static-tree-graph[data-edit-mode] .node { cursor: grab; }
+.static-tree-graph[data-edit-mode] .node.dragging { cursor: grabbing; }
+.static-tree-graph .node::before,
+.static-tree-graph .node-ripple { display: none !important; }
+.static-tree-graph .node,
+.static-tree-graph .node *,
+.static-tree-graph .node::before,
+.static-tree-graph .node::after {
+  animation: none !important;
+}
+.computers .static-tree-graph .node-glass {
+  position: relative;
+  width: var(--d);
+  height: var(--d);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--sheet);
+  border: 1.5px solid var(--rc);
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: border-color 180ms var(--ease), border-width 180ms var(--ease), background 180ms var(--ease);
+}
+.computers .static-tree-graph .node .node-glass::before,
+.computers .static-tree-graph .node .node-glass::after {
+  display: none !important;
+  content: none !important;
+  animation: none !important;
+}
+.static-tree-graph .node:hover .node-glass,
+.static-tree-graph .node.focusable:hover .node-glass {
+  border-width: 2px;
+  border-color: var(--rc);
+  background: color-mix(in oklab, var(--rc) 6%, var(--sheet));
+  box-shadow: none;
+  transform: none;
+}
+.computers .static-tree-graph .node.dragging .node-glass {
+  transform: none;
+  box-shadow: none !important;
+}
+.static-tree-graph .node.focusable .node-glass { border-width: 1.75px; }
+.static-tree-graph .node.selected .node-glass {
+  border-width: 2px;
+  border-color: var(--rc);
+  outline: 1px solid color-mix(in oklab, var(--rc) 35%, transparent);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+.static-tree-graph .node.drop-ok .node-glass {
+  border-width: 2px;
+  border-color: var(--rc);
+  outline: 2px solid color-mix(in oklab, var(--rc) 40%, transparent);
+  outline-offset: 3px;
+  box-shadow: none;
+  transform: none;
+}
+.static-tree-graph .node.refuse .node-glass {
+  border-color: var(--s-serious-text, var(--s-serious));
+  outline: 1px solid color-mix(in oklab, var(--s-serious) 38%, transparent);
+  outline-offset: 3px;
+  transition: none;
+}
+.static-tree-graph .node .rt {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.static-tree-graph .node .rl {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.static-tree-graph .node .node-name { color: var(--ink-2); }
+.static-tree-graph .node .node-role { color: var(--ink-3); }
+.static-tree-graph .node.tree-node-adding,
+.static-tree-graph .node.tree-branch-entering { opacity: 0; }
+.static-tree-graph .node.tree-node-adding,
+.static-tree-graph .node.tree-node-removing,
+.static-tree-graph .node.tree-branch-entering {
+  transition: opacity 150ms linear;
+}
+.static-tree-graph .node.tree-node-removing { opacity: 0; }
+.static-tree-graph .node.tree-node-removing .node-glass { transform: none; }
+.static-tree-graph .node.rerooting { z-index: 7; }
+
+.static-tree-graph .role-coordinator,
+.static-tree-chip.role-coordinator { --rc: var(--c-coordinator); }
+.static-tree-graph .role-helper,
+.static-tree-chip.role-helper { --rc: var(--c-helper); }
+.static-tree-graph .role-shadow,
+.static-tree-chip.role-shadow { --rc: var(--c-shadow); }
+.static-tree-graph .role-manager,
+.static-tree-chip.role-manager { --rc: var(--c-manager); }
+.static-tree-graph .role-default,
+.static-tree-chip.role-default { --rc: var(--c-default); }
+.static-tree-graph .role-spawned,
+.static-tree-chip.role-spawned { --rc: var(--c-spawned); }
+
+.static-tree-chip-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+.static-tree-chip-overlay .graph-chip-leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.static-tree-chip-overlay .graph-chip-leader {
+  stroke: color-mix(in oklab, var(--ink-3) 42%, transparent);
+  stroke-width: 1;
+  opacity: 0;
+  transition: none;
+}
+.static-tree-chip-overlay .graph-chip-leader.visible { opacity: 1; }
+.static-tree-chip-overlay .static-tree-chip {
+  position: absolute;
+  box-sizing: border-box;
+  min-height: 70px;
+  z-index: 1;
+  padding: 7px 15px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: visible;
+  transition: width 500ms var(--ease), height 500ms var(--ease), background 180ms var(--ease);
+}
+.static-tree-chip-overlay .static-tree-chip.screen-chip-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.static-tree-chip-overlay[data-edit-mode] .static-tree-chip,
+.static-tree-chip-overlay[data-edit-mode] .graph-chip-leader {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.static-tree-chip-overlay .static-tree-chip:hover:not(.as-chat) {
+  background: color-mix(in oklab, var(--rc) 4%, transparent);
+}
+.static-tree-chip-overlay .static-tree-chip::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  display: block;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--rc) var(--rim-role), var(--line-2));
+}
+.static-tree-chip-overlay .chip-preview {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-mono);
+}
+.static-tree-chip-overlay .cl {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.static-tree-chip-overlay .cl-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+}
+.static-tree-chip-overlay .cl-name b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+}
+.static-tree-chip-overlay .inline-agent { color: var(--ink-2); }
+.static-tree-chip-overlay .chip-runtime {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.static-tree-chip-overlay .cl-facts {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.static-tree-chip-overlay .cl-current {
+  margin-top: 4px;
+  color: var(--ink-25);
+}
+.static-tree-chip-overlay .cl-previous,
+.static-tree-chip-overlay .cl-chat { margin-top: 2px; color: var(--ink-3); }
+
+.static-tree-chip-overlay .monitor-brace {
+  --mbx: 1;
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 1px;
+  width: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  color: var(--ink-3);
+  opacity: 0.48;
+  pointer-events: none;
+  user-select: none;
+  z-index: 2;
+  transform: scaleX(var(--mbx));
+  transform-origin: center;
+}
+.static-tree-chip-overlay .monitor-brace.is-right {
+  --mbx: -1;
+  left: auto;
+  right: 1px;
+}
+.static-tree-chip-overlay .monitor-brace > svg { display: block; flex: none; overflow: visible; }
+.static-tree-chip-overlay .monitor-brace > svg.monitor-brace-arm {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 12px;
+}
+.static-tree-chip-overlay .monitor-brace > svg + svg { margin-top: -1px; }
+
+.static-tree-chip-overlay .static-tree-chip.as-chat {
+  padding: 12px 15px;
+  background: var(--sheet);
+  border: 1px solid var(--line-2);
+  box-shadow: none;
+  overflow: hidden;
+}
+.static-tree-chip-overlay .static-tree-chip.as-chat .chip-preview { display: none; }
+.static-tree-chip-overlay .static-tree-chip .chat { display: none; }
+.static-tree-chip-overlay .static-tree-chip.as-chat .chat { display: flex; animation: none; }
+.static-tree-chip-overlay .static-tree-chip.as-chat .monitor-brace { top: 10px; bottom: 10px; }
+
+.static-tree-host .graph-fit {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--sheet);
+  color: var(--ink-2);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font: 600 11.5px/1 var(--font-mono);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: none;
+  transition: background 160ms var(--ease), color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.static-tree-host .graph-fit.show { opacity: 1; visibility: visible; pointer-events: auto; transform: none; }
+.static-tree-host .graph-fit:hover { background: color-mix(in oklab, var(--ink) 5%, var(--sheet)); box-shadow: none; }
+
+.computers .rail-page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s5);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: none;
+  transition: opacity 180ms linear, visibility 0s linear 180ms;
+}
+.computers .rail-page.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.computers .rail-page.off-r,
+.computers .rail-page.off-l { transform: none; }
+.computers .rail-title,
+.computers .rail-back,
+.computers .ctl-btn,
+.computers .board-box,
+.computers .task-chip,
+.computers .bar-fill,
+.computers .leg i {
+  box-shadow: none;
+}
+.computers .board-page .agent-head .role-dot,
+.computers .board-page .board-box,
+.computers .board-page .ctl-btn.armed,
+.computers .task-chip,
+.computers .leg i {
+  background-image: none;
+}
+.computers .board-page .agent-head .role-dot { background: var(--role); }
+.computers .board-page .board-box { background: var(--sheet); box-shadow: none; }
+.computers .board-page .ctl-btn.armed {
+  background: color-mix(in oklab, var(--role) 8%, var(--sheet));
+  box-shadow: none;
+}
+.computers .board-page .board-legend .leg.is-self {
+  box-shadow: none;
+  outline: 1px solid color-mix(in oklab, var(--lc) 28%, transparent);
+  outline-offset: 2px;
+}
+.computers .board-page .board-legend .leg.is-self i { box-shadow: none; }
+.computers .bar-fill,
+.computers .task-chip,
+.computers .task-chip i { transition: none; animation: none; }
+.computers .bar-fill { background: var(--m-load, var(--ink-2)); }
+.computers .leg i { background: var(--lc); }
+.computers .board-page .uring .arc-glow { display: none; }
+
+body.reduce-motion .static-tree-graph .node,
+body.reduce-motion .static-tree-graph .node-glass,
+body.reduce-motion .static-tree-chip-overlay .static-tree-chip,
+body.reduce-motion .computers .rail-page,
+body.reduce-motion .computers .graph-hint,
+body.reduce-motion .computers .graph-edit-note {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .static-tree-graph .node,
+  .static-tree-graph .node-glass,
+  .static-tree-chip-overlay .static-tree-chip,
+  .computers .rail-page,
+  .computers .graph-hint,
+  .computers .graph-edit-note { transition: none !important; }
+}
