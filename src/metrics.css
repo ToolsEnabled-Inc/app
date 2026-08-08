@@ -271,6 +271,80 @@
 .metrics #burn-chart { height: 176px; }
 .metrics .echart svg { width: 100%; height: 100%; }
 
+/* A missing live route keeps the hero's full measured slot. Braces and two
+   hairlines make the absence deliberate without turning it into a card; the
+   one action is an explicit source switch, never simulated data under a live
+   label. */
+.metrics #sankey-chart.m-sankey-empty-host {
+  min-height: 430px;
+  padding: var(--s5) clamp(12px, 4vw, 56px);
+  border-block: 1px solid var(--line);
+}
+.m-sankey-empty {
+  width: min(720px, 100%);
+  min-height: 164px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: stretch;
+  column-gap: var(--s3);
+}
+.m-sankey-empty-brace {
+  display: grid;
+  place-items: center;
+  color: var(--brace);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(92px, 11vw, 142px);
+  font-weight: 300;
+  line-height: 1;
+  transform: scaleX(0.7);
+  transform-origin: center;
+  user-select: none;
+}
+.m-sankey-empty-brace.is-right { transform: scaleX(0.7); }
+.m-sankey-empty-copy {
+  align-self: center;
+  display: grid;
+  justify-items: center;
+  gap: var(--s3);
+  text-align: center;
+}
+.m-sankey-empty-label {
+  color: var(--ink-25);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 660;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.m-sankey-empty-copy p {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.m-sankey-sim {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 620 12.5px/1 var(--font-ui);
+  cursor: pointer;
+  transition: color var(--dur-2) var(--ease), background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+.m-sankey-sim:hover {
+  border-color: color-mix(in oklab, var(--ink) 34%, var(--line-2));
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink);
+}
+.m-sankey-sim:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* the caption row between the band's two panes — 11px caps micro-label
    tier; its hairline is what makes hero and strip read as two panes of
    ONE instrument */

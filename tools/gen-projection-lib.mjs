@@ -1,5 +1,5 @@
 /**
- * Shared, fail-closed projection machinery for the six Mission Control data
+ * Shared, fail-closed projection machinery for the seven Mission Control data
  * domains.  This module never reads live SQLite files and never reaches the
  * network.  Domain generators use existing ToolsEnabled readers/CLIs, validate
  * their complete payload against the public schema, then replace one snapshot
@@ -35,7 +35,7 @@ export const DIST_OUTPUT_ROOT = process.env.MC_OUTPUT_ROOT
   : resolve(process.env.MC_DIST_OUTPUT_ROOT || join(PROJECT_ROOT, 'dist', 'data'))
 export const SCHEMA_VERSION = 1
 
-export const DOMAINS = Object.freeze(['fleet', 'agents', 'metrics', 'ops', 'ledger', 'coordinator'])
+export const DOMAINS = Object.freeze(['fleet', 'agents', 'metrics', 'ops', 'ledger', 'coordinator', 'research'])
 
 export const TERMINAL_LANE_TASK_STATUSES = Object.freeze(['succeeded', 'failed', 'uncertain', 'cancelled'])
 export const TERMINAL_LANE_TASK_LIMIT = 200

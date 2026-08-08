@@ -12,6 +12,7 @@ import { homeView } from './views/home.js'
 import { computersView } from './views/computers.js'
 import { agentView } from './views/agent.js'
 import { metricsView } from './views/metrics.js'
+import { researchView } from './views/research.js'
 import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { settingsView } from './views/settings.js'
@@ -27,7 +28,7 @@ const crumb = document.getElementById('crumb')   // removed from the markup; kep
 const navEl = document.getElementById('tb-nav')   // ditto — the strip is arrows + settings only
 
 let current = null           // { el(wrapper), view, route }
-const ORDER = ['home', 'computers', 'metrics', 'comms', 'ledger']
+const ORDER = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger']
 
 function parse() {
   const h = location.hash || '#/'
@@ -35,6 +36,7 @@ function parse() {
   if (parts[0] === 'computers') return { name: 'computers', comp: parts[1] || null }
   if (parts[0] === 'agent' && parts.length >= 3) return { name: 'agent', comp: parts[1], agent: parts[2] }
   if (parts[0] === 'metrics') return { name: 'metrics' }
+  if (parts[0] === 'research') return { name: 'research' }
   if (parts[0] === 'comms') return { name: 'comms' }
   if (parts[0] === 'ledger') return { name: 'ledger' }
   if (parts[0] === 'settings') return { name: 'settings' }
@@ -47,6 +49,7 @@ function makeView(route) {
     case 'computers': return computersView({ initialComputer: route.comp, navigate })
     case 'agent': return agentView({ compId: route.comp, agentId: route.agent, navigate })
     case 'metrics': return metricsView()
+    case 'research': return researchView()
     case 'comms': return commsView()
     case 'ledger': return ledgerView()
     case 'settings': return settingsView()
@@ -60,6 +63,7 @@ function crumbFor(route) {
     case 'computers': return `${base} / computers`
     case 'agent': return `${base} / agent / <b>${route.agent}</b>`
     case 'metrics': return `${base} / metrics`
+    case 'research': return `${base} / research`
     case 'comms': return `${base} / comms`
     case 'ledger': return `${base} / ledger`
     case 'settings': return `${base} / settings`
@@ -166,7 +170,7 @@ function swapView(route, morph, zoom, snapshotted) {
   const idx = ORDER.indexOf(activeName)
   const back = document.getElementById('nav-back')
   const next = document.getElementById('nav-next')
-  /* The ring is closed: home <- computers <- metrics <- comms <- home. The
+  /* The ring is closed: home <- computers <- metrics <- research <- comms <- ledger <- home. The
      ends used to dead-end (back dark on home, forward dark on comms), which
      made the two arrows read as a linear pager with nothing past its covers.
      The owner asked for a loop — back and forth exist on every page — so

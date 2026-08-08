@@ -27,7 +27,7 @@ import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../component
 import { buildTheme } from '../echarts-theme.js'
 import { createCharts } from '../metrics-charts.js'
 import { createMetricsLayout } from '../metrics-layout.js'
-import { isLiveView } from '../live-flags.js'
+import { isLiveView, setLiveView } from '../live-flags.js'
 import { fetchMetrics } from '../live-status.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
@@ -1729,6 +1729,38 @@ export function metricsView() {
     }
   }
 
+  function setSankeyUnavailable() {
+    const component = root.querySelector('[data-mc="sankey"]')
+    const host = root.querySelector('#sankey-chart')
+    component?.classList.add('projection-unavailable')
+    if (!host) return
+
+    const sentence = projection?.ok
+      ? 'Live token routing is unavailable because measured usage is not attributed across pools, providers, and agent roles.'
+      : `Live token routing is unavailable because ${projection?.reason || 'the metrics projection could not be read'}.`
+    const sub = root.querySelector('#sankey-sub')
+    if (sub) sub.textContent = 'pools → providers → roles · unavailable'
+
+    const panel = el(`
+      <div class="m-sankey-empty" data-sankey-empty="true">
+        <span class="m-sankey-empty-brace" aria-hidden="true">{</span>
+        <div class="m-sankey-empty-copy">
+          <span class="m-sankey-empty-label">live observation unavailable</span>
+          <p></p>
+          <button type="button" class="m-sankey-sim">View simulated</button>
+        </div>
+        <span class="m-sankey-empty-brace is-right" aria-hidden="true">}</span>
+      </div>`)
+    panel.querySelector('p').textContent = sentence
+    panel.querySelector('button').addEventListener('click', () => setLiveView('metrics', false))
+
+    host.classList.add('projection-unavailable', 'm-sankey-empty-host')
+    host.setAttribute('role', 'group')
+    host.setAttribute('aria-live', 'polite')
+    host.setAttribute('aria-label', sentence)
+    host.replaceChildren(panel)
+  }
+
   function applyLiveProjection() {
     root.dataset.liveMode = 'live'
     metricsSurface.dataset.liveMode = 'live'
@@ -1739,8 +1771,7 @@ export function metricsView() {
       : `live projection unavailable · ${projection?.reason || 'projection unavailable'}`
     applyLiveTiles()
 
-    setProjectionUnavailable('sankey', '#sankey-sub',
-      projectionReason(null, 'aggregate projection has no token-routing observation'), ['#sankey-chart'])
+    setSankeyUnavailable()
     setProjectionUnavailable('tokenflow', '#tokens-sub',
       projectionReason(null, 'aggregate projection has no token-flow time series'), ['#hero-chart', '#strip-chart'])
     setProjectionUnavailable('heatmap', '#heat-sub',

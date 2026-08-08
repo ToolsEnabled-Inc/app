@@ -35,7 +35,7 @@ function projectionFetch(domain, payload, schema = readSchema(domain)) {
   }
 }
 
-test('all six schemas accept their explicit unavailable envelope', () => {
+test('all projection schemas accept their explicit unavailable envelope', () => {
   for (const domain of DOMAINS) {
     const payload = unavailableEnvelope(domain, 'test-source-unavailable', [], '2026-08-05T00:00:00.000Z')
     assert.doesNotThrow(() => assertValidProjection(domain, payload))
@@ -126,7 +126,7 @@ test('checked-in generated payloads validate against their public schemas', () =
   }
 })
 
-test('browser reader accepts all six checked-in available projections', async () => {
+test('browser reader accepts all checked-in available projections', async () => {
   for (const domain of DOMAINS) {
     const payload = readJson(join(PROJECT_ROOT, 'public', 'data', `${domain}.json`))
     const result = await fetchProjection(domain, { fetchImpl: projectionFetch(domain, payload) })
