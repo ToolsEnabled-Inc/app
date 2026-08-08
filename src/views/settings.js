@@ -5,6 +5,7 @@ import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
+import { createLedgerArchiveController } from '../mission-bridge.js'
 import '../settings.css'
 
 const SECTIONS = [
@@ -88,6 +89,7 @@ export const SETTINGS = [
   { id: 'root_rollup', section: 'Ledger', name: 'Root rollups', desc: 'Summarize descendant state on decomposed request roots.', depth: 2, type: 'toggle', def: true },
   { id: 'gate_signal_hold', section: 'Ledger', name: 'Gate signal hold', desc: 'Retain the gated-state emphasis after a state transition.', depth: 3, type: 'range', min: 0, max: 24, step: 1, unit: 'h', def: 4 },
   { id: 'collision_row_hysteresis', section: 'Ledger', name: 'Collision-row hysteresis', desc: 'Delay row reflow when adjacent metadata columns approach collision.', depth: 4, type: 'range', min: 0, max: 32, step: 1, unit: 'px', def: 8 },
+  { id: 'ledger_archive', section: 'Ledger', name: 'Clean up old R', desc: 'Preview completed or fully superseded requests; a second explicit click moves the verified preview into the durable archive.', depth: 1, type: 'action', def: null },
 
   { id: 'power_profile', section: 'Performance', name: 'Power profile', desc: 'Balance responsiveness against background resource use.', depth: 1, type: 'seg', options: ['balanced', 'quiet'], def: 'balanced' },
   { id: 'chart_quality', section: 'Performance', name: 'Chart quality', desc: 'Choose the default rendering detail for metric canvases.', depth: 1, type: 'seg', options: ['standard', 'high'], def: 'standard' },
@@ -226,8 +228,12 @@ function formatValue(setting, value) {
 }
 
 function controlMarkup(setting) {
-  const value = readValue(setting)
   const labelId = `setting-label-${setting.id}`
+
+  if (setting.type === 'action') {
+    return `<button type="button" class="ctl-btn" data-setting-action="ledger-archive" aria-labelledby="${labelId}">Preview cleanup</button>`
+  }
+  const value = readValue(setting)
 
   if (setting.type === 'seg') {
     return `<div class="seg settings-seg" role="group" aria-labelledby="${labelId}">
@@ -254,7 +260,7 @@ function rowMarkup(setting, searchResult = false) {
     <div class="settings-copy">
       ${searchResult ? `<div class="settings-prefix">${escapeHtml(setting.section)} · depth ${setting.depth}</div>` : ''}
       <div class="settings-name" id="setting-label-${setting.id}">${escapeHtml(setting.name)}</div>
-      <div class="settings-desc">${escapeHtml(setting.desc)}</div>
+      <div class="settings-desc" data-setting-message>${escapeHtml(setting.desc)}</div>
     </div>
     <div class="settings-control">${controlMarkup(setting)}</div>
   </article>`
@@ -352,6 +358,27 @@ export function settingsView() {
   let activeSection = SECTIONS[0]
   let segCleanups = []
   let scrollFrame = 0
+  let archiveController
+
+  function syncArchiveControl(state = archiveController?.getState()) {
+    if (!state) return
+    for (const row of root.querySelectorAll('[data-setting-id="ledger_archive"]')) {
+      const button = row.querySelector('button[data-setting-action="ledger-archive"]')
+      const message = row.querySelector('[data-setting-message]')
+      if (button) {
+        button.textContent = state.label
+        button.disabled = !state.enabled
+        button.title = state.note
+        button.setAttribute('aria-label', `${state.label}: ${state.note}`)
+        button.classList.toggle('is-confirming', state.phase === 'confirm')
+        button.classList.toggle('is-pending', state.phase.startsWith('pending'))
+        button.classList.toggle('is-success', state.phase === 'success')
+      }
+      if (message) message.textContent = state.message
+    }
+  }
+
+  archiveController = createLedgerArchiveController({ onState: syncArchiveControl })
 
   function cleanupControls() {
     for (const cleanup of segCleanups) cleanup()
@@ -362,6 +389,7 @@ export function settingsView() {
     cleanupControls()
     for (const group of sectionsNode.querySelectorAll('.settings-seg')) segCleanups.push(attachSeg(group))
     for (const input of sectionsNode.querySelectorAll('input[type="range"]')) rangeFill(input)
+    syncArchiveControl()
   }
 
   function updateFooter() {
@@ -498,6 +526,12 @@ export function settingsView() {
   }
 
   sectionsNode.addEventListener('click', event => {
+    const archiveButton = event.target.closest('button[data-setting-action="ledger-archive"]')
+    if (archiveButton) {
+      archiveController.click()
+      return
+    }
+
     const reveal = event.target.closest('button[data-reveal-section]')
     if (reveal) {
       const section = reveal.dataset.revealSection
@@ -593,6 +627,7 @@ export function settingsView() {
     el: root,
     destroy() {
       cleanupControls()
+      archiveController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       for (const [node, type, listener] of drawerBindings) node.removeEventListener(type, listener)
     },
