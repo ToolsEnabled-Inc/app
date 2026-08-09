@@ -4,11 +4,37 @@ import { existsSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
+// Every pattern here is a class of thing that must never reach a stranger's disk.
+// The first four are machine identity: username, LAN range, home-directory paths.
+//
+// The rest were added after all four of the originals passed while the built
+// app.asar -- the exact payload of the installer -- contained the owner's real name,
+// two references to a credential env var, the internal repo name, and vendor
+// provenance in shipped UI text. The originals could not see any of it: they look for
+// PATHS and ADDRESSES, and this leak was PROSE. `public/data/research-queue.json`
+// ships 28 internal engineering post-mortems that name the owner and describe his
+// private fleet, and `src/views/research.js` renders them verbatim on first run.
+//
+// So: identity is not only a path. A control that checks the shape of a leak it has
+// already seen will not catch the next one wearing different clothes.
 const PATTERNS = [
   { label: "joshp", bytes: Buffer.from("joshp"), caseInsensitive: true },
   { label: "192.168.214.", bytes: Buffer.from("192.168.214.") },
   { label: String.raw`C:\Users`, bytes: Buffer.from(String.raw`C:\Users`), caseInsensitive: true },
   { label: "C:/Users", bytes: Buffer.from("C:/Users"), caseInsensitive: true },
+  // Owner identity as prose, not as a path.
+  { label: "Josh Pinckard", bytes: Buffer.from("Josh Pinckard"), caseInsensitive: true },
+  { label: "Pinckard", bytes: Buffer.from("Pinckard"), caseInsensitive: true },
+  // Credential names. A shipped file naming a secret env var teaches an attacker
+  // what to look for, and signals internal tooling was packaged by accident.
+  { label: "ANTHROPIC_API_KEY", bytes: Buffer.from("ANTHROPIC_API_KEY"), caseInsensitive: true },
+  { label: "OPENAI_API_KEY", bytes: Buffer.from("OPENAI_API_KEY"), caseInsensitive: true },
+  // Internal repository and tree names. These identify the owner's private working
+  // layout and appeared in shipped failure text rendered into the DOM.
+  { label: "toolsenabled-current", bytes: Buffer.from("toolsenabled-current"), caseInsensitive: true },
+  { label: "ToolsEnabled", bytes: Buffer.from("ToolsEnabled"), caseInsensitive: true },
+  // Internal coordination surfaces that should never be named in a shipped product.
+  { label: "agent-coord", bytes: Buffer.from("agent-coord"), caseInsensitive: true },
 ];
 
 function asciiLower(byte) {

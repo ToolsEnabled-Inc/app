@@ -35,6 +35,23 @@ const REQUIRED_STAGES = [
       'The dist ship path must strip build diagnostics from release; otherwise builder-debug.yml can ship the owner\'s home-directory path.',
   },
   {
+    // Added after the built app.asar -- the exact payload of the installer -- was
+    // measured carrying the owner's real name (x20), a credential env var name (x2),
+    // the internal repo name, and internal coordination-board references (x18): 53
+    // matches in total. tools/check-no-owner-data.mjs existed, was fully unit-tested,
+    // and was invoked by NO npm script, so it caught none of it. A commit message
+    // asserted it ran automatically on every data file; that claim was false.
+    //
+    // It is enshrined HERE, and not merely added to the dist string, because a stage
+    // present only in package.json can be dropped by anyone without a test noticing --
+    // which is exactly how a privacy control ends up wired to nothing twice.
+    name: 'privacy',
+    pattern:
+      /(?:^|\s)(?:node\s+)?\S*check-no-owner-data\.mjs\s+release[\\/]win-unpacked(?=\s|$)/,
+    missing:
+      'The dist ship path must scan release/win-unpacked for owner data; otherwise the installer can ship the owner\'s name, credential names, and internal repository details to strangers.',
+  },
+  {
     name: 'smoke',
     pattern:
       /(?:^|\s)(?:node\s+)?\S*smoke-packaged\.mjs\s+release[\\/]win-unpacked(?=\s|$)/,
@@ -97,7 +114,7 @@ export function assertShipPath(distScript, verifyScript) {
 }
 
 const VALID_CHAIN =
-  'npm run verify && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked';
+  'npm run verify && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked';
 const VALID_VERIFY = 'node tools/test-ratchet.mjs';
 
 test('the real package.json dist chain preserves the ship-path contract', () => {
@@ -106,7 +123,7 @@ test('the real package.json dist chain preserves the ship-path contract', () => 
 
 test('rejects smoke-packaged before electron-builder', () => {
   const badChain =
-    'npm run verify && npm run build && node tools/smoke-packaged.mjs release/win-unpacked && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release';
+    'npm run verify && npm run build && node tools/smoke-packaged.mjs release/win-unpacked && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-no-owner-data.mjs release/win-unpacked';
 
   assert.throws(
     () => assertShipPath(badChain, VALID_VERIFY),
@@ -123,6 +140,21 @@ test('rejects a chain with strip-build-diagnostics deleted', () => {
   assert.throws(
     () => assertShipPath(badChain, VALID_VERIFY),
     /builder-debug\.yml can ship the owner's home-directory path/,
+  );
+});
+
+test('rejects a chain with the owner-data privacy scan deleted', () => {
+  // The gate this proves exists because the previous privacy control was fully
+  // unit-tested and invoked by nothing, so it caught 53 owner-data matches in the
+  // shipped app.asar. A stage that cannot be shown to bite is the same defect again.
+  const badChain = VALID_CHAIN.replace(
+    ' && node tools/check-no-owner-data.mjs release/win-unpacked',
+    '',
+  );
+
+  assert.throws(
+    () => assertShipPath(badChain, VALID_VERIFY),
+    /must scan release[\\/]win-unpacked for owner data/,
   );
 });
 
