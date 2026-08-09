@@ -55,6 +55,7 @@ async function listenOnFirstFreePort(server, ports = SHELL_PORTS, host = SHELL_H
   }
 
   const attemptedPorts = []
+  const failures = []
   let lastError
   for (const port of ports) {
     attemptedPorts.push(port)
@@ -64,6 +65,7 @@ async function listenOnFirstFreePort(server, ports = SHELL_PORTS, host = SHELL_H
     } catch (error) {
       await closeFailedAttempt(server)
       if (!error || !RETRYABLE_LISTEN_ERRORS.has(error.code)) throw error
+      failures.push(Object.freeze({ port, code: error.code, message: error.message }))
       lastError = error
     }
   }
@@ -75,6 +77,7 @@ async function listenOnFirstFreePort(server, ports = SHELL_PORTS, host = SHELL_H
   error.code = 'SHELL_PORT_RANGE_EXHAUSTED'
   error.host = host
   error.ports = Object.freeze([...attemptedPorts])
+  error.failures = Object.freeze([...failures])
   throw error
 }
 

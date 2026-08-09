@@ -13,6 +13,7 @@ const { createAgentHost } = require('./agent-host.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
+const { startupFailureDetail } = require('./startup-failure-message.cjs')
 const {
   CRASH_DUMP_DIR_NAME,
   crashReporterOptions,
@@ -269,9 +270,7 @@ function serveDist() {
     })
     const reportFailure = (err) => {
       const { dialog } = require('electron')
-      const detail = err && err.code === 'SHELL_PORT_RANGE_EXHAUSTED'
-        ? `All shell ports ${SHELL_PORT_MIN}-${SHELL_PORT_MAX} are in use or unavailable — other Mission Control shells (or stray servers) are holding them. Close them and relaunch.`
-        : String(err)
+      const detail = startupFailureDetail(err, { min: SHELL_PORT_MIN, max: SHELL_PORT_MAX })
       dialog.showErrorBox('Mission Control could not start', detail)
       app.exit(1)
     }
