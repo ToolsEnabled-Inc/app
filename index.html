@@ -85,15 +85,15 @@
         <span class="set-label">Reduce motion</span>
         <span class="toggle"><input type="checkbox" id="set-motion" /><i></i></span>
       </label>
-      <!-- one machine per line. The two used to share a line joined by
-           "&nbsp;·&nbsp;", which cannot fit 13px mono inside a 320px drawer:
-           it wrapped mid-list and left the separator orphaned at the end of
-           the line, so the note read as a broken sentence rather than as a
-           two-entry list. -->
+      <!-- The note used to end with a two-line machine roster, "Machine A ·
+           <addr> / Machine B · <addr>", hardcoded here in the markup. It was
+           one particular fleet's roster, it was in the shipped index.html of
+           every install, and no static page can know what machines a stranger
+           owns. Machines are profile data now (src/fleet-profile.js) and the
+           surfaces that legitimately name them read them from there; an
+           appearance drawer is not one of those surfaces. -->
       <div class="drawer-note">
-        Appearance only — the fleet keeps running.<br/>
-        Machine A · 192.0.2.2<br/>
-        Machine B · 192.0.2.1
+        Appearance only — the fleet keeps running.
       </div>
     </div>
     <a class="drawer-all" href="#/settings">all settings →</a>
