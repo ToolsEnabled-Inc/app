@@ -71,10 +71,20 @@ async function prepareSurface(surface) {
   const status = surface.querySelector('[data-write-status]')
   for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
   actionState(status, 'checking', 'checking audited bridge…')
-  // Reachability first, on the cheap unauthenticated probe. /v1/status parses
-  // every root's queue and writes audit receipts (~12s measured), which is a
-  // snapshot cost, not a heartbeat cost — blocking the panel on it made a
-  // healthy bridge read as "unavailable · timed out".
+  // Reachability first. NOTE, corrected 2026-08-09: this is NOT "the cheap
+  // unauthenticated probe" the previous wording claimed. bridgeReachable()
+  // calls session(), which resolves /v1/runtime discovery across the declared
+  // port range AND performs the authenticated /v1/bootstrap handshake. It is
+  // cheap only RELATIVE to /v1/status, which parses every root's queue and
+  // writes durable audit receipts per root (~12s measured) — a snapshot cost,
+  // not a heartbeat cost; blocking the panel on it made a healthy bridge read
+  // as "unavailable · timed out".
+  //
+  // The distinction is load-bearing, which is why the wording is being fixed
+  // rather than left to read well: a comment that understates a call's cost is
+  // what invites the next reader to wrap it in a retry loop believing it is
+  // free. Reachability IS retried below, deliberately and boundedly; /v1/status
+  // is called at most once and must never be retried.
   const reach = await retryWhileUnavailable(() => bridgeReachable())
   if (!reach.ok) {
     unavailableState(surface, status, reach)
