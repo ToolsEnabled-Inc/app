@@ -19,8 +19,22 @@ const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : null
 const idOf = (node) => String(node?.id ?? node?.agent?.id ?? '')
 const roleOf = (node) => String(node?.role ?? node?.agent?.role ?? 'default')
 const nameOf = (node) => String(node?.name ?? node?.agent?.name ?? idOf(node))
-const radiusOf = (node) => Math.max(34,
-  finite(node?.r) ?? finite(node?.radius) ?? ROLE_RADII[roleOf(node)] ?? ROLE_RADII.default)
+
+/* A circle whose only content is emptiness is wasted room: it pushes its
+   siblings apart and makes the tree sprawl for nothing. A node with no
+   runtime to show carries one short state word instead, so it can be sized
+   for that word rather than for a clock it does not have. 34 is the floor
+   the packer already treats as "still readable". */
+const SILENT_SCALE = 0.72
+export function treeNodeRadius(node) {
+  const explicit = finite(node?.r) ?? finite(node?.radius)
+  if (explicit !== null) return Math.max(34, explicit)
+  const base = ROLE_RADII[roleOf(node)] ?? ROLE_RADII.default
+  const source = node?.agent ?? node
+  const silent = !Number.isFinite(Number(source?.bornAt))
+  return Math.max(34, silent ? Math.round(base * SILENT_SCALE) : base)
+}
+const radiusOf = treeNodeRadius
 
 function hierarchyParents(nodes, edges) {
   const ids = new Set(nodes.map(idOf))
@@ -97,6 +111,69 @@ function packedXs(list, width) {
   return null
 }
 
+/* Nesting, made visible without tracing a single edge.
+   Spacing a rank evenly makes every node in it look equally related to every
+   node above it — the rank reads as a flat row and you cannot see which
+   manager owns which lane. Siblings of one parent are packed TIGHT; different
+   parents' groups are separated by a gap several times larger, and each group
+   is centred under its own parent. The whitespace does the work the edges were
+   being asked to do alone. */
+const AIR_WITHIN = 18
+const AIR_BETWEEN = 64
+const RANK_EDGE = 24
+function packGroupedXs(list, width, anchorOf) {
+  if (!list.length) return null
+  const groups = []
+  for (const record of list) {
+    const anchor = anchorOf(record)
+    const key = anchor?.key ?? '~orphan'
+    const last = groups.at(-1)
+    if (last && last.key === key) last.items.push(record)
+    else groups.push({ key, items: [record], anchor: anchor?.x ?? null })
+  }
+  if (groups.length < 2) return null
+
+  const widthOf = (group) => group.items.reduce((sum, record) => sum + record.r * 2, 0)
+    + AIR_WITHIN * (group.items.length - 1)
+  const total = groups.reduce((sum, group) => sum + widthOf(group), 0)
+    + AIR_BETWEEN * (groups.length - 1)
+  if (total > width - RANK_EDGE * 2) return null
+
+  let cursor = RANK_EDGE
+  for (const group of groups) {
+    const groupWidth = widthOf(group)
+    const desired = group.anchor == null ? (width - groupWidth) / 2 : group.anchor - groupWidth / 2
+    group.left = Math.max(cursor, desired)
+    cursor = group.left + groupWidth + AIR_BETWEEN
+  }
+  // A group centred under a right-hand parent can push the rank past the edge;
+  // pull the whole run back, then re-seat it against the left edge.
+  const last = groups.at(-1)
+  if (last.left + widthOf(last) > width - RANK_EDGE) {
+    let limit = width - RANK_EDGE
+    for (let index = groups.length - 1; index >= 0; index -= 1) {
+      const group = groups[index]
+      group.left = Math.min(group.left, limit - widthOf(group))
+      limit = group.left - AIR_BETWEEN
+    }
+    let floor = RANK_EDGE
+    for (const group of groups) {
+      group.left = Math.max(group.left, floor)
+      floor = group.left + widthOf(group) + AIR_BETWEEN
+    }
+  }
+
+  const xs = []
+  for (const group of groups) {
+    let x = group.left
+    for (const record of group.items) {
+      xs.push(x + record.r)
+      x += record.r * 2 + AIR_WITHIN
+    }
+  }
+  return xs.at(-1) + list.at(-1).r <= width - 4 ? xs : null
+}
+
 function keepReadable(list, width) {
   const priority = [...list].sort((left, right) =>
     Number(left.cullable) - Number(right.cullable)
@@ -111,26 +188,36 @@ function keepReadable(list, width) {
   return new Set(keep.map(record => record.id))
 }
 
+/* Middle-truncation destroys the word — "assi…ant", "reco…ile" — and the
+   owner asked for readable context, so it is gone. The budget is two wrapped
+   lines instead of one clipped line; if a name still cannot fit, the id's own
+   trailing segment is a real word ("reconcile", "assistant") and reads better
+   than any cut; only if THAT overflows do we clip, and then at the END. */
+const LABEL_CHAR_PX = 7.6
+// The name row carries a 6px role bead and a 5px gap before the first glyph,
+// and the row itself is inset — measured, not guessed, from the rendered rows.
+const LABEL_CHROME_PX = 26
+const LABEL_LINES = 2
 function labelFor(record, pitch) {
-  if (pitch == null) return { maxWidth: null, text: record.name }
-  const maxWidth = Math.max(70, Math.round(pitch - 14))
-  const characters = Math.max(6, Math.floor((maxWidth - 16) / 7.2))
-  if (record.name.length <= characters) return { maxWidth, text: record.name }
+  const full = record.name
+  if (pitch == null) return { maxWidth: null, text: full, title: full }
+  const maxWidth = Math.max(96, Math.round(pitch - 10))
+  const perLine = Math.max(6, Math.floor((maxWidth - LABEL_CHROME_PX) / LABEL_CHAR_PX))
+  const budget = perLine * LABEL_LINES
+  if (full.length <= budget) return { maxWidth, text: full, title: full }
 
   const segments = record.id.split(/[-_.]/).filter(Boolean)
   let suffix = ''
   for (let index = segments.length - 1; index >= 0; index -= 1) {
     const candidate = segments.slice(index).join('-')
-    if (candidate.length > characters) break
+    if (candidate.length > budget) break
     suffix = candidate
   }
-  if (suffix) return { maxWidth, text: suffix }
+  if (suffix) return { maxWidth, text: suffix, title: full }
 
-  const tail = segments.at(-1) || record.name
-  const text = tail.length > characters
-    ? `${tail.slice(0, Math.max(2, characters - 4))}…${tail.slice(-3)}`
-    : tail
-  return { maxWidth, text }
+  const tail = segments.at(-1) || full
+  const text = tail.length > budget ? `${tail.slice(0, Math.max(3, budget - 1))}…` : tail
+  return { maxWidth, text, title: full }
 }
 
 /**
@@ -164,8 +251,11 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
 
   const tierKeys = [...tiers.keys()].sort((left, right) => left - right)
   const rows = tierKeys.length
+  /* The label stack under a circle is a name that may wrap to two lines plus a
+     role row that may wrap to two more. 92px of bottom pad let the last tier's
+     role row fall off the panel edge; 116 clears the tallest stack. */
   let padTop = 104
-  let padBottom = 92
+  let padBottom = 116
   if (rows > 1) {
     const deficit = 86 * (rows - 1) - (height - padTop - padBottom)
     if (deficit > 0) {
@@ -179,6 +269,7 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
   const labels = new Map()
   const culled = new Set()
   const rowYs = []
+  const rowOf = new Map()
   let drillRequired = false
 
   tierKeys.forEach((tierKey, rowIndex) => {
@@ -191,15 +282,20 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
     const y = rows > 1 ? padTop + rowIndex * rowHeight : height / 2
     rowYs.push(y)
 
+    const anchorOf = (record) => {
+      const parentId = parents.get(record.id)
+      const parentSlot = parentId ? slots.get(parentId) : null
+      return parentSlot ? { key: parentId, x: parentSlot.x } : null
+    }
     let visible = list
-    let xs = packedXs(visible, width)
+    let xs = packGroupedXs(visible, width, anchorOf) || packedXs(visible, width)
     const naiveReadableRadius = list.length ? width / (2 * (list.length + 1)) : Infinity
     if (!xs || naiveReadableRadius < 34) {
       drillRequired = true
       const keep = keepReadable(list, width)
       visible = list.filter(record => keep.has(record.id))
       for (const record of list) if (!keep.has(record.id)) culled.add(record.id)
-      xs = packedXs(visible, width)
+      xs = packGroupedXs(visible, width, anchorOf) || packedXs(visible, width)
     }
 
     if (!xs && visible.length) {
@@ -216,11 +312,12 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
       : null
     visible.forEach((record, index) => {
       slots.set(record.id, { x: xs[index], y })
+      rowOf.set(record.id, rowIndex)
       labels.set(record.id, labelFor(record, pitch))
     })
   })
 
-  return { slots, rowYs, culled, drillRequired, labels }
+  return { slots, rowYs, rowOf, culled, drillRequired, labels, parents }
 }
 
 export const TREE_ROLE_RADII = ROLE_RADII

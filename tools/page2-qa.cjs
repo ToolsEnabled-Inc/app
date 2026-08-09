@@ -437,7 +437,11 @@ async function run() {
     frameMs: window.__graphFrameMs,
     rerooting: Boolean(document.querySelector('.node.rerooting')),
   })`)
-  check('drill-down glides once and settles', drillState.root === drillId && drillState.crumb && drillState.frameMs > 0 && !drillState.rerooting, JSON.stringify(drillState))
+  /* R1198: the 680ms re-root glide is gone. The owner asked for no required
+     motion, and that glide re-ran the chip placement search on every frame to
+     decorate a click. The drill now lands immediately, so the assertion is
+     that it settles at once — frameMs stays 0 because no frame loop runs. */
+  check('drill-down lands immediately and settles', drillState.root === drillId && drillState.crumb && drillState.frameMs === 0 && !drillState.rerooting, JSON.stringify(drillState))
   const crumbClicked = await webContents.executeJavaScript(`(() => { const button = document.querySelector('.graph-crumb button'); if (!button) return false; button.click(); return true })()`)
   check('breadcrumb return control is clickable', crumbClicked)
   await waitFor(webContents, `window.__mcGraph.rootId === null`)

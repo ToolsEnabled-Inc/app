@@ -33,9 +33,15 @@ const TUNING = {
 const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[character]))
+/* Colour follows entity: the shadow manager is the SHADOW hue on every
+   surface, and the coordinator's assistant is the helper hue the legend
+   already names "Coordinator's Helper". Before this, shadow-manager fell
+   through to the default bucket and then had its role overwritten entirely,
+   so the fleet's own shadow manager printed as a grey "AGENT SPAWNED". */
 const graphRole = (role) => ({
   controller: 'coordinator',
-  'coordinator-assistant': 'shadow',
+  'shadow-manager': 'shadow',
+  'coordinator-assistant': 'helper',
   manager: 'manager',
   worker: 'spawned',
   builder: 'helper',
@@ -86,7 +92,7 @@ function projectedComputer(computer, projection) {
     child.parentId = parent.id
   }
 
-  const tier = { controller: 0, manager: 1, 'coordinator-assistant': 1 }
+  const tier = { controller: 0, manager: 1, 'coordinator-assistant': 1, 'shadow-manager': 1 }
   for (const agent of byId.values()) {
     agent.tierRank = tier[agent.declaredRole] ?? 2
     if (agent.tierRank === 2) agent.role = 'spawned'
@@ -130,11 +136,24 @@ function projectionComputers(data) {
   return data.computers.map(computer => projectedComputer(computer, graph))
 }
 
+/* Every live card used to read "role: manager / state: disabled" — the same two
+   lines on every block, and the role is already the caption under the circle
+   and the colour of the brace. The card now carries what the projection
+   actually observed, and where the projection carries no activity it SAYS so
+   once, in the dim register, instead of padding itself with declared facts.
+   The missing thing is real: fleet.json has no per-agent transcript or
+   activity feed, so there is nothing truthful to put on those lines today. */
 function projectionMonitorContext(agent) {
+  const origin = agent.origin === 'user' ? 'owner-started'
+    : agent.origin === 'self' ? 'self-started'
+      : null
   return {
-    current: `role: ${agent.declaredRole}`,
-    previous: `state: ${agent.state}`,
+    current: [agent.state, origin].filter(Boolean).join(' · ') || null,
+    previous: null,
     chat: null,
+    // Short, because it repeats on every card. The rail's DECLARED GRAPH block
+    // already carries the full reason once, where a reason belongs.
+    unavailable: 'no activity observed',
     tasks: agent.tasksDone,
     failRate: agent.failRate,
     model: agent.provider,

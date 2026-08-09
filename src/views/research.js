@@ -7,6 +7,9 @@ import { el } from '../components.js'
 import { fetchResearch } from '../live-status.js'
 import '../research.css'
 
+const RESEARCH_QUEUE_URL = '/data/research-queue.json'
+const RESEARCH_QUEUE_STATUSES = new Set(['queued', 'in-progress', 'complete'])
+
 const esc = value => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -76,6 +79,81 @@ function emptyMarkup(label) {
   return `<p class="research-observed-empty">No ${esc(label)} were supplied by this projection.</p>`
 }
 
+function validQueueText(value, maxLength) {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength
+}
+
+function validQueueItem(item) {
+  return item && typeof item === 'object' && !Array.isArray(item)
+    && validQueueText(item.id, 120)
+    && validQueueText(item.title, 240)
+    && RESEARCH_QUEUE_STATUSES.has(item.status)
+    && validQueueText(item.provenance, 80)
+    && validQueueText(item.observation, 2000)
+    && validQueueText(item.researchQuestion, 1000)
+}
+
+async function fetchResearchQueue({ fetchImpl = fetch } = {}) {
+  let response
+  try {
+    response = await fetchImpl(RESEARCH_QUEUE_URL, { cache: 'no-store' })
+  } catch (error) {
+    return { ok: false, reason: `network error reaching ${RESEARCH_QUEUE_URL}: ${error?.message || error}` }
+  }
+  if (!response?.ok) {
+    return { ok: false, reason: `${RESEARCH_QUEUE_URL} responded ${response?.status ?? 'without a response'} ${response?.statusText || ''}`.trim() }
+  }
+
+  let payload
+  try {
+    payload = await response.json()
+  } catch (error) {
+    return { ok: false, reason: `${RESEARCH_QUEUE_URL} did not parse as JSON: ${error?.message || error}` }
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+      || payload.schemaVersion !== 1 || !Array.isArray(payload.items)) {
+    return { ok: false, reason: `${RESEARCH_QUEUE_URL} has an unrecognized shape` }
+  }
+  if (payload.items.length > 1000 || !payload.items.every(validQueueItem)) {
+    return { ok: false, reason: `${RESEARCH_QUEUE_URL} contains an invalid queue item` }
+  }
+  if (new Set(payload.items.map(item => item.id)).size !== payload.items.length) {
+    return { ok: false, reason: `${RESEARCH_QUEUE_URL} contains duplicate queue item IDs` }
+  }
+  return { ok: true, items: payload.items }
+}
+
+function queueItemMarkup(item) {
+  const status = item.status === 'in-progress' ? 'in progress' : item.status
+  const provenance = item.provenance.replace(/-/g, ' ')
+  return `
+    <li class="research-report" data-research-queue-item="${esc(item.id)}">
+      <div class="research-report-body">
+        <div class="research-report-head">
+          <h3>${esc(item.title)}</h3>
+          <dl class="research-report-meta">
+            <div><dt>state</dt><dd>${esc(status)}</dd></div>
+            <div><dt>origin</dt><dd>${esc(provenance)}</dd></div>
+          </dl>
+        </div>
+        <div class="research-context">
+          <span aria-hidden="true">{</span>
+          <p>${esc(item.observation)}</p>
+          <span aria-hidden="true">}</span>
+        </div>
+        <p class="research-authorization"><strong>Research:</strong> ${esc(item.researchQuestion)}</p>
+      </div>
+    </li>`
+}
+
+function researchQueueMarkup(result) {
+  if (!result?.ok) return unavailableMarkup('Research queue', result?.reason)
+  if (!Array.isArray(result.items) || result.items.length === 0) {
+    return '<p class="research-observed-empty">No research items are queued.</p>'
+  }
+  return `<ol class="research-catalog" data-research-queue-list>${result.items.map(queueItemMarkup).join('')}</ol>`
+}
+
 function findingMarkup(item) {
   return `<li><span>${esc(item?.status || 'unclassified')}</span><p>${esc(item?.claim || 'Finding text unavailable.')}</p></li>`
 }
@@ -107,6 +185,16 @@ export function researchView() {
           <p class="research-source" data-research-source>projection loading</p>
         </header>
 
+        <section class="research-section" aria-labelledby="research-queue-title" data-research-queue-section>
+          <div class="research-section-head">
+            <h2 id="research-queue-title">Research queue</h2>
+            <p>Owner observations awaiting research, with state and provenance kept explicit.</p>
+          </div>
+          <div data-research-queue data-queue-state="loading" aria-busy="true" aria-live="polite">
+            <p class="research-observed-empty">Loading research queue.</p>
+          </div>
+        </section>
+
         <div class="research-loading projection-state is-loading" data-research-state role="status">
           <strong>Loading research projection</strong>
           <span>Reading the browser-safe catalog and authorization boundaries.</span>
@@ -116,6 +204,14 @@ export function researchView() {
 
   const shell = root.querySelector('.research-shell')
   let destroyed = false
+
+  function renderResearchQueue(result) {
+    const host = root.querySelector('[data-research-queue]')
+    if (!host) return
+    host.dataset.queueState = result?.ok ? 'ready' : 'unavailable'
+    host.setAttribute('aria-busy', 'false')
+    host.innerHTML = researchQueueMarkup(result)
+  }
 
   function renderUnavailable(reason) {
     root.setAttribute('aria-busy', 'false')
@@ -192,6 +288,12 @@ export function researchView() {
         </div>
       </section>`)
   }
+
+  fetchResearchQueue().then(result => {
+    if (!destroyed) renderResearchQueue(result)
+  }, error => {
+    if (!destroyed) renderResearchQueue({ ok: false, reason: error?.message || String(error) })
+  })
 
   fetchResearch().then(result => {
     if (destroyed) return

@@ -14,6 +14,19 @@ contextBridge.exposeInMainWorld('mcShell', {
   getBridgeProof: () => ipcRenderer.invoke('mc-bridge-proof'),
 })
 
+contextBridge.exposeInMainWorld('mcAgent', {
+  start: payload => ipcRenderer.invoke('mc-agent:start', payload),
+  send: payload => ipcRenderer.invoke('mc-agent:send', payload),
+  interrupt: payload => ipcRenderer.invoke('mc-agent:interrupt', payload),
+  close: payload => ipcRenderer.invoke('mc-agent:close', payload),
+  onEvent: listener => {
+    if (typeof listener !== 'function') throw new TypeError('mcAgent.onEvent requires a function')
+    const receive = (_event, packet) => listener(packet)
+    ipcRenderer.on('mc-agent:event', receive)
+    return () => ipcRenderer.removeListener('mc-agent:event', receive)
+  },
+})
+
 function rgbToHex(rgb) {
   const m = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)
   if (!m) return '#fdfdfd'

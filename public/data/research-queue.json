@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "agent-attribution-conflation",
+      "title": "Agent attribution conflation in the session transcript",
+      "status": "queued",
+      "provenance": "owner-observation",
+      "observation": "Background agent tool calls render inline in the main transcript, directly beneath the coordinator's own text, with no visual separation of author. The owner observed this and flagged that words were being attributed to him that he never said. Provenance is load-bearing because the owner request ledger treats his verbatim words as the sole authority; a surface that blurs who said what corrupts the input to that authority.",
+      "researchQuestion": "How should each tool call and message be attributed to its originating agent in the transcript UI?"
+    },
+    {
+      "id": "git-author-cannot-identify-actor",
+      "title": "Git author metadata cannot distinguish owner from agent",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Every commit in these repositories is authored 'Josh Pinckard' -- the owner's, the coordinator's, and every lane's alike. Two separate agents independently inferred authorship from git metadata and were both wrong; one concluded a design document was owner-written on that basis and stated it as established fact. The only machine-readable actor signal that exists today is the Co-Authored-By trailer, which is conventional rather than enforced.",
+      "researchQuestion": "How should actor provenance be recorded so that, months later, it is mechanically knowable whether a change originated from the owner, a named agent, or an unattended sweep? Consider signed trailers, an agent-coord lane record joined on commit sha, or a commit-msg hook that refuses an unattributed agent commit.",
+      "relatedTo": "agent-attribution-conflation"
+    },
+    {
+      "id": "controls-that-cannot-fail",
+      "title": "The fail-open family: controls wired to nothing",
+      "status": "queued",
+      "provenance": "measured-2026-08-08",
+      "observation": "Eleven-plus distinct instances found in a single night, each looking green. Write flags returning enabled on empty storage. A permission rule naming a tool that does not exist. A test that could not go red because its catch path returned the safe value. A capability guard called by no dispatch path. A build allowlist silently dropping a required module while 20/20 tests passed. A scheduled task returning exit 1 every firing with nobody alerted. An assertion 'elapsedMs < 500' guarding the claim 'waits the configured budget', which zero elapsed satisfies. A licence-compliance fence watching advertised auth methods for a package that authenticates out-of-band.",
+      "researchQuestion": "The diagnostic question that found all of them was not 'does this control exist' but 'would anything notice if it stopped working'. Can that question be made mechanical -- mutation testing, a required deliberate-red artifact per control, or a registry of controls with a proof-of-bite for each?"
+    },
+    {
+      "id": "flake-concealing-hollow-assertion",
+      "title": "A flake can be the visible symptom of an assertion that cannot fail",
+      "status": "queued",
+      "provenance": "measured-2026-08-08",
+      "observation": "A wall-clock-sensitive test failed intermittently. The obvious fix -- widen the tolerance -- would have silenced the only evidence that the assertion was hollow. The assertion was 'elapsedMs < 500' guarding a clause named 'waits the configured budget'; zero elapsed satisfies it, so the clause could not detect the worst case of the thing it named. Proven by mutation: breaking the wait loop turned three clauses red; restoring produced a zero-line diff and 15/15.",
+      "researchQuestion": "How do we distinguish a flake worth stabilising from a flake that is reporting a real weakness? Widening a tolerance is the cheap move and it destroys the signal.",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "exit-code-swallowed-by-pipe",
+      "title": "Piped test output hides the real exit code",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "A lane verifying a security fence reported 'seen RED' on the basis of a run that printed exit=0. The cause: $? after a pipe reads the last command in the pipeline (tail), not the test. The fence threw loudly AND exited clean, which in CI is a fence that fails open. The lane caught it itself. A red assertion message and a non-zero exit are not the same evidence, and the pipe makes the difference invisible.",
+      "researchQuestion": "Should the deliberate-red standard mandate an unpiped exit-code observation, and can that be enforced mechanically rather than by convention?",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "measure-a-second-way",
+      "title": "Wrong findings are caught by re-measuring differently, never by re-reasoning",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Five confidently-wrong findings in one night, all from measurements that were actually measuring something else: a grep splitting on a filename containing spaces and returning zeros from files that did not exist; packaging config read from a tree that has no packaging config; a reachability regex reporting NONE for a script that is plainly invoked; a pipe swallowing an exit code; a check testing one of two valid spellings. Every one was caught by measuring a second, different way. Not one was caught by thinking harder about the first answer.",
+      "researchQuestion": "Which classes of verification here deserve a mandatory second, methodologically-different measurement -- and can the second method be chosen automatically so it does not share the first one's blind spot?"
+    },
+    {
+      "id": "single-copy-work",
+      "title": "Finished work existing in exactly one place",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Seven-plus instances in one night of completed output that existed on one disk, untracked. Including a 19.5KB security review, a licence-compliance fence test, and the owner's own request ledger found dirty and uncommitted three separate times. Compounding it: the report-file convention introduced specifically to stop silent lane deaths writes into a directory git ignores, so the control created to preserve evidence was itself producing unpreservable evidence.",
+      "researchQuestion": "What is the right durability contract for lane output? Options include a non-ignored reports path, forced commit at lane exit, or treating an uncommitted lane worktree as an incomplete lane by definition."
+    },
+    {
+      "id": "worktree-sandbox-cannot-commit",
+      "title": "Sandboxed lanes in linked worktrees cannot commit at all",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Every lane dispatched into a linked git worktree under a workspace-write sandbox failed to stage anything: 'Unable to create .git/worktrees/<lane>/index.lock: Permission denied'. A linked worktree keeps its git metadata inside the MAIN repository, outside the lane's writable root, so the sandbox permits edits but forbids commits. Lanes did real work and could not preserve it; the coordinator had to commit on their behalf. Codex exposes --add-dir for additional writable roots, and a full clone would place .git inside the sandbox root instead.",
+      "researchQuestion": "Should lane isolation use full clones rather than linked worktrees, or should dispatch always pass the worktree metadata directory as an additional writable root? Which better preserves the one-lane-one-branch guarantee?"
+    },
+    {
+      "id": "cloud-lane-cannot-see-territory",
+      "title": "Cloud lanes cannot see local territory, fences, or recent commits",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Of sixteen Codex Cloud tasks dispatched from a task list, five collided with live local work and one was briefed in a way that invited it to untrack the owner's request ledger -- 522 entries of his verbatim words, tracked deliberately via gitignore negations. A cloud lane runs against a pushed branch in an isolated container: it cannot see local worktrees, active fences, or what landed thirty minutes ago. Mitigating factor found the same night: cloud has no cancel subcommand, but nothing auto-applies, so a bad diff is inert until an explicit apply.",
+      "researchQuestion": "What must a cloud dispatch carry so the territory check that a local lane performs for itself still happens? A machine-readable territory snapshot embedded in the brief, a pre-dispatch collision check against agent-coord claims, or a mandatory apply-time review gate?"
+    },
+    {
+      "id": "ambient-credentials-decide-billing",
+      "title": "Ambient environment silently decides which account is billed",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Scheduled role sweeps spawned a CLI with no env option, inheriting whatever ANTHROPIC_API_KEY sat in the machine environment. That key takes precedence over the desktop subscription login. Nobody chose that account -- it was ambient. The repository already had a fix for exactly this (providerEnvironment strips the relevant variables) whose header comment names the offending file by path and predicts the outage; the runner imported only the executable resolver from that same module and left the sanitizer behind. Root cause of the reuse asymmetry: the resolver was a free function and the sanitizer was a class method.",
+      "researchQuestion": "This will reach end users -- a customer with ANTHROPIC_API_KEY set gets the same silent billing switch. How should the product make the chosen auth source explicit, logged per run, and distinguishable from a generic failure? Note the related structural lesson: an easy-to-import half plus a hard-to-import half guarantees callers take only the easy half."
+    },
+    {
+      "id": "deny-list-defence-is-incomplete-by-construction",
+      "title": "Deny-lists only enumerate the failures someone already imagined",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The installer smoke gate defends against a hostile environment by stripping two named variables. It works today. Anything new and ambient walks straight through. Service and scheduled-task registration, if added, inherits whatever environment the registering shell had, and nothing currently defends that. This is the same structural weakness as the ambient-credential defect one layer up.",
+      "researchQuestion": "Where should the product use allow-lists rather than deny-lists for process environment, and what is the migration cost?",
+      "relatedTo": "ambient-credentials-decide-billing"
+    },
+    {
+      "id": "blind-pair-surfaces-spec-defects",
+      "title": "Blind builder/test separation surfaces specification ambiguity mechanically",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "First run of the owner's R1206 structure. A tester lane, working from a frozen contract without sight of the implementation, returned seven distinct contract ambiguities with the reading it chose for each -- the structured error field was unnamed, 'every location searched' was undefined, PATH-shim-versus-first-hit-wins was genuinely underspecified, and 'newest VS Code extension' specified neither directory pattern nor ordering rule. It also declined to soften assertions to reach green. Under single-agent authorship every one of those would have been silently resolved by the same reading that produced the code.",
+      "researchQuestion": "How should contract ambiguities returned by a blind test lane be triaged and folded back into the contract, and should a contract that produces more than N ambiguities be rejected before the builder lane is dispatched at all?"
+    },
+    {
+      "id": "mutual-correction-between-seats",
+      "title": "Errors are caught by the other seat, never by the one who made them",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Four mutual corrections between two coordinator seats in one night, every one on a measurement rather than an opinion, and every one changing a decision rather than just a sentence. None was caught by whoever made the error. Separately, a worker lane corrected its own manager twice with evidence and was right both times, and the manager recorded those corrections in the quality meter deliberately -- reasoning that a meter tracking only whether workers satisfy reviewers measures compliance, not quality.",
+      "researchQuestion": "This is evidence for keeping two checking seats rather than consolidating judgement into one. What is the minimum structure that preserves it, and how should a quality meter score an agent that successfully corrects its supervisor?",
+      "relatedTo": "blind-pair-surfaces-spec-defects"
+    },
+    {
+      "id": "two-coordination-boards",
+      "title": "Two agent-coord boards, invisible to each other",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The read-only memory namespace reachable from a session rooted in the retired tree does not contain the agent-coord keys that the canonical tree's broker writes. A territory claim posted to the wrong board is invisible to the lanes it is meant to protect. This is the suspected root cause of at least one lane collision tonight, since the coordination channel is the only mechanism preventing collisions in the first place.",
+      "researchQuestion": "Which board is canonical, and how is the other retired without losing its history? Note this cannot be resolved by content-diffing the two boards -- they are runtime stores, not files.",
+      "relatedTo": "cloud-lane-cannot-see-territory"
+    },
+    {
+      "id": "unreachable-tests",
+      "title": "A third of the test corpus is reachable from no runner",
+      "status": "queued",
+      "provenance": "measured-2026-08-08",
+      "observation": "250 of 706 test files are not reachable from any package.json script. Concrete consequences observed the same night: three new security test files in no runner passed only because a reviewer ran them by hand; a compliance fence test was committed with a message claiming it was 'registered in a runner' when the script existed and nothing invoked it; and the module that actually ships the working Codex chat had zero reachable coverage while its fake-transport sibling was green.",
+      "researchQuestion": "Beyond a reachability checker, what stops this recurring -- a pretest gate that fails on any unreferenced test file, or a convention where test files are discovered rather than enumerated?",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "silent-scheduled-task-failure",
+      "title": "Scheduled tasks fail forever and nothing alerts",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Two consecutive shadow-manager sweeps failed and nothing raised an alarm; the launch gate depends on that cadence, so every acceptance made while it was down was quietly weakened. Found only by an unrelated investigation. The same pattern is live in the FRA keeper right now: exit code 1 every two minutes, and its log file does not exist, so it fails with no diagnostic trail at all. A separate 7-day-old worker was found burning a full CPU core polling a machine that had been disconnected for hours.",
+      "researchQuestion": "What is the right alerting contract for unattended cadences -- consecutive-failure thresholds, a heartbeat freshness check surfaced on the dashboard, or treating a stale heartbeat as a hard gate precondition?",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "native-claude-transport",
+      "title": "A first-party Claude transport fitted to this product",
+      "status": "queued",
+      "provenance": "owner-directive-2026-08-09",
+      "observation": "The off-the-shelf ACP agent authenticates from the owner's personal Claude Code subscription session and refuses an API key; the compliant path (an isolated credential directory) therefore fails by design, and the one-line change that would make it work is a licence violation that looks exactly like a bugfix. A test fence now guards that edit. The owner's direction is to build a custom implementation fitted to the software's needs rather than adopt someone else's client.",
+      "researchQuestion": "What is the right shape for a first-party Claude transport -- streaming, tool-use loop, permission modes, model selection, cancellation -- reusing the protocol comprehension already banked (six permission modes; model/effort/agent config options) and matching the existing Codex transport's interface so both providers are interchangeable behind one seam?"
+    }
+  ]
+}
