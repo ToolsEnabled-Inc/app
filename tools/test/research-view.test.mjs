@@ -3,8 +3,43 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { assertValidProjection } from '../gen-projection-lib.mjs'
+
 const ROOT = resolve(import.meta.dirname, '..', '..')
 const read = path => readFileSync(resolve(ROOT, path), 'utf8')
+
+// The SHIPPED research envelope. Two clauses in this file used to assert its
+// contents -- 7 safe rows, 7 gated rows, 7 method notes, an observed-empty
+// findings register. T4c ("ship honest empty data instead of the owner's
+// snapshot") replaced every shipped projection with an unavailable envelope,
+// because the populated ones carried the titles and absolute paths of ~14 of
+// the owner's private reports into the installer. Those assertions then read a
+// file that policy requires to be empty.
+//
+// The counts are properties of the GENERATOR, not of a shipping decision, and
+// they now live in research-generator.test.mjs against a fixture that cannot be
+// emptied out from under them -- with two clauses that were missing there
+// (methodNotes length, and the exact source-out-of-scope reasons) carried over.
+//
+// What stays here is what this file is actually about: the view's contract, and
+// the shipped file's structural honesty in whichever state it ships. These are
+// deliberately written to hold BOTH before and after the open question of
+// whether real data should ship is settled, so settling it does not turn this
+// suite red again.
+const shippedEnvelope = () => JSON.parse(read('public/data/research.json'))
+
+function assertHonestEnvelope(envelope) {
+  assert.doesNotThrow(() => assertValidProjection('research', envelope))
+  if (envelope.ok === true) {
+    assert.equal(envelope.reason, null, 'an available envelope states no reason')
+    assert.notEqual(envelope.data, null, 'an available envelope carries data')
+    return true
+  }
+  assert.equal(envelope.data, null, 'an unavailable envelope must carry no data at all')
+  assert.equal(typeof envelope.reason, 'string')
+  assert.notEqual(envelope.reason.length, 0, 'an unavailable envelope must say why')
+  return false
+}
 
 test('research is an independent ring route backed by the research projection', () => {
   const main = read('src/main.js')
@@ -29,13 +64,15 @@ test('research view keeps authorization-gated rows metadata-only', () => {
   assert.match(lockedBranch, /report\?\.authorizationReason/)
   assert.doesNotMatch(lockedBranch, /report\?\.(?:summary|path|bytes|dateObserved|source|id)/)
 
-  const envelope = JSON.parse(read('public/data/research.json'))
+  // The shipped envelope must never contradict that view contract. Counts are
+  // proved in research-generator.test.mjs; what is proved here is that no gated
+  // row can reach the installer carrying the fields the locked branch refuses
+  // to render. When the file ships unavailable this is true because there are
+  // no rows at all, which is asserted rather than assumed.
+  const envelope = shippedEnvelope()
+  if (!assertHonestEnvelope(envelope)) return
   const catalog = envelope.data.corpusCatalog.value
-  const safe = catalog.filter(item => item.needsOwnerAuthorization !== true)
   const locked = catalog.filter(item => item.needsOwnerAuthorization === true)
-  assert.equal(safe.length, 7)
-  assert.equal(locked.length, 7)
-  assert.equal(envelope.data.methodNotes.value.length, 7)
   for (const item of locked) {
     assert.equal(typeof item.title, 'string')
     assert.equal(typeof item.authorizationReason, 'string')
@@ -45,10 +82,25 @@ test('research view keeps authorization-gated rows metadata-only', () => {
 
 test('research view distinguishes unavailable observations from observed-empty data', () => {
   const view = read('src/views/research.js')
-  const envelope = JSON.parse(read('public/data/research.json'))
 
+  // The distinction itself: an observation that could not be made renders
+  // differently from one that was made and found nothing. This is the clause
+  // that matters, and it is a property of the view.
   assert.match(view, /if \(!observation\?\.ok\) return unavailableMarkup/)
   assert.match(view, /observation\.value\.length === 0\) return emptyMarkup/)
+  // Order matters: an unavailable observation has no .value to measure, so the
+  // ok check must come first or an unavailable section renders as "empty" --
+  // which is the exact false-liveness claim T4c was fixing.
+  assert.ok(
+    view.indexOf('if (!observation?.ok) return unavailableMarkup') < view.indexOf('observation.value.length === 0'),
+    'the unavailable check must precede the empty check',
+  )
+
+  // The shipped envelope must state its own availability honestly, whichever
+  // state it ships in. The generator's observed-empty vs out-of-scope sections
+  // are proved in research-generator.test.mjs.
+  const envelope = shippedEnvelope()
+  if (!assertHonestEnvelope(envelope)) return
   assert.equal(envelope.data.findingsRegister.ok, true)
   assert.deepEqual(envelope.data.findingsRegister.value, [])
   assert.equal(envelope.data.failureTaxonomy.ok, false)

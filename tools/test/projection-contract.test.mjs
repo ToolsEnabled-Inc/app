@@ -126,11 +126,52 @@ test('checked-in generated payloads validate against their public schemas', () =
   }
 })
 
-test('browser reader accepts all checked-in available projections', async () => {
+// This test used to be `browser reader accepts all checked-in available
+// projections` and asserted result.ok === true for every shipped file. That
+// premise was deliberately reversed by T4c ("ship honest empty data instead of
+// the owner's snapshot"): the seven shipped projections are now minimal
+// unavailable envelopes, because the populated ones carried the owner's fleet
+// state, machine addresses, and private report paths into the installer. So the
+// old test demanded the exact thing a privacy fix had just removed.
+//
+// Asserting availability was never the point. What the reader owes callers is
+// that it does not INVENT: an unavailable file must not be reported live, and an
+// available one must not be reported dead. That is asserted here in both
+// directions, and it stays correct whichever way the ship-the-data question is
+// finally settled.
+//
+// The accept path is not dropped. It moves to research-generator.test.mjs
+// ('a generated available payload is accepted by the browser reader'), which
+// owns a deterministic fixture and can produce a genuinely available payload --
+// something this file could only ever have borrowed from the owner's snapshot.
+test('browser reader reports every checked-in projection exactly as that file states it', async () => {
+  assert.ok(DOMAINS.length > 0, 'DOMAINS is empty, so this test would assert nothing')
   for (const domain of DOMAINS) {
     const payload = readJson(join(PROJECT_ROOT, 'public', 'data', `${domain}.json`))
+    assert.doesNotThrow(() => assertValidProjection(domain, payload), domain)
+
     const result = await fetchProjection(domain, { fetchImpl: projectionFetch(domain, payload) })
-    assert.equal(result.ok, true, `${domain}: ${result.reason || 'reader refused payload'}`)
-    assert.deepEqual(result.data, payload)
+    assert.deepEqual(result.data, payload, `${domain}: the reader must hand back the exact envelope it validated`)
+    assert.equal(
+      result.ok,
+      payload.ok,
+      `${domain}: reader availability must equal the file's own ok flag, never a reader-chosen default`,
+    )
+
+    if (payload.ok === true) {
+      assert.equal(payload.reason, null, `${domain}: an available envelope carries no reason`)
+      assert.notEqual(payload.data, null, `${domain}: an available envelope must carry data`)
+      assert.equal(Object.hasOwn(result, 'reason'), false, `${domain}: the reader must not attach a reason to an available projection`)
+    } else {
+      assert.equal(payload.data, null, `${domain}: an unavailable envelope must carry no data`)
+      assert.equal(
+        result.reason,
+        payload.reason,
+        `${domain}: the reader must surface the file's own reason, not one it composed`,
+      )
+      assert.equal(typeof result.reason, 'string', `${domain}: reason must be readable text`)
+      assert.notEqual(result.reason.length, 0, `${domain}: reason must not be empty`)
+    }
+    assert.equal(typeof result.fetchedAtMs, 'number', `${domain}: every read is stamped with the reader's own clock`)
   }
 })
