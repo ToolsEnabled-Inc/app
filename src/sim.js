@@ -66,9 +66,13 @@ function mkTask() {
 class Sim {
   constructor() {
     this.serverEpoch = now() - (1 * D + 20 * H + 3 * M + 1000 * 47)   // ≈ the sketch: 1:20:03:xx
+    // Addresses are RFC 5737 documentation-reserved (192.0.2.0/24) ON PURPOSE: they can
+    // never be a real host. Do NOT "improve" these into a realistic-looking private range
+    // like 192.168.x — that ships something that reads as a real machine roster and still
+    // passes a grep for the owner's own address, which is the bug this replaced.
     this.computers = [
-      mkComputer({ id: 'c1', name: 'Computer 1', ip: '192.168.214.2', note: 'compatibility host', epochOffset: 1 * D + 20 * H }),
-      mkComputer({ id: 'c2', name: 'Computer 2', ip: '192.168.214.1', note: 'canonical', epochOffset: 15 * H + 10 * M }),
+      mkComputer({ id: 'c1', name: 'Computer 1', ip: '192.0.2.2', note: 'compatibility host', epochOffset: 1 * D + 20 * H }),
+      mkComputer({ id: 'c2', name: 'Computer 2', ip: '192.0.2.1', note: 'canonical', epochOffset: 15 * H + 10 * M }),
     ]
     this.feed = Array.from({ length: 9 }, () => this.mkFeedLine())
     this.pace = 1
@@ -102,7 +106,7 @@ class Sim {
     const n = this.computers.length + 1
     const c = mkComputer({
       id: `c${n}`, name: `Computer ${n}`,
-      ip: `192.168.214.${n + 1}`, note: 'provisioning',
+      ip: `192.0.2.${n + 1}`, note: 'provisioning',
       epochOffset: 3 * M + Math.random() * 20 * M,
     })
     this.computers.push(c)

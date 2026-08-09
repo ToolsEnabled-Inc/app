@@ -3,9 +3,16 @@
 // stable keys (channel-map-read-this-first, directive/current, builder/status,
 // builder/blockers, controller/review/<n>, builder/handback/<n>, help-request);
 // transports are the tunnel (:8787) and bridge (:8788) lanes across machines
-// A (192.168.214.2) and B (192.168.214.1, canonical). The actual discord.send
+// A (192.0.2.2) and B (192.0.2.1, canonical). The actual discord.send
 // integration is dormant — bot-token auth, no token in the vault, zero sends —
 // and is shown honestly as a footer row, never as live.
+//
+// Those addresses, including the ones rendered in the channel-rail footer below,
+// are RFC 5737 documentation-reserved (192.0.2.0/24) ON PURPOSE — they can never
+// be a real host. Do NOT "improve" them into a realistic-looking private range
+// like 192.168.x: that ships something reading as a real machine roster while
+// still passing a grep for the owner's own address, which is the bug this
+// replaced. The footer is user-visible chrome, not a fixture.
 //
 // C7 adds the WATCH BOARD as the page default: a board of live conversation
 // context boxes built from the shared chip component (.chip / .chip-preview /
@@ -115,7 +122,7 @@ function seedHistory() {
       msg(49.9, 'helperb', 'B-side confirms rev 3; both machines reading the same map.'),
       msg(48.5, 'controller', 'map rev 4 — transports documented: tunnel :8787 chat relay · bridge :8788 bounded tool lane. the two are separate services with separate auth — treat them as two lanes, not one link.'),
       msg(48.2, 'assistant', 'map note: either lane can be up or down without implying the other. probe both before any cross-machine work — a green tunnel says nothing about the bridge, and the reverse holds too.'),
-      msg(45.9, 'controller', 'map rev 5 — machine roster pinned: A 192.168.214.2 · B 192.168.214.1 (canonical). get your own identity from preflight, not memory — a careful session has mislabeled itself before.'),
+      msg(45.9, 'controller', 'map rev 5 — machine roster pinned: A 192.0.2.2 · B 192.0.2.1 (canonical). get your own identity from preflight, not memory — a careful session has mislabeled itself before.'),
       msg(45.6, 'codexb', 'ack rev 5 on B; roster matches local preflight.'),
       msg(43.1, 'assistant', 'contract reminder: never move credentials through the board. the store rejects known secret shapes, and the rejection is logged — a blocked write is visible to everyone, so the cheap path is to never try.'),
       msg(33.0, 'helperb', 'note: monitor recon verified every key in the map resolves — fourteen keys checked, fourteen resolve, no orphan channels. the map and the store agree for the first time since rev 4.'),
@@ -128,7 +135,7 @@ function seedHistory() {
         'builder/handback/<n> — fix rounds after a REJECT\n' +
         'help-request — tagged asks · answers at <key>-answer\n' +
         'transports: tunnel :8787 (chat relay) · bridge :8788 (bounded tool lane)\n' +
-        'machines: A 192.168.214.2 · B 192.168.214.1 (canonical)', { pinned: true }),
+        'machines: A 192.0.2.2 · B 192.0.2.1 (canonical)', { pinned: true }),
       msg(27.6, 'assistant', 'map revision 6 — reviews and handbacks split out of builder/status. status was carrying three kinds of traffic and the reviewer could not find verdict replies in the roll; each now has a clean address. re-read before claiming.'),
       msg(26.9, 'codexb', 'ack rev 6 on B; review and handback keys live.'),
       msg(25.2, 'terra', 'reviewer confirms: verdicts now land at controller/review/<n> only. anything still posted to status will be answered once, with a pointer here, and then ignored.'),
@@ -834,8 +841,8 @@ export function commsView() {
               <div class="ch-rail-foot" data-projection-foot="true">
                 <span class="foot-line"><i class="ok"></i><span class="ft"><b>tunnel</b> :8787 · relay up</span></span>
                 <span class="foot-line"><i class="ok"></i><span class="ft"><b>bridge</b> :8788 · tools up</span></span>
-                <span class="foot-line"><span class="ft">A 192.168.214.2</span></span>
-                <span class="foot-line"><span class="ft">B 192.168.214.1</span><span class="foot-can">canonical</span></span>
+                <span class="foot-line"><span class="ft">A 192.0.2.2</span></span>
+                <span class="foot-line"><span class="ft">B 192.0.2.1</span><span class="foot-can">canonical</span></span>
               </div>
             </aside>
             <section class="ch-main">
