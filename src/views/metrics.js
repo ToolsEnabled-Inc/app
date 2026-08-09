@@ -111,7 +111,7 @@ const provInk = (id) => `var(--prov-${id}, var(--ink-3))`
    makeTooltip() in src/components.js clamps a tip against its CONTAINER's
    right edge and its container's top — never against the window — so at
    1280x800 the pool meter tip, the widest in the app (272 px), flips left
-   and lands at x = −44, eating the first ~5 characters of 'jpinckard21 ·
+   and lands at x = −44, eating the first ~5 characters of 'northwind21 ·
    subscription'. It is clean at 1920x1080, which is why a container-relative
    clamp looked right.
 
@@ -604,8 +604,8 @@ export function metricsView() {
     const machineDays = Math.max(0.25, R.days * Math.max(1, machineComputers().length))
     const vertexTotal = m.spend.vertexTotal
     const defs = [
-      { id: 'jpinckard21', label: 'subscription seat', kind: 'percent', total: 100, used: pools[0], window: 'seat window, resets monthly' },
-      { id: 'jpinckard95', label: 'vertex trial', kind: 'currency', total: vertexTotal, used: vertexTotal * pools[1] / 100 },
+      { id: 'northwind21', label: 'subscription seat', kind: 'percent', total: 100, used: pools[0], window: 'seat window, resets monthly' },
+      { id: 'northwind95', label: 'vertex trial', kind: 'currency', total: vertexTotal, used: vertexTotal * pools[1] / 100 },
     ]
     const rows = defs.map((def) => {
       const pace = Math.max(0.01, def.used / machineDays)
@@ -821,18 +821,18 @@ export function metricsView() {
       /* every current agent on a provider can be reaped between drifts; the
          flow must not vanish with them — fall back to the sub pool and the
          default role rather than dropping a column total */
-      if (!wsum) { byPool.jpinckard21 = 1; byRole.default = 1; wsum = 1 }
+      if (!wsum) { byPool.northwind21 = 1; byRole.default = 1; wsum = 1 }
 
-      /* university carve-out: jpinc005 spawns no compute lanes, so no agent
+      /* university carve-out: north005 spawns no compute lanes, so no agent
          weight ever routes it — but its pool card reports a small used-%
          (SSO checks riding the local lane), and that same page number is the
          share drawn here. Carved out of the subscription pool's local flow
          so the three totals stay conserved. */
-      if (p.id === 'local' && byPool.jpinckard21) {
+      if (p.id === 'local' && byPool.northwind21) {
         const uni = clamp(0.01, 0.2, pools[2] / 100)
         const carve = wsum * uni
-        byPool.jpinckard21 = Math.max(0.001, byPool.jpinckard21 - carve)
-        byPool.jpinc005 = (byPool.jpinc005 || 0) + carve
+        byPool.northwind21 = Math.max(0.001, byPool.northwind21 - carve)
+        byPool.north005 = (byPool.north005 || 0) + carve
         wsum = Object.values(byPool).reduce((a, b) => a + b, 0)
       }
 
@@ -1114,8 +1114,8 @@ export function metricsView() {
     POOLS.forEach((p) => {
       /* p.color / p.glow are deliberately NOT read (same rule the provider
          series follow above): POOLS in src/vocab.js carries the ROLE hexes
-         verbatim — jpinckard21 IS the Coordinator dot, jpinckard95 the
-         Manager, jpinc005 the Shadow Manager — and both sets are on screen
+         verbatim — northwind21 IS the Coordinator dot, northwind95 the
+         Manager, north005 the Shadow Manager — and both sets are on screen
          in one scroll. Colour follows one entity; a pool card is identified
          by its mono account name and its kind badge, so it takes the single
          neutral --pool-accent and the collision is gone by construction.

@@ -9,7 +9,7 @@ export const LEDGER_STARTED_AT = Date.now()
 
 export const R_ITEMS = [
   { id: 'R1', title: 'Cut the canonical host over without mirror drift', status: 'in-progress', agent: 'codex', ageMs: 3 * HOUR + 18 * MINUTE, gate: 'IRREVERSIBLE', evidence: 'reports/r1/cutover-register.md', claimedAt: '17:08:12Z' },
-  { id: 'R1.1', parent: 'R1', title: 'Freeze machine ownership at the current revision', status: 'done', agent: 'claude', ageMs: 4 * HOUR + 7 * MINUTE, evidence: 'agent-coord/directive/current@45', claimedAt: '16:19:44Z' },
+  { id: 'R1.1', parent: 'R1', title: 'Freeze machine ownership at the current revision', status: 'done', agent: 'claude', ageMs: 4 * HOUR + 7 * MINUTE, evidence: 'fleet-board/directive/current@45', claimedAt: '16:19:44Z' },
   { id: 'R1.1.1', parent: 'R1.1', title: 'Compare preflight with the ownership table', status: 'done', agent: 'terra-01', ageMs: 4 * HOUR + 31 * MINUTE, evidence: 'reports/r1/ownership-diff.txt', claimedAt: '15:56:08Z' },
   { id: 'R1.1.2', parent: 'R1.1', title: 'Publish the cutover condition to directive/current', status: 'gated', agent: 'codex', ageMs: 2 * HOUR + 42 * MINUTE, gate: 'OUTWARD', evidence: 'packets/r1/directive-rev-46.json', claimedAt: '17:44:03Z' },
   { id: 'R1.2', parent: 'R1', title: 'Retire the compatibility mirror after month-end', status: 'gated', agent: 'claude', ageMs: 1 * DAY + 6 * HOUR, gate: 'IRREVERSIBLE', evidence: 'reports/r1/mirror-retirement.md', claimedAt: '15:12:19Z' },
@@ -42,17 +42,17 @@ export const R_ITEMS = [
 ]
 
 export const Q_ITEMS = [
-  { id: 'Q61', question: 'Keep the compatibility mirror through month-end, then cut it?', status: 'answered', answer: 'Keep the mirror through month-end; canonical-only starts on the first morning wake after.', agent: 'codex', ageMs: 2 * DAY + 4 * HOUR, evidence: 'agent-coord/directive/current@45', claimedAt: '18:04:09Z' },
+  { id: 'Q61', question: 'Keep the compatibility mirror through month-end, then cut it?', status: 'answered', answer: 'Keep the mirror through month-end; canonical-only starts on the first morning wake after.', agent: 'codex', ageMs: 2 * DAY + 4 * HOUR, evidence: 'fleet-board/directive/current@45', claimedAt: '18:04:09Z' },
   { id: 'Q62', question: 'May the bridge recovery clear the stale owner-host fence locally?', status: 'pending', agent: 'claude', ageMs: 3 * HOUR + 6 * MINUTE, evidence: 'owner-inbox/Q62.json', claimedAt: '17:19:31Z' },
-  { id: 'Q63', question: 'Should a lane with no outcome packet be treated as failed?', status: 'answered', answer: 'Only if it ended; a truncated lane is continuation and keeps its checkpoint open.', agent: 'terra-01', ageMs: 1 * DAY + 9 * HOUR, evidence: 'agent-coord/help-request-044-answer', claimedAt: '12:27:44Z' },
+  { id: 'Q63', question: 'Should a lane with no outcome packet be treated as failed?', status: 'answered', answer: 'Only if it ended; a truncated lane is continuation and keeps its checkpoint open.', agent: 'terra-01', ageMs: 1 * DAY + 9 * HOUR, evidence: 'fleet-board/help-request-044-answer', claimedAt: '12:27:44Z' },
   { id: 'Q64', question: 'Which host owns write-path decisions during the mirror window?', status: 'pending', agent: 'gem-lane-2', ageMs: 2 * HOUR + 18 * MINUTE, evidence: 'owner-inbox/Q64.json', claimedAt: '18:07:20Z' },
   { id: 'Q65', question: 'Can the scheduler guard ship before the two-hundred-run sweep closes?', status: 'pending', agent: 'luna-02', ageMs: 1 * HOUR + 52 * MINUTE, evidence: 'owner-inbox/Q65.json', claimedAt: '18:33:05Z' },
-  { id: 'Q66', question: 'Do tunnel and bridge health belong in one combined metric?', status: 'answered', answer: 'No; show them as independent lanes because either can fail while the other stays green.', agent: 'claude', ageMs: 3 * DAY + 1 * HOUR, evidence: 'agent-coord/directive/current@44', claimedAt: '09:46:18Z' },
+  { id: 'Q66', question: 'Do tunnel and bridge health belong in one combined metric?', status: 'answered', answer: 'No; show them as independent lanes because either can fail while the other stays green.', agent: 'claude', ageMs: 3 * DAY + 1 * HOUR, evidence: 'fleet-board/directive/current@44', claimedAt: '09:46:18Z' },
   { id: 'Q67', question: 'May a reviewer accept a criterion from screenshot evidence alone?', status: 'pending', agent: 'terra-01', ageMs: 58 * MINUTE, evidence: 'owner-inbox/Q67.json', claimedAt: '19:27:16Z' },
-  { id: 'Q68', question: 'Should unanswered retired-key help requests escalate to the coordinator?', status: 'answered', answer: 'Yes; retired keys do not waive the twenty-four-hour coordinator escalation.', agent: 'sandbox-w1', ageMs: 4 * DAY + 7 * HOUR, evidence: 'agent-coord/help-request-044-answer', claimedAt: '13:41:27Z' },
+  { id: 'Q68', question: 'Should unanswered retired-key help requests escalate to the coordinator?', status: 'answered', answer: 'Yes; retired keys do not waive the twenty-four-hour coordinator escalation.', agent: 'sandbox-w1', ageMs: 4 * DAY + 7 * HOUR, evidence: 'fleet-board/help-request-044-answer', claimedAt: '13:41:27Z' },
   { id: 'Q69', question: 'Can the final mirror checksum be captured before the month-end fence?', status: 'pending', agent: 'gem-lane-4', ageMs: 43 * MINUTE, evidence: 'owner-inbox/Q69.json', claimedAt: '19:42:50Z' },
   { id: 'Q70', question: 'Does the inbox drain need an outward receipt for every answer?', status: 'pending', agent: 'codex', ageMs: 31 * MINUTE, evidence: 'owner-inbox/Q70.json', claimedAt: '19:54:32Z' },
-  { id: 'Q71', question: 'Should stale cards stay visible while a refresh is staged?', status: 'answered', answer: 'Yes; mark them stale and keep them visible until the verified replacement is promoted.', agent: 'gem-lane-3', ageMs: 2 * DAY + 13 * HOUR, evidence: 'agent-coord/directive/current@43', claimedAt: '09:18:40Z' },
+  { id: 'Q71', question: 'Should stale cards stay visible while a refresh is staged?', status: 'answered', answer: 'Yes; mark them stale and keep them visible until the verified replacement is promoted.', agent: 'gem-lane-3', ageMs: 2 * DAY + 13 * HOUR, evidence: 'fleet-board/directive/current@43', claimedAt: '09:18:40Z' },
   { id: 'Q72', question: 'May the retired plan corpus remain searchable after quarantine?', status: 'pending', agent: 'terra-01', ageMs: 19 * MINUTE, evidence: 'owner-inbox/Q72.json', claimedAt: '20:06:01Z' },
 ]
 

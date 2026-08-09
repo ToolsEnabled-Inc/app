@@ -1,7 +1,7 @@
 // /home — the giant hero ring + the coordinator's session thread.
 //
 // DATA WIRING NOTE: the RING still reads public/data/status.json (written by
-// tools/gen-status.mjs from real, read-only ToolsEnabled state) via
+// tools/gen-status.mjs from real, read-only fleet-host state) via
 // src/live-status.js, and still refuses to invent a number when that file is
 // missing. The THREAD between the braces is different on purpose: it is the
 // PLAN.md simulation — a written coordinator session, like every other page's
@@ -59,7 +59,7 @@ const SESSION = [
   ['codex', 'Delegating the fix round now: gem-lane-3 takes criterion 3 only — the type floor on the metrics ticks — territory scoped to the two files named in the rejection. luna-02 keeps metrics.css; nobody else touches it this wave.'],
   ['luna-02', 'claim acknowledged. preflight clean, no colliding session. metrics.css stays mine through the wave; phase 1 of 3 underway, checkpoint before the fence.'],
   ['gem-lane-3', 'fix scoped to criterion 3 — shared tick component untouched. ticks raised to 12px and the floor measured off the rendered box, not the stylesheet. handback posted, re-review requested.'],
-  ['act', 'memory.set agent-coord builder/handback/9 — 412 chars · lease heartbeat fresh'],
+  ['act', 'memory.set fleet-board builder/handback/9 — 412 chars · lease heartbeat fresh'],
   ['terra-01', 're-review of 9: ACCEPT — floor verified at 1600×900 and 1280×800, 11/11 criteria green, 38s wall clock. evidence: artifacts/r191/review.md. closing the round.'],
   ['codex', 'Round closed in one pass — that is the contract working. Rolling the verdict into the ledger and releasing the spawn hold; cap back to 20.'],
   ['owner', 'Good. What about the cross-machine link? B went quiet for a stretch yesterday and I never got a straight answer on whether that was the tunnel or the bridge.'],
@@ -81,7 +81,7 @@ const SESSION = [
   ['codex', "Three things. terra-01's two queued verdicts. The board morph lane's last two phases, which are mechanical. And one decision that is yours, not mine: whether the retired compatibility host keeps its mirror duty or we cut over to canonical-only. Everything else is closed with evidence."],
   ['owner', 'Keep the mirror through the end of the month, then cut it. Put that in the directive so nobody relitigates it in three weeks.'],
   ['codex', 'Written as directive rev 45 with the date and the cutover condition — newest wins, so the standing mirror-duty note is superseded cleanly rather than argued with. Both machines acked inside a minute.'],
-  ['act', 'memory.set agent-coord directive/current rev 45 — acks: codex-b, luna-02, gem-lane-3'],
+  ['act', 'memory.set fleet-board directive/current rev 45 — acks: codex-b, luna-02, gem-lane-3'],
   ['codex-b', 'rev 45 acked on B. mirror duty scheduled through month-end, cutover condition recorded; nothing else outstanding on my side.'],
   ['terra-01', 'controller/review/15: ACCEPT — 13/13 criteria pass, 44s wall clock. evidence: artifacts/r193/review.md'],
   ['act', 'ledger updated — review/15 verdict recorded · OUTWARD class untouched'],
@@ -130,7 +130,7 @@ const REPLIES = [
 const REPLY_ACTS = [
   'ran node tools/agent-preflight.js — clean, no colliding session',
   'ledger query — 9 gates open, none blocking active lanes',
-  'memory.search agent-coord — 3 fresh packets since last read',
+  'memory.search fleet-board — 3 fresh packets since last read',
   'ran node tools/bridge-status.js — both lanes OK',
 ]
 

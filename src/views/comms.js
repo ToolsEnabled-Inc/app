@@ -1,4 +1,4 @@
-// /comms — the fleet's internal "discord": the agent-coord durable-memory
+// /comms — the fleet's internal "discord": the fleet-board durable-memory
 // board, rendered as a calm two-pane channel view. Channels are the real
 // stable keys (channel-map-read-this-first, directive/current, builder/status,
 // builder/blockers, controller/review/<n>, builder/handback/<n>, help-request);
@@ -813,9 +813,9 @@ export function commsView() {
     <div class="comms" data-mode="${W.mode}" data-live-mode="${liveMode ? 'live' : 'simulated'}" data-projection-state="${liveMode ? 'loading' : 'simulated'}">
       <header class="comms-head">
         <span class="head-hash">#</span><span class="head-name">directive</span>
-        <span class="head-meta">agent-coord · cross-machine</span>
+        <span class="head-meta">fleet-board · cross-machine</span>
         <span class="head-wt">watch board</span>
-        <span class="head-wt-meta">agent-coord · live conversations</span>
+        <span class="head-wt-meta">fleet-board · live conversations</span>
         <span class="spacer"></span>
         <div class="seg wb-seg size-seg" role="group" aria-label="Box size">
           <button type="button" data-size="s" title="Small boxes">S</button>
@@ -1080,7 +1080,7 @@ export function commsView() {
   const stackEl = root.querySelector('.watch-stack')
   const stackDrop = el(`<div class="wb-stackdrop"></div>`)
   const wtMeta = root.querySelector('.head-wt-meta')
-  wtMeta.textContent = `agent-coord · ${W.convs.size} conversations`
+  wtMeta.textContent = `fleet-board · ${W.convs.size} conversations`
   const EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
   const boxEls = new Map()            // convId -> chip element (this mount)
   let dragTeardown = null

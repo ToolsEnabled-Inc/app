@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "agent-attribution-conflation",
+      "title": "Agent attribution conflation in the session transcript",
+      "status": "queued",
+      "provenance": "owner-observation",
+      "observation": "Background agent tool calls render inline in the main transcript, directly beneath the coordinator's own text, with no visual separation of author. The owner observed this and flagged that words were being attributed to him that he never said. Provenance is load-bearing because the owner request ledger treats his verbatim words as the sole authority; a surface that blurs who said what corrupts the input to that authority.",
+      "researchQuestion": "How should each tool call and message be attributed to its originating agent in the transcript UI?"
+    },
+    {
+      "id": "git-author-cannot-identify-actor",
+      "title": "Git author metadata cannot distinguish owner from agent",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Every commit in these repositories is authored 'Josh Pinckard' -- the owner's, the coordinator's, and every lane's alike. Two separate agents independently inferred authorship from git metadata and were both wrong; one concluded a design document was owner-written on that basis and stated it as established fact. The only machine-readable actor signal that exists today is the Co-Authored-By trailer, which is conventional rather than enforced.",
+      "researchQuestion": "How should actor provenance be recorded so that, months later, it is mechanically knowable whether a change originated from the owner, a named agent, or an unattended sweep? Consider signed trailers, an agent-coord lane record joined on commit sha, or a commit-msg hook that refuses an unattributed agent commit.",
+      "relatedTo": "agent-attribution-conflation"
+    },
+    {
+      "id": "controls-that-cannot-fail",
+      "title": "The fail-open family: controls wired to nothing",
+      "status": "queued",
+      "provenance": "measured-2026-08-08",
+      "observation": "Eleven-plus distinct instances found in a single night, each looking green. Write flags returning enabled on empty storage. A permission rule naming a tool that does not exist. A test that could not go red because its catch path returned the safe value. A capability guard called by no dispatch path. A build allowlist silently dropping a required module while 20/20 tests passed. A scheduled task returning exit 1 every firing with nobody alerted. An assertion 'elapsedMs < 500' guarding the claim 'waits the configured budget', which zero elapsed satisfies. A licence-compliance fence watching advertised auth methods for a package that authenticates out-of-band.",
+      "researchQuestion": "The diagnostic question that found all of them was not 'does this control exist' but 'would anything notice if it stopped working'. Can that question be made mechanical -- mutation testing, a required deliberate-red artifact per control, or a registry of controls with a proof-of-bite for each?"
+    },
+    {
+      "id": "flake-concealing-hollow-assertion",
+      "title": "A flake can be the visible symptom of an assertion that cannot fail",
+      "status": "queued",
+      "provenance": "measured-2026-08-08",
+      "observation": "A wall-clock-sensitive test failed intermittently. The obvious fix -- widen the tolerance -- would have silenced the only evidence that the assertion was hollow. The assertion was 'elapsedMs < 500' guarding a clause named 'waits the configured budget'; zero elapsed satisfies it, so the clause could not detect the worst case of the thing it named. Proven by mutation: breaking the wait loop turned three clauses red; restoring produced a zero-line diff and 15/15.",
+      "researchQuestion": "How do we distinguish a flake worth stabilising from a flake that is reporting a real weakness? Widening a tolerance is the cheap move and it destroys the signal.",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "exit-code-swallowed-by-pipe",
+      "title": "Piped test output hides the real exit code",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "A lane verifying a security fence reported 'seen RED' on the basis of a run that printed exit=0. The cause: $? after a pipe reads the last command in the pipeline (tail), not the test. The fence threw loudly AND exited clean, which in CI is a fence that fails open. The lane caught it itself. A red assertion message and a non-zero exit are not the same evidence, and the pipe makes the difference invisible.",
+      "researchQuestion": "Should the deliberate-red standard mandate an unpiped exit-code observation, and can that be enforced mechanically rather than by convention?",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "measure-a-second-way",
+      "title": "Wrong findings are caught by re-measuring differently, never by re-reasoning",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Five confidently-wrong findings in one night, all from measurements that were actually measuring something else: a grep splitting on a filename containing spaces and returning zeros from files that did not exist; packaging config read from a tree that has no packaging config; a reachability regex reporting NONE for a script that is plainly invoked; a pipe swallowing an exit code; a check testing one of two valid spellings. Every one was caught by measuring a second, different way. Not one was caught by thinking harder about the first answer.",
+      "researchQuestion": "Which classes of verification here deserve a mandatory second, methodologically-different measurement -- and can the second method be chosen automatically so it does not share the first one's blind spot?"
+    },
+    {
+      "id": "single-copy-work",
+      "title": "Finished work existing in exactly one place",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Seven-plus instances in one night of completed output that existed on one disk, untracked. Including a 19.5KB security review, a licence-compliance fence test, and the owner's own request ledger found dirty and uncommitted three separate times. Compounding it: the report-file convention introduced specifically to stop silent lane deaths writes into a directory git ignores, so the control created to preserve evidence was itself producing unpreservable evidence.",
+      "researchQuestion": "What is the right durability contract for lane output? Options include a non-ignored reports path, forced commit at lane exit, or treating an uncommitted lane worktree as an incomplete lane by definition."
+    },
+    {
+      "id": "worktree-sandbox-cannot-commit",
+      "title": "Sandboxed lanes in linked worktrees cannot commit at all",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Every lane dispatched into a linked git worktree under a workspace-write sandbox failed to stage anything: 'Unable to create .git/worktrees/<lane>/index.lock: Permission denied'. A linked worktree keeps its git metadata inside the MAIN repository, outside the lane's writable root, so the sandbox permits edits but forbids commits. Lanes did real work and could not preserve it; the coordinator had to commit on their behalf. Codex exposes --add-dir for additional writable roots, and a full clone would place .git inside the sandbox root instead.",
+      "researchQuestion": "Should lane isolation use full clones rather than linked worktrees, or should dispatch always pass the worktree metadata directory as an additional writable root? Which better preserves the one-lane-one-branch guarantee?"
+    },
+    {
+      "id": "cloud-lane-cannot-see-territory",
+      "title": "Cloud lanes cannot see local territory, fences, or recent commits",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Of sixteen Codex Cloud tasks dispatched from a task list, five collided with live local work and one was briefed in a way that invited it to untrack the owner's request ledger -- 522 entries of his verbatim words, tracked deliberately via gitignore negations. A cloud lane runs against a pushed branch in an isolated container: it cannot see local worktrees, active fences, or what landed thirty minutes ago. Mitigating factor found the same night: cloud has no cancel subcommand, but nothing auto-applies, so a bad diff is inert until an explicit apply.",
+      "researchQuestion": "What must a cloud dispatch carry so the territory check that a local lane performs for itself still happens? A machine-readable territory snapshot embedded in the brief, a pre-dispatch collision check against agent-coord claims, or a mandatory apply-time review gate?"
+    },
+    {
+      "id": "ambient-credentials-decide-billing",
+      "title": "Ambient environment silently decides which account is billed",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Scheduled role sweeps spawned a CLI with no env option, inheriting whatever ANTHROPIC_API_KEY sat in the machine environment. That key takes precedence over the desktop subscription login. Nobody chose that account -- it was ambient. The repository already had a fix for exactly this (providerEnvironment strips the relevant variables) whose header comment names the offending file by path and predicts the outage; the runner imported only the executable resolver from that same module and left the sanitizer behind. Root cause of the reuse asymmetry: the resolver was a free function and the sanitizer was a class method.",
+      "researchQuestion": "This will reach end users -- a customer with ANTHROPIC_API_KEY set gets the same silent billing switch. How should the product make the chosen auth source explicit, logged per run, and distinguishable from a generic failure? Note the related structural lesson: an easy-to-import half plus a hard-to-import half guarantees callers take only the easy half."
+    },
+    {
+      "id": "deny-list-defence-is-incomplete-by-construction",
+      "title": "Deny-lists only enumerate the failures someone already imagined",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The installer smoke gate defends against a hostile environment by stripping two named variables. It works today. Anything new and ambient walks straight through. Service and scheduled-task registration, if added, inherits whatever environment the registering shell had, and nothing currently defends that. This is the same structural weakness as the ambient-credential defect one layer up.",
+      "researchQuestion": "Where should the product use allow-lists rather than deny-lists for process environment, and what is the migration cost?",
+      "relatedTo": "ambient-credentials-decide-billing"
+    },
+    {
+      "id": "blind-pair-surfaces-spec-defects",
+      "title": "Blind builder/test separation surfaces specification ambiguity mechanically",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "First run of the owner's R1206 structure. A tester lane, working from a frozen contract without sight of the implementation, returned seven distinct contract ambiguities with the reading it chose for each -- the structured error field was unnamed, 'every location searched' was undefined, PATH-shim-versus-first-hit-wins was genuinely underspecified, and 'newest VS Code extension' specified neither directory pattern nor ordering rule. It also declined to soften assertions to reach green. Under single-agent authorship every one of those would have been silently resolved by the same reading that produced the code.",
+      "researchQuestion": "How should contract ambiguities returned by a blind test lane be triaged and folded back into the contract, and should a contract that produces more than N ambiguities be rejected before the builder lane is dispatched at all?"
+    },
+    {
+      "id": "mutual-correction-between-seats",
+      "title": "Errors are caught by the other seat, never by the one who made them",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Four mutual corrections between two coordinator seats in one night, every one on a measurement rather than an opinion, and every one changing a decision rather than just a sentence. None was caught by whoever made the error. Separately, a worker lane corrected its own manager twice with evidence and was right both times, and the manager recorded those corrections in the quality meter deliberately -- reasoning that a meter tracking only whether workers satisfy reviewers measures compliance, not quality.",
+      "researchQuestion": "This is evidence for keeping two checking seats rather than consolidating judgement into one. What is the minimum structure that preserves it, and how should a quality meter score an agent that successfully corrects its supervisor?",
+      "relatedTo": "blind-pair-surfaces-spec-defects"
+    },
+    {
+      "id": "two-coordination-boards",
+      "title": "Two agent-coord boards, invisible to each other",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The read-only memory namespace reachable from a session rooted in the retired tree does not contain the agent-coord keys that the canonical tree's broker writes. A territory claim posted to the wrong board is invisible to the lanes it is meant to protect. This is the suspected root cause of at least one lane collision tonight, since the coordination channel is the only mechanism preventing collisions in the first place.",
+      "researchQuestion": "Which board is canonical, and how is the other retired without losing its history? Note this cannot be resolved by content-diffing the two boards -- they are runtime stores, not files.",
+      "relatedTo": "cloud-lane-cannot-see-territory"
+    },
+    {
+      "id": "unreachable-tests",
+      "title": "A third of the test corpus is reachable from no runner",
+      "status": "queued",
+      "provenance": "measured-2026-08-08",
+      "observation": "250 of 706 test files are not reachable from any package.json script. Concrete consequences observed the same night: three new security test files in no runner passed only because a reviewer ran them by hand; a compliance fence test was committed with a message claiming it was 'registered in a runner' when the script existed and nothing invoked it; and the module that actually ships the working Codex chat had zero reachable coverage while its fake-transport sibling was green.",
+      "researchQuestion": "Beyond a reachability checker, what stops this recurring -- a pretest gate that fails on any unreferenced test file, or a convention where test files are discovered rather than enumerated?",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "silent-scheduled-task-failure",
+      "title": "Scheduled tasks fail forever and nothing alerts",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "Two consecutive shadow-manager sweeps failed and nothing raised an alarm; the launch gate depends on that cadence, so every acceptance made while it was down was quietly weakened. Found only by an unrelated investigation. The same pattern is live in the FRA keeper right now: exit code 1 every two minutes, and its log file does not exist, so it fails with no diagnostic trail at all. A separate 7-day-old worker was found burning a full CPU core polling a machine that had been disconnected for hours.",
+      "researchQuestion": "What is the right alerting contract for unattended cadences -- consecutive-failure thresholds, a heartbeat freshness check surfaced on the dashboard, or treating a stale heartbeat as a hard gate precondition?",
+      "relatedTo": "controls-that-cannot-fail"
+    },
+    {
+      "id": "native-claude-transport",
+      "title": "A first-party Claude transport fitted to this product",
+      "status": "queued",
+      "provenance": "owner-directive-2026-08-09",
+      "observation": "The off-the-shelf ACP agent authenticates from the owner's personal Claude Code subscription session and refuses an API key; the compliant path (an isolated credential directory) therefore fails by design, and the one-line change that would make it work is a licence violation that looks exactly like a bugfix. A test fence now guards that edit. The owner's direction is to build a custom implementation fitted to the software's needs rather than adopt someone else's client.",
+      "researchQuestion": "What is the right shape for a first-party Claude transport -- streaming, tool-use loop, permission modes, model selection, cancellation -- reusing the protocol comprehension already banked (six permission modes; model/effort/agent config options) and matching the existing Codex transport's interface so both providers are interchangeable behind one seam?"
+    },
+    {
+      "id": "fence-by-component-not-by-file",
+      "title": "Territory fenced by component instead of by file",
+      "status": "queued",
+      "provenance": "measured-2026-08-09 (coordinator self-report, 4 instances)",
+      "observation": "The coordinator partitioned work by COMPONENT and never by FILE, four separate times in one session, after writing the rule against it and enforcing it on others. Consequences: two lanes in one worktree on one branch, where one nearly deleted the other’s files; a shared config file rewritten under a builder three times; and two independent swarms dispatched at the SAME six test failures. A second coordinator made an equivalent error and measured the wrong tree five times. Both had authored the rule they broke.",
+      "researchQuestion": "Rules we author bind us no better than rules we inherit. What makes a coordination rule mechanically enforceable at dispatch time rather than a thing to remember? A dispatch mechanism that cannot express per-file ownership will keep producing this."
+    },
+    {
+      "id": "duplicate-dispatch-same-work",
+      "title": "Two swarms dispatched at identical work",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "A five-territory campaign and a ten-builder wave were both given the same six test failures. Two agents reached the same fix independently; one detected the other’s in-flight edit twelve seconds before writing and backed off. Nothing was lost, but only because that agent checked file mtimes before editing rather than because any coordination mechanism prevented it.",
+      "researchQuestion": "What must a dispatcher check BEFORE launching a wave so overlapping assignments are refused rather than discovered by collision? Note the near-miss was caught by an mtime check, not by the coordination board."
+    },
+    {
+      "id": "stale-finding-propagating-as-live",
+      "title": "A stale finding carried forward as a current fact",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The coordinator put a claim into a builder brief -- \"classifyAction has zero references\" -- sourced from a design document where it was true when written and had since been fixed. The builder measured it and refuted it. Separately, the coordinator wrote a FALSE environment-coupling diagnosis into a test baseline file, where a future maintainer would have read it and dismissed a genuine failure as environmental.",
+      "researchQuestion": "A finding is a measurement with a timestamp but is consumed as a fact without one. How should a finding carry its own expiry, so a brief written from a document re-verifies rather than inherits? The false diagnosis was worse than no diagnosis, because it forecloses the investigation."
+    },
+    {
+      "id": "false-claim-in-a-safety-comment",
+      "title": "A false claim written into a safety comment",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The coordinator wrote \"purely behind, not forked\" into a tool’s safety comment, having tested with git cat-file -e and read object existence as reachability. Those are different questions. The trees were genuinely FORKED, with hardening existing only in the retired one. The comment asserted verified fact exactly where the next reader would trust it, and the tool it guarded could have destroyed retired-only work. Same shape as a commit message claiming \"registered in a runner\" when nothing invoked the script.",
+      "researchQuestion": "A false claim is worse than a gap because it stops the next person re-measuring. Should a safety-critical comment be required to carry the exact command that produced its claim, so a reader can re-run instead of trust?"
+    },
+    {
+      "id": "fix-that-looks-like-it-closes-the-gap",
+      "title": "A fix that appears to close a gap and does not",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The coordinator built a commit hook requiring an authorship trailer, after finding that the one unattributable commit was the only one missing it. A peer checked the proposal against the actual incident: the four commits involved came from THREE DIFFERENT LANES and all carried the identical \"Claude Opus 5\" trailer. The trailer names the MODEL, never the ACTOR. The hook would have caught one bare commit and left the real ambiguity completely intact, while appearing to have solved it.",
+      "researchQuestion": "A control believed to work stops anyone looking, so a partial fix can be worse than none. How should a proposed control be tested against the specific incident it claims to prevent, before anyone relies on it? A signature that cannot be wrong is not a signature."
+    },
+    {
+      "id": "instruction-that-is-half-a-rule",
+      "title": "An instruction given repeatedly that was only half the rule",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The coordinator told three lanes to \"commit so your work is not stranded\". Each did. Six commits still sat on exactly one disk -- including one whose message read \"IN FLIGHT AT STAND-DOWN\", written expressly to avoid stranding. Committing protects against a lost worktree; it does nothing against a lost disk. The automatic mirror task covers only one repository every six hours, and the repository with no remote is mirrored by nothing automatic at all.",
+      "researchQuestion": "Those six were mirrored only because a FROZEN lane happened to check -- the instruction to hold still and the need to mirror were in direct tension and resolved by accident. Every guard built that night protects ACTIVE lanes. What protects the moment of leaving, when risk peaks and attention drops to zero?"
+    },
+    {
+      "id": "attribution-blurred-in-relay",
+      "title": "Agent words relayed as the owner’s words",
+      "status": "queued",
+      "provenance": "owner-observation-2026-08-09",
+      "observation": "The owner noticed he was being quoted for something he never said. The coordinator had quoted a config key to an agent; the agent’s reply addressed the coordinator; and the relay made it read as the owner’s own words. He caught it himself. Provenance is load-bearing here because the request ledger treats his verbatim words as the sole authority.",
+      "researchQuestion": "How should a coordinator relaying a subordinate’s output mark whose words are whose? This is the git-author gap one layer up: in a relay, everyone speaks in the coordinator’s voice.",
+      "relatedTo": "agent-attribution-conflation"
+    },
+    {
+      "id": "coordination-cost-of-unidentifiable-actors",
+      "title": "The measurable cost of not being able to tell who is who",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "A lane was frozen twenty minutes on its own branch while an unidentifiable actor committed to it. During that time it refused four unsafe operations, every refusal correct: it refused a peer’s all-clear as a substitute for the freezing authority’s lift, and the tree was NOT in fact clean; it refused to commit another actor’s work under its own authorship; it refused to lower a test baseline for fixes it could not attest were earned rather than environmental; and it refused to resume when the tree went clean, on the grounds that clean means \"no uncommitted work\", not \"no assignment\".",
+      "researchQuestion": "Every one of those refusals was correct and every one cost working time that never appears in a commit log. How should a fleet measure and reward refusals, given that the alternative -- an agent that resumes on a peer’s say-so -- is precisely what destroys work?"
+    },
+    {
+      "id": "rebuilding-what-already-exists",
+      "title": "Rebuilding a mechanism that already existed",
+      "status": "queued",
+      "provenance": "measured-2026-08-09",
+      "observation": "The coordinator began building a single-copy detector. A 40KB correct one had existed since 2026-08-04, referenced in ten documents. This happened despite the owner’s standing instruction \"without building things that we already have\" being the first thing said in the session. Across one sweep, FIVE separate times the thing about to be built already existed: the detector, an environment sanitizer imported by half its callers, a discovering test runner, a full-suite runner, and a declarations checker.",
+      "researchQuestion": "The reflex to build is stronger than the reflex to search, even with an explicit standing instruction. What makes \"search before building\" mechanical rather than remembered? Note the common factor: each existing mechanism was unwired, so it left no trace in the places a builder naturally looks."
+    },
+    {
+      "id": "mechanism-applied-where-it-does-not-belong",
+      "title": "The inverse failure: applying a mechanism because the pattern matched",
+      "status": "queued",
+      "provenance": "measured-2026-08-09 (coordinator self-report, nearly caused data loss)",
+      "observation": "The session’s dominant finding was mechanisms that exist and nothing calls -- a stranded-work detector, a sanitizer half-imported, a discovering test runner replaced by a hand-built list. The heuristic was correct every time, so it was applied to an eighth data file that lacked a generator, and work was queued to \"make it like the other seven\". A lane stopped before dispatching, read the mechanism rather than the summary, and found that the shared generator does not validate its inputs -- it OVERWRITES them. The seven it serves are PROJECTIONS of an upstream source. The eighth is hand-authored, is its own source of truth, and had grown from 17 to 26 items during that same session. Conforming it would have wiped every item on the next routine build.",
+      "researchQuestion": "This is worse than the original defect: an unwired mechanism leaves work undone, while a wrongly-wired one destroys work already there. Before wiring an outlier into a shared mechanism, what does that mechanism DO TO its inputs? Seven callers tolerated being overwritten because their input was derived; the eighth could not, because its input was the only copy. How is \"different in kind\" distinguished from \"deficient\" before a conformity fix is queued?"
+    },
+    {
+      "id": "framing-propagating-between-careful-agents",
+      "title": "A framing propagating between careful agents without anyone testing its premise",
+      "status": "queued",
+      "provenance": "measured-2026-08-09 (three instances in one session)",
+      "observation": "Three separate near-misses shared one shape: a framing was passed from one agent to another, each of whom reasoned carefully FROM it without testing it. (1) A stale bridge premise sent lanes at a branch where their premises did not exist. (2) A false privacy alarm claimed the installer shipped the owner’s home directory, where the obvious remedy would have put real data BACK into shipped files and undone the actual privacy control. (3) \"No schema and no generator\" conflated a real defect with a design choice, and the pairing made a destructive fix look inevitable. In every case the receiving agent was careful; carefulness operated on the wrong premise.",
+      "researchQuestion": "All three were caught by someone RE-MEASURING, never by anyone re-reasoning about a claim they had been handed. How should a relayed framing carry its evidence, so the receiver can cheaply re-measure rather than inherit? Note that a claim of rigour -- \"verified by language-server search\" -- was itself one of the false premises.",
+      "relatedTo": "stale-finding-propagating-as-live"
+    }
+  ]
+}

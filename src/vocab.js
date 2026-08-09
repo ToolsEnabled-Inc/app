@@ -13,7 +13,7 @@ export const TASKS = [
 ]
 
 export const FEED = [
-  'indexing memory namespace agent-coord', 'running preflight from repo root',
+  'indexing memory namespace fleet-board', 'running preflight from repo root',
   'polling owner inbox for unread messages', 'probing tunnel lane on 8787',
   'probing bridge lane on 8788', 'verifying FRA handshake on 8790',
   'regenerating per-namespace tool digest', 're-reading standing orders before outward action',
@@ -44,7 +44,7 @@ export const CHAT = [
 ]
 
 export const CHAT_REPLIES = [
-  'ack — evidence packet in agent-coord under keyed reply',
+  'ack — evidence packet in fleet-board under keyed reply',
   'verdict: ACCEPT, 12 checks pass, 41s wall clock',
   'preflight clean; no colliding territory; proceeding',
   'checkpointed; resuming after mission re-read',
@@ -82,7 +82,7 @@ export const CHAT_CONTEXT_REPLIES = {
 }
 
 export const SUBSYSTEMS = [
-  'Preflight', 'Standing Orders', 'Ledger Gates', 'Owner Inbox', 'Agent-Coord Memory',
+  'Preflight', 'Standing Orders', 'Ledger Gates', 'Owner Inbox', 'Fleet Board Memory',
   'Task Queue', 'Tool Registry', 'Audit Ledger', 'Kill Switch', 'Tunnel', 'Bridge',
   'FRA Lane', 'Grepsaver Cards', 'Fleet Supervisor', 'Dashboard', 'Build Queue',
   'Role Operations', 'Sandbox', 'Scheduler',
@@ -118,9 +118,9 @@ export const ROLES = {
    are kept in step with ROLES above only so that stated invariant stays
    literally true for whoever checks it next. */
 export const POOLS = [
-  { id: 'jpinckard21', kind: 'Subscription', desc: 'subscription-cli · vertex-seat · antigravity', color: '#008dab', glow: '#45d6ff' },
-  { id: 'jpinckard95', kind: 'Vertex trial', desc: 'vertex credit · agentic worktree lanes', color: '#3e63f0', glow: '#7d9bff' },
-  { id: 'jpinc005', kind: 'University', desc: 'campus SSO · no compute lanes', color: '#00956c', glow: '#35eab7' },
+  { id: 'northwind21', kind: 'Subscription', desc: 'subscription-cli · vertex-seat · antigravity', color: '#008dab', glow: '#45d6ff' },
+  { id: 'northwind95', kind: 'Vertex trial', desc: 'vertex credit · agentic worktree lanes', color: '#3e63f0', glow: '#7d9bff' },
+  { id: 'north005', kind: 'University', desc: 'campus SSO · no compute lanes', color: '#00956c', glow: '#35eab7' },
 ]
 
 export const PROVIDERS = [

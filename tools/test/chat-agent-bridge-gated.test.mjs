@@ -62,10 +62,25 @@ test('the agent engine resolver carries no hardcoded sibling-repo default', () =
   )
 })
 
+// The owner-data guard (tools/check-no-owner-data.mjs) is the authority, but it
+// only sees the BUILT bundle -- it fires at the end of a multi-minute `dist`,
+// after electron-builder has already packed. These same classes checked at the
+// source, so a reintroduction goes red in seconds at `npm test`.
+//
+// Two of these are not in the built-bundle guard at all and belong here:
+// `jpinckard` (the owner's real Google account aliases, which sat in
+// src/sim.js's simulation data as pool ids) and `jpinc005` (his real university
+// account, which sat in src/vocab.js's POOLS and was caught by nothing). The
+// fictional stand-ins are `northwind21` / `northwind95` / `north005`.
 test('no source under src/ or shell/ names the internal repo or the dead chat placeholder', () => {
   const forbidden = [
     { label: 'toolsenabled-current', pattern: /toolsenabled-current/ },
     { label: 'Ask Codex or Claude', pattern: /Ask Codex or Claude/ },
+    { label: 'ToolsEnabled', pattern: /toolsenabled/i },
+    { label: 'agent-coord', pattern: /agent-coord/i },
+    { label: "the owner's account aliases", pattern: /jpinckard/i },
+    { label: "the owner's university account", pattern: /jpinc005/i },
+    { label: "the owner's name", pattern: /pinckard/i },
   ]
   const offenders = []
   for (const name of ['src', 'shell']) {

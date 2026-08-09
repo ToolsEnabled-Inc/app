@@ -54,8 +54,8 @@ function engineCandidates(enginePath) {
   }
 
   const candidates = []
-  if (process.env.TOOLSENABLED_ENGINE) {
-    candidates.push({ source: 'TOOLSENABLED_ENGINE', value: process.env.TOOLSENABLED_ENGINE })
+  if (process.env.MISSION_CONTROL_ENGINE) {
+    candidates.push({ source: 'MISSION_CONTROL_ENGINE', value: process.env.MISSION_CONTROL_ENGINE })
   }
   return candidates
 }
@@ -92,7 +92,7 @@ function loadStartCodexSession(enginePath) {
     'AGENT_ENGINE_UNAVAILABLE',
     attempts.length > 0
       ? `Unable to resolve the real Codex engine. Paths tried:\n- ${attempts.join('\n- ')}`
-      : 'Unable to resolve the real Codex engine: no enginePath was passed and TOOLSENABLED_ENGINE is not set.',
+      : 'Unable to resolve the real Codex engine: no enginePath was passed and MISSION_CONTROL_ENGINE is not set.',
   )
 }
 

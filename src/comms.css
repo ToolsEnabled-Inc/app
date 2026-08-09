@@ -1,5 +1,5 @@
 /* ============================================================
-   COMMS — the agents' internal board (agent-coord durable memory),
+   COMMS — the agents' internal board (fleet-board durable memory),
    rendered as a calm, white/black-first channel view.
    Glass frame = the site's language; the message surface = flat white.
    Neon appears only as tiny accents: live dot, role bars, unread dots,
@@ -86,7 +86,7 @@
   border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent);
 }
 
-/* ---------- header: channel name · agent-coord · live · count ----------
+/* ---------- header: channel name · fleet-board · live · count ----------
    Sits OUTSIDE the glass card (first child of .comms) since the home-concept
    pass: the page's own chrome floats bare on the page, the card holds only
    the board/sheet it frames. All JS queries run from .comms and the

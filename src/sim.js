@@ -15,7 +15,7 @@ function mkAgent({ name, role, parentId = null, born, model, pool }) {
     bornAt: born,
     state: 'active',            // 'spawning' | 'active'
     model: model || 'gpt-5.6',
-    pool: pool || 'jpinckard21',
+    pool: pool || 'northwind21',
     context: [pick(FEED), pick(FEED)],
     tasksDone: Math.floor(40 + Math.random() * 400),
     failRate: +(Math.random() * 7 + 0.4).toFixed(1),
@@ -27,11 +27,11 @@ function mkComputer({ id, name, ip, note, epochOffset }) {
   const agents = []
   const add = (a) => { agents.push(a); return a }
 
-  const coord = add(mkAgent({ name: id === 'c1' ? 'codex' : 'codex-b', role: 'coordinator', born: born + 2 * M, model: 'gpt-5.6 · 1.0x', pool: 'jpinckard21' }))
-  const helper = add(mkAgent({ name: id === 'c1' ? 'claude' : 'claude-b', role: 'helper', parentId: coord.id, born: born + 31 * M, model: 'fable-5', pool: 'jpinckard21' }))
-  const shadow = add(mkAgent({ name: id === 'c1' ? 'shadow-mgr' : 'shadow-b', role: 'shadow', parentId: coord.id, born: born + 47 * M, model: 'gpt-5.6 · 0.5x', pool: 'jpinckard21' }))
-  const m1 = add(mkAgent({ name: id === 'c1' ? 'terra-01' : 'terra-11', role: 'manager', parentId: coord.id, born: born + 1.2 * H, model: 'gpt-5.6 · 0.5x', pool: 'jpinckard21' }))
-  const m2 = add(mkAgent({ name: id === 'c1' ? 'luna-02' : 'luna-12', role: 'manager', parentId: coord.id, born: born + 2.4 * H, model: 'gpt-5.6 · 0.2x', pool: 'jpinckard21' }))
+  const coord = add(mkAgent({ name: id === 'c1' ? 'codex' : 'codex-b', role: 'coordinator', born: born + 2 * M, model: 'gpt-5.6 · 1.0x', pool: 'northwind21' }))
+  const helper = add(mkAgent({ name: id === 'c1' ? 'claude' : 'claude-b', role: 'helper', parentId: coord.id, born: born + 31 * M, model: 'fable-5', pool: 'northwind21' }))
+  const shadow = add(mkAgent({ name: id === 'c1' ? 'shadow-mgr' : 'shadow-b', role: 'shadow', parentId: coord.id, born: born + 47 * M, model: 'gpt-5.6 · 0.5x', pool: 'northwind21' }))
+  const m1 = add(mkAgent({ name: id === 'c1' ? 'terra-01' : 'terra-11', role: 'manager', parentId: coord.id, born: born + 1.2 * H, model: 'gpt-5.6 · 0.5x', pool: 'northwind21' }))
+  const m2 = add(mkAgent({ name: id === 'c1' ? 'luna-02' : 'luna-12', role: 'manager', parentId: coord.id, born: born + 2.4 * H, model: 'gpt-5.6 · 0.2x', pool: 'northwind21' }))
 
   const defaults = id === 'c1'
     ? [['gem-lane-1', m1], ['gem-lane-2', m1], ['jarvis', m2], ['gem-lane-3', m2]]
@@ -41,7 +41,7 @@ function mkComputer({ id, name, ip, note, epochOffset }) {
       name: n, role: 'default', parentId: parent.id,
       born: born + (3 + Math.random() * 9) * H,
       model: n.startsWith('gem') ? 'gemini-3.1-pro' : 'local',
-      pool: n.startsWith('gem') ? 'jpinckard95' : 'jpinckard21',
+      pool: n.startsWith('gem') ? 'northwind95' : 'northwind21',
     }))
   }
 
@@ -121,7 +121,7 @@ class Sim {
     const a = mkAgent({
       name: nid(kind), role: 'default', parentId: parent.id, born: now(),
       model: kind === 'gem-lane' ? 'gemini-3.1-pro' : 'local',
-      pool: kind === 'gem-lane' ? 'jpinckard95' : 'jpinckard21',
+      pool: kind === 'gem-lane' ? 'northwind95' : 'northwind21',
     })
     a.state = 'spawning'
     a.tasksDone = 0

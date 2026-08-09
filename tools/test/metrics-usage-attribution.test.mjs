@@ -36,7 +36,7 @@ function payload({ state = 'complete', rows = [row()], tokens = 1234 } = {}) {
 
 function row(overrides = {}) {
   return {
-    pool: 'jpinckard21', provider: 'gemini', role: 'worker', tokens: 1234, calls: 4,
+    pool: 'northwind21', provider: 'gemini', role: 'worker', tokens: 1234, calls: 4,
     tokenProvenance: 'MEASURED', attributionProvenance: 'MEASURED', ...overrides,
   }
 }
@@ -108,8 +108,10 @@ test('query failure isolates usage attribution from the surrounding projection',
   assert.equal(observation.reason, 'source-timeout')
 })
 
+// Rows are strictly ascending by `pool\0provider\0role` -- validateUsageAttributionPayload
+// rejects any other order -- so the local-machine row leads here.
 test('row conservation rejects totals that would double-count or infer tokens', () => {
-  const raw = payload({ rows: [row(), row({ pool: 'local-machine', provider: 'local', role: 'worker', tokens: 6, calls: 1 })] })
+  const raw = payload({ rows: [row({ pool: 'local-machine', provider: 'local', role: 'worker', tokens: 6, calls: 1 }), row()] })
   assert.equal(validateUsageAttributionPayload(raw).ok, false)
   raw.totals.tokens = 1240
   raw.totals.measuredLowerBoundTokens = 1240
