@@ -12,7 +12,8 @@
     "build": "vite build",
     "preview": "vite preview --port 4600 --strictPort",
     "app": "node shell/launch.cjs",
-    "dist": "npm test && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked"
+    "verify": "node tools/test-ratchet.mjs",
+    "dist": "npm run verify && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked"
   },
   "devDependencies": {
     "culori": "^4.0.2",
