@@ -4,13 +4,18 @@
 // titlebar strip — the VSCode arrangement: the app owns the top strip, the
 // OS owns min/max/close (which keeps Win11 snap layouts on the maximize
 // button for free).
-const { app, BrowserWindow, ipcMain, nativeTheme, Menu } = require('electron')
+const { app, BrowserWindow, crashReporter, ipcMain, nativeTheme, Menu } = require('electron')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
+const {
+  CRASH_DUMP_DIR_NAME,
+  crashReporterOptions,
+  crashDumpFilesToDelete,
+} = require('./crash-dumps.cjs')
 const {
   SHELL_HOST,
   SHELL_PORT_MIN,
@@ -22,6 +27,23 @@ const {
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
 const bridgeProof = readBridgeProof({ env: process.env, readFileSync: fs.readFileSync })
+const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
+
+fs.mkdirSync(CRASH_DUMP_DIR, { recursive: true })
+app.setPath('crashDumps', CRASH_DUMP_DIR)
+crashReporter.start(crashReporterOptions())
+
+try {
+  const dumps = fs.readdirSync(CRASH_DUMP_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.dmp')
+    .map((entry) => ({
+      name: entry.name,
+      mtimeMs: fs.statSync(path.join(CRASH_DUMP_DIR, entry.name)).mtimeMs,
+    }))
+  for (const name of crashDumpFilesToDelete(dumps)) {
+    fs.unlinkSync(path.join(CRASH_DUMP_DIR, name))
+  }
+} catch { /* retention is best-effort and must never prevent startup */ }
 /* Bounded, not ephemeral: the action bridge authorizes exact origins only in
    4600-4609. Scanning 4601-4609 is safe because every candidate remains in
    that allowlist; listen(0) could choose an unauthorized, drifting origin
