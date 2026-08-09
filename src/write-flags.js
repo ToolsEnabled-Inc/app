@@ -19,8 +19,7 @@ export function isWriteEnabled(id) {
   assertAction(id)
   try {
     const stored = localStorage.getItem(storageKey(id))
-    if (stored === 'simulated' || stored === 'disabled') return false
-    return true
+    return stored === 'enabled'
   } catch {
     return false
   }
@@ -30,7 +29,7 @@ export function setWriteEnabled(id, enabled) {
   assertAction(id)
   const on = Boolean(enabled)
   try {
-    if (on) localStorage.removeItem(storageKey(id))
+    if (on) localStorage.setItem(storageKey(id), 'enabled')
     else localStorage.setItem(storageKey(id), 'disabled')
   } catch {}
   window.dispatchEvent(new CustomEvent(WRITE_FLAGS_EVENT, { detail: Object.freeze({ action: id, enabled: on }) }))
