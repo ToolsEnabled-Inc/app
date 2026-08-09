@@ -8,14 +8,20 @@ const { app, BrowserWindow, ipcMain, nativeTheme, Menu } = require('electron')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
+const {
+  SHELL_HOST,
+  SHELL_PORT_MIN,
+  SHELL_PORT_MAX,
+  SHELL_PORTS,
+  listenOnFirstFreePort,
+} = require('./port-scan.cjs')
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
-/* Fixed, not ephemeral: the action bridge authorizes by exact origin, and a
-   listen(0) port gave the app a different origin every launch (R1137 known
-   issue). EADDRINUSE is a loud failure by design — a silent fallback port
-   would just recreate the drifting-origin bug with extra steps. */
-const SHELL_PORT = 4601
+/* Bounded, not ephemeral: the action bridge authorizes exact origins only in
+   4600-4609. Scanning 4601-4609 is safe because every candidate remains in
+   that allowlist; listen(0) could choose an unauthorized, drifting origin
+   every launch (R1137 known issue). */
 
 /* Boot theme for the first frame: the renderer reports live colours the
    moment it paints, but the window background and caption buttons exist
@@ -64,15 +70,18 @@ function serveDist() {
         res.end(data)
       })
     })
-    server.on('error', (err) => {
+    const reportFailure = (err) => {
       const { dialog } = require('electron')
-      const detail = err && err.code === 'EADDRINUSE'
-        ? `Port ${SHELL_PORT} is already in use — another Mission Control shell (or a stray server) is holding it. Close it and relaunch.`
+      const detail = err && err.code === 'SHELL_PORT_RANGE_EXHAUSTED'
+        ? `All shell ports ${SHELL_PORT_MIN}-${SHELL_PORT_MAX} are in use or unavailable — other Mission Control shells (or stray servers) are holding them. Close them and relaunch.`
         : String(err)
       dialog.showErrorBox('Mission Control could not start', detail)
       app.exit(1)
-    })
-    server.listen(SHELL_PORT, '127.0.0.1', () => resolve(server))
+    }
+    listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST).then(() => {
+      server.on('error', reportFailure)
+      resolve(server)
+    }, reportFailure)
   })
 }
 
