@@ -25,6 +25,17 @@ const PATTERNS = [
   // Owner identity as prose, not as a path.
   { label: "Josh Pinckard", bytes: Buffer.from("Josh Pinckard"), caseInsensitive: true },
   { label: "Pinckard", bytes: Buffer.from("Pinckard"), caseInsensitive: true },
+  // ACCOUNT ALIASES. Added after `jpinc005` -- the owner's real university account --
+  // was found shipping in src/vocab.js and src/views/metrics.js as simulation pool
+  // names. NOT ONE PATTERN ABOVE CAUGHT IT: the name checks look for "Pinckard" and
+  // "joshp", and an alias is neither. The scan would have passed with a real account
+  // identifier in the bundle, on that build and every future one.
+  //
+  // The lesson generalises past these two strings: identity leaks as whatever the
+  // owner actually types into systems, which is rarely his full name. Any new alias,
+  // handle or account id he uses belongs here the day it is known.
+  { label: "jpinc005", bytes: Buffer.from("jpinc005"), caseInsensitive: true },
+  { label: "jpinckard", bytes: Buffer.from("jpinckard"), caseInsensitive: true },
   // Credential names. A shipped file naming a secret env var teaches an attacker
   // what to look for, and signals internal tooling was packaged by accident.
   { label: "ANTHROPIC_API_KEY", bytes: Buffer.from("ANTHROPIC_API_KEY"), caseInsensitive: true },
