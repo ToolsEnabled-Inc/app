@@ -217,6 +217,23 @@
       "provenance": "measured-2026-08-09",
       "observation": "The coordinator began building a single-copy detector. A 40KB correct one had existed since 2026-08-04, referenced in ten documents. This happened despite the owner’s standing instruction \"without building things that we already have\" being the first thing said in the session. Across one sweep, FIVE separate times the thing about to be built already existed: the detector, an environment sanitizer imported by half its callers, a discovering test runner, a full-suite runner, and a declarations checker.",
       "researchQuestion": "The reflex to build is stronger than the reflex to search, even with an explicit standing instruction. What makes \"search before building\" mechanical rather than remembered? Note the common factor: each existing mechanism was unwired, so it left no trace in the places a builder naturally looks."
+    },
+    {
+      "id": "mechanism-applied-where-it-does-not-belong",
+      "title": "The inverse failure: applying a mechanism because the pattern matched",
+      "status": "queued",
+      "provenance": "measured-2026-08-09 (coordinator self-report, nearly caused data loss)",
+      "observation": "The session’s dominant finding was mechanisms that exist and nothing calls -- a stranded-work detector, a sanitizer half-imported, a discovering test runner replaced by a hand-built list. The heuristic was correct every time, so it was applied to an eighth data file that lacked a generator, and work was queued to \"make it like the other seven\". A lane stopped before dispatching, read the mechanism rather than the summary, and found that the shared generator does not validate its inputs -- it OVERWRITES them. The seven it serves are PROJECTIONS of an upstream source. The eighth is hand-authored, is its own source of truth, and had grown from 17 to 26 items during that same session. Conforming it would have wiped every item on the next routine build.",
+      "researchQuestion": "This is worse than the original defect: an unwired mechanism leaves work undone, while a wrongly-wired one destroys work already there. Before wiring an outlier into a shared mechanism, what does that mechanism DO TO its inputs? Seven callers tolerated being overwritten because their input was derived; the eighth could not, because its input was the only copy. How is \"different in kind\" distinguished from \"deficient\" before a conformity fix is queued?"
+    },
+    {
+      "id": "framing-propagating-between-careful-agents",
+      "title": "A framing propagating between careful agents without anyone testing its premise",
+      "status": "queued",
+      "provenance": "measured-2026-08-09 (three instances in one session)",
+      "observation": "Three separate near-misses shared one shape: a framing was passed from one agent to another, each of whom reasoned carefully FROM it without testing it. (1) A stale bridge premise sent lanes at a branch where their premises did not exist. (2) A false privacy alarm claimed the installer shipped the owner’s home directory, where the obvious remedy would have put real data BACK into shipped files and undone the actual privacy control. (3) \"No schema and no generator\" conflated a real defect with a design choice, and the pairing made a destructive fix look inevitable. In every case the receiving agent was careful; carefulness operated on the wrong premise.",
+      "researchQuestion": "All three were caught by someone RE-MEASURING, never by anyone re-reasoning about a claim they had been handed. How should a relayed framing carry its evidence, so the receiver can cheaply re-measure rather than inherit? Note that a claim of rigour -- \"verified by language-server search\" -- was itself one of the false premises.",
+      "relatedTo": "stale-finding-propagating-as-live"
     }
   ]
 }
