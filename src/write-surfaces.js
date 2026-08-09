@@ -1,5 +1,6 @@
 import { el } from './components.js'
 import { bridgeStatus, bridgeReachable, postBridgeAction } from './mission-bridge.js'
+import { retryWhileUnavailable } from './bridge-retry.js'
 import { isWriteEnabled } from './write-flags.js'
 
 const esc = value => String(value)
@@ -49,6 +50,23 @@ function configureQueueSnapshots(surface, queues) {
   }
 }
 
+function unavailableState(surface, status, result) {
+  actionState(status, 'unavailable', `bridge unavailable · ${result.reason}`)
+  surface.dataset.bridgeState = 'unavailable'
+  for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
+
+  const retry = document.createElement('button')
+  retry.type = 'button'
+  retry.className = 'write-status-retry'
+  retry.textContent = 'Retry'
+  retry.setAttribute('aria-label', 'Retry audited bridge connection')
+  retry.addEventListener('click', async () => {
+    retry.disabled = true
+    await prepareSurface(surface)
+  })
+  status.append(' ', retry)
+}
+
 async function prepareSurface(surface) {
   const status = surface.querySelector('[data-write-status]')
   for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
@@ -57,18 +75,14 @@ async function prepareSurface(surface) {
   // every root's queue and writes audit receipts (~12s measured), which is a
   // snapshot cost, not a heartbeat cost — blocking the panel on it made a
   // healthy bridge read as "unavailable · timed out".
-  const reach = await bridgeReachable()
+  const reach = await retryWhileUnavailable(() => bridgeReachable())
   if (!reach.ok) {
-    actionState(status, 'unavailable', `bridge unavailable · ${reach.reason}`)
-    surface.dataset.bridgeState = 'unavailable'
-    for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
+    unavailableState(surface, status, reach)
     return reach
   }
   const result = await bridgeStatus()
   if (!result.ok) {
-    actionState(status, 'unavailable', `bridge unavailable · ${result.reason}`)
-    surface.dataset.bridgeState = 'unavailable'
-    for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
+    unavailableState(surface, status, result)
     return result
   }
   populateRoots(surface, Array.isArray(result.roots) ? result.roots : [])
