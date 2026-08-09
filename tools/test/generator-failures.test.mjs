@@ -9,14 +9,43 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 import { PROJECT_ROOT, readSchema } from '../gen-projection-lib.mjs'
 import { fetchProjection } from '../../src/live-status.js'
 
-const REAL_CANONICAL = 'C:/Users/joshp/Desktop/toolsenabled-current'
+// WHERE THE REAL FIXTURE READER COMES FROM, AND WHY THIS IS NOT CANONICAL_ROOT.
+//
+// These tests either copy the REAL agent-org reader out of the ToolsEnabled checkout
+// or pass that checkout to a generator as its canonical fixture. That is worth keeping:
+// the failure cases exercise the actual parsing code rather than a re-implementation.
+//
+// This location is independent of the generator library's CANONICAL_ROOT, which means
+// "the root THIS GENERATOR RUN must read" and deliberately fails closed when unset.
+// Borrowing that value as a test-fixture location would couple the tests to generator
+// configuration and undo the removal of one developer's Desktop default.
+//
+// So the real fixture checkout is resolved RELATIVELY: the two trees are siblings in a
+// normal layout and no account name is embedded here. MC_CANONICAL_ROOT still wins for
+// machines that arrange the checkouts differently.
+const REAL_CANONICAL =
+  process.env.MC_CANONICAL_ROOT?.trim() || resolve(PROJECT_ROOT, '..', 'toolsenabled-current')
+
+// A SKIP MUST BE LOUD, AND MUST NOT BE THE NORMAL CASE.
+//
+// Someone cloning only this repo does not have the real reader fixture and should get a
+// stated skip instead of failures they cannot act on. The reason is always printed; in
+// the normal sibling layout these tests RUN and continue protecting the failure paths.
+function canonicalReadersMissing() {
+  return !existsSync(join(REAL_CANONICAL, 'src', 'lib', 'agent-org.js'))
+}
+
+const SKIP_REASON =
+  `ToolsEnabled checkout not found at ${REAL_CANONICAL}: these tests use its real ` +
+  'reader modules as fixtures. Set MC_CANONICAL_ROOT to that checkout to run them.'
+
 const FIXED_NOW = '2026-08-05T12:00:00.000Z'
 
 function write(path, content) {
@@ -83,6 +112,7 @@ process.stdout.write(JSON.stringify(value));
 }
 
 test('missing canonical source emits a valid unavailable payload and reader returns ok:false', async t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const fixture = mkdtempSync(join(tmpdir(), 'mc-projection-missing-'))
   t.after(() => rmSync(fixture, { recursive: true, force: true }))
   const canonical = join(fixture, 'canonical')
@@ -101,6 +131,7 @@ test('missing canonical source emits a valid unavailable payload and reader retu
 })
 
 test('malformed canonical source emits source-malformed without a throw', async t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const fixture = mkdtempSync(join(tmpdir(), 'mc-projection-malformed-'))
   t.after(() => rmSync(fixture, { recursive: true, force: true }))
   const canonical = join(fixture, 'canonical')
@@ -116,6 +147,7 @@ test('malformed canonical source emits source-malformed without a throw', async 
 })
 
 test('unreachable live-state emits an unavailable ops payload end to end', async t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const fixture = mkdtempSync(join(tmpdir(), 'mc-projection-unreachable-'))
   t.after(() => rmSync(fixture, { recursive: true, force: true }))
   const output = join(fixture, 'output')
@@ -130,6 +162,7 @@ test('unreachable live-state emits an unavailable ops payload end to end', async
 })
 
 test('generator refuses to emit a payload rejected by its schema', t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const fixture = mkdtempSync(join(tmpdir(), 'mc-projection-schema-reject-'))
   t.after(() => rmSync(fixture, { recursive: true, force: true }))
   const output = join(fixture, 'output')
@@ -149,6 +182,7 @@ test('generator refuses to emit a payload rejected by its schema', t => {
 })
 
 test('all six generators are byte-idempotent against fixed read-only fixtures', t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const fixture = mkdtempSync(join(tmpdir(), 'mc-projection-idempotent-'))
   t.after(() => rmSync(fixture, { recursive: true, force: true }))
   const output = join(fixture, 'output')
