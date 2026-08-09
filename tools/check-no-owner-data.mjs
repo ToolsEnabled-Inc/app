@@ -1,52 +1,101 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Every pattern here is a class of thing that must never reach a stranger's disk.
-// The first four are machine identity: username, LAN range, home-directory paths.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// PATTERNS ARE IN TWO HALVES, AND THE SPLIT IS THE POINT.
 //
-// The rest were added after all four of the originals passed while the built
-// app.asar -- the exact payload of the installer -- contained the owner's real name,
-// two references to a credential env var, the internal repo name, and vendor
-// provenance in shipped UI text. The originals could not see any of it: they look for
-// PATHS and ADDRESSES, and this leak was PROSE. `public/data/research-queue.json`
-// ships 28 internal engineering post-mortems that name the owner and describe his
-// private fleet, and `src/views/research.js` renders them verbatim on first run.
+// This product started as one person's personal tool and is becoming something
+// strangers install. Some of what must never ship is true for ANY builder -- a home
+// directory path, a credential variable name, the internal name of this repository.
+// Those are product facts and belong here, in code.
 //
-// So: identity is not only a path. A control that checks the shape of a leak it has
-// already seen will not catch the next one wearing different clothes.
-const PATTERNS = [
-  { label: "joshp", bytes: Buffer.from("joshp"), caseInsensitive: true },
-  { label: "192.168.214.", bytes: Buffer.from("192.168.214.") },
+// The rest is WHO THE BUILDER IS: their name, username, account aliases, LAN range.
+// That is user data. Hardcoding it protects exactly one person and gives the next one
+// nowhere to put their own, so it lives in config/owner-data-patterns.json.
+//
+// The mechanism is code. The identity is a setting.
+
+// Built-in: true for anyone who builds this product, regardless of who they are.
+const BUILT_IN_PATTERNS = [
+  // Home-directory paths. Any absolute user path leaks the builder's account name
+  // even when the account name itself is not in the identity profile.
   { label: String.raw`C:\Users`, bytes: Buffer.from(String.raw`C:\Users`), caseInsensitive: true },
   { label: "C:/Users", bytes: Buffer.from("C:/Users"), caseInsensitive: true },
-  // Owner identity as prose, not as a path.
-  { label: "Josh Pinckard", bytes: Buffer.from("Josh Pinckard"), caseInsensitive: true },
-  { label: "Pinckard", bytes: Buffer.from("Pinckard"), caseInsensitive: true },
-  // ACCOUNT ALIASES. Added after `jpinc005` -- the owner's real university account --
-  // was found shipping in src/vocab.js and src/views/metrics.js as simulation pool
-  // names. NOT ONE PATTERN ABOVE CAUGHT IT: the name checks look for "Pinckard" and
-  // "joshp", and an alias is neither. The scan would have passed with a real account
-  // identifier in the bundle, on that build and every future one.
-  //
-  // The lesson generalises past these two strings: identity leaks as whatever the
-  // owner actually types into systems, which is rarely his full name. Any new alias,
-  // handle or account id he uses belongs here the day it is known.
-  { label: "jpinc005", bytes: Buffer.from("jpinc005"), caseInsensitive: true },
-  { label: "jpinckard", bytes: Buffer.from("jpinckard"), caseInsensitive: true },
   // Credential names. A shipped file naming a secret env var teaches an attacker
   // what to look for, and signals internal tooling was packaged by accident.
   { label: "ANTHROPIC_API_KEY", bytes: Buffer.from("ANTHROPIC_API_KEY"), caseInsensitive: true },
   { label: "OPENAI_API_KEY", bytes: Buffer.from("OPENAI_API_KEY"), caseInsensitive: true },
-  // Internal repository and tree names. These identify the owner's private working
-  // layout and appeared in shipped failure text rendered into the DOM.
+  // Internal repository and tree names. These name the private working layout this
+  // product is built from, and appeared in shipped failure text rendered into the DOM.
   { label: "toolsenabled-current", bytes: Buffer.from("toolsenabled-current"), caseInsensitive: true },
   { label: "ToolsEnabled", bytes: Buffer.from("ToolsEnabled"), caseInsensitive: true },
   // Internal coordination surfaces that should never be named in a shipped product.
   { label: "agent-coord", bytes: Buffer.from("agent-coord"), caseInsensitive: true },
 ];
+
+// THE IDENTITY PROFILE IS REQUIRED, AND A MISSING ONE IS AN ERROR.
+//
+// Every identity pattern now lives in config. That makes absence dangerous in a way it
+// was not when these values were literals: with no profile, this guard still reports a
+// clean scan while looking for nothing that identifies anybody. A privacy control that
+// passes because it was given nothing to find is the absence-as-emptiness defect this
+// project has now found seven times, and it would be at its worst here -- the failure
+// is invisible and the consequence ships.
+//
+// So: missing file, unreadable file, wrong shape, or empty list are all hard errors
+// naming the example template. Getting a build to pass must require saying who you are.
+function loadIdentityPatterns(root) {
+  const file = path.join(root, "config", "owner-data-patterns.json");
+  const relative = "config/owner-data-patterns.json";
+
+  if (!existsSync(file)) {
+    throw new Error(
+      `${relative} is missing. This guard has no identity to look for, so it would pass ` +
+        "any bundle containing your name, username or account aliases. Copy " +
+        "config/owner-data-patterns.example.json to that path and fill in your own values.",
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`${relative} is present but unreadable: ${error.message}`);
+  }
+
+  const list = parsed && Array.isArray(parsed.patterns) ? parsed.patterns : null;
+  if (!list) throw new Error(`${relative} must contain a "patterns" array.`);
+  if (list.length === 0) {
+    throw new Error(`${relative} declares no patterns. An empty identity profile protects nobody.`);
+  }
+
+  return list.map((entry, index) => {
+    const value = typeof entry === "string" ? entry : entry && entry.value;
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`${relative} entry ${index} has no usable string value.`);
+    }
+    return {
+      label: value,
+      bytes: Buffer.from(value),
+      caseInsensitive: !(entry && entry.caseSensitive === true),
+    };
+  });
+}
+
+// Resolved at the START of main, not at module load. Both matter:
+//
+// - Not at module load, because a throw there escapes main()'s catch, exits 1 -- the
+//   code that means MATCHES WERE FOUND -- and prints a Node stack trace. A setup
+//   problem must not be indistinguishable from a leak, and the person most likely to
+//   see it is a new user who needs one sentence, not a traceback.
+// - Still before the walk, so a broken profile fails in milliseconds rather than
+//   part-way through 366 MB.
+let ACTIVE_PATTERNS = [];
 
 function asciiLower(byte) {
   return byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte;
@@ -113,11 +162,12 @@ function chooseRoots(arguments_) {
 }
 
 async function main() {
+  ACTIVE_PATTERNS = [...BUILT_IN_PATTERNS, ...loadIdentityPatterns(REPO_ROOT)];
   const roots = chooseRoots(process.argv.slice(2));
   let filesScanned = 0;
   let bytesScanned = 0;
   let totalMatches = 0;
-  const perPattern = new Map(PATTERNS.map(({ label }) => [label, 0]));
+  const perPattern = new Map(ACTIVE_PATTERNS.map(({ label }) => [label, 0]));
 
   for (const root of roots) {
     const resolvedRoot = path.resolve(root);
@@ -143,7 +193,7 @@ async function main() {
       filesScanned += 1;
       bytesScanned += buffer.length;
 
-      for (const pattern of PATTERNS) {
+      for (const pattern of ACTIVE_PATTERNS) {
         const offsets = findMatches(buffer, pattern);
         if (offsets.length === 0) continue;
 
@@ -163,7 +213,7 @@ async function main() {
 
   console.log(`Scanned ${filesScanned} files (${bytesScanned} bytes). Total matches: ${totalMatches}.`);
   console.log(
-    `Per-pattern matches: ${PATTERNS.map(({ label }) => `${JSON.stringify(label)}=${perPattern.get(label)}`).join(", ")}`,
+    `Per-pattern matches: ${ACTIVE_PATTERNS.map(({ label }) => `${JSON.stringify(label)}=${perPattern.get(label)}`).join(", ")}`,
   );
 
   if (totalMatches > 0) process.exitCode = 1;
