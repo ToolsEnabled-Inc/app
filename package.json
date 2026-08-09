@@ -6,6 +6,7 @@
   "main": "shell/main.cjs",
   "scripts": {
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
+    "test": "npm run test:data",
     "test:data": "node --test tools/test/*.test.mjs",
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
