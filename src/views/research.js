@@ -84,13 +84,28 @@ function validQueueText(value, maxLength) {
 }
 
 function validQueueItem(item) {
-  return item && typeof item === 'object' && !Array.isArray(item)
-    && validQueueText(item.id, 120)
-    && validQueueText(item.title, 240)
-    && RESEARCH_QUEUE_STATUSES.has(item.status)
-    && validQueueText(item.provenance, 80)
-    && validQueueText(item.observation, 2000)
-    && validQueueText(item.researchQuestion, 1000)
+  return invalidQueueItemReason(item) === null
+}
+
+function invalidQueueItemReason(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return 'queue item must be an object'
+  if (!validQueueText(item.id, 120)) return 'missing or invalid id'
+  if (!validQueueText(item.title, 240)) return 'missing or invalid title'
+  if (!RESEARCH_QUEUE_STATUSES.has(item.status)) return 'unknown status'
+  if (!validQueueText(item.provenance, 80)) return 'missing or invalid provenance'
+  if (!validQueueText(item.observation, 2000)) return 'missing or invalid observation'
+  if (!validQueueText(item.researchQuestion, 1000)) return 'missing or invalid research question'
+  return null
+}
+
+function queueItemRejection(item, index, seenIds) {
+  const id = validQueueText(item?.id, 120) ? item.id : undefined
+  const rejected = reason => id === undefined ? { index, reason } : { index, id, reason }
+  if (!validQueueItem(item)) return rejected(invalidQueueItemReason(item))
+  if (seenIds.has(id)) return rejected('duplicate id')
+
+  seenIds.add(id)
+  return null
 }
 
 async function fetchResearchQueue({ fetchImpl = fetch } = {}) {
@@ -114,13 +129,19 @@ async function fetchResearchQueue({ fetchImpl = fetch } = {}) {
       || payload.schemaVersion !== 1 || !Array.isArray(payload.items)) {
     return { ok: false, reason: `${RESEARCH_QUEUE_URL} has an unrecognized shape` }
   }
-  if (payload.items.length > 1000 || !payload.items.every(validQueueItem)) {
-    return { ok: false, reason: `${RESEARCH_QUEUE_URL} contains an invalid queue item` }
+  if (payload.items.length > 1000) {
+    return { ok: false, reason: `${RESEARCH_QUEUE_URL} contains more than 1000 queue items` }
   }
-  if (new Set(payload.items.map(item => item.id)).size !== payload.items.length) {
-    return { ok: false, reason: `${RESEARCH_QUEUE_URL} contains duplicate queue item IDs` }
-  }
-  return { ok: true, items: payload.items }
+
+  const items = []
+  const rejected = []
+  const seenIds = new Set()
+  payload.items.forEach((item, index) => {
+    const rejection = queueItemRejection(item, index, seenIds)
+    if (rejection) rejected.push(rejection)
+    else items.push(item)
+  })
+  return { ok: true, items, rejected }
 }
 
 function queueItemMarkup(item) {
@@ -148,10 +169,25 @@ function queueItemMarkup(item) {
 
 function researchQueueMarkup(result) {
   if (!result?.ok) return unavailableMarkup('Research queue', result?.reason)
-  if (!Array.isArray(result.items) || result.items.length === 0) {
+  const items = Array.isArray(result.items) ? result.items : []
+  const rejected = Array.isArray(result.rejected) ? result.rejected : []
+  if (items.length === 0 && rejected.length === 0) {
     return '<p class="research-observed-empty">No research items are queued.</p>'
   }
-  return `<ol class="research-catalog" data-research-queue-list>${result.items.map(queueItemMarkup).join('')}</ol>`
+
+  const rejectionNotice = rejected.length === 0 ? '' : `
+    <aside class="research-unavailable research-queue-rejections" data-research-queue-rejections role="status">
+      <p><strong>${esc(items.length === 0
+        ? `All ${rejected.length} research queue ${rejected.length === 1 ? 'item was' : 'items were'} rejected.`
+        : `${rejected.length} research queue ${rejected.length === 1 ? 'item was' : 'items were'} rejected.`)}</strong></p>
+      <ol>${rejected.map(item => `
+        <li>Source index ${esc(item?.index)}${typeof item?.id === 'string' ? ` · id ${esc(item.id)}` : ''}: ${esc(item?.reason || 'invalid queue item')}</li>`).join('')}
+      </ol>
+    </aside>`
+  const queueList = items.length === 0
+    ? ''
+    : `<ol class="research-catalog" data-research-queue-list>${items.map(queueItemMarkup).join('')}</ol>`
+  return `${rejectionNotice}${queueList}`
 }
 
 function findingMarkup(item) {
