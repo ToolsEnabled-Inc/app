@@ -225,21 +225,47 @@ test('C7 - probes the complete 4601-4609 range and accepts a real app on port 46
   assert.ok(h.terminations.length > 0);
 });
 
-test('C8 - a child that never binds fails promptly near the configured timeout', async (t) => {
+test('C8 - a child that never binds exhausts the configured timeout budget', async (t) => {
   const dir = await packagedFixture(t);
-  const timeoutMs = 25;
+  const timeoutMs = 40000;
+  const pollIntervalMs = 250;
+  let virtualNow = 0;
+  const sleepCalls = [];
   const h = harness({
     fetch: async () => {
       throw new Error('connection refused');
     },
     timeoutMs,
+    pollIntervalMs,
+    findExistingInstances: async () => [],
+    makeSmokeProfileDirectory: async () => join(dir, 'virtual-profile'),
+    removeSmokeProfileDirectory: async () => {},
+    now: () => virtualNow,
+    sleep: async (ms) => {
+      sleepCalls.push(ms);
+      virtualNow += ms;
+    },
   });
-  const started = performance.now();
 
   await assert.rejects(main(dir, h.dependencies));
 
-  const elapsedMs = performance.now() - started;
-  assert.ok(elapsedMs < 500, `configured ${timeoutMs}ms timeout took ${elapsedMs.toFixed(1)}ms`);
+  assert.ok(
+    virtualNow >= timeoutMs,
+    `virtual clock advanced only ${virtualNow}ms of the ${timeoutMs}ms timeout budget`,
+  );
+  assert.ok(
+    virtualNow <= timeoutMs + pollIntervalMs,
+    `virtual clock overshot the timeout budget by ${virtualNow - timeoutMs}ms`,
+  );
+  assert.ok(
+    sleepCalls.every((ms) => ms === pollIntervalMs),
+    `expected every sleep to be ${pollIntervalMs}ms, observed ${sleepCalls.join(', ')}`,
+  );
+  const expectedPolls = timeoutMs / pollIntervalMs;
+  assert.ok(
+    Math.abs(sleepCalls.length - expectedPolls) <= 1,
+    `expected about ${expectedPolls} poll iterations, observed ${sleepCalls.length}`,
+  );
   assert.ok(h.terminations.length > 0);
 });
 
