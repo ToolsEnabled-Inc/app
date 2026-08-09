@@ -8,6 +8,7 @@ const { app, BrowserWindow, ipcMain, nativeTheme, Menu } = require('electron')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
+const { readBridgeProof } = require('./bridge-proof.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
 const {
@@ -20,6 +21,7 @@ const {
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
+const bridgeProof = readBridgeProof({ env: process.env, readFileSync: fs.readFileSync })
 /* Bounded, not ephemeral: the action bridge authorizes exact origins only in
    4600-4609. Scanning 4601-4609 is safe because every candidate remains in
    that allowlist; listen(0) could choose an unauthorized, drifting origin
@@ -88,6 +90,8 @@ function serveDist() {
 }
 
 let win = null
+
+ipcMain.handle('mc-bridge-proof', () => bridgeProof)
 
 async function createWindow() {
   const state = readState()

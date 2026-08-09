@@ -23,6 +23,7 @@ export const WELL_KNOWN_BRIDGE_PORTS = Object.freeze(
 const WELL_KNOWN_BRIDGES = Object.freeze(
   WELL_KNOWN_BRIDGE_PORTS.map(port => `http://127.0.0.1:${port}`),
 )
+const BRIDGE_PROOF_RE = /^[A-Za-z0-9_-]{43}$/
 
 // `/v1/status` is deliberately expensive on the bridge side: it parses every
 // root's BUILD-QUEUE.md and writes durable audit receipts per root, measured at
@@ -93,8 +94,40 @@ export async function configuredBaseUrl() {
 async function bootstrap() {
   const configured = await configuredBaseUrl()
   if (!configured.ok) return configured
+  const getBridgeProof = window.mcShell?.getBridgeProof
+  if (typeof getBridgeProof !== 'function') {
+    return {
+      ok: false,
+      reason: 'action bridge bootstrap proof is unavailable outside the Mission Control desktop shell',
+      code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE',
+    }
+  }
+
+  let proofResult
   try {
-    const response = await fetch(`${configured.baseUrl}/v1/bootstrap`, {
+    proofResult = await getBridgeProof()
+  } catch {
+    return {
+      ok: false,
+      reason: 'the Mission Control desktop shell could not provide the action bridge bootstrap proof',
+      code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE',
+    }
+  }
+  if (proofResult?.ok !== true || typeof proofResult.proof !== 'string'
+      || !BRIDGE_PROOF_RE.test(proofResult.proof)) {
+    return {
+      ok: false,
+      reason: typeof proofResult?.reason === 'string'
+        ? proofResult.reason
+        : 'the Mission Control desktop shell has no valid action bridge bootstrap proof',
+      code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE',
+    }
+  }
+
+  try {
+    const bootstrapUrl = new URL('/v1/bootstrap', configured.baseUrl)
+    bootstrapUrl.searchParams.set('proof', proofResult.proof)
+    const response = await fetch(bootstrapUrl, {
       method: 'GET', headers: { accept: 'application/json' }, cache: 'no-store',
       signal: timeoutSignal(),
     })

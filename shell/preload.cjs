@@ -9,7 +9,10 @@
 //    the shell can never drift from styles.css.
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('mcShell', { titlebarHeight: 36 })
+contextBridge.exposeInMainWorld('mcShell', {
+  titlebarHeight: 36,
+  getBridgeProof: () => ipcRenderer.invoke('mc-bridge-proof'),
+})
 
 function rgbToHex(rgb) {
   const m = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)
