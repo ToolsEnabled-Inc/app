@@ -51,19 +51,35 @@ const SAMPLE_TRANSPORTS = [
   { id: 'tools', label: 'tool lane', port: null, note: 'not configured' },
 ]
 
-/* Account pool IDS ARE LOAD-BEARING JOIN KEYS and cannot be renamed from this
-   file alone: src/views/metrics.js matches them as literal strings in four
-   places (the burn rows it builds from POOLS.slice(0,2) and the burn defs it
-   hardcodes; the zero-agent fallback that writes byPool.northwind21; the
-   third-pool carve-out that writes byPool.north005). Rename them here only and
-   the burn figures go blank and the sankey gains a link whose node was
-   filtered out. What this file CAN honestly own is what the cards say — the
-   kind and the description no longer state a real account taxonomy. Renaming
-   the ids belongs in one change that also edits metrics.js. */
+/* Account pools are the operator's own accounts, and a pool record now carries
+   its own card copy. It did not: src/views/metrics.js decided what a pool card
+   said from its INDEX — pool 0 was a subscription seat, pool 1 a vendor credit
+   balance, anything else a dormant single-sign-on account held behind a named
+   MFA product. That is one person's account taxonomy asserted about whatever
+   pools happen to be loaded, so the strings moved here where a profile can
+   replace them.
+
+   `meter` decides how the card and the burn panel read the pool: 'percent' is
+   a resetting quota, 'currency' a depleting balance, 'dormant' an account with
+   no compute attached (no burn row, no runway). `stats` fills the card's two
+   right-hand cells, and {pct} interpolates the used percentage.
+
+   The ids are short by design: they print as the account name on the card and
+   as the sankey's pool node, and the widest tooltip in the app is built from
+   one (see the viewportTooltip note in metrics.js). */
 const SAMPLE_POOLS = [
-  { id: 'northwind21', kind: 'Sample pool', desc: 'sample account · demonstration quota', color: '#008dab', glow: '#45d6ff' },
-  { id: 'northwind95', kind: 'Sample pool', desc: 'sample account · demonstration credit', color: '#3e63f0', glow: '#7d9bff' },
-  { id: 'north005', kind: 'Sample pool', desc: 'sample account · no compute attached', color: '#00956c', glow: '#35eab7' },
+  { id: 'sample-a', kind: 'Sample pool', desc: 'sample account · seat quota',
+    meter: 'percent', burnLabel: 'sample seat', burnWindow: 'quota window, resets monthly',
+    caption: 'seat quota', stats: ['{pct}% of seat', '2 surfaces'], tipKind: 'seat quota',
+    color: '#008dab', glow: '#45d6ff' },
+  { id: 'sample-b', kind: 'Sample pool', desc: 'sample account · prepaid credit',
+    meter: 'currency', burnLabel: 'sample credit',
+    caption: null, stats: ['no expiry set', 'worker lanes'], tipKind: 'prepaid credit',
+    color: '#3e63f0', glow: '#7d9bff' },
+  { id: 'sample-c', kind: 'Sample pool', desc: 'sample account · no compute attached',
+    meter: 'dormant',
+    caption: 'attached, not spending', stats: ['no window', 'no compute'], tipKind: 'dormant account',
+    color: '#00956c', glow: '#35eab7' },
 ]
 
 /* Task and feed lines describe what an agent fleet DOES — claims, phases,
@@ -461,13 +477,92 @@ const SAMPLE_QUESTIONS = [
   { id: 'Q8', question: 'Does every answer need a receipt written back to the board?', status: 'pending', agent: 'codex', ageHours: 0.5, evidence: 'sample/questions/Q8.json', claimedAt: '19:54:32Z' },
 ]
 
+/* THE HOME SESSION IS THE HARDEST SAMPLE IN THE APP, because a transcript
+   reads as an exchange between real people in a way a channel log does not.
+   The set this replaced was a written morning from one real fleet: its owner
+   asking about a link outage, its coordinator answering with two port numbers,
+   a named canonical checkout, real board keys, and an owner decision about
+   retiring a real host — the whole of it inside the shipped bundle and on the
+   first screen a stranger sees.
+
+   Two things make this version a demonstration instead of a recording. The
+   subject is the interface itself: every turn is about what this view shows
+   and how to replace it, which no transcript of somebody's working day would
+   be. And the notice sits at the END, not the top — the log opens pinned to
+   the newest turn, so a first-time reader reads the last lines first, and a
+   banner at the top would be scrolled out of sight before anyone saw it. */
+const SAMPLE_SPEAKERS = {
+  owner: { cls: 'is-owner', label: 'owner' },
+  claude: { cls: 'is-coord', label: 'claude · coordinator', hue: 'var(--c-coordinator)' },
+  codex: { cls: 'is-coord', label: 'codex · coordinator', hue: 'var(--c-coordinator)' },
+  'codex-b': { cls: 'is-agent', label: 'codex-b', hue: 'var(--c-coordinator)' },
+  'luna-02': { cls: 'is-agent', label: 'luna-02', hue: 'var(--c-manager)' },
+  'terra-01': { cls: 'is-agent', label: 'terra-01', hue: 'var(--c-shadow)' },
+  'gem-lane-3': { cls: 'is-agent', label: 'gem-lane-3', hue: 'var(--c-default)' },
+  'sandbox-w1': { cls: 'is-agent', label: 'sandbox-w1', hue: 'var(--c-default)' },
+  act: { cls: 'is-act', label: '' },
+}
+
+const SAMPLE_SESSION = [
+  { who: 'act', text: 'sample transcript loaded — no fleet host connected; nothing in this thread was sent by anyone' },
+  { who: 'owner', text: 'What am I looking at?' },
+  { who: 'codex', text: 'A demonstration of this view. The ring above reads a real health sweep from a local fleet host, and with no host connected it says so rather than showing a number. Everything between the braces is sample content shipped with the app.' },
+  { who: 'owner', text: 'So none of these agents exist.' },
+  { who: 'codex', text: 'None of them. The roster, the machines, the accounts and this conversation are placeholders from the sample profile. Load a profile of your own and every one of them is replaced.' },
+  { who: 'act', text: 'read sample profile — 2 hosts · 3 accounts · 6 channels · 6 conversations' },
+  { who: 'owner', text: 'Show me what a working thread looks like.' },
+  { who: 'codex', text: 'The lines below are the register a real session uses: a lane claims work and names its files, it reports phases with numbers and an evidence path, a reviewer accepts or rejects one criterion at a time, and quiet tool lines mark what actually ran.' },
+  { who: 'luna-02', text: 'claim: the checks lane — no colliding claim, territory named file by file. phase 1 of 3 underway, checkpoint before the fence.' },
+  { who: 'gem-lane-3', text: 'fix scoped to the one rejected criterion; the shared component is untouched. measured off the rendered box rather than the stylesheet. hand-back posted.' },
+  { who: 'act', text: 'sample/evidence/handback-9.md written — 412 characters · lease heartbeat fresh' },
+  { who: 'terra-01', text: 're-review: ACCEPT — 11 of 11 criteria pass, 38s. every path in the evidence tree resolves. evidence: sample/evidence/review-9.md' },
+  { who: 'codex', text: 'One round, closed. That is the shape the register exists for: a claim, a measurement, a verdict, and a path somebody else can walk without asking a question.' },
+  { who: 'owner', text: 'And when I connect something real?' },
+  { who: 'codex', text: 'Switch a view to its live source in settings and it reads the local projection instead of this. If no host answers, that view says so plainly — it never falls back to the sample and lets you read placeholder traffic as real.' },
+  { who: 'act', text: 'sample transcript ends here — the composer below still answers, from the same sample' },
+]
+
+const SAMPLE_ARRIVALS = [
+  { who: 'luna-02', text: 'phase 2 complete — 18 of 18 checks pass, 1m26s. evidence: sample/evidence/phase-2.md' },
+  { who: 'terra-01', text: 'sample/reviews/5: ACCEPT — 15 of 15 criteria pass, 52s. evidence tree complete.' },
+  { who: 'codex', text: 'Roll-up: every lease fresh, no open blockers, one verdict queued. Sample readings throughout.' },
+  { who: 'gem-lane-3', text: 'checkpoint at phase 4 of 5 — resuming after the plan re-read. nothing re-run.' },
+  { who: 'act', text: 'lease sweep — four sample lanes active, all heartbeats fresh, no stale locks' },
+  { who: 'sandbox-w1', text: 'sample backfill 3 of 9 posted — no lane left without an evidence path.' },
+  { who: 'act', text: 'sample/evidence/roll-up.md written — 388 characters' },
+  { who: 'codex', text: 'Nothing here needs a decision. The sample never asks for one — it only shows where one would land.' },
+  { who: 'luna-02', text: 'lane released — nothing held past the sample wave.' },
+  { who: 'act', text: 'sample transport check — none configured on this install' },
+]
+
+const SAMPLE_REPLIES = [
+  'Noted. On a connected fleet this would go to the board and both hosts would ack it; here it stops at the sample.',
+  'Checks first, then the territory gets scoped and the files named in the claim, so nothing collides.',
+  'Every lease fresh, no open blockers, one verdict queued. Sample readings, but that is the shape of the answer.',
+  'That one needs a decision at a gate, so it holds rather than guessing — a deadline never outranks the register.',
+  'Flagged for a sweep. The evidence packet would name whatever it found, including nothing.',
+  'Delegated with the territory scoped to two files. One fix round; a second failure escalates instead of retrying.',
+  'The honest answer is mid-phase — checkpointed and resumable. Better landed clean than called done early.',
+  'Recorded with an evidence path. A bare "done" would not survive a review anyway.',
+]
+
+const SAMPLE_REPLY_ACTS = [
+  'checked the sample roster — no colliding claim',
+  'sample register — 3 open gates, none blocking a lane',
+  'read sample/notices — nothing new since the last read',
+  'sample transports — none configured on this install',
+]
+
 export const SAMPLE_PROFILE = Object.freeze({
   schemaVersion: 1,
   id: 'sample',
   label: 'Sample fleet',
   machines: SAMPLE_MACHINES,
   transports: SAMPLE_TRANSPORTS,
-  spend: { vertexRemaining: 180, vertexTotal: 300, subSeatPct: 60, uniPct: 5 },
+  /* Named for what they measure, not for one vendor's product and one kind of
+     account: these were vertexRemaining / vertexTotal / subSeatPct / uniPct,
+     and the values were a real balance to the cent. */
+  spend: { creditRemaining: 180, creditTotal: 300, seatPct: 60, dormantPct: 5 },
   pools: SAMPLE_POOLS,
   tasks: SAMPLE_TASKS,
   feed: SAMPLE_FEED,
@@ -478,6 +573,13 @@ export const SAMPLE_PROFILE = Object.freeze({
   board: SAMPLE_BOARD,
   conversations: SAMPLE_CONVERSATIONS,
   ledger: { requests: SAMPLE_REQUESTS, questions: SAMPLE_QUESTIONS },
+  speakers: SAMPLE_SPEAKERS,
+  session: SAMPLE_SESSION,
+  arrivals: SAMPLE_ARRIVALS,
+  replies: SAMPLE_REPLIES,
+  replyActs: SAMPLE_REPLY_ACTS,
+  sessionTitle: 'sample transcript · demonstration of this view',
+  composerTarget: 'codex',
 })
 
 /* A stored profile is merged SECTION BY SECTION over the sample, and a section
@@ -487,8 +589,10 @@ export const SAMPLE_PROFILE = Object.freeze({
    the absence-as-emptiness failure this codebase has already found repeatedly
    (see tools/check-research-queue.mjs on why an empty authored set is an
    error, not a state). */
-const ARRAY_SECTIONS = ['machines', 'transports', 'pools', 'tasks', 'feed', 'chat', 'chatReplies', 'channels', 'conversations']
-const OBJECT_SECTIONS = ['spend', 'chatContextReplies', 'board']
+const ARRAY_SECTIONS = ['machines', 'transports', 'pools', 'tasks', 'feed', 'chat', 'chatReplies',
+  'channels', 'conversations', 'session', 'arrivals', 'replies', 'replyActs']
+const OBJECT_SECTIONS = ['spend', 'chatContextReplies', 'board', 'speakers']
+const TEXT_SECTIONS = ['id', 'label', 'sessionTitle', 'composerTarget']
 
 function usableArray(value) {
   return Array.isArray(value) && value.length > 0
@@ -509,8 +613,9 @@ function mergeProfile(stored) {
       questions: usableArray(stored.ledger.questions) ? stored.ledger.questions : SAMPLE_PROFILE.ledger.questions,
     }
   }
-  if (typeof stored.id === 'string' && stored.id) merged.id = stored.id
-  if (typeof stored.label === 'string' && stored.label) merged.label = stored.label
+  for (const key of TEXT_SECTIONS) {
+    if (typeof stored[key] === 'string' && stored[key].trim()) merged[key] = stored[key]
+  }
   return Object.freeze(merged)
 }
 

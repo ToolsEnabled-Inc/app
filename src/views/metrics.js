@@ -32,6 +32,21 @@ import { fetchMetrics } from '../live-status.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
 
+/* ---------------- account pools ----------------
+   This view used to decide what an account pool WAS from its position in the
+   array: pool 0 a subscription seat, pool 1 a vendor credit balance, anything
+   else a dormant single-sign-on account held behind a named MFA product — all
+   of it one person's real account taxonomy, asserted about whatever pools were
+   loaded, and printed on a shipped card. A pool now carries its own `meter`
+   and its own copy (src/fleet-profile.js), and this file reads them.
+
+   BURN_POOLS is capped at two because the burn stage is 176px tall and the
+   rows are absolutely positioned at 88px each (see .burn-meta in metrics.css):
+   a third metered pool would draw outside its own panel. */
+const meteredPool = (pool) => pool.meter === 'percent' || pool.meter === 'currency'
+const BURN_POOLS = POOLS.filter(meteredPool).slice(0, 2)
+const DORMANT_POOL = POOLS.find(pool => pool.meter === 'dormant') || null
+
 /* ---------------- small numeric helpers ---------------- */
 
 const N = 24                                  // buckets on the token chart
@@ -110,10 +125,10 @@ const provInk = (id) => `var(--prov-${id}, var(--ink-3))`
 /* ---------------- viewport-clamped tooltip ----------------
    makeTooltip() in src/components.js clamps a tip against its CONTAINER's
    right edge and its container's top — never against the window — so at
-   1280x800 the pool meter tip, the widest in the app (272 px), flips left
-   and lands at x = −44, eating the first ~5 characters of 'northwind21 ·
-   subscription'. It is clean at 1920x1080, which is why a container-relative
-   clamp looked right.
+   1280x800 the pool meter tip, the widest in the app (272 px), flips left and
+   lands at x = −44, eating the first ~5 characters of its title (the account
+   id and its kind). It is clean at 1920x1080, which is why a container-
+   relative clamp looked right.
 
    This wrapper serves the pool meters and the DOM-native gates timeline; the
    engine charts use appendToBody + confine for the same viewport clamp
@@ -495,12 +510,12 @@ export function metricsView() {
         <section class="m-sec m-burn" data-mc="burn">
           <div class="m-head"><span class="mt">Pool burn</span><span class="ms" id="burn-sub">last 24 h · per machine-day</span></div>
           <div class="burn-stage">
-            ${POOLS.slice(0, 2).map((pool, i) => `
+            ${BURN_POOLS.map((pool, i) => `
               <div class="burn-meta" data-burn="${pool.id}" style="--burn-row:${i}">
                 <div class="burn-line"><span class="burn-name">${pool.id}</span><span class="burn-rate">—</span></div>
                 <div class="burn-figure">—</div>
               </div>`).join('')}
-            <div class="echart" id="burn-chart" role="img" aria-label="Spend rate for the two active account pools"></div>
+            <div class="echart" id="burn-chart" role="img" aria-label="Spend rate for the account pools that meter a burn"></div>
           </div>
         </section>
         <section class="m-sec m-gates" data-mc="gates">
@@ -602,11 +617,17 @@ export function metricsView() {
        two observed machine-days. Each displayed runway is then exactly
        remaining / the mean of the visible rate samples. */
     const machineDays = Math.max(0.25, R.days * Math.max(1, machineComputers().length))
-    const vertexTotal = m.spend.vertexTotal
-    const defs = [
-      { id: 'northwind21', label: 'subscription seat', kind: 'percent', total: 100, used: pools[0], window: 'seat window, resets monthly' },
-      { id: 'northwind95', label: 'vertex trial', kind: 'currency', total: vertexTotal, used: vertexTotal * pools[1] / 100 },
-    ]
+    const creditTotal = m.spend.creditTotal
+    /* One row per metered pool, read from the pool itself. These two rows were
+       literals naming a specific subscription and a specific vendor trial, so
+       a loaded profile got its own pool ids on the cards above and this panel's
+       hardcoded pair below — the same figures under two different accounts. */
+    const defs = BURN_POOLS.map((pool) => {
+      const used = pools[POOLS.indexOf(pool)] ?? 0
+      return pool.meter === 'currency'
+        ? { id: pool.id, label: pool.burnLabel || pool.id, kind: 'currency', total: creditTotal, used: creditTotal * used / 100 }
+        : { id: pool.id, label: pool.burnLabel || pool.id, kind: 'percent', total: 100, used, window: pool.burnWindow || 'quota window' }
+    })
     const rows = defs.map((def) => {
       const pace = Math.max(0.01, def.used / machineDays)
       const raw = Array.from({ length: 18 }, (_, i) =>
@@ -738,13 +759,18 @@ export function metricsView() {
       reject: Math.max(1, v.reject * vs * (0.9 + 0.22 * noise(`${key}|vj`))),
     }
 
-    /* account pools */
-    const vertexUsed = ((m.spend.vertexTotal - m.spend.vertexRemaining) / m.spend.vertexTotal) * 100
+    /* Account pools, positionally: one used-percentage per POOLS entry, in
+       POOLS order. A zero credit total would make the second a NaN that
+       propagates into every burn figure, so it degrades to nothing used. */
+    const creditTotal = m.spend.creditTotal
+    const creditUsed = creditTotal > 0
+      ? ((creditTotal - m.spend.creditRemaining) / creditTotal) * 100
+      : 0
     const pf = R.pool * M.pool
     const pools = [
-      clamp(3, 99, m.spend.subSeatPct * pf),
-      clamp(3, 99, vertexUsed * pf),
-      clamp(1, 99, m.spend.uniPct * pf * (state.range === '30d' ? 1.7 : 1)),
+      clamp(3, 99, m.spend.seatPct * pf),
+      clamp(3, 99, creditUsed * pf),
+      clamp(1, 99, m.spend.dormantPct * pf * (state.range === '30d' ? 1.7 : 1)),
     ]
 
     /* the ops scale still feeds two stat-strip counters below */
@@ -802,6 +828,7 @@ export function metricsView() {
   function buildSankey(tokens, pools) {
     const agents = machineComputers().flatMap(c => c.agents)
     const meanW = (a) => { const s = agentSeries(a); return s.reduce((x, y) => x + y, 0) / s.length }
+    const primaryPool = POOLS[0]
 
     const links = []
     const poolFlow = {}          // poolId -> provider label -> value
@@ -819,20 +846,25 @@ export function metricsView() {
         byRole[a.role] = (byRole[a.role] || 0) + w
       }
       /* every current agent on a provider can be reaped between drifts; the
-         flow must not vanish with them — fall back to the sub pool and the
-         default role rather than dropping a column total */
-      if (!wsum) { byPool.northwind21 = 1; byRole.default = 1; wsum = 1 }
+         flow must not vanish with them — fall back to the first declared pool
+         and the default role rather than dropping a column total.
+         The fallback pool MUST be one POOLS declares: the node list below is
+         filtered through POOLS, so a pool id invented here becomes a link
+         pointing at a node that was never added. */
+      if (!wsum) { byPool[primaryPool.id] = 1; byRole.default = 1; wsum = 1 }
 
-      /* university carve-out: north005 spawns no compute lanes, so no agent
-         weight ever routes it — but its pool card reports a small used-%
-         (SSO checks riding the local lane), and that same page number is the
-         share drawn here. Carved out of the subscription pool's local flow
-         so the three totals stay conserved. */
-      if (p.id === 'local' && byPool.northwind21) {
-        const uni = clamp(0.01, 0.2, pools[2] / 100)
-        const carve = wsum * uni
-        byPool.northwind21 = Math.max(0.001, byPool.northwind21 - carve)
-        byPool.north005 = (byPool.north005 || 0) + carve
+      /* Dormant-pool carve-out: a pool with no compute attached never has an
+         agent routing weight to it — but its card still reports a small used-%
+         (checks riding the local lane), and that same page number is the share
+         drawn here. Carved out of the first pool's local flow so the totals
+         stay conserved. Skipped entirely when a profile declares no dormant
+         pool, which is why the third node can be absent without a dangling
+         link. */
+      if (p.id === 'local' && DORMANT_POOL && byPool[primaryPool.id]) {
+        const share = clamp(0.01, 0.2, (pools[POOLS.indexOf(DORMANT_POOL)] ?? 0) / 100)
+        const carve = wsum * share
+        byPool[primaryPool.id] = Math.max(0.001, byPool[primaryPool.id] - carve)
+        byPool[DORMANT_POOL.id] = (byPool[DORMANT_POOL.id] || 0) + carve
         wsum = Object.values(byPool).reduce((a, b) => a + b, 0)
       }
 
@@ -1113,12 +1145,12 @@ export function metricsView() {
     poolsEl.innerHTML = ''
     POOLS.forEach((p) => {
       /* p.color / p.glow are deliberately NOT read (same rule the provider
-         series follow above): POOLS in src/vocab.js carries the ROLE hexes
-         verbatim — northwind21 IS the Coordinator dot, northwind95 the
-         Manager, north005 the Shadow Manager — and both sets are on screen
-         in one scroll. Colour follows one entity; a pool card is identified
-         by its mono account name and its kind badge, so it takes the single
-         neutral --pool-accent and the collision is gone by construction.
+         series follow above): the pool records carry the ROLE hexes verbatim —
+         pool 1 wears the Coordinator dot's hue, pool 2 the Manager's, pool 3
+         the Shadow Manager's — and both sets are on screen in one scroll.
+         Colour follows one entity; a pool card is identified by its mono
+         account name and its kind badge, so it takes the single neutral
+         --pool-accent and the collision is gone by construction.
          The fill is scaleX, not width: see .metrics .meter .mf. */
       const card = el(`
         <div class="pool" style="--pc:var(--pool-accent)">
@@ -1150,28 +1182,40 @@ export function metricsView() {
     })
   }
 
+  /* Every string on a pool card now comes from the pool. The three branches
+     this replaced were keyed on the card's INDEX and stated one real account
+     taxonomy — a subscription seat with three surfaces, a vendor trial with a
+     stated expiry month, and a dormant campus account held behind its MFA
+     product by name. None of that is knowable from a pool's position, and all
+     of it was printed for every reader of every install. */
   function applyPools(d) {
     const comps = machineComputers()
     poolRefs.forEach((ref, i) => {
-      const pct = d.pools[i]
+      const pct = d.pools[i] ?? 0
+      const pool = ref.pool
       /* composited: scaleX on a full-width fill, never an animated width */
       ref.fill.style.transform = `scaleX(${(pct / 100).toFixed(4)})`
       ref.pct.textContent = `${Math.round(pct)}% used`
-      const lanes = comps.reduce((s, c) => s + c.agents.filter(x => x.pool === ref.pool.id).length, 0)
-      if (i === 0) {
-        ref.cap.textContent = 'seat + CLI quota'
-        ref.a.textContent = `${lanes} lanes`; ref.b.textContent = `${Math.round(pct)}% seat`; ref.c.textContent = '3 surfaces'
-        ref.tipText = `<div class="tt-title">${ref.pool.id} · subscription</div><b>${Math.round(pct)}%</b> of seat quota used · <b>${Math.round(100 - pct)}%</b> headroom`
-      } else if (i === 1) {
-        const total = m.spend.vertexTotal
+      const lanes = comps.reduce((s, c) => s + c.agents.filter(x => x.pool === pool.id).length, 0)
+      const fill = (text) => String(text ?? '—').replace(/\{pct\}/g, String(Math.round(pct)))
+      const [statB, statC] = Array.isArray(pool.stats) ? pool.stats : []
+      ref.a.textContent = `${lanes} lanes`
+      ref.b.textContent = fill(statB)
+      ref.c.textContent = fill(statC)
+
+      const kind = pool.tipKind || pool.kind || 'account'
+      if (pool.meter === 'currency') {
+        /* the only caption the pool cannot carry: it is the live balance */
+        const total = m.spend.creditTotal
         const left = total * (1 - pct / 100)
         ref.cap.textContent = `$${left.toFixed(2)} of $${total} left`
-        ref.a.textContent = `${lanes} lanes`; ref.b.textContent = 'exp. Oct 25'; ref.c.textContent = 'worktrees'
-        ref.tipText = `<div class="tt-title">${ref.pool.id} · vertex trial</div><b>$${(total - left).toFixed(2)}</b> burned · <b>$${left.toFixed(2)}</b> left of $${total}`
+        ref.tipText = `<div class="tt-title">${pool.id} · ${kind}</div><b>$${(total - left).toFixed(2)}</b> burned · <b>$${left.toFixed(2)}</b> left of $${total}`
+      } else if (pool.meter === 'dormant') {
+        ref.cap.textContent = fill(pool.caption)
+        ref.tipText = `<div class="tt-title">${pool.id} · ${kind}</div><b>${Math.round(pct)}%</b> used · <b>0</b> compute lanes attached`
       } else {
-        ref.cap.textContent = 'SSO only · dormant'
-        ref.a.textContent = `${lanes} lanes`; ref.b.textContent = 'Duo held'; ref.c.textContent = 'no compute'
-        ref.tipText = `<div class="tt-title">${ref.pool.id} · university</div><b>${Math.round(pct)}%</b> used · SSO only, <b>0</b> compute lanes`
+        ref.cap.textContent = fill(pool.caption)
+        ref.tipText = `<div class="tt-title">${pool.id} · ${kind}</div><b>${Math.round(pct)}%</b> of quota used · <b>${Math.round(100 - pct)}%</b> headroom`
       }
     })
   }

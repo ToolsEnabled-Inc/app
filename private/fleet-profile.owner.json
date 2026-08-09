@@ -42,10 +42,10 @@
     }
   ],
   "spend": {
-    "vertexRemaining": 261.4,
-    "vertexTotal": 298,
-    "subSeatPct": 71,
-    "uniPct": 4
+    "creditRemaining": 261.4,
+    "creditTotal": 298,
+    "seatPct": 71,
+    "dormantPct": 4
   },
   "pools": [
     {
@@ -53,21 +53,45 @@
       "kind": "Subscription",
       "desc": "subscription-cli · vertex-seat · antigravity",
       "color": "#008dab",
-      "glow": "#45d6ff"
+      "glow": "#45d6ff",
+      "meter": "percent",
+      "burnLabel": "subscription seat",
+      "burnWindow": "seat window, resets monthly",
+      "caption": "seat + CLI quota",
+      "stats": [
+        "{pct}% seat",
+        "3 surfaces"
+      ],
+      "tipKind": "subscription"
     },
     {
       "id": "northwind95",
       "kind": "Vertex trial",
       "desc": "vertex credit · agentic worktree lanes",
       "color": "#3e63f0",
-      "glow": "#7d9bff"
+      "glow": "#7d9bff",
+      "meter": "currency",
+      "burnLabel": "vertex trial",
+      "caption": null,
+      "stats": [
+        "exp. Oct 25",
+        "worktrees"
+      ],
+      "tipKind": "vertex trial"
     },
     {
       "id": "north005",
       "kind": "University",
       "desc": "campus SSO · no compute lanes",
       "color": "#00956c",
-      "glow": "#35eab7"
+      "glow": "#35eab7",
+      "meter": "dormant",
+      "caption": "SSO only · dormant",
+      "stats": [
+        "Duo held",
+        "no compute"
+      ],
+      "tipKind": "university"
     }
   ],
   "tasks": [
@@ -1793,5 +1817,274 @@
         "claimedAt": "20:06:01Z"
       }
     ]
-  }
+  },
+  "session": [
+    {
+      "who": "act",
+      "text": "resumed coordinator session — read STANDING-ORDERS.md in full · ledger query: 9 gates open, none blocking this lane"
+    },
+    {
+      "who": "owner",
+      "text": "Morning. Where did the overnight wave land? I want the quality pass wrapped before anything new starts — and if the scheduler fence repro is still flaking, that outranks cosmetics."
+    },
+    {
+      "who": "codex",
+      "text": "Overnight wave: six of eight lanes closed clean. luna-02 landed the metrics sweep (41/41 green, 2m18s), terra-01 accepted reviews 12 and 14. The two still open are the scheduler fence repro — deterministic now, 20/20 runs — and the board morph polish, checkpointed at phase 3 of 5. Nothing regressed; evidence paths are in every packet. Holding new spawns until the fix round closes."
+    },
+    {
+      "who": "act",
+      "text": "ran node tools/agent-preflight.js — clean, no colliding session · territory map current"
+    },
+    {
+      "who": "codex",
+      "text": "Delegating the fix round now: gem-lane-3 takes criterion 3 only — the type floor on the metrics ticks — territory scoped to the two files named in the rejection. luna-02 keeps metrics.css; nobody else touches it this wave."
+    },
+    {
+      "who": "luna-02",
+      "text": "claim acknowledged. preflight clean, no colliding session. metrics.css stays mine through the wave; phase 1 of 3 underway, checkpoint before the fence."
+    },
+    {
+      "who": "gem-lane-3",
+      "text": "fix scoped to criterion 3 — shared tick component untouched. ticks raised to 12px and the floor measured off the rendered box, not the stylesheet. handback posted, re-review requested."
+    },
+    {
+      "who": "act",
+      "text": "memory.set fleet-board builder/handback/9 — 412 chars · lease heartbeat fresh"
+    },
+    {
+      "who": "terra-01",
+      "text": "re-review of 9: ACCEPT — floor verified at 1600×900 and 1280×800, 11/11 criteria green, 38s wall clock. evidence: artifacts/r191/review.md. closing the round."
+    },
+    {
+      "who": "codex",
+      "text": "Round closed in one pass — that is the contract working. Rolling the verdict into the ledger and releasing the spawn hold; cap back to 20."
+    },
+    {
+      "who": "owner",
+      "text": "Good. What about the cross-machine link? B went quiet for a stretch yesterday and I never got a straight answer on whether that was the tunnel or the bridge."
+    },
+    {
+      "who": "codex",
+      "text": "It was the bridge, not the tunnel. The :8788 probe timed out twice while :8787 stayed clean, so the chat relay never dropped — only the bounded tool lane did. codex-b restarted the bridge on B and both lanes have been green for fourteen hours. I have split the two lanes apart in the status packet so the next report cannot blur them."
+    },
+    {
+      "who": "act",
+      "text": "ran node tools/bridge-status.js — tunnel :8787 OK · bridge :8788 OK · auth verified"
+    },
+    {
+      "who": "codex-b",
+      "text": "confirming from B: both lanes green since the restart. canonical checkout verified against the ownership table; mirror check clean, both machines read map rev 6."
+    },
+    {
+      "who": "owner",
+      "text": "While you're in there — the churn ledger keeps showing lanes that end with no outcome recorded. Is that real, or a reporting gap?"
+    },
+    {
+      "who": "codex",
+      "text": "Mostly a reporting gap. Three of those lanes were truncated mid-phase and resumed correctly — a truncation is a continuation, so no outcome line is the right record for them. But two lanes genuinely exited without writing a packet, which is a contract violation. The watchdog now flags any lane-end without a matching evidence path, and sandbox-w1 is sweeping the ledger for older cases."
+    },
+    {
+      "who": "sandbox-w1",
+      "text": "ledger sweep done — 214 lane-end events checked, 9 missing packets, all older than the current contract revision. tagged for backfill; none from active lanes. evidence: reports/q57-ledger-sweep.md"
+    },
+    {
+      "who": "act",
+      "text": "checkpoint written — sweep lane phase 2 of 4 · resuming after mission re-read"
+    },
+    {
+      "who": "terra-01",
+      "text": "controller/review/16 pre-read: charter scope confirmed, evidence tree spot-checked. capture rig pinned to both sizes; verdict lands within one phase."
+    },
+    {
+      "who": "owner",
+      "text": "One more thing. I saw a help-request on the board older than a day. Whose queue does that die in?"
+    },
+    {
+      "who": "codex",
+      "text": "Mine, ultimately — unanswered asks escalate to the coordinator at 24 hours, and this one slipped because it arrived tagged to a retired key. I answered it this morning at the original key and taught the watchdog the retired-key case, so that class of miss should not recur."
+    },
+    {
+      "who": "act",
+      "text": "memory.set help-request-044-answer — 268 chars · original key notified"
+    },
+    {
+      "who": "gem-lane-3",
+      "text": "picking the board morph lane back up from its phase-3 checkpoint. nothing re-run; resumed exactly at the fence. FLIP reorder next."
+    },
+    {
+      "who": "luna-02",
+      "text": "phase 2 complete — 18/18 tests green, 1m26s. evidence: reports/q58-metrics-close.md. lease heartbeat fresh; phase 3 of 3 underway."
+    },
+    {
+      "who": "codex",
+      "text": "Status roll-up: four lanes active, every lease fresh, no open blockers. Reviews 15 and 16 are queued behind terra-01's capture rig — capture is not interruptible, so they land this afternoon. The fence repro packet is the model I want the other lanes copying: repro, timings, evidence, nothing else."
+    },
+    {
+      "who": "owner",
+      "text": "What's actually left before I can call this wave done?"
+    },
+    {
+      "who": "codex",
+      "text": "Three things. terra-01's two queued verdicts. The board morph lane's last two phases, which are mechanical. And one decision that is yours, not mine: whether the retired compatibility host keeps its mirror duty or we cut over to canonical-only. Everything else is closed with evidence."
+    },
+    {
+      "who": "owner",
+      "text": "Keep the mirror through the end of the month, then cut it. Put that in the directive so nobody relitigates it in three weeks."
+    },
+    {
+      "who": "codex",
+      "text": "Written as directive rev 45 with the date and the cutover condition — newest wins, so the standing mirror-duty note is superseded cleanly rather than argued with. Both machines acked inside a minute."
+    },
+    {
+      "who": "act",
+      "text": "memory.set fleet-board directive/current rev 45 — acks: codex-b, luna-02, gem-lane-3"
+    },
+    {
+      "who": "codex-b",
+      "text": "rev 45 acked on B. mirror duty scheduled through month-end, cutover condition recorded; nothing else outstanding on my side."
+    },
+    {
+      "who": "terra-01",
+      "text": "controller/review/15: ACCEPT — 13/13 criteria pass, 44s wall clock. evidence: artifacts/r193/review.md"
+    },
+    {
+      "who": "act",
+      "text": "ledger updated — review/15 verdict recorded · OUTWARD class untouched"
+    },
+    {
+      "who": "codex",
+      "text": "That clears one of the three. I'll bring review/16 and the morph close-out when they land — nothing needs you before the month-end cutover."
+    }
+  ],
+  "arrivals": [
+    {
+      "who": "terra-01",
+      "text": "controller/review/16: ACCEPT — 15/15 criteria pass, 52s wall clock. evidence: artifacts/r194/review.md"
+    },
+    {
+      "who": "codex",
+      "text": "Both queued verdicts are in; the wave is down to the morph close-out. The cutover note stands — nothing needs a decision before month-end."
+    },
+    {
+      "who": "gem-lane-3",
+      "text": "checkpoint at phase 4 of 5 — FLIP reorder verified at both test sizes. resuming after mission re-read."
+    },
+    {
+      "who": "act",
+      "text": "ran node tools/bridge-status.js — tunnel :8787 OK · bridge :8788 OK"
+    },
+    {
+      "who": "codex-b",
+      "text": "mirror sweep clean on B — ownership table matches preflight, map rev steady at 6."
+    },
+    {
+      "who": "luna-02",
+      "text": "phase 3 complete — 24/24 tests green, 1m41s. evidence: reports/q58-metrics-close.md. lane released."
+    },
+    {
+      "who": "act",
+      "text": "lease sweep — four lanes active, all heartbeats fresh, no stale locks"
+    },
+    {
+      "who": "sandbox-w1",
+      "text": "backfill packet 3 of 9 posted — older lane-ends gaining evidence paths; none from active lanes."
+    },
+    {
+      "who": "codex",
+      "text": "Watchdog is quiet and every lease is fresh. Next roll-up lands at the top of the hour unless a blocker surfaces first."
+    },
+    {
+      "who": "act",
+      "text": "memory.set builder/status roll-up — 388 chars · acks pending"
+    },
+    {
+      "who": "luna-02",
+      "text": "note: metrics.css territory released — nothing held past the wave."
+    },
+    {
+      "who": "act",
+      "text": "ledger query — 9 gates open, 0 blocking active lanes"
+    },
+    {
+      "who": "gem-lane-3",
+      "text": "phase 5 underway — final polish only; no shared files touched."
+    },
+    {
+      "who": "terra-01",
+      "text": "queue note: capture rig idle — no verdicts pending."
+    },
+    {
+      "who": "codex-b",
+      "text": "B-side heartbeats all fresh; no colliding sessions in preflight."
+    },
+    {
+      "who": "act",
+      "text": "checkpoint written — morph lane phase 4 of 5"
+    }
+  ],
+  "replies": [
+    "Noted — writing it into the directive so the next wake reads it from the board, not from memory. Both machines will ack within the minute.",
+    "On it. Preflight first, then I'll scope the territory and name the files in the claim so nothing collides.",
+    "Checked just now: all leases fresh, no open blockers, two verdicts queued behind the capture rig. I'll report when they land.",
+    "That one needs an owner decision at the gate, so I am holding it rather than guessing — the deadline does not override the ledger.",
+    "Good catch. I have flagged it to the watchdog and asked sandbox-w1 for a sweep; the evidence packet will name whatever it finds.",
+    "Delegating that to luna-02 with the territory scoped to two files. One fix round; if it fails twice it escalates back to me.",
+    "The honest answer is it is mid-phase — checkpointed, resumable, and I would rather land it clean than call it done early.",
+    "Done, and recorded with an evidence path — a bare 'done' would not survive terra-01's review anyway.",
+    "I'll fold that into the next roll-up. If you want it sooner, say so and I will interrupt the phase at its checkpoint.",
+    "Understood — treating that as the priority lane. Everything cosmetic holds until it closes."
+  ],
+  "replyActs": [
+    "ran node tools/agent-preflight.js — clean, no colliding session",
+    "ledger query — 9 gates open, none blocking active lanes",
+    "memory.search fleet-board — 3 fresh packets since last read",
+    "ran node tools/bridge-status.js — both lanes OK"
+  ],
+  "speakers": {
+    "owner": {
+      "cls": "is-owner",
+      "label": "owner"
+    },
+    "claude": {
+      "cls": "is-coord",
+      "label": "claude · coordinator",
+      "hue": "var(--c-coordinator)"
+    },
+    "codex": {
+      "cls": "is-coord",
+      "label": "codex · coordinator",
+      "hue": "var(--c-coordinator)"
+    },
+    "codex-b": {
+      "cls": "is-agent",
+      "label": "codex-b",
+      "hue": "var(--c-coordinator)"
+    },
+    "luna-02": {
+      "cls": "is-agent",
+      "label": "luna-02",
+      "hue": "var(--c-manager)"
+    },
+    "terra-01": {
+      "cls": "is-agent",
+      "label": "terra-01",
+      "hue": "var(--c-shadow)"
+    },
+    "gem-lane-3": {
+      "cls": "is-agent",
+      "label": "gem-lane-3",
+      "hue": "var(--c-default)"
+    },
+    "sandbox-w1": {
+      "cls": "is-agent",
+      "label": "sandbox-w1",
+      "hue": "var(--c-default)"
+    },
+    "act": {
+      "cls": "is-act",
+      "label": ""
+    }
+  },
+  "sessionTitle": "codex/coordinator · owner channel",
+  "composerTarget": "codex"
 }

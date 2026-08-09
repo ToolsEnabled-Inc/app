@@ -454,7 +454,7 @@ export function commsView() {
                 <span class="integ-main"><b>discord.send</b> · configured, no token · 0 messages sent</span>
                 <span class="integ-tag">dormant integration</span>
                 <span class="spacer"></span>
-                <span class="integ-note">writes via memory.set</span>
+                <span class="integ-note">writes via durable memory</span>
               </footer>
             </section>
           </section>

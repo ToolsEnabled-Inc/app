@@ -267,7 +267,7 @@ class Sim {
       if (Math.random() < 0.12) m.verdicts.reject += 1
       if (Math.random() < 0.08) m.verdicts.retry += 1
       if (Math.random() < 0.2) m.checkpoints += 1
-      m.spend.vertexRemaining = Math.max(0, m.spend.vertexRemaining - Math.random() * 0.03)
+      m.spend.creditRemaining = Math.max(0, m.spend.creditRemaining - Math.random() * 0.03)
       for (const lane of m.failureByLane) {
         lane.rate = Math.max(0.2, Math.min(9.9, lane.rate + (Math.random() - 0.5) * 0.3))
       }

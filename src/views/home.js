@@ -12,15 +12,26 @@
 // The thread replaced the one-line lane-activity ticker (and its
 // click-to-open chat morph). The braces stay — they bracket the session
 // context, which is the sketch's whole gesture — but what they bracket is now
-// the session itself, fully expanded, at rest: the owner's directives, the
-// coordinator's reasoning, delegations and report-backs, and the quiet
-// tool-action lines a session transcript carries between turns.
+// the session itself, fully expanded, at rest: directives, the coordinator's
+// reasoning, delegations and report-backs, and the quiet tool-action lines a
+// session transcript carries between turns.
+//
+// THE TRANSCRIPT IS PROFILE DATA (src/fleet-profile.js), and of everything the
+// profile carries it is the piece that most needed to be. The set that used to
+// sit in this file as literals was a written morning from one real fleet: an
+// owner asking why a host went quiet, a coordinator answering with two port
+// numbers, a named canonical checkout, real durable-memory keys, and an owner
+// decision to retire a real machine at month-end. It shipped inside app.asar
+// and it is the first screen a stranger sees. A scripted conversation is the
+// hardest thing in this app to ship honestly, because a channel log reads as
+// records and a transcript reads as people.
 
 import { el, uptimeRing } from '../components.js'
 import { fetchStatus, fetchCoordinator, ageMs, fmtAge } from '../live-status.js'
 import { isLiveView } from '../live-flags.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
+import { FLEET } from '../fleet-profile.js'
 import '../home.css'
 
 const POLL_MS = 45_000
@@ -32,107 +43,29 @@ const DASH = '—' // em dash — used for "no reading", never "0"
    colour on every page. The owner has no dot: the owner is not
    a fleet role, and the transcript marks that typographically
    (UI face, full ink) rather than with a badge.
+
+   WHO is in the cast is profile data, because a fleet names its
+   own agents. A speaker the profile does not describe still
+   renders — addTurn falls back to the agent style and uses the
+   speaker's own id as the label, rather than dropping the turn.
    ============================================================ */
-const SPEAKERS = {
-  owner: { cls: 'is-owner', label: 'owner' },
-  claude: { cls: 'is-coord', label: 'claude · coordinator', hue: 'var(--c-coordinator)' },
-  codex: { cls: 'is-coord', label: 'codex · coordinator', hue: 'var(--c-coordinator)' },
-  'codex-b': { cls: 'is-agent', label: 'codex-b', hue: 'var(--c-coordinator)' },
-  'luna-02': { cls: 'is-agent', label: 'luna-02', hue: 'var(--c-manager)' },
-  'terra-01': { cls: 'is-agent', label: 'terra-01', hue: 'var(--c-shadow)' },
-  'gem-lane-3': { cls: 'is-agent', label: 'gem-lane-3', hue: 'var(--c-default)' },
-  'sandbox-w1': { cls: 'is-agent', label: 'sandbox-w1', hue: 'var(--c-default)' },
-  act: { cls: 'is-act', label: '' },
-}
+const SPEAKERS = FLEET.speakers || {}
 
-/* The seeded session — one morning's thread, oldest first. Written (not
-   generated) so it reads as a conversation with an arc: wave report →
-   fix-round delegation → the bridge incident → the ledger gap → what is
-   left → an owner decision landing in the directive. The register is the
-   fleet's own (comms CONV_DEFS / vocab.js): gates, territories, evidence
-   packets, checkpoints, leases, fences. */
-const SESSION = [
-  ['act', 'resumed coordinator session — read STANDING-ORDERS.md in full · ledger query: 9 gates open, none blocking this lane'],
-  ['owner', 'Morning. Where did the overnight wave land? I want the quality pass wrapped before anything new starts — and if the scheduler fence repro is still flaking, that outranks cosmetics.'],
-  ['codex', 'Overnight wave: six of eight lanes closed clean. luna-02 landed the metrics sweep (41/41 green, 2m18s), terra-01 accepted reviews 12 and 14. The two still open are the scheduler fence repro — deterministic now, 20/20 runs — and the board morph polish, checkpointed at phase 3 of 5. Nothing regressed; evidence paths are in every packet. Holding new spawns until the fix round closes.'],
-  ['act', 'ran node tools/agent-preflight.js — clean, no colliding session · territory map current'],
-  ['codex', 'Delegating the fix round now: gem-lane-3 takes criterion 3 only — the type floor on the metrics ticks — territory scoped to the two files named in the rejection. luna-02 keeps metrics.css; nobody else touches it this wave.'],
-  ['luna-02', 'claim acknowledged. preflight clean, no colliding session. metrics.css stays mine through the wave; phase 1 of 3 underway, checkpoint before the fence.'],
-  ['gem-lane-3', 'fix scoped to criterion 3 — shared tick component untouched. ticks raised to 12px and the floor measured off the rendered box, not the stylesheet. handback posted, re-review requested.'],
-  ['act', 'memory.set fleet-board builder/handback/9 — 412 chars · lease heartbeat fresh'],
-  ['terra-01', 're-review of 9: ACCEPT — floor verified at 1600×900 and 1280×800, 11/11 criteria green, 38s wall clock. evidence: artifacts/r191/review.md. closing the round.'],
-  ['codex', 'Round closed in one pass — that is the contract working. Rolling the verdict into the ledger and releasing the spawn hold; cap back to 20.'],
-  ['owner', 'Good. What about the cross-machine link? B went quiet for a stretch yesterday and I never got a straight answer on whether that was the tunnel or the bridge.'],
-  ['codex', 'It was the bridge, not the tunnel. The :8788 probe timed out twice while :8787 stayed clean, so the chat relay never dropped — only the bounded tool lane did. codex-b restarted the bridge on B and both lanes have been green for fourteen hours. I have split the two lanes apart in the status packet so the next report cannot blur them.'],
-  ['act', 'ran node tools/bridge-status.js — tunnel :8787 OK · bridge :8788 OK · auth verified'],
-  ['codex-b', 'confirming from B: both lanes green since the restart. canonical checkout verified against the ownership table; mirror check clean, both machines read map rev 6.'],
-  ['owner', "While you're in there — the churn ledger keeps showing lanes that end with no outcome recorded. Is that real, or a reporting gap?"],
-  ['codex', 'Mostly a reporting gap. Three of those lanes were truncated mid-phase and resumed correctly — a truncation is a continuation, so no outcome line is the right record for them. But two lanes genuinely exited without writing a packet, which is a contract violation. The watchdog now flags any lane-end without a matching evidence path, and sandbox-w1 is sweeping the ledger for older cases.'],
-  ['sandbox-w1', 'ledger sweep done — 214 lane-end events checked, 9 missing packets, all older than the current contract revision. tagged for backfill; none from active lanes. evidence: reports/q57-ledger-sweep.md'],
-  ['act', 'checkpoint written — sweep lane phase 2 of 4 · resuming after mission re-read'],
-  ['terra-01', 'controller/review/16 pre-read: charter scope confirmed, evidence tree spot-checked. capture rig pinned to both sizes; verdict lands within one phase.'],
-  ['owner', 'One more thing. I saw a help-request on the board older than a day. Whose queue does that die in?'],
-  ['codex', 'Mine, ultimately — unanswered asks escalate to the coordinator at 24 hours, and this one slipped because it arrived tagged to a retired key. I answered it this morning at the original key and taught the watchdog the retired-key case, so that class of miss should not recur.'],
-  ['act', 'memory.set help-request-044-answer — 268 chars · original key notified'],
-  ['gem-lane-3', 'picking the board morph lane back up from its phase-3 checkpoint. nothing re-run; resumed exactly at the fence. FLIP reorder next.'],
-  ['luna-02', 'phase 2 complete — 18/18 tests green, 1m26s. evidence: reports/q58-metrics-close.md. lease heartbeat fresh; phase 3 of 3 underway.'],
-  ['codex', "Status roll-up: four lanes active, every lease fresh, no open blockers. Reviews 15 and 16 are queued behind terra-01's capture rig — capture is not interruptible, so they land this afternoon. The fence repro packet is the model I want the other lanes copying: repro, timings, evidence, nothing else."],
-  ['owner', "What's actually left before I can call this wave done?"],
-  ['codex', "Three things. terra-01's two queued verdicts. The board morph lane's last two phases, which are mechanical. And one decision that is yours, not mine: whether the retired compatibility host keeps its mirror duty or we cut over to canonical-only. Everything else is closed with evidence."],
-  ['owner', 'Keep the mirror through the end of the month, then cut it. Put that in the directive so nobody relitigates it in three weeks.'],
-  ['codex', 'Written as directive rev 45 with the date and the cutover condition — newest wins, so the standing mirror-duty note is superseded cleanly rather than argued with. Both machines acked inside a minute.'],
-  ['act', 'memory.set fleet-board directive/current rev 45 — acks: codex-b, luna-02, gem-lane-3'],
-  ['codex-b', 'rev 45 acked on B. mirror duty scheduled through month-end, cutover condition recorded; nothing else outstanding on my side.'],
-  ['terra-01', 'controller/review/15: ACCEPT — 13/13 criteria pass, 44s wall clock. evidence: artifacts/r193/review.md'],
-  ['act', 'ledger updated — review/15 verdict recorded · OUTWARD class untouched'],
-  ['codex', "That clears one of the three. I'll bring review/16 and the morph close-out when they land — nothing needs you before the month-end cutover."],
-]
+/* The seeded session, oldest first, written rather than generated so that it
+   reads as a conversation with an arc. Both halves of the pair are deliberate.
 
-/* Live continuation of the same morning — a session breathes in minutes, not
-   the old ticker's seconds, so these land rarely and carry whole messages. */
-const ARRIVALS = [
-  { who: 'terra-01', text: 'controller/review/16: ACCEPT — 15/15 criteria pass, 52s wall clock. evidence: artifacts/r194/review.md' },
-  { who: 'codex', text: 'Both queued verdicts are in; the wave is down to the morph close-out. The cutover note stands — nothing needs a decision before month-end.' },
-  { who: 'gem-lane-3', text: 'checkpoint at phase 4 of 5 — FLIP reorder verified at both test sizes. resuming after mission re-read.' },
-  { who: 'act', text: 'ran node tools/bridge-status.js — tunnel :8787 OK · bridge :8788 OK' },
-  { who: 'codex-b', text: 'mirror sweep clean on B — ownership table matches preflight, map rev steady at 6.' },
-  { who: 'luna-02', text: 'phase 3 complete — 24/24 tests green, 1m41s. evidence: reports/q58-metrics-close.md. lane released.' },
-  { who: 'act', text: 'lease sweep — four lanes active, all heartbeats fresh, no stale locks' },
-  { who: 'sandbox-w1', text: 'backfill packet 3 of 9 posted — older lane-ends gaining evidence paths; none from active lanes.' },
-  { who: 'codex', text: 'Watchdog is quiet and every lease is fresh. Next roll-up lands at the top of the hour unless a blocker surfaces first.' },
-  { who: 'act', text: 'memory.set builder/status roll-up — 388 chars · acks pending' },
-  { who: 'luna-02', text: 'note: metrics.css territory released — nothing held past the wave.' },
-  { who: 'act', text: 'ledger query — 9 gates open, 0 blocking active lanes' },
-  { who: 'gem-lane-3', text: 'phase 5 underway — final polish only; no shared files touched.' },
-  { who: 'terra-01', text: 'queue note: capture rig idle — no verdicts pending.' },
-  { who: 'codex-b', text: 'B-side heartbeats all fresh; no colliding sessions in preflight.' },
-  { who: 'act', text: 'checkpoint written — morph lane phase 4 of 5' },
-]
+   The SAMPLE profile's arc is about this interface: what the ring reads, what
+   the thread is, and what replaces it. A demonstration of the product cannot
+   be mistaken for a recording of somebody's working day; a generic-sounding
+   work transcript can, and that is exactly what shipped before. Its notice is
+   the LAST turn, not the first, because the log opens pinned to the newest
+   line — anything at the top is scrolled out of sight before it is read.
 
-/* Replies to the owner typing into the composer — the coordinator's voice,
-   full messages (the one-line CHAT_REPLIES pool belongs to the small chip
-   chats, not to a session transcript). */
-const REPLIES = [
-  'Noted — writing it into the directive so the next wake reads it from the board, not from memory. Both machines will ack within the minute.',
-  "On it. Preflight first, then I'll scope the territory and name the files in the claim so nothing collides.",
-  "Checked just now: all leases fresh, no open blockers, two verdicts queued behind the capture rig. I'll report when they land.",
-  'That one needs an owner decision at the gate, so I am holding it rather than guessing — the deadline does not override the ledger.',
-  'Good catch. I have flagged it to the watchdog and asked sandbox-w1 for a sweep; the evidence packet will name whatever it finds.',
-  'Delegating that to luna-02 with the territory scoped to two files. One fix round; if it fails twice it escalates back to me.',
-  'The honest answer is it is mid-phase — checkpointed, resumable, and I would rather land it clean than call it done early.',
-  "Done, and recorded with an evidence path — a bare 'done' would not survive terra-01's review anyway.",
-  "I'll fold that into the next roll-up. If you want it sooner, say so and I will interrupt the phase at its checkpoint.",
-  'Understood — treating that as the priority lane. Everything cosmetic holds until it closes.',
-]
-
-/* A reply is sometimes preceded by the tool line the coordinator actually ran
-   to answer — the transcript register where work shows itself. */
-const REPLY_ACTS = [
-  'ran node tools/agent-preflight.js — clean, no colliding session',
-  'ledger query — 9 gates open, none blocking active lanes',
-  'memory.search fleet-board — 3 fresh packets since last read',
-  'ran node tools/bridge-status.js — both lanes OK',
-]
+   A LOADED profile's arc is whatever that fleet's own session was. */
+const SESSION = (FLEET.session || []).filter(turn => turn && typeof turn.text === 'string')
+const ARRIVALS = (FLEET.arrivals || []).filter(turn => turn && typeof turn.text === 'string')
+const REPLIES = (FLEET.replies || []).filter(text => typeof text === 'string' && text)
+const REPLY_ACTS = (FLEET.replyActs || []).filter(text => typeof text === 'string' && text)
 
 const escText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -163,18 +96,23 @@ function makeBag(items) {
 export function homeView() {
   const liveMode = isLiveView('home')
   const writeReplyEnabled = liveMode && isWriteEnabled('thread-reply')
+  /* Who the composer addresses is the profile's coordinator, not a hardcoded
+     agent name — the placeholder, the aria-label and the voice that answers a
+     simulated reply all have to be the same agent, and only one of the three
+     used to be. */
+  const composerTarget = FLEET.composerTarget || 'coordinator'
   const root = el(`
     <div class="home" data-live-mode="${liveMode ? 'live' : 'simulated'}">
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
         <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <div class="home-feed">
-          <div class="session-head"><span data-session-title>session — codex/coordinator · owner channel</span><span class="projection-mode">${liveMode ? 'live source' : 'simulated source'}</span></div>
+          <div class="session-head"><span data-session-title>session — ${escText(FLEET.sessionTitle || 'transcript')}</span><span class="projection-mode">${liveMode ? 'live source' : 'simulated source'}</span></div>
           <div class="session-view">
             <div class="session-log" tabindex="0" role="log" aria-label="Coordinator session transcript"></div>
           </div>
           <div class="chat-input session-input">
-            <input type="text" placeholder="Message codex…" aria-label="Message codex" />
+            <input type="text" placeholder="Message ${escText(composerTarget)}…" aria-label="Message ${escText(composerTarget)}" />
             <button class="chat-send" aria-label="Send">
               <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
@@ -281,7 +219,15 @@ export function homeView() {
     logEl.appendChild(node)
     return node
   }
-  if (!liveMode) SESSION.forEach(([who, text]) => addTurn(who, text))
+  /* A profile that declares no session is a reachable state now, and a blank
+     panel between the braces reads as a failed load rather than as an empty
+     transcript. showThreadState cannot be used this early — it closes over
+     pinAfterMount, which is a const declared further down — so the notice is
+     built here in the same shape. */
+  if (!liveMode) {
+    if (SESSION.length) SESSION.forEach(turn => addTurn(turn.who, turn.text))
+    else logEl.innerHTML = '<div class="projection-state" role="status"><strong>no transcript in this profile</strong><span>This profile declares no session, so there is nothing to show between the braces.</span></div>'
+  }
 
   /* The seeded history renders while the view is still DETACHED (the router
      mounts it after assembly), where scrollHeight is 0 and any snap here is a
@@ -399,7 +345,9 @@ export function homeView() {
     }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
     timers.push(arrivalT)
   }
-  if (!liveMode) scheduleArrival(true)
+  /* No arrivals declared means a still thread, not a crash: makeBag on an
+     empty pool returns undefined and the turn below would read .who off it. */
+  if (!liveMode && ARRIVALS.length) scheduleArrival(true)
 
   /* ---- the composer: the owner speaks, the coordinator answers ---- */
   const drawReply = makeBag(REPLIES)
@@ -424,7 +372,7 @@ export function homeView() {
         writeState.textContent = `reply refused · ${result.reason}`
       } else {
         input.value = ''
-        addTurn(result.receipt.actor || 'codex', v, true)
+        addTurn(result.receipt.actor || composerTarget, v, true)
         addTurn('act', `durable reply · revision ${result.receipt.revision}`, true)
         pulseBraces()
         writeState.dataset.state = 'confirmed'
@@ -439,11 +387,13 @@ export function homeView() {
     addTurn('owner', v, true)
     // Sometimes the tool line the coordinator ran to answer arrives first —
     // that beat is what makes the reply read as work done, not text served.
-    const withAct = Math.random() < 0.35
+    const withAct = REPLY_ACTS.length > 0 && Math.random() < 0.35
     const replyAt = 1100 + Math.random() * 1100
     if (withAct) timers.push(setTimeout(() => addTurn('act', drawReplyAct(), true), replyAt - 550))
+    /* A profile with no replies answers with a stated silence rather than the
+       word "undefined", which is what an empty bag draws. */
     timers.push(setTimeout(() => {
-      addTurn('codex', drawReply(), true)
+      addTurn(composerTarget, REPLIES.length ? drawReply() : 'This profile declares no replies, so there is nothing to answer with.', true)
       pulseBraces()
     }, replyAt + (withAct ? 500 : 0)))
   }
