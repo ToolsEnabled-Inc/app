@@ -6,13 +6,13 @@
   "main": "shell/main.cjs",
   "scripts": {
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
-    "test": "npm run test:data",
+    "test": "node tools/check-suites-discovered.mjs && npm run test:data",
     "test:data": "node --test --test-concurrency=1 tools/test/*.test.mjs",
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
     "preview": "vite preview --port 4600 --strictPort",
     "app": "node shell/launch.cjs",
-    "dist": "npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked"
+    "dist": "npm test && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked"
   },
   "devDependencies": {
     "culori": "^4.0.2",
