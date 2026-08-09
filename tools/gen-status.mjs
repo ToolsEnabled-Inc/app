@@ -20,18 +20,21 @@
  * (see e.g. ToolsEnabled/tools/bridge-status.js's own header).
  */
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import os from 'node:os'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = dirname(here) // mission-control/
 
-// Fixed, read-only source: the ToolsEnabled checkout on THIS machine
-// (Machine A / 192.168.214.2 per docs/MACHINE-OWNERSHIP.md, verified by the
-// build agent against config/agent-org.json + docs/MACHINE-OWNERSHIP.md).
-const TE_ROOT = 'C:/Users/joshp/Desktop/ToolsEnabled'
-const HOST_LABEL = 'Machine A (192.168.214.2, retired compatibility host)'
+const liveRoot = process.env.MC_LIVE_ROOT?.trim()
+if (!liveRoot) {
+  console.error('MC_LIVE_ROOT is required; set it to the absolute path of the live ToolsEnabled checkout.')
+  process.exit(1)
+}
+
+const TE_ROOT = resolve(liveRoot)
+const HOST_LABEL = process.env.MC_HOST_LABEL?.trim() || os.hostname()
 
 function readJson(relPath) {
   const abs = join(TE_ROOT, relPath)

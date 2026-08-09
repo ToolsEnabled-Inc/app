@@ -169,7 +169,7 @@ export function homeView() {
       <div class="home-feed-wrap">
         <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <div class="home-feed">
-          <div class="session-head"><span data-session-title>session — codex/coordinator · owner channel</span><span class="projection-mode">${liveMode ? 'live' : 'simulated'}</span></div>
+          <div class="session-head"><span data-session-title>session — codex/coordinator · owner channel</span><span class="projection-mode">${liveMode ? 'live source' : 'simulated source'}</span></div>
           <div class="session-view">
             <div class="session-log" tabindex="0" role="log" aria-label="Coordinator session transcript"></div>
           </div>
