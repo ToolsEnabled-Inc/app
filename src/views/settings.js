@@ -1,14 +1,21 @@
-// /settings — progressively disclosed preferences. Four appearance controls
-// share the drawer's live state; the rest are deliberately local simulation.
+// /settings — progressively disclosed preferences plus the first-run system
+// register. Appearance can fail soft; fleet configuration is correctness data
+// and uses the durable profile store instead of the cosmetic setting idiom.
 
 import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { createLedgerArchiveController } from '../mission-bridge.js'
+import {
+  FLEET_PROFILE_SETTING_COUNT,
+  createFleetProfileSettings,
+} from '../fleet-profile-settings.js'
 import '../settings.css'
+import '../fleet-profile-settings.css'
 
 const SECTIONS = [
+  'System',
   'Appearance',
   'Text & Reading',
   'Motion & Effects',
@@ -329,6 +336,7 @@ function setTierFocusable(tier, open) {
 }
 
 export function settingsView() {
+  const profileController = createFleetProfileSettings()
   const root = el(`<main class="view-pad settings-page">
     <div class="settings-shell">
       <header class="settings-header m-head">
@@ -390,10 +398,11 @@ export function settingsView() {
     for (const group of sectionsNode.querySelectorAll('.settings-seg')) segCleanups.push(attachSeg(group))
     for (const input of sectionsNode.querySelectorAll('input[type="range"]')) rangeFill(input)
     syncArchiveControl()
+    profileController.afterRender(root)
   }
 
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length} settings · ${shown} shown · search reaches all depths`
+    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT} settings · ${shown} shown · search reaches all depths`
   }
 
   function syncRail() {
@@ -406,8 +415,10 @@ export function settingsView() {
   }
 
   function renderSectioned() {
-    sectionsNode.innerHTML = SECTIONS.map(section => sectionMarkup(section, levels.get(section))).join('')
-    shown = SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    sectionsNode.innerHTML = SECTIONS.map(section => section === 'System'
+      ? profileController.markup()
+      : sectionMarkup(section, levels.get(section))).join('')
+    shown = FLEET_PROFILE_SETTING_COUNT + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     // `inert` is the primary guard; the explicit tabindex pass keeps closed
     // tiers unreachable in older engines while preserving the CSS reveal.
     for (const section of SECTIONS) syncSectionDepth(section)
@@ -419,11 +430,14 @@ export function settingsView() {
   function renderSearch() {
     const normalized = query.trim().toLowerCase()
     const matches = SETTINGS.filter(setting => `${setting.name} ${setting.desc} ${setting.section}`.toLowerCase().includes(normalized))
+    const profileMatches = profileController.matches(normalized)
     sectionsNode.innerHTML = `<section class="settings-results">
       <h2 class="settings-section-title">Results</h2>
-      ${matches.length ? matches.map(setting => rowMarkup(setting, true)).join('') : '<p class="settings-empty">No settings match this search.</p>'}
+      ${profileMatches ? profileController.markup({ searchResult: true }) : ''}
+      ${matches.map(setting => rowMarkup(setting, true)).join('')}
+      ${profileMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
     </section>`
-    shown = matches.length
+    shown = matches.length + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
     wireControls()
     updateFooter()
   }
@@ -511,7 +525,7 @@ export function settingsView() {
       button.setAttribute('aria-expanded', open ? 'true' : 'false')
       button.innerHTML = revealInner(prefix, count, open)
     }
-    shown = SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    shown = FLEET_PROFILE_SETTING_COUNT + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     updateFooter()
   }
 
@@ -621,6 +635,7 @@ export function settingsView() {
   ].filter(binding => binding[0])
   for (const [node, type, listener] of drawerBindings) node.addEventListener(type, listener)
 
+  profileController.bind(root)
   renderSectioned()
 
   return {
@@ -628,6 +643,7 @@ export function settingsView() {
     destroy() {
       cleanupControls()
       archiveController.destroy()
+      profileController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       for (const [node, type, listener] of drawerBindings) node.removeEventListener(type, listener)
     },

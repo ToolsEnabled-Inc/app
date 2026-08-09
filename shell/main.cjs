@@ -4,11 +4,14 @@
 // titlebar strip — the VSCode arrangement: the app owns the top strip, the
 // OS owns min/max/close (which keeps Win11 snap layouts on the maximize
 // button for free).
-const { app, BrowserWindow, crashReporter, ipcMain, nativeTheme, Menu } = require('electron')
+const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu } = require('electron')
 const http = require('http')
+const https = require('https')
+const net = require('net')
+const dns = require('dns')
 const path = require('path')
 const fs = require('fs')
-const { randomUUID } = require('crypto')
+const { randomBytes, randomUUID } = require('crypto')
 const { createAgentHost } = require('./agent-host.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
@@ -29,6 +32,17 @@ const {
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
+const FLEET_PROFILE_FILE = path.join(app.getPath('userData'), 'fleet-profile.json')
+const MAX_FLEET_PROFILE_BYTES = 2 * 1024 * 1024
+const MAX_FLEET_PROFILE_RECORD_BYTES = MAX_FLEET_PROFILE_BYTES + 4096
+const FLEET_PROFILE_STORAGE_VERSION = 1
+const PROJECTION_DATA_FILES = Object.freeze([
+  'status.json', 'fleet.json', 'agents.json', 'metrics.json', 'ops.json',
+  'ledger.json', 'coordinator.json', 'research.json', 'research-queue.json',
+])
+const PROJECTION_DATA_FILE_SET = new Set(PROJECTION_DATA_FILES)
+const PROJECTION_CAPABILITY_HEADER = 'x-mc-projection-capability'
+const projectionCapability = randomBytes(32).toString('base64url')
 const bridgeProof = readBridgeProof({ env: process.env, readFileSync: fs.readFileSync })
 const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
 
@@ -65,6 +79,9 @@ let agentHost = null
 let removeAgentEventListener = null
 let agentShutdownPromise = null
 let agentShutdownComplete = false
+let win = null
+let shellOrigin = null
+let runtimeLegacyFleetProfile = null
 
 function agentIpcError(code, message) {
   const error = new Error(message)
@@ -242,6 +259,524 @@ function writeState(patch) {
   } catch { /* state is comfort, not correctness */ }
 }
 
+function fleetFailure(code, message) {
+  return { ok: false, error: { code, message } }
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function nonEmptyProfileText(value) {
+  return typeof value === 'string' && Boolean(value.trim())
+}
+
+function safeProfileIdentifier(value) {
+  return nonEmptyProfileText(value) && value.length <= 128 && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value)
+}
+
+function safeProfileMarkupCopy(value) {
+  return typeof value === 'string' && !/[<>\u0000-\u001f]/.test(value)
+}
+
+function invalidProfileTextArray(value, { allowEmpty = true } = {}) {
+  return !Array.isArray(value)
+    || (!allowEmpty && value.length === 0)
+    || value.some(entry => !nonEmptyProfileText(entry))
+}
+
+function fleetProfilePayloadError(profile) {
+  if (!isPlainObject(profile)) return 'Fleet profile must be a JSON object.'
+  if (profile.schemaVersion !== 1) return 'Fleet profile schemaVersion must be 1.'
+  if (!safeProfileIdentifier(profile.id) || profile.id === 'sample') return 'Fleet profile id is missing, unsafe, or reserved.'
+  if (typeof profile.label !== 'string' || !profile.label.trim()) return 'Fleet profile label is required.'
+  if (!Array.isArray(profile.machines) || profile.machines.length === 0 || profile.machines.length > 128) {
+    return 'Fleet profile must contain 1 through 128 machines.'
+  }
+  if (!Array.isArray(profile.transports) || profile.transports.length === 0 || profile.transports.length > 32) {
+    return 'Fleet profile must contain 1 through 32 transports.'
+  }
+
+  const machineIds = new Set()
+  for (const machine of profile.machines) {
+    if (!isPlainObject(machine) || !safeProfileIdentifier(machine.id) || machineIds.has(machine.id)) return 'Fleet profile machines need unique safe ids.'
+    machineIds.add(machine.id)
+    if (!nonEmptyProfileText(machine.name) || !safeProfileMarkupCopy(machine.name)) return 'Every fleet machine needs a markup-safe name.'
+    if (machine.short !== undefined && !safeProfileMarkupCopy(machine.short)) return 'Fleet machine short names must be markup-safe.'
+    const address = nonEmptyProfileText(machine.ip) ? machine.ip : machine.address
+    if (!nonEmptyProfileText(address) || address.length > 2048 || address.includes('\0')) return 'Every fleet machine needs a valid bounded address.'
+    try {
+      const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(address) ? address : `tcp://${address}`)
+      if (parsed.username || parsed.password) return 'Fleet machine addresses cannot contain credentials.'
+    } catch {
+      if (!/^[0-9a-f:]+$/i.test(address)) return 'Fleet machine address is not a valid host, IP address, or URL.'
+    }
+  }
+
+  const transportIds = new Set()
+  for (const transport of profile.transports) {
+    if (!isPlainObject(transport) || !safeProfileIdentifier(transport.id) || transportIds.has(transport.id)) return 'Fleet transports need unique safe ids.'
+    transportIds.add(transport.id)
+    if (transport.port !== null && transport.port !== undefined) {
+      const port = Number(transport.port)
+      if (!Number.isInteger(port) || port < 1 || port > 65535) return 'Fleet transport ports must be null or integers from 1 through 65535.'
+    }
+    if (transport.endpoint !== null && transport.endpoint !== undefined) {
+      if (typeof transport.endpoint !== 'string' || transport.endpoint.length > 2048 || transport.endpoint.includes('\0')) return 'Fleet transport endpoints must be bounded text.'
+      if (transport.endpoint.trim()) {
+        try {
+          const endpoint = transport.endpoint.trim()
+          const legacyPort = /^:(\d+)$/.exec(endpoint)
+          const parsed = legacyPort
+            ? new URL(`tcp://localhost:${legacyPort[1]}`)
+            : new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(endpoint) ? endpoint : `tcp://${endpoint}`)
+          if (!parsed.hostname || parsed.username || parsed.password) return 'Fleet transport endpoints need a host and cannot contain credentials.'
+        } catch { return 'Fleet transport endpoint is not a valid URL or host:port.' }
+      }
+    }
+  }
+  if (profile.dataSource !== undefined && profile.dataSource !== null) {
+    if (!isPlainObject(profile.dataSource) || profile.dataSource.kind !== 'directory') return 'Fleet dataSource must be a directory record.'
+    const sourcePath = profile.dataSource.path
+    if (!nonEmptyProfileText(sourcePath) || sourcePath.length > 4096 || sourcePath.includes('\0')) return 'Fleet dataSource path is invalid.'
+    if (!path.isAbsolute(sourcePath)) return 'Fleet dataSource path must be absolute.'
+  }
+
+  if (profile.spend !== undefined) {
+    if (!isPlainObject(profile.spend)) return 'Fleet spend must be an object.'
+    for (const key of ['creditRemaining', 'creditTotal', 'seatPct', 'dormantPct']) {
+      if (typeof profile.spend[key] !== 'number' || !Number.isFinite(profile.spend[key])) return `Fleet spend.${key} must be a finite number.`
+    }
+  }
+  if (profile.pools !== undefined) {
+    if (!Array.isArray(profile.pools) || profile.pools.length === 0) return 'Fleet pools must contain at least one account pool.'
+    const poolIds = new Set()
+    for (const pool of profile.pools) {
+      if (!isPlainObject(pool) || !safeProfileIdentifier(pool.id) || poolIds.has(pool.id)) return 'Fleet pools need unique safe ids.'
+      poolIds.add(pool.id)
+      if (!nonEmptyProfileText(pool.kind) || !nonEmptyProfileText(pool.desc)
+        || !safeProfileMarkupCopy(pool.kind) || !safeProfileMarkupCopy(pool.desc)
+        || (pool.tipKind !== undefined && !safeProfileMarkupCopy(pool.tipKind))) return 'Every fleet pool needs markup-safe kind and description text.'
+      if (!['percent', 'currency', 'dormant'].includes(pool.meter)) return 'Fleet pool meter must be percent, currency, or dormant.'
+    }
+  }
+  for (const key of ['tasks', 'feed', 'chatReplies']) {
+    if (profile[key] !== undefined && invalidProfileTextArray(profile[key], { allowEmpty: false })) return `Fleet ${key} must contain non-empty text entries.`
+  }
+  if (profile.chat !== undefined && (!Array.isArray(profile.chat) || profile.chat.some(message =>
+    !isPlainObject(message) || !nonEmptyProfileText(message.from) || !nonEmptyProfileText(message.text)))) {
+    return 'Fleet chat entries need from and text values.'
+  }
+  if (profile.chatContextReplies !== undefined) {
+    if (!isPlainObject(profile.chatContextReplies)) return 'Fleet chatContextReplies must be an object.'
+    for (const replies of Object.values(profile.chatContextReplies)) {
+      if (invalidProfileTextArray(replies, { allowEmpty: false })) return 'Every fleet contextual reply pool must contain text.'
+    }
+  }
+  if (profile.channels !== undefined) {
+    if (!Array.isArray(profile.channels)) return 'Fleet channels must be an array.'
+    const channelIds = new Set()
+    for (const channel of profile.channels) {
+      if (!isPlainObject(channel) || !safeProfileIdentifier(channel.id) || channelIds.has(channel.id)
+        || !nonEmptyProfileText(channel.name) || !nonEmptyProfileText(channel.key)) return 'Fleet channels need unique ids, names, and keys.'
+      channelIds.add(channel.id)
+    }
+  }
+  if (profile.board !== undefined) {
+    if (!isPlainObject(profile.board)) return 'Fleet board must be an object.'
+    for (const messages of Object.values(profile.board)) {
+      if (!Array.isArray(messages) || messages.some(message =>
+        !isPlainObject(message) || !nonEmptyProfileText(message.s) || !nonEmptyProfileText(message.t))) return 'Fleet board messages need sender and text values.'
+    }
+  }
+  if (profile.conversations !== undefined && (!Array.isArray(profile.conversations) || profile.conversations.some(conversation =>
+    !isPlainObject(conversation) || !safeProfileIdentifier(conversation.id)
+    || (conversation.child != null && !safeProfileIdentifier(conversation.child)) || !nonEmptyProfileText(conversation.a)
+    || !nonEmptyProfileText(conversation.b) || !nonEmptyProfileText(conversation.key) || !isPlainObject(conversation.lines)
+    || invalidProfileTextArray(conversation.lines.a, { allowEmpty: false })
+    || invalidProfileTextArray(conversation.lines.b, { allowEmpty: false })))) return 'Fleet conversations have an invalid shape.'
+  if (profile.ledger !== undefined) {
+    if (!isPlainObject(profile.ledger) || !Array.isArray(profile.ledger.requests) || !Array.isArray(profile.ledger.questions)) return 'Fleet ledger must declare request and question arrays.'
+    if (profile.ledger.requests.some(record => !isPlainObject(record) || !safeProfileIdentifier(record.id)
+      || (record.parent !== undefined && !safeProfileIdentifier(record.parent)) || !nonEmptyProfileText(record.title)
+      || !['open', 'in-progress', 'gated', 'done', 'blocked'].includes(record.status))) return 'Fleet ledger requests need safe ids, titles, and supported status values.'
+    if (profile.ledger.questions.some(record => !isPlainObject(record) || !safeProfileIdentifier(record.id)
+      || !nonEmptyProfileText(record.question) || !['pending', 'answered'].includes(record.status)
+      || (record.status === 'answered' && !nonEmptyProfileText(record.answer)))) return 'Fleet ledger questions need safe ids, questions, and supported status values.'
+  }
+  for (const key of ['session', 'arrivals']) {
+    if (profile[key] !== undefined && (!Array.isArray(profile[key]) || profile[key].some(turn =>
+      !isPlainObject(turn) || !nonEmptyProfileText(turn.who) || !nonEmptyProfileText(turn.text)))) return `Fleet ${key} entries need who and text values.`
+  }
+  for (const key of ['replies', 'replyActs']) {
+    if (profile[key] !== undefined && invalidProfileTextArray(profile[key])) return `Fleet ${key} must contain only non-empty text.`
+  }
+  if (profile.speakers !== undefined) {
+    if (!isPlainObject(profile.speakers)) return 'Fleet speakers must be an object.'
+    for (const speaker of Object.values(profile.speakers)) {
+      if (!isPlainObject(speaker) || typeof speaker.label !== 'string'
+        || typeof speaker.cls !== 'string' || !/^[a-z_][a-z0-9_-]*(?:\s+[a-z_][a-z0-9_-]*)*$/i.test(speaker.cls)
+        || (speaker.hue !== undefined && (typeof speaker.hue !== 'string' || !/^(?:#[0-9a-f]{3,8}|var\(--[a-z0-9-]+\))$/i.test(speaker.hue)))) {
+        return 'Fleet speaker records need a text label and safe class/colour values.'
+      }
+    }
+  }
+  for (const key of ['sessionTitle', 'composerTarget']) {
+    if (profile[key] !== undefined && typeof profile[key] !== 'string') return `Fleet ${key} must be text.`
+  }
+  return null
+}
+
+function fleetProfileJson(profile) {
+  const payloadError = fleetProfilePayloadError(profile)
+  if (payloadError) return fleetFailure('MC_FLEET_PROFILE_INVALID', payloadError)
+  let text
+  try { text = JSON.stringify(profile) } catch {
+    return fleetFailure('MC_FLEET_PROFILE_INVALID', 'Fleet profile could not be serialized.')
+  }
+  if (Buffer.byteLength(text, 'utf8') > MAX_FLEET_PROFILE_BYTES) {
+    return fleetFailure('MC_FLEET_PROFILE_TOO_LARGE', 'Fleet profile exceeds the 2 MiB limit.')
+  }
+  return { ok: true, text }
+}
+
+/* Window geometry can fail soft, but a fleet profile cannot share that rule.
+   The old shell-state writer turns any unreadable file into `{}` and the next
+   resize overwrites it. A dedicated, atomic userData record means a bounds
+   update can never erase the only copy of somebody's system configuration. */
+function readDurableFleetProfile() {
+  let raw
+  try {
+    const stat = fs.statSync(FLEET_PROFILE_FILE)
+    if (!stat.isFile()) return fleetFailure('MC_FLEET_PROFILE_NOT_FILE', 'Durable fleet profile is not a regular file.')
+    if (stat.size > MAX_FLEET_PROFILE_RECORD_BYTES) {
+      return fleetFailure('MC_FLEET_PROFILE_TOO_LARGE', 'Durable fleet profile exceeds the 2 MiB limit.')
+    }
+    raw = fs.readFileSync(FLEET_PROFILE_FILE, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { ok: true, configured: false, state: 'absent' }
+    return fleetFailure('MC_FLEET_PROFILE_READ_FAILED', `Durable fleet profile could not be read (${error?.code || 'unknown error'}).`)
+  }
+
+  let record
+  try { record = JSON.parse(raw) } catch {
+    return fleetFailure('MC_FLEET_PROFILE_MALFORMED', 'Durable fleet profile contains malformed JSON.')
+  }
+  if (!isPlainObject(record) || record.storageVersion !== FLEET_PROFILE_STORAGE_VERSION) {
+    return fleetFailure('MC_FLEET_PROFILE_STORAGE_VERSION', 'Durable fleet profile has an unrecognized storage version.')
+  }
+  if (record.state === 'reset') return { ok: true, configured: false, state: 'reset' }
+  if (record.state !== 'configured') {
+    return fleetFailure('MC_FLEET_PROFILE_STATE', 'Durable fleet profile has an unrecognized state.')
+  }
+  const encoded = fleetProfileJson(record.profile)
+  if (!encoded.ok) return encoded
+  return { ok: true, configured: true, state: 'configured', profile: record.profile }
+}
+
+function replaceDurableFleetProfile(record) {
+  const directory = path.dirname(FLEET_PROFILE_FILE)
+  fs.mkdirSync(directory, { recursive: true })
+  const temp = path.join(directory, `.fleet-profile-${process.pid}-${randomUUID()}.tmp`)
+  /* Bound the exact bytes we later read. Pretty-print overhead once made a
+     save near the 2 MiB limit report success and then reject its own file on
+     the next launch. The durable record is machine state, so compact JSON is
+     the safer single contract; exported profiles remain human-readable. */
+  const text = `${JSON.stringify(record)}\n`
+  if (Buffer.byteLength(text, 'utf8') > MAX_FLEET_PROFILE_RECORD_BYTES) {
+    throw Object.assign(new Error('durable fleet profile exceeds its record limit'), { code: 'MC_FLEET_PROFILE_TOO_LARGE' })
+  }
+  let fd
+  try {
+    fd = fs.openSync(temp, 'wx')
+    fs.writeFileSync(fd, text, 'utf8')
+    fs.fsyncSync(fd)
+    fs.closeSync(fd)
+    fd = undefined
+    fs.renameSync(temp, FLEET_PROFILE_FILE)
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd) } catch {}
+    }
+    try { fs.unlinkSync(temp) } catch {}
+  }
+}
+
+function storeFleetProfile(profile) {
+  const encoded = fleetProfileJson(profile)
+  if (!encoded.ok) return encoded
+  try {
+    replaceDurableFleetProfile({
+      storageVersion: FLEET_PROFILE_STORAGE_VERSION,
+      state: 'configured',
+      profile,
+    })
+    runtimeLegacyFleetProfile = null
+    return { ok: true }
+  } catch (error) {
+    return fleetFailure('MC_FLEET_PROFILE_WRITE_FAILED', `Durable fleet profile could not be saved (${error?.code || 'unknown error'}).`)
+  }
+}
+
+function resetDurableFleetProfile() {
+  try {
+    /* A tombstone is intentional: a missing file means “migrate the legacy
+       localStorage copy”, while reset means “do not resurrect any old port's
+       browser copy.” Those two states looked identical before this record. */
+    replaceDurableFleetProfile({
+      storageVersion: FLEET_PROFILE_STORAGE_VERSION,
+      state: 'reset',
+      resetAt: new Date().toISOString(),
+    })
+    runtimeLegacyFleetProfile = null
+    return { ok: true }
+  } catch (error) {
+    return fleetFailure('MC_FLEET_PROFILE_RESET_FAILED', `Durable fleet profile could not be reset (${error?.code || 'unknown error'}).`)
+  }
+}
+
+function trustedFleetProfileSender(event) {
+  if (!win || !shellOrigin || event.sender !== win.webContents) return false
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return false
+  try { return new URL(event.senderFrame.url).origin === shellOrigin } catch { return false }
+}
+
+async function withFleetProfileSender(event, action) {
+  if (!trustedFleetProfileSender(event)) {
+    return fleetFailure('MC_FLEET_PROFILE_SENDER_REFUSED', 'Fleet profile request did not come from the application main frame.')
+  }
+  try { return await action() } catch (error) {
+    return fleetFailure('MC_FLEET_PROFILE_ACTION_FAILED', error?.message || String(error))
+  }
+}
+
+function safeExportName(profile) {
+  const base = String(profile.label || 'fleet-profile').trim().toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return `${base || 'fleet-profile'}.json`
+}
+
+function sanitizedEndpoint(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  try {
+    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `tcp://${text}`)
+    parsed.username = ''
+    parsed.password = ''
+    return /^[a-z][a-z0-9+.-]*:\/\//i.test(text)
+      ? parsed.toString().replace(/\/$/, '')
+      : `${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`
+  } catch { return 'configured address' }
+}
+
+function tcpProbe(host, port, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port })
+    let settled = false
+    const finish = result => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      resolve(result)
+    }
+    socket.setTimeout(timeoutMs, () => finish({ state: 'unreachable', message: `connection timed out after ${timeoutMs} ms` }))
+    socket.once('connect', () => finish({ state: 'reachable', message: 'TCP connection accepted' }))
+    socket.once('error', error => finish({ state: 'unreachable', message: `connection failed (${error?.code || 'unknown error'})` }))
+  })
+}
+
+function httpProbe(url, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const parsed = new URL(url)
+    const client = parsed.protocol === 'https:' ? https : http
+    const request = client.request(parsed, { method: 'HEAD', timeout: timeoutMs }, response => {
+      response.resume()
+      resolve({ state: 'reachable', message: `HTTP endpoint answered ${response.statusCode}` })
+    })
+    request.once('timeout', () => request.destroy(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })))
+    request.once('error', error => resolve({ state: 'unreachable', message: `HTTP connection failed (${error?.code || 'unknown error'})` }))
+    request.end()
+  })
+}
+
+function dnsProbe(host, timeoutMs = 2500) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })), timeoutMs)
+    dns.promises.lookup(host).then(
+      result => { clearTimeout(timer); resolve(result) },
+      error => { clearTimeout(timer); reject(error) },
+    )
+  })
+}
+
+async function probeEndpoint({ id, label, value, legacyPort = null }) {
+  const text = String(value || '').trim()
+  if (!text) {
+    if (Number.isInteger(Number(legacyPort)) && Number(legacyPort) > 0) {
+      return { id, label, target: `:${Number(legacyPort)}`, state: 'unverified', message: 'legacy port is configured without a host; reachability cannot be tested' }
+    }
+    return { id, label, target: '', state: 'not-configured', message: 'not configured' }
+  }
+
+  let parsed
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text)
+  if (!hasScheme && net.isIP(text) === 6) {
+    return { id, label, target: text, state: 'unverified', message: 'IPv6 address is valid, but no port was provided; reachability is unverified' }
+  }
+  try { parsed = new URL(hasScheme ? text : `tcp://${text}`) } catch {
+    return { id, label, target: 'configured address', state: 'unreachable', message: 'address is malformed' }
+  }
+  const target = sanitizedEndpoint(text)
+  if (parsed.username || parsed.password) {
+    return { id, label, target, state: 'unreachable', message: 'credentials in endpoint URLs are not supported' }
+  }
+  const port = parsed.port || (parsed.protocol === 'http:' ? '80' : parsed.protocol === 'https:' ? '443' : '')
+  if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && port) {
+    const result = await httpProbe(parsed.toString())
+    return { id, label, target, ...result }
+  }
+  if (port) {
+    const result = await tcpProbe(parsed.hostname, Number(port))
+    return { id, label, target, ...result }
+  }
+  try {
+    await dnsProbe(parsed.hostname)
+    return { id, label, target, state: 'unverified', message: 'address resolves, but no port was provided; reachability is unverified' }
+  } catch (error) {
+    return { id, label, target, state: 'unreachable', message: `address did not resolve (${error?.code || 'unknown error'})` }
+  }
+}
+
+function projectionPayloadError(name, value) {
+  if (!isPlainObject(value) || value.schemaVersion !== 1) return 'missing or wrong schemaVersion'
+  if (name === 'status.json') {
+    if (typeof value.ok !== 'boolean' || (value.reason !== null && typeof value.reason !== 'string')) return 'status envelope is malformed'
+    return null
+  }
+  if (name === 'research-queue.json') {
+    if (!Array.isArray(value.items)) return 'research queue items must be an array'
+    const statuses = new Set(['queued', 'in-progress', 'complete'])
+    for (const item of value.items) {
+      if (!isPlainObject(item) || !nonEmptyProfileText(item.id) || !nonEmptyProfileText(item.title)
+        || !statuses.has(item.status) || !nonEmptyProfileText(item.provenance)
+        || !nonEmptyProfileText(item.observation) || !nonEmptyProfileText(item.researchQuestion)) {
+        return 'research queue contains a malformed item'
+      }
+    }
+    return null
+  }
+  const domain = name.slice(0, -'.json'.length)
+  if (value.domain !== domain || typeof value.generatedAt !== 'string' || !Number.isFinite(Date.parse(value.generatedAt))) return 'projection domain or generatedAt is invalid'
+  if (typeof value.ok !== 'boolean' || (value.reason !== null && typeof value.reason !== 'string')) return 'projection availability envelope is malformed'
+  if (!Array.isArray(value.sources) || (value.data !== null && !isPlainObject(value.data))) return 'projection sources or data has the wrong shape'
+  return null
+}
+
+async function readProjectionCandidate(root, name) {
+  const file = path.join(root, name)
+  try {
+    const stat = await fs.promises.stat(file)
+    if (!stat.isFile()) return { ok: false, message: 'not a regular file' }
+    if (stat.size > MAX_FLEET_PROFILE_BYTES) return { ok: false, message: 'file exceeds 2 MiB' }
+    const text = await fs.promises.readFile(file, 'utf8')
+    let parsed
+    try { parsed = JSON.parse(text) } catch { return { ok: false, message: 'malformed JSON' } }
+    const shapeError = projectionPayloadError(name, parsed)
+    return shapeError
+      ? { ok: false, message: shapeError }
+      : { ok: true, message: 'valid projection envelope', text }
+  } catch (error) {
+    return { ok: false, message: `unreadable (${error?.code || 'unknown error'})` }
+  }
+}
+
+async function probeProjectionDirectory(dataSource) {
+  if (!dataSource || dataSource.kind !== 'directory' || typeof dataSource.path !== 'string' || !dataSource.path.trim()) {
+    return { state: 'not-configured', message: 'no local projection directory is configured', files: [] }
+  }
+  const root = dataSource.path.trim()
+  if (!path.isAbsolute(root)) return { state: 'unavailable', message: 'projection directory must be an absolute path', files: [] }
+  try {
+    const stat = await fs.promises.stat(root)
+    if (!stat.isDirectory()) return { state: 'unavailable', message: 'configured projection source is not a directory', files: [] }
+  } catch (error) {
+    return { state: 'unavailable', message: `projection directory could not be read (${error?.code || 'unknown error'})`, files: [] }
+  }
+
+  const files = await Promise.all(PROJECTION_DATA_FILES.map(async name => {
+    const result = await readProjectionCandidate(root, name)
+    return { name, ok: result.ok, message: result.message }
+  }))
+  const failed = files.filter(file => !file.ok)
+  return failed.length
+    ? { state: 'unavailable', message: `${failed.length} required projection file${failed.length === 1 ? '' : 's'} unavailable`, files }
+    : { state: 'ready', message: `${files.length} required projection files passed structural checks`, files }
+}
+
+async function probeFleetProfile(profile) {
+  const encoded = fleetProfileJson(profile)
+  if (!encoded.ok) return encoded
+  const machines = await Promise.all(profile.machines.map(machine => probeEndpoint({
+    id: machine.id,
+    label: machine.name,
+    value: machine.ip || machine.address,
+  })))
+  const transports = await Promise.all(profile.transports.map(transport => probeEndpoint({
+    id: transport.id,
+    label: transport.label || transport.id,
+    value: transport.endpoint,
+    legacyPort: transport.port,
+  })))
+  const dataSource = await probeProjectionDirectory(profile.dataSource)
+  return { ok: true, checkedAt: new Date().toISOString(), machines, transports, dataSource }
+}
+
+function serveConfiguredProjection(url, request, response) {
+  const match = /^\/data\/([^/]+\.json)$/.exec(url)
+  if (!match || !PROJECTION_DATA_FILE_SET.has(match[1])) return false
+  const stored = readDurableFleetProfile()
+  if (!stored.ok) {
+    response.writeHead(503, 'Fleet Profile Unavailable', { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ ok: false, reason: stored.error.message }))
+    return true
+  }
+  const activeProfile = stored.configured ? stored.profile : runtimeLegacyFleetProfile
+  if (!activeProfile) return false
+  const dataSource = activeProfile.dataSource
+  if (!dataSource || dataSource.kind !== 'directory' || typeof dataSource.path !== 'string' || !dataSource.path.trim()) {
+    response.writeHead(503, 'Projection Source Not Configured', { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    response.end(JSON.stringify({ ok: false, reason: 'This fleet profile does not configure a local projection directory.' }))
+    return true
+  }
+  if (request.headers[PROJECTION_CAPABILITY_HEADER] !== projectionCapability) {
+    response.writeHead(403, 'Projection Capability Required', { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    response.end(JSON.stringify({ ok: false, reason: 'Projection access is restricted to this application window.' }))
+    return true
+  }
+  const root = dataSource.path.trim()
+  if (!path.isAbsolute(root)) {
+    response.writeHead(503, 'Projection Source Unavailable', { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ ok: false, reason: 'Configured projection directory is not an absolute path.' }))
+    return true
+  }
+  ;(async () => {
+    const result = await readProjectionCandidate(root, match[1])
+    if (!result.ok) {
+      response.writeHead(503, 'Projection Source Unavailable', { 'content-type': 'application/json', 'cache-control': 'no-store' })
+      response.end(JSON.stringify({ ok: false, reason: `${match[1]} is unavailable: ${result.message}.` }))
+      return
+    }
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    response.end(result.text)
+  })().catch(error => {
+    response.writeHead(503, 'Projection Source Unavailable', { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    response.end(JSON.stringify({ ok: false, reason: `${match[1]} could not be served (${error?.code || 'unknown error'}).` }))
+  })
+  return true
+}
+
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -251,7 +786,14 @@ const MIME = {
 function serveDist() {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      const expectedHost = shellOrigin ? new URL(shellOrigin).host : null
+      if (!expectedHost || req.headers.host !== expectedHost) {
+        res.writeHead(421, 'Misdirected Request', { 'content-type': 'text/plain', 'cache-control': 'no-store' })
+        res.end('This loopback application only accepts its exact local origin.')
+        return
+      }
       const url = decodeURIComponent((req.url || '/').split('?')[0])
+      if (serveConfiguredProjection(url, req, res)) return
       let file = path.normalize(path.join(DIST, url === '/' ? 'index.html' : url))
       // the hash router means every real navigation is still index.html
       if (!file.startsWith(DIST)) { res.writeHead(403); return res.end() }
@@ -281,7 +823,97 @@ function serveDist() {
   })
 }
 
-let win = null
+ipcMain.on('mc-fleet-profile:bootstrap', (event) => {
+  event.returnValue = trustedFleetProfileSender(event)
+    ? readDurableFleetProfile()
+    : fleetFailure('MC_FLEET_PROFILE_SENDER_REFUSED', 'Fleet profile bootstrap did not come from the application main frame.')
+})
+
+ipcMain.on('mc-fleet-profile:migrate-legacy', (event, profile) => {
+  if (!trustedFleetProfileSender(event)) {
+    event.returnValue = fleetFailure('MC_FLEET_PROFILE_SENDER_REFUSED', 'Fleet profile migration did not come from the application main frame.')
+    return
+  }
+  const current = readDurableFleetProfile()
+  if (!current.ok) { event.returnValue = current; return }
+  if (current.state === 'reset') {
+    event.returnValue = fleetFailure('MC_FLEET_PROFILE_RESET_ACTIVE', 'A prior reset prevents a legacy browser copy from being restored.')
+    return
+  }
+  if (current.configured) { event.returnValue = { ok: true, migrated: false }; return }
+  const stored = storeFleetProfile(profile)
+  /* A disk-full/read-only userData incident must not turn a valid legacy
+     profile into a configured renderer backed by bundled sample projections.
+     Keep only that already-validated legacy profile for this process, so the
+     source is either its declared directory or an explicit 503. The next
+     launch retries durability from localStorage. */
+  if (!stored.ok && fleetProfilePayloadError(profile) === null) runtimeLegacyFleetProfile = profile
+  event.returnValue = { ...stored, migrated: true }
+})
+
+ipcMain.handle('mc-fleet-profile:save', (event, profile) =>
+  withFleetProfileSender(event, () => storeFleetProfile(profile)))
+
+ipcMain.handle('mc-fleet-profile:reset', event =>
+  withFleetProfileSender(event, () => resetDurableFleetProfile()))
+
+ipcMain.handle('mc-fleet-profile:import-file', event => withFleetProfileSender(event, async () => {
+  const choice = await dialog.showOpenDialog(win, {
+    title: 'Load fleet profile',
+    properties: ['openFile'],
+    filters: [{ name: 'Fleet profile', extensions: ['json'] }],
+  })
+  if (choice.canceled || choice.filePaths.length !== 1) return { ok: true, canceled: true }
+  const selected = choice.filePaths[0]
+  let stat
+  try { stat = await fs.promises.stat(selected) } catch (error) {
+    return fleetFailure('MC_FLEET_PROFILE_IMPORT_READ_FAILED', `Selected profile could not be read (${error?.code || 'unknown error'}).`)
+  }
+  if (!stat.isFile()) return fleetFailure('MC_FLEET_PROFILE_IMPORT_NOT_FILE', 'Selected profile is not a regular file.')
+  if (stat.size > MAX_FLEET_PROFILE_BYTES) return fleetFailure('MC_FLEET_PROFILE_TOO_LARGE', 'Selected profile exceeds the 2 MiB limit.')
+  let text
+  try { text = await fs.promises.readFile(selected, 'utf8') } catch (error) {
+    return fleetFailure('MC_FLEET_PROFILE_IMPORT_READ_FAILED', `Selected profile could not be read (${error?.code || 'unknown error'}).`)
+  }
+  let profile
+  try { profile = JSON.parse(text) } catch {
+    return fleetFailure('MC_FLEET_PROFILE_IMPORT_MALFORMED', 'Selected profile contains malformed JSON.')
+  }
+  if (!isPlainObject(profile)) return fleetFailure('MC_FLEET_PROFILE_IMPORT_INVALID', 'Selected profile must contain one JSON object.')
+  return { ok: true, canceled: false, profile }
+}))
+
+ipcMain.handle('mc-fleet-profile:export-file', (event, profile) => withFleetProfileSender(event, async () => {
+  const encoded = fleetProfileJson(profile)
+  if (!encoded.ok) return encoded
+  const exportText = `${JSON.stringify(profile, null, 2)}\n`
+  if (Buffer.byteLength(exportText, 'utf8') > MAX_FLEET_PROFILE_BYTES) {
+    return fleetFailure('MC_FLEET_PROFILE_TOO_LARGE', 'Pretty-printed fleet profile exceeds the 2 MiB export limit.')
+  }
+  const choice = await dialog.showSaveDialog(win, {
+    title: 'Export fleet profile',
+    defaultPath: path.join(app.getPath('documents'), safeExportName(profile)),
+    filters: [{ name: 'Fleet profile', extensions: ['json'] }],
+  })
+  if (choice.canceled || !choice.filePath) return { ok: true, canceled: true }
+  try { await fs.promises.writeFile(choice.filePath, exportText, { encoding: 'utf8', flag: 'w' }) } catch (error) {
+    return fleetFailure('MC_FLEET_PROFILE_EXPORT_FAILED', `Fleet profile could not be exported (${error?.code || 'unknown error'}).`)
+  }
+  return { ok: true, canceled: false }
+}))
+
+ipcMain.handle('mc-fleet-profile:choose-directory', event => withFleetProfileSender(event, async () => {
+  const choice = await dialog.showOpenDialog(win, {
+    title: 'Choose local projection directory',
+    properties: ['openDirectory'],
+  })
+  return choice.canceled || choice.filePaths.length !== 1
+    ? { ok: true, canceled: true }
+    : { ok: true, canceled: false, path: choice.filePaths[0] }
+}))
+
+ipcMain.handle('mc-fleet-profile:probe', (event, profile) =>
+  withFleetProfileSender(event, () => probeFleetProfile(profile)))
 
 ipcMain.handle('mc-bridge-proof', () => bridgeProof)
 
@@ -290,6 +922,7 @@ async function createWindow() {
   const seed = THEME_SEED[state.theme] || THEME_SEED.white
   const server = await serveDist()
   const port = server.address().port
+  shellOrigin = `http://127.0.0.1:${port}`
 
   win = new BrowserWindow({
     width: state.width || 1440,
@@ -304,11 +937,20 @@ async function createWindow() {
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: seed.bg, symbolColor: seed.ink, height: TITLEBAR_H },
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'fleet-profile-preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   })
+  win.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: [`${shellOrigin}/data/*`] },
+    (details, callback) => callback({
+      requestHeaders: {
+        ...details.requestHeaders,
+        'X-MC-Projection-Capability': projectionCapability,
+      },
+    }),
+  )
   win.setMenuBarVisibility(false)
   if (state.maximized) win.maximize()
 
@@ -330,7 +972,7 @@ async function createWindow() {
   win.on('unmaximize', persistBounds)
   win.on('closed', () => { win = null })
 
-  await win.loadURL(`http://127.0.0.1:${port}/`)
+  await win.loadURL(`${shellOrigin}/`)
 }
 
 /* The renderer reports its REAL composited surface colours whenever the

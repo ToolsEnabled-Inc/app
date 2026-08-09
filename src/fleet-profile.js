@@ -25,10 +25,13 @@
 //
 // Resolution is SYNCHRONOUS on purpose. src/sim.js builds the fleet during
 // module evaluation and eight modules import the result, so an async profile
-// would mean rewriting all of them; localStorage is the same mechanism
-// src/live-flags.js reads for the same reason, with the same guarded try.
+// would leave half the app on the old roster. The desktop shell therefore
+// supplies its userData copy through a synchronous, narrow preload bootstrap;
+// localStorage remains the browser fallback and the migration path for the
+// owner's existing profile.
 
 const STORAGE_KEY = 'mc.fleet.profile'
+export const FLEET_PROFILE_STORAGE_KEY = STORAGE_KEY
 
 /* Hosts carry RFC 5737 documentation addresses (192.0.2.0/24) ON PURPOSE:
    they can never resolve to a real machine. Do NOT "improve" them into a
@@ -582,55 +585,554 @@ export const SAMPLE_PROFILE = Object.freeze({
   composerTarget: 'codex',
 })
 
-/* A stored profile is merged SECTION BY SECTION over the sample, and a section
-   is taken only if it is the right shape and non-empty. A half-written profile
-   must degrade to the sample it replaced, never to a view with nothing in it:
-   an empty array here would reach the views as "the fleet is quiet", which is
-   the absence-as-emptiness failure this codebase has already found repeatedly
-   (see tools/check-research-queue.mjs on why an empty authored set is an
-   error, not a state). */
-const ARRAY_SECTIONS = ['machines', 'transports', 'pools', 'tasks', 'feed', 'chat', 'chatReplies',
+/* The original resolver accepted any non-empty section and silently borrowed
+   the rest from SAMPLE_PROFILE. That made `{ id: 'mine' }` look configured
+   while every visible machine, message, account and ledger row still belonged
+   to the demonstration. Resolution now has one explicit verdict: malformed
+   profiles fall back ATOMICALLY to the visibly labelled sample and carry an
+   error the UI cannot discard; valid partial v1 profiles name every section
+   that is still demonstration data. */
+const PROFILE_MAX_BYTES = 2 * 1024 * 1024
+const PROFILE_ARRAY_SECTIONS = ['machines', 'transports', 'pools', 'tasks', 'feed', 'chat', 'chatReplies',
   'channels', 'conversations', 'session', 'arrivals', 'replies', 'replyActs']
-const OBJECT_SECTIONS = ['spend', 'chatContextReplies', 'board', 'speakers']
-const TEXT_SECTIONS = ['id', 'label', 'sessionTitle', 'composerTarget']
+const PROFILE_OBJECT_SECTIONS = ['spend', 'chatContextReplies', 'board', 'speakers']
+const PROFILE_TEXT_SECTIONS = ['sessionTitle', 'composerTarget']
+const PROFILE_INHERITABLE_SECTIONS = [
+  'spend', 'pools', 'tasks', 'feed', 'chat', 'chatReplies', 'chatContextReplies',
+  'channels', 'board', 'conversations', 'ledger', 'speakers', 'session',
+  'arrivals', 'replies', 'replyActs', 'sessionTitle', 'composerTarget',
+]
 
-function usableArray(value) {
-  return Array.isArray(value) && value.length > 0
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
+const isPlainObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+const nonEmptyText = value => typeof value === 'string' && Boolean(value.trim())
+const finiteNumber = value => typeof value === 'number' && Number.isFinite(value)
+const safeIdentifier = value => nonEmptyText(value) && value.length <= 128 && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value)
+const safeMarkupCopy = value => typeof value === 'string' && !/[<>\u0000-\u001f]/.test(value)
+const safeCssClass = value => typeof value === 'string' && /^[a-z_][a-z0-9_-]*(?:\s+[a-z_][a-z0-9_-]*)*$/i.test(value)
+const safeHue = value => typeof value === 'string' && /^(?:#[0-9a-f]{3,8}|var\(--[a-z0-9-]+\))$/i.test(value)
+const profileError = (path, message, source = 'profile') => Object.freeze({ path, message, source })
+
+function jsonBytes(text) {
+  if (typeof TextEncoder === 'function') return new TextEncoder().encode(text).byteLength
+  return String(text).length
 }
 
-function usableObject(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0
+function validateMachine(machine, index, errors, ids) {
+  const path = `machines[${index}]`
+  if (!isPlainObject(machine)) {
+    errors.push(profileError(path, 'must be an object'))
+    return
+  }
+  if (!safeIdentifier(machine.id)) errors.push(profileError(`${path}.id`, 'must be a safe identifier'))
+  else if (ids.has(machine.id)) errors.push(profileError(`${path}.id`, `duplicates ${machine.id}`))
+  else ids.add(machine.id)
+  if (!nonEmptyText(machine.name)) errors.push(profileError(`${path}.name`, 'is required'))
+  else if (!safeMarkupCopy(machine.name)) errors.push(profileError(`${path}.name`, 'contains unsafe markup characters'))
+  if (machine.short !== undefined && !safeMarkupCopy(machine.short)) errors.push(profileError(`${path}.short`, 'contains unsafe markup characters'))
+  const address = nonEmptyText(machine.ip) ? machine.ip : machine.address
+  if (!nonEmptyText(address)) {
+    errors.push(profileError(`${path}.ip`, 'address is required'))
+  } else if (address.length > 2048) {
+    errors.push(profileError(`${path}.ip`, 'is too long'))
+  } else if (address.includes('\0')) {
+    errors.push(profileError(`${path}.ip`, 'cannot contain a NUL character'))
+  } else {
+    try {
+      const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(address) ? address : `tcp://${address}`)
+      if (parsed.username || parsed.password) errors.push(profileError(`${path}.ip`, 'must not contain credentials'))
+    } catch {
+      /* Bare IPv6 addresses are valid machine identities even though URL
+         parsing requires brackets. Reachability stays explicitly unverified
+         until a probeable port is supplied. */
+      if (!/^[0-9a-f:]+$/i.test(address)) errors.push(profileError(`${path}.ip`, 'is not a valid host, IP address, or URL'))
+    }
+  }
+}
+
+function validateTransport(transport, index, errors, ids) {
+  const path = `transports[${index}]`
+  if (!isPlainObject(transport)) {
+    errors.push(profileError(path, 'must be an object'))
+    return
+  }
+  if (!safeIdentifier(transport.id)) errors.push(profileError(`${path}.id`, 'must be a safe identifier'))
+  else if (ids.has(transport.id)) errors.push(profileError(`${path}.id`, `duplicates ${transport.id}`))
+  else ids.add(transport.id)
+  if (transport.endpoint != null && typeof transport.endpoint !== 'string') {
+    errors.push(profileError(`${path}.endpoint`, 'must be text when present'))
+  } else if (typeof transport.endpoint === 'string' && transport.endpoint.length > 2048) {
+    errors.push(profileError(`${path}.endpoint`, 'is too long'))
+  } else if (typeof transport.endpoint === 'string' && transport.endpoint.includes('\0')) {
+    errors.push(profileError(`${path}.endpoint`, 'cannot contain a NUL character'))
+  } else if (nonEmptyText(transport.endpoint)) {
+    try {
+      const endpoint = transport.endpoint.trim()
+      const legacyPort = /^:(\d+)$/.exec(endpoint)
+      const parsed = legacyPort
+        ? new URL(`tcp://localhost:${legacyPort[1]}`)
+        : new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(endpoint) ? endpoint : `tcp://${endpoint}`)
+      if (!parsed.hostname) errors.push(profileError(`${path}.endpoint`, 'must include a host'))
+      if (parsed.username || parsed.password) errors.push(profileError(`${path}.endpoint`, 'must not contain credentials'))
+    } catch {
+      errors.push(profileError(`${path}.endpoint`, 'is not a valid URL or host:port'))
+    }
+  }
+  if (transport.port !== null && transport.port !== undefined) {
+    const port = Number(transport.port)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errors.push(profileError(`${path}.port`, 'must be null or an integer from 1 through 65535'))
+    }
+  }
+}
+
+function validateStringArray(value, path, errors, { nonEmpty = false } = {}) {
+  if (!Array.isArray(value)) {
+    errors.push(profileError(path, 'must be an array'))
+    return
+  }
+  if (nonEmpty && value.length === 0) errors.push(profileError(path, 'must contain at least one entry'))
+  value.forEach((entry, index) => {
+    if (!nonEmptyText(entry)) errors.push(profileError(`${path}[${index}]`, 'must be non-empty text'))
+  })
+}
+
+function validateContentSections(candidate, errors) {
+  if (hasOwn(candidate, 'spend')) {
+    if (!isPlainObject(candidate.spend)) errors.push(profileError('spend', 'must be an object'))
+    else for (const key of ['creditRemaining', 'creditTotal', 'seatPct', 'dormantPct']) {
+      if (!finiteNumber(candidate.spend[key])) errors.push(profileError(`spend.${key}`, 'must be a finite number'))
+    }
+  }
+
+  if (Array.isArray(candidate.pools)) {
+    const ids = new Set()
+    candidate.pools.forEach((pool, index) => {
+      const path = `pools[${index}]`
+      if (!isPlainObject(pool)) { errors.push(profileError(path, 'must be an object')); return }
+      if (!safeIdentifier(pool.id)) errors.push(profileError(`${path}.id`, 'must be a safe identifier'))
+      else if (ids.has(pool.id)) errors.push(profileError(`${path}.id`, `duplicates ${pool.id}`))
+      else ids.add(pool.id)
+      if (!nonEmptyText(pool.kind)) errors.push(profileError(`${path}.kind`, 'is required'))
+      else if (!safeMarkupCopy(pool.kind)) errors.push(profileError(`${path}.kind`, 'contains unsafe markup characters'))
+      if (!nonEmptyText(pool.desc)) errors.push(profileError(`${path}.desc`, 'is required'))
+      else if (!safeMarkupCopy(pool.desc)) errors.push(profileError(`${path}.desc`, 'contains unsafe markup characters'))
+      if (pool.tipKind !== undefined && !safeMarkupCopy(pool.tipKind)) errors.push(profileError(`${path}.tipKind`, 'contains unsafe markup characters'))
+      if (!['percent', 'currency', 'dormant'].includes(pool.meter)) {
+        errors.push(profileError(`${path}.meter`, 'must be percent, currency, or dormant'))
+      }
+    })
+  }
+
+  if (hasOwn(candidate, 'tasks')) validateStringArray(candidate.tasks, 'tasks', errors, { nonEmpty: true })
+  if (hasOwn(candidate, 'feed')) validateStringArray(candidate.feed, 'feed', errors, { nonEmpty: true })
+  if (hasOwn(candidate, 'chatReplies')) validateStringArray(candidate.chatReplies, 'chatReplies', errors, { nonEmpty: true })
+  if (Array.isArray(candidate.chat)) candidate.chat.forEach((message, index) => {
+    const path = `chat[${index}]`
+    if (!isPlainObject(message)) { errors.push(profileError(path, 'must be an object')); return }
+    if (!nonEmptyText(message.from)) errors.push(profileError(`${path}.from`, 'is required'))
+    if (!nonEmptyText(message.text)) errors.push(profileError(`${path}.text`, 'is required'))
+  })
+
+  if (isPlainObject(candidate.chatContextReplies)) {
+    for (const [key, replies] of Object.entries(candidate.chatContextReplies)) {
+      validateStringArray(replies, `chatContextReplies.${key}`, errors, { nonEmpty: true })
+    }
+  }
+
+  if (Array.isArray(candidate.channels)) {
+    const ids = new Set()
+    candidate.channels.forEach((channel, index) => {
+      const path = `channels[${index}]`
+      if (!isPlainObject(channel)) { errors.push(profileError(path, 'must be an object')); return }
+      if (!safeIdentifier(channel.id)) errors.push(profileError(`${path}.id`, 'must be a safe identifier'))
+      else if (ids.has(channel.id)) errors.push(profileError(`${path}.id`, `duplicates ${channel.id}`))
+      else ids.add(channel.id)
+      if (!nonEmptyText(channel.name)) errors.push(profileError(`${path}.name`, 'is required'))
+      if (!nonEmptyText(channel.key)) errors.push(profileError(`${path}.key`, 'is required'))
+    })
+  }
+
+  if (isPlainObject(candidate.board)) {
+    for (const [channelId, messages] of Object.entries(candidate.board)) {
+      if (!Array.isArray(messages)) { errors.push(profileError(`board.${channelId}`, 'must be an array')); continue }
+      messages.forEach((message, index) => {
+        const path = `board.${channelId}[${index}]`
+        if (!isPlainObject(message)) { errors.push(profileError(path, 'must be an object')); return }
+        if (!nonEmptyText(message.s)) errors.push(profileError(`${path}.s`, 'is required'))
+        if (!nonEmptyText(message.t)) errors.push(profileError(`${path}.t`, 'is required'))
+      })
+    }
+  }
+
+  if (Array.isArray(candidate.conversations)) candidate.conversations.forEach((conversation, index) => {
+    const path = `conversations[${index}]`
+    if (!isPlainObject(conversation)) { errors.push(profileError(path, 'must be an object')); return }
+    for (const key of ['id', 'a', 'b', 'key']) {
+      if (!nonEmptyText(conversation[key])) errors.push(profileError(`${path}.${key}`, 'is required'))
+    }
+    if (nonEmptyText(conversation.id) && !safeIdentifier(conversation.id)) errors.push(profileError(`${path}.id`, 'must be a safe identifier'))
+    if (conversation.child != null && !safeIdentifier(conversation.child)) errors.push(profileError(`${path}.child`, 'must be a safe identifier'))
+    if (!isPlainObject(conversation.lines)) errors.push(profileError(`${path}.lines`, 'must be an object'))
+    else {
+      validateStringArray(conversation.lines.a, `${path}.lines.a`, errors, { nonEmpty: true })
+      validateStringArray(conversation.lines.b, `${path}.lines.b`, errors, { nonEmpty: true })
+    }
+  })
+
+  if (isPlainObject(candidate.ledger)) {
+    for (const [kind, records] of [['requests', candidate.ledger.requests], ['questions', candidate.ledger.questions]]) {
+      if (!Array.isArray(records)) continue
+      records.forEach((record, index) => {
+        const path = `ledger.${kind}[${index}]`
+        if (!isPlainObject(record)) { errors.push(profileError(path, 'must be an object')); return }
+        if (!safeIdentifier(record.id)) errors.push(profileError(`${path}.id`, 'must be a safe identifier'))
+        if (record.parent !== undefined && !safeIdentifier(record.parent)) errors.push(profileError(`${path}.parent`, 'must be a safe identifier'))
+        const subject = kind === 'requests' ? record.title : record.question
+        if (!nonEmptyText(subject)) errors.push(profileError(`${path}.${kind === 'requests' ? 'title' : 'question'}`, 'is required'))
+        const statuses = kind === 'requests'
+          ? ['open', 'in-progress', 'gated', 'done', 'blocked']
+          : ['pending', 'answered']
+        if (!statuses.includes(record.status)) errors.push(profileError(`${path}.status`, `must be ${statuses.join(' or ')}`))
+        if (kind === 'questions' && record.status === 'answered' && !nonEmptyText(record.answer)) {
+          errors.push(profileError(`${path}.answer`, 'is required for an answered question'))
+        }
+      })
+    }
+  }
+
+  for (const key of ['session', 'arrivals']) if (Array.isArray(candidate[key])) {
+    candidate[key].forEach((turn, index) => {
+      const path = `${key}[${index}]`
+      if (!isPlainObject(turn)) { errors.push(profileError(path, 'must be an object')); return }
+      if (!nonEmptyText(turn.who)) errors.push(profileError(`${path}.who`, 'is required'))
+      if (!nonEmptyText(turn.text)) errors.push(profileError(`${path}.text`, 'is required'))
+    })
+  }
+  for (const key of ['replies', 'replyActs']) if (hasOwn(candidate, key)) validateStringArray(candidate[key], key, errors)
+
+  if (isPlainObject(candidate.speakers)) {
+    for (const [speakerId, speaker] of Object.entries(candidate.speakers)) {
+      if (!isPlainObject(speaker)) errors.push(profileError(`speakers.${speakerId}`, 'must be an object'))
+      else if (typeof speaker.label !== 'string') errors.push(profileError(`speakers.${speakerId}.label`, 'must be text'))
+      else {
+        if (!safeCssClass(speaker.cls)) errors.push(profileError(`speakers.${speakerId}.cls`, 'must contain only CSS class tokens'))
+        if (speaker.hue !== undefined && !safeHue(speaker.hue)) errors.push(profileError(`speakers.${speakerId}.hue`, 'must be a theme variable or hex colour'))
+      }
+    }
+  }
+}
+
+export function validateFleetProfile(candidate, { allowSample = false } = {}) {
+  const errors = []
+  if (!isPlainObject(candidate)) {
+    return Object.freeze({ ok: false, errors: Object.freeze([profileError('$', 'must be a JSON object')]) })
+  }
+  if (candidate.schemaVersion !== 1) errors.push(profileError('schemaVersion', 'must be 1'))
+  if (!safeIdentifier(candidate.id)) errors.push(profileError('id', 'must be a safe identifier'))
+  else if (!allowSample && candidate.id === SAMPLE_PROFILE.id) errors.push(profileError('id', 'sample is reserved for the bundled demonstration'))
+  if (!nonEmptyText(candidate.label)) errors.push(profileError('label', 'is required'))
+
+  if (!Array.isArray(candidate.machines) || candidate.machines.length === 0) {
+    errors.push(profileError('machines', 'must contain at least one machine'))
+  } else if (candidate.machines.length > 128) {
+    errors.push(profileError('machines', 'cannot contain more than 128 machines'))
+  } else {
+    const ids = new Set()
+    candidate.machines.forEach((machine, index) => validateMachine(machine, index, errors, ids))
+  }
+
+  if (!Array.isArray(candidate.transports) || candidate.transports.length === 0) {
+    errors.push(profileError('transports', 'must declare at least one transport lane'))
+  } else if (candidate.transports.length > 32) {
+    errors.push(profileError('transports', 'cannot contain more than 32 transport lanes'))
+  } else {
+    const ids = new Set()
+    candidate.transports.forEach((transport, index) => validateTransport(transport, index, errors, ids))
+  }
+
+  for (const key of PROFILE_ARRAY_SECTIONS) {
+    if (key === 'machines' || key === 'transports' || !hasOwn(candidate, key)) continue
+    if (!Array.isArray(candidate[key])) errors.push(profileError(key, 'must be an array'))
+  }
+  for (const key of ['pools', 'tasks', 'feed']) {
+    if (hasOwn(candidate, key) && Array.isArray(candidate[key]) && candidate[key].length === 0) {
+      errors.push(profileError(key, 'cannot be empty because the simulation reads it during startup'))
+    }
+  }
+  for (const key of PROFILE_OBJECT_SECTIONS) {
+    if (hasOwn(candidate, key) && !isPlainObject(candidate[key])) errors.push(profileError(key, 'must be an object'))
+  }
+  if (hasOwn(candidate, 'ledger')) {
+    if (!isPlainObject(candidate.ledger)) errors.push(profileError('ledger', 'must be an object'))
+    else {
+      if (!Array.isArray(candidate.ledger.requests)) errors.push(profileError('ledger.requests', 'must be an array'))
+      if (!Array.isArray(candidate.ledger.questions)) errors.push(profileError('ledger.questions', 'must be an array'))
+    }
+  }
+  for (const key of PROFILE_TEXT_SECTIONS) {
+    if (hasOwn(candidate, key) && typeof candidate[key] !== 'string') errors.push(profileError(key, 'must be text'))
+  }
+
+  if (candidate.dataSource !== undefined && candidate.dataSource !== null) {
+    if (!isPlainObject(candidate.dataSource)) errors.push(profileError('dataSource', 'must be null or an object'))
+    else {
+      if (candidate.dataSource.kind !== 'directory') errors.push(profileError('dataSource.kind', 'must be directory'))
+      if (!nonEmptyText(candidate.dataSource.path)) errors.push(profileError('dataSource.path', 'directory path is required'))
+      else if (candidate.dataSource.path.length > 4096) errors.push(profileError('dataSource.path', 'is too long'))
+      else if (candidate.dataSource.path.includes('\0')) errors.push(profileError('dataSource.path', 'cannot contain a NUL character'))
+      else if (!/^(?:[a-z]:[\\/]|\\\\|\/)/i.test(candidate.dataSource.path)) errors.push(profileError('dataSource.path', 'must be an absolute directory path'))
+    }
+  }
+
+  validateContentSections(candidate, errors)
+
+  return Object.freeze({ ok: errors.length === 0, errors: Object.freeze(errors) })
+}
+
+export function parseFleetProfile(text) {
+  if (typeof text !== 'string') {
+    return Object.freeze({ ok: false, errors: Object.freeze([profileError('$', 'profile input must be text')]) })
+  }
+  if (jsonBytes(text) > PROFILE_MAX_BYTES) {
+    return Object.freeze({ ok: false, errors: Object.freeze([profileError('$', 'profile exceeds the 2 MiB limit')]) })
+  }
+  let profile
+  try { profile = JSON.parse(text) } catch (error) {
+    return Object.freeze({
+      ok: false,
+      errors: Object.freeze([profileError('$', `JSON is malformed: ${error?.message || error}`)]),
+    })
+  }
+  const verdict = validateFleetProfile(profile)
+  return verdict.ok
+    ? Object.freeze({ ok: true, profile, errors: Object.freeze([]) })
+    : Object.freeze({ ok: false, errors: verdict.errors })
+}
+
+export function serializeFleetProfile(profile) {
+  const verdict = validateFleetProfile(profile)
+  if (!verdict.ok) return Object.freeze({ ok: false, errors: verdict.errors })
+  const text = `${JSON.stringify(profile, null, 2)}\n`
+  if (jsonBytes(text) > PROFILE_MAX_BYTES) {
+    return Object.freeze({ ok: false, errors: Object.freeze([profileError('$', 'profile exceeds the 2 MiB limit')]) })
+  }
+  return Object.freeze({ ok: true, text, errors: Object.freeze([]) })
 }
 
 function mergeProfile(stored) {
-  if (!usableObject(stored)) return SAMPLE_PROFILE
-  const merged = { ...SAMPLE_PROFILE }
-  for (const key of ARRAY_SECTIONS) if (usableArray(stored[key])) merged[key] = stored[key]
-  for (const key of OBJECT_SECTIONS) if (usableObject(stored[key])) merged[key] = stored[key]
-  if (usableObject(stored.ledger)) {
-    merged.ledger = {
-      requests: usableArray(stored.ledger.requests) ? stored.ledger.requests : SAMPLE_PROFILE.ledger.requests,
-      questions: usableArray(stored.ledger.questions) ? stored.ledger.questions : SAMPLE_PROFILE.ledger.questions,
+  if (!stored) return SAMPLE_PROFILE
+  const machines = stored.machines.map(machine => nonEmptyText(machine.ip)
+    ? machine
+    : { ...machine, ip: machine.address })
+  return Object.freeze({ ...SAMPLE_PROFILE, ...stored, machines })
+}
+
+function inheritedSampleSections(profile) {
+  return PROFILE_INHERITABLE_SECTIONS.filter(key => !hasOwn(profile, key))
+}
+
+function readLocalCandidate() {
+  try {
+    const text = globalThis.localStorage?.getItem(STORAGE_KEY)
+    if (text == null) return { state: 'absent' }
+    const parsed = parseFleetProfile(text)
+    return parsed.ok
+      ? { state: 'configured', profile: parsed.profile }
+      : { state: 'invalid', errors: parsed.errors }
+  } catch (error) {
+    return { state: 'error', errors: [profileError('localStorage', `could not be read: ${error?.message || error}`, 'browser storage')] }
+  }
+}
+
+function readDurableCandidate() {
+  const bridge = globalThis.mcFleetProfile
+  if (!bridge) return { state: 'unavailable' }
+  const bootstrap = bridge.bootstrap
+  if (!bootstrap || bootstrap.ok !== true) {
+    const message = bootstrap?.error?.message || 'desktop profile bootstrap did not answer'
+    return { state: 'error', errors: [profileError('userData', message, 'durable storage')] }
+  }
+  if (bootstrap.state === 'reset') return { state: 'reset' }
+  if (!bootstrap.configured) return { state: 'absent' }
+  const verdict = validateFleetProfile(bootstrap.profile)
+  return verdict.ok
+    ? { state: 'configured', profile: bootstrap.profile }
+    : {
+        state: 'invalid',
+        errors: verdict.errors.map(error => profileError(error.path, error.message, 'durable storage')),
+      }
+}
+
+function mirrorLocal(profile) {
+  try { globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(profile)) } catch {}
+}
+
+function clearLocal() {
+  try { globalThis.localStorage?.removeItem(STORAGE_KEY) } catch {}
+}
+
+function migrateLegacyProfile(profile) {
+  const bridge = globalThis.mcFleetProfile
+  if (!bridge?.migrateLegacy) return null
+  try {
+    const result = bridge.migrateLegacy(profile)
+    return result?.ok
+      ? null
+      : profileError('userData', result?.error?.message || 'durable migration failed', 'durable storage')
+  } catch (error) {
+    return profileError('userData', `durable migration failed: ${error?.message || error}`, 'durable storage')
+  }
+}
+
+function resolution(kind, source, rawProfile, errors = [], warnings = []) {
+  const configured = Boolean(rawProfile)
+  const inherited = configured ? inheritedSampleSections(rawProfile) : []
+  return Object.freeze({
+    kind,
+    source,
+    configured,
+    rawProfile,
+    profile: configured ? mergeProfile(rawProfile) : SAMPLE_PROFILE,
+    errors: Object.freeze(errors),
+    warnings: Object.freeze(warnings),
+    inheritedSampleSections: Object.freeze(inherited),
+  })
+}
+
+function resolveFleetProfile() {
+  const durable = readDurableCandidate()
+  const local = readLocalCandidate()
+
+  /* Reset is a durable tombstone rather than a missing file. Without it, an
+     old Chromium origin can resurrect the profile after a port change — the
+     exact reinstall/port drift this userData copy exists to prevent. */
+  if (durable.state === 'reset') {
+    clearLocal()
+    return resolution('unconfigured', 'durable reset', null)
+  }
+
+  if (durable.state === 'configured') {
+    mirrorLocal(durable.profile)
+    const warnings = local.state === 'invalid' || local.state === 'error'
+      ? [profileError('localStorage', 'the browser copy was unreadable; the durable profile was loaded instead', 'browser storage')]
+      : []
+    return resolution('configured', 'durable userData', durable.profile, [], warnings)
+  }
+
+  if (local.state === 'configured') {
+    const errors = durable.state === 'invalid' || durable.state === 'error' ? [...durable.errors] : []
+    if (durable.state === 'absent') {
+      const migrationError = migrateLegacyProfile(local.profile)
+      if (migrationError) errors.push(migrationError)
+    }
+    return resolution(errors.length ? 'recovered' : 'configured', 'legacy browser storage', local.profile, errors)
+  }
+
+  const errors = [
+    ...(durable.state === 'invalid' || durable.state === 'error' ? durable.errors : []),
+    ...(local.state === 'invalid' || local.state === 'error' ? local.errors : []),
+  ]
+  return errors.length
+    ? resolution('invalid', 'sample fallback', null, errors)
+    : resolution('unconfigured', 'bundled sample', null)
+}
+
+export async function persistFleetProfile(profile) {
+  const verdict = validateFleetProfile(profile)
+  if (!verdict.ok) return Object.freeze({ ok: false, errors: verdict.errors })
+  const serialized = serializeFleetProfile(profile)
+  if (!serialized.ok) return serialized
+
+  const bridge = globalThis.mcFleetProfile
+  if (bridge?.save) {
+    let durable
+    try { durable = await bridge.save(profile) } catch (error) {
+      durable = { ok: false, error: { message: error?.message || String(error) } }
+    }
+    if (!durable?.ok) {
+      return Object.freeze({
+        ok: false,
+        errors: Object.freeze([profileError('userData', durable?.error?.message || 'durable save failed', 'durable storage')]),
+      })
     }
   }
-  for (const key of TEXT_SECTIONS) {
-    if (typeof stored[key] === 'string' && stored[key].trim()) merged[key] = stored[key]
+
+  try { globalThis.localStorage?.setItem(STORAGE_KEY, serialized.text.trimEnd()) } catch (error) {
+    if (!bridge?.save) {
+      return Object.freeze({
+        ok: false,
+        errors: Object.freeze([profileError('localStorage', `save failed: ${error?.message || error}`, 'browser storage')]),
+      })
+    }
+    return Object.freeze({
+      ok: true,
+      warnings: Object.freeze([profileError('localStorage', 'durable save succeeded, but the browser mirror could not be updated', 'browser storage')]),
+    })
   }
-  return Object.freeze(merged)
+  return Object.freeze({ ok: true, warnings: Object.freeze([]) })
 }
 
-function loadStoredProfile() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? mergeProfile(JSON.parse(raw)) : SAMPLE_PROFILE
-  } catch {
-    // A malformed or unreadable profile is the sample, silently: the views
-    // behind this call have no error channel at module-evaluation time, and a
-    // fleet that refuses to boot is worse than a fleet showing its sample.
-    return SAMPLE_PROFILE
+export async function resetFleetProfile() {
+  const bridge = globalThis.mcFleetProfile
+  if (bridge?.reset) {
+    let durable
+    try { durable = await bridge.reset() } catch (error) {
+      durable = { ok: false, error: { message: error?.message || String(error) } }
+    }
+    if (!durable?.ok) {
+      return Object.freeze({
+        ok: false,
+        errors: Object.freeze([profileError('userData', durable?.error?.message || 'durable reset failed', 'durable storage')]),
+      })
+    }
   }
+  try { globalThis.localStorage?.removeItem(STORAGE_KEY) } catch (error) {
+    if (!bridge?.reset) {
+      return Object.freeze({
+        ok: false,
+        errors: Object.freeze([profileError('localStorage', `reset failed: ${error?.message || error}`, 'browser storage')]),
+      })
+    }
+  }
+  return Object.freeze({ ok: true })
 }
 
-export const FLEET = loadStoredProfile()
+function mountRuntimeProfileNotice(message, serious = false) {
+  if (typeof document === 'undefined' || !message) return
+  const mount = () => {
+    let notice = document.querySelector('[data-fleet-profile-notice]')
+    if (!notice) {
+      notice = document.createElement('a')
+      notice.href = '#/settings'
+      notice.dataset.fleetProfileNotice = 'true'
+      notice.className = 'fleet-profile-notice'
+      document.body.appendChild(notice)
+    }
+    notice.classList.toggle('is-serious', serious)
+    notice.setAttribute('role', serious ? 'alert' : 'status')
+    notice.textContent = `${message} Open Settings →`
+  }
+  if (document.body) mount()
+  else document.addEventListener('DOMContentLoaded', mount, { once: true })
+}
 
-export const isSampleFleet = () => FLEET.id === SAMPLE_PROFILE.id
+export const FLEET_PROFILE_RESOLUTION = resolveFleetProfile()
+export const FLEET = FLEET_PROFILE_RESOLUTION.profile
+
+if (FLEET_PROFILE_RESOLUTION.kind === 'invalid') {
+  const first = FLEET_PROFILE_RESOLUTION.errors[0]
+  mountRuntimeProfileNotice(`Fleet profile was not loaded: ${first?.path || 'profile'} ${first?.message || 'is invalid'}. The sample demonstration is active.`, true)
+} else if (!FLEET_PROFILE_RESOLUTION.configured) {
+  mountRuntimeProfileNotice('No fleet profile is configured. The sample demonstration is active.')
+} else if (FLEET_PROFILE_RESOLUTION.kind === 'recovered') {
+  mountRuntimeProfileNotice('The fleet loaded from browser storage, but its durable userData copy needs attention.', true)
+} else if (FLEET_PROFILE_RESOLUTION.warnings.length) {
+  mountRuntimeProfileNotice(`The fleet loaded from durable storage, but ${FLEET_PROFILE_RESOLUTION.warnings[0].message}.`, true)
+} else if (FLEET_PROFILE_RESOLUTION.rawProfile?.dataSource && !globalThis.mcFleetProfile) {
+  mountRuntimeProfileNotice('This profile names a local projection directory, but a browser cannot read it. Use the installed desktop app; bundled data is not that configured source.', true)
+} else if (FLEET_PROFILE_RESOLUTION.inheritedSampleSections.length) {
+  mountRuntimeProfileNotice(`Fleet connections are configured; ${FLEET_PROFILE_RESOLUTION.inheritedSampleSections.length} content sections still use the labelled sample demonstration.`)
+}
+
+export const isSampleFleet = () => !FLEET_PROFILE_RESOLUTION.configured
