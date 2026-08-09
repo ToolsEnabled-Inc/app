@@ -35,6 +35,9 @@ export async function fetchStatus() {
   // own observedAt/authenticatedAt/at (the underlying reading's clock).
   // All three can legitimately disagree; the UI must be able to show any of
   // them rather than collapsing to one "as of" number.
+  if (data.ok === false) {
+    return { ok: false, reason: data.reason, data, fetchedAtMs: Date.now() }
+  }
   return { ok: true, data, fetchedAtMs: Date.now() }
 }
 
