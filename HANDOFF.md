@@ -14,12 +14,28 @@ A dashboard (Vite, vanilla JS, no framework) visualizing the owner's
 multi-agent fleet: coordinator chat home, computers graph board, per-agent
 drill-in, metrics instrument panel, ops-channel watch board, an R/Q request
 ledger (those six loop on the nav-arrow ring), plus a `#/settings` page
-outside the ring (entry: the drawer's "all settings" link). **Everything is
-simulation** — the owner's standing rule: "you dont have to worry about
-wiring any functionality at all, only make it look like it works." One
-parallel workstream (live-status.js, by another session) feeds real data to
-the home hero only; do not extend live wiring without an explicit owner ask
-("dont worry about the wiring into my software").
+outside the ring (entry: the drawer's "all settings" link).
+
+> **⚠ CORRECTED 2026-08-09 — the paragraph that used to be here was STALE and said the
+> opposite of the truth.** It read "Everything is simulation … live wiring feeds the home
+> hero only; do not extend live wiring without an explicit owner ask." That was accurate
+> when written and is not accurate now.
+>
+> **Ground truth, read from the code rather than from another doc:** `src/live-flags.js`
+> defines `defaultLive = id => LIVE_VIEW_FLAGS.find(f => f.id === id)?.defaultLive !== false`
+> — a view is live unless it explicitly opts out, and **none of the five registered flags
+> opts out**. All six ring pages plus settings read live projections by default. This
+> matches `DESIGNER-REJOIN.md` §2 ("Phase 2 — all six ring pages + settings read live by
+> default"), which is the correct account.
+>
+> Why the correction matters more than the wording: a reader who believes "everything is
+> simulation" will skip the entire first-run problem — what a stranger sees when a live
+> projection is unconfigured, unreachable, or returns `ok:false`. That is real work on
+> this product and several views were shipping the owner's own fleet data because of it.
+>
+> The owner's original instruction ("only make it look like it works") was a real
+> instruction at a real time. It has been superseded by the live wiring actually landing;
+> it is preserved here as history, not as current guidance.
 
 It ships two ways:
 - **Browser**: `npm run preview` → port 4600. The server binds **IPv6
