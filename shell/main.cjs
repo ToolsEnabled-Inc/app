@@ -8,6 +8,8 @@ const { app, BrowserWindow, ipcMain, nativeTheme, Menu } = require('electron')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
+const { wireSingleInstance } = require('./single-instance.cjs')
+const { headlessWindowOptions } = require('./window-options.cjs')
 const {
   SHELL_HOST,
   SHELL_PORT_MIN,
@@ -98,6 +100,9 @@ async function createWindow() {
     height: state.height || 900,
     x: state.x, y: state.y,
     minWidth: 980, minHeight: 640,
+    // Packaged smoke gate only; default is {} so shipping behaviour is
+    // unchanged. See shell/window-options.cjs.
+    ...headlessWindowOptions(),
     backgroundColor: seed.bg,
     icon: path.join(__dirname, 'icon.png'),
     titleBarStyle: 'hidden',
@@ -145,13 +150,15 @@ ipcMain.on('mc-theme', (_e, { theme, bg, ink }) => {
   writeState({ theme })
 })
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null)
-  createWindow()
-})
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) app.quit()
-app.on('second-instance', () => {
-  if (win) { if (win.isMinimized()) win.restore(); win.focus() }
+wireSingleInstance({
+  requestLock: () => app.requestSingleInstanceLock(),
+  quit: () => app.quit(),
+  whenReady: () => app.whenReady(),
+  onSecondInstance: (handler) => app.on('second-instance', handler),
+  getWindow: () => win,
+  start: () => {
+    Menu.setApplicationMenu(null)
+    createWindow()
+  },
 })
 app.on('window-all-closed', () => app.quit())
