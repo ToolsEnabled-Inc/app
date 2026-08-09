@@ -9,6 +9,8 @@ import {
 
 const originalFetch = globalThis.fetch
 const originalWindow = globalThis.window
+// Exactly 43 base64url characters, the shape shell/bridge-proof.cjs enforces.
+const SHELL_PROOF = 'mission-bridge-fixture-bootstrap-proof-0001'.padEnd(43, '0')
 
 function response(status, body) {
   return {
@@ -36,26 +38,32 @@ afterEach(() => {
 })
 
 test('discovery walks 4610-4619 in order and authenticates only after an exact valid tuple', async () => {
-  globalThis.window = { location: { search: '' } }
+  // The shell proof is part of the bootstrap contract (shell/bridge-proof.cjs):
+  // bootstrap refuses before it fetches anything when window.mcShell cannot
+  // supply one, so a discovery fixture that omits it never reaches the walk's
+  // conclusion. Stubbed here, NOT asserted away -- the plain-browser refusal
+  // has its own case in bridge-proof.test.mjs.
+  globalThis.window = { location: { search: '' }, mcShell: { getBridgeProof: async () => ({ ok: true, proof: SHELL_PROOF }) } }
   const calls = []
   globalThis.fetch = async (url, options) => {
-    calls.push({ url, options })
-    if (url === 'http://127.0.0.1:4610/v1/runtime') {
+    const href = String(url)
+    calls.push({ url: href, options })
+    if (href === 'http://127.0.0.1:4610/v1/runtime') {
       return response(200, runtime(4612))
     }
-    if (url === 'http://127.0.0.1:4611/v1/runtime') {
+    if (href === 'http://127.0.0.1:4611/v1/runtime') {
       return response(200, { ...runtime(4611), unexpected: true })
     }
-    if (url === 'http://127.0.0.1:4612/v1/runtime') {
+    if (href === 'http://127.0.0.1:4612/v1/runtime') {
       return response(200, runtime(4612))
     }
-    if (url === 'http://127.0.0.1:4612/v1/bootstrap') {
+    if (href === `http://127.0.0.1:4612/v1/bootstrap?proof=${SHELL_PROOF}`) {
       return response(200, { ok: true, token: 'fixture-bearer' })
     }
-    if (url === 'http://127.0.0.1:4612/v1/status') {
+    if (href === 'http://127.0.0.1:4612/v1/status') {
       return response(200, { ok: true, actions: [] })
     }
-    throw new Error(`unexpected fetch ${url}`)
+    throw new Error(`unexpected fetch ${href}`)
   }
 
   const status = await bridgeStatus()
@@ -64,7 +72,7 @@ test('discovery walks 4610-4619 in order and authenticates only after an exact v
     'http://127.0.0.1:4610/v1/runtime',
     'http://127.0.0.1:4611/v1/runtime',
     'http://127.0.0.1:4612/v1/runtime',
-    'http://127.0.0.1:4612/v1/bootstrap',
+    `http://127.0.0.1:4612/v1/bootstrap?proof=${SHELL_PROOF}`,
     'http://127.0.0.1:4612/v1/status',
   ])
   assert.equal(calls.slice(0, 4).some(call => Object.hasOwn(call.options.headers, 'authorization')), false)
