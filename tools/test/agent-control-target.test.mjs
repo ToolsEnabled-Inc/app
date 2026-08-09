@@ -23,7 +23,12 @@ import {
 const FIXED_NOW = '2026-08-06T19:00:00.000Z'
 const DECLARED = Object.freeze({
   running: 'coordinator-sol',
-  starting: 'claude',
+  // R1186/R1187 (2026-08-08, canonical config/agent-org.json rev18) retired the
+  // 'claude' agent id: the sole Claude shadow-manager seat became
+  // 'shadow-manager-opus5' under the Opus 5 Ultra org. 'coordinator-sol' is
+  // retained (disabled, role 'observer') rather than removed, so it still
+  // resolves; 'claude' does not and must track its successor id here.
+  starting: 'shadow-manager-opus5',
   finished: 'codex-manager-reconcile',
   failed: 'codex-manager-platform',
   stale: 'codex-manager-release',
