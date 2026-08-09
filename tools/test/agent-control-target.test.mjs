@@ -53,6 +53,40 @@ function write(path, content) {
   writeFileSync(path, content, 'utf8')
 }
 
+// The declared roster this fixture asserts against. These are FIXTURE ids and
+// are deliberately not read from the owner's live org: config/agent-org.json in
+// the canonical tree states owner intent and is edited whenever the org changes
+// (R1186 reseated it and dropped the id this fixture had been borrowing), so a
+// test copying it went red with no commit in this repo behind it. What this
+// test is actually about -- that gen-agents maps presence records onto declared
+// agents and emits an exact controlTarget -- does not depend on WHO is declared.
+function fixtureOrg() {
+  const agent = (id, displayName) => ({
+    id,
+    displayName,
+    role: id === DECLARED.running ? 'controller' : 'manager',
+    provider: 'codex',
+    enabled: true,
+    assignedPhase: null,
+    phasePriority: [],
+  })
+  return {
+    schemaVersion: 1,
+    revision: 7,
+    agents: [
+      agent(DECLARED.running, 'Fixture Controller'),
+      agent(DECLARED.starting, 'Fixture Starting'),
+      agent(DECLARED.finished, 'Fixture Finished'),
+      agent(DECLARED.failed, 'Fixture Failed'),
+      agent(DECLARED.stale, 'Fixture Stale'),
+      agent(DECLARED.missing, 'Fixture Missing'),
+    ],
+    relationships: Object.values(DECLARED)
+      .filter(id => id !== DECLARED.running)
+      .map(id => ({ from: DECLARED.running, to: id, type: 'manages' })),
+  }
+}
+
 function copyCanonicalReaders(root) {
   for (const name of ['agent-org.js', 'agent-presence.js']) {
     const target = join(root, 'src', 'lib', name)
@@ -64,7 +98,25 @@ function copyCanonicalReaders(root) {
   copyFileSync(join(CANONICAL_ROOT, 'src', 'lib', 'fleet-supervisor', 'state.js'), fleetState)
   const orgConfig = join(root, 'config', 'agent-org.json')
   mkdirSync(dirname(orgConfig), { recursive: true })
-  copyFileSync(join(CANONICAL_ROOT, 'config', 'agent-org.json'), orgConfig)
+  writeFileSync(orgConfig, JSON.stringify(fixtureOrg(), null, 2), 'utf8')
+  // The coupling that remains is to the canonical SCHEMA, which is the real
+  // dependency, and it is asserted rather than assumed: if agent-org.js ever
+  // tightens beyond what this fixture declares, this fails here with the
+  // validator's own code instead of surfacing as a confusing projection diff.
+  assertFixtureOrgValidates(root, orgConfig)
+}
+
+function assertFixtureOrgValidates(root, orgConfig) {
+  const probe = spawnSync(process.execPath, [
+    '-e',
+    'const { normalizeOrg } = require(process.argv[1]);' +
+    'const raw = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf8"));' +
+    'process.stdout.write(String(normalizeOrg(raw).agents.length));',
+    join(root, 'src', 'lib', 'agent-org.js'),
+    orgConfig,
+  ], { encoding: 'utf8', timeout: 30_000, windowsHide: true })
+  assert.equal(probe.status, 0, `fixture agent-org.json rejected by the canonical validator: ${probe.stderr}`)
+  assert.equal(probe.stdout, String(fixtureOrg().agents.length))
 }
 
 function liveFixture(root) {
