@@ -1,6 +1,7 @@
 {
   "comment": "TEMPLATE. Copy to owner-data-patterns.json and replace every value with your own before building. This file lists the strings that identify YOU, and the ship gate refuses to build until it exists -- a privacy guard with no identity to look for is a guard that passes everything.",
   "matching": "Entries are matched as raw bytes anywhere in any shipped file, case-insensitively by default. Set caseSensitive: true where case carries meaning.",
+  "ownership": "The committed owner-data-patterns.json belongs to whoever set it up, and a clone inherits it. A guard scanning for a stranger's identity reports clean while YOUR name ships, so the gate also requires at least one pattern here to relate to the OS account running the build (case-insensitive substring, either direction). Leaving these placeholder values in place will not pass. On CI or a shared build machine whose account name legitimately differs, set MC_IDENTITY_PROFILE_ACCOUNT to the account name this profile describes -- it renames the account being checked, it does not switch the check off.",
   "patterns": [
     { "value": "your-os-username", "note": "The account name in your home-directory paths." },
     { "value": "Your Full Name", "note": "Your name as prose. Path-shaped checks will not catch a name in shipped UI text." },

@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +88,91 @@ function loadIdentityPatterns(root) {
   });
 }
 
+// A PROFILE THAT EXISTS IS NOT YET A PROFILE THAT IS YOURS.
+//
+// The owner's filled-in profile is committed on purpose -- "we want my settings saved
+// for me" -- and that is right: a working configuration a fresh clone silently loses is
+// not a setting. But a committed profile is an INHERITED one, and inheritance is the
+// defect. A different person clones this repository and builds; the guard above finds a
+// profile, so it runs, scans all 366 MB, and reports clean -- while looking for someone
+// else's name, username and aliases. Their own identity walks into the installer
+// untouched. Same shape as the empty-profile hole this file already closes: the check
+// passes because of what it was not given, the failure is invisible, and the consequence
+// ships.
+//
+// Requiring a profile to EXIST therefore proves nothing about WHOSE it is. So the guard
+// also asks whether anything in the profile relates to the account running the build.
+//
+// The relation test is deliberately loose -- case-insensitive substring in either
+// direction -- because the account "joshp", the pattern "joshp" and a longer alias
+// containing it are all the same person, and a stricter rule would reject legitimate
+// profiles and get deleted. Loose is enough: the case that must never pass is a profile
+// with NOTHING in it relating to the current account, which is exactly what a stranger
+// inherits. Built-in patterns are excluded from this test on purpose; they belong to the
+// product, not to a person, and letting `C:\Users` vouch for an account named "user"
+// would hand back the hole.
+const ACCOUNT_OVERRIDE_VARIABLE = "MC_IDENTITY_PROFILE_ACCOUNT";
+
+function detectBuildAccount() {
+  const override = process.env[ACCOUNT_OVERRIDE_VARIABLE];
+
+  if (override !== undefined) {
+    // The escape hatch exists for CI and shared build machines, whose account name is
+    // legitimately not the profile owner's. It renames the account being checked; it
+    // never means "skip the check". A blank value is refused rather than ignored,
+    // because the empty string is a substring of every pattern -- accepting it would
+    // turn this variable into an off switch, which is the hole with extra steps.
+    if (!override.trim()) {
+      throw new Error(
+        `${ACCOUNT_OVERRIDE_VARIABLE} is set but empty. It overrides the account name this ` +
+          "guard checks the identity profile against; it cannot switch the check off. Set it to " +
+          "the account name config/owner-data-patterns.json describes, or unset it.",
+      );
+    }
+    return { name: override.trim(), source: ACCOUNT_OVERRIDE_VARIABLE };
+  }
+
+  let username;
+  try {
+    username = os.userInfo().username;
+  } catch (error) {
+    throw new Error(
+      `cannot determine which account is building this (${error.message}), so it cannot be ` +
+        `checked against config/owner-data-patterns.json. Set ${ACCOUNT_OVERRIDE_VARIABLE} to the ` +
+        "account name that profile describes.",
+    );
+  }
+
+  if (typeof username !== "string" || !username.trim()) {
+    throw new Error(
+      "the operating system reported an empty account name, so the identity profile cannot be " +
+        `checked against it. Set ${ACCOUNT_OVERRIDE_VARIABLE} to the account name ` +
+        "config/owner-data-patterns.json describes.",
+    );
+  }
+
+  return { name: username.trim(), source: "os.userInfo().username" };
+}
+
+function relatesToAccount(value, accountName) {
+  const pattern = value.trim().toLowerCase();
+  const account = accountName.toLowerCase();
+  if (!pattern || !account) return false;
+  return pattern.includes(account) || account.includes(pattern);
+}
+
+function assertProfileBelongsToBuilder(identityPatterns, account) {
+  if (identityPatterns.some((pattern) => relatesToAccount(pattern.label, account.name))) return;
+
+  throw new Error(
+    "config/owner-data-patterns.json is somebody else's identity profile (it does not mention " +
+      `the account building this: ${account.name}). Copy config/owner-data-patterns.example.json ` +
+      "over it and fill in your own values, or add your own entries. " +
+      `[account name from ${account.source}; a build machine whose account legitimately differs ` +
+      `can set ${ACCOUNT_OVERRIDE_VARIABLE} to the account the profile describes]`,
+  );
+}
+
 // Resolved at the START of main, not at module load. Both matter:
 //
 // - Not at module load, because a throw there escapes main()'s catch, exits 1 -- the
@@ -162,7 +248,13 @@ function chooseRoots(arguments_) {
 }
 
 async function main() {
-  ACTIVE_PATTERNS = [...BUILT_IN_PATTERNS, ...loadIdentityPatterns(REPO_ROOT)];
+  // Load, then prove ownership, then walk. Both checks are cheap and both run before a
+  // single file is read, so a setup problem costs milliseconds instead of surfacing
+  // part-way through 366 MB -- and both throw inside main(), so they exit 2 with one
+  // sentence rather than 1 with a stack trace.
+  const identityPatterns = loadIdentityPatterns(REPO_ROOT);
+  assertProfileBelongsToBuilder(identityPatterns, detectBuildAccount());
+  ACTIVE_PATTERNS = [...BUILT_IN_PATTERNS, ...identityPatterns];
   const roots = chooseRoots(process.argv.slice(2));
   let filesScanned = 0;
   let bytesScanned = 0;
