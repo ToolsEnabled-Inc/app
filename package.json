@@ -13,7 +13,7 @@
     "preview": "vite preview --port 4600 --strictPort",
     "app": "node shell/launch.cjs",
     "verify": "node tools/test-ratchet.mjs",
-    "dist": "npm run verify && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked"
+    "dist": "npm run verify && node tools/check-research-queue.mjs && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/smoke-packaged.mjs release/win-unpacked"
   },
   "devDependencies": {
     "culori": "^4.0.2",
