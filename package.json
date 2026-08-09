@@ -37,9 +37,7 @@
     },
     "files": [
       "dist/**",
-      "shell/main.cjs",
-      "shell/preload.cjs",
-      "shell/icon.png",
+      "shell/**",
       "!tools/**",
       "!node_modules/**"
     ],
