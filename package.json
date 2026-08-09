@@ -3,17 +3,20 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "shell/main.cjs",
   "scripts": {
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
     "test:data": "node --test tools/test/*.test.mjs",
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
     "preview": "vite preview --port 4600 --strictPort",
-    "app": "node shell/launch.cjs"
+    "app": "node shell/launch.cjs",
+    "dist": "npm run build && electron-builder --win nsis"
   },
   "devDependencies": {
     "culori": "^4.0.2",
     "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "vite": "^6.3.5"
   },
   "dependencies": {
@@ -24,5 +27,37 @@
     "d3-force": "^3.0.0",
     "echarts": "6.1.0"
   },
-  "productName": "Mission Control"
+  "productName": "Mission Control",
+  "build": {
+    "appId": "com.joshp.missioncontrol",
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "shell/main.cjs",
+      "shell/preload.cjs",
+      "shell/icon.png",
+      "!tools/**",
+      "!node_modules/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "shell/icon.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
+  }
 }
