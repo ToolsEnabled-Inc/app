@@ -32,6 +32,7 @@
   "productName": "Mission Control",
   "build": {
     "appId": "com.joshp.missioncontrol",
+    "copyright": "Copyright © 2026 Mission Control",
     "asar": true,
     "electronDist": "node_modules/electron/dist",
     "directories": {
@@ -57,7 +58,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false
+      "perMachine": false,
+      "uninstallDisplayName": "${productName}"
     }
   }
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,16 +10,50 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
-  CANONICAL_ROOT,
   PROJECT_ROOT,
   assertValidProjection,
   readSchema,
   validateAgainstSchema,
 } from '../gen-projection-lib.mjs'
+
+// WHERE THE FIXTURE READERS COME FROM, AND WHY IT IS NOT CANONICAL_ROOT.
+//
+// These tests build their fixture by copying the REAL reader modules out of the
+// ToolsEnabled checkout, so they exercise the actual parsing code rather than a
+// re-implementation of it. That is worth keeping.
+//
+// It used to import CANONICAL_ROOT from the generator library, which is a different
+// concept wearing the same name: CANONICAL_ROOT is "the root THIS GENERATOR RUN must
+// read", a value that is now fail-closed when unset precisely so a build cannot silently
+// read one person's Desktop. Borrowing it as a test-fixture location coupled a test to
+// the generator's configuration and broke the moment that default was removed.
+//
+// So this resolves the checkout independently, and RELATIVELY: the two trees are
+// siblings, which is true of any clone laid out the normal way and mentions nobody's
+// account. MC_CANONICAL_ROOT still wins when set, for a machine that arranges them
+// differently.
+const CANONICAL_FIXTURE_SOURCE =
+  process.env.MC_CANONICAL_ROOT?.trim() || resolve(PROJECT_ROOT, '..', 'toolsenabled-current')
+
+// A SKIP MUST BE LOUD, AND MUST NOT BE THE NORMAL CASE.
+//
+// Skipping when the sibling checkout is absent is right -- a stranger cloning only this
+// repo has no ToolsEnabled tree and should not see three failures they cannot act on.
+// But a test that quietly skips is a test that stopped protecting anything while still
+// printing green, which is the failure-reported-as-success defect this project keeps
+// finding. The reason is therefore always stated, and on a normal developer layout the
+// path resolves and the tests RUN.
+function canonicalReadersMissing() {
+  return !existsSync(join(CANONICAL_FIXTURE_SOURCE, 'src', 'lib', 'agent-org.js'))
+}
+
+const SKIP_REASON =
+  `ToolsEnabled checkout not found at ${CANONICAL_FIXTURE_SOURCE}: these tests copy its real ` +
+  'reader modules as a fixture. Set MC_CANONICAL_ROOT to that checkout to run them.'
 
 const FIXED_NOW = '2026-08-06T19:00:00.000Z'
 const DECLARED = Object.freeze({
@@ -91,11 +126,11 @@ function copyCanonicalReaders(root) {
   for (const name of ['agent-org.js', 'agent-presence.js']) {
     const target = join(root, 'src', 'lib', name)
     mkdirSync(dirname(target), { recursive: true })
-    copyFileSync(join(CANONICAL_ROOT, 'src', 'lib', name), target)
+    copyFileSync(join(CANONICAL_FIXTURE_SOURCE, 'src', 'lib', name), target)
   }
   const fleetState = join(root, 'src', 'lib', 'fleet-supervisor', 'state.js')
   mkdirSync(dirname(fleetState), { recursive: true })
-  copyFileSync(join(CANONICAL_ROOT, 'src', 'lib', 'fleet-supervisor', 'state.js'), fleetState)
+  copyFileSync(join(CANONICAL_FIXTURE_SOURCE, 'src', 'lib', 'fleet-supervisor', 'state.js'), fleetState)
   const orgConfig = join(root, 'config', 'agent-org.json')
   mkdirSync(dirname(orgConfig), { recursive: true })
   writeFileSync(orgConfig, JSON.stringify(fixtureOrg(), null, 2), 'utf8')
@@ -233,6 +268,7 @@ function withRunningTarget(payload, mutate) {
 }
 
 test('agents generator emits exact canonical control targets for every truthful presence status', t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const payload = runAgentsFixture(t, validPresenceState())
   assert.doesNotThrow(() => assertValidProjection('agents', payload))
   assert.ok(payload.data.declared.every(agent => Object.hasOwn(agent, 'controlTarget')))
@@ -279,6 +315,7 @@ test('agents generator emits exact canonical control targets for every truthful 
 })
 
 test('malformed canonical presence remains fail-closed through the existing source envelope', t => {
+  if (canonicalReadersMissing()) return t.skip(SKIP_REASON)
   const payload = runAgentsFixture(t, {
     schemaVersion: 1,
     revision: 1,

@@ -3,10 +3,12 @@ import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import {
+  assertRootConfigured,
   available,
   availableEnvelope,
   emitProjection,
   readTextFile,
+  requiredRoot,
   sourceFromResult,
   unavailable,
   unavailableEnvelope,
@@ -14,7 +16,7 @@ import {
 
 const DOMAIN = 'research'
 const OWNER_SCOPE = 'local-owner'
-const RESEARCH_ROOT = resolve(process.env.MC_RESEARCH_ROOT || 'C:/Users/joshp/Desktop')
+const RESEARCH_ROOT = requiredRoot('MC_RESEARCH_ROOT', 'the absolute path of the directory holding the curated reports')
 const OWNER_AUTHORIZATION_PATTERN = /\bLLMBenchmarking\b|\bLEAN(?:-| )Bench\b/i
 
 const SAFE_REPORTS = Object.freeze([
@@ -201,6 +203,11 @@ function flaggedReport(config) {
 }
 
 await emitProjection(DOMAIN, async at => {
+  // Asserted here rather than left to the first read: flaggedReport resolves and
+  // stats paths itself instead of going through the library's resolveUnder
+  // chokepoint, so an unconfigured root would reach it as a relative segment and
+  // come back as an ordinary source-missing.
+  assertRootConfigured(RESEARCH_ROOT)
   const results = [
     ...SAFE_REPORTS.map(safeReport),
     ...FLAGGED_REPORTS.map(flaggedReport),

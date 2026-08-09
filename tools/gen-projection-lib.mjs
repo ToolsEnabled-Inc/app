@@ -22,9 +22,51 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const here = dirname(fileURLToPath(import.meta.url))
 
+/**
+ * A root that was never configured is an OPERATOR error, not a source outage,
+ * and the two must not produce the same artifact. This class is the marker that
+ * keeps them apart: emitProjection turns source failures into honest ok:false
+ * snapshots, and lets this one kill the run instead.
+ */
+export class ProjectionConfigError extends Error {
+  constructor(variable, purpose) {
+    super(`${variable} is not set; set it to ${purpose}. There is no default: a default that points at one developer's Desktop resolves, on every other machine, to a path that does not exist, and the run then reports success while emitting nothing.`)
+    this.name = 'ProjectionConfigError'
+    this.code = 'PROJECTION_ROOT_UNCONFIGURED'
+    this.variable = variable
+  }
+}
+
+const UNCONFIGURED_ROOTS = new Map()
+
+/**
+ * The defaults these roots used to carry were one machine's Desktop paths, so
+ * `npm run data:generate` on anyone else's box read nothing, wrote seven
+ * all-unavailable projections, and still exited 0 -- the "absence renders as
+ * emptiness" failure this repo has now found eight times. Removing the default
+ * is the fix; reading the variable LAZILY rather than asserting at import is
+ * what keeps the pure helpers in this module (terseDetail, validateAgainstSchema,
+ * readSchema) importable by tests that never touch a root. The sentinel is
+ * deliberately not a legal Windows path, so a caller that bypasses resolveUnder
+ * and joins it by hand still fails instead of resolving somewhere plausible.
+ */
+export function requiredRoot(variable, purpose) {
+  const configured = process.env[variable]?.trim()
+  if (configured) return resolve(configured)
+  const sentinel = `<unset:${variable}>`
+  UNCONFIGURED_ROOTS.set(sentinel, { variable, purpose })
+  return sentinel
+}
+
+/** Throw before a root that was never configured can be mistaken for an empty one. */
+export function assertRootConfigured(root) {
+  const unconfigured = UNCONFIGURED_ROOTS.get(root)
+  if (unconfigured) throw new ProjectionConfigError(unconfigured.variable, unconfigured.purpose)
+}
+
 export const PROJECT_ROOT = dirname(here)
-export const CANONICAL_ROOT = resolve(process.env.MC_CANONICAL_ROOT || 'C:/Users/joshp/Desktop/toolsenabled-current')
-export const LIVE_ROOT = resolve(process.env.MC_LIVE_ROOT || 'C:/Users/joshp/Desktop/ToolsEnabled')
+export const CANONICAL_ROOT = requiredRoot('MC_CANONICAL_ROOT', 'the absolute path of the canonical ToolsEnabled checkout')
+export const LIVE_ROOT = requiredRoot('MC_LIVE_ROOT', 'the absolute path of the live ToolsEnabled checkout')
 export const OUTPUT_ROOT = resolve(process.env.MC_OUTPUT_ROOT || join(PROJECT_ROOT, 'public', 'data'))
 export const SCHEMA_ROOT = resolve(process.env.MC_SCHEMA_ROOT || join(PROJECT_ROOT, 'public', 'data', 'schema'))
 // Match the established gen-status behavior: real runs refresh both the build
@@ -493,6 +535,13 @@ export async function emitProjection(domain, build) {
   try {
     payload = await build(at)
   } catch (error) {
+    // A configured root that is missing or unreadable is a real observation and
+    // becomes an ok:false snapshot with a zero exit (generator-failures.test.mjs
+    // pins that). A root that was never configured is not an observation at all
+    // -- we do not know where we were meant to look -- so writing "unavailable"
+    // would be reporting a finding nobody made. Let it escape: no file is
+    // written and the process exits non-zero.
+    if (error instanceof ProjectionConfigError) throw error
     const reason = error instanceof ProjectionError ? cleanReason(error.code.toLowerCase().replaceAll('_', '-')) : 'source-reader-failed'
     payload = unavailableEnvelope(domain, reason, [], at)
   }
@@ -634,6 +683,10 @@ function normalizeTimestamp(value, required = false) {
 }
 
 function resolveUnder(root, relativePath) {
+  // Every file, reader and CLI read in this module funnels through here, which
+  // makes it the one place an unconfigured root can be caught before it becomes
+  // a directory-shaped guess.
+  assertRootConfigured(root)
   const base = resolve(root)
   if (isAbsolute(relativePath)) fail('PROJECTION_SOURCE_PATH_INVALID', 'Source paths must be relative to their declared root.')
   const target = resolve(base, relativePath)
