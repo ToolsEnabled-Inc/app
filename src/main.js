@@ -16,7 +16,6 @@ import { researchView } from './views/research.js'
 import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { settingsView } from './views/settings.js'
-import { chatView } from './views/chat.js'
 import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
@@ -41,7 +40,6 @@ function parse() {
   if (parts[0] === 'comms') return { name: 'comms' }
   if (parts[0] === 'ledger') return { name: 'ledger' }
   if (parts[0] === 'settings') return { name: 'settings' }
-  if (parts[0] === 'chat') return { name: 'chat' }
   return { name: 'home' }
 }
 
@@ -55,7 +53,6 @@ function makeView(route) {
     case 'comms': return commsView()
     case 'ledger': return ledgerView()
     case 'settings': return settingsView()
-    case 'chat': return chatView()
     default: return homeView()
   }
 }

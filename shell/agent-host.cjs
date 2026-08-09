@@ -5,16 +5,6 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
-const DEFAULT_ENGINE_DIR = path.resolve(
-  __dirname,
-  '..',
-  '..',
-  'toolsenabled-current',
-  'src',
-  'lib',
-  'agent-engine',
-)
-
 const CLIENT_INFO = Object.freeze({
   name: 'mission-control',
   title: 'Mission Control',
@@ -49,7 +39,16 @@ function normalizedModulePath(candidate) {
 
 function engineCandidates(enginePath) {
   // An explicit path is useful to embedders and focused tests. Without one,
-  // the configured environment path wins, followed by the checked sibling.
+  // only the configured environment path is tried.
+  //
+  // BLOCKER 2 (R1162 non-author review): this used to fall back to a
+  // hardcoded path into a private sibling checkout one level above this repo
+  // -- unreachable from build.files (`dist/**`, `shell/**`), so it existed on
+  // no shipped installation. The chat feature that depended on it was
+  // therefore guaranteed dead everywhere it shipped, and the resulting
+  // AGENT_ENGINE_UNAVAILABLE failure rendered that internal path into the
+  // DOM. There is no working default to fall back to, so this fails closed:
+  // no engine, no guess.
   if (enginePath !== undefined && enginePath !== null) {
     return [{ source: 'enginePath', value: boundedString(enginePath, 'enginePath', 32_768) }]
   }
@@ -58,7 +57,6 @@ function engineCandidates(enginePath) {
   if (process.env.TOOLSENABLED_ENGINE) {
     candidates.push({ source: 'TOOLSENABLED_ENGINE', value: process.env.TOOLSENABLED_ENGINE })
   }
-  candidates.push({ source: 'sibling default', value: DEFAULT_ENGINE_DIR })
   return candidates
 }
 
@@ -92,7 +90,9 @@ function loadStartCodexSession(enginePath) {
 
   fail(
     'AGENT_ENGINE_UNAVAILABLE',
-    `Unable to resolve the real Codex engine. Paths tried:\n- ${attempts.join('\n- ')}`,
+    attempts.length > 0
+      ? `Unable to resolve the real Codex engine. Paths tried:\n- ${attempts.join('\n- ')}`
+      : 'Unable to resolve the real Codex engine: no enginePath was passed and TOOLSENABLED_ENGINE is not set.',
   )
 }
 

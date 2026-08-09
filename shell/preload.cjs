@@ -14,18 +14,16 @@ contextBridge.exposeInMainWorld('mcShell', {
   getBridgeProof: () => ipcRenderer.invoke('mc-bridge-proof'),
 })
 
-contextBridge.exposeInMainWorld('mcAgent', {
-  start: payload => ipcRenderer.invoke('mc-agent:start', payload),
-  send: payload => ipcRenderer.invoke('mc-agent:send', payload),
-  interrupt: payload => ipcRenderer.invoke('mc-agent:interrupt', payload),
-  close: payload => ipcRenderer.invoke('mc-agent:close', payload),
-  onEvent: listener => {
-    if (typeof listener !== 'function') throw new TypeError('mcAgent.onEvent requires a function')
-    const receive = (_event, packet) => listener(packet)
-    ipcRenderer.on('mc-agent:event', receive)
-    return () => ipcRenderer.removeListener('mc-agent:event', receive)
-  },
-})
+// BLOCKER 2 (R1162 non-author review): this preload used to also expose a
+// second global, bridging the renderer's chat view to a family of IPC
+// channels still registered in shell/main.cjs. The engine those channels
+// started was resolved from a hardcoded path into a private sibling checkout
+// that exists on no shipped installation, so the bridge was dead IPC surface
+// on every install, and its failure path leaked that internal repo name into
+// the DOM. The chat route itself was removed from src/main.js; removing the
+// exposure here too means the renderer has no way to reach those channels at
+// all -- contextIsolation with nothing exposed blocks it outright, not just
+// an unreachable route. See tools/test/chat-agent-bridge-gated.test.mjs.
 
 function rgbToHex(rgb) {
   const m = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)
