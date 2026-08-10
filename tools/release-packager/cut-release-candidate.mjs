@@ -78,10 +78,26 @@ function parseArgs(argv) {
     else if (arg === '--keep-worktree') args.keepWorktree = true
     else if (arg === '--test') args.test = true
     else if (arg === '--other-candidate-root') (args.otherCandidateRoots ??= []).push(argv[++i])
+    else if (arg === '--known-fix') (args.knownFixes ??= []).push(parseKnownFixArg(argv[++i]))
     else if (arg === '--help' || arg === '-h') args.help = true
     else throw new Error(`unrecognised argument: ${arg}`)
   }
   return args
+}
+
+// --known-fix "description::verifiedBy[::evidence]" -- `::` rather than a
+// single colon so a Windows path or a URL in the evidence text doesn't get
+// mis-split. verifiedBy must be one of generate-declaration.mjs's
+// VERIFICATION_LABELS keys (source-only / observed / both) so the caller is
+// forced to say which kind of claim this is, not just that a fix exists --
+// see that file's comment for why that distinction is the point.
+export function parseKnownFixArg(raw) {
+  if (!raw) throw new Error('--known-fix requires a value: "description::verifiedBy[::evidence]"')
+  const [description, verifiedBy, ...evidenceParts] = raw.split('::')
+  if (!description || !verifiedBy) {
+    throw new Error(`--known-fix value must be "description::verifiedBy[::evidence]", got: ${JSON.stringify(raw)}`)
+  }
+  return { description: description.trim(), verifiedBy: verifiedBy.trim(), evidence: evidenceParts.join('::').trim() || undefined }
 }
 
 function printHelp() {
@@ -102,6 +118,9 @@ bump -> isolated clean build -> staged artifact -> re-hashed -> declaration.
   --test                       mark this as a test run: forces branch advance off, stages to a
                                 scratch directory, and prints the declaration as TEST/NOT FOR TRANSFER
   --other-candidate-root <dir> extra directory to scan for stray same-name installers (repeatable)
+  --known-fix "<description>::<source-only|observed|both>[::evidence]"
+                                declare a specific fix in this candidate and how it was verified (repeatable) --
+                                renders in the declaration's "Known fixes" section instead of being silently omitted
 `)
 }
 
@@ -402,6 +421,7 @@ async function main() {
       stagingDir,
       privateInputsCopied: privateInputs.copied,
       privateInputsSkippedTracked: privateInputs.skippedTracked,
+      knownFixes: args.knownFixes,
     }
 
     const declarationPath = path.join(stagingDir, args.test ? 'TEST-DECLARATION.md' : 'DECLARATION.md')

@@ -11,7 +11,7 @@ import { measureFile, sameBytes, sha256File } from "../release-packager/lib/hash
 import { findOtherCandidates } from "../release-packager/lib/scan-artifacts.mjs";
 import { currentBranch, isAncestor, revParse } from "../release-packager/lib/git.mjs";
 import { renderDeclaration } from "../release-packager/generate-declaration.mjs";
-import { copyPrivateInputs } from "../release-packager/cut-release-candidate.mjs";
+import { copyPrivateInputs, parseKnownFixArg } from "../release-packager/cut-release-candidate.mjs";
 
 // --- version-bump.mjs -------------------------------------------------------
 
@@ -233,6 +233,23 @@ test("renderDeclaration says when the branch was NOT advanced, with the exact fa
   const markdown = renderDeclaration(baseFacts({ branchAdvanced: false }));
   assert.match(markdown, /was NOT advanced/);
   assert.match(markdown, /git branch -f installer\/nsis bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
+});
+
+// --- cut-release-candidate.mjs: parseKnownFixArg --------------------------------
+
+test("parseKnownFixArg splits on :: and requires both description and verifiedBy", () => {
+  assert.deepEqual(parseKnownFixArg("Fixed the thing::source-only"), {
+    description: "Fixed the thing",
+    verifiedBy: "source-only",
+    evidence: undefined,
+  });
+  assert.deepEqual(parseKnownFixArg("Fixed the thing::observed::saw it work at http://x::y"), {
+    description: "Fixed the thing",
+    verifiedBy: "observed",
+    evidence: "saw it work at http://x::y",
+  });
+  assert.throws(() => parseKnownFixArg("only a description"), /description::verifiedBy/);
+  assert.throws(() => parseKnownFixArg(""), /requires a value/);
 });
 
 // --- cut-release-candidate.mjs: copyPrivateInputs ------------------------------
