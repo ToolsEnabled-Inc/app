@@ -47,6 +47,12 @@ It ships two ways:
   The app source knows nothing about the shell: every piece of chrome is
   injected from `shell/preload.cjs`, so the browser build stays
   byte-identical. See §7a.
+- **Installer** (what actually gets sent to another machine): `node
+  tools/release-packager/cut-release-candidate.mjs`. **Not `npm run dist`** —
+  that fails outright in a day-to-day tree here. Read
+  `docs/REPRODUCIBLE-BUILD.md` before cutting or auditing any release: it has
+  the one command, the one clean-checkout prerequisite, why the shared
+  `node_modules` is broken, and which tree built which shipped `.exe`.
 
 ## 2. The owner's laws (taste doctrine, ranked, their words)
 
