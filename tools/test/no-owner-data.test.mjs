@@ -1,25 +1,49 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const guardPath = fileURLToPath(new URL("../check-no-owner-data.mjs", import.meta.url));
+const realGuardPath = fileURLToPath(new URL("../check-no-owner-data.mjs", import.meta.url));
+const FIXTURE_ACCOUNT = "fixture-builder";
+const FIXTURE_ALIAS = "fixture-private-alias";
+const FIXTURE_NETWORK = "198.51.100.";
 
 async function withFixture(run) {
-  const fixture = await mkdtemp(path.join(tmpdir(), "no-owner-data-"));
+  const home = await mkdtemp(path.join(tmpdir(), "no-owner-data-"));
   try {
-    await run(fixture);
+    const tools = path.join(home, "tools");
+    const privateDirectory = path.join(home, "private");
+    const fixture = path.join(home, "bundle");
+    await mkdir(tools, { recursive: true });
+    await mkdir(privateDirectory, { recursive: true });
+    await mkdir(fixture, { recursive: true });
+
+    const guardPath = path.join(tools, "check-no-owner-data.mjs");
+    await copyFile(realGuardPath, guardPath);
+    await writeFile(
+      path.join(privateDirectory, "owner-data-patterns.owner.json"),
+      JSON.stringify({
+        patterns: [
+          { value: FIXTURE_ACCOUNT },
+          { value: FIXTURE_ALIAS },
+          { value: FIXTURE_NETWORK, caseSensitive: true },
+        ],
+      }),
+    );
+
+    await run({ fixture, guardPath });
   } finally {
-    await rm(fixture, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 }
 
-function runGuard(directory) {
+function runGuard(guardPath, directory) {
   const result = spawnSync(process.execPath, [guardPath, directory], {
     encoding: "utf8",
+    env: { ...process.env, MC_IDENTITY_PROFILE_ACCOUNT: FIXTURE_ACCOUNT },
   });
   return {
     status: result.status,
@@ -28,29 +52,32 @@ function runGuard(directory) {
 }
 
 test("fails for a private-network address in JavaScript", async () => {
-  await withFixture(async (fixture) => {
+  await withFixture(async ({ fixture, guardPath }) => {
     const filename = "network.js";
-    await writeFile(path.join(fixture, filename), "const host = '192.168.214.2';");
-    const result = runGuard(fixture);
+    await writeFile(path.join(fixture, filename), `const host = '${FIXTURE_NETWORK}42';`);
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 1, result.output);
     assert.match(result.output, new RegExp(filename));
-    assert.match(result.output, /192\.168\.214\./);
+    assert.match(result.output, /198\.51\.100\./);
   });
 });
 
-test("fails for the owner name in a path-like string", async () => {
-  await withFixture(async (fixture) => {
-    await writeFile(path.join(fixture, "path.txt"), String.raw`C:\Users\joshp\project`);
-    const result = runGuard(fixture);
+test("fails for a configured identity value in a path-like string", async () => {
+  await withFixture(async ({ fixture, guardPath }) => {
+    await writeFile(
+      path.join(fixture, "path.txt"),
+      `C:\\profiles\\${FIXTURE_ALIAS}\\project`,
+    );
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 1, result.output);
-    assert.match(result.output, /joshp/i);
+    assert.match(result.output, /fixture-private-alias/i);
   });
 });
 
 test("fails for a Windows users path", async () => {
-  await withFixture(async (fixture) => {
+  await withFixture(async ({ fixture, guardPath }) => {
     await writeFile(path.join(fixture, "windows-path.txt"), String.raw`C:\Users\someone`);
-    const result = runGuard(fixture);
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 1, result.output);
     assert.match(result.output, /windows-path\.txt/);
     assert.match(result.output, /C:\\\\Users/);
@@ -58,30 +85,30 @@ test("fails for a Windows users path", async () => {
 });
 
 test("recurses into deeply nested directories", async () => {
-  await withFixture(async (fixture) => {
+  await withFixture(async ({ fixture, guardPath }) => {
     const nested = path.join(fixture, "one", "two", "three");
     await mkdir(nested, { recursive: true });
-    await writeFile(path.join(nested, "deep.txt"), "JOSHP");
-    const result = runGuard(fixture);
+    await writeFile(path.join(nested, "deep.txt"), FIXTURE_ACCOUNT.toUpperCase());
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 1, result.output);
     assert.match(result.output, /deep\.txt/);
   });
 });
 
 test("scans files without an extension", async () => {
-  await withFixture(async (fixture) => {
-    await writeFile(path.join(fixture, "artifact"), "192.168.214.99");
-    const result = runGuard(fixture);
+  await withFixture(async ({ fixture, guardPath }) => {
+    await writeFile(path.join(fixture, "artifact"), `${FIXTURE_NETWORK}99`);
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 1, result.output);
     assert.match(result.output, /artifact/);
   });
 });
 
 test("finds a leak in a minified single-line file", async () => {
-  await withFixture(async (fixture) => {
+  await withFixture(async ({ fixture, guardPath }) => {
     const filename = "bundle.min.js";
     await writeFile(path.join(fixture, filename), `(()=>{const x="${"a".repeat(200)}C:/Users/person${"z".repeat(200)}"})()`);
-    const result = runGuard(fixture);
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 1, result.output);
     assert.match(result.output, /bundle\.min\.js/);
     assert.match(result.output, /C:\/Users/);
@@ -89,9 +116,9 @@ test("finds a leak in a minified single-line file", async () => {
 });
 
 test("passes a clean non-empty fixture", async () => {
-  await withFixture(async (fixture) => {
+  await withFixture(async ({ fixture, guardPath }) => {
     await writeFile(path.join(fixture, "clean.json"), JSON.stringify({ status: "clean" }));
-    const result = runGuard(fixture);
+    const result = runGuard(guardPath, fixture);
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /Scanned 1 files/);
     assert.match(result.output, /Total matches: 0/);
@@ -99,8 +126,8 @@ test("passes a clean non-empty fixture", async () => {
 });
 
 test("an explicitly supplied empty directory is not a silent success", async () => {
-  await withFixture(async (fixture) => {
-    const result = runGuard(fixture);
+  await withFixture(async ({ fixture, guardPath }) => {
+    const result = runGuard(guardPath, fixture);
     assert.notEqual(result.status, 0, result.output);
     assert.match(result.output, /nothing to check/i);
     assert.match(result.output, /scanned 0 files/i);

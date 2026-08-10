@@ -1,11 +1,12 @@
-// THE INHERITED PROFILE.
+// THE LOCAL OWNER PROFILE.
 //
-// config/owner-data-patterns.json is committed deliberately: the owner's working
-// configuration has to survive a fresh clone. The cost of that decision is that ANYONE
-// who clones this repository inherits it. Before the check these tests pin, a stranger's
-// build ran the privacy guard, scanned every byte of the bundle, and printed
-// "Total matches: 0" -- while looking for the owner's name, username and aliases and not
-// one of their own. Exit 0. A green gate aimed at the wrong person.
+// private/owner-data-patterns.owner.json is deliberately local and ignored: the owner's
+// working configuration remains available on this machine without becoming repository
+// data. A profile can still arrive from an unsafe cache, shared build host, or manual
+// copy. Before the check these tests pin, a build with somebody else's profile could run
+// the privacy guard, scan every byte of the bundle, and print "Total matches: 0" -- while
+// looking for the wrong name, username and aliases. Exit 0. A green gate aimed at the
+// wrong person.
 //
 // That is the same failure this repo has now met repeatedly: a control that passes
 // because of what it was NOT given. The empty-profile case was already closed; the
@@ -27,7 +28,9 @@ const realGuardPath = fileURLToPath(new URL("../check-no-owner-data.mjs", import
 
 // The real profile, read once, so these tests assert against what actually ships rather
 // than a restatement of it.
-const REAL_PROFILE_PATH = fileURLToPath(new URL("../../config/owner-data-patterns.json", import.meta.url));
+const REAL_PROFILE_PATH = fileURLToPath(
+  new URL("../../private/owner-data-patterns.owner.json", import.meta.url),
+);
 
 // A name no plausible identity profile mentions, used to play the stranger.
 const STRANGER_ACCOUNT = "ada-lovelace-9f2c";
@@ -64,13 +67,13 @@ function assertNoStackTrace(output) {
  * The guard resolves its profile relative to its OWN location, so copying the single
  * self-contained script into <tmp>/tools/ makes <tmp> the repo root it reads. That is
  * how the missing / empty / malformed / stranger-owned profile cases get exercised
- * without touching the real config, which other agents and the live ship path use.
+ * without touching the real private profile, which other agents and the live ship path use.
  */
 async function withGuardCopy(profile, run_) {
   const home = await mkdtemp(path.join(os.tmpdir(), "identity-profile-"));
   try {
     await mkdir(path.join(home, "tools"), { recursive: true });
-    await mkdir(path.join(home, "config"), { recursive: true });
+    await mkdir(path.join(home, "private"), { recursive: true });
     const bundle = path.join(home, "bundle");
     await mkdir(bundle, { recursive: true });
     await writeFile(path.join(bundle, "clean.json"), JSON.stringify({ status: "clean" }));
@@ -79,7 +82,7 @@ async function withGuardCopy(profile, run_) {
     await copyFile(realGuardPath, guardPath);
 
     if (profile !== undefined) {
-      const profilePath = path.join(home, "config", "owner-data-patterns.json");
+      const profilePath = path.join(home, "private", "owner-data-patterns.owner.json");
       await writeFile(
         profilePath,
         typeof profile === "string" ? profile : JSON.stringify(profile, null, 2),
@@ -106,12 +109,12 @@ test("a profile describing somebody else is a setup error, not a clean scan", as
   });
 });
 
-test("a stranger's profile is rejected even when the bundle is dirty with their own data", async () => {
+test("a stranger's profile is rejected before scanning unrelated owner data", async () => {
   // Ordering proof. If ownership were checked after the walk -- or not at all -- this
-  // bundle would be reported clean, because "ada-lovelace-9f2c" is in the profile but
-  // "jpinckard" is not. Exit 2 means the build stopped before it could believe that.
+  // bundle would be reported clean because its synthetic owner value is not in the
+  // stranger's profile. Exit 2 means the build stopped before it could believe that.
   await withGuardCopy({ patterns: [{ value: STRANGER_ACCOUNT }] }, async ({ guardPath, bundle }) => {
-    await writeFile(path.join(bundle, "leak.js"), 'const owner = "jpinckard";');
+    await writeFile(path.join(bundle, "leak.js"), 'const owner = "synthetic-owner-value-6";');
     const result = run(guardPath, bundle);
     assert.equal(result.status, 2, result.output);
     assert.match(result.output, /somebody else's identity profile/);
@@ -204,7 +207,7 @@ test("the shipped example template does not pass as anyone's profile", async () 
   });
 });
 
-test("the committed profile belongs to the account building here", async () => {
+test("the local owner profile belongs to the account building here", async () => {
   // Guards the live configuration itself, on the real guard, against the real bundle
   // path being irrelevant: an empty fixture would exit 2 for a different reason, so this
   // uses a clean file and asserts a real scan happened.
@@ -218,9 +221,11 @@ test("the committed profile belongs to the account building here", async () => {
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }
-  // And the profile that made that true is the committed one, not an accident of the
+  // And the profile that made that true is the ignored local one, not an accident of the
   // current directory.
-  assert.ok(REAL_PROFILE_PATH.endsWith(path.join("config", "owner-data-patterns.json")));
+  assert.ok(
+    REAL_PROFILE_PATH.endsWith(path.join("private", "owner-data-patterns.owner.json")),
+  );
 });
 
 test("a missing profile is still a hard error", async () => {

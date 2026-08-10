@@ -17,9 +17,14 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 //
 // The rest is WHO THE BUILDER IS: their name, username, account aliases, LAN range.
 // That is user data. Hardcoding it protects exactly one person and gives the next one
-// nowhere to put their own, so it lives in config/owner-data-patterns.json.
+// nowhere to put their own, so it lives in private/owner-data-patterns.owner.json.
 //
 // The mechanism is code. The identity is a setting.
+
+// UNTRACKING IS NOT HISTORY REMOVAL. Keeping this profile under private/ prevents
+// future commits from carrying it, but values already committed still exist in Git
+// history. Publishing this repository publicly therefore requires a fresh repository
+// or a history rewrite; untracking alone is not sufficient.
 
 // Built-in: true for anyone who builds this product, regardless of who they are.
 const BUILT_IN_PATTERNS = [
@@ -51,8 +56,8 @@ const BUILT_IN_PATTERNS = [
 // So: missing file, unreadable file, wrong shape, or empty list are all hard errors
 // naming the example template. Getting a build to pass must require saying who you are.
 function loadIdentityPatterns(root) {
-  const file = path.join(root, "config", "owner-data-patterns.json");
-  const relative = "config/owner-data-patterns.json";
+  const file = path.join(root, "private", "owner-data-patterns.owner.json");
+  const relative = "private/owner-data-patterns.owner.json";
 
   if (!existsSync(file)) {
     throw new Error(
@@ -90,21 +95,20 @@ function loadIdentityPatterns(root) {
 
 // A PROFILE THAT EXISTS IS NOT YET A PROFILE THAT IS YOURS.
 //
-// The owner's filled-in profile is committed on purpose -- "we want my settings saved
-// for me" -- and that is right: a working configuration a fresh clone silently loses is
-// not a setting. But a committed profile is an INHERITED one, and inheritance is the
-// defect. A different person clones this repository and builds; the guard above finds a
-// profile, so it runs, scans all 366 MB, and reports clean -- while looking for someone
-// else's name, username and aliases. Their own identity walks into the installer
-// untouched. Same shape as the empty-profile hole this file already closes: the check
-// passes because of what it was not given, the failure is invisible, and the consequence
-// ships.
+// The owner's filled-in profile stays local on purpose: it is their data, and their
+// working build on this machine must retain it. A profile can still be copied from a
+// different account, restored from an unsafe cache, or supplied incorrectly on a shared
+// build machine. The guard above would find that file, scan all 366 MB, and report clean
+// while looking for someone else's name, username and aliases. The builder's own identity
+// would walk into the installer untouched. Same shape as the empty-profile hole this file
+// already closes: the check passes because of what it was not given, the failure is
+// invisible, and the consequence ships.
 //
 // Requiring a profile to EXIST therefore proves nothing about WHOSE it is. So the guard
 // also asks whether anything in the profile relates to the account running the build.
 //
 // The relation test is deliberately loose -- case-insensitive substring in either
-// direction -- because the account "joshp", the pattern "joshp" and a longer alias
+// direction -- because the account "builder", the pattern "builder" and a longer alias
 // containing it are all the same person, and a stricter rule would reject legitimate
 // profiles and get deleted. Loose is enough: the case that must never pass is a profile
 // with NOTHING in it relating to the current account, which is exactly what a stranger
@@ -126,7 +130,7 @@ function detectBuildAccount() {
       throw new Error(
         `${ACCOUNT_OVERRIDE_VARIABLE} is set but empty. It overrides the account name this ` +
           "guard checks the identity profile against; it cannot switch the check off. Set it to " +
-          "the account name config/owner-data-patterns.json describes, or unset it.",
+          "the account name private/owner-data-patterns.owner.json describes, or unset it.",
       );
     }
     return { name: override.trim(), source: ACCOUNT_OVERRIDE_VARIABLE };
@@ -138,7 +142,7 @@ function detectBuildAccount() {
   } catch (error) {
     throw new Error(
       `cannot determine which account is building this (${error.message}), so it cannot be ` +
-        `checked against config/owner-data-patterns.json. Set ${ACCOUNT_OVERRIDE_VARIABLE} to the ` +
+        `checked against private/owner-data-patterns.owner.json. Set ${ACCOUNT_OVERRIDE_VARIABLE} to the ` +
         "account name that profile describes.",
     );
   }
@@ -147,7 +151,7 @@ function detectBuildAccount() {
     throw new Error(
       "the operating system reported an empty account name, so the identity profile cannot be " +
         `checked against it. Set ${ACCOUNT_OVERRIDE_VARIABLE} to the account name ` +
-        "config/owner-data-patterns.json describes.",
+        "private/owner-data-patterns.owner.json describes.",
     );
   }
 
@@ -165,9 +169,9 @@ function assertProfileBelongsToBuilder(identityPatterns, account) {
   if (identityPatterns.some((pattern) => relatesToAccount(pattern.label, account.name))) return;
 
   throw new Error(
-    "config/owner-data-patterns.json is somebody else's identity profile (it does not mention " +
+    "private/owner-data-patterns.owner.json is somebody else's identity profile (it does not mention " +
       `the account building this: ${account.name}). Copy config/owner-data-patterns.example.json ` +
-      "over it and fill in your own values, or add your own entries. " +
+      "to private/owner-data-patterns.owner.json and fill in your own values, or add your own entries. " +
       `[account name from ${account.source}; a build machine whose account legitimately differs ` +
       `can set ${ACCOUNT_OVERRIDE_VARIABLE} to the account the profile describes]`,
   );
