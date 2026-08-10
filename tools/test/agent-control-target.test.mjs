@@ -123,7 +123,15 @@ function fixtureOrg() {
 }
 
 function copyCanonicalReaders(root) {
-  for (const name of ['agent-org.js', 'agent-presence.js']) {
+  // agent-presence.js requires ./request-id (added by canonical commit
+  // 7de728c, "Fix red gates at head"). request-id.js is a leaf module (no
+  // further local requires), so copying it alongside is sufficient -- but it
+  // must be copied, or the copied agent-presence.js dies with
+  // MODULE_NOT_FOUND the moment gen-agents.mjs requires it inside this
+  // fixture's isolated src/lib, which fails closed and nulls every
+  // controlTarget. That is a missing fixture dependency, not a reason to
+  // weaken any assertion below.
+  for (const name of ['agent-org.js', 'agent-presence.js', 'request-id.js']) {
     const target = join(root, 'src', 'lib', name)
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(CANONICAL_FIXTURE_SOURCE, 'src', 'lib', name), target)

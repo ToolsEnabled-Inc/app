@@ -216,7 +216,13 @@ test('both generators emit matching live fields and declared/observed provenance
   const live = join(fixture, 'live')
   const output = join(fixture, 'output')
 
-  for (const name of ['agent-org.js', 'agent-presence.js']) {
+  // agent-presence.js requires ./request-id (canonical commit 7de728c);
+  // request-id.js is a leaf module (no further local requires), so copying
+  // it here is sufficient. Without it the copied agent-presence.js dies
+  // with MODULE_NOT_FOUND inside this fixture's isolated src/lib the moment
+  // it is required, which fails closed and hides real fields as undefined --
+  // see tools/test/agent-control-target.test.mjs for the same bug.
+  for (const name of ['agent-org.js', 'agent-presence.js', 'request-id.js']) {
     const target = join(canonical, 'src', 'lib', name)
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(REAL_CANONICAL, 'src', 'lib', name), target)
