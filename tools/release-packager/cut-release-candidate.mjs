@@ -424,6 +424,17 @@ async function main() {
   } catch (error) {
     if (!worktreeRemoved && existsSync(worktreePath) && !args.keepWorktree) {
       console.error(`[cut-release-candidate] leaving build worktree in place for postmortem: ${worktreePath}`)
+      const leftoverNodeModules = path.join(worktreePath, 'node_modules')
+      if (existsSync(leftoverNodeModules)) {
+        console.error(
+          `[cut-release-candidate] WARNING: ${leftoverNodeModules} may be a junction into the shared source ` +
+            `node_modules, not a real copy. Do NOT run a recursive delete (rm -rf / Remove-Item -Recurse) on ` +
+            `${worktreePath} without first checking: PowerShell \`(Get-Item '${leftoverNodeModules}').LinkType\` -- ` +
+            `if it says "Junction", remove only that node_modules entry itself (e.g. \`(Get-Item '${leftoverNodeModules}').Delete()\` ` +
+            `or \`rmdir\` without /s) BEFORE deleting the rest of the directory, or a naive recursive delete can ` +
+            `follow the link and destroy the real, shared node_modules other lanes are using.`,
+        )
+      }
     }
     throw error
   }
