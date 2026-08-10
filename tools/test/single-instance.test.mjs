@@ -18,6 +18,7 @@ test('lock lost quits without registering readiness or starting', () => {
     onSecondInstance: () => assert.fail('second-instance handler must not be registered'),
     getWindow: () => null,
     start: () => { startCalls += 1 },
+    onStartFailure: (error) => assert.fail(error),
   })
 
   assert.equal(gotLock, false)
@@ -39,6 +40,7 @@ test('lock won starts once when ready resolves', async () => {
     onSecondInstance: () => {},
     getWindow: () => null,
     start: () => { startCalls += 1 },
+    onStartFailure: (error) => assert.fail(error),
   })
 
   assert.equal(gotLock, true)
@@ -60,6 +62,7 @@ test('requests the lock before registering readiness', () => {
     onSecondInstance: () => { order.push('second-instance') },
     getWindow: () => null,
     start: () => {},
+    onStartFailure: (error) => assert.fail(error),
   })
 
   assert.equal(order[0], 'request-lock')
@@ -83,10 +86,66 @@ test('second instance restores a minimized window, focuses it, and does not rest
     onSecondInstance: (handler) => { secondInstanceHandler = handler },
     getWindow: () => win,
     start: () => { startCalls += 1 },
+    onStartFailure: (error) => assert.fail(error),
   })
 
   assert.equal(typeof secondInstanceHandler, 'function')
   secondInstanceHandler()
   assert.deepEqual(calls, ['restore', 'focus'])
   assert.equal(startCalls, 0)
+})
+
+test('a rejected readiness promise is reported', async () => {
+  const failure = new Error('readiness failed')
+  let reported = null
+
+  wireSingleInstance({
+    requestLock: () => true,
+    quit: () => {},
+    whenReady: () => Promise.reject(failure),
+    onSecondInstance: () => {},
+    getWindow: () => null,
+    start: () => assert.fail('start must not run'),
+    onStartFailure: (error) => { reported = error },
+  })
+
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(reported, failure)
+})
+
+test('a rejected start promise is reported', async () => {
+  const failure = new Error('createWindow failed')
+  let reported = null
+
+  wireSingleInstance({
+    requestLock: () => true,
+    quit: () => {},
+    whenReady: () => Promise.resolve(),
+    onSecondInstance: () => {},
+    getWindow: () => null,
+    start: () => Promise.reject(failure),
+    onStartFailure: (error) => { reported = error },
+  })
+
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(reported, failure)
+})
+
+test('a synchronous start throw is reported', async () => {
+  const failure = new Error('createWindow threw synchronously')
+  let reported = null
+
+  wireSingleInstance({
+    requestLock: () => true,
+    quit: () => {},
+    whenReady: () => Promise.resolve(),
+    onSecondInstance: () => {},
+    getWindow: () => null,
+    start: () => { throw failure },
+    onStartFailure: (error) => { reported = error },
+  })
+
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(reported, failure)
 })

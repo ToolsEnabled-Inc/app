@@ -255,8 +255,12 @@ export async function main(directory = 'release/win-unpacked', overrides = {}) {
         windowTitleCheckUnavailable = `launched PID ${child.pid} was not present when window titles were enumerated`
         return
       }
-      if (title.trim().toLowerCase() === 'error') {
-        throw new Error(`Packaged application opened an Error window (PID ${child.pid}).\n${capturedOutput(stdout, stderr)}`)
+      const normalizedTitle = title.trim().toLowerCase()
+      if (normalizedTitle === 'error' || normalizedTitle === 'mission control could not start') {
+        throw new Error(
+          `Packaged application opened a fatal startup window (${JSON.stringify(title)}, PID ${child.pid}).\n` +
+          capturedOutput(stdout, stderr),
+        )
       }
     }
 

@@ -143,6 +143,31 @@ test('successful probe reports the serving port, status, and marker and terminat
   assert.match(messages.join('\n'), /marker_found=true/)
 })
 
+test('a fatal startup window fails smoke even after the HTTP marker responds', async (t) => {
+  for (const title of ['Error', 'Mission Control could not start']) {
+    await t.test(title, async (t) => {
+      const directory = await temporaryDirectory(t)
+      await writeFile(path.join(directory, APP_EXE), 'test placeholder')
+      const child = fakeChild()
+      let terminated = false
+
+      await assert.rejects(main(directory, {
+        spawn: () => child,
+        fetch: async () => ({ status: 200, text: async () => APP_MARKER }),
+        findExistingInstances: async () => [],
+        getWindowTitle: async () => title,
+        terminateProcessTree: async () => { terminated = true },
+        makeSmokeProfileDirectory: async () => path.join(directory, 'smoke-profile'),
+        removeSmokeProfileDirectory: async () => {},
+        timeoutMs: 100,
+        log: () => {},
+      }), /opened a fatal startup window/)
+
+      assert.equal(terminated, true)
+    })
+  }
+})
+
 test('spawn is explicitly attached to the parent process with detached false', async (t) => {
   const directory = await temporaryDirectory(t)
   await writeFile(path.join(directory, APP_EXE), 'test placeholder')

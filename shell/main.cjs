@@ -4,7 +4,7 @@
 // titlebar strip — the VSCode arrangement: the app owns the top strip, the
 // OS owns min/max/close (which keeps Win11 snap layouts on the maximize
 // button for free).
-const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu } = require('electron')
+const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu, screen } = require('electron')
 const http = require('http')
 const https = require('https')
 const net = require('net')
@@ -17,6 +17,8 @@ const { readBridgeProof } = require('./bridge-proof.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
 const { startupFailureDetail } = require('./startup-failure-message.cjs')
+const { createFatalStartupHandler } = require('./startup-fatal.cjs')
+const { restoredWindowState, shellStateRecord } = require('./window-state.cjs')
 const {
   CRASH_DUMP_DIR_NAME,
   crashReporterOptions,
@@ -29,6 +31,17 @@ const {
   SHELL_PORTS,
   listenOnFirstFreePort,
 } = require('./port-scan.cjs')
+
+const fatalStartup = createFatalStartupHandler({
+  app,
+  dialog,
+  detailForError: (error) => startupFailureDetail(
+    error,
+    { min: SHELL_PORT_MIN, max: SHELL_PORT_MAX },
+  ),
+})
+process.on('unhandledRejection', (reason) => fatalStartup(reason, 'Unhandled promise rejection'))
+process.on('uncaughtException', (error) => fatalStartup(error, 'Uncaught exception'))
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
@@ -251,7 +264,11 @@ const THEME_SEED = {
 }
 
 function readState() {
-  try { return JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8')) } catch { return {} }
+  try {
+    return shellStateRecord(JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8')))
+  } catch {
+    return {}
+  }
 }
 function writeState(patch) {
   try {
@@ -784,7 +801,7 @@ const MIME = {
 }
 
 function serveDist() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const expectedHost = shellOrigin ? new URL(shellOrigin).host : null
       if (!expectedHost || req.headers.host !== expectedHost) {
@@ -810,16 +827,10 @@ function serveDist() {
         res.end(data)
       })
     })
-    const reportFailure = (err) => {
-      const { dialog } = require('electron')
-      const detail = startupFailureDetail(err, { min: SHELL_PORT_MIN, max: SHELL_PORT_MAX })
-      dialog.showErrorBox('Mission Control could not start', detail)
-      app.exit(1)
-    }
     listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST).then(() => {
-      server.on('error', reportFailure)
+      server.on('error', (error) => fatalStartup(error, 'Shell server failure'))
       resolve(server)
-    }, reportFailure)
+    }, reject)
   })
 }
 
@@ -917,18 +928,30 @@ ipcMain.handle('mc-fleet-profile:probe', (event, profile) =>
 
 ipcMain.handle('mc-bridge-proof', () => bridgeProof)
 
+function currentWorkAreas() {
+  try {
+    const primary = screen.getPrimaryDisplay().workArea
+    const others = screen.getAllDisplays()
+      .map((display) => display.workArea)
+      .filter((area) => (
+        area.x !== primary.x || area.y !== primary.y
+        || area.width !== primary.width || area.height !== primary.height
+      ))
+    return [primary, ...others]
+  } catch {
+    return []
+  }
+}
+
 async function createWindow() {
-  const state = readState()
+  const state = restoredWindowState(readState(), currentWorkAreas())
   const seed = THEME_SEED[state.theme] || THEME_SEED.white
   const server = await serveDist()
   const port = server.address().port
   shellOrigin = `http://127.0.0.1:${port}`
 
-  win = new BrowserWindow({
-    width: state.width || 1440,
-    height: state.height || 900,
-    x: state.x, y: state.y,
-    minWidth: 980, minHeight: 640,
+  const window = new BrowserWindow({
+    ...state.bounds,
     // Packaged smoke gate only; default is {} so shipping behaviour is
     // unchanged. See shell/window-options.cjs.
     ...headlessWindowOptions(),
@@ -942,6 +965,8 @@ async function createWindow() {
       nodeIntegration: false,
     },
   })
+  win = window
+  let closeRequested = false
   win.webContents.session.webRequest.onBeforeSendHeaders(
     { urls: [`${shellOrigin}/data/*`] },
     (details, callback) => callback({
@@ -970,9 +995,17 @@ async function createWindow() {
   win.on('moved', persistBounds)
   win.on('maximize', persistBounds)
   win.on('unmaximize', persistBounds)
-  win.on('closed', () => { win = null })
+  win.on('close', () => { closeRequested = true })
+  win.on('closed', () => { if (win === window) win = null })
 
-  await win.loadURL(`${shellOrigin}/`)
+  try {
+    await window.loadURL(`${shellOrigin}/`)
+  } catch (error) {
+    // A user can close the native window before navigation settles. That is a
+    // successful close, not a startup failure; a live window still fails loud.
+    if (closeRequested && (window.isDestroyed() || win !== window)) return
+    throw error
+  }
 }
 
 /* The renderer reports its REAL composited surface colours whenever the
@@ -1023,7 +1056,8 @@ wireSingleInstance({
   getWindow: () => win,
   start: () => {
     Menu.setApplicationMenu(null)
-    createWindow()
+    return createWindow()
   },
+  onStartFailure: (error) => fatalStartup(error, 'Application startup rejected'),
 })
 app.on('window-all-closed', () => app.quit())

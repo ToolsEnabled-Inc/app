@@ -5,6 +5,7 @@ function wireSingleInstance({
   onSecondInstance,
   getWindow,
   start,
+  onStartFailure,
 }) {
   const gotLock = requestLock()
   if (!gotLock) {
@@ -12,7 +13,7 @@ function wireSingleInstance({
     return false
   }
 
-  whenReady().then(start)
+  void whenReady().then(start).catch(onStartFailure)
   onSecondInstance(() => {
     const win = getWindow()
     if (win) { if (win.isMinimized()) win.restore(); win.focus() }
