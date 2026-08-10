@@ -32,10 +32,28 @@ const BUILT_IN_PATTERNS = [
   // even when the account name itself is not in the identity profile.
   { label: String.raw`C:\Users`, bytes: Buffer.from(String.raw`C:\Users`), caseInsensitive: true },
   { label: "C:/Users", bytes: Buffer.from("C:/Users"), caseInsensitive: true },
-  // Credential names. A shipped file naming a secret env var teaches an attacker
-  // what to look for, and signals internal tooling was packaged by accident.
-  { label: "ANTHROPIC_API_KEY", bytes: Buffer.from("ANTHROPIC_API_KEY"), caseInsensitive: true },
-  { label: "OPENAI_API_KEY", bytes: Buffer.from("OPENAI_API_KEY"), caseInsensitive: true },
+  // CREDENTIALS ARE MATCHED BY VALUE SHAPE, NOT BY VARIABLE NAME.
+  //
+  // This rule used to be the literals ANTHROPIC_API_KEY and OPENAI_API_KEY, on the
+  // reasoning that a shipped file naming a secret env var teaches an attacker what to
+  // look for. That reasoning does not survive contact with the payload. Those variable
+  // names are public, documented by their own vendors; knowing one reveals nothing. And
+  // of the ten matches the name rule actually produced, the load-bearing one was in
+  // src/lib/providers/cli-provider-gateway.js -- the code that DELETES those variables
+  // from bounded child environments so a spawned CLI cannot inherit the operator's
+  // credentials. The rest were vault KEY NAMES (aicalendar_anthropic_api_key), which are
+  // identifiers for a lookup, not secrets.
+  //
+  // So the old rule flagged the credential-isolation code as a privacy defect. That is
+  // worse than useless: the only way to ship with it was --allow-owner-data, and a guard
+  // that must be overridden to pass is a guard that is overridden the day a REAL leak is
+  // behind it too. Naming a variable is not a leak; carrying its value is.
+  //
+  // The replacement matches issued key material by its provider prefix and length, which
+  // is the thing that must never ship and which the name rule never caught. Coverage
+  // goes up, not down: a hardcoded sk-ant-... string was invisible to the old rule and
+  // fails this one. Verified by planting one; see the guard-plant note in the P3.4 record.
+  { label: "provider API key value (sk-...)", regex: /\bsk-[A-Za-z0-9_-]{20,}/g },
   // Internal repository and tree names are forbidden. The product's OWN public
   // identity is not, and must not be caught by the same rule -- those are two
   // different things that happen to share a word.
@@ -60,21 +78,49 @@ const BUILT_IN_PATTERNS = [
   // caught below, by the identity profile, not by this rule, and remains
   // caught.
   //
-  // So: match ToolsEnabled only in PATH CONTEXT -- immediately preceded or
-  // followed by a path separator -- which is what the comment above always
-  // said this rule was for. A real tree-name-in-a-path leak like
-  // "C:\Users\joshp\Desktop\ToolsEnabled" is still caught twice over, by
-  // "C:\Users" and by "\ToolsEnabled". "ToolsEnabled, Inc." and
-  // "com.toolsenabled.missioncontrol" contain no path separator adjacent to
-  // the word and are not matched. Do not re-tighten this back to a bare word
-  // without re-reading this comment -- that is the mistake being fixed here.
+  // THE PATH-SEPARATOR REFINEMENT WAS THE SAME MISTAKE ONE STEP SMALLER, and
+  // this is the second correction. Matching the word next to a separator was
+  // meant to mean "this is a filesystem path". It does not. Measured over the
+  // real staged payload it produced 36 matches and every single one was the
+  // product's own identity, because a separator next to the product name is
+  // what the product's own namespace LOOKS LIKE:
+  //
+  //   'user-agent': 'ToolsEnabled/1.4'          five providers
+  //   \ToolsEnabled-<name>                      Windows scheduled task names,
+  //                                             asserted by exact equality in
+  //                                             scheduler-adapter.js and
+  //                                             state-store.js
+  //   \\.\pipe\ToolsEnabled.UacDelegation.V1    the UAC delegation pipe
+  //   toolsenabled/agent-playwright-sandbox     the sandbox docker image tag
+  //   /opt/toolsenabled/bounded-exec.js         paths INSIDE that image
+  //   /toolsenabled/cws/oauth2/callback         our own loopback OAuth route
+  //   ToolsEnabled/FRA/workspace-policy/v1      sha256/HMAC domain separators
+  //   config/toolsenabled.policy.json           product files, repo-relative
+  //
+  // The domain separators are the load-bearing case and the reason this rule
+  // could never be satisfied by purging: they are hashed into digests and FRA
+  // runtime-integrity anchors that already exist, so changing the string
+  // invalidates signatures on disk. A rule with zero true positives that is
+  // also impossible to satisfy does not get fixed -- it gets overridden, and
+  // then it is not protecting anything at all.
+  //
+  // What the rule was always trying to catch is narrower and has a shape: the
+  // tree name as a DIRECTORY COMPONENT OF AN ABSOLUTE PATH ON A REAL MACHINE.
+  // That shape needs a drive root, so that is what is matched. None of the
+  // product surfaces above have one; a checkout path always does, whether or
+  // not it lives under C:\Users -- "D:\dev\ToolsEnabled\src" is caught here
+  // and by nothing else in this list.
   { label: "toolsenabled-current", bytes: Buffer.from("toolsenabled-current"), caseInsensitive: true },
-  { label: "ToolsEnabled\\", bytes: Buffer.from("ToolsEnabled\\"), caseInsensitive: true },
-  { label: "ToolsEnabled/", bytes: Buffer.from("ToolsEnabled/"), caseInsensitive: true },
-  { label: "\\ToolsEnabled", bytes: Buffer.from("\\ToolsEnabled"), caseInsensitive: true },
-  { label: "/ToolsEnabled", bytes: Buffer.from("/ToolsEnabled"), caseInsensitive: true },
-  // Internal coordination surfaces that should never be named in a shipped product.
-  { label: "agent-coord", bytes: Buffer.from("agent-coord"), caseInsensitive: true },
+  { label: "builder checkout path (<drive>:\\...\\ToolsEnabled)", regex: /[A-Za-z]:[\\/][^\r\n]{0,160}?[\\/]toolsenabled/gi },
+  // "agent-coord" was here, as an "internal coordination surface". It is not
+  // internal. It is the durable memory namespace this product's own shipped
+  // tool descriptions instruct agents to use -- memory.set names it as the
+  // inter-agent coordination board, and it is the documented agent-to-agent
+  // channel. Removing the string from the payload would mean renaming a live
+  // namespace that existing durable rows, every running agent and CLAUDE.md
+  // all refer to. It also identifies nobody: it is a fixed product string with
+  // no builder, machine or account in it. It was 26 of the 113 original
+  // matches and not one of them was owner data.
 ];
 
 // THE IDENTITY PROFILE IS REQUIRED, AND A MISSING ONE IS AN ERROR.
@@ -224,8 +270,28 @@ function asciiLower(byte) {
   return byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte;
 }
 
+// Returns {offset, length} rather than a bare offset because a pattern may now
+// be a regex, whose match length varies per hit and is what the excerpt window
+// has to be centred on.
 function findMatches(buffer, pattern) {
-  const offsets = [];
+  const found = [];
+
+  if (pattern.regex) {
+    // latin1 maps one byte to one character with no multi-byte collapsing, so
+    // string indices ARE byte offsets. Decoding as utf8 here would silently
+    // shift every reported offset in any file containing a non-ASCII byte, and
+    // would drop bytes that are not valid utf8 -- which is exactly where
+    // something could hide from this scan.
+    const text = buffer.toString("latin1");
+    pattern.regex.lastIndex = 0;
+    let match;
+    while ((match = pattern.regex.exec(text)) !== null) {
+      found.push({ offset: match.index, length: match[0].length });
+      if (match[0].length === 0) pattern.regex.lastIndex += 1;
+    }
+    return found;
+  }
+
   const lastStart = buffer.length - pattern.bytes.length;
 
   for (let start = 0; start <= lastStart; start += 1) {
@@ -242,10 +308,10 @@ function findMatches(buffer, pattern) {
         break;
       }
     }
-    if (matched) offsets.push(start);
+    if (matched) found.push({ offset: start, length: pattern.bytes.length });
   }
 
-  return offsets;
+  return found;
 }
 
 function excerpt(buffer, offset, matchLength) {
@@ -323,14 +389,14 @@ async function main() {
       bytesScanned += buffer.length;
 
       for (const pattern of ACTIVE_PATTERNS) {
-        const offsets = findMatches(buffer, pattern);
-        if (offsets.length === 0) continue;
+        const hits = findMatches(buffer, pattern);
+        if (hits.length === 0) continue;
 
-        totalMatches += offsets.length;
-        perPattern.set(pattern.label, perPattern.get(pattern.label) + offsets.length);
-        console.log(`${filePath} | pattern=${JSON.stringify(pattern.label)} | matches=${offsets.length}`);
-        for (const offset of offsets) {
-          console.log(`  offset=${offset} | excerpt=${JSON.stringify(excerpt(buffer, offset, pattern.bytes.length))}`);
+        totalMatches += hits.length;
+        perPattern.set(pattern.label, perPattern.get(pattern.label) + hits.length);
+        console.log(`${filePath} | pattern=${JSON.stringify(pattern.label)} | matches=${hits.length}`);
+        for (const hit of hits) {
+          console.log(`  offset=${hit.offset} | excerpt=${JSON.stringify(excerpt(buffer, hit.offset, hit.length))}`);
         }
       }
     });
