@@ -1,9 +1,10 @@
 {
   "name": "mission-control",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "shell/main.cjs",
+  "author": "ToolsEnabled, Inc.",
   "scripts": {
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
     "test": "node tools/check-suites-discovered.mjs && npm run test:data",
@@ -31,7 +32,7 @@
   },
   "productName": "Mission Control",
   "build": {
-    "appId": "com.joshp.missioncontrol",
+    "appId": "com.toolsenabled.missioncontrol",
     "copyright": "Copyright © 2026 Mission Control",
     "asar": true,
     "electronDist": "node_modules/electron/dist",
@@ -54,7 +55,8 @@
         }
       ],
       "icon": "shell/icon.ico",
-      "signExecutable": false
+      "signExecutable": false,
+      "publisherName": "ToolsEnabled, Inc."
     },
     "nsis": {
       "oneClick": true,
