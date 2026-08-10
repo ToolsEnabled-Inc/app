@@ -36,10 +36,43 @@ const BUILT_IN_PATTERNS = [
   // what to look for, and signals internal tooling was packaged by accident.
   { label: "ANTHROPIC_API_KEY", bytes: Buffer.from("ANTHROPIC_API_KEY"), caseInsensitive: true },
   { label: "OPENAI_API_KEY", bytes: Buffer.from("OPENAI_API_KEY"), caseInsensitive: true },
-  // Internal repository and tree names. These name the private working layout this
-  // product is built from, and appeared in shipped failure text rendered into the DOM.
+  // Internal repository and tree names are forbidden. The product's OWN public
+  // identity is not, and must not be caught by the same rule -- those are two
+  // different things that happen to share a word.
+  //
+  // toolsenabled-current names the private working layout this product is
+  // built from, and appeared in shipped failure text rendered into the DOM.
+  // That is unambiguously a tree-name leak and stays matched exactly as
+  // written.
+  //
+  // A bare, unanchored "ToolsEnabled" used to sit here too, and it was wrong.
+  // It was written when "ToolsEnabled" was only ever an internal name, before
+  // this product had a public identity of its own -- so at the time, every
+  // occurrence really was a leak. That stopped being true the day the product
+  // got a real publisher: "ToolsEnabled, Inc." is now the required
+  // CompanyName/Publisher (Machine B's acceptance matrix), and
+  // com.toolsenabled.missioncontrol is the required appId. Case-insensitive
+  // and unanchored, the bare word matched both of those every time, which
+  // means it did not just block one manifest field -- it forbade the
+  // product's own identity namespace in every future build, forever. The
+  // actual owner-data leak in the old rejected build was
+  // com.joshp.missioncontrol, which carries the owner's username; that is
+  // caught below, by the identity profile, not by this rule, and remains
+  // caught.
+  //
+  // So: match ToolsEnabled only in PATH CONTEXT -- immediately preceded or
+  // followed by a path separator -- which is what the comment above always
+  // said this rule was for. A real tree-name-in-a-path leak like
+  // "C:\Users\joshp\Desktop\ToolsEnabled" is still caught twice over, by
+  // "C:\Users" and by "\ToolsEnabled". "ToolsEnabled, Inc." and
+  // "com.toolsenabled.missioncontrol" contain no path separator adjacent to
+  // the word and are not matched. Do not re-tighten this back to a bare word
+  // without re-reading this comment -- that is the mistake being fixed here.
   { label: "toolsenabled-current", bytes: Buffer.from("toolsenabled-current"), caseInsensitive: true },
-  { label: "ToolsEnabled", bytes: Buffer.from("ToolsEnabled"), caseInsensitive: true },
+  { label: "ToolsEnabled\\", bytes: Buffer.from("ToolsEnabled\\"), caseInsensitive: true },
+  { label: "ToolsEnabled/", bytes: Buffer.from("ToolsEnabled/"), caseInsensitive: true },
+  { label: "\\ToolsEnabled", bytes: Buffer.from("\\ToolsEnabled"), caseInsensitive: true },
+  { label: "/ToolsEnabled", bytes: Buffer.from("/ToolsEnabled"), caseInsensitive: true },
   // Internal coordination surfaces that should never be named in a shipped product.
   { label: "agent-coord", bytes: Buffer.from("agent-coord"), caseInsensitive: true },
 ];
