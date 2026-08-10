@@ -55,8 +55,8 @@ function initialFeedback() {
   if (!state.configured) {
     return {
       tone: 'quiet',
-      title: 'No fleet profile saved',
-      detail: 'The app is showing its clearly labelled sample demonstration. It is not connected to a host. Add your first machine to begin.',
+      title: 'No fleet profile saved — showing sample data',
+      detail: 'Everything on screen right now is the labelled sample demonstration, not your machines. Mission Control already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another.',
     }
   }
   if (state.rawProfile?.dataSource && !globalThis.mcFleetProfile) {
@@ -263,7 +263,7 @@ export function createFleetProfileSettings() {
         <article class="settings-row">
           <div class="settings-copy">
             <div class="settings-name" id="fleet-profile-name-label">Profile name</div>
-            <div class="settings-desc">A local label for this system. It is exported with the profile; it is not an account persona.</div>
+            <div class="settings-desc">A local label for this system. It is exported with the profile; it is not an account persona. This version of Mission Control has no accounts, sign-in, or licence check — there is nothing here to log into.</div>
           </div>
           <div class="settings-control fleet-inline-control"><input class="fleet-profile-input" data-profile-field="label" value="${esc(draft.label)}" aria-labelledby="fleet-profile-name-label" placeholder="required" autocomplete="off" ${locked}/></div>
         </article>
@@ -271,7 +271,7 @@ export function createFleetProfileSettings() {
         <article class="settings-row fleet-profile-block">
           <div class="settings-copy">
             <div class="settings-name">Machine roster</div>
-            <div class="settings-desc">These are your machines. An address without a port can be resolved, but it cannot honestly be called reachable.</div>
+            <div class="settings-desc">Mission Control already runs on this one computer with nothing added here. Add a machine only if you want to connect another — it stays optional. An address without a port can be resolved, but it cannot honestly be called reachable.</div>
           </div>
           <div class="fleet-profile-fields">
             ${(draft.machines || []).length ? draft.machines.map(machineMarkup).join('') : '<p class="fleet-profile-empty">No machines added. Saving is blocked until the roster contains at least one named address.</p>'}
@@ -609,7 +609,7 @@ export function createFleetProfileSettings() {
     const normalized = String(query || '').trim().toLowerCase()
     if (!normalized) return true
     const haystack = [
-      'system profile fleet setup machine roster host address relay tool lane endpoint transport data source projection directory load import export reset connection',
+      'system profile fleet setup machine roster host address relay tool lane endpoint transport data source projection directory load import export reset connection account sign in signin login log in licence license sample demonstration one machine single computer',
       draft.label,
       ...(draft.machines || []).flatMap(machine => [machine.name, machine.ip || machine.address]),
       ...(draft.transports || []).flatMap(transport => [transport.label, transport.endpoint]),

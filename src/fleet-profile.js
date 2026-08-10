@@ -1124,7 +1124,7 @@ if (FLEET_PROFILE_RESOLUTION.kind === 'invalid') {
   const first = FLEET_PROFILE_RESOLUTION.errors[0]
   mountRuntimeProfileNotice(`Fleet profile was not loaded: ${first?.path || 'profile'} ${first?.message || 'is invalid'}. The sample demonstration is active.`, true)
 } else if (!FLEET_PROFILE_RESOLUTION.configured) {
-  mountRuntimeProfileNotice('No fleet profile is configured. The sample demonstration is active.')
+  mountRuntimeProfileNotice('This is a labelled sample fleet, not your machines. Mission Control already works on this one computer; connecting others is optional.')
 } else if (FLEET_PROFILE_RESOLUTION.kind === 'recovered') {
   mountRuntimeProfileNotice('The fleet loaded from browser storage, but its durable userData copy needs attention.', true)
 } else if (FLEET_PROFILE_RESOLUTION.warnings.length) {
