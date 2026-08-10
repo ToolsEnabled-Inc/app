@@ -15,3 +15,16 @@ release/
 server.log
 npm-install.log
 /private/
+# The staged capability payload. Derived output, like dist/ and release/:
+# `npm run pack:capability` cuts it fresh from the capability-layer source
+# tree, so committing it would freeze a copy that silently stops matching the
+# code it was cut from. Anchored with a leading slash, per the warning above,
+# because "capability" is a plausible name for a future source directory and a
+# bare pattern would swallow it at any depth.
+#
+# It also must not be committed for a second and harder reason: until the
+# capability-layer source is purged, the staged payload carries the builder's
+# name, home-directory paths and LAN addresses. The packer marks such a payload
+# UNSHIPPABLE-OWNER-DATA.txt and `npm run dist` refuses it, but neither of
+# those would stop a `git add -A`. This line does.
+/capability/

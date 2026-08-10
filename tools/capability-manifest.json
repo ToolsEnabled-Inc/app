@@ -1,0 +1,66 @@
+{
+  "$comment": [
+    "WHAT GOES INSIDE THE INSTALLER BESIDES THE VIEWER.",
+    "",
+    "Mission Control is one half of a product. The other half is the",
+    "capability layer it talks to: the action bridge it discovers on",
+    "127.0.0.1, the tool registry behind that, and the MCP server that",
+    "exposes the same registry to agent clients. Before this manifest the",
+    "installer shipped `dist/**` and `shell/**` only, so a customer",
+    "installed a viewer with nothing behind it and every write action",
+    "answered BRIDGE_UNREACHABLE.",
+    "",
+    "The payload is derived, not listed. `entrypoints` are the two programs",
+    "the product actually starts; pack-capability-layer.mjs walks their",
+    "require() graph and stages exactly the reachable files. That closure",
+    "measured 205 files / 4.46 MB and -- the fact that makes this tractable",
+    "-- zero npm dependencies, so no node_modules tree has to ship and no",
+    "second Node runtime has to be installed: Electron's own binary runs",
+    "the layer under ELECTRON_RUN_AS_NODE.",
+    "",
+    "`dataFiles` is the part a require() walk cannot see: JSON the layer",
+    "reads at runtime through readFileSync on a computed path. Each entry",
+    "below was found by starting the staged payload in a directory with no",
+    "checkout and reading what it failed on -- not by guessing.",
+    "",
+    "`neutralDefaults` names the data files whose real contents describe",
+    "the BUILDER (their machines, their seats, their accounts) and would be",
+    "both a privacy leak and factually wrong on a customer's machine. The",
+    "packer stages capability-defaults/<path> in their place; see those",
+    "files for what a fresh installation truthfully declares."
+  ],
+  "entrypoints": [
+    "tools/mission-bridge.js",
+    "src/mcp-server.js"
+  ],
+  "dataFiles": [
+    "config/model-floor.json",
+    "config/toolsenabled.policy.json"
+  ],
+  "neutralDefaults": [
+    "config/service-registry.json",
+    "config/agent-org.json"
+  ],
+  "$comment_dynamicRequires": [
+    "The require() calls whose argument is computed at runtime, so a static",
+    "walk can see that a dependency exists but not what it is. Each is",
+    "declared here with the exact expression it was found as; the packer",
+    "stages `resolvesTo` and walks it like any other dependency, and REFUSES",
+    "any computed require that is not declared. That refusal is the point:",
+    "the day someone adds a new dynamic require, the build stops here rather",
+    "than shipping a payload that throws MODULE_NOT_FOUND on a customer's",
+    "machine, where nobody is reading the console."
+  ],
+  "dynamicRequires": [
+    {
+      "from": "src/lib/agent-onboarding.js",
+      "expression": "path.join(runtimeRoot, 'tools', 'grepsaver-orient.js'",
+      "resolvesTo": ["tools/grepsaver-orient.js"]
+    },
+    {
+      "from": "src/lib/controller-launch-record.js",
+      "expression": "orgFile",
+      "resolvesTo": ["config/agent-org.json"]
+    }
+  ]
+}

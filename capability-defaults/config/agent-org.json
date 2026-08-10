@@ -1,0 +1,35 @@
+{
+  "$comment": [
+    "SHIPPED DEFAULT agent organization for a fresh installation.",
+    "",
+    "The capability layer resolves the initiating actor from the declared",
+    "org before it will answer any bridge action; with no org it refuses",
+    "with BRIDGE_ACTOR_AUTHORITY_UNAVAILABLE. The builder's own org names",
+    "the builder's seats, accounts and account lanes, which are personal",
+    "data and are meaningless on a customer's machine. So the build stages",
+    "THIS file in its place.",
+    "",
+    "It declares the single seat every installation starts with: one",
+    "enabled controller, no provider bound yet, no phase assigned, and no",
+    "relationships, because a fresh install has no org to describe. Binding",
+    "a provider is a setup step (the customer signs in), not a shipped",
+    "assumption, so provider is \"none\" until then.",
+    "",
+    "assertSingleController() requires exactly one enabled controller, so",
+    "this file must always carry exactly one."
+  ],
+  "schemaVersion": 1,
+  "revision": 1,
+  "agents": [
+    {
+      "id": "controller",
+      "displayName": "Controller",
+      "role": "controller",
+      "provider": "none",
+      "enabled": true,
+      "assignedPhase": null,
+      "phasePriority": []
+    }
+  ],
+  "relationships": []
+}

@@ -14,6 +14,12 @@ const fs = require('fs')
 const { randomBytes, randomUUID } = require('crypto')
 const { createAgentHost } = require('./agent-host.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
+const {
+  readCapabilityProof,
+  resolveCapabilityRoot,
+  startCapabilityLayer,
+  stopCapabilityLayer,
+} = require('./capability-layer.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
 const { startupFailureDetail } = require('./startup-failure-message.cjs')
@@ -95,6 +101,11 @@ let agentShutdownComplete = false
 let win = null
 let shellOrigin = null
 let runtimeLegacyFleetProfile = null
+/* The supervised capability layer. Null until the shell server has bound,
+   because the layer authorizes exactly one origin and that origin is not known
+   until then. */
+let capabilityLayer = null
+let capabilityLayerStatus = { ok: false, code: 'CAPABILITY_NOT_STARTED', reason: 'The capability layer has not been started yet.' }
 
 function agentIpcError(code, message) {
   const error = new Error(message)
@@ -926,7 +937,28 @@ ipcMain.handle('mc-fleet-profile:choose-directory', event => withFleetProfileSen
 ipcMain.handle('mc-fleet-profile:probe', (event, profile) =>
   withFleetProfileSender(event, () => probeFleetProfile(profile)))
 
-ipcMain.handle('mc-bridge-proof', () => bridgeProof)
+/* Two ways to get the bootstrap proof, and the order matters.
+ *
+ * MC_BRIDGE_PROOF_FILE is the developer path: a bridge was started outside
+ * this app and its proof file was named on the environment. It wins when it is
+ * set, so a developer pointing the app at a bridge they are debugging keeps
+ * getting that bridge and not a second one this app started.
+ *
+ * The supervised path is the customer path, and it is the one that makes an
+ * installed product work: no environment variable, no checkout, no developer
+ * -- the app started its own layer and reads the proof that layer just minted.
+ * Before this existed there was no second branch here at all, so an install
+ * with nothing on its environment had no proof, and every write action failed
+ * the bootstrap that gates them. */
+function currentBridgeProof() {
+  if (bridgeProof.ok) return bridgeProof
+  if (capabilityLayer?.bootstrapProofFile) return readCapabilityProof(capabilityLayer.bootstrapProofFile)
+  return capabilityLayerStatus.ok
+    ? bridgeProof
+    : { ok: false, reason: capabilityLayerStatus.reason }
+}
+
+ipcMain.handle('mc-bridge-proof', () => currentBridgeProof())
 
 function currentWorkAreas() {
   try {
@@ -943,12 +975,50 @@ function currentWorkAreas() {
   }
 }
 
+/* Start the capability layer, and DO NOT make it fatal.
+ *
+ * A viewer that opens and honestly reports that its capability layer is down
+ * is a worse product than one where both halves work, and a better one than a
+ * window that refuses to appear at all. The failure is recorded in
+ * capabilityLayerStatus, which the proof handler above already surfaces to the
+ * renderer through the existing bridge-unavailable path -- so an unreachable
+ * layer looks to the user exactly like it did before this supervisor existed,
+ * with no new surface and nothing new to render. */
+async function startSupervisedCapabilityLayer() {
+  const root = resolveCapabilityRoot()
+  const workspaceRoot = path.join(app.getPath('userData'), 'workspace')
+  try { fs.mkdirSync(workspaceRoot, { recursive: true }) } catch { /* the layer reports its own refusal */ }
+
+  const started = await startCapabilityLayer({ root, origin: shellOrigin, workspaceRoot })
+  capabilityLayerStatus = started.ok
+    ? { ok: true, baseUrl: started.baseUrl, port: started.port, pid: started.pid }
+    : { ok: false, code: started.code, reason: started.reason }
+
+  if (!started.ok) {
+    console.error(`[capability-layer] not started: ${started.code} ${started.reason}`)
+    return capabilityLayerStatus
+  }
+
+  capabilityLayer = started
+  /* A layer that dies after a successful start must stop being reported as
+     running. Without this the proof handler would keep reading a proof file
+     for a process that is gone, and the renderer would see an authorization
+     failure instead of an unreachable bridge. */
+  started.child.once('exit', (code) => {
+    if (capabilityLayer !== started) return
+    capabilityLayer = null
+    capabilityLayerStatus = { ok: false, code: 'CAPABILITY_EXITED', reason: `The capability layer exited with code ${code}.` }
+  })
+  return capabilityLayerStatus
+}
+
 async function createWindow() {
   const state = restoredWindowState(readState(), currentWorkAreas())
   const seed = THEME_SEED[state.theme] || THEME_SEED.white
   const server = await serveDist()
   const port = server.address().port
   shellOrigin = `http://127.0.0.1:${port}`
+  await startSupervisedCapabilityLayer()
 
   const window = new BrowserWindow({
     ...state.bounds,
@@ -1059,5 +1129,22 @@ wireSingleInstance({
     return createWindow()
   },
   onStartFailure: (error) => fatalStartup(error, 'Application startup rejected'),
+})
+/* The capability layer is a child process, and an orphaned one holds a port in
+   the 4610-4619 discovery range. The next launch would then discover a bridge
+   belonging to a dead app -- a live listener that is the wrong listener, which
+   is a mistake this project has already made once at the service level. */
+app.on('will-quit', () => {
+  const child = capabilityLayer?.child
+  capabilityLayer = null
+  /* Killed SYNCHRONOUSLY, before the promise-based helper is allowed to await
+     anything. `will-quit` is the last point at which this process is still
+     alive to act, and an awaited kill can lose the race with app teardown --
+     which is not a theoretical concern: the acceptance harness caught exactly
+     this leaving a live bridge behind. stopCapabilityLayer still runs, to wait
+     for the exit and to escalate to SIGKILL if the first signal is ignored,
+     but the signal itself is delivered before we can be interrupted. */
+  try { child?.kill() } catch { /* the awaited path below escalates */ }
+  void stopCapabilityLayer(child)
 })
 app.on('window-all-closed', () => app.quit())
