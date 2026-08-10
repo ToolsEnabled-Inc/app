@@ -81,14 +81,35 @@ function unescapeTapName(name) {
 function parseTap(output) {
   const lines = output.split(/\r?\n/);
   const failures = [];
+  let totalNotOk = 0;
   let reportedFail = null;
   let reportedTests = null;
 
   for (const line of lines) {
-    // Top-level test points only. Verified against this suite: the count of
-    // `^not ok` lines equals the `# fail` summary, so no failure is hiding
-    // inside an indented subtest. The equality is re-checked every run
-    // below, so if that ever stops holding this gate refuses to rule.
+    // Two different counts, on purpose, because they answer two different
+    // questions:
+    //
+    // - `failures` (by NAME, top-level `not ok` only) is what the baseline
+    //   ratchets against. It stays top-level because that is the stable
+    //   identity a baseline entry names -- node's test runner marks a
+    //   top-level test `not ok` whenever any of ITS subtests fail, so every
+    //   nested failure is already represented here through its parent's
+    //   name. Counting indented lines into this list would invent baseline
+    //   identities for subtests that can be renamed or reordered freely.
+    //
+    // - `totalNotOk` (ANY indentation) is what the measurement-integrity
+    //   check below cross-references against the runner's own `# fail N`
+    //   summary. This one WAS wrongly restricted to top-level lines, which
+    //   is exactly what let 13 failures hide inside one indented subtest
+    //   block (`# fail 18` vs 5 top-level lines) and made this gate abstain
+    //   instead of ruling. Verified empirically against that run: `# fail`
+    //   counts every `not ok` line, parent and child alike, so this is the
+    //   correct total to check equality against -- re-checked every run
+    //   below, so if that ever stops holding this gate still refuses to
+    //   rule rather than trusting a count it can't reconcile.
+    if (/^\s*not ok \d+ - .+$/.test(line)) {
+      totalNotOk += 1;
+    }
     const failed = /^not ok \d+ - (.*)$/.exec(line);
     if (failed) {
       failures.push(unescapeTapName(failed[1]).trim());
@@ -103,7 +124,7 @@ function parseTap(output) {
     if (testsSummary) reportedTests = Number(testsSummary[1]);
   }
 
-  return { failures, reportedFail, reportedTests };
+  return { failures, totalNotOk, reportedFail, reportedTests };
 }
 
 async function readBaseline() {
@@ -146,7 +167,7 @@ async function main() {
 
   console.log(`Test ratchet: running \`${SUITE_COMMAND}\` ...`);
   const { code, stdout, stderr } = await runSuite();
-  const { failures, reportedFail, reportedTests } = parseTap(stdout);
+  const { failures, totalNotOk, reportedFail, reportedTests } = parseTap(stdout);
 
   // --- measurement integrity, before any verdict -------------------------
 
@@ -167,12 +188,15 @@ async function main() {
     );
   }
   // Measure the failure count a second way and refuse to rule if the two
-  // readings disagree.
-  if (reportedFail !== null && reportedFail !== failures.length) {
+  // readings disagree. Cross-checked against totalNotOk (every `not ok`
+  // line, any indentation) rather than failures.length (top-level only, the
+  // by-name list the ratchet actually uses below) -- see parseTap for why
+  // those are deliberately different counts answering different questions.
+  if (reportedFail !== null && reportedFail !== totalNotOk) {
     throw new Error(
       `runner disagrees with itself: \`# fail ${reportedFail}\` but ` +
-        `${failures.length} \`not ok\` lines parsed. Refusing to rule on a ` +
-        "reading this gate cannot trust.",
+        `${totalNotOk} \`not ok\` line(s) parsed (${failures.length} of them ` +
+        "top-level). Refusing to rule on a reading this gate cannot trust.",
     );
   }
 
