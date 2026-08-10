@@ -55,8 +55,7 @@
         }
       ],
       "icon": "shell/icon.ico",
-      "signExecutable": false,
-      "publisherName": "ToolsEnabled, Inc."
+      "signExecutable": false
     },
     "nsis": {
       "oneClick": true,
