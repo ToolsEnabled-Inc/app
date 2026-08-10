@@ -1,3 +1,14 @@
+# node_modules/, dist/, release/ below have NO leading slash, so each
+# matches a directory of that name AT ANY DEPTH, not just at the repo root
+# -- this silently swallowed tools/release/ for an entire session (an
+# unrelated new tool directory happened to share release/'s bare name) with
+# no error, no warning: `git status` simply never mentioned it, so it read
+# as "the tool doesn't exist" in every clone despite being present on disk.
+# Confirm with `git check-ignore -v <path>` before assuming a new directory
+# is tracked. If you need a NEW top-level dir literally named node_modules,
+# dist, release, or matching server.log/npm-install.log anywhere below repo
+# root, anchor your own pattern with a leading slash (see /private/ below)
+# so it does not also swallow something with a plausible-but-different name.
 node_modules/
 dist/
 release/
