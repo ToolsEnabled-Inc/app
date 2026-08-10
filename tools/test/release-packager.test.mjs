@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 import { bumpSemver, computeNextVersion, writePackageVersion } from "../release-packager/lib/version-bump.mjs";
 import { measureFile, sameBytes, sha256File } from "../release-packager/lib/hash.mjs";
@@ -316,6 +319,97 @@ test("copyPrivateInputs copies untracked private/ files but leaves git-tracked o
   } finally {
     // Windows worktree metadata can hold a brief file lock right after
     // `git worktree add`; retry the cleanup instead of failing the test on it.
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+// --- serve-candidate.mjs: --detach --------------------------------------------
+//
+// Regression test for a real bug found during the 1.0.2 transfer: three of
+// four server instances launched through an agent session's own background-
+// task mechanism (`nohup ... &` and equivalents) died when that mechanism's
+// process tree was torn down, even though the launching command itself had
+// already returned successfully. `--detach` re-spawns a genuinely OS-detached
+// child (`detached: true` + `unref()`) and exits the launcher immediately --
+// this test proves the child answers real HTTP requests correctly and that
+// the token is never written into the child's redirected log file, which is
+// as much of "survives the launcher exiting" as a single test process can
+// exercise without spawning a second harness process to simulate the
+// original failure mode (verified manually, across genuinely separate tool
+// calls, when this fix was built).
+
+const SERVE_CANDIDATE_PATH = fileURLToPath(new URL("../release-packager/serve-candidate.mjs", import.meta.url));
+
+function extractServeOutput(stdout) {
+  const tokenMatch = /token \(share this[^)]*\):\s*\r?\n\s*([0-9a-f]{64})/.exec(stdout);
+  const pidMatch = /detached: PID (\d+)/.exec(stdout);
+  return { token: tokenMatch?.[1], pid: pidMatch ? Number(pidMatch[1]) : null };
+}
+
+async function killIfAlive(pid) {
+  if (!pid) return;
+  try {
+    process.kill(pid);
+  } catch {
+    // Already gone -- fine, this is cleanup.
+  }
+}
+
+test("serve-candidate.mjs --detach survives the launcher exiting, serves correctly, and never logs the token", { timeout: 20_000 }, async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "release-packager-test-"));
+  const port = 47900 + Math.floor(Math.random() * 500); // avoid colliding with a real transfer or another test run
+  let childPid = null;
+  try {
+    const dummyFile = path.join(home, "dummy-candidate.bin");
+    const fileBytes = Buffer.from("regression-test-payload-for-detach-mode");
+    await writeFile(dummyFile, fileBytes);
+    const logFile = path.join(home, "detach.log");
+
+    // The launcher process: runs to completion and exits, exactly like the
+    // real failure mode's launching command did. If --detach only looked
+    // like it worked while sharing this test's own process tree, this
+    // `spawnSync` (waited on fully, no `detached` on OUR side) still proves
+    // nothing survives past it unless the CHILD is genuinely independent.
+    const launch = spawnSync(process.execPath, [
+      SERVE_CANDIDATE_PATH, dummyFile,
+      "--bind", "127.0.0.1", "--port", String(port),
+      "--force-bind-any", "--once", "--detach", "--log-file", logFile,
+    ], { encoding: "utf8" });
+
+    assert.equal(launch.status, 0, launch.stderr);
+    const { token, pid } = extractServeOutput(launch.stdout);
+    assert.ok(token, `expected a token in launcher output:\n${launch.stdout}`);
+    assert.ok(pid, `expected a detached PID in launcher output:\n${launch.stdout}`);
+    childPid = pid;
+
+    // Give the detached child a moment to finish binding (the launcher
+    // returning does not guarantee the child's server.listen() callback has
+    // already fired).
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Wrong token must fail -- auth is enforced in detached mode too.
+    await assert.rejects(
+      execFileAsync("curl.exe", ["-sf", "-H", "Authorization: Bearer wrong", `http://127.0.0.1:${port}/candidate`]),
+    );
+
+    // Correct token must succeed and return the exact bytes.
+    const outFile = path.join(home, "fetched.bin");
+    await execFileAsync("curl.exe", [
+      "-sf", "-H", `Authorization: Bearer ${token}`, `http://127.0.0.1:${port}/candidate`, "-o", outFile,
+    ]);
+    const fetched = await readFile(outFile);
+    assert.deepEqual(fetched, fileBytes);
+
+    // --once must have shut the detached child down after that success.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await assert.rejects(execFileAsync("curl.exe", ["-sf", "--max-time", "2", `http://127.0.0.1:${port}/candidate`]));
+
+    // The one property this whole design exists to guarantee: the token
+    // must never appear in the child's redirected log file.
+    const logContent = await readFile(logFile, "utf8");
+    assert.doesNotMatch(logContent, new RegExp(token), "the token must never be written to the detached child's log file");
+  } finally {
+    await killIfAlive(childPid);
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

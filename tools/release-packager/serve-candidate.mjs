@@ -36,23 +36,48 @@
  * B's matching half is verify-candidate.ps1 -- plain PowerShell, no Node, no
  * git, because B tests as a stranger would and must not need this repo's
  * toolchain installed to receive and verify a file.
+ *
+ * RUN THIS WITH --detach, NOT bare in a foreground/background shell job.
+ * Found the hard way during the 1.0.2 transfer: three of four instances
+ * launched through an agent session's own Bash-tool background-task
+ * mechanism (`nohup ... &` and equivalents) died when that mechanism's own
+ * process tree went away -- the token was live, the file was staged, and B
+ * still could not fetch it, because the listener was gone. Only an instance
+ * launched as a genuinely OS-detached process survived. `--detach` below
+ * makes the correct launch the only one this script hands you: it spawns a
+ * real detached child (Node's `detached: true` + `unref()`, the same
+ * mechanism a manual PowerShell `Start-Process -WindowStyle Hidden` was
+ * being used to approximate by hand) and exits the launcher immediately, so
+ * the server's survival no longer depends on which shell, tool, or agent
+ * session started it. The token is still printed exactly once, by the
+ * launcher, to the real invoking terminal -- the detached child receives it
+ * over an environment variable, not a file, and never re-prints it into its
+ * own redirected log, so "never touches disk" still holds for the secret
+ * itself even though the child's operational log now does.
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync, statSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { closeSync, existsSync, openSync, statSync } from 'node:fs'
 import { createReadStream } from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const DIRECT_LINK_ADDRESSES = new Set(['192.168.214.2', '192.168.214.1'])
+const TOKEN_ENV_VAR = 'SERVE_CANDIDATE_TOKEN'
+const THIS_SCRIPT = fileURLToPath(import.meta.url)
 
 function parseArgs(argv) {
-  const args = { port: 4787, bind: '192.168.214.2', once: false }
+  const args = { port: 4787, bind: '192.168.214.2', once: false, detach: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--port') args.port = Number(argv[++i])
     else if (arg === '--bind') args.bind = argv[++i]
     else if (arg === '--once') args.once = true
     else if (arg === '--force-bind-any') args.forceBindAny = true
+    else if (arg === '--detach') args.detach = true
+    else if (arg === '--log-file') args.logFile = argv[++i]
     else if (!args.filePath) args.filePath = arg
     else throw new Error(`unrecognised argument: ${arg}`)
   }
@@ -66,26 +91,56 @@ function timingSafeStringEqual(a, b) {
   return timingSafeEqual(bufA, bufB)
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
-  if (!args.filePath) {
-    console.error('usage: node tools/release-packager/serve-candidate.mjs <path-to-exe> [--port 4787] [--bind 192.168.214.2] [--once]')
-    process.exitCode = 2
-    return
-  }
-  const filePath = path.resolve(args.filePath)
-  if (!existsSync(filePath)) throw new Error(`file does not exist: ${filePath}`)
-  const stats = statSync(filePath)
-  const filename = path.basename(filePath)
+function printReadySummary({ filePath, args, filename, token }) {
+  console.log('='.repeat(72))
+  console.log(`[serve-candidate] serving ${filePath}`)
+  console.log(`[serve-candidate] listening on http://${args.bind}:${args.port}/candidate (direct-link interface only)`)
+  console.log(`[serve-candidate] token (share this with Machine B out-of-band, e.g. read aloud / Telegram -- never write it to a file):`)
+  console.log(`  ${token}`)
+  console.log('')
+  console.log('[serve-candidate] give Machine B this exact command (fill in the two blanks it does not already know):')
+  console.log(
+    `  powershell -File tools\\release-packager\\verify-candidate.ps1 -Uri "http://${args.bind}:${args.port}/candidate" ` +
+      `-Token "${token}" -OutFile "${filename}" -ExpectedBytes <from declaration> -ExpectedSha256 "<from declaration>"`,
+  )
+  console.log('='.repeat(72))
+}
 
-  if (!DIRECT_LINK_ADDRESSES.has(args.bind) && !args.forceBindAny) {
-    throw new Error(
-      `refusing to bind to ${args.bind}: not one of the known direct-link addresses (${[...DIRECT_LINK_ADDRESSES].join(', ')}). ` +
-        'Pass --force-bind-any to override, but that widens this beyond the A<->B cable on purpose -- think first.',
-    )
-  }
-
+/** Re-spawn this script as a genuinely OS-detached child, print the ready
+ * summary from the LAUNCHER (the real invoking terminal, never redirected
+ * to a file), and exit -- leaving the child running independent of
+ * whatever shell/tool/session started it. */
+function launchDetached(args, filePath, filename) {
   const token = randomBytes(32).toString('hex')
+  const logPath = path.resolve(args.logFile ?? path.join(os.tmpdir(), `serve-candidate-${args.port}.log`))
+  const logFd = openSync(logPath, 'a')
+
+  const childArgs = [
+    THIS_SCRIPT,
+    filePath,
+    '--port', String(args.port),
+    '--bind', args.bind,
+    ...(args.once ? ['--once'] : []),
+    ...(args.forceBindAny ? ['--force-bind-any'] : []),
+  ]
+
+  const child = spawn(process.execPath, childArgs, {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+    windowsHide: true,
+    env: { ...process.env, [TOKEN_ENV_VAR]: token },
+  })
+  closeSync(logFd)
+  child.unref()
+
+  printReadySummary({ filePath, args, filename, token })
+  console.log(`[serve-candidate] detached: PID ${child.pid}, operational log (no token in it): ${logPath}`)
+  console.log('[serve-candidate] this launcher is exiting now; the server keeps running independent of this shell/session.')
+}
+
+function runServer(args, filePath, filename, stats) {
+  const token = process.env[TOKEN_ENV_VAR] || randomBytes(32).toString('hex')
+  const tokenPreSet = Boolean(process.env[TOKEN_ENV_VAR])
   let servedOnce = false
 
   const server = http.createServer((req, res) => {
@@ -128,24 +183,51 @@ async function main() {
   })
 
   server.listen(args.port, args.bind, () => {
-    console.log('='.repeat(72))
-    console.log(`[serve-candidate] serving ${filePath}`)
-    console.log(`[serve-candidate] listening on http://${args.bind}:${args.port}/candidate (direct-link interface only)`)
-    console.log(`[serve-candidate] token (share this with Machine B out-of-band, e.g. read aloud / Telegram -- never write it to a file):`)
-    console.log(`  ${token}`)
-    console.log('')
-    console.log('[serve-candidate] give Machine B this exact command (fill in the two blanks it does not already know):')
-    console.log(
-      `  powershell -File tools\\release-packager\\verify-candidate.ps1 -Uri "http://${args.bind}:${args.port}/candidate" ` +
-        `-Token "${token}" -OutFile "${filename}" -ExpectedBytes <from declaration> -ExpectedSha256 "<from declaration>"`,
-    )
-    console.log('='.repeat(72))
+    if (tokenPreSet) {
+      // Running as the detached child: the launcher already printed the
+      // token and verify command to the real terminal. Re-printing it here
+      // would write it into this process's redirected log file, which is
+      // exactly what launchDetached()'s doc comment promises never happens.
+      console.log(`[serve-candidate] (detached child) listening on http://${args.bind}:${args.port}/candidate, serving ${filePath}`)
+    } else {
+      printReadySummary({ filePath, args, filename, token })
+    }
   })
 
   process.on('SIGINT', () => {
     console.log(`\n[serve-candidate] shutting down (served: ${servedOnce}).`)
     server.close(() => process.exit(0))
   })
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2))
+  if (!args.filePath) {
+    console.error(
+      'usage: node tools/release-packager/serve-candidate.mjs <path-to-exe> [--port 4787] [--bind 192.168.214.2] ' +
+        '[--once] [--detach] [--log-file <path>]',
+    )
+    process.exitCode = 2
+    return
+  }
+  const filePath = path.resolve(args.filePath)
+  if (!existsSync(filePath)) throw new Error(`file does not exist: ${filePath}`)
+  const stats = statSync(filePath)
+  const filename = path.basename(filePath)
+
+  if (!DIRECT_LINK_ADDRESSES.has(args.bind) && !args.forceBindAny) {
+    throw new Error(
+      `refusing to bind to ${args.bind}: not one of the known direct-link addresses (${[...DIRECT_LINK_ADDRESSES].join(', ')}). ` +
+        'Pass --force-bind-any to override, but that widens this beyond the A<->B cable on purpose -- think first.',
+    )
+  }
+
+  if (args.detach) {
+    launchDetached(args, filePath, filename)
+    return
+  }
+
+  runServer(args, filePath, filename, stats)
 }
 
 main().catch((error) => {

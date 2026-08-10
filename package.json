@@ -15,7 +15,8 @@
     "app": "node shell/launch.cjs",
     "verify": "node tools/test-ratchet.mjs",
     "dist": "npm run verify && node tools/check-research-queue.mjs && node tools/check-data-schemas.mjs && npm run build && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked",
-    "release:cut": "node tools/release-packager/cut-release-candidate.mjs"
+    "release:cut": "node tools/release-packager/cut-release-candidate.mjs",
+    "release:serve": "node tools/release-packager/serve-candidate.mjs"
   },
   "devDependencies": {
     "culori": "^4.0.2",
