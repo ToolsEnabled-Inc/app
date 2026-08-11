@@ -94,7 +94,7 @@ actually asserts:
 
 ```
 node tools/check-payload-boundary.mjs capability
-  Classified: open=<n> pending=6 paid=0 excluded=0 unclassified=0
+  Classified: open=<n> pending=<n> paid=0 excluded=0 unclassified=0
   Payload boundary: clean. Nothing paid, excluded or unclassified is present.
 ```
 
@@ -102,19 +102,30 @@ node tools/check-payload-boundary.mjs capability
 0, and not the last line of the output.** A `pending` file is one whose fate has been
 decided but which *still ships today*; the guard deliberately does not fail on those.
 
-**`pending = 0` is necessary and not sufficient**, and it is now checkable by a command
-rather than by a reader remembering it:
+**Nothing `pending` may still ship**, and it is now checkable by a command rather than by
+a reader remembering it:
 
 ```
 node tools/check-payload-boundary.mjs --ship capability
-  Classified: open=<n> pending=6 paid=0 excluded=0 unclassified=0     exit 1
+  NOT PUBLISHABLE -- N file(s) are still "pending" and still ship:
+    <each path, named>                                            exit 1
 ```
 
 `--ship` is the strict verdict: it fails while anything is `pending`. The permissive
-default is deliberate, so development does not sit red. **Pass the root explicitly.** The
-bare `npm run check:boundary:ship` walks several default roots, including a second copy of
-the payload under `release/`, and every count comes back roughly doubled — `pending=12`
-for the same six files.
+default is deliberate, so development does not sit red.
+
+**Read the named paths, not the tally.** That block enumerates the files; go fix or
+reclassify the ones it names. Do not copy a number out of this guard into anything,
+including into this page — the summary line has already been wrong once (it counted
+findings rather than distinct paths, so a payload seen under two roots reported double),
+and the count I quoted here while warning about that had itself expired within the hour.
+The paths were never ambiguous through any of it. **A count is a summary of a set, and a
+summary can be wrong in ways the set cannot.**
+
+Pass the payload root explicitly anyway. A bare invocation answers a question about
+whatever default roots it finds — which can include a stale build under `release/` that
+nobody is shipping — and "which directory did this verdict describe?" is not a question
+you want to be reconstructing at publish time.
 
 ### The third gate, and why "all three green" is not the fence
 
@@ -193,7 +204,7 @@ into the same directory, so the record does not count itself. Verified in
 will always look off by one. This repository has already had one near-miss from reading
 meaning into a file-count coincidence; do not spend a launch night on this one.
 
-### The six files still shipping
+### The files still shipping
 
 These are not one problem. They are two, and they are not equally urgent. This list is a
 snapshot — the gate's own `pending` output is authoritative.
@@ -248,7 +259,7 @@ Neither has been done. The measured analysis is in `agent-coord` under
 `payload-firebase-cws-identifiers`; start from it rather than from this summary.
 
 **The condition for making a product repository public is `pending=0`,** not `exit 0`.
-Publishing while any of those six are staged publishes them, because the installer *is* a
+Publishing while any of those are staged publishes them, because the installer *is* a
 source distribution — 200-plus plain `.js` files next to a trivially extractable
 `app.asar`. Whoever publishes must re-run the gate and read the `pending` count, not the
 last line.
