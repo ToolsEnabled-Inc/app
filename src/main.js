@@ -24,6 +24,12 @@ import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
 import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
+import {
+  CHECKOUT_SURFACE_EVENT,
+  checkoutSurfaceAvailable,
+  checkoutSurfaceSettled,
+  probeCheckoutSurface,
+} from './checkout-visibility.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
 import './morphs.css'
@@ -40,7 +46,34 @@ let current = null           // { el(wrapper), view, route }
 // Checkout sits directly after approvals: both are surfaces where the owner
 // decides about money, and the pair reads as one stretch of the ring rather
 // than a shop dropped between the register and home.
-const ORDER = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout']
+const RING = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout']
+
+/* STOPS THAT ONLY EXIST ON SOME COPIES.
+ *
+ * Checkout shows a purchase list the person running this copy supplied; there
+ * is no such thing as a stock one. It shipped as an unconditional ring stop
+ * carrying the builder's own internal list, on every install, one click back
+ * from home -- see src/checkout-visibility.js for the measurement and for why
+ * the bytes, not just the door, had to go.
+ *
+ * A predicate is the mechanism rather than an `if (checkout)` here because the
+ * next conditional surface must not have to re-derive the fail-closed rule: a
+ * stop is on the ring only when its predicate says TRUE. Anything else --
+ * false, undefined, an exception, not measured yet -- leaves it off. */
+const CONDITIONAL_STOPS = Object.freeze({
+  checkout: checkoutSurfaceAvailable,
+})
+
+function stopIsOffered(name) {
+  const predicate = CONDITIONAL_STOPS[name]
+  if (!predicate) return true
+  try { return predicate() === true } catch { return false }
+}
+
+/** The ring as it exists on THIS copy, in ring order. */
+function ringOrder() {
+  return RING.filter(stopIsOffered)
+}
 
 function parse() {
   const h = location.hash || '#/'
@@ -78,6 +111,15 @@ const RING_EXIT = {
   agent: { back: 'computers', next: 'metrics' },
   setup: { back: 'home', next: 'home' },
   account: { back: 'home', next: 'home' },
+}
+
+/* A hash naming a stop this copy does not offer is not an error and must not be
+ * a screen. It resolves to home, and the address bar is only rewritten once the
+ * probe has SETTLED -- before that, "not offered" only means "not measured yet",
+ * and rewriting on it would throw away the address of a surface this copy is
+ * about to turn out to have. */
+function resolve(route) {
+  return stopIsOffered(route.name) ? route : { name: 'home', redirectedFrom: route.name }
 }
 
 function makeView(route) {
@@ -158,7 +200,12 @@ function syncFirstRunChrome() {
 }
 
 function render() {
-  const route = parse()
+  const route = resolve(parse())
+  if (route.redirectedFrom && checkoutSurfaceSettled()) {
+    // the hashchange this fires re-enters render() with the home route
+    location.hash = '#/'
+    return
+  }
 
   syncFirstRunChrome()
   if (shouldOpenSetup(SETUP_RESOLUTION, route.name)) {
@@ -242,7 +289,8 @@ function swapView(route, morph, zoom, snapshotted) {
   const activeName = route.name === 'agent' ? 'computers' : route.name
   navEl?.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.dataset.route === activeName))
 
-  const idx = ORDER.indexOf(activeName)
+  const order = ringOrder()
+  const idx = order.indexOf(activeName)
   const back = document.getElementById('nav-back')
   const next = document.getElementById('nav-next')
   /* The ring is closed: home <- computers <- metrics <- research <- comms <- ledger <- home. The
@@ -257,7 +305,7 @@ function swapView(route, morph, zoom, snapshotted) {
      it goes — but only once you reach for it. Nothing at rest; the label
      fades in on hover/focus. Fewer pieces, and the ones left do more. */
   const label = (n) => (n === 'home' ? 'home' : n)
-  const ringAt = (i) => ORDER[(i + ORDER.length) % ORDER.length]
+  const ringAt = (i) => order[(i + order.length) % order.length]
   back.dataset.dest = RING_EXIT[route.name] ? RING_EXIT[route.name].back : label(ringAt(idx - 1))
   next.dataset.dest = RING_EXIT[route.name] ? RING_EXIT[route.name].next : label(ringAt(idx + 1))
 
@@ -291,19 +339,27 @@ window.addEventListener(WRITE_FLAGS_EVENT, () => {
 })
 
 const hashFor = (name) => (name === 'home' ? '#/' : `#/${name}`)
+/* The arrows walk the ring THIS COPY HAS. Reading the destination off the same
+   ringOrder() the labels are written from is what stops the two disagreeing --
+   a chevron captioned "home" that lands on a stop the copy does not offer is
+   how a hidden surface comes back through the only navigation the app has. */
+const stepRing = (from, delta) => {
+  const order = ringOrder()
+  const idx = order.indexOf(from)
+  if (idx === -1) return order[delta > 0 ? 0 : order.length - 1]
+  return order[(idx + delta + order.length) % order.length]
+}
 document.getElementById('nav-back').addEventListener('click', () => {
-  const route = parse()
+  const route = resolve(parse())
   // the agent view is a drill-in, not a ring stop: back surfaces to its graph
   if (RING_EXIT[route.name]) { location.hash = hashFor(RING_EXIT[route.name].back); return }
-  const idx = ORDER.indexOf(route.name)
-  location.hash = hashFor(ORDER[(idx - 1 + ORDER.length) % ORDER.length])
+  location.hash = hashFor(stepRing(route.name, -1))
 })
 document.getElementById('nav-next').addEventListener('click', () => {
-  const route = parse()
+  const route = resolve(parse())
   // ...and forward from the drill-in resumes the ring after its graph
   if (RING_EXIT[route.name]) { location.hash = hashFor(RING_EXIT[route.name].next); return }
-  const idx = ORDER.indexOf(route.name)
-  location.hash = hashFor(ORDER[(idx + 1) % ORDER.length])
+  location.hash = hashFor(stepRing(route.name, 1))
 })
 
 /* ---------- settings drawer ---------- */
@@ -509,5 +565,16 @@ document.querySelectorAll('.drawer input[type="range"]').forEach(rangeFill)
 
 /* ---------- central clock for every runtime readout ---------- */
 setInterval(() => tickRuntimes(fmtRuntime), 500)
+
+/* WHICH CONDITIONAL STOPS THIS COPY HAS, ASKED ONCE, AT THE START.
+ *
+ * The first paint does not wait for the answer -- a loopback read is instant in
+ * the ordinary case and blocking the window on it would trade a real defect for
+ * a worse one -- so the ring simply starts without its conditional stops and
+ * gains them when the probe lands. That order is the safe one: the ring can only
+ * GROW when the answer arrives, so a slow or failed probe hides a surface rather
+ * than briefly showing one. */
+window.addEventListener(CHECKOUT_SURFACE_EVENT, () => render())
+void probeCheckoutSurface()
 
 render()

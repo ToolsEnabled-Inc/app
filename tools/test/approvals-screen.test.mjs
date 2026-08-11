@@ -159,8 +159,15 @@ test('the approvals screen is actually reachable, not dead code in the bundle', 
   assert.match(main, /import \{ approvalsView \} from '\.\/views\/approvals\.js'/)
   assert.match(main, /case 'approvals': return approvalsView\(\)/, 'the router can build the view')
   assert.match(main, /parts\[0\] === 'approvals'/, 'the hash #/approvals parses to the route')
-  assert.match(main, /const ORDER = \[[^\]]*'approvals'/,
-    'the arrows are the only navigation, so a route missing from ORDER is unreachable')
+  assert.match(main, /const RING = \[[^\]]*'approvals'/,
+    'the arrows are the only navigation, so a route missing from the ring is unreachable')
+  /* Membership alone stopped being enough when checkout became conditional: a
+     predicate in CONDITIONAL_STOPS removes a stop from the ring at runtime, and
+     no text match on the array above can see that happen. Approvals is a
+     register every copy has, so it must not be in that table. */
+  const conditional = main.slice(main.indexOf('const CONDITIONAL_STOPS'), main.indexOf('function stopIsOffered'))
+  assert.ok(conditional.length > 0, 'the conditional-stop table is gone; ring membership may no longer mean what this test assumes')
+  assert.doesNotMatch(conditional, /approvals/, 'approvals must be on every copy\'s ring, not conditional on anything')
 })
 
 test('home states the count, and states nothing at all when it cannot read one', async () => {

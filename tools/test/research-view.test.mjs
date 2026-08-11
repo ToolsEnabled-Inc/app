@@ -49,14 +49,26 @@ test('research is an independent ring route backed by the research projection', 
   // route is a visible, reviewed change rather than a silent one. 'approvals'
   // joined it when the owner replaced the interrupting prompt popup with a
   // screen he navigates to; the arrows are the only navigation, so a route
-  // absent from ORDER is a route nobody can reach.
+  // absent from the ring is a route nobody can reach.
   //
   // 'checkout' joined it next, directly after approvals, when the owner asked
   // for the purchase list to be a working surface inside ToolsEnabled
   // rather than a document. The two sit together because both are places he
   // decides about money. This edit IS the visible reviewed change the pin
   // exists to force.
-  assert.match(main, /const ORDER = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout'\]/)
+  //
+  // THE PIN NOW HAS A SECOND HALF, and without it the first half stopped being
+  // worth anything. The constant was renamed ORDER -> RING when checkout became
+  // conditional: it shipped the operator's own purchase list to strangers, so
+  // the stop exists only on a copy that has a list (src/checkout-visibility.js).
+  // Membership of RING is therefore no longer sufficient for reachability --
+  // a predicate in CONDITIONAL_STOPS can take a stop off the ring at runtime,
+  // which is exactly the thing a text match on the array cannot see. So research
+  // is pinned as being on the ring AND as not being conditional.
+  assert.match(main, /const RING = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout'\]/)
+  const conditional = main.slice(main.indexOf('const CONDITIONAL_STOPS'), main.indexOf('function stopIsOffered'))
+  assert.ok(conditional.length > 0, 'the conditional-stop table is gone; ring membership may no longer mean what this test assumes')
+  assert.doesNotMatch(conditional, /research/, 'research must be on every copy\'s ring, not conditional on anything')
   assert.match(main, /if \(parts\[0\] === 'research'\) return \{ name: 'research' \}/)
   assert.match(main, /case 'research': return researchView\(\)/)
   assert.match(main, /case 'research': return `\$\{base\} \/ research`/)

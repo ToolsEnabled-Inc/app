@@ -1,18 +1,27 @@
 // The purchase catalogue, normalized once at load.
 //
-// WHY THIS IS AS STRICT AS THE OWNER-PROMPT BOUNDARY.
+// WHY THIS IS AS STRICT AS THE OWNER-PROMPT BOUNDARY -- AND WHY IT GOT STRICTER
+// STILL WHEN THE FILE STOPPED SHIPPING.
 //
-// public/data/purchase-catalog.json is validated at BUILD time by
-// tools/check-data-schemas.mjs, which is the gate that stops a malformed
-// catalogue shipping. It is not the gate that stops a malformed catalogue
-// RENDERING: the file is fetched over HTTP at runtime, from a directory the
-// build also serves in dev and preview, and this module is what stands between
-// that response and a screen about the owner's money. So it revalidates
-// everything the schema declares, in the same house style src/owner-popup.js
-// uses for the prompt boundary, and throws rather than rendering a partial
-// catalogue. A screen that silently drops the two items it could not parse is
-// worse than a screen that says it could not read the list, because he would
-// be choosing from a list he believes is complete.
+// The catalogue is no longer part of the payload. It used to be authored at
+// public/data/purchase-catalog.json, which meant every installer carried the
+// operator's own shopping list to strangers; it now lives at
+// <userData>/purchase-catalog.json and is served to the app window and to
+// nothing else (shell/main.cjs, and src/checkout-visibility.js for why the
+// screen does not exist at all without one).
+//
+// That MOVES the risk this module answers, it does not remove it. Nothing
+// validates the file at build time any more -- there is no build for a file the
+// operator drops on their own disk -- so a malformed or hand-edited catalogue
+// reaches this module having been checked by nobody. tools/check-data-
+// schemas.mjs still validates the authored copy when this machine has one, and
+// this module is what stands between the HTTP response and a screen about
+// somebody's money. So it revalidates everything the schema declares, in the
+// same house style src/owner-popup.js uses for the prompt boundary, and throws
+// rather than rendering a partial catalogue. A screen that silently drops the
+// two items it could not parse is worse than a screen that says it could not
+// read the list, because he would be choosing from a list he believes is
+// complete.
 //
 // MONEY IS CONVERTED EXACTLY, ONCE, HERE.
 //

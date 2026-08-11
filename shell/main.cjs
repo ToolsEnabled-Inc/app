@@ -65,6 +65,7 @@ process.on('uncaughtException', (error) => fatalStartup(error, 'Uncaught excepti
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
+
 /* BEFORE ANY LINE BELOW RESOLVES userData. Renaming the product from "Mission
    Control" to "ToolsEnabled" moved userData to a directory that does not exist
    yet, so an existing customer's settings, workspace and spawn records are
@@ -98,6 +99,29 @@ const PROJECTION_DATA_FILES = Object.freeze([
 const PROJECTION_DATA_FILE_SET = new Set(PROJECTION_DATA_FILES)
 const PROJECTION_CAPABILITY_HEADER = 'x-mc-projection-capability'
 const projectionCapability = randomBytes(32).toString('base64url')
+/* THE PURCHASE LIST IS THE OPERATOR'S OWN DOCUMENT AND IS NOT PART OF THE PRODUCT.
+ *
+ * It used to be authored at public/data/purchase-catalog.json, which vite copies
+ * into dist/ and electron-builder packs into app.asar under "dist/**". So every
+ * installer carried it, and #/checkout put it one click from home on a stranger's
+ * fresh install: internal repo paths, internal request ids, the builder's own
+ * second-person deliberations, and a written admission that the installer is
+ * unsigned. Reproduced on the packaged build before this change.
+ *
+ * Hiding the screen would not have been a fix. app.asar is a documented archive
+ * anyone can list; the leak is the BYTES, so the bytes had to leave the payload.
+ *
+ * It is served from the install's own userData directory instead. Present means
+ * the person running this copy put their list there; absent means there is no
+ * list and the screen does not exist (src/checkout-visibility.js turns the route
+ * and the ring stop off, so absence is a closed door rather than an empty shop).
+ *
+ * The capability header is the same fence the projection route uses, for the same
+ * reason: the shell injects it into the app window's own /data/* requests, so any
+ * other page or process that reaches this origin cannot read the file. */
+const OWNER_PURCHASE_LIST_URL = '/data/purchase-catalog.json'
+const OWNER_PURCHASE_LIST_FILE = () => path.join(app.getPath('userData'), 'purchase-catalog.json')
+const MAX_OWNER_PURCHASE_LIST_BYTES = 2 * 1024 * 1024
 const bridgeProof = readBridgeProof({ env: process.env, readFileSync: fs.readFileSync })
 const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
 /* The one real directory the product owns on a customer's disk. The capability
@@ -1119,6 +1143,52 @@ function serveConfiguredProjection(url, request, response) {
   return true
 }
 
+/* The operator's purchase list, read from this install's own data directory.
+ *
+ * Every refusal here answers with 404 and a JSON body. Not 503, and not the app
+ * shell: the renderer decides whether the checkout surface exists AT ALL from
+ * this response, and it must only exist when a real list was really served. A
+ * "temporarily unavailable" would be read as "maybe later"; an HTML body would
+ * be read as a 200 by anything checking response.ok. Absent means absent. */
+function serveOwnerPurchaseList(url, request, response) {
+  if (url !== OWNER_PURCHASE_LIST_URL) return false
+  const refuse = (reason) => {
+    response.writeHead(404, 'Purchase List Not Installed', {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    })
+    response.end(JSON.stringify({ ok: false, reason }))
+  }
+  if (request.headers[PROJECTION_CAPABILITY_HEADER] !== projectionCapability) {
+    refuse('The purchase list is readable only from this application window.')
+    return true
+  }
+  ;(async () => {
+    const file = OWNER_PURCHASE_LIST_FILE()
+    let stat
+    try {
+      stat = await fs.promises.stat(file)
+    } catch {
+      refuse('No purchase list is installed for this copy.')
+      return
+    }
+    if (!stat.isFile()) { refuse('No purchase list is installed for this copy.'); return }
+    if (stat.size > MAX_OWNER_PURCHASE_LIST_BYTES) { refuse('The installed purchase list is too large to read.'); return }
+    let text
+    try {
+      text = await fs.promises.readFile(file, 'utf8')
+    } catch (error) {
+      refuse(`The installed purchase list could not be read (${error?.code || 'unknown error'}).`)
+      return
+    }
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    response.end(text)
+  })().catch(error => {
+    refuse(`The installed purchase list could not be read (${error?.code || 'unknown error'}).`)
+  })
+  return true
+}
+
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -1135,12 +1205,25 @@ function serveDist() {
         return
       }
       const url = decodeURIComponent((req.url || '/').split('?')[0])
+      if (serveOwnerPurchaseList(url, req, res)) return
       if (serveConfiguredProjection(url, req, res)) return
       let file = path.normalize(path.join(DIST, url === '/' ? 'index.html' : url))
       // the hash router means every real navigation is still index.html
       if (!file.startsWith(DIST)) { res.writeHead(403); return res.end() }
       fs.readFile(file, (err, data) => {
         if (err) {
+          /* A MISSING DATA FILE IS NOT A NAVIGATION. The SPA fallback below is
+             right for /#/anything, and wrong for /data/x.json: it answered a
+             JSON request with 200 and an HTML body, so every caller that reads
+             response.ok -- which is all of them -- saw success and only failed
+             later, on the parse, with a message about malformed JSON rather
+             than about a file that is not there. The checkout surface now
+             decides whether it exists at all from exactly this response, so
+             "not installed" has to be distinguishable from "here it is". */
+          if (/^\/data\/.+\.json$/.test(url)) {
+            res.writeHead(404, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+            return res.end(JSON.stringify({ ok: false, reason: `${url} is not part of this build.` }))
+          }
           // unknown paths fall back to the app shell, same as any SPA host
           return fs.readFile(path.join(DIST, 'index.html'), (e2, index) => {
             if (e2) { res.writeHead(404); return res.end() }

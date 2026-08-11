@@ -47,7 +47,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200,
-          "description": "Exact file and key this was read from, e.g. 'src/lib/providers/pay.js limits.defaultDailySpendUsd'. Repo-relative only: an absolute path fails the shipped-owner-data gate."
+          "description": "Exact file and key the cap was read from, named precisely enough that a reader can check it, e.g. '<config file> <key path>'. Never an absolute path: this string is rendered on the checkout screen, so a drive-rooted one would put the operator's own directory layout in front of whoever is reading it. This schema is a product asset and ships, so it carries no example naming a real internal file either -- the catalogue it describes is the operator's own document and lives outside the payload."
         },
         "readAt": { "type": ["string", "null"], "format": "date-time" }
       }

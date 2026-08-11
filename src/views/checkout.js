@@ -3,6 +3,21 @@
 // The owner asked for "a complete checkout I can pick and choose", inside
 // ToolsEnabled, actually working, following the site's theme.
 //
+// WHOSE LIST THIS IS, AND WHY THE SCREEN IS NOT ALWAYS THERE.
+//
+// The list is the OPERATOR'S OWN DOCUMENT: what they intend to buy, what breaks
+// without it, and why they wanted it, in their own words. It was authored into
+// public/data/purchase-catalog.json, which shipped it inside app.asar to every
+// installer -- so a stranger's fresh install put the builder's internal list,
+// internal paths, internal request ids and all, one click back from home. It
+// was read off the packaged window before this was fixed.
+//
+// The file now lives outside the payload and is read from the install's own
+// data directory. This view is unchanged by that; what changed is that the
+// route and the ring stop exist only when a list was really served, which
+// src/checkout-visibility.js decides and fails closed on. A copy with no list
+// has no checkout rather than an empty shop.
+//
 // WHERE "WORKING" ENDS, AND WHY THE SCREEN SAYS SO.
 //
 // Everything up to and including a durable, dated record of his decision is
