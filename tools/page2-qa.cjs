@@ -363,29 +363,39 @@ async function run() {
   const controls = await webContents.executeJavaScript(`(() => {
     const page = document.querySelector('.ctl-page.is-active');
     const box = page?.querySelector('.board-ctl-box');
-    const argv = box?.querySelector('[data-launch="argv"]')?.textContent?.trim() || '';
-    const tier = box?.querySelector('[data-launch="tier"]');
     return {
       inertSliders: page ? page.querySelectorAll('.ctl-row[data-t]').length : -1,
       sliderLabels: [...(page?.querySelectorAll('.cl') || [])].map(node => node.textContent.trim()),
-      tierOptions: tier ? [...tier.options].map(option => option.value) : [],
-      argv,
-      capPresent: Boolean(box?.querySelector('[data-launch="cap"]')),
-      unsupported: [...(box?.querySelectorAll('.ctl-unsupported-row b') || [])].map(node => node.textContent.trim()),
-      unsupportedCited: [...(box?.querySelectorAll('.ctl-unsupported-row code') || [])].every(node => /:\\d+$/.test(node.textContent.trim())),
+      /* The demonstration board must carry NO control that reaches a real
+         session: launch, team and loop are ABSENT here by design and replaced
+         by a stated-absence box. */
+      steeringControls: page ? page.querySelectorAll('[data-launch], [data-team], [data-loop]').length : -1,
+      absent: Boolean(box?.classList.contains('board-ctl-absent')),
+      absentCopy: box?.textContent?.replace(/\\s+/g, ' ').trim() || '',
     };
   })()`)
   check('no inert tuning slider survives on page 2', controls.inertSliders === 0
     && !controls.sliderLabels.includes('Context budget')
     && !controls.sliderLabels.includes('Wake interval')
     && !controls.sliderLabels.includes('Autonomy'), JSON.stringify(controls))
-  check('the tier control offers the engine tiers and prints their real argv',
-    controls.tierOptions.includes('sol') && controls.tierOptions.length === 6
-    && /--model \S+/.test(controls.argv), JSON.stringify(controls))
-  check('the run cap is a control, not a constant', controls.capPresent, JSON.stringify(controls))
-  check('temperature and top-p are named as unavailable, each with a citation',
-    controls.unsupported.includes('Temperature') && controls.unsupported.includes('Top-p')
-    && controls.unsupportedCited, JSON.stringify(controls))
+  /* RECONCILED 2026-08-11. These three checks used to demand a LIVE launch box
+     on the simulated board -- the tier dropdown offering the engine tiers, the
+     printed argv, the run-cap control, the unsupported-control citations. That
+     is exactly the control dd01899 removed and tools/example-page-write-fence-qa.mjs
+     (green) forbids on the example copy of page 2, whose own banner says nothing
+     on it is real: a Dispatch/tier control here reaches the audited bridge from a
+     demonstration screen. The launch box's real content is proven on the LIVE
+     board -- present there by example-page-write-fence-qa's live half, exercised
+     by tools/team-panel-packaged-qa.mjs and tools/loop-packaged-qa.mjs -- and the
+     engine tiers, argv fragments and caps are pinned by
+     tools/test/orchestration-controls.test.mjs, tools/test/agent-teams.test.mjs
+     and tools/test/agent-loops.test.mjs. So the invariant asserted here is the
+     safe one: on the demonstration board those controls are absent, and the
+     absence is stated rather than left as a hole. */
+  check('the demonstration board mounts no launch, team or loop control',
+    controls.steeringControls === 0, JSON.stringify(controls))
+  check('and it states that absence rather than leaving a hole',
+    controls.absent && /nothing here starts anything/i.test(controls.absentCopy), JSON.stringify(controls))
 
   /* A dead button must say it is dead. Pause/Resume/Respawn have no bridge
      action behind them; they used to move an `armed` class between each other

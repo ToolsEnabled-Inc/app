@@ -69,8 +69,16 @@ const KEEP = process.argv.includes('--keep')
 // The three window sizes the product is checked at, and all three themes.
 const SIZES = [[1280, 800], [1600, 900], [1920, 1080]]
 const THEMES = ['white', 'tan', 'black']
-// Every recorded level, because the confinement copy differs at each one.
-const TIERS = argument('--tier') ? [argument('--tier')] : ['guided', 'standard', 'unrestricted']
+/* The recorded level no longer changes what THIS page renders. The session
+   surface that read the level is gone from the demonstration copy on purpose
+   (see the reconciliation note where the per-level session checks used to be),
+   so the roster/layout this harness measures is identical at every level. One
+   representative level -- the fail-closed default a fresh install shows --
+   exercises the layout; a specific level can still be forced with --tier, and
+   the confinement copy per level is proven on the LIVE agent page by
+   tools/first-run-contract-qa.mjs and in unit form by
+   tools/test/agent-confinement-read.test.mjs. */
+const TIERS = argument('--tier') ? [argument('--tier')] : ['guided']
 // Screenshots come from the fail-closed default, which is what a fresh install
 // shows and therefore what a new customer actually sees.
 const SHOT_TIER = 'guided'
@@ -666,9 +674,20 @@ async function drive(executable, scratch, tier) {
           page.chatTopOnScreen && page.controlsTopOnScreen
             && page.chatHeight >= 200 && page.controlsHeight >= 200,
           `chatTop=${page.chatTopOnScreen}/${page.chatHeight} controlsTop=${page.controlsTopOnScreen}/${page.controlsHeight} ${JSON.stringify(page.columnHeights)}`)
-        check(`${at}: the page scrolls to reach them rather than clipping them`,
-          page.columnScrollable === true,
-          `scrollHeight vs clientHeight: ${JSON.stringify(page.columnScroll)}`)
+        /* REACHABLE MEANS REACHABLE: either the whole column fits within the
+           window, or `.agentv` (overflow-y:auto) scrolls to what is below the
+           fold. This used to demand the column ALWAYS scroll, which held only
+           while a session surface sat between the roster and the panels and made
+           the column overflow at these heights. That surface is correctly gone
+           from the demonstration page (dd01899 / tools/example-page-write-fence-qa.mjs),
+           so the column now fits -- panelsBottom lands above the fold -- and
+           requiring a scrollbar demanded a defect. Measured here: at 1280x800 the
+           panels' bottom is 627px against an 800px window, fully on screen. */
+        check(`${at}: the panels are reachable -- the column fits, or scrolls to them`,
+          page.columnScrollable === true
+            || (page.columnHeights.panelsBottom !== null
+              && page.columnHeights.panelsBottom <= page.columnHeights.viewport + 1),
+          `scrollable=${page.columnScrollable} panelsBottom=${page.columnHeights.panelsBottom} viewport=${page.columnHeights.viewport} ${JSON.stringify(page.columnScroll)}`)
       }
       check(`${at}: all four controls are whole, not straddling the panel edge`,
         page.actionsWhole.length === 4 && page.actionsWhole.every(a => a.inPanel && a.height >= 40),
@@ -676,56 +695,38 @@ async function drive(executable, scratch, tier) {
 
       check(`${at}: the page does not scroll sideways`, page.overflowsHorizontally === false)
 
-      /* THE TRUTH CHECKS, read off the glass at this install's real level. */
+      /* THE DEMONSTRATION PAGE CARRIES NO LIVE SESSION CONTROL.
+       *
+       * RECONCILED 2026-08-11. This block used to DEMAND a mounted
+       * `.agent-session-surface` on this page and read the level name, the
+       * confining-refusal copy, the tools sentence and a DISABLED Start with a
+       * sign-in reason off it -- per recorded level. That is the exact control
+       * dd01899 removed and tools/example-page-write-fence-qa.mjs (green) forbids
+       * on the demonstration copy: this page's own banner says nothing on it is
+       * real, and no control that reaches a real session belongs on it. The old
+       * demand also disagreed with tools/first-run-contract-qa.mjs, which proves
+       * the Start control on the LIVE agent page -- the page that IS real. Worse,
+       * at `unrestricted` the old block did not require Start to be disabled, so
+       * satisfying it would have put an ENABLED Start -- a real spawn -- on the
+       * page that says nothing here runs, which is the precise defect the fence
+       * exists to stop. Measured on this tree: `.agent-session-surface` is
+       * correctly absent, so every one of those reads was the empty string.
+       *
+       * So the assertion is INVERTED to the safe invariant this surface must
+       * hold, and the coverage it used to duplicate now lives where it is real:
+       *   - the LIVE Start control, present and reason-bearing ... first-run-contract-qa.mjs
+       *   - present+enabled on live, absent on the example ...... example-page-write-fence-qa.mjs (both halves)
+       *   - the confinement copy's exact wording per level ...... tools/test/agent-confinement-read.test.mjs
+       */
       check(`${at}: the retired confinement claim is nowhere on the page`,
         !/No permission tier limits a running session/i.test(page.pageText),
-        page.sessionOutput.slice(0, 120))
-
-      check(`${at}: the control names the level THIS computer is set to`,
-        new RegExp(tier, 'i').test(page.sessionOutput),
-        `expected ${tier} in: ${JSON.stringify(page.sessionOutput).slice(0, 160)}`)
-
-      if (tier === 'unrestricted') {
-        /* The blunt end. Nobody at unrestricted may be softened at. */
-        check(`${at}: unrestricted says plainly that nothing narrows it`,
-          /delete any file/i.test(page.sessionOutput) && /without asking/i.test(page.sessionOutput),
-          JSON.stringify(page.sessionOutput).slice(0, 160))
-      } else {
-        /* A confining level must never claim full local access, and must say
-           what the computer refuses. */
-        check(`${at}: a confining level does not claim full local access`,
-          !/full local access/i.test(page.sessionOutput),
-          JSON.stringify(page.sessionOutput).slice(0, 160))
-        check(`${at}: a confining level says what this computer refuses`,
-          /refuses/i.test(page.sessionOutput),
-          JSON.stringify(page.sessionOutput).slice(0, 160))
-        /* THE PRECONDITION, BEFORE THE PRESS. This profile has an empty Codex
-           home, which is the fresh-customer case that used to render an ENABLED
-           Start and then refuse with a message that never mentioned signing in.
-           A peer lane repaired the probe itself while this page was being
-           rebuilt, so the assertion is on the outcome a person actually gets:
-           the control is disabled AND the reason names the remedy. Checked from
-           this page because that is where the trap was sprung. */
-        check(`${at}: Start is DISABLED when a confined level has no sign-in`,
-          page.startDisabled === true,
-          `startDisabled=${page.startDisabled} status=${JSON.stringify(page.sessionStatus).slice(0, 120)}`)
-        check(`${at}: and the reason names signing in, not a bare code`,
-          /sign in/i.test(page.sessionStatus) && !/AGENT_[A-Z_]+/.test(page.sessionStatus),
-          JSON.stringify(page.sessionStatus).slice(0, 160))
-      }
-
-      check(`${at}: the tools sentence states a measured number`,
-        /offered (all )?\d+ of this copy's( \d+)? tools/i.test(page.sessionOutput),
-        JSON.stringify(page.sessionOutput).slice(0, 200))
-
-      check(`${at}: the record clause survives`,
-        /recorded on this device before it runs/i.test(page.sessionOutput))
+        page.pageText.slice(0, 120))
+      check(`${at}: no live session control is mounted on the demonstration page`,
+        page.startDisabled === null && page.sessionOutput === '' && page.sessionStatus === '',
+        `startDisabled=${page.startDisabled} output=${JSON.stringify(page.sessionOutput).slice(0, 80)} status=${JSON.stringify(page.sessionStatus).slice(0, 80)}`)
 
       if (width === 1600) {
-        console.log(`\n    what the session control says: ${JSON.stringify(page.sessionOutput)}`)
-        console.log(`    status: ${JSON.stringify(page.sessionStatus)}`)
-        console.log(`    Start disabled: ${page.startDisabled}`)
-        console.log(`    runtimes: ${JSON.stringify(page.cards.map(c => `${c.name} ${c.runtime} ${c.runtimeNote}`))}\n`)
+        console.log(`\n    runtimes: ${JSON.stringify(page.cards.map(c => `${c.name} ${c.runtime} ${c.runtimeNote}`))}\n`)
       }
 
       for (const theme of THEMES) {
