@@ -233,16 +233,45 @@ test('the disclosure states the enforcement that exists, in the words that claim
 
 /* The one limit that remains, and the owner's own instruction about it:
    "restrictive tiers absolutely should work ... maybe we have to hand the user a
-   warning when adding outside ide sessions". We own the spawn for a session we
-   start and can bound it; a session already running in another program was
-   started under that program's settings and cannot be confined retroactively.
+   warning when adding outside ide sessions". The line is who RUNS the process,
+   not where the session came from: a session that keeps running in the other
+   program is run by that program, and nothing chosen here reaches into it.
    Saying so at the point of choice is the difference between a limit and a
    surprise. */
 test('the disclosure still admits the sessions it cannot confine', () => {
   const notice = TIER_LIMIT_NOTICE.join(' ')
-  assert.match(notice, /cannot confine an assistant Mission Control did not start/)
-  assert.match(notice, /attach one already running in another program/)
-  assert.match(notice, /does not reach back into it/)
+  assert.match(notice, /keeps running in another program/)
+  assert.match(notice, /still deciding what it may do/)
+  assert.match(notice, /choosing a level here does not reach/)
+})
+
+/* THE OVER-BROAD FAILURE MODE, which the first version of this notice shipped
+   with and which the lane building attach caught.
+
+   "It cannot confine an assistant Mission Control did not start" reads as the
+   cautious claim and is false for two of the three attach modes. MEASURED: a
+   thread created at danger-full-access, which had already written outside its
+   own folder, was resumed inside a process started with sandbox 'read-only' and
+   the identical write was denied by the OS; resumed at danger-full-access it
+   succeeded. Taking a session over confines it.
+
+   Overstating the gap is not the safe direction. It steers people away from the
+   path that actually holds, which is the same harm as understating it. So this
+   pins that the notice keeps promising confinement for a taken-over session --
+   a future edit that flattens the two modes back into one blanket warning turns
+   red here rather than quietly shipping. */
+test('the disclosure does not overclaim the gap for sessions it does confine', () => {
+  const notice = TIER_LIMIT_NOTICE.join(' ')
+  assert.match(notice, /Take a session over so it continues here and this level applies/)
+  assert.doesNotMatch(
+    notice,
+    /cannot confine an assistant Mission Control did not start/,
+    'taking a session over DOES confine it; the blanket claim is measurably false',
+  )
+  /* The peer's qualification, kept because it is the true half of the old
+     sentence: a level chosen now bounds what happens next, not what already
+     happened somewhere else. */
+  assert.match(notice, /not to what it already did elsewhere/)
 })
 
 /* The clause "and setup shows you the set it wrote" is TRUE of the command

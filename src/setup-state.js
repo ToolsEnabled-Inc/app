@@ -59,14 +59,32 @@ export const TIER_QUESTION_SUB = 'This is the only thing you need to decide righ
  * it and exited 0. Absent, malformed and unrecognised records were each measured
  * the same way and each behaved as `guided`.
  *
- * THE SECOND PARAGRAPH IS THE LIMIT THAT REMAINS, and it is the honest one: this
- * confines sessions MISSION CONTROL STARTS, because it owns the spawn, the
- * environment and the tool surface. An assistant already running in another
- * program was started by that program under its settings, and nothing recorded
- * here can reach backwards into it. The owner's own words on this split were
- * "restrictive tiers absolutely should work ... maybe we have to hand the user a
- * warning when adding outside ide sessions", and this is that warning, kept at
- * the point of choice rather than moved to a document.
+ * THE SECOND PARAGRAPH IS THE LIMIT THAT REMAINS, and getting its SCOPE right
+ * took a correction. It first read "it cannot confine an assistant Mission
+ * Control did not start", which sounds like the careful claim and is too broad.
+ * The line is not where a session CAME FROM, it is who runs the process now:
+ * this confines what it runs, because it owns the spawn, the environment and the
+ * tool surface.
+ *
+ * MEASURED, after the peer lane building attach challenged the wording. A thread
+ * created at danger-full-access -- one that had already written outside its own
+ * folder -- was RESUMED inside a process started with sandbox 'read-only', and
+ * the identical write came back denied by the OS. Resumed again at
+ * danger-full-access, it succeeded. Same thread, same prompt, resume-time
+ * sandbox the only variable. So taking a session over genuinely confines it, and
+ * a blanket warning would have pushed people away from the safe path -- the
+ * exact failure this notice exists to prevent, pointed the other way.
+ *
+ * What remains true is the mirror case, and it is not softened: a session that
+ * keeps running in the other program is still being run BY that program, under
+ * whatever it was started with, and nothing chosen here reaches into it. The
+ * "from that point" clause is the peer's and is load-bearing -- a level chosen
+ * now cannot undo what a session already did somewhere else.
+ *
+ * The owner's own words on this split were "restrictive tiers absolutely should
+ * work ... maybe we have to hand the user a warning when adding outside ide
+ * sessions", and this is that warning, kept at the point of choice rather than
+ * moved to a document.
  *
  * The first paragraph now includes the clause the command line has always had --
  * this screen DOES generate the configuration now (shell/setup-record.cjs
@@ -75,7 +93,7 @@ export const TIER_QUESTION_SUB = 'This is the only thing you need to decide righ
 export const TIER_LIMIT_LEAD = 'Before you choose, one thing this program will not pretend about.'
 export const TIER_LIMIT_NOTICE = Object.freeze([
   'This level decides which tools the assistant is given, and setup writes that configuration for you. An assistant started here also runs inside the level: at a narrower level this computer refuses the work itself, so “cannot reach anything else on this computer” is a limit and not a description.',
-  'It cannot confine an assistant Mission Control did not start. If you attach one already running in another program, that program decided what it may do, and choosing a level here does not reach back into it.',
+  'It confines what it runs. Take a session over so it continues here and this level applies to everything it does from that point, though not to what it already did elsewhere. Only watch one that keeps running in another program and that program is still deciding what it may do, where choosing a level here does not reach.',
 ])
 
 /**
