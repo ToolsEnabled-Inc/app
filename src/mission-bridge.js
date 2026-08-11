@@ -8,6 +8,11 @@ const ACTION_ROUTES = Object.freeze({
   'ledger-archive': '/v1/actions/ledger-archive',
   'owner-prompt-presented': '/v1/actions/owner-prompt-presented',
   'owner-prompt-decision': '/v1/actions/owner-prompt-decision',
+  // Codex Cloud. The launch is the only write; the other three read.
+  'cloud-accounts': '/v1/actions/cloud-accounts',
+  'cloud-tasks': '/v1/actions/cloud-tasks',
+  'cloud-task-status': '/v1/actions/cloud-task-status',
+  'cloud-launch': '/v1/actions/cloud-launch',
 })
 
 let bootstrapPromise = null
@@ -283,7 +288,19 @@ export async function bridgeReachable() {
 // registry, ran, and exited 0 while the operator was told it was refused.
 // Misreporting a completed spawn as a failure invites a retry, and dispatch
 // carries no idempotency key, so the retry would spawn a second agent.
-const ACTION_TIMEOUT_MS = Object.freeze({ dispatch: 120_000, queue: 30_000, terminate: 120_000, 'ledger-archive': 120_000 })
+// The cloud budgets are measured, not guessed. Each cloud call spawns the codex
+// CLI once per account it has to ask about, and `cloud-accounts` asks EVERY
+// configured account for its real allowance -- three accounts on the machine
+// this was built on, ~4-6s each. `cloud-launch` additionally waits on a human:
+// the approval prompt it raises has its own 60s policy timeout, and a budget
+// shorter than that would report a timeout to the person while they were still
+// reading the dialog, then invite a retry that could create a SECOND real cloud
+// task. This is the same failure the dispatch budget note below records, with a
+// worse blast radius, because a cloud task cannot be cancelled.
+const ACTION_TIMEOUT_MS = Object.freeze({
+  dispatch: 120_000, queue: 30_000, terminate: 120_000, 'ledger-archive': 120_000,
+  'cloud-accounts': 120_000, 'cloud-tasks': 90_000, 'cloud-task-status': 90_000, 'cloud-launch': 240_000,
+})
 
 export function postBridgeAction(action, body) {
   const pathname = ACTION_ROUTES[action]

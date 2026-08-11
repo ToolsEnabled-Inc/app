@@ -26,6 +26,7 @@ import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../no
    differently. src/local-activity.js is the shared owner of both. */
 import { COPY, readLocalSessions } from '../local-activity.js'
 import { isWriteEnabled } from '../write-flags.js'
+import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 /* The other source of computers, and on a customer machine the only one that
    can ever answer. See the header of src/declared-fleet.js for the measurement:
@@ -414,6 +415,11 @@ export function computersView({ initialComputer = null, navigate }) {
   let boardChart = null
   let boardRing = null
   let boardClock = 0
+  /* The cloud box's controller outlives its DOM node unless it is told
+     otherwise: its bridge calls are in flight while a person clicks the next
+     node in the tree, and a publish into a detached box is a listener leak per
+     click. clearBoard() below destroys it with the rest of the rail. */
+  let boardCloudBox = null
   let railDisposeTimer = 0
   let destroyed = false
   let fetchVersion = 0
@@ -549,6 +555,8 @@ export function computersView({ initialComputer = null, navigate }) {
     boardRing = null
     boardChart?.destroy()
     boardChart = null
+    boardCloudBox?.__cloudController?.destroy()
+    boardCloudBox = null
     /* The rail's chat re-plans on a window event. Every node click builds a new
        one, so the previous node's listener has to go with the previous panel or
        a session spent clicking around the tree leaves one attached per click. */
@@ -1641,7 +1649,15 @@ export function computersView({ initialComputer = null, navigate }) {
     controlsPage.querySelector('.board-launch-slot').replaceWith(projectionLaunchBox)
     const projectionTeamBox = teamControlsBox(agent)
     projectionLaunchBox.after(projectionTeamBox)
-    projectionTeamBox.after(loopControlsBox(agent))
+    const projectionLoopBox = loopControlsBox(agent)
+    projectionTeamBox.after(projectionLoopBox)
+    /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
+       answer to the same question -- how does work get started from this
+       computer -- and the first one whose answer is "somewhere else".
+       ONLY ON THIS RAIL. The simulated rail above gets no cloud box: it is the
+       example copy, and its own banner says nothing on it is real. */
+    boardCloudBox = cloudControlsBox()
+    projectionLoopBox.after(boardCloudBox)
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     activateRail(controlsPage)

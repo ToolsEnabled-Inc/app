@@ -17,6 +17,14 @@ import { isLiveView } from '../live-flags.js'
 import { createTerminateController } from '../mission-bridge.js'
 import { mountAgentWriteSurface } from '../write-surfaces.js'
 import { mountAgentSessionSurface } from '../agent-session.js'
+import { mountCloudTaskSurface } from '../cloud-tasks.js'
+import { liveSessionFor, onLiveSession } from '../agent-session-registry.js'
+import {
+  CONFIRMED_CONTROLS,
+  SESSION_CONTROL_IDS,
+  sessionControlAvailability,
+  sessionControlFace,
+} from '../agent-session-controls.js'
 import { fetchAgents } from '../live-status.js'
 import { readOrg } from '../org-controls.js'
 import { declaredAgentsData, THIS_COMPUTER_ID, THIS_COMPUTER_LABEL } from '../declared-fleet.js'
@@ -302,11 +310,32 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
      written; these two were the outliers, not the precedent. */
   const destroyWriteSurface = mountAgentWriteSurface(root, { agentId, live })
   const destroyAgentSession = mountAgentSessionSurface(root, { agentId, live })
+  /* Codex Cloud, beside the local session rather than on a page of its own: the
+     two are the same act -- start an agent -- differing only in which computer
+     runs it. It takes the same `live` fence as the two above, for the strongest
+     version of their reason: a launch from here starts real, billable work on a
+     remote service that cannot be cancelled. */
+  const destroyCloudTasks = mountCloudTaskSurface(root, { live })
   const terminateButton = root.querySelector('[data-control="terminate"]')
   const terminateLabel = terminateButton.querySelector('.ctl-label')
   const terminateNote = terminateButton.querySelector('.ctl-note')
   const terminateResult = root.querySelector('.ctl-result')
+  /* Declared above the bridge controller because the controller publishes its
+     first state during construction, and that first publish already has to know
+     whether this page's controls belong to a session. */
+  let sessionBusy = null
+  let confirmStep = null
+  let sessionOwnsControls = false
+  let sessionResult = ''
+  let destroyedView = false
   const renderTerminateState = (state) => {
+    /* ONE OWNER OF THIS BUTTON AT A TIME. While a session this app owns is
+       mapped to this agent, the bridge controller's state is still real and
+       still correct about the remote projection -- it simply must not paint. A
+       late publish from an in-flight bridge request writing over the session
+       controls is exactly how a screen comes to show one state and perform
+       another. */
+    if (sessionOwnsControls) return
     terminateButton.disabled = !state.enabled
     terminateButton.dataset.phase = state.phase
     terminateButton.classList.toggle('is-confirming', state.phase === 'confirm')
@@ -324,8 +353,131 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     controlTarget: live ? agent.controlTarget : null,
     onState: renderTerminateState,
   })
-  const onTerminateClick = () => { void terminateController.click() }
+  const onTerminateClick = () => {
+    if (sessionOwnsControls) return
+    void terminateController.click()
+  }
   terminateButton.addEventListener('click', onTerminateClick)
+
+  /* ---------- steering a session this app owns ----------
+   *
+   * THE DEFECT: Pause, Respawn and Terminate reported that no observed control
+   * target was mapped to this declared agent WHILE A SESSION WAS RUNNING, six
+   * inches above them on this same page. Starting and watching an agent worked;
+   * steering one did not. For a product whose selling point is orchestrating
+   * fleets, that is a core feature failing.
+   *
+   * THE TWO KINDS OF TARGET, which were never distinguished. `controlTarget` is
+   * a REMOTE observed run carried by the mission-bridge projection -- an agent
+   * id, a run id and a PID on some machine -- and it is null on every local
+   * install, so the bridge terminate above correctly refused. The session this
+   * app started is the other kind entirely: a child process this window owns,
+   * reachable through mcAgent with no bridge in the path. Neither half was
+   * wrong; nothing joined the second one to the agent whose page started it.
+   *
+   * ONE ARBITER, and it is here. When this app owns a session for this agent
+   * the three controls steer THAT, because it is the thing on this page that
+   * genuinely is running. Otherwise the bridge terminate keeps the Terminate
+   * button and its own refusals, byte for byte as before. Both are never live
+   * at once: two controllers writing one button is how a screen ends up showing
+   * one state and performing another. */
+  const controlButtons = {
+    pause: root.querySelector('[data-control="pause"]'),
+    respawn: root.querySelector('[data-control="respawn"]'),
+    terminate: terminateButton,
+  }
+  const renderSessionControl = (id, state, step) => {
+    const button = controlButtons[id]
+    const face = sessionControlFace(id, state, { step })
+    button.disabled = !state.enabled
+    button.dataset.phase = face.phase
+    button.classList.toggle('is-confirming', face.phase === 'confirm')
+    button.classList.toggle('is-pending', face.phase === 'pending')
+    button.classList.remove('is-success')
+    button.querySelector('.ctl-label').textContent = face.label
+    button.querySelector('.ctl-note').textContent = face.note
+    button.setAttribute('aria-label', `${face.label}. ${face.message}`)
+    return face
+  }
+
+  const renderSessionControls = () => {
+    const session = live ? liveSessionFor(agent.id) : null
+    const availability = sessionControlAvailability({ live, agentId: agent.id, session, busy: sessionBusy })
+    const owns = availability.mapped
+    /* HANDING THE TERMINATE BUTTON BACK is as important as taking it. A session
+       that ends must return the button to the bridge controller's own state,
+       not leave the last sentence this code wrote frozen on a control the
+       bridge controller believes it owns. */
+    if (sessionOwnsControls && !owns) {
+      sessionOwnsControls = false
+      confirmStep = null
+      sessionResult = ''
+      renderTerminateState(terminateController.getState())
+    }
+    if (!owns) {
+      for (const id of ['pause', 'respawn']) renderSessionControl(id, availability[id], 'idle')
+      /* The Terminate button stays with the bridge controller, so its message
+         is the bridge's. This one line is the whole reason the two never
+         disagree. */
+      return
+    }
+    sessionOwnsControls = true
+    let message = availability.reason
+    for (const id of SESSION_CONTROL_IDS) {
+      const step = sessionBusy === id ? 'pending' : (confirmStep === id ? 'confirm' : 'idle')
+      const face = renderSessionControl(id, availability[id], step)
+      if (step !== 'idle') message = face.message
+    }
+    terminateResult.dataset.phase = sessionBusy ? 'pending' : 'ready'
+    terminateResult.textContent = sessionResult || message
+  }
+
+  const runSessionControl = async (id) => {
+    const session = live ? liveSessionFor(agent.id) : null
+    const availability = sessionControlAvailability({ live, agentId: agent.id, session, busy: sessionBusy })
+    if (!availability.mapped || !availability[id].enabled) return
+    /* Confirm once for the two that destroy a running child. The first press
+       posts nothing; that is the same contract the bridge terminate keeps, and
+       it is checked against the availability again after the confirmation so a
+       session that ended between the two presses cannot be acted on. */
+    if (CONFIRMED_CONTROLS.includes(id) && confirmStep !== id) {
+      confirmStep = id
+      sessionResult = ''
+      renderSessionControls()
+      return
+    }
+    confirmStep = null
+    sessionBusy = id
+    sessionResult = ''
+    renderSessionControls()
+    let result
+    try {
+      result = await session.control[id]()
+    } catch (error) {
+      result = { ok: false, code: typeof error?.code === 'string' ? error.code : 'AGENT_SESSION_FAILED' }
+    }
+    sessionBusy = null
+    if (destroyedView) return
+    sessionResult = result?.ok
+      ? { pause: 'Stopped the turn that was running. The session is still open.',
+          respawn: 'Ended that session and started a new one for this agent with the same prompt.',
+          terminate: 'Ended the session. The child process this app started is closed.' }[id]
+      : `${id} did not happen · ${result?.code || 'AGENT_SESSION_FAILED'}`
+    renderSessionControls()
+  }
+
+  const sessionClickHandlers = new Map()
+  for (const id of SESSION_CONTROL_IDS) {
+    const handler = () => {
+      /* The bridge terminate keeps its own click while it owns the button. */
+      if (id === 'terminate' && !sessionOwnsControls) return
+      void runSessionControl(id)
+    }
+    sessionClickHandlers.set(id, handler)
+    controlButtons[id].addEventListener('click', handler)
+  }
+  const unsubscribeSession = onLiveSession(() => { renderSessionControls() })
+  renderSessionControls()
   let runtimeRingMount = root.querySelector('.agent-ring-wrap')
 
   if (live) {
@@ -456,13 +608,20 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   return {
     el: root,
     destroy() {
+      destroyedView = true
       clearInterval(tick)
       terminateButton.removeEventListener('click', onTerminateClick)
       terminateController.destroy()
+      unsubscribeSession()
+      for (const [id, handler] of sessionClickHandlers) controlButtons[id].removeEventListener('click', handler)
       destroyWriteSurface()
       /* Closes any open session. Navigating away from the page must not leave
          a CLI child running with nothing on screen that can stop it. */
       destroyAgentSession()
+      /* Stops the cloud surface from publishing into a detached DOM. It does
+         NOT stop a launched cloud task, and cannot: the provider has no cancel.
+         Leaving the page is not a stop, which is why nothing here claims it. */
+      destroyCloudTasks()
       ctlResize.disconnect()
       unsubContext()
     },

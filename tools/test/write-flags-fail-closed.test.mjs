@@ -17,6 +17,10 @@ const EXPECTED_IDS = [
   // same reason as the rest: this suite is what forces a new write action to
   // be a deliberate decision, and it pins that the shipped default is off.
   'agent-session',
+  // Launching a task on Codex Cloud. The most consequential entry in this list:
+  // it starts real, billable work on a remote service, and the provider offers
+  // no cancel once a task is accepted. Default-off, like the rest.
+  'cloud-launch',
 ]
 
 class MemoryStorage {
