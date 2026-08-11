@@ -210,7 +210,7 @@ export const PROFILE_INTENT = Object.freeze([
        because the reader resolves it and we do not get to say which way. The
        half that is still true is the half that matters, and it is the one
        SHIPMENT-PLAN B14 turns on. */
-    desc: 'The account setup asks for is a ToolsEnabled account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is collected anywhere in this product; you sign in to those inside their own programs.',
+    desc: 'The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is collected anywhere in this product; you sign in to those inside their own programs.',
   }),
 ])
 
