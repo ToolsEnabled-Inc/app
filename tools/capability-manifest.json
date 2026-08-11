@@ -2,7 +2,7 @@
   "$comment": [
     "WHAT GOES INSIDE THE INSTALLER BESIDES THE VIEWER.",
     "",
-    "Mission Control is one half of a product. The other half is the",
+    "ToolsEnabled is one half of a product. The other half is the",
     "capability layer it talks to: the action bridge it discovers on",
     "127.0.0.1, the tool registry behind that, and the MCP server that",
     "exposes the same registry to agent clients. Before this manifest the",
@@ -64,7 +64,8 @@
     "config/toolsenabled.policy.json",
     "config/settings-registry.json",
     "config/dependency-acceptance.json",
-    "config/uac-delegation-allowlist.json"
+    "config/uac-delegation-allowlist.json",
+    "config/capability-base-profiles.json"
   ],
   "$comment_helperPrograms": [
     "PROGRAMS THE LAYER RUNS THAT ARE NOT JAVASCRIPT, and the reason this",
@@ -97,7 +98,17 @@
     "",
     "Found the way the `dataFiles` comment prescribes: by starting the staged",
     "payload in a directory with no checkout, with LOCALAPPDATA, USERPROFILE and",
-    "CODEX_HOME redirected to empty directories, and reading what it failed on."
+    "CODEX_HOME redirected to empty directories, and reading what it failed on.",
+    "",
+    "TWO HELPERS LEFT THIS LIST, AND THE ORDER MATTERS. owner-identity-profile.ps1",
+    "and private-identity-evidence.ps1 stage and OCR the builder's own passport and",
+    "legal-identity records. They were declared here because the JavaScript that",
+    "spawns them was staged, and a payload carrying the caller without the script is",
+    "a feature that is present and broken -- worse than one that is absent. Both",
+    "JavaScript modules have since left the require() closure (their tool",
+    "definitions moved to src/lib/tool-packs/), so the scripts leave with them and",
+    "nothing in the payload is left pointing at a missing program. Removing a helper",
+    "before its caller would have inverted that, which is why they moved together."
   ],
   "helperPrograms": [
     "tools/secrets.ps1",
@@ -106,9 +117,7 @@
     "tools/firebase-login.ps1",
     "tools/fra-root-access-probe.ps1",
     "tools/gcloud-login.ps1",
-    "tools/owner-identity-profile.ps1",
     "tools/owner-prompt-queue.ps1",
-    "tools/private-identity-evidence.ps1",
     "tools/playwright-mcp.cmd",
     "research/extract.py"
   ],
@@ -137,7 +146,9 @@
   "neutralDefaults": [
     "config/service-registry.json",
     "config/agent-org.json",
-    "config/managed-processes.json"
+    "config/managed-processes.json",
+    "config/toolsenabled.policy.json",
+    "config/model-floor.json"
   ],
   "$comment_dynamicRequires": [
     "The require() calls whose argument is computed at runtime, so a static",
