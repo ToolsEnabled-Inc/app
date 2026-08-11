@@ -221,8 +221,18 @@ test('build-info.json records no absolute path, username, or hostname', () => {
     // machine layout -- which is exactly why the file configuring it is
     // untracked. Its commit SHA and repo-relative paths carry the provenance
     // without carrying the identity.
-    assert.ok(!serialised.includes(payload), 'the payload tree absolute path was recorded')
-    assert.ok(!serialised.includes(app), 'the app tree absolute path was recorded')
+    //
+    // THE NEEDLE MUST BE JSON-ENCODED, AND THIS ASSERTION WAS DEAD WITHOUT IT.
+    // It read `!serialised.includes(payload)` with `payload` a raw Windows
+    // path. JSON.stringify escapes every backslash, so the haystack holds
+    // `C:\\Users\\...` while the needle holds `C:\Users\...` -- includes() is
+    // false even when the path is right there, and the assertion passed on a
+    // record that leaked. A guard that cannot fail is worse than no guard: it
+    // occupies the slot where a real one would go. Caught by another lane
+    // reusing this file as a model, and verified here before changing it.
+    const encoded = (value) => JSON.stringify(value).slice(1, -1)
+    assert.ok(!serialised.includes(encoded(payload)), 'the payload tree absolute path was recorded')
+    assert.ok(!serialised.includes(encoded(app)), 'the app tree absolute path was recorded')
     assert.doesNotMatch(serialised, /[A-Za-z]:\\\\|\/Users\/|\/home\//, 'an absolute path leaked into the shipped record')
     assert.ok(!serialised.includes(os.userInfo().username), 'the builder username was recorded')
     assert.ok(!serialised.includes(os.hostname()), 'the builder hostname was recorded')
