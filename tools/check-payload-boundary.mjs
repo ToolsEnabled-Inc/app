@@ -324,6 +324,7 @@ async function chooseRoots(requested) {
 function parseArguments(argv) {
   const roots = [];
   let manifest = DEFAULT_MANIFEST;
+  let ship = false;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--manifest") {
       manifest = argv[index + 1];
@@ -331,10 +332,14 @@ function parseArguments(argv) {
       index += 1;
       continue;
     }
+    if (argv[index] === "--ship") {
+      ship = true;
+      continue;
+    }
     if (argv[index].startsWith("--")) throw new GuardError(`unknown flag ${argv[index]}`);
     roots.push(argv[index]);
   }
-  return { roots, manifest: path.resolve(manifest) };
+  return { roots, manifest: path.resolve(manifest), ship };
 }
 
 async function main() {
@@ -399,34 +404,79 @@ async function main() {
   }
 
   const violations = [...found.excluded, ...found.paid, ...found.unclassified];
-  if (violations.length === 0) {
+  const pendingPaths = new Set(found.pending.map((item) => item.path));
+
+  // WHY THERE ARE TWO VERDICTS, AND WHY BOTH ALWAYS PRINT.
+  //
+  // The default verdict deliberately tolerates `pending`, and that is correct.
+  // pending means "a lane proposes removing this, the owner has ruled, and it
+  // still ships today". Failing every build until that work lands would make this
+  // guard an obstacle to ordinary development, and a guard that blocks every build
+  // gets switched off. So a dev build stays green while the report says plainly,
+  // in prose, that pending items are still shipping.
+  //
+  // But prose is not what a build chain consumes -- it consumes the exit code.
+  // Three separate lanes read "exit 0" as "safe to publish" while the commercial
+  // tier table with real prices sat in the payload, because the honest sentence
+  // and the exit code disagreed and only one of the two is machine-readable. That
+  // is the same defect as a permissive destructured default: the absence of a
+  // complaint read as consent. --ship closes it without breaking development.
+  //
+  // ORDER IS LOAD-BEARING, and this is the second version. The first returned
+  // early on pending, which silently suppressed the violation report: a --ship run
+  // with an unclassified file present exited 1 and never named that file. Right
+  // exit code, wrong reason, and the operator would have gone hunting for a
+  // pending file that was not the problem. A mutation -- planting an unclassified
+  // file and checking that --ship still NAMES it -- is what caught that, and it is
+  // why the counts below are deduplicated by path too: the default roots include
+  // both the staged payload and the copy already in release/win-unpacked, so a raw
+  // finding count says "12 files" where the manifest names 6, and a gate whose
+  // number disagrees with the file it reads is one people learn to argue with.
+  const shipRefusal = options.ship && pendingPaths.size > 0;
+
+  if (violations.length === 0 && !shipRefusal) {
     console.log("\nPayload boundary: clean. Nothing paid, excluded or unclassified is present.");
     return;
   }
 
-  console.error(`\nPAYLOAD BOUNDARY VIOLATION -- ${violations.length} file(s). This build must not ship.`);
+  if (violations.length > 0) {
+    console.error(`\nPAYLOAD BOUNDARY VIOLATION -- ${violations.length} file(s). This build must not ship.`);
 
-  for (const [label, heading] of [
-    ["excluded", "MUST NOT SHIP AT ALL (excluded)"],
-    ["paid", "PAID -- not for public release (paid)"],
-    [
-      "unclassified",
-      "UNCLASSIFIED -- present in the payload and named nowhere in the boundary manifest. " +
-        "This is a failure by design: an unknown file is not assumed open",
-    ],
-  ]) {
-    if (found[label].length === 0) continue;
-    console.error(`\n${heading}:`);
-    for (const item of found[label]) {
-      console.error(`  ${item.path}${item.rule ? `   [${item.rule}]` : ""}`);
+    for (const [label, heading] of [
+      ["excluded", "MUST NOT SHIP AT ALL (excluded)"],
+      ["paid", "PAID -- not for public release (paid)"],
+      [
+        "unclassified",
+        "UNCLASSIFIED -- present in the payload and named nowhere in the boundary manifest. " +
+          "This is a failure by design: an unknown file is not assumed open",
+      ],
+    ]) {
+      if (found[label].length === 0) continue;
+      console.error(`\n${heading}:`);
+      for (const item of found[label]) {
+        console.error(`  ${item.path}${item.rule ? `   [${item.rule}]` : ""}`);
+      }
     }
+
+    console.error(
+      `\nFix by either removing these files from the payload, or -- if a file is genuinely open -- ` +
+        `adding its exact path to "open".paths in ${MANIFEST_RELATIVE}. Do not add a prefix; do not ` +
+        "widen a rule to make a red build green without reading what the file is.",
+    );
   }
 
-  console.error(
-    `\nFix by either removing these files from the payload, or -- if a file is genuinely open -- ` +
-      `adding its exact path to "open".paths in ${MANIFEST_RELATIVE}. Do not add a prefix; do not ` +
-      "widen a rule to make a red build green without reading what the file is.",
-  );
+  if (shipRefusal) {
+    console.error(
+      `\nNOT PUBLISHABLE -- ${pendingPaths.size} file(s) are still "pending" and still ship:`,
+    );
+    for (const entry of [...pendingPaths].sort()) console.error(`  ${entry}`);
+    console.error(
+      '\n--ship requires pending=0. Without --ship, exit 0 means "nothing unclassified, paid or ' +
+        'excluded is present" -- it has never meant "safe to publish", and the files above are ' +
+        'precisely what that difference is about.',
+    );
+  }
+
   process.exitCode = 1;
 }
 
