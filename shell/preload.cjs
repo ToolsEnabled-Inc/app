@@ -14,16 +14,49 @@ contextBridge.exposeInMainWorld('mcShell', {
   getBridgeProof: () => ipcRenderer.invoke('mc-bridge-proof'),
 })
 
-// BLOCKER 2 (R1162 non-author review): this preload used to also expose a
-// second global, bridging the renderer's chat view to a family of IPC
-// channels still registered in shell/main.cjs. The engine those channels
-// started was resolved from a hardcoded path into a private sibling checkout
-// that exists on no shipped installation, so the bridge was dead IPC surface
-// on every install, and its failure path leaked that internal repo name into
-// the DOM. The chat route itself was removed from src/main.js; removing the
-// exposure here too means the renderer has no way to reach those channels at
-// all -- contextIsolation with nothing exposed blocks it outright, not just
-// an unreachable route. See tools/test/chat-agent-bridge-gated.test.mjs.
+/* BLOCKER 2 (R1162 non-author review) removed an earlier version of this
+   exposure. That bridge was dead on every installation: the engine behind it
+   was resolved from a hardcoded path into a private sibling checkout that
+   shipped nowhere, so the control could only ever fail, and its failure path
+   rendered that internal repo name into the DOM.
+
+   This exposure is re-established deliberately, and it is NOT the old one.
+   Three things are different, and each maps to one clause of that defect:
+
+   1. The engine path is configuration (MISSION_CONTROL_ENGINE), never a
+      filesystem guess. No engine configured means no engine -- it fails
+      closed instead of pretending.
+   2. `availability()` lets the renderer ASK before it offers a control, so a
+      build with no engine shows a stated-unavailable surface rather than a
+      button that is guaranteed to fail.
+   3. Nothing here can carry a path to the DOM. availability() replies
+      {ok, code}; the resolver's path-bearing message stays in the main
+      process.
+
+   The surface stays bounded on purpose: five named calls and a listener, each
+   forwarding a plain object to a channel main.cjs already validates. The
+   renderer never receives ipcRenderer itself.
+
+   See tools/test/chat-agent-bridge-gated.test.mjs, which now gates these
+   invariants instead of gating the exposure's absence. */
+const AGENT_EVENT_CHANNEL = 'mc-agent:event'
+
+contextBridge.exposeInMainWorld('mcAgent', {
+  availability: () => ipcRenderer.invoke('mc-agent:availability', {}),
+  start: (request) => ipcRenderer.invoke('mc-agent:start', request),
+  send: (request) => ipcRenderer.invoke('mc-agent:send', request),
+  interrupt: (request) => ipcRenderer.invoke('mc-agent:interrupt', request),
+  close: (request) => ipcRenderer.invoke('mc-agent:close', request),
+  /* Returns its own unsubscribe. A surface that mounts per navigation must be
+     able to detach exactly its own listener, or every visit to an agent page
+     leaves another one attached to the channel. */
+  onEvent: (listener) => {
+    if (typeof listener !== 'function') throw new TypeError('onEvent requires a listener function')
+    const forward = (_event, packet) => { listener(packet) }
+    ipcRenderer.on(AGENT_EVENT_CHANNEL, forward)
+    return () => { ipcRenderer.removeListener(AGENT_EVENT_CHANNEL, forward) }
+  },
+})
 
 function rgbToHex(rgb) {
   const m = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)

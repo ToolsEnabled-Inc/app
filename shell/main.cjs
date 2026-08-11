@@ -12,7 +12,7 @@ const dns = require('dns')
 const path = require('path')
 const fs = require('fs')
 const { randomBytes, randomUUID } = require('crypto')
-const { createAgentHost } = require('./agent-host.cjs')
+const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const {
   readCapabilityProof,
@@ -213,6 +213,16 @@ function getAgentHost() {
   agentHost = host
   return host
 }
+
+/* Availability is a READ, and deliberately the only agent channel that starts
+   nothing. The spawn surface calls it before it offers a Start control, so a
+   build with no reachable engine renders a stated-unavailable surface instead
+   of a button that always fails. The reply is {ok, code}: no path, no message,
+   no error object -- see engineAvailability() in agent-host.cjs. */
+ipcMain.handle('mc-agent:availability', async (_event, value) => {
+  agentPayload(value === undefined || value === null ? {} : value, [])
+  return engineAvailability()
+})
 
 ipcMain.handle('mc-agent:start', async (event, value) => {
   const request = parseAgentStart(value)
