@@ -328,8 +328,30 @@ function mountSessionControls(root, {
     stopping = true
     publish()
     sessionId = null
+    /* THE INTERRUPT IS ASKED FOR ONLY WHEN THERE IS A TURN TO INTERRUPT.
+     *
+     * It used to be unconditional with the rejection swallowed, on the reasoning
+     * that "no active turn is the common, expected case". The swallow works --
+     * nothing user-visible went wrong -- but the rejection is not silent one
+     * level up: Electron prints `Error occurred in handler for
+     * 'mc-agent:interrupt': AgentHostError: Session <id> has no active turn`
+     * with a full stack, and it did so on EVERY press of Stop, Respawn and
+     * Terminate over an idle session. MEASURED on the real window
+     * (tools/steering-controls-e2e.cjs): one such stack per respawn, on the
+     * completely correct path. A product that logs an error while doing exactly
+     * what was asked teaches whoever reads that log to ignore it, which is how
+     * the next real fault goes unnoticed.
+     *
+     * ASKING FIRST IS NOT A WEAKER TEARDOWN. `working` false and a turn still
+     * running would skip a graceful interrupt, and close() below still ends the
+     * child either way -- so the failure mode of a wrong reading is a less
+     * polite stop, never a surviving process. The opposite default, interrupting
+     * something that is not there, buys nothing at all. */
+    const hadTurn = working
     working = false
-    try { await bridge.interrupt({ sessionId: id }) } catch { /* no active turn is the common, expected case */ }
+    if (hadTurn) {
+      try { await bridge.interrupt({ sessionId: id }) } catch { /* the turn may finish between the read and the call */ }
+    }
     try { await bridge.close({ sessionId: id }) } catch { /* the owner-destroyed path closes it regardless */ }
     stopping = false
     publish()

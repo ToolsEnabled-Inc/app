@@ -14,9 +14,16 @@
 // WHAT THIS SUITE CAN AND CANNOT SEE. It exercises the mapping and the
 // decision, which are pure and belong in `node --test`. It cannot see whether
 // the buttons are wired to them -- source text greps the same for live code and
-// dead code -- so the reachability half is measured on the packaged window by
-// tools/agent-steering-packaged-qa.mjs, and the two are deliberately not
+// dead code -- so the reachability half is measured on the real window by
+// `node tools/run-steering-controls-e2e.cjs`, and the two are deliberately not
 // substitutes for each other.
+//
+// THAT SENTENCE USED TO NAME tools/agent-steering-packaged-qa.mjs, WHICH DOES
+// NOT EXIST. A suite header claiming a second half that was never written is
+// the same defect this file is about, one level up: the half that proves the
+// control reaches a process was the half nobody had. The named runner boots
+// shell/main.cjs, presses Start, Pause, Respawn and Terminate on the real page,
+// and checks each claim against the Windows process table by pid.
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -195,6 +202,48 @@ test('a control whose session ended cannot show a confirm step', () => {
   const face = sessionControlFace('terminate', gone.terminate, { step: 'confirm' })
   assert.equal(face.phase, 'unavailable', 'availability outranks the step, always')
   assert.equal(face.note, 'Unavailable')
+})
+
+/* THE PENDING FACE, COMPUTED THE WAY THE VIEW COMPUTES IT.
+ *
+ * Not `sessionControlFace(id, someEnabledState, { step: 'pending' })`. That call
+ * passes a state the product cannot produce: the view derives every state from
+ * ONE sessionControlAvailability({ busy }) reading, and the busy control is
+ * precisely the one that reading answers off() for. Asserting against a
+ * hand-made enabled state is how "Working…" stayed green for a release while
+ * every real press painted "Unavailable" -- a passing test over an unreachable
+ * branch.
+ *
+ * So this test builds the availability first, with `busy` set, and reads the
+ * face out of it exactly as src/views/agent.js does. */
+test('the control being pressed says it is working, not that it is unavailable', () => {
+  for (const busy of SESSION_CONTROL_IDS) {
+    const state = sessionControlAvailability({
+      live: true, agentId: 'a', session: record({ agentId: 'a', phase: 'working' }), busy,
+    })
+    const face = sessionControlFace(busy, state[busy], { step: 'pending' })
+    assert.equal(face.phase, 'pending', `${busy} must report the action it is running`)
+    assert.equal(face.note, 'Working…')
+    assert.match(face.message, /Nothing else is sent until it answers/)
+    /* It must still be un-pressable. The view disables from the availability,
+       which is the thing that stayed false; saying "Working…" must not be a
+       route to a second press of a destructive control. */
+    assert.equal(state[busy].enabled, false)
+    /* And the OTHER two are unavailable, not pending: only the control that was
+       pressed is running. */
+    for (const other of SESSION_CONTROL_IDS.filter(id => id !== busy)) {
+      assert.equal(sessionControlFace(other, state[other], { step: 'idle' }).phase, 'unavailable')
+    }
+  }
+})
+
+test('an idle control over a dead session never borrows the pending face', () => {
+  /* The absence case: `step` defaults to idle, so a caller that forgot to pass
+     one cannot get "Working…" over a session that is not there. */
+  const gone = sessionControlAvailability({ live: true, agentId: 'a', session: null })
+  assert.equal(sessionControlFace('terminate', gone.terminate).phase, 'unavailable')
+  assert.equal(sessionControlFace('terminate', gone.terminate, { step: 'idle' }).phase, 'unavailable')
+  assert.equal(sessionControlFace('terminate', undefined).phase, 'unavailable')
 })
 
 test('every control names what it does, not the fleet verb it resembles', () => {

@@ -128,12 +128,33 @@ export function sessionControlAvailability({ live = false, agentId = null, sessi
  * Kept beside the availability rather than in the view because the confirm step
  * is the part most likely to be got wrong: a control that says "Confirm" while
  * its availability has gone false would post an action against a session that
- * has ended. The step is therefore always subordinate to the availability.
+ * has ended. CONFIRM is therefore always subordinate to the availability.
+ *
+ * PENDING IS NOT, AND FOR ONE RELEASE THAT ORDERING MADE IT UNREACHABLE.
+ * `pending` was checked after `enabled`, and the only caller passes it for
+ * exactly the control named by `busy` -- which is the one control
+ * sessionControlAvailability() answers `off()` for. So every press of Terminate
+ * repainted the button "Unavailable" for the whole of the kill it had just
+ * started, and the one branch that says otherwise could not run. MEASURED on
+ * the real window (tools/steering-controls-e2e.cjs, first run): pressing Pause
+ * over a working session left all three controls reading "Unavailable" while
+ * the interrupt was in flight. A green unit test asserted "Working…" the whole
+ * time, because it called this function directly with a state the product could
+ * never hand it -- this project's own recurring defect, a passing test over a
+ * branch nothing reaches.
+ *
+ * The two steps are genuinely different acts and the ordering now says so:
+ * CONFIRM invites a press, so it must never appear over a control that may not
+ * be pressed. PENDING reports an action ALREADY SENT, which is a fact about
+ * what this app is doing and stays true however the availability answers.
+ * Nothing becomes clickable: the view disables from `state.enabled`, not from
+ * the phase, so a pending control is a disabled control that says what it is
+ * doing instead of implying the session went away.
  */
 export function sessionControlFace(id, state, { step = 'idle' } = {}) {
   const label = { pause: 'Pause', respawn: 'Respawn', terminate: 'Terminate' }[id] || id
-  if (!state?.enabled) return Object.freeze({ label, note: 'Unavailable', phase: 'unavailable', message: state?.reason || '' })
   if (step === 'pending') return Object.freeze({ label, note: 'Working…', phase: 'pending', message: `${label} is running. Nothing else is sent until it answers.` })
+  if (!state?.enabled) return Object.freeze({ label, note: 'Unavailable', phase: 'unavailable', message: state?.reason || '' })
   if (step === 'confirm' && CONFIRMED_CONTROLS.includes(id)) {
     return Object.freeze({
       label,
