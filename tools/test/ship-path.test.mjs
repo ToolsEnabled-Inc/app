@@ -86,6 +86,38 @@ const REQUIRED_STAGES = [
     missing:
       'The packaged smoke gate must target release/win-unpacked; targeting dist tests only the renderer and leaves the packaged application unproved.',
   },
+  {
+    // THE WIN-UNPACKED SCAN ABOVE IS NOT THE WHOLE PUBLISH SURFACE, AND THE GAP
+    // WAS MEASURED, NOT IMAGINED.
+    //
+    // Every owner-data scan in the chain targeted release/win-unpacked. Two
+    // things that carry the build machine's absolute paths live in release/
+    // ITSELF, one directory up, and were therefore never scanned by any build:
+    //
+    //   - builder-debug.yml, electron-builder's diagnostic sidecar, which records
+    //     NSIS include directories under the builder's home directory. It is
+    //     swept by strip-build-diagnostics.mjs -- but nothing verified the sweep
+    //     worked, so a sweep that silently stopped removing it would not have
+    //     been noticed by any gate.
+    //   - .artifact-seal-win-unpacked.json, written by seal-artifact.mjs
+    //     --record, which until 2026-08-11 stored path.resolve(artifact) and so
+    //     wrote "C:\\Users\\<account>\\..." into release/ on EVERY build. Crucially
+    //     --record runs AFTER strip-build-diagnostics, so the existing sweep
+    //     could not have caught it even in principle, and a fully green build
+    //     ended with the leak sitting in the output folder.
+    //
+    // The installer .exe -- the file a customer actually downloads -- was also
+    // never scanned by the chain, only ever the unpacked tree beside it.
+    //
+    // So the final stage scans release/ whole. It is a superset of the
+    // win-unpacked scan and costs one more pass, which is not a meaningful price
+    // next to publishing the builder's home directory. It runs LAST because
+    // steps after packaging keep writing into that directory.
+    name: 'publish-surface',
+    pattern: /(?:^|\s)(?:node\s+)?\S*check-no-owner-data\.mjs\s+release(?=\s|$)/,
+    missing:
+      'The dist ship path must finish by scanning the whole release/ directory for owner data; scanning only release/win-unpacked leaves the installer .exe, builder-debug.yml and the artifact seal — all of which sit one directory up — checked by nothing.',
+  },
 ];
 
 /**
@@ -142,7 +174,7 @@ export function assertShipPath(distScript, verifyScript) {
 }
 
 const VALID_CHAIN =
-  'npm run verify && npm run build && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked';
+  'npm run verify && npm run build && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release';
 const VALID_VERIFY = 'node tools/test-ratchet.mjs';
 
 test('the real package.json dist chain preserves the ship-path contract', () => {
@@ -191,6 +223,26 @@ test('rejects a chain with the owner-data privacy scan deleted', () => {
   assert.throws(
     () => assertShipPath(badChain, VALID_VERIFY),
     /must scan release[\\/]win-unpacked for owner data/,
+  );
+});
+
+// The win-unpacked scan staying in place is exactly what made this gap hard to
+// see: the chain looked privacy-gated, and was, for the one directory it named.
+// Anchored to the END of the chain on purpose -- the removed text is a PREFIX of
+// the win-unpacked command, so a plain string replace would delete the wrong
+// stage and this test would pass for the wrong reason.
+test('rejects a chain that scans only win-unpacked and never the whole release directory', () => {
+  const badChain = VALID_CHAIN.replace(/ && node tools\/check-no-owner-data\.mjs release$/, '');
+
+  assert.notEqual(badChain, VALID_CHAIN, 'the publish-surface stage must actually have been removed');
+  assert.match(
+    badChain,
+    /check-no-owner-data\.mjs release\/win-unpacked/,
+    'the win-unpacked scan must survive, so this proves the WIDER scan is required rather than any scan at all',
+  );
+  assert.throws(
+    () => assertShipPath(badChain, VALID_VERIFY),
+    /must finish by scanning the whole release[\\/] directory/,
   );
 });
 
@@ -249,8 +301,17 @@ test('rejects recording provenance before the renderer build that erases it', ()
   // can pack it, and the chain then looks fully gated while shipping an artifact
   // that still cannot state what it is -- the worst of both, since the terminal
   // shows the gate passing.
-  const badChain =
-    'npm run verify && node tools/require-clean-tree.mjs dist && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked';
+  // Derived from VALID_CHAIN, not hand-written, for the reason the
+  // smoke-ordering case above already records: a private copy of the chain goes
+  // stale the moment a stage is added, and then throws about the MISSING stage
+  // while still reading as a pass. That is not hypothetical here -- this case
+  // was a literal string and did exactly that when the publish-surface stage
+  // was added.
+  const PROVENANCE = ' && node tools/require-clean-tree.mjs dist';
+  const badChain = VALID_CHAIN.replace(PROVENANCE, '').replace(
+    ' && npm run build',
+    `${PROVENANCE} && npm run build`,
+  );
 
   assert.throws(
     () => assertShipPath(badChain, VALID_VERIFY),

@@ -19,7 +19,7 @@
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -186,6 +186,60 @@ test('fails closed when the seal belongs to another artifact', () => {
     assert.equal(status, 1, `a seal for another artifact must fail, got ${status}\n${output}`)
     assert.match(output, /COULD NOT RUN/)
     assert.match(output, /recorded against/)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+// ---- the seal must not itself put the build machine in the release directory.
+//
+// MEASURED, 2026-08-11. `artifact` held path.resolve(artifactDirectory), so
+// every --record wrote the builder's home directory into
+// release/.artifact-seal-win-unpacked.json:
+//
+//   "artifact": "C:\\Users\\joshp\\Desktop\\wt-capability\\release\\win-unpacked"
+//
+// `node tools/check-no-owner-data.mjs` failed on it under the built-in `C:\Users`
+// rule, which is never excusable. The ordering is what made it survivable for so
+// long: tools/strip-build-diagnostics.mjs sweeps release/ immediately after
+// electron-builder, and --record runs several steps LATER, so the sweep could
+// not have caught it and a fully green build still ended with the leak on disk.
+//
+// This asserts the FILE THAT IS WRITTEN, not the source that writes it, because
+// the whole failure was that the writing looked reasonable in isolation.
+test('records no absolute path, so the build machine is not left in the release directory', () => {
+  const { base, artifact, seal } = scaffold()
+  try {
+    const recorded = run('--record', artifact)
+    assert.equal(recorded.status, 0, recorded.output)
+
+    const contents = readFileSync(seal, 'utf8')
+
+    // The scaffold lives under os.tmpdir(), which on Windows is inside the
+    // account's own profile directory -- so the real leak reproduces here.
+    assert.ok(
+      !contents.includes(base),
+      `the seal contains its own absolute location, which carries the build account:\n${contents.slice(0, 400)}`,
+    )
+    assert.ok(
+      !contents.includes(os.homedir()),
+      `the seal contains the builder's home directory:\n${contents.slice(0, 400)}`,
+    )
+
+    // Any drive-rooted path at all, whichever machine this runs on. This is the
+    // shape tools/check-no-owner-data.mjs refuses and the reason the gate was red.
+    const driveRooted = contents.match(/[A-Za-z]:\\{1,2}[^"]*/g)
+    assert.equal(
+      driveRooted,
+      null,
+      `the seal carries ${driveRooted?.length} absolute path(s), e.g. ${JSON.stringify(driveRooted?.[0])}`,
+    )
+
+    // The identity must still be recorded, and must still be enough to verify.
+    // A seal that dropped the field entirely would pass every assertion above
+    // and destroy the wrong-artifact guard the next test covers.
+    assert.equal(JSON.parse(contents).artifact, 'win-unpacked')
+    assert.equal(run('--verify', artifact).status, 0)
   } finally {
     rmSync(base, { recursive: true, force: true })
   }

@@ -65,6 +65,45 @@ export function sealPathFor(artifactDirectory) {
   return path.join(path.dirname(resolved), `.artifact-seal-${path.basename(resolved)}.json`)
 }
 
+/* THE SEAL NAMES THE ARTIFACT BY BASENAME, NOT BY ABSOLUTE PATH, AND THAT IS A
+ * PRIVACY REQUIREMENT RATHER THAN A STYLE CHOICE.
+ *
+ * This field used to hold `path.resolve(artifactDirectory)`. Measured on this
+ * machine on 2026-08-11, that wrote
+ *
+ *   "artifact": "C:\\Users\\joshp\\Desktop\\wt-capability\\release\\win-unpacked"
+ *
+ * into release/.artifact-seal-win-unpacked.json on EVERY build -- the builder's
+ * home directory and account name, in the output folder, written by the very
+ * tool whose job is to certify that folder. `node tools/check-no-owner-data.mjs`
+ * fails on it (built-in rule `C:\Users`, which is never excusable), and it is
+ * written by `--record`, which runs AFTER tools/strip-build-diagnostics.mjs has
+ * already swept the directory. So the existing sweep could never have caught it
+ * and a green build ended with the leak in place.
+ *
+ * Deleting the seal afterwards would be the wrong fix twice over: --verify needs
+ * it later in the same chain, and it regenerates on the next build anyway.
+ *
+ * WHY THE BASENAME IS STILL SUFFICIENT. The only thing the recorded identity has
+ * to do is let --verify refuse a seal recorded against a DIFFERENT artifact
+ * (see the check in verify()). sealPathFor puts the seal in the artifact's
+ * PARENT directory, so a seal is a sibling of the artifact by construction and
+ * the basename resolves unambiguously against the seal's own location. That
+ * still distinguishes win-unpacked from other-unpacked, which is the confusion
+ * the guard exists to stop; it merely stops recording which machine built it.
+ *
+ * Resolving relative to the seal's directory also keeps a seal recorded by the
+ * OLD code working: path.resolve(dir, "C:\\...") returns the absolute path
+ * unchanged, so a stale absolute seal still verifies in the tree that wrote it
+ * instead of failing a build for a format change. */
+function artifactIdentity(resolvedArtifact) {
+  return path.basename(resolvedArtifact)
+}
+
+function resolveRecordedArtifact(sealPath, recorded) {
+  return path.resolve(path.dirname(sealPath), recorded || '')
+}
+
 /* Directories the running product writes into, from the same list that
  * src/lib/runtime-state-root.js redirects. Used ONLY to explain a failure in
  * the language of the defect -- the seal itself compares bytes and needs no
@@ -144,7 +183,7 @@ async function record(artifactDirectory) {
     `${JSON.stringify(
       {
         version: SEAL_VERSION,
-        artifact: resolved,
+        artifact: artifactIdentity(resolved),
         recordedAt: new Date().toISOString(),
         files: Object.fromEntries(tree),
       },
@@ -197,8 +236,17 @@ async function verify(artifactDirectory) {
      run": it would compare this tree against a stranger's manifest and report a
      torrent of meaningless differences, which reads as a broken check and gets
      the check disabled. */
-  if (path.resolve(parsed.artifact || '') !== resolved) {
-    console.error(`Artifact seal VERIFY COULD NOT RUN: ${seal} was recorded against ${parsed.artifact}, not ${resolved}.`)
+  if (resolveRecordedArtifact(seal, parsed.artifact) !== resolved) {
+    /* Both sides are reported by basename. The recorded side may be a stale
+       absolute path from before the identity became a basename, and echoing a
+       home directory into build output is the same leak this file just stopped
+       writing to disk -- a diagnostic is not an exemption. Basenames are what
+       actually distinguishes the two artifacts here, so nothing diagnostic is
+       lost by printing only them. */
+    console.error(
+      `Artifact seal VERIFY COULD NOT RUN: ${path.basename(seal)} was recorded against ` +
+        `${path.basename(resolveRecordedArtifact(seal, parsed.artifact))}, not ${path.basename(resolved)}.`,
+    )
     console.error('Nothing was compared. Re-record the seal against the artifact you mean to verify.')
     process.exitCode = 1
     return
