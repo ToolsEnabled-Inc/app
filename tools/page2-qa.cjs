@@ -224,6 +224,44 @@ async function run() {
     && initial.chipMaterial.accentBackgroundImage === 'none'
     && Math.abs(parseFloat(initial.chipMaterial.accentWidth) - 2) < 0.1, JSON.stringify(initial))
   check('statistics order', JSON.stringify(initial.sections) === JSON.stringify(['Load', 'Tasks', 'Legend']), initial.sections.join(','))
+
+  /* LABEL LAYOUT, MEASURED ON GLASS.
+     tools/test/phase2-label-layout.test.mjs pins the same contract as source
+     text, and used to pin it against FleetGraph's stylesheet — a sheet no
+     browser loads — where it passed for months while asserting nothing about
+     this page. Source text cannot see whether a rule is loaded, applied, or
+     overridden, which is exactly how that survived. This is the half that can.
+     Every visible node's name and role row must sit inside the label stack
+     that bounds them, and the stack must not exceed the per-node budget. */
+  const labels = await webContents.executeJavaScript(`(() => {
+    const nodes = [...document.querySelectorAll('.static-tree-node:not([hidden])')];
+    const overflowing = [];
+    const unlabelled = [];
+    let stacksMeasured = 0;
+    for (const node of nodes) {
+      const stack = node.querySelector('.node-labels');
+      const aria = node.getAttribute('aria-label') || '';
+      const role = node.querySelector('.node-role')?.textContent?.trim() || '';
+      if (!role || !aria.includes(role)) unlabelled.push({ id: node.dataset.agentId, aria, role });
+      if (!stack) continue;
+      stacksMeasured += 1;
+      const stackRect = stack.getBoundingClientRect();
+      for (const row of stack.querySelectorAll('.node-name, .node-role')) {
+        const rect = row.getBoundingClientRect();
+        /* 0.5px tolerance: sub-pixel layout rounding, not slack. */
+        if (rect.width > stackRect.width + 0.5) {
+          overflowing.push({ id: node.dataset.agentId, row: row.className, rowWidth: rect.width, stack: stackRect.width });
+        }
+      }
+    }
+    return { nodeCount: nodes.length, stacksMeasured, overflowing, unlabelled };
+  })()`)
+  check('role sublabels stay inside the node label budget',
+    labels.stacksMeasured > 0 && labels.overflowing.length === 0,
+    JSON.stringify(labels))
+  check('every node carries an accessible identity naming its role',
+    labels.nodeCount > 0 && labels.unlabelled.length === 0,
+    JSON.stringify(labels.unlabelled))
   check('settled graph probe starts idle', initial.frameMs === 0)
   check('no idle requestAnimationFrame callbacks', initial.idleRafCallbacks === 0, String(initial.idleRafCallbacks))
   check('no settled Page 2 CSS animation', initial.runningAnimations.length === 0, JSON.stringify(initial.runningAnimations))
