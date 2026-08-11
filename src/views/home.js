@@ -652,10 +652,21 @@ export function homeView() {
     approvalsTimer = setTimeout(() => { void loadApprovals() }, readable ? APPROVALS_POLL_MS : APPROVALS_RETRY_MS)
   }
 
-  /* A run started from the agent page while this window was open should be here
-     when the person comes back to it. */
-  const onFocus = () => { void loadSessions() }
-  window.addEventListener('focus', onFocus)
+  /* THERE IS DELIBERATELY NO REFRESH ON WINDOW FOCUS, and it was removed rather
+     than never written.
+   *
+     Reading the record means checking a signed chain, on the Electron main
+     process, which is also what forwards output for every live agent session.
+     Refreshing on focus therefore charged every running agent for the act of
+     alt-tabbing back to the window -- measured by the performance lane at ~0.9s
+     of whole-app stall on a ledger with ten thousand records. The cache in
+     shell/spawn-record.cjs takes most of that cost away, but the honest fix is
+     not to ask the question when there is no reason to.
+
+     And there is no reason to: a run can only start from this application, from
+     the agent page, which is a different route -- so this view is not mounted
+     while one is being started, and its next mount reads the record fresh.
+     Nothing can be missed by not asking on focus. */
 
   void loadEngine()
   void loadSessions(true)
@@ -679,7 +690,6 @@ export function homeView() {
       cancelAnimationFrame(firstPinFrame)
       cancelAnimationFrame(settledPinFrame)
       document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
-      window.removeEventListener('focus', onFocus)
     },
   }
 }

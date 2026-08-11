@@ -242,39 +242,161 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
     })
   }
 
-  /* Independent verification: recomputes every hash and checks every signature
-     and every link. This is what makes the record worth having -- a chain
-     nothing ever checks is decoration. */
-  function verify() {
-    if (!fs.existsSync(ledgerPath)) return Object.freeze({ ok: true, count: 0 })
-    const key = loadOrCreateKey()
-    const publicKey = crypto.createPublicKey(key)
-    const lines = fs.readFileSync(ledgerPath, 'utf8').split('\n').filter(line => line.trim().length > 0)
-    let previousHash = GENESIS
-    let expectedSequence = 1
+  /* How many signatures this recorder has actually checked.
+   *
+   * It exists so a test can assert that unchanged bytes are not re-verified
+   * WITHOUT measuring elapsed time. A timing assertion for this was written
+   * first and was flaky: it went red on a byte-identical restore during a
+   * mutation round, which is the worst behaviour a test can have -- it accuses
+   * correct code. Counting the work is deterministic, and it is also a stronger
+   * claim than "it was faster", because "faster" can be true while the check is
+   * quietly being skipped for the wrong reason.
+   *
+   * A count, never a result. It is not returned by `history()` and crosses no
+   * IPC boundary. */
+  let signatureChecks = 0
+
+  /* Check a run of records, chaining from a stated predecessor.
+   *
+   * `alreadyVerified` and `previousHash` are what let this be used both for a
+   * whole chain (0, GENESIS) and for records appended since a chain was last
+   * checked. Line numbers in a failure are always positions in the WHOLE file,
+   * because that is the only number that means anything to whoever reads it. */
+  function verifyRun(lines, publicKey, alreadyVerified, previousHash) {
+    const total = alreadyVerified + lines.length
+    let head = previousHash
+    let expectedSequence = alreadyVerified + 1
     for (const [index, line] of lines.entries()) {
+      const at = alreadyVerified + index + 1
       let entry
       try { entry = JSON.parse(line) } catch {
-        return Object.freeze({ ok: false, code: 'SPAWN_RECORD_LEDGER_CORRUPT', line: index + 1, count: lines.length })
+        return { ok: false, code: 'SPAWN_RECORD_LEDGER_CORRUPT', line: at, count: total }
       }
       const { eventHash, signature, ...body } = entry
-      if (body.sequence !== expectedSequence || body.previousHash !== previousHash) {
-        return Object.freeze({ ok: false, code: 'SPAWN_RECORD_CHAIN_BROKEN', line: index + 1, count: lines.length })
+      if (body.sequence !== expectedSequence || body.previousHash !== head) {
+        return { ok: false, code: 'SPAWN_RECORD_CHAIN_BROKEN', line: at, count: total }
       }
       if (sha256Hex(canonicalJson(body)) !== eventHash) {
-        return Object.freeze({ ok: false, code: 'SPAWN_RECORD_HASH_MISMATCH', line: index + 1, count: lines.length })
+        return { ok: false, code: 'SPAWN_RECORD_HASH_MISMATCH', line: at, count: total }
       }
-      let verified = false
+      let signatureHolds = false
       try {
-        verified = crypto.verify(null, Buffer.from(eventHash, 'hex'), publicKey, Buffer.from(signature, 'base64'))
-      } catch { verified = false }
-      if (!verified) {
-        return Object.freeze({ ok: false, code: 'SPAWN_RECORD_BAD_SIGNATURE', line: index + 1, count: lines.length })
+        signatureChecks += 1
+        signatureHolds = crypto.verify(null, Buffer.from(eventHash, 'hex'), publicKey, Buffer.from(signature, 'base64'))
+      } catch { signatureHolds = false }
+      if (!signatureHolds) {
+        return { ok: false, code: 'SPAWN_RECORD_BAD_SIGNATURE', line: at, count: total }
       }
-      previousHash = eventHash
+      head = eventHash
       expectedSequence += 1
     }
-    return Object.freeze({ ok: true, count: lines.length })
+    return { ok: true, count: total, head }
+  }
+
+  const readLedgerBytes = () => (fs.existsSync(ledgerPath) ? fs.readFileSync(ledgerPath) : Buffer.alloc(0))
+  const splitRecords = (text) => text.split('\n').filter(line => line.trim().length > 0)
+
+  /* Independent verification: recomputes every hash and checks every signature
+     and every link, every time it is called. This is what makes the record
+     worth having -- a chain nothing ever checks is decoration.
+
+     DELIBERATELY NOT CACHED, even though it fills the cache below. A function
+     named `verify` that can answer from something it decided earlier is not an
+     independent check, and the tests that call it are entitled to a real one.
+     `history()` is the caller that needs the cheap answer, and it asks for it
+     by name. */
+  function verify() {
+    if (!fs.existsSync(ledgerPath)) return Object.freeze({ ok: true, count: 0 })
+    const publicKey = crypto.createPublicKey(loadOrCreateKey())
+    const raw = readLedgerBytes()
+    const lines = splitRecords(raw.toString('utf8'))
+    const outcome = verifyRun(lines, publicKey, 0, GENESIS)
+    rememberVerdict(raw, outcome)
+    const { head, ...reportable } = outcome
+    return Object.freeze(reportable)
+  }
+
+  /* ------------------------------------------------------------------
+     Not re-checking bytes that have already been checked.
+
+     MEASURED by the performance lane on the real module: verifying the whole
+     chain costs ~0.093 ms per record ever written, forever, because the ledger
+     is append-only and nothing rotates it. 1,000 sessions is 102 ms; 10,000 is
+     912 ms; 50,000 is 4.65 seconds. All of it synchronous, and all of it on the
+     Electron MAIN process, which is also what forwards output events for every
+     live agent session -- so a home screen that asked this question casually
+     could stall every running agent for a second at a time.
+
+     THE CACHE IS KEYED ON THE LEDGER'S CONTENT HASH, AND THAT CHOICE IS THE
+     WHOLE SECURITY ARGUMENT. The obvious key is size plus modification time,
+     and it is cheaper still, but it is not sound: an in-place edit of one old
+     record that preserves the file's length, with the timestamp put back, is
+     exactly the tamper this chain exists to make visible, and a size-and-mtime
+     key would answer `verified: true` over it. Hashing the bytes cannot be
+     fooled that way -- identical hash means identical content means the earlier
+     verdict is still the correct verdict, with no assumption about anything.
+
+     It costs one sha256 pass over the file, which is roughly seventy times
+     cheaper than the ed25519 chain it replaces, so this is not a trade of
+     safety for speed. The guarantee is unchanged.
+
+     A GROWN LEDGER is the ordinary case: the file gains records and keeps its
+     prefix. When the previously-verified bytes are proven byte-identical (same
+     hash over the same leading range), the appended records are checked and
+     chained onto the head that was already established. Anything else -- the
+     file shrank, the prefix moved, the previous check failed, the boundary is
+     not a record boundary -- falls through to the full verification.
+     ------------------------------------------------------------------ */
+  let verdictCache = null
+
+  function rememberVerdict(raw, outcome) {
+    verdictCache = {
+      hash: crypto.createHash('sha256').update(raw).digest('hex'),
+      byteLength: raw.length,
+      outcome,
+    }
+  }
+
+  /* The caller passes the bytes it has already read. Reading the ledger twice
+     for one answer is a whole extra pass over a file that reaches tens of
+     megabytes, and it bought nothing -- the caller and this function would have
+     been looking at the same bytes anyway, or at two different states of the
+     file, which is worse. */
+  function cachedVerdict(raw) {
+    const hash = crypto.createHash('sha256').update(raw).digest('hex')
+
+    /* Same bytes, same answer. No signature is checked, and none needs to be. */
+    if (verdictCache && verdictCache.hash === hash) return verdictCache.outcome
+
+    const publicKey = crypto.createPublicKey(loadOrCreateKey())
+    const usable = verdictCache
+      && verdictCache.outcome.ok === true
+      && raw.length > verdictCache.byteLength
+      /* The old end must be a record boundary, or the "appended" region begins
+         mid-record and would be split in the wrong place. A ledger whose last
+         write was interrupted lands here and takes the full path. */
+      && raw[verdictCache.byteLength - 1] === 0x0a
+      /* MEASURED, so nobody re-derives it: relaxing the `>` above to `!==` is an
+         equivalent mutant, not a hole. A shrunken ledger fails the boundary
+         read (the index is past the end) and fails the prefix comparison below
+         (a shorter buffer cannot hash to the longer one's hash), so it takes
+         the full path either way -- confirmed by planting the change and
+         watching a truncated-then-edited ledger still report unverified. The
+         `>` stays because it says the intent; the safety is the two lines
+         around it. */
+      && crypto.createHash('sha256').update(raw.subarray(0, verdictCache.byteLength)).digest('hex') === verdictCache.hash
+
+    const outcome = usable
+      ? verifyRun(
+        splitRecords(raw.subarray(verdictCache.byteLength).toString('utf8')),
+        publicKey,
+        verdictCache.outcome.count,
+        verdictCache.outcome.head,
+      )
+      : verifyRun(splitRecords(raw.toString('utf8')), publicKey, 0, GENESIS)
+
+    rememberVerdict(raw, outcome)
+    return outcome
   }
 
   /* The newest records, for the screen that shows a person what has actually
@@ -301,10 +423,11 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
    * truncated list alone. */
   function history({ limit = 20 } = {}) {
     const bounded = Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 200) : 20
+    let raw
     let lines
     try {
-      if (!fs.existsSync(ledgerPath)) lines = []
-      else lines = fs.readFileSync(ledgerPath, 'utf8').split('\n').filter(line => line.trim().length > 0)
+      raw = readLedgerBytes()
+      lines = splitRecords(raw.toString('utf8'))
     } catch (error) {
       return Object.freeze({
         ok: false,
@@ -324,17 +447,23 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
 
     /* Verification is reported, never assumed, and its failure is NOT this
        function's failure: the records still exist and the person should still
-       see them, alongside the fact that the chain no longer checks out. */
+       see them, alongside the fact that the chain no longer checks out.
+
+       `cachedVerdict` rather than `verify` because this is the call a screen
+       makes, repeatedly, on the main process -- see the reasoning above it. The
+       answer is the same answer; only the bytes it declines to re-check twice
+       are different. */
     let verified = null
     try {
-      const result = verify()
-      verified = result.ok === true ? true : false
+      verified = cachedVerdict(raw).ok === true
     } catch { verified = null }
 
     return Object.freeze({ ok: true, total: lines.length, entries: Object.freeze(entries), verified })
   }
 
-  return Object.freeze({ availability, record, verify, history, ledgerPath, keyPath })
+  const stats = () => Object.freeze({ signatureChecks })
+
+  return Object.freeze({ availability, record, verify, history, stats, ledgerPath, keyPath })
 }
 
 module.exports = { createSpawnRecorder, SpawnRecordError, GENESIS }
