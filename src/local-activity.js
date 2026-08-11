@@ -30,6 +30,59 @@
  * omits the line rather than printing a placeholder for it.
  */
 
+/* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
+ *
+ * describeHome() below covers the copy that depends on what is true about the
+ * machine. This covers the rest: the states a panel passes through while it
+ * loads, the composer's label, and what the reply control says as a message
+ * goes out. Those depend on the moment rather than on the state, so they cannot
+ * be returned from a pure function of the machine's condition -- but they are
+ * still sentences a person reads, and while they sat as literals inside the
+ * view they were the one part of this screen no test was looking at.
+ *
+ * That gap was pointed out by the first-run lane, about its own code, in a form
+ * that turned out to describe mine exactly: helpers only help if something
+ * asserts the call sites use them, because a helper existing while one caller
+ * still names a literal is precisely how the original defect comes back. There
+ * were twelve such literals in src/views/home.js. tools/test/home-screen.test.mjs
+ * now walks every value here for the same punctuation and vocabulary rules it
+ * applies to describeHome(), and separately BANS user-facing string literals in
+ * the view, so a thirteenth cannot be added quietly.
+ *
+ * Functions rather than strings where a name is interpolated: the test calls
+ * them with a sample argument and checks the result, so the whole sentence is
+ * covered and not just its fixed half. */
+export const COPY = Object.freeze({
+  conversationLoading: Object.freeze({
+    title: 'Loading',
+    body: 'Reading the conversation from the computer that holds it.',
+  }),
+  conversationUnreachable: Object.freeze({
+    title: 'This conversation is on another computer',
+    body: 'Mission Control could not reach the computer that holds it.',
+  }),
+  conversationEmpty: Object.freeze({
+    title: 'Nothing has been said yet',
+    body: 'When your coordinator starts talking, it appears here.',
+  }),
+  sampleEmpty: Object.freeze({
+    title: 'This example has no conversation in it',
+    body: 'Nothing was written for this profile to show here.',
+  }),
+  sampleNoReply: 'This example has no reply written for that.',
+  runLabel: (sequence) => `Agent run ${sequence}`,
+  runWhenUnknown: 'at a time this record does not give',
+  composerSample: (target) => `Try writing to ${target}`,
+  composerLive: (target) => `Message ${target}`,
+  replyChecking: 'Checking whether replies can be sent',
+  replyUnavailable: 'Replies cannot be sent right now',
+  replyReady: 'Replies will be sent and recorded',
+  replyReadyOneChannelOffline: 'Replies will be sent and recorded. One message channel is offline.',
+  replySending: 'Sending',
+  replySent: 'Sent and recorded',
+  replyRefused: 'That message was not sent. Nothing was recorded.',
+})
+
 /* Everything the screen can be in. Named states rather than booleans checked in
    sequence: a boolean ladder is exactly how the contradictory pair got in, and
    a state machine makes the illegal pair unreachable instead of unlikely. */

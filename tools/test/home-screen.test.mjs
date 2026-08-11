@@ -21,6 +21,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import {
+  COPY,
   HOME_MODES,
   describeHome,
   readAgentEngine,
@@ -303,6 +304,72 @@ test('no reachable home screen punctuates like a README', () => {
       assert.equal(shouted, null, `uppercase word with ${label}: ${JSON.stringify(shouted)}`)
     }
   }
+})
+
+/* The sentences that do not come from describeHome, because they depend on the
+   moment rather than on the machine's state -- loading, the composer's label,
+   what the reply control says while a message goes out. They are still
+   sentences a person reads, so they take the same rules. Functions are called
+   with a sample argument so the interpolated whole is checked, not just its
+   fixed half. */
+function everyCopyString(value, path = 'COPY') {
+  if (typeof value === 'string') return [[path, value]]
+  if (typeof value === 'function') return [[`${path}()`, value('coordinator')]]
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, child]) => everyCopyString(child, `${path}.${key}`))
+  }
+  return []
+}
+
+test('the copy that does not come from the decision follows the same rules', () => {
+  const strings = everyCopyString(COPY)
+  assert.ok(strings.length >= 12, `expected the whole set, walked ${strings.length}`)
+  for (const [path, sentence] of strings) {
+    assert.equal(typeof sentence, 'string')
+    assert.ok(sentence.length > 0, `${path} is empty`)
+    for (const pattern of INTERNAL_VOCABULARY) {
+      assert.doesNotMatch(sentence, pattern, `${path} names a mechanism: ${JSON.stringify(sentence)}`)
+    }
+    for (const [character, name] of README_PUNCTUATION) {
+      assert.ok(!sentence.includes(character), `${path} carries a ${name}: ${JSON.stringify(sentence)}`)
+    }
+    const shouted = sentence.match(/\b[A-Z]{3,}\b/g)
+    assert.equal(shouted, null, `${path} shouts: ${JSON.stringify(shouted)}`)
+  }
+})
+
+/* THE ASSERTION THAT MAKES THE ONE ABOVE WORTH HAVING.
+ *
+ * A copy module only helps if something checks the view actually uses it. The
+ * first-run lane put this exactly right, about its own routing code, and it
+ * described this file's gap precisely: helpers existing while one call site
+ * still names a literal is how the original defect comes back. There were
+ * twelve user-facing literals left in the view when that was said, and none of
+ * them were covered by anything above.
+ *
+ * So the view may not contain a user-facing string literal at all. The check is
+ * narrow on purpose -- it looks at the places text reaches a person (textContent,
+ * the notice helper, an input's placeholder) rather than banning literals
+ * generally, because class names, hrefs and markup are literals too and should
+ * stay that way. */
+test('the view contains no user-facing string literal of its own', () => {
+  const body = code(HOME_JS)
+  const smells = [
+    [/\.textContent\s*=\s*['"`]/, 'text assigned to an element from a literal'],
+    [/showNotice\(\s*['"`]/, 'a notice built from a literal'],
+    /* Whitespace before `=` is required, and that is the whole difference
+       between a JavaScript assignment (`const placeholder = '...'`, which is
+       copy) and an HTML attribute inside a template (`placeholder="${...}"`,
+       which is markup carrying a value from elsewhere). Without it this flagged
+       the markup and would have been "fixed" by weakening the rule. */
+    [/placeholder\s+=\s*['"`]/, 'an input labelled from a literal'],
+    [/addTurn\([^)]*,\s*['"][^'"]{12,}/, 'a transcript line written from a literal'],
+  ]
+  for (const [pattern, what] of smells) {
+    const found = body.match(new RegExp(pattern.source, 'g'))
+    assert.equal(found, null, `${what} in src/views/home.js: ${JSON.stringify(found)} -- put it in COPY`)
+  }
+  assert.match(HOME_JS, /^\s*COPY,$/m, 'and the view imports the copy it is required to use')
 })
 
 /* ------------------------------------------------------------------

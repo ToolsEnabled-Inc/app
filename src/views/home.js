@@ -42,6 +42,7 @@ import { isWriteEnabled } from '../write-flags.js'
 import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 import { FLEET, isSampleFleet } from '../fleet-profile.js'
 import {
+  COPY,
   HOME_MODES,
   describeHome,
   readAgentEngine,
@@ -374,10 +375,10 @@ export function homeView() {
     logEl.replaceChildren()
     if (kind === 'sample') {
       if (SESSION.length) SESSION.forEach(turn => addTurn(turn.who, turn.text))
-      else showNotice('This example has no conversation in it', 'Nothing was written for this profile to show here.')
+      else showNotice(COPY.sampleEmpty.title, COPY.sampleEmpty.body)
       if (ARRIVALS.length) scheduleArrival(true)
     } else {
-      showNotice('Loading', 'Reading the conversation from the computer that holds it.', true)
+      showNotice(COPY.conversationLoading.title, COPY.conversationLoading.body, true)
       void loadCoordinatorThread()
     }
     pinAfterMount()
@@ -402,8 +403,8 @@ export function homeView() {
          rendering as three identical rows reading "just now", which is honest
          and useless. */
       const row = el('<li class="home-run"><span class="run-what"></span><span class="run-when"></span></li>')
-      row.querySelector('.run-what').textContent = `Agent run ${run.sequence}`
-      row.querySelector('.run-when').textContent = whenWords(state.nowMs - run.atMs) || 'at a time this record does not give'
+      row.querySelector('.run-what').textContent = COPY.runLabel(run.sequence)
+      row.querySelector('.run-when').textContent = whenWords(state.nowMs - run.atMs) || COPY.runWhenUnknown
       list.appendChild(row)
     }
     logEl.appendChild(list)
@@ -452,8 +453,8 @@ export function homeView() {
     }
     if (composerEl) return
     const placeholder = view.mode === HOME_MODES.SAMPLE
-      ? `Try writing to ${composerTarget}`
-      : `Message ${composerTarget}`
+      ? COPY.composerSample(composerTarget)
+      : COPY.composerLive(composerTarget)
     composerEl = el(`
       <div class="chat-input session-input">
         <input type="text" placeholder="${escText(placeholder)}" aria-label="${escText(placeholder)}" />
@@ -471,7 +472,7 @@ export function homeView() {
       /* The audited path. Until the bridge confirms it will take a message the
          controls are disabled and say why in one short sentence — not in the
          placeholder, which is a label for the box and not a status line. */
-      writeStateEl = el('<div class="session-write-state" data-state="checking" role="status">Checking whether replies can be sent</div>')
+      writeStateEl = el(`<div class="session-write-state" data-state="checking" role="status">${escText(COPY.replyChecking)}</div>`)
       composerEl.insertAdjacentElement('afterend', writeStateEl)
       inputEl.disabled = true
       sendButtonEl.disabled = true
@@ -479,13 +480,13 @@ export function homeView() {
         if (destroyed || !writeStateEl) return
         if (!result.ok) {
           writeStateEl.dataset.state = 'unavailable'
-          writeStateEl.textContent = 'Replies cannot be sent right now'
+          writeStateEl.textContent = COPY.replyUnavailable
           return
         }
         writeStateEl.dataset.state = 'ready'
         writeStateEl.textContent = result.channels?.discord?.ok === false
-          ? 'Replies will be sent and recorded. One message channel is offline.'
-          : 'Replies will be sent and recorded'
+          ? COPY.replyReadyOneChannelOffline
+          : COPY.replyReady
         inputEl.disabled = false
         sendButtonEl.disabled = false
       })
@@ -505,7 +506,7 @@ export function homeView() {
       inputEl.disabled = true
       sendButtonEl.disabled = true
       writeStateEl.dataset.state = 'pending'
-      writeStateEl.textContent = 'Sending'
+      writeStateEl.textContent = COPY.replySending
       const result = await postBridgeAction('thread-reply', {
         idempotencyKey: crypto.randomUUID(),
         threadId: 'owner-thread',
@@ -514,13 +515,13 @@ export function homeView() {
       if (destroyed || !writeStateEl) return
       if (!result.ok) {
         writeStateEl.dataset.state = 'refused'
-        writeStateEl.textContent = 'That message was not sent. Nothing was recorded.'
+        writeStateEl.textContent = COPY.replyRefused
       } else {
         inputEl.value = ''
         addTurn(result.receipt.actor || composerTarget, v, true)
         pulseBraces()
         writeStateEl.dataset.state = 'confirmed'
-        writeStateEl.textContent = 'Sent and recorded'
+        writeStateEl.textContent = COPY.replySent
       }
       inputEl.disabled = false
       sendButtonEl.disabled = false
@@ -536,7 +537,7 @@ export function homeView() {
     const replyAt = 1100 + Math.random() * 1100
     if (withAct) timers.push(setTimeout(() => addTurn('act', drawReplyAct(), true), replyAt - 550))
     timers.push(setTimeout(() => {
-      addTurn(composerTarget, REPLIES.length ? drawReply() : 'This example has no reply written for that.', true)
+      addTurn(composerTarget, REPLIES.length ? drawReply() : COPY.sampleNoReply, true)
       pulseBraces()
     }, replyAt + (withAct ? 500 : 0)))
   }
@@ -561,12 +562,12 @@ export function homeView() {
     const result = await fetchCoordinator()
     if (destroyed || renderedPanelKind !== 'conversation') return
     if (!result.ok) {
-      showNotice('This conversation is on another computer', 'Mission Control could not reach the computer that holds it.')
+      showNotice(COPY.conversationUnreachable.title, COPY.conversationUnreachable.body)
       return
     }
     const thread = result.data.data.thread
     if (!thread.ok || !thread.value.length) {
-      showNotice('Nothing has been said yet', 'When your coordinator starts talking, it appears here.')
+      showNotice(COPY.conversationEmpty.title, COPY.conversationEmpty.body)
       return
     }
     logEl.replaceChildren()
