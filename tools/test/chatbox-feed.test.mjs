@@ -444,6 +444,22 @@ test('the home view reads both settings and re-reads them when they move', () =>
   assert.match(HOME_JS, /filterTurns\(contextTurns, state\.chatbox\.selection\)/, 'the filter is applied to the held conversation')
 })
 
+test('the composer is never enabled by the carrier alone, only by the switch as well', () => {
+  /* Source text, and it is pinning a defect that was measured rather than
+     imagined: the enable used to depend only on whether the bridge would carry
+     a message, so with replying switched off -- the shipped default -- the box
+     printed "Replies will be sent and recorded" over an input that discarded
+     every keystroke. The order matters, so the assertion is on the order: the
+     switch is checked and bails out BEFORE the carrier is asked. */
+  const enableAt = HOME_JS.indexOf('inputEl.disabled = false')
+  const switchAt = HOME_JS.indexOf('if (!writeReplyEnabled) {')
+  const carrierAt = HOME_JS.indexOf('void bridgeStatus()')
+  assert.ok(switchAt > 0, 'the composer never consults the reply switch')
+  assert.ok(carrierAt > 0 && switchAt < carrierAt, 'the switch must be checked before the carrier is asked')
+  assert.ok(enableAt > switchAt, 'nothing is enabled before that check')
+  assert.match(HOME_JS, /COPY\.replyDisabled/, 'and the box says which switch it is waiting on')
+})
+
 test('both controls offer exactly the states the owner named', () => {
   assert.deepEqual(RUNS_MODES.map(mode => mode.id), ['with', 'hidden', 'only'])
   assert.deepEqual(AGENT_MODES.map(mode => mode.id), ['all', 'chosen'])

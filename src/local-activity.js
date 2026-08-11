@@ -97,6 +97,14 @@ export const COPY = Object.freeze({
   composerLive: (target) => `Message ${target}`,
   replyChecking: 'Checking whether replies can be sent',
   replyUnavailable: 'Replies cannot be sent right now',
+  /* SENDING REPLIES SHIPS OFF, and until this sentence existed the box did not
+     say so. It asked whether the message could be carried, was told yes, and
+     enabled the input with "Replies will be sent and recorded" over it -- while
+     the send itself returned early on a switch nobody had turned on. Typing and
+     pressing Enter did nothing at all, silently, on a machine with the shipped
+     defaults. That is the exact thing this screen refuses to do: an input that
+     accepts nothing is worse than no input. */
+  replyDisabled: 'Sending replies is switched off. Turn it on in Settings and this box will send and record them.',
   replyReady: 'Replies will be sent and recorded',
   replyReadyOneChannelOffline: 'Replies will be sent and recorded. One message channel is offline.',
   replySending: 'Sending',

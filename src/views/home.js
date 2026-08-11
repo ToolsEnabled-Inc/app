@@ -589,6 +589,18 @@ export function homeView() {
       composerEl.insertAdjacentElement('afterend', writeStateEl)
       inputEl.disabled = true
       sendButtonEl.disabled = true
+      /* THE SWITCH IS ASKED ABOUT FIRST, and it was not before.
+         `send()` has always returned early when replying is switched off, but
+         the enable below was gated only on whether the message could be
+         CARRIED. So with the shipped defaults the box asked the bridge, was
+         told yes, enabled the input and printed "Replies will be sent and
+         recorded" over a control that discarded every keystroke. Found by the
+         page 2 lane asking what this composer actually posts into. */
+      if (!writeReplyEnabled) {
+        writeStateEl.dataset.state = 'off'
+        writeStateEl.textContent = COPY.replyDisabled
+        return
+      }
       void bridgeStatus().then(result => {
         if (destroyed || !writeStateEl) return
         if (!result.ok) {
