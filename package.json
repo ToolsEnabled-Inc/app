@@ -4,7 +4,7 @@
   "version": "1.0.3",
   "type": "module",
   "main": "shell/main.cjs",
-  "author": "ToolsEnabled, Inc.",
+  "author": "ToolsEnabled, Inc. in formation",
   "scripts": {
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
     "test": "node tools/check-suites-discovered.mjs && npm run test:data",
@@ -39,7 +39,7 @@
   "productName": "Mission Control",
   "build": {
     "appId": "com.toolsenabled.missioncontrol",
-    "copyright": "Copyright © 2026 Mission Control",
+    "copyright": "Copyright © 2026 Joshua Pinckard",
     "asar": true,
     "electronDist": "node_modules/electron/dist",
     "directories": {

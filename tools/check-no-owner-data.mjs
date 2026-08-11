@@ -123,6 +123,75 @@ const BUILT_IN_PATTERNS = [
   // matches and not one of them was owner data.
 ];
 
+// PUBLISHED ATTRIBUTION IS NOT A LEAK, AND THIS IS THE THIRD TIME THIS FILE HAS
+// HAD TO SAY SO.
+//
+// The bare word "ToolsEnabled" was removed from the built-in list because the
+// product's own public identity is not owner data, and the path-separator
+// refinement was the same mistake one step smaller. The comment above already
+// states the principle: "the product's OWN public identity is not [forbidden],
+// and must not be caught by the same rule -- those are two different things
+// that happen to share a word."
+//
+// The creator's name is now exactly that case. The identity profile matches the
+// surname, and it must keep doing so, because the surname really does appear in
+// things that must never ship: account aliases, a hardcoded mail address, a home
+// directory. But this product's declared attribution -- decided by the owner and
+// required on the binary, in the README, in NOTICE, on the site and in the
+// academic citation form -- is the full name "Joshua Pinckard", published on
+// purpose. A guard that forbids it does not protect anyone: it forbids the
+// product from ever stating who wrote it, which is the one identity fact the
+// owner has instructed must be everywhere.
+//
+// The alternative was to drop the surname from the identity profile. That is the
+// dangerous fix, and it is the one this file's own history argues against: it
+// would silently stop catching jpinckard21@gmail.com and every future incidental
+// occurrence, and the loss would be invisible -- the guard would go on reporting
+// clean while looking for less than it used to. Absence-as-emptiness again.
+//
+// So the string stays matched and the ATTRIBUTION is excused, narrowly:
+//
+//   - Only identity-profile patterns can be excused. The built-in rules above are
+//     never excusable, so C:\Users, a drive-rooted checkout path, toolsenabled-current
+//     and an sk- key still fail even inside an attribution line. A leak cannot be
+//     laundered by putting the creator's name next to it.
+//   - A match is excused only when it lies WHOLLY INSIDE an occurrence of one of the
+//     exact strings below, in the same file. "Pinckard" inside "Joshua Pinckard" is
+//     excused. "Pinckard" inside "jpinckard21@gmail.com" is not, because the
+//     attribution string does not occur there. "Josh Pinckard" is not a substring of
+//     "Joshua Pinckard", so the informal-name pattern keeps catching what it caught.
+//   - Excused matches are COUNTED AND PRINTED, never silently dropped. An excusal
+//     that cannot be seen in the output is a bypass wearing a comment.
+const PUBLISHED_ATTRIBUTION = [
+  // The sole founder and creator, as published. This is the only personal name the
+  // product is permitted to carry, and it is required to carry it.
+  "Joshua Pinckard",
+];
+
+const ATTRIBUTION_PATTERNS = PUBLISHED_ATTRIBUTION.map((value) => ({
+  label: value,
+  bytes: Buffer.from(value),
+  caseInsensitive: true,
+}));
+
+// Spans of the buffer that published attribution occupies. Computed lazily, and only
+// for a file that already produced an identity hit, so a clean scan pays nothing.
+function attributionSpans(buffer) {
+  const spans = [];
+  for (const pattern of ATTRIBUTION_PATTERNS) {
+    for (const hit of findMatches(buffer, pattern)) {
+      spans.push({ start: hit.offset, end: hit.offset + hit.length });
+    }
+  }
+  return spans;
+}
+
+function insideAttribution(spans, hit) {
+  const start = hit.offset;
+  const end = hit.offset + hit.length;
+  return spans.some((span) => start >= span.start && end <= span.end);
+}
+
 // THE IDENTITY PROFILE IS REQUIRED, AND A MISSING ONE IS AN ERROR.
 //
 // Every identity pattern now lives in config. That makes absence dangerous in a way it
@@ -270,48 +339,93 @@ function asciiLower(byte) {
   return byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte;
 }
 
-// Returns {offset, length} rather than a bare offset because a pattern may now
-// be a regex, whose match length varies per hit and is what the excerpt window
-// has to be centred on.
-function findMatches(buffer, pattern) {
-  const found = [];
+// ONE-BYTE-PER-CHARACTER WAS AN ASSUMPTION, AND THE BINARY BROKE IT.
+//
+// Every pattern here used to be matched only as single-byte text. That is right for
+// the .js, .json and .asar content this guard was written against, and it is WRONG for
+// the one file in the bundle that matters most: the .exe itself.
+//
+// Windows stores a PE file's VersionInfo -- CompanyName, LegalCopyright, ProductName --
+// as UTF-16LE. "Pinckard" in that block is P\0i\0n\0c\0k\0a\0r\0d\0, which shares no
+// byte sequence with the ASCII form, so the single-byte scan cannot see it at any
+// offset. Measured, not reasoned: with the copyright line reading the creator's name in
+// both executables, a full scan of release/win-unpacked reported "Pinckard"=0 and
+// "Excused as published attribution: 0". The guard walked 372 MB, read the name twice,
+// and reported that it had found nothing.
+//
+// That is the failure mode this file already names in three other places: the check
+// passes because of what it could not see, and the consequence ships. It is at its worst
+// here, because VersionInfo is precisely where publisher identity lives, so it is exactly
+// where a builder's real name or company would end up by accident.
+//
+// So literals are searched in both encodings, and the regex rules are run over both
+// decodings. Cost of adding it, measured over the same build: one new occurrence, which
+// is the intended attribution and is excused. It surfaced no other match, so this widens
+// what the guard can see without widening what it complains about.
+//
+// Returns {offset, length} rather than a bare offset because a pattern may be a regex,
+// whose match length varies per hit, and because a UTF-16 hit is twice the byte length
+// of the same text -- both are what the excerpt window has to be centred on.
+function wideBytes(pattern) {
+  // Memoised on the pattern object. For every non-regex rule the label IS the literal
+  // being searched for, which is what makes this derivable rather than hand-maintained:
+  // a rule added later cannot forget to declare its UTF-16 form.
+  if (pattern.wide === undefined) pattern.wide = Buffer.from(pattern.label, "utf16le");
+  return pattern.wide;
+}
 
+function scanBytes(buffer, needle, caseInsensitive) {
+  const found = [];
+  if (needle.length === 0) return found;
+  const lastStart = buffer.length - needle.length;
+
+  for (let start = 0; start <= lastStart; start += 1) {
+    let matched = true;
+    for (let index = 0; index < needle.length; index += 1) {
+      const actual = buffer[start + index];
+      const expected = needle[index];
+      if (caseInsensitive ? asciiLower(actual) !== asciiLower(expected) : actual !== expected) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) found.push({ offset: start, length: needle.length });
+  }
+
+  return found;
+}
+
+function findMatches(buffer, pattern) {
   if (pattern.regex) {
+    const found = [];
+
     // latin1 maps one byte to one character with no multi-byte collapsing, so
     // string indices ARE byte offsets. Decoding as utf8 here would silently
     // shift every reported offset in any file containing a non-ASCII byte, and
     // would drop bytes that are not valid utf8 -- which is exactly where
     // something could hide from this scan.
-    const text = buffer.toString("latin1");
-    pattern.regex.lastIndex = 0;
-    let match;
-    while ((match = pattern.regex.exec(text)) !== null) {
-      found.push({ offset: match.index, length: match[0].length });
-      if (match[0].length === 0) pattern.regex.lastIndex += 1;
-    }
+    const runOver = (text, byteScale) => {
+      pattern.regex.lastIndex = 0;
+      let match;
+      while ((match = pattern.regex.exec(text)) !== null) {
+        found.push({ offset: match.index * byteScale, length: match[0].length * byteScale });
+        if (match[0].length === 0) pattern.regex.lastIndex += 1;
+      }
+    };
+
+    runOver(buffer.toString("latin1"), 1);
+    // Each UTF-16 code unit is exactly two bytes, so a string index in this decoding
+    // maps to a byte offset by doubling. Even alignment only, which is what the PE
+    // resource sections and every real UTF-16 payload use.
+    runOver(buffer.toString("utf16le"), 2);
+
     return found;
   }
 
-  const lastStart = buffer.length - pattern.bytes.length;
-
-  for (let start = 0; start <= lastStart; start += 1) {
-    let matched = true;
-    for (let index = 0; index < pattern.bytes.length; index += 1) {
-      const actual = buffer[start + index];
-      const expected = pattern.bytes[index];
-      if (
-        pattern.caseInsensitive
-          ? asciiLower(actual) !== asciiLower(expected)
-          : actual !== expected
-      ) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) found.push({ offset: start, length: pattern.bytes.length });
-  }
-
-  return found;
+  return [
+    ...scanBytes(buffer, pattern.bytes, pattern.caseInsensitive),
+    ...scanBytes(buffer, wideBytes(pattern), pattern.caseInsensitive),
+  ];
 }
 
 function excerpt(buffer, offset, matchLength) {
@@ -357,11 +471,18 @@ async function main() {
   // sentence rather than 1 with a stack trace.
   const identityPatterns = loadIdentityPatterns(REPO_ROOT);
   assertProfileBelongsToBuilder(identityPatterns, detectBuildAccount());
-  ACTIVE_PATTERNS = [...BUILT_IN_PATTERNS, ...identityPatterns];
+  // builtIn is set here rather than on each literal above so the marker cannot be
+  // forgotten on a rule added later. Built-in rules are the ones attribution may
+  // never excuse.
+  ACTIVE_PATTERNS = [
+    ...BUILT_IN_PATTERNS.map((pattern) => ({ ...pattern, builtIn: true })),
+    ...identityPatterns,
+  ];
   const roots = chooseRoots(process.argv.slice(2));
   let filesScanned = 0;
   let bytesScanned = 0;
   let totalMatches = 0;
+  let attributionExcused = 0;
   const perPattern = new Map(ACTIVE_PATTERNS.map(({ label }) => [label, 0]));
 
   for (const root of roots) {
@@ -388,14 +509,29 @@ async function main() {
       filesScanned += 1;
       bytesScanned += buffer.length;
 
+      let spans = null;
+
       for (const pattern of ACTIVE_PATTERNS) {
         const hits = findMatches(buffer, pattern);
         if (hits.length === 0) continue;
 
-        totalMatches += hits.length;
-        perPattern.set(pattern.label, perPattern.get(pattern.label) + hits.length);
-        console.log(`${filePath} | pattern=${JSON.stringify(pattern.label)} | matches=${hits.length}`);
-        for (const hit of hits) {
+        // Built-in rules are product facts, never excusable. Only the identity
+        // profile can be satisfied by published attribution.
+        let reportable = hits;
+        if (!pattern.builtIn) {
+          if (spans === null) spans = attributionSpans(buffer);
+          if (spans.length > 0) {
+            reportable = hits.filter((hit) => !insideAttribution(spans, hit));
+            attributionExcused += hits.length - reportable.length;
+          }
+        }
+
+        if (reportable.length === 0) continue;
+
+        totalMatches += reportable.length;
+        perPattern.set(pattern.label, perPattern.get(pattern.label) + reportable.length);
+        console.log(`${filePath} | pattern=${JSON.stringify(pattern.label)} | matches=${reportable.length}`);
+        for (const hit of reportable) {
           console.log(`  offset=${hit.offset} | excerpt=${JSON.stringify(excerpt(buffer, hit.offset, hit.length))}`);
         }
       }
@@ -406,9 +542,20 @@ async function main() {
     throw new Error(`nothing to check: scanned 0 files in ${roots.length} director${roots.length === 1 ? "y" : "ies"}`);
   }
 
-  console.log(`Scanned ${filesScanned} files (${bytesScanned} bytes). Total matches: ${totalMatches}.`);
+  console.log(
+    `Scanned ${filesScanned} files (${bytesScanned} bytes), single-byte and UTF-16LE. ` +
+      `Total matches: ${totalMatches}.`,
+  );
   console.log(
     `Per-pattern matches: ${ACTIVE_PATTERNS.map(({ label }) => `${JSON.stringify(label)}=${perPattern.get(label)}`).join(", ")}`,
+  );
+  // Printed unconditionally, including the zero. A number that only appears when it is
+  // non-zero teaches nobody that the mechanism exists, and the first time it is non-zero
+  // it looks like a new thing rather than a working one.
+  console.log(
+    `Excused as published attribution: ${attributionExcused} ` +
+      `(permitted strings: ${PUBLISHED_ATTRIBUTION.map((value) => JSON.stringify(value)).join(", ")}; ` +
+      "built-in rules are never excused).",
   );
 
   if (totalMatches > 0) process.exitCode = 1;

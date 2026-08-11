@@ -1,0 +1,53 @@
+ToolsEnabled with Mission Control
+Copyright © 2026 Joshua Pinckard
+
+ToolsEnabled was founded and created by Joshua Pinckard. The original platform was
+developed by directing autonomous AI-agent fleets through the system's own evolving
+coordination architecture.
+
+Sole founder and creator : Joshua Pinckard
+Official product         : ToolsEnabled with Mission Control
+Official publisher       : ToolsEnabled, Inc. (in formation)
+Copyright holder         : Joshua Pinckard
+
+-------------------------------------------------------------------------------
+LEGAL STATUS
+-------------------------------------------------------------------------------
+
+ToolsEnabled, Inc. has not been incorporated. It is named here as the intended
+publisher and is marked "(in formation)" for that reason. Copyright is held
+personally by Joshua Pinckard until the entity exists and the rights are
+assigned to it; this NOTICE is updated at that point.
+
+No trademark application has been filed for "ToolsEnabled" or "Mission Control".
+Neither name is claimed here as a registered mark.
+
+No open-source license has been selected yet, so this file makes no license
+grant and all rights are reserved. A license will be chosen and added before
+public release.
+
+-------------------------------------------------------------------------------
+CONTRIBUTORS
+-------------------------------------------------------------------------------
+
+Outside developers are credited in CONTRIBUTORS.md as contributors and
+maintainers. Contributors are never founders. The founder credit above is not
+shared and is not altered by contribution.
+
+-------------------------------------------------------------------------------
+ACADEMIC AND RESEARCH CITATION
+-------------------------------------------------------------------------------
+
+Joshua Pinckard conceived the project, defined its objectives and requirements,
+directed the autonomous agent workflows, selected and evaluated outputs, and
+assumes responsibility for the research methodology and conclusions. AI agents
+generated substantial portions of the implementation and written drafts.
+
+-------------------------------------------------------------------------------
+THIRD-PARTY COMPONENTS
+-------------------------------------------------------------------------------
+
+This product bundles third-party open-source components, each governed by its
+own license. Those licenses are unaffected by this NOTICE, and nothing here
+adds to or removes from them. The bundled dependencies are declared in
+package.json and resolved in package-lock.json.

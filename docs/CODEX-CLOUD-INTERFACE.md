@@ -87,3 +87,8 @@ counterpart. Nothing here invents new backend capability — it productizes the 
   file layout.
 - Candidate builder: Machine B's app development system, after installer validation
   completes. This spec is written to be read cold.
+
+---
+
+*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

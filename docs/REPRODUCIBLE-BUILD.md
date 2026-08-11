@@ -203,3 +203,8 @@ path that spawns Electron, strip it there too.
 *Written 2026-08-10 by lane `reproducible-build`. Every number above came from
 a command's exit code or its captured output on Machine A; nothing is
 inferred.*
+
+---
+
+*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*
