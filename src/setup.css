@@ -54,6 +54,14 @@
   margin-top: var(--s5);
 }
 
+/* .ctl-btn carries no horizontal padding of its own -- every surface that uses
+   it sizes it (the agent view's control strip sets `padding: 5px 6px`, the
+   settings rows give it a grid track). Dropped into a plain flex row it shrinks
+   to the width of its own label, and "Continue" rendered with its text against
+   both edges. Sizing it here rather than adding padding to the shared class,
+   which would move every button in the product. */
+.setup-actions .ctl-btn { padding-inline: var(--s4); }
+
 /* While the question is unanswered the arrows and the settings gear are the
    only way off this screen, and leaving it would land someone in a product
    whose permission level was never recorded. The chrome comes back the moment
@@ -62,3 +70,15 @@
 body.first-run .topbar { display: none; }
 body.first-run.in-shell #stage,
 body.first-run #stage { padding-top: 0; }
+
+/* The fleet notice is appended to <body> once, at module evaluation, and is
+   not route-aware -- it predates there being any screen before the fleet. Seen
+   on the real first-run screen it reads as a second, competing message ("This
+   is a labelled sample fleet, not your machines") about a fleet the person has
+   not reached yet, next to the one question they were asked to answer. It
+   returns the moment a level is recorded, which is also the moment its subject
+   becomes visible.
+   `:not(.is-serious)` is deliberate: the same element carries a genuine
+   "fleet profile failed to load" ALERT, and suppressing an error would be a
+   worse first impression than a crowded one. Only the informational copy goes. */
+body.first-run .fleet-profile-notice:not(.is-serious) { display: none; }
