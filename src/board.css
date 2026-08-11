@@ -630,6 +630,13 @@
   border: 1px solid var(--line-2);
   background: var(--sheet);
   color: var(--ink-2); font-size: 12.5px; line-height: 1.45;
+  /* NOT transitioned. This line inherits the page's `all 0.12s`, and a status
+     line that eases from the previous message's colour into this one spends
+     that time reading as the previous verdict — a refusal wearing the green of
+     the save it replaced. Measured: with the transition in place, a window that
+     is not producing frames holds the colour at the OLD state indefinitely. A
+     verdict must arrive already wearing its own colour. */
+  transition: none;
 }
 .computers .org-status[data-state="ok"] { color: var(--s-good-text, var(--s-good)); }
 .computers .org-status[data-state="refuse"] {
