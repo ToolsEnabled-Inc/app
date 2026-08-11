@@ -206,5 +206,5 @@ inferred.*
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

@@ -544,10 +544,14 @@ async function main() {
     throw new Error(`nothing to check: scanned 0 files in ${roots.length} director${roots.length === 1 ? "y" : "ies"}`);
   }
 
-  console.log(
-    `Scanned ${filesScanned} files (${bytesScanned} bytes), single-byte and UTF-16LE. ` +
-      `Total matches: ${totalMatches}.`,
-  );
+  // DO NOT REWORD THIS LINE. tools/release-packager/cut-release-candidate.mjs parses it
+  // with /Scanned (\d+) files \((\d+) bytes\)\. Total matches: (\d+)\./ to put the
+  // owner-data evidence into the release declaration, and a miss there is SILENT --
+  // extractPipelineFacts just records null and the declaration ships without the number.
+  // Adding ", single-byte and UTF-16LE" mid-sentence broke exactly that, which is why the
+  // encoding note is its own line below instead.
+  console.log(`Scanned ${filesScanned} files (${bytesScanned} bytes). Total matches: ${totalMatches}.`);
+  console.log("Encodings scanned: single-byte and UTF-16LE.");
   console.log(
     `Per-pattern matches: ${ACTIVE_PATTERNS.map(({ label }) => `${JSON.stringify(label)}=${perPattern.get(label)}`).join(", ")}`,
   );
