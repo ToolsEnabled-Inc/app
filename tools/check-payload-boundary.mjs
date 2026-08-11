@@ -407,10 +407,26 @@ async function main() {
   );
 
   if (boundary.status === STATUS_PROPOSED) {
+    // WHAT THIS STATUS DOES AND DOES NOT MEAN.
+    //
+    // This note used to read "has not been ratified by the owner ... once the
+    // owner has ruled". That was false and it was expensive: the owner ruled on
+    // every open question, and twenty-three of those decisions have been
+    // executed. A reader hitting that sentence goes looking for a decision that
+    // was already made, while the actual blocker is that six files still ship.
+    //
+    // The status is still "proposed" for a mechanical reason, not a human one:
+    // loadManifest() REFUSES to accept the ratified status while any path is
+    // pending, so ratification is a consequence of finishing the removal work,
+    // never a signature that can be applied to unfinished work. Saying so is the
+    // whole point -- a status that can be granted by asking someone is a status
+    // that gets granted at 2am to unblock a build.
     console.log(
-      "\nNOTE: this boundary is a PROPOSAL and has not been ratified by the owner. It is enforced as " +
-        `written; "pending" items below are still shipping. Set status to ${JSON.stringify(STATUS_RATIFIED)} ` +
-        "once the owner has ruled -- which is refused while anything is still pending.",
+      "\nNOTE: this boundary is enforced exactly as written, and the \"pending\" paths named below " +
+        "are still shipping. The status is not waiting on a decision -- the owner has ruled on " +
+        `every entry. It becomes ${JSON.stringify(STATUS_RATIFIED)} when nothing is pending, and this ` +
+        "guard refuses that status while anything still is. So the way to change this line is to " +
+        "stop shipping the files, not to ask anyone.",
     );
   }
 
