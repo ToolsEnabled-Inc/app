@@ -175,6 +175,24 @@ function ownedAgentSession(sender, sessionId) {
   return session
 }
 
+/* Every agent channel must come from the application's own main frame.
+   These channels start and drive a real CLI child process, so any frame that
+   can reach the preload could spawn one: a main frame navigated off-origin,
+   or a window the shell did not open. The shell has no will-navigate or
+   window-open guard, so this is the boundary that actually holds.
+
+   The sibling fleet-profile handlers already apply exactly this test. The
+   agent channels -- the ones that create processes -- had none, which is the
+   wrong way round. trustedFleetProfileSender() is the shell's generic "is
+   this our own main frame, at our own origin" check despite its name; it is
+   reused rather than duplicated so there is one definition of trusted sender,
+   not two that can drift. */
+function assertTrustedAgentSender(event) {
+  if (!trustedFleetProfileSender(event)) {
+    agentIpcError('MC_AGENT_SENDER_REFUSED', 'Agent request did not come from the application main frame.')
+  }
+}
+
 function reportOwnerCloseFailure(sessionId, error) {
   console.error('Failed to close Codex session ' + sessionId + ':', error)
 }
@@ -219,12 +237,14 @@ function getAgentHost() {
    build with no reachable engine renders a stated-unavailable surface instead
    of a button that always fails. The reply is {ok, code}: no path, no message,
    no error object -- see engineAvailability() in agent-host.cjs. */
-ipcMain.handle('mc-agent:availability', async (_event, value) => {
+ipcMain.handle('mc-agent:availability', async (event, value) => {
+  assertTrustedAgentSender(event)
   agentPayload(value === undefined || value === null ? {} : value, [])
   return engineAvailability()
 })
 
 ipcMain.handle('mc-agent:start', async (event, value) => {
+  assertTrustedAgentSender(event)
   const request = parseAgentStart(value)
   if (agentSessions.has(request.sessionId)) {
     agentIpcError('MC_AGENT_SESSION_EXISTS', 'Session already exists: ' + request.sessionId)
@@ -251,18 +271,21 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
 })
 
 ipcMain.handle('mc-agent:send', async (event, value) => {
+  assertTrustedAgentSender(event)
   const request = parseAgentSend(value)
   ownedAgentSession(event.sender, request.sessionId)
   return agentHost.sendTurn(request)
 })
 
 ipcMain.handle('mc-agent:interrupt', async (event, value) => {
+  assertTrustedAgentSender(event)
   const request = parseAgentSessionCommand(value)
   ownedAgentSession(event.sender, request.sessionId)
   return agentHost.interrupt(request)
 })
 
 ipcMain.handle('mc-agent:close', async (event, value) => {
+  assertTrustedAgentSender(event)
   const request = parseAgentSessionCommand(value)
   const session = ownedAgentSession(event.sender, request.sessionId)
   const result = await agentHost.closeSession(request)

@@ -117,6 +117,28 @@ test('the surface renders only recognised event text', () => {
   assert.equal(sessionTurnStatus({ sessionId: 'other', event: { type: 'turn_completed', status: 'x' } }, id), null)
 })
 
+test('every agent channel validates its sender frame', () => {
+  // These channels create and drive a real CLI child process. The shell has no
+  // will-navigate or window-open guard, so the sender check is the boundary
+  // that actually holds: without it, any frame reaching the preload could
+  // spawn. The sibling fleet-profile handlers already did this; the spawn
+  // channels did not, which was the wrong way round.
+  const main = read('shell/main.cjs')
+  const channels = ['availability', 'start', 'send', 'interrupt', 'close']
+  for (const channel of channels) {
+    assert.match(
+      main,
+      new RegExp(`ipcMain\\.handle\\('mc-agent:${channel}'[^\\n]*\\n\\s*assertTrustedAgentSender\\(event\\)`),
+      `mc-agent:${channel} must validate its sender frame as its very first statement`,
+    )
+  }
+  assert.match(
+    main,
+    /function assertTrustedAgentSender[\s\S]{0,300}trustedFleetProfileSender/,
+    'the agent sender check must reuse the shell trusted-sender test, not define a second one',
+  )
+})
+
 test('the agent page mounts the session surface and closes it on destroy', () => {
   const view = read('src/views/agent.js')
   assert.match(view, /mountAgentSessionSurface\(root/, 'the agent page must mount the session surface')
