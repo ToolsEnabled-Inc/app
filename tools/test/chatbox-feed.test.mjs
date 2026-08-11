@@ -366,6 +366,35 @@ test('the box never complains about a filter over a conversation it is not showi
   }
 })
 
+/* TWO REPRESENTATIONS OF ONE FACT, AND NOTHING WAS HOLDING THEM TOGETHER.
+ *
+ * `panel.kind` says WHICH conversation to load ('sample', 'conversation', or
+ * 'none'); `panel.context` says WHETHER the conversation half is on screen.
+ * They are the same fact wearing two names, and src/views/home.js reads them in
+ * different places: renderContext() switches on `kind` to seed the sample or
+ * fetch the thread, and everything else branches on `context`.
+ *
+ * Let them drift and the failure is silent in both directions -- a thread
+ * fetched for a half that will not be drawn, or a held conversation cleared
+ * while the box claims to be showing one, which paints an empty transcript with
+ * no notice explaining it. Neither would fail a test: `panel.kind` was not
+ * referenced by a single assertion in this suite before this one.
+ *
+ * That is the gap the page 2 lane named after I fixed the footer: coverage that
+ * GENERATES a state and asserts nothing about it is indistinguishable from not
+ * covering it. The walk below has been producing all 432 of these all along. */
+test('what the box loads and what the box shows are the same fact, always', () => {
+  const KINDS = new Set(['sample', 'conversation', 'none'])
+  for (const { label, input } of ALL) {
+    const { panel } = describeHome(input)
+    assert.ok(KINDS.has(panel.kind), `unknown panel kind ${JSON.stringify(panel.kind)} with ${label}`)
+    assert.equal(
+      panel.kind === 'none', panel.context === false,
+      `the box loads ${JSON.stringify(panel.kind)} while showing context=${panel.context}, with ${label}`,
+    )
+  }
+})
+
 test('the box says how many agents it is holding back, and only when it is', () => {
   const held = describeHome({
     fleetConfigured: true,
