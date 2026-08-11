@@ -31,6 +31,7 @@
     "check:naming": "node tools/check-product-naming.mjs",
     "qa:checkout-privacy": "node tools/checkout-privacy-packaged-qa.mjs",
     "qa:packaged": "node tools/packaged-qa-suite.mjs",
+    "qa:performance": "node tools/performance-budget-qa.mjs",
     "qa:packaged:all": "node tools/packaged-qa-suite.mjs --include-costly",
     "smoke:packaged": "node tools/smoke-packaged.mjs release/win-unpacked",
     "check:install-dir": "node tools/check-install-dir-immutable.mjs release/win-unpacked",
