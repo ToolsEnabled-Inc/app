@@ -102,7 +102,33 @@ function stage(scratch) {
 
 /* ---------- a bounded CDP client ---------- */
 
-function createSession(port) {
+/* A PORT NOBODY ELSE HOLDS, ASKED FOR RATHER THAN GUESSED.
+ *
+ * This harness used a fixed debugger port and was measured at ONE FAILURE IN
+ * FOUR consecutive runs: the previous run's Electron had not finished releasing
+ * the port, so the next instance could not open the debugger and no page ever
+ * appeared. The symptom -- "the app exited before it painted" -- is
+ * indistinguishable from a real startup crash, which is precisely the reading
+ * that cost another lane three false regression reports in this repo. An
+ * instrument that is flaky one run in four does not report a defect; it reports
+ * a coin toss, and whoever runs it once believes the toss.
+ *
+ * The OS is asked for a free port instead. Binding zero and reading back the
+ * assignment cannot collide with a lingering process or with another lane
+ * running this at the same moment. */
+async function freePort() {
+  const net = await import('node:net')
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address()
+      server.close(() => resolve(port))
+    })
+  })
+}
+
+function createSession(port, child) {
   let socket = null
   let nextId = 1
   const pending = new Map()
@@ -110,6 +136,11 @@ function createSession(port) {
   return {
     async open() {
       for (let attempt = 0; attempt < 60; attempt += 1) {
+        /* An exited child is a DIFFERENT fact from a slow one, and conflating
+           them is how a startup crash gets read as a timeout and vice versa. */
+        if (child.exitCode !== null) {
+          throw new Error(`the app exited with code ${child.exitCode} before the debugger answered; this is a startup failure, not a slow paint`)
+        }
         try {
           const response = await fetch(`http://127.0.0.1:${port}/json/list`)
           const page = (await response.json()).find(entry => entry.type === 'page' && entry.webSocketDebuggerUrl)
@@ -129,7 +160,7 @@ function createSession(port) {
         } catch { /* not listening yet */ }
         await delay(500)
       }
-      throw new Error('no debuggable page appeared; the app exited before it painted')
+      throw new Error('no debuggable page appeared within 30s, and the app is still running')
     },
     send(method, params = {}) {
       const id = nextId++
@@ -140,7 +171,8 @@ function createSession(port) {
   }
 }
 
-async function drive(mode, executable, scratch, port) {
+async function drive(mode, executable, scratch) {
+  const port = await freePort()
   const checks = []
   const check = (name, ok, detail = '') => {
     checks.push({ name, ok: Boolean(ok) })
@@ -161,7 +193,7 @@ async function drive(mode, executable, scratch, port) {
     `--remote-debugging-port=${port}`,
   ], { env: environment, stdio: 'ignore' })
 
-  const session = createSession(port)
+  const session = createSession(port, child)
   try {
     await session.open()
     await session.send('Runtime.enable')
@@ -279,6 +311,13 @@ async function drive(mode, executable, scratch, port) {
       ], { stdio: 'ignore' })
     } catch { /* nothing of ours left to stop */ }
     try { child.kill() } catch { /* already gone */ }
+    /* Wait for the tree to actually be gone rather than assuming the kill was
+       synchronous. A half-dead instance still holds its ports, and the next
+       mode's run would inherit that as a mystery startup failure. */
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (child.exitCode !== null) break
+      await delay(250)
+    }
   }
 
   const failed = checks.filter(entry => !entry.ok)
@@ -290,10 +329,9 @@ const scratch = mkdtempSync(path.join(tmpdir(), 'mc-setup-qa-'))
 let ok = true
 try {
   const executable = await stage(scratch)
-  let port = 9411
   for (const mode of MODES) {
     console.log(`\n${mode} path, fresh profile:`)
-    ok = (await drive(mode, executable, scratch, port++)) && ok
+    ok = (await drive(mode, executable, scratch)) && ok
   }
 } finally {
   if (!KEEP) rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 })
