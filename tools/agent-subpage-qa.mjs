@@ -386,6 +386,17 @@ const READ_PAGE = `(() => {
     strayStatusLines: [...document.querySelectorAll('.ar-status-current')].filter(s => !s.closest('.ar-card')).length,
     cardHeight: (() => { const c = document.querySelector('.ar-card'); return c ? Math.round(c.getBoundingClientRect().height) : 0 })(),
     rosterHeadHeight: (() => { const h = document.querySelector('.ar-head-row'); return h ? Math.round(h.getBoundingClientRect().height) : 0 })(),
+    /* WHICH CARD THE PAGE OPENED ON. This assertion lives HERE and deliberately
+       not in tools/page2-qa.cjs, which drives the "Open full view" seam into this
+       page. That harness's author offered to assert it and then argued it should
+       not -- correctly: which card the drill-in selects is this page's decision,
+       so a check on it in their file would plant a red in this territory the
+       first time selection behaviour changes. Their seam asserts that the drill
+       lands on a mounted roster; this one asserts what it landed ON. */
+    selectedId: document.querySelector('.ar-card.is-selected')?.dataset?.agentId || null,
+    selectedCount: document.querySelectorAll('.ar-card.is-selected').length,
+    routeAgentId: (location.hash.match(/#\\/agent\\/[^/]+\\/([^/?]+)/) || [])[1] || null,
+    firstCardId: document.querySelector('.ar-card')?.dataset?.agentId || null,
     rosterScrollable: (() => {
       const r = document.querySelector('.agentv-roster')
       return r ? r.scrollHeight > r.clientHeight + 1 : null
@@ -603,6 +614,17 @@ async function drive(executable, scratch, tier) {
         JSON.stringify(page.cards.map(c => c.runtime)))
 
       /* THE FIFTH: example data unmistakable, and not covering anything. */
+      /* THE SELECTION CONTRACT. The page is reached by naming an agent, so it
+         has to open on that agent and say which one -- exactly one card marked,
+         it is the one in the route, and it leads the list so the reader does not
+         have to hunt for their own agent among its peers. */
+      check(`${at}: the page opens on the agent named in the route, and marks exactly one`,
+        page.selectedCount === 1 && page.selectedId === page.routeAgentId,
+        `selected=${page.selectedId} route=${page.routeAgentId} count=${page.selectedCount}`)
+      check(`${at}: the selected agent leads the roster`,
+        page.firstCardId === page.routeAgentId,
+        `first=${page.firstCardId} route=${page.routeAgentId}`)
+
       check(`${at}: the page states its data is an example`,
         page.provenanceVisible && page.provenanceKind === 'example' && /example data/i.test(page.provenance),
         `${page.provenanceKind} ${JSON.stringify(page.provenance).slice(0, 90)}`)
