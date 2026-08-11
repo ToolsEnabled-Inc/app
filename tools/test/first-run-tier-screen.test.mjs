@@ -211,11 +211,38 @@ test('the screen renders the levels through the settings surface, not a new one'
 
 /* ---------- 3. the disclosure, AT the point of choice ---------- */
 
-test('the enforcement gap is disclosed in the words that admit it', () => {
+/* The claim moved because the fact moved. T5 landed: a session Mission Control
+   starts is confined by the recorded level, measured from a real packaged build
+   -- `guided` had its shell command refused ("rejected: blocked by policy", file
+   not created) where `unrestricted` performed the same write and exited 0.
+   Keeping "that enforcement is not built yet" would now be false, and a product
+   understating its own safety is still describing itself wrongly.
+
+   What must NOT come back is the old text. These assertions therefore pin both
+   directions: the stale admission is gone, AND the limit that genuinely remains
+   is still stated. A future edit that quietly restores "not built yet", or one
+   that drops the outside-program caveat to make the screen read better, both
+   turn this red. */
+test('the disclosure states the enforcement that exists, in the words that claim it', () => {
   const notice = TIER_LIMIT_NOTICE.join(' ')
-  assert.match(notice, /does not yet confine an assistant once that assistant is running/)
-  assert.match(notice, /not a limit enforced while the assistant works/)
-  assert.match(notice, /not built yet/)
+  assert.match(notice, /An assistant started here also runs inside the level/)
+  assert.match(notice, /this computer refuses the work itself/)
+  assert.doesNotMatch(notice, /not built yet/, 'the enforcement is built; the old admission is now false')
+  assert.doesNotMatch(notice, /does not yet confine/, 'the enforcement is built; the old admission is now false')
+})
+
+/* The one limit that remains, and the owner's own instruction about it:
+   "restrictive tiers absolutely should work ... maybe we have to hand the user a
+   warning when adding outside ide sessions". We own the spawn for a session we
+   start and can bound it; a session already running in another program was
+   started under that program's settings and cannot be confined retroactively.
+   Saying so at the point of choice is the difference between a limit and a
+   surprise. */
+test('the disclosure still admits the sessions it cannot confine', () => {
+  const notice = TIER_LIMIT_NOTICE.join(' ')
+  assert.match(notice, /cannot confine an assistant Mission Control did not start/)
+  assert.match(notice, /attach one already running in another program/)
+  assert.match(notice, /does not reach back into it/)
 })
 
 /* The clause "and setup shows you the set it wrote" is TRUE of the command

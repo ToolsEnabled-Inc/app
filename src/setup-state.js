@@ -44,27 +44,38 @@ export const TIER_QUESTION_SUB = 'This is the only thing you need to decide righ
 
 /* SHOWN WHERE THE CHOICE IS MADE, NOT ONLY WHERE IT IS AUDITED.
  *
- * The three sentences above say "cannot reach anything else on this computer".
- * Tier enforcement against a RUNNING agent is task T5 and is not built, so
- * until it is, that sentence describes the configuration this level generates
- * and not a lock. A person reading it has no way to know that, which is why the
- * notice sits between the choices and the button rather than in a log, a
- * document, or a verify command a customer never runs.
+ * WHAT THIS NOTICE USED TO SAY, AND WHY IT CHANGED. Until T5 landed it read
+ * "it does not yet confine an assistant once that assistant is running ... that
+ * enforcement is not built yet", because the level reached only the generated
+ * configuration and nothing that runs. That is no longer true, and leaving it
+ * would be its own kind of dishonesty -- a product understating its safety is
+ * still a product describing itself wrongly, and a customer who reads it would
+ * decline a level that would in fact have held.
  *
- * Copied from tools/mcsetup.js TIER_LIMIT_NOTICE, with ONE deliberate
- * difference. The command-line version's first paragraph ends "...and setup
- * shows you the set it wrote", which is true of the CLI: it generates the
- * configuration in the same run and prints it. This screen records the level
- * and does not generate that file, so repeating the clause here would be the
- * exact kind of small overclaim the notice exists to prevent. The clause is
- * dropped; nothing else is reworded.
+ * IT WAS NOT RELAXED ON A READING OF THE CODE. It was rewritten after the
+ * before/after was measured from a real packaged build: at `guided` the agent's
+ * own shell command came back `rejected: blocked by policy` and the file was not
+ * created; at `unrestricted` the same agent, same prompt, same code path wrote
+ * it and exited 0. Absent, malformed and unrecognised records were each measured
+ * the same way and each behaved as `guided`.
  *
- * IT BECOMES UNTRUE THE DAY T5 LANDS. Delete it then.
+ * THE SECOND PARAGRAPH IS THE LIMIT THAT REMAINS, and it is the honest one: this
+ * confines sessions MISSION CONTROL STARTS, because it owns the spawn, the
+ * environment and the tool surface. An assistant already running in another
+ * program was started by that program under its settings, and nothing recorded
+ * here can reach backwards into it. The owner's own words on this split were
+ * "restrictive tiers absolutely should work ... maybe we have to hand the user a
+ * warning when adding outside ide sessions", and this is that warning, kept at
+ * the point of choice rather than moved to a document.
+ *
+ * The first paragraph now includes the clause the command line has always had --
+ * this screen DOES generate the configuration now (shell/setup-record.cjs
+ * recordTier -> writeMcpConfig), so dropping it would understate what happened.
  */
 export const TIER_LIMIT_LEAD = 'Before you choose, one thing this program will not pretend about.'
 export const TIER_LIMIT_NOTICE = Object.freeze([
-  'This level decides which tools setup writes into the assistant’s configuration. That part is real: a narrower level generates a smaller set of tools.',
-  'It does not yet confine an assistant once that assistant is running. Wording like “cannot reach anything else on this computer” describes what the configuration hands over, not a limit enforced while the assistant works. That enforcement is not built yet.',
+  'This level decides which tools the assistant is given, and setup writes that configuration for you. An assistant started here also runs inside the level: at a narrower level this computer refuses the work itself, so “cannot reach anything else on this computer” is a limit and not a description.',
+  'It cannot confine an assistant Mission Control did not start. If you attach one already running in another program, that program decided what it may do, and choosing a level here does not reach back into it.',
 ])
 
 /**

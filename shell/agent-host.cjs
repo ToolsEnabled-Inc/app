@@ -49,6 +49,22 @@ function normalizedModulePath(candidate) {
 // rather than reaching a customer.
 const PAYLOAD_ENGINE_MODULE = 'src/lib/agent-engine/codex-process.js'
 
+/* The module that turns the RECORDED permission level into the confinement a
+ * session actually runs under. Declared in tools/capability-manifest.json under
+ * `hostModules` beside the engine, and resolved from the SAME root the engine
+ * resolved from -- a session confined by one installation's answer while running
+ * another installation's engine would be two products pretending to be one.
+ *
+ * THE GAP THIS CLOSES. Mission Control's first-run screen asks how much the
+ * assistant may do and records the answer. This module used to start every
+ * session with `threadOptions: {}` and no environment, so Codex fell back to the
+ * user's own ~/.codex/config.toml -- measured on the build machine as
+ * `sandbox_mode = "danger-full-access"`, `approval_policy = "never"`. A `guided`
+ * install therefore started an agent with unrestricted write access to the whole
+ * computer. The product made a safety promise at the point of choice and did not
+ * keep it for its own agent. */
+const PAYLOAD_CONFINEMENT_MODULE = 'src/lib/agent-session-confinement.js'
+
 function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot() } = {}) {
   // An explicit path is useful to embedders and focused tests.
   //
@@ -90,7 +106,18 @@ function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot()
   return candidates
 }
 
-function loadStartCodexSession(enginePath, options = {}) {
+/* The engine tree a resolved module was found in.
+ *
+ * PAYLOAD_ENGINE_MODULE is `src/lib/agent-engine/codex-process.js`, so the root
+ * is three directories above it. Derived rather than tracked separately because
+ * a candidate may name the file OR its directory (normalizedModulePath accepts
+ * both), and a second notion of "which tree won" is a second thing to keep in
+ * agreement with the first. */
+function engineRootOf(modulePath) {
+  return path.resolve(path.dirname(modulePath), '..', '..', '..')
+}
+
+function loadEngine(enginePath, options = {}) {
   const attempts = []
   for (const candidate of engineCandidates(enginePath, options)) {
     let modulePath
@@ -112,7 +139,7 @@ function loadStartCodexSession(enginePath, options = {}) {
         attempts.push(`${candidate.source}: ${modulePath} (does not export startCodexSession())`)
         continue
       }
-      return engine.startCodexSession
+      return { startCodexSession: engine.startCodexSession, engineRoot: engineRootOf(modulePath) }
     } catch (error) {
       attempts.push(`${candidate.source}: ${modulePath} (${error.code || error.name || 'load error'}: ${error.message})`)
     }
@@ -124,6 +151,38 @@ function loadStartCodexSession(enginePath, options = {}) {
       ? `Unable to resolve the real Codex engine. Paths tried:\n- ${attempts.join('\n- ')}`
       : 'Unable to resolve the real Codex engine: no enginePath was passed and MISSION_CONTROL_ENGINE is not set.',
   )
+}
+
+function loadStartCodexSession(enginePath, options = {}) {
+  return loadEngine(enginePath, options).startCodexSession
+}
+
+/* Resolve the confinement planner out of the engine tree.
+ *
+ * FAIL CLOSED, AND FAILING CLOSED HERE MEANS REFUSING TO START. The tempting
+ * shape is to carry on with `threadOptions: {}` when this module is missing,
+ * which reads as "confinement is optional". It is not optional: an empty thread
+ * option set is exactly what made a `guided` install run at the user config's
+ * danger-full-access. A payload that cannot say what a level permits must not
+ * start an agent under that level's name. */
+function loadConfinementPlanner(engineRoot) {
+  const modulePath = path.join(engineRoot, PAYLOAD_CONFINEMENT_MODULE)
+  if (!fs.existsSync(modulePath)) {
+    fail(
+      'AGENT_CONFINEMENT_UNAVAILABLE',
+      `This copy carries no permission-level enforcement for agent sessions (${PAYLOAD_CONFINEMENT_MODULE} is absent from the engine at ${engineRoot}). It is staged by tools/capability-manifest.json under hostModules.`,
+    )
+  }
+  let planner
+  try {
+    planner = require(modulePath)
+  } catch (error) {
+    fail('AGENT_CONFINEMENT_UNAVAILABLE', `The permission-level enforcement module could not be loaded (${error.message}).`)
+  }
+  if (!planner || typeof planner.confinedSessionPlan !== 'function') {
+    fail('AGENT_CONFINEMENT_UNAVAILABLE', 'The engine carries a permission-level module this shell does not recognize.')
+  }
+  return planner
 }
 
 /**
@@ -229,9 +288,16 @@ function validateStartedSession(value) {
   return value
 }
 
-function createAgentHost({ enginePath, defaultCwd = process.cwd() } = {}) {
-  const startCodexSession = loadStartCodexSession(enginePath)
+function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null } = {}) {
+  const { startCodexSession, engineRoot } = loadEngine(enginePath)
   const fallbackCwd = normalizeCwd(defaultCwd, process.cwd())
+  /* Resolved PER SESSION rather than once here, so that changing the permission
+   * level takes effect on the next agent the user starts instead of on the next
+   * time they restart the application. "You can change it later" is what the
+   * first-run screen promises; a ceiling cached at construction would make that
+   * promise true only after a relaunch. */
+  const planConfinement = confinementPlanner
+    || (() => loadConfinementPlanner(engineRoot).confinedSessionPlan({}))
   const sessions = new Map()
   const listeners = new Set()
   let closed = false
@@ -303,6 +369,24 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd() } = {}) {
     const id = normalizeSessionId(sessionId)
     if (sessions.has(id)) fail('AGENT_SESSION_EXISTS', `Session already exists: ${id}`)
     const sessionCwd = normalizeCwd(cwd, fallbackCwd)
+
+    /* THE RECORDED LEVEL, BINDING THIS SESSION.
+     *
+     * `plan.ok === false` means the level was resolved but the confinement it
+     * requires could not be built. That REFUSES the start. The alternative --
+     * starting anyway with the process sandbox but the user's own MCP servers --
+     * is the shape that has cost this project three separate findings: a missing
+     * security input treated as consent. A session that cannot be confined to
+     * the level the user chose is not a session that runs at a wider level; it
+     * is a session that does not run. */
+    const plan = planConfinement()
+    if (!plan || plan.ok !== true) {
+      fail(
+        (plan && plan.code) || 'AGENT_CONFINEMENT_UNAVAILABLE',
+        'This session could not be confined to the permission level recorded on this computer, so it was not started.',
+      )
+    }
+
     const session = {
       sessionId: id,
       cwd: sessionCwd,
@@ -327,7 +411,15 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd() } = {}) {
         const startedValue = await startCodexSession({
           cwd: sessionCwd,
           clientInfo: CLIENT_INFO,
-          threadOptions: {},
+          // What the OS enforces on the agent process itself. MEASURED against a
+          // user config that says danger-full-access: the thread option wins.
+          threadOptions: plan.threadOptions,
+          // What bounds the agent AROUND the process. MCP servers are separate
+          // children that no sandbox applied to the agent covers, so a confined
+          // level points Codex at a home this installation owns and the user's
+          // own servers are never inherited. Null at `unrestricted`, which keeps
+          // that level byte-for-byte the session it was before.
+          ...(plan.env ? { env: { ...process.env, ...plan.env } } : {}),
           onEvent: (event) => emit(session, event),
         })
         // Retain a usable close handle before validating the rest of the
@@ -346,7 +438,13 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd() } = {}) {
         }
 
         session.state = 'ready'
-        return Object.freeze({ sessionId: id, threadId: session.threadId })
+        /* The level is reported back so a caller can say what this session is
+         * confined to without asking a second source and risking a different
+         * answer. It is the tier the session was ACTUALLY started under, which
+         * is not always the recorded one: an unreadable record fails closed to
+         * the most restrictive level, and the caller must be able to see that
+         * rather than report the level it hoped for. */
+        return Object.freeze({ sessionId: id, threadId: session.threadId, tier: plan.tier })
       } catch (error) {
         let cleanupError = null
         if (session.engineClose && session.state !== 'closed') {
