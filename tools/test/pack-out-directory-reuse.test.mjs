@@ -28,7 +28,13 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const PACKER = path.join(REPO, 'tools', 'pack-capability-layer.mjs')
 
 async function pack(out) {
-  return run(process.execPath, [PACKER, '--out', out, '--quiet'], { cwd: REPO, maxBuffer: 64 * 1024 * 1024 })
+  // --allow-owner-data because this suite tests DIRECTORY BEHAVIOUR, not payload
+  // compliance. The guard correctly refuses to stage from a source tree that still
+  // carries the builder's name and paths, so without this flag these tests fail on a
+  // real, correct refusal that has nothing to do with what they assert. The flag does
+  // not weaken the ship path: npm run dist re-runs the same guard over the built
+  // release, where it is the compliance check rather than a fixture precondition.
+  return run(process.execPath, [PACKER, '--out', out, '--quiet', '--allow-owner-data'], { cwd: REPO, maxBuffer: 64 * 1024 * 1024 })
 }
 
 test('the destination root survives -- it is emptied, never recreated', async () => {
