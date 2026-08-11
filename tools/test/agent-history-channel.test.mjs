@@ -88,6 +88,13 @@ test('a session is recorded BEFORE it is spawned, which is what home tells the r
 test('the channel starts nothing', () => {
   const main = readFileSync(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
   const start = main.indexOf("ipcMain.handle('mc-agent:history'")
+  /* Guarded like every other anchor in this file, because it is not: on a miss
+     indexOf returns -1, slice(-1, <small>) is the EMPTY STRING, and all five
+     doesNotMatch assertions below pass against "". Renaming or removing the
+     channel would leave this reading as a green guard over a channel that is
+     no longer there -- the failure that never gets removed, because nothing
+     can see it. */
+  assert.ok(start >= 0, 'the channel is handled in the main process')
   const body = main.slice(start, main.indexOf('\n})', start))
   for (const forbidden of [/startSession/, /sendTurn/, /getAgentHost/, /recordSpawnIntent/, /\.record\(/]) {
     assert.doesNotMatch(body, forbidden, 'a read channel must not be able to create or record anything')
