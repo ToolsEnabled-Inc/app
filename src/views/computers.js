@@ -369,6 +369,16 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="graph-hint">Select a node to focus its branch</div>
           <div class="graph-tools">
             <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
+            <!-- THE NAMED DOOR TO THE DRILL-IN.
+                 src/tree-graph.js already made ONE CLICK on a node open the rail,
+                 which fixed the gesture. It did not fix the naming: nothing on
+                 this page said the drill-in exists, so reaching it still meant
+                 clicking a bubble on the chance that something useful appears,
+                 then finding "Open full view" inside the panel that appeared.
+                 This button is the same destination said out loud, in the strip
+                 that already holds this page's named controls, and it is a
+                 sibling of the rail button rather than a replacement for it. -->
+            <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
             <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
           </div>
           <div class="graph-edit-note">drag onto a parent or into empty space</div>
@@ -390,6 +400,17 @@ export function computersView({ initialComputer = null, navigate }) {
   const controlsPage = root.querySelector('.ctl-page')
   const editButton = root.querySelector('.graph-edit-btn')
   const resetButton = root.querySelector('.graph-reset-btn')
+  const openButton = root.querySelector('.graph-open-btn')
+  /* Which agent the named button would open. It follows the rail's selection so
+     the two controls can never disagree about what "this agent" means, and it
+     falls back to the first agent on the computer so the button is useful before
+     anything has been clicked. Null means there is nobody to open, and the
+     button is then ABSENT rather than disabled — see syncOpenButton. */
+  let openTarget = null
+  /* The explanation shown in the central panel when there is no fleet to draw.
+     It occupies the same slot the graph canvas does, so the two can never be on
+     screen together. */
+  let emptyPanel = null
 
   function clearBoard() {
     clearInterval(boardClock)
@@ -423,6 +444,39 @@ export function computersView({ initialComputer = null, navigate }) {
     graphWrap.classList.toggle('editing', editing)
     syncResetButton()
   }
+
+  /* HIDDEN, NOT DISABLED, WHEN THERE IS NOBODY TO OPEN.
+     A disabled "Open agent detail" would be a door drawn on a wall: it names a
+     destination, invites the click, and refuses — which is the same defect as
+     no door with an extra dead end attached. This page already treats absence
+     this way (`Reset positions` is `hidden` until there is a position to reset)
+     and the empty state below carries the explanation instead, which is where a
+     person with no agents actually needs words rather than a control. */
+  function syncOpenButton() {
+    openButton.hidden = !openTarget
+    if (!openTarget) return
+    const name = openTarget.name || openTarget.id
+    const label = `Open the detail page for ${name}`
+    openButton.setAttribute('aria-label', label)
+    openButton.setAttribute('title', label)
+  }
+
+  function setOpenTarget(agent) {
+    openTarget = agent || null
+    syncOpenButton()
+  }
+
+  openButton.addEventListener('click', () => {
+    if (!openTarget || !computer) return
+    /* Same zoom morph the rail's own button sets, read from the node when the
+       graph still has one. Two controls onto one destination should not arrive
+       differently, and a missing node must not stop the navigation. */
+    const record = graph?.nodes?.get(openTarget.id)
+    const target = record?.el || graphWrap
+    const bounds = target.getBoundingClientRect()
+    setViewMorph({ kind: 'zoom', x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
+    navigate(`#/agent/${computer.id}/${openTarget.id}`)
+  })
 
   editButton.addEventListener('click', () => {
     if (!graph) return
@@ -490,8 +544,14 @@ export function computersView({ initialComputer = null, navigate }) {
     if (window.__mcGraph && window.__mcGraph._destroyed) window.__mcGraph = undefined
   }
 
+  function clearEmptyPanel() {
+    emptyPanel?.remove()
+    emptyPanel = null
+  }
+
   function mountGraph() {
     clearMountedGraph()
+    clearEmptyPanel()
     if (!computer) return
     graphTitle.textContent = computer.name
     canvas = el('<div class="computer-tree-canvas"></div>')
@@ -502,7 +562,7 @@ export function computersView({ initialComputer = null, navigate }) {
       contextFeed: liveMode ? projectionMonitorContext : monitorContextFor,
       edges: liveMode ? computer.graphEdges : null,
       onReparent: liveMode ? ((agentId, parentId) => computer.reparentAgent(agentId, parentId)) : null,
-      onOpenControls: (agent) => showControls(agent),
+      onOpenControls: (agent) => { setOpenTarget(agent); showControls(agent) },
       onRootChange: renderCrumb,
       onOverridesChange: syncResetButton,
     })
@@ -511,6 +571,10 @@ export function computersView({ initialComputer = null, navigate }) {
     window.__mcGraph = graph
     renderCrumb(null)
     syncEditButton()
+    /* Aim the button before anything is clicked, so it is a way IN rather than a
+       reward for having already found the way in. A computer with no agents at
+       all leaves the target null and the button hidden. */
+    setOpenTarget(computer.agents?.[0] || null)
   }
 
   function renderStats() {
@@ -981,6 +1045,33 @@ export function computersView({ initialComputer = null, navigate }) {
     sourceUnsubs.push(sim.on('spawn', ({ comp }) => { if (comp === computer) updateBars() }))
   }
 
+  /* THE EMPTY STATE IS THE SHIPPING STATE.
+   *
+   * `public/data/fleet.json` ships as `{"ok": false, "data": null}` with the
+   * reason "No local agent fleet host detected on this machine." — so this
+   * branch, not the graph, is what every fresh install renders on this page.
+   * It used to put one grey sentence into the RAIL and leave the whole central
+   * panel blank. Every word of that sentence was true and it was still a dead
+   * end: it named a failure without saying what the page is for, what would
+   * fill it, or that a drill-in exists at all behind it.
+   *
+   * So the reason stays, verbatim and unsoftened — a fresh customer is entitled
+   * to know their machine has no fleet host — and it now arrives inside an
+   * explanation, in the central panel where the person is already looking.
+   *
+   * The one action offered leads to the demonstration copy of the drill-in,
+   * which announces itself as such on arrival. It is offered ONLY when the
+   * simulator actually has an agent to show: an action that leads nowhere is
+   * the same defect as the blank panel it replaced, one screen further along.
+   */
+  function emptyStateExample() {
+    const computer0 = sim.computers?.[0]
+    const agent0 = computer0?.agents?.[0]
+    if (!computer0 || !agent0) return ''
+    return `<a class="graph-empty-action" href="#/agent/${escapeMarkup(computer0.id)}/${escapeMarkup(agent0.id)}/example">See an example agent</a>
+            <div class="graph-empty-note">Demonstration data. Nothing in it is running on this computer.</div>`
+  }
+
   function showProjectionUnavailable(reason, loading = false) {
     clearSourceUnsubs()
     clearMountedGraph()
@@ -988,6 +1079,7 @@ export function computersView({ initialComputer = null, navigate }) {
     liveMode = true
     liveComputers = []
     computer = null
+    setOpenTarget(null)
     root.dataset.liveMode = 'live'
     root.dataset.projectionState = loading ? 'loading' : 'unavailable'
     tabsElement.innerHTML = ''
@@ -997,6 +1089,17 @@ export function computersView({ initialComputer = null, navigate }) {
     statsPage.innerHTML = `<div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Fleet projection loading…' : `Fleet projection unavailable · ${escapeMarkup(reason)}`}</div>`
     controlsPage.innerHTML = ''
     activateRail(statsPage)
+
+    clearEmptyPanel()
+    if (loading) return
+    emptyPanel = el(`
+      <div class="graph-empty" data-projection-state="unavailable">
+        <div class="graph-empty-h">No computers are reporting to this copy</div>
+        <div class="graph-empty-reason">Fleet projection unavailable · ${escapeMarkup(reason)}</div>
+        <div class="graph-empty-body">This page draws the agents running on each computer in your fleet, and opens any one of them in a detail page with its own chat, runtime and controls. It fills in on its own once a computer here is running an agent host this copy can read.</div>
+        ${emptyStateExample()}
+      </div>`)
+    graphWrap.insertBefore(emptyPanel, graphTitle)
   }
 
   function mountProjection(data) {

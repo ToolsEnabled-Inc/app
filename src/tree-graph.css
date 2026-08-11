@@ -103,6 +103,85 @@
   background: color-mix(in oklab, var(--c-coordinator) 8%, var(--sheet));
   box-shadow: none;
 }
+/* The named way into the drill-in. Same chip geometry as Edit beside it, so the
+   strip stays one row of controls rather than a row with a banner in it; the
+   accent border is what marks it as the one that LEAVES this page. */
+.computers .graph-open-btn {
+  position: static;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 13px;
+  border: 1px solid color-mix(in oklab, var(--c-coordinator) 38%, var(--line-2));
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--c-coordinator) 7%, var(--sheet));
+  color: var(--ink);
+  font: 640 12.5px/1 var(--font-ui);
+  cursor: pointer;
+  transition: color 160ms var(--ease), background 160ms var(--ease), border-color 160ms var(--ease);
+}
+.computers .graph-open-btn:hover {
+  background: color-mix(in oklab, var(--c-coordinator) 14%, var(--sheet));
+  border-color: color-mix(in oklab, var(--c-coordinator) 58%, var(--line-2));
+}
+/* `hidden` has to beat the inline-flex above, or the absent state renders as a
+   visible button that does nothing — the exact defect this control exists to
+   avoid making worse. */
+.computers .graph-open-btn[hidden] { display: none; }
+
+/* The no-fleet explanation. Occupies the canvas slot, so it is what the eye
+   lands on rather than a footnote in the side rail. */
+.computers .graph-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 40px;
+  text-align: center;
+}
+.computers .graph-empty-h {
+  font: 640 15px/1.3 var(--font-ui);
+  color: var(--ink);
+}
+.computers .graph-empty-reason {
+  font: 500 12.5px/1.45 var(--font-ui);
+  color: var(--ink-3);
+  max-width: 52ch;
+}
+.computers .graph-empty-body {
+  font: 400 13px/1.55 var(--font-ui);
+  color: var(--ink-2);
+  max-width: 56ch;
+}
+.computers .graph-empty-action {
+  margin-top: 6px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 15px;
+  border: 1px solid color-mix(in oklab, var(--c-coordinator) 38%, var(--line-2));
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--c-coordinator) 7%, var(--sheet));
+  color: var(--ink);
+  font: 640 12.5px/1 var(--font-ui);
+  text-decoration: none;
+  transition: background 160ms var(--ease), border-color 160ms var(--ease);
+}
+.computers .graph-empty-action:hover {
+  background: color-mix(in oklab, var(--c-coordinator) 14%, var(--sheet));
+  border-color: color-mix(in oklab, var(--c-coordinator) 58%, var(--line-2));
+}
+.computers .graph-empty-note {
+  font: 400 12px/1.45 var(--font-ui);
+  color: var(--ink-3);
+  max-width: 48ch;
+}
+
 .computers .graph-edit-note {
   position: absolute;
   top: 56px;

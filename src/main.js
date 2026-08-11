@@ -46,7 +46,17 @@ function parse() {
   const h = location.hash || '#/'
   const parts = h.replace(/^#\//, '').split('/').filter(Boolean)
   if (parts[0] === 'computers') return { name: 'computers', comp: parts[1] || null }
-  if (parts[0] === 'agent' && parts.length >= 3) return { name: 'agent', comp: parts[1], agent: parts[2] }
+  /* `/example` is a fourth segment rather than a stored preference on purpose.
+     The empty computers page offers a way to SEE this surface on a machine that
+     has no fleet yet, and the obvious implementation — flip `mc.live.agent` to
+     `simulated` and navigate — pins that preference permanently: the day the
+     customer finally has real agents, their own drill-in would still be showing
+     demonstration data because a button they pressed once, months earlier, is
+     still in force. Encoding the intent in the route instead means it lasts
+     exactly as long as the visit, survives back/forward, and cannot outlive it. */
+  if (parts[0] === 'agent' && parts.length >= 3) {
+    return { name: 'agent', comp: parts[1], agent: parts[2], example: parts[3] === 'example' }
+  }
   if (parts[0] === 'metrics') return { name: 'metrics' }
   if (parts[0] === 'research') return { name: 'research' }
   if (parts[0] === 'comms') return { name: 'comms' }
@@ -74,7 +84,7 @@ function makeView(route) {
   const navigate = (hash) => { location.hash = hash }
   switch (route.name) {
     case 'computers': return computersView({ initialComputer: route.comp, navigate })
-    case 'agent': return agentView({ compId: route.comp, agentId: route.agent, navigate })
+    case 'agent': return agentView({ compId: route.comp, agentId: route.agent, example: route.example, navigate })
     case 'metrics': return metricsView()
     case 'research': return researchView()
     case 'comms': return commsView()

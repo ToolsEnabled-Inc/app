@@ -131,13 +131,30 @@ function declaredAgentProjection(compId, agentId, data) {
 }
 
 export function agentView(args) {
-  if (!isLiveView('agent')) return buildAgentView(args)
+  /* `example` is the route asking for the demonstration copy of this page for
+     the length of one visit — see the note in src/main.js parse(). It reads the
+     same simulator the no-preference path reads, so it arrives carrying the
+     "Example data. These are not your agents" banner below rather than needing
+     a second notice of its own. */
+  if (args.example || !isLiveView('agent')) return buildAgentView(args)
 
   const root = el('<div class="data-live-mode" data-live-mode="live"></div>')
   const showState = (title, reason = '', loading = false) => {
     const state = el(`<div class="projection-state ${loading ? 'is-loading' : 'projection-unavailable'}" role="status"><strong></strong><span></span></div>`)
     state.querySelector('strong').textContent = title
     state.querySelector('span').textContent = reason
+    /* A DEAD END IS STILL A DEFECT.
+       Every branch below this line is reached by a route that resolved — a deep
+       link, a restored window, a bookmark — on a machine whose projection has
+       nothing to show. Until now all three printed one grey sentence into an
+       otherwise empty page: true, and terminal. The two chevrons in the topbar
+       are the only other navigation this app has, and neither one names this
+       page's way out, so a person who arrived here by link had to guess. The
+       loading state gets no link, because it is about to become one of the
+       others and a control that vanishes under the pointer is its own defect. */
+    if (!loading) {
+      state.appendChild(el('<a class="projection-state-out" href="#/computers">Back to computers</a>'))
+    }
     root.replaceChildren(state)
   }
   showState('Declared agent projection', 'reading live projection…', true)
