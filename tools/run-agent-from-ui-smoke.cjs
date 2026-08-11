@@ -18,7 +18,11 @@
  */
 
 const path = require('node:path')
-const { spawn } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
+
+/* If the smoke has not finished this long after launch, something is wedged.
+   Kill the tree rather than sit on the app-wide lock -- see finish(). */
+const WATCHDOG_MS = 240_000
 
 const APP_ROOT = path.resolve(__dirname, '..')
 
@@ -53,4 +57,43 @@ const child = spawn(electron, [path.join(__dirname, 'agent-from-ui-smoke.cjs')],
 })
 child.stdout.on('data', (chunk) => process.stdout.write(chunk))
 child.stderr.on('data', (chunk) => process.stderr.write(chunk))
-child.on('exit', (code) => process.exit(code ?? 1))
+
+/* Booting the real app boots the real app: Electron starts a crashpad handler
+   AND the shell spawns the capability bridge as a grandchild. Those inherit
+   our pipes, so the main process can exit 0 while the pipes stay open, and the
+   runner sits there having already succeeded. Measured intermittent -- it hung
+   on some runs and exited on others, which is worse than always hanging.
+   Nobody could tell "still working" from "finished 90 seconds ago".
+
+   That mattered off this machine: a hung run holds the app-wide
+   single-instance lock for its whole duration, and a peer's release harness
+   read the installed app quitting on that held lock as a crash. It measured a
+   launch regression that did not exist and nearly filed it against another
+   lane's commits.
+
+   So teardown is explicit. Kill the whole tree by pid, once, and exit with the
+   code we were given. taskkill /T reaches the grandchildren that node's own
+   child.kill() does not. */
+let finished = false
+function finish(code, reason) {
+  if (finished) return
+  finished = true
+  if (reason) console.error(`[smoke runner] ${reason}`)
+  if (child.pid) {
+    try {
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+    } catch { /* already gone is the normal case, and is not a failure */ }
+  }
+  process.exit(code)
+}
+
+child.on('error', (error) => finish(1, `failed to launch: ${error.message}`))
+child.on('exit', (code) => finish(code ?? 1))
+
+/* Distinct exit code on purpose. A watchdog kill must never be mistaken for
+   the smoke passing or failing -- it means the smoke did not report at all. */
+const watchdog = setTimeout(
+  () => finish(3, `no result after ${WATCHDOG_MS / 1000}s; killing the process tree`),
+  WATCHDOG_MS,
+)
+watchdog.unref()
