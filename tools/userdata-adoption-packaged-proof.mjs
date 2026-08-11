@@ -30,6 +30,7 @@ const READY_TIMEOUT_MS = 60_000
 const POLL_INTERVAL_MS = 250
 const PROBE_THEME = 'black'
 const PROBE_NOTE = '# work that predates the rename\n'
+const CACHE_MARKER = 'legacy-only-marker.bin'
 
 const unpackedDirectory = path.resolve(process.argv[2] || 'release/win-unpacked')
 const executable = path.join(unpackedDirectory, APP_EXE)
@@ -55,17 +56,28 @@ function seedLegacyInstall(directory) {
   }))
   fs.writeFileSync(path.join(directory, 'shell-state.json'), JSON.stringify({ bounds: { width: 1440, height: 900 } }))
   fs.writeFileSync(path.join(directory, 'workspace', 'notes.md'), PROBE_NOTE)
-  /* Chromium noise a real install would also have, to prove it is NOT copied. */
+  /* Chromium noise a real install would also have, to prove it is NOT copied.
+     The assertion is on a marker filename Chromium never writes, because the
+     running application creates a Cache/ of its own within a second of starting
+     and asserting on the DIRECTORY made the proof a race -- it passed or failed
+     on how long the record took to appear. */
   fs.mkdirSync(path.join(directory, 'Cache'), { recursive: true })
   fs.writeFileSync(path.join(directory, 'Cache', 'data_0'), 'x'.repeat(4096))
+  fs.writeFileSync(path.join(directory, 'Cache', CACHE_MARKER), 'only the previous install has this\n')
 }
 
-async function waitForAdoptionRecord(recordPath, child, deadline) {
+async function waitForAdoptionRecord(recordPath, child, deadline, settled) {
+  /* KEPT SO THE TIMEOUT CAN NAME WHAT IT KEPT SEEING. A build that leaves a
+     planted verdict untouched times out here, and "no record within 60000ms" is
+     a false description of that -- there IS a record, it is the person's
+     stranding, and the app declined to revisit it. */
+  let lastSeen = null
   while (Date.now() < deadline) {
     if (fs.existsSync(recordPath)) {
       try {
         const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'))
-        if (record.status === 'complete') return record
+        lastSeen = record
+        if (record.status === 'complete' && settled(record)) return record
       } catch { /* still being written */ }
     }
     if (child.exitCode !== null && !fs.existsSync(recordPath)) {
@@ -73,20 +85,22 @@ async function waitForAdoptionRecord(recordPath, child, deadline) {
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
+  if (lastSeen) {
+    throw new Error(
+      `within ${READY_TIMEOUT_MS}ms the application never replaced the verdict already at ${recordPath}, ` +
+      `which still reads {status:${lastSeen.status}, adopted:${lastSeen.adopted}, reason:${lastSeen.reason}} ` +
+      'and carries no evidence. This build honours an unevidenced negative verdict, so the previous install ' +
+      'beside this one is unreachable by any future version.',
+    )
+  }
   throw new Error(`no completed adoption record at ${recordPath} within ${READY_TIMEOUT_MS}ms`)
 }
 
-async function main() {
-  if (!fs.existsSync(executable)) {
-    fail(`no packaged executable at ${executable} -- build it first (electron-builder --win --dir)`)
-    return
-  }
-
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'te-adoption-proof-'))
-  const legacy = path.join(root, 'Mission Control')
-  const current = path.join(root, 'ToolsEnabled')
-  seedLegacyInstall(legacy)
-
+/* Launch the packaged application against a prepared pair of directories and
+   hand back the adoption record it wrote. `settled` exists because one scenario
+   PLANTS a completed record: without it the poll would read the planted one and
+   report the app's own decision as having already happened. */
+async function runAgainst({ current, settled }) {
   /* An agent harness or host terminal may export ELECTRON_RUN_AS_NODE=1, which
      turns the Electron binary into plain Node: no window, exit 0, and a
      signature indistinguishable from a crash. See
@@ -115,44 +129,127 @@ async function main() {
       path.join(current, '.userdata-adoption.json'),
       child,
       Date.now() + READY_TIMEOUT_MS,
+      settled,
     )
-
-    if (record.adopted !== true) {
-      fail(`the packaged app did not adopt the previous install (reason ${record.reason}). A real customer would see an empty product.`)
-      return
-    }
-
-    const prefsPath = path.join(current, 'renderer-prefs.json')
-    if (!fs.existsSync(prefsPath)) {
-      fail('renderer-prefs.json was not carried across; every setting the person chose is gone')
-      return
-    }
-    const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'))
-    if (prefs.values?.['mc.theme'] !== PROBE_THEME) {
-      fail(`theme did not survive: expected ${PROBE_THEME}, found ${prefs.values?.['mc.theme']}`)
-      return
-    }
-
-    const notePath = path.join(current, 'workspace', 'notes.md')
-    if (!fs.existsSync(notePath) || fs.readFileSync(notePath, 'utf8') !== PROBE_NOTE) {
-      fail("the person's workspace did not come across")
-      return
-    }
-
-    if (fs.existsSync(path.join(current, 'Cache'))) {
-      fail("Chromium's cache was copied between installations; only the product's own state should move")
-      return
-    }
-
-    console.log('[userdata-adoption-proof] PASS: the packaged app adopted the renamed install')
-    console.log(`[userdata-adoption-proof]   adopted from: ${path.basename(record.from)}`)
-    console.log(`[userdata-adoption-proof]   entries: ${record.entries.join(', ')}`)
-  } catch (error) {
-    fail(`${error.message}\napp output:\n${output}`)
+    return { record, output }
   } finally {
     await killTree(child)
     await new Promise((resolve) => setTimeout(resolve, 1000))
-    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* temp dir */ }
+  }
+}
+
+/* SCENARIO 1: the rename, met by an install that has never run this build. */
+async function provePlainRename(root) {
+  const legacy = path.join(root, 'Mission Control')
+  const current = path.join(root, 'ToolsEnabled')
+  seedLegacyInstall(legacy)
+
+  const { record } = await runAgainst({ current, settled: () => true })
+
+  if (record.adopted !== true) {
+    fail(`the packaged app did not adopt the previous install (reason ${record.reason}). A real customer would see an empty product.`)
+    return false
+  }
+  const prefsPath = path.join(current, 'renderer-prefs.json')
+  if (!fs.existsSync(prefsPath)) {
+    fail('renderer-prefs.json was not carried across; every setting the person chose is gone')
+    return false
+  }
+  const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'))
+  if (prefs.values?.['mc.theme'] !== PROBE_THEME) {
+    fail(`theme did not survive: expected ${PROBE_THEME}, found ${prefs.values?.['mc.theme']}`)
+    return false
+  }
+  const notePath = path.join(current, 'workspace', 'notes.md')
+  if (!fs.existsSync(notePath) || fs.readFileSync(notePath, 'utf8') !== PROBE_NOTE) {
+    fail("the person's workspace did not come across")
+    return false
+  }
+  if (fs.existsSync(path.join(current, 'Cache', CACHE_MARKER)) || record.entries.includes('Cache')) {
+    fail("Chromium's cache was copied between installations; only the product's own state should move")
+    return false
+  }
+  console.log('[userdata-adoption-proof] PASS the rename: the packaged app adopted the renamed install')
+  console.log(`[userdata-adoption-proof]   adopted from: ${path.basename(record.from)}`)
+  console.log(`[userdata-adoption-proof]   entries: ${record.entries.join(', ')}`)
+  return true
+}
+
+/* SCENARIO 2: THE PERSON AN EARLIER BUILD ALREADY STRANDED.
+ *
+ * MEASURED on the build machine, 2026-08-11:
+ *   %APPDATA%\ToolsEnabled\.userdata-adoption.json
+ *     { status: complete, adopted: false, reason: NO_PRIOR_INSTALL }
+ * with %APPDATA%\Mission Control holding shell-state.json, agent-spawn-key.enc
+ * and agent-spawn-records.jsonl. The module answers ADOPTED when it is run
+ * against those very directories, so the verdict on disk contradicts the code
+ * that wrote it -- and a verdict is honoured, so no later version could correct
+ * it. That is one install already dead, and every customer who upgrades into
+ * the same false negative is another.
+ *
+ * The target is also seeded with settings of its own, because that is what the
+ * stranded person actually has: months of using the new install. Their current
+ * settings must survive untouched -- the rescue is only ever what the new
+ * install does not already have. */
+async function proveStrandedByAnEvidencelessVerdict(root) {
+  const legacy = path.join(root, 'Mission Control')
+  const current = path.join(root, 'ToolsEnabled')
+  seedLegacyInstall(legacy)
+  fs.mkdirSync(current, { recursive: true })
+  fs.writeFileSync(path.join(current, '.userdata-adoption.json'), JSON.stringify({
+    version: 1, status: 'complete', adopted: false, reason: 'NO_PRIOR_INSTALL', at: '2026-08-11T12:11:04.287Z',
+  }))
+  fs.writeFileSync(path.join(current, 'renderer-prefs.json'), JSON.stringify({
+    storageVersion: 1, values: { 'mc.theme': 'white' }, drainedOrigins: [],
+  }))
+
+  /* The planted record is already `complete`; only a record carrying evidence,
+     or an adoption, is this launch's own answer. */
+  const { record } = await runAgainst({
+    current,
+    settled: (written) => written.adopted === true || Array.isArray(written.searched),
+  })
+
+  if (record.adopted !== true) {
+    fail(
+      `a stranded install stayed stranded (reason ${record.reason}). The previous install is sitting beside this one ` +
+      'with the person\'s work in it, and honouring an unevidenced negative verdict means no version can ever reach it.',
+    )
+    return false
+  }
+  const notePath = path.join(current, 'workspace', 'notes.md')
+  if (!fs.existsSync(notePath) || fs.readFileSync(notePath, 'utf8') !== PROBE_NOTE) {
+    fail("the stranded person's workspace still did not come across")
+    return false
+  }
+  const prefs = JSON.parse(fs.readFileSync(path.join(current, 'renderer-prefs.json'), 'utf8'))
+  if (prefs.values?.['mc.theme'] !== 'white') {
+    fail(`the rescue overwrote settings the person is using now: mc.theme is ${prefs.values?.['mc.theme']}, expected white`)
+    return false
+  }
+  console.log('[userdata-adoption-proof] PASS the stranded install: an unevidenced "nothing to adopt" was reopened')
+  console.log(`[userdata-adoption-proof]   entries: ${record.entries.join(', ')}`)
+  console.log('[userdata-adoption-proof]   settings already in the new install were left alone')
+  return true
+}
+
+async function main() {
+  if (!fs.existsSync(executable)) {
+    fail(`no packaged executable at ${executable} -- build it first (electron-builder --win --dir)`)
+    return
+  }
+
+  for (const scenario of [provePlainRename, proveStrandedByAnEvidencelessVerdict]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'te-adoption-proof-'))
+    try {
+      const passed = await scenario(root)
+      if (!passed) return
+    } catch (error) {
+      fail(`${scenario.name}: ${error.message}`)
+      return
+    } finally {
+      try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* temp dir */ }
+    }
   }
 }
 

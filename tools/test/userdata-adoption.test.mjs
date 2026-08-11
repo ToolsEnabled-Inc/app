@@ -236,6 +236,147 @@ test('an empty previous install is not mistaken for one worth adopting', () => {
   assert.equal(result.reason, 'NO_PRIOR_INSTALL')
 })
 
+/* ---------------------------------------------------------------------------
+ * A NEGATIVE VERDICT IS NOT A DECISION UNLESS IT SAYS WHAT IT SAW.
+ *
+ * MEASURED on the build machine, 2026-08-11, before any of this existed:
+ *   %APPDATA%\ToolsEnabled\.userdata-adoption.json
+ *     { status: complete, adopted: false, reason: NO_PRIOR_INSTALL }
+ *   %APPDATA%\Mission Control\  shell-state.json, agent-spawn-key.enc,
+ *                               agent-spawn-records.jsonl -- all non-empty
+ * Run against those exact directories the module answers ADOPTED. The verdict
+ * on disk contradicts the code that wrote it, and because a verdict is honoured
+ * forever, no later version could ever correct it. These fix that class.
+ * ------------------------------------------------------------------------- */
+
+function writeRecord(paths, payload) {
+  fs.mkdirSync(paths.current, { recursive: true })
+  fs.writeFileSync(path.join(paths.current, RECORD_FILE), JSON.stringify(payload))
+}
+
+test('a "nothing to adopt" verdict from a build that recorded no evidence does not strand the prior install', () => {
+  const paths = makeAppData()
+  seedLegacyInstall(paths.legacy, { theme: 'black' })
+  /* Exactly the record every build before RECORD_VERSION 2 wrote, and exactly
+     the one sitting in %APPDATA%\ToolsEnabled on the build machine. */
+  writeRecord(paths, { version: 1, status: 'complete', adopted: false, reason: 'NO_PRIOR_INSTALL', at: '2026-08-11T12:11:04.287Z' })
+
+  const result = adopt(paths)
+
+  assert.equal(result.adopted, true, 'the previous install was right there and was left stranded')
+  const prefs = JSON.parse(fs.readFileSync(path.join(paths.current, 'renderer-prefs.json'), 'utf8'))
+  assert.equal(prefs.values['mc.theme'], 'black')
+})
+
+test('a stranded person who has since been using the new install still gets what it does not already have', () => {
+  /* The realistic shape of the measured case: the wrong verdict was months ago
+     and they have used the product since, so the "already in use" shortcut is
+     the very thing keeping them stranded. Their own data still wins file by
+     file -- the copy never overwrites. */
+  const paths = makeAppData()
+  seedLegacyInstall(paths.legacy, { theme: 'black' })
+  writeRecord(paths, { version: 1, status: 'complete', adopted: false, reason: 'NO_PRIOR_INSTALL', at: '2026-08-11T12:11:04.287Z' })
+  fs.writeFileSync(path.join(paths.current, 'renderer-prefs.json'), JSON.stringify({
+    storageVersion: 1, values: { 'mc.theme': 'white' }, drainedOrigins: [],
+  }))
+
+  const result = adopt(paths)
+
+  assert.equal(result.adopted, true)
+  const prefs = JSON.parse(fs.readFileSync(path.join(paths.current, 'renderer-prefs.json'), 'utf8'))
+  assert.equal(prefs.values['mc.theme'], 'white', 'the settings they are using now were overwritten by an older copy')
+  assert.equal(
+    fs.readFileSync(path.join(paths.current, 'workspace', 'notes.md'), 'utf8'), '# the persons work\n',
+    'the work only the old install had was still not carried across',
+  )
+})
+
+test('an evidenced verdict is honoured while its evidence still holds', () => {
+  const paths = makeAppData()
+  /* A legacy directory that exists and holds nothing worth keeping -- what a
+     first launch of the old build leaves behind. */
+  fs.mkdirSync(path.join(paths.legacy, 'workspace'), { recursive: true })
+
+  const first = adopt(paths)
+  assert.equal(first.reason, 'NO_PRIOR_INSTALL')
+  const record = JSON.parse(fs.readFileSync(path.join(paths.current, RECORD_FILE), 'utf8'))
+  assert.deepEqual(
+    record.searched, [{ directory: paths.legacy, holdsProductState: false }],
+    'the verdict has to name what it examined or the next build cannot tell it from an unchecked one',
+  )
+
+  const second = adopt(paths)
+
+  assert.equal(second.reason, 'ALREADY_DECIDED', 'nothing changed on disk, so the question was already answered')
+})
+
+test('a legacy directory that gains real data after the verdict is adopted after all', () => {
+  const paths = makeAppData()
+  fs.mkdirSync(path.join(paths.legacy, 'workspace'), { recursive: true })
+  assert.equal(adopt(paths).reason, 'NO_PRIOR_INSTALL')
+
+  /* The person ran the OLD build once more -- restored a backup, finished a
+     migration, plugged the drive back in. The world changed after the verdict. */
+  seedLegacyInstall(paths.legacy, { theme: 'black' })
+  const result = adopt(paths)
+
+  assert.equal(result.adopted, true)
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(paths.current, 'renderer-prefs.json'), 'utf8')).values['mc.theme'],
+    'black',
+  )
+})
+
+test('an unusable evidence list never counts as evidence', () => {
+  /* THE HOUSE DEFECT, ENUMERATED. Each of these is an absence -- no list, an
+     empty list, a list of the wrong shape, an entry that states nothing about
+     the directory it names -- and not one of them is a finding that the prior
+     install was absent. */
+  for (const searched of [undefined, [], 'nope', {}, [null], [{ holdsProductState: false }], [{ directory: 'Z:\\gone', holdsProductState: false }], [{ directory: null, holdsProductState: false }]]) {
+    const paths = makeAppData()
+    seedLegacyInstall(paths.legacy, { theme: 'black' })
+    writeRecord(paths, { version: 2, status: 'complete', adopted: false, reason: 'NO_PRIOR_INSTALL', searched, at: '2026-08-11T12:11:04.287Z' })
+
+    const result = adopt(paths)
+
+    assert.equal(result.adopted, true, `searched=${JSON.stringify(searched)} was read as a negative finding`)
+  }
+})
+
+test('an entry that names the directory but says nothing about it is not a negative finding', () => {
+  const paths = makeAppData()
+  seedLegacyInstall(paths.legacy, { theme: 'black' })
+  writeRecord(paths, {
+    version: 2, status: 'complete', adopted: false, reason: 'NO_PRIOR_INSTALL',
+    /* The field is missing, not false. A missing boolean is not `false`. */
+    searched: [{ directory: paths.legacy }],
+    at: '2026-08-11T12:11:04.287Z',
+  })
+
+  assert.equal(adopt(paths).adopted, true)
+})
+
+test('the verdicts that observed something are still permanent', () => {
+  /* Reopening is for the one verdict that reports an absence. A record saying
+     somebody was already using this install observed a fact, and re-litigating
+     it is how a deliberate deletion comes back from the dead. */
+  for (const record of [
+    { version: 2, status: 'complete', adopted: false, reason: 'TARGET_ALREADY_IN_USE', at: '2026-08-11T00:00:00.000Z' },
+    { version: 2, status: 'complete', adopted: true, reason: 'ADOPTED', from: 'somewhere', entries: [], at: '2026-08-11T00:00:00.000Z' },
+    /* A verdict of a shape this build does not know is still a decision. */
+    { version: 3, status: 'complete', adopted: false, reason: 'SOMETHING_LATER_ADDED', at: '2026-08-11T00:00:00.000Z' },
+  ]) {
+    const paths = makeAppData()
+    seedLegacyInstall(paths.legacy, { theme: 'black' })
+    writeRecord(paths, record)
+
+    const result = adopt(paths)
+
+    assert.equal(result.reason, 'ALREADY_DECIDED', `${record.reason} was reopened`)
+    assert.equal(fs.existsSync(path.join(paths.current, 'renderer-prefs.json')), false)
+  }
+})
+
 test('a directory is never adopted into itself', () => {
   const paths = makeAppData()
   seedLegacyInstall(paths.legacy)

@@ -32,6 +32,39 @@
  * exactly the absence-as-consent mistake this file exists to correct, so it is
  * refused here too.
  *
+ * WITH ONE EXCEPTION, AND IT IS THE SAME DEFECT ONE LEVEL UP AGAIN.
+ * "I adopted" and "somebody is already using this install" are both POSITIVE
+ * findings, and recording either once and forever is right. "There was no prior
+ * install" is a NEGATIVE one: it says we looked and saw nothing. Writing that
+ * down as a permanent decision converts an absence into consent, and it is not
+ * hypothetical -- MEASURED on the build machine, 2026-08-11:
+ *
+ *     %APPDATA%\ToolsEnabled\.userdata-adoption.json
+ *       { "status": "complete", "adopted": false, "reason": "NO_PRIOR_INSTALL" }
+ *     %APPDATA%\Mission Control\shell-state.json          73 bytes
+ *     %APPDATA%\Mission Control\agent-spawn-key.enc      150 bytes
+ *     %APPDATA%\Mission Control\agent-spawn-records.jsonl 2584 bytes
+ *
+ * Run against those exact directories the current module answers ADOPTED, so
+ * the verdict on disk disagrees with the code that wrote it -- and because the
+ * verdict is honoured, no future version can ever correct it. A person in that
+ * state has their previous install sitting beside the new one, permanently
+ * unreachable, and nothing tells them.
+ *
+ * THE RECORD THEREFORE CARRIES ITS EVIDENCE. A negative verdict now names every
+ * directory it examined and what it saw there. A later launch honours it only
+ * while that evidence still holds; a candidate that has since gained product
+ * state, one the record never examined, or a record that states no evidence at
+ * all -- every build before this one -- reopens the question exactly once and
+ * then writes an evidenced verdict of its own. Absence of evidence is not
+ * evidence of absence, which is the whole of the house defect in one line.
+ *
+ * REOPENING SKIPS THE "ALREADY IN USE" SHORTCUT, DELIBERATELY. A person whose
+ * data was stranded by a wrong verdict has since been USING the new install, so
+ * that shortcut is exactly what would keep them stranded. The copy below never
+ * overwrites, so their current data still wins file by file; what they can get
+ * back is only what the new install does not already have.
+ *
  * IT NEVER OVERWRITES. Only entries missing from the new userData are copied,
  * which is what makes a resumed adoption safe after a crash mid-copy, and what
  * guarantees a directory that already holds real state is left alone.
@@ -46,7 +79,10 @@
  */
 
 const RECORD_FILE = '.userdata-adoption.json'
-const RECORD_VERSION = 1
+/* 2 records the evidence behind a negative verdict; 1 stated the verdict alone.
+   The number is not read as a gate -- a version-1 record simply has no evidence
+   to check, which is the case the reopen rule below already covers. */
+const RECORD_VERSION = 2
 
 /* Every userData directory name this product has ever used, most recent first.
    A rename adds an entry here; it does not get to silently orphan an install
@@ -117,6 +153,53 @@ function holdsProductState({ directory, fs, path }) {
   })
 }
 
+/* WHAT WE SAW, WRITTEN DOWN BESIDE WHAT WE CONCLUDED. Directory names and one
+   boolean each -- no contents, and nothing that is not already a path this
+   process just resolved. */
+function describeSearch({ candidates, fs, path }) {
+  return candidates.map((directory) => ({
+    directory,
+    holdsProductState: holdsProductState({ directory, fs, path }),
+  }))
+}
+
+/* IS A RECORDED "THERE WAS NOTHING TO ADOPT" STILL TRUE?
+ *
+ * Only asked of a completed NEGATIVE verdict. An adoption that happened, a
+ * target that was already in use, and a damaged record are all left alone --
+ * they are decisions about something that was observed to exist.
+ *
+ * Reopens on three shapes, and each of them is an absence that must not read as
+ * a finding: a record that states no evidence (every build before this one, and
+ * the one on the build machine that disagrees with its own code); a candidate
+ * the record never examined (a legacy name added by a later rename); and a
+ * candidate the record examined and found empty which now holds product state.
+ * A record whose evidence still matches the disk is honoured, so the ordinary
+ * fresh install pays one stat per legacy name per launch and nothing else. */
+function negativeVerdictIsStale({ record, candidates, fs, path }) {
+  if (!record || record.status !== 'complete') return false
+  if (record.adopted !== false || record.reason !== 'NO_PRIOR_INSTALL') return false
+
+  const searched = Array.isArray(record.searched) ? record.searched : null
+  /* No evidence, or an evidence list that names nothing, is not a negative
+     finding about anything. */
+  if (!searched || searched.length === 0) return true
+
+  return candidates.some((directory) => {
+    const seen = searched.find((entry) => (
+      entry
+      && typeof entry === 'object'
+      && typeof entry.directory === 'string'
+      && samePath(entry.directory, directory)
+    ))
+    if (!seen) return true
+    /* Strictly `!== false`: a missing or non-boolean field states nothing, and
+       stating nothing must not count as "examined and empty". */
+    if (seen.holdsProductState !== false) return true
+    return holdsProductState({ directory, fs, path })
+  })
+}
+
 function readRecord({ recordPath, fs }) {
   let raw
   try {
@@ -172,19 +255,26 @@ function adoptLegacyUserData({
 
   const recordPath = path.join(userDataPath, RECORD_FILE)
   const { present, record } = readRecord({ recordPath, fs })
+  const legacyCandidates = legacyNames.map((name) => path.join(searchRoot, name))
 
   let resumingFrom = null
+  /* A negative verdict whose evidence no longer holds. See the header: this is
+     the one decision this module is allowed to take a second look at. */
+  let reopening = false
   if (present) {
-    if (!record || record.status !== 'in-progress' || typeof record.from !== 'string') {
+    if (record && record.status === 'in-progress' && typeof record.from === 'string') {
+      /* A previous attempt died mid-copy. Resume the SAME source only -- picking
+         a different one now would mix two installations together. */
+      resumingFrom = record.from
+    } else if (negativeVerdictIsStale({ record, candidates: legacyCandidates, fs, path })) {
+      reopening = true
+    } else {
       /* Complete, or damaged. Either way a decision exists. */
       return { adopted: false, reason: 'ALREADY_DECIDED', entries: [], failures: [] }
     }
-    /* A previous attempt died mid-copy. Resume the SAME source only -- picking
-       a different one now would mix two installations together. */
-    resumingFrom = record.from
   }
 
-  if (!resumingFrom && holdsProductState({ directory: userDataPath, fs, path })) {
+  if (!resumingFrom && !reopening && holdsProductState({ directory: userDataPath, fs, path })) {
     /* Somebody has already used this install. Their data wins; record the
        decision so we never look again. */
     try {
@@ -198,7 +288,7 @@ function adoptLegacyUserData({
     return { adopted: false, reason: 'TARGET_ALREADY_IN_USE', entries: [], failures: [] }
   }
 
-  const candidates = resumingFrom ? [resumingFrom] : legacyNames.map((name) => path.join(searchRoot, name))
+  const candidates = resumingFrom ? [resumingFrom] : legacyCandidates
   const source = candidates.find((candidate) => (
     !samePath(candidate, userDataPath) && holdsProductState({ directory: candidate, fs, path })
   ))
@@ -209,7 +299,16 @@ function adoptLegacyUserData({
       writeRecord({
         recordPath,
         fs,
-        payload: { version: RECORD_VERSION, status: 'complete', adopted: false, reason: 'NO_PRIOR_INSTALL', at: now() },
+        payload: {
+          version: RECORD_VERSION,
+          status: 'complete',
+          adopted: false,
+          reason: 'NO_PRIOR_INSTALL',
+          /* The evidence, so the next version can tell this verdict from one
+             that was simply never checked. */
+          searched: describeSearch({ candidates, fs, path }),
+          at: now(),
+        },
       })
     } catch { /* see above */ }
     return { adopted: false, reason: 'NO_PRIOR_INSTALL', entries: [], failures: [] }

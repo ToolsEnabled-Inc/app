@@ -59,6 +59,25 @@
  *      better paperwork. This phase plants legacy state in a payload copy,
  *      starts it, and requires the data to arrive in the new home.
  *
+ *      WHAT PHASE D DOES NOT PROVE, SAID HERE BECAUSE THE PHASE IS NAMED AFTER
+ *      IT. It proves the rescue WORKS when the old directory is still there. On
+ *      a real NSIS upgrade it is not: node_modules/app-builder-lib/templates/
+ *      nsis/include/installUtil.nsh:224 has the new installer run the OLD
+ *      uninstaller first, and templates/nsis/uninstaller.nsh:187 is
+ *      `RMDir /r $INSTDIR`. The install directory is therefore gone before the
+ *      new build's first line executes, so adoptLegacyPayloadState() finds
+ *      nothing to adopt and answers 'nothing-to-adopt'. Rescuing that data has
+ *      to happen from the INSTALLER (a customInit hook in build/installer.nsh,
+ *      which runs before UNINSTALL_PREVIOUS), not from the application. The one
+ *      thing the same templates DO guarantee is that userData survives: the
+ *      uninstaller is invoked with /KEEP_APP_DATA --updated, and this build
+ *      does not set deleteAppDataOnUninstall.
+ *   E  THE HALF OF THE PRODUCT THAT IS NOT JAVASCRIPT. A-D all exercise Node,
+ *      and Node was already right. The PowerShell helpers are separate programs
+ *      that resolve their own directories from $PSScriptRoot, and three of them
+ *      were still doing it while every phase above was green. This phase makes
+ *      one of them run.
+ *
  * Usage: node tools/check-install-dir-immutable.mjs [unpacked-app-directory]
  */
 
@@ -82,6 +101,18 @@ const PAYLOAD_RECORD = 'PAYLOAD.json'
 const MCP_ENTRYPOINT_BASENAME = 'mcp-server.js'
 const ROUND_TRIP_TOOL = 'system.status'
 const AUDIT_TAIL_TOOL = 'audit.tail'
+/* THE CHEAPEST TOOL THAT MAKES A HELPER PROGRAM RESOLVE A RUNTIME DIRECTORY AND
+ * THEN SAY WHERE IT LANDED. Every other phase exercises JavaScript only, which
+ * is how three PowerShell helpers stayed defective under a green hash.
+ *
+ * screen.capture was the obvious choice and is the wrong one: its effect is
+ * 'local-write', and a payload started with no setup record runs at the
+ * read-only tier, which refuses every write-effect tool. It failed identically
+ * on a fixed and a defective payload -- a gate that is red either way. This one
+ * is 'local-read', so the tier permits it; it needs no interactive desktop and
+ * no browser installed; and it RETURNS the resolved profile directory, so the
+ * assertion is on the helper's own answer rather than on a side effect. */
+const HELPER_PROBE_TOOL = 'browser.status'
 const STATE_ROOT_LEAF = path.join('ToolsEnabled', 'capability')
 const REQUEST_TIMEOUT_MS = 120_000
 const GUI_TIMEOUT_MS = 90_000
@@ -193,8 +224,81 @@ async function sweepPayloadSource(capabilityRoot) {
   return findings.sort()
 }
 
+/* THE SAME QUESTION, ASKED OF THE PROGRAMS THAT ARE NOT JAVASCRIPT.
+ *
+ * The sweep above reads `.js` and nothing else. The comment at the top of this
+ * file names "a PowerShell helper resolving its own location" as a shape only
+ * the hash could catch -- and it was right that the hash was the only thing
+ * looking, because the static check was not. The behavioural phases only see a
+ * helper the session actually spawns, and none of them spawn one.
+ *
+ * MEASURED, on this payload, with every phase above green: three shipped
+ * helpers resolved a runtime directory from $PSScriptRoot --
+ * tools/desktop.ps1 (captures/), tools/browser.ps1 (profiles/) and
+ * tools/owner-prompt-queue.ps1 (state/). The first was reproduced end to end:
+ * it created captures/ inside the program directory and THEN rejected the
+ * per-user path Node had passed it, so a screen capture both wrote where it
+ * must not and failed.
+ *
+ * WHY THE RULE IS "CONSULTS THE VARIABLE" AND NOT "NEVER JOINS ONTO ITSELF".
+ * tools/secrets.ps1 does both -- it reads TOOLSENABLED_STATE_ROOT and keeps a
+ * <repo> fallback, because a source checkout still has to work. The fallback is
+ * correct and unavoidable, so its presence proves nothing in either direction.
+ * What separates secrets.ps1 from the three above is that it ASKS. So that is
+ * what is checked, and src/lib/runtime.js publishes the answer into the
+ * environment of every helper spawn precisely so that asking is possible.
+ *
+ * This is the WEAKER of the two checks and does not replace the hash: it proves
+ * the variable is consulted, not that it is consulted correctly. Correctness is
+ * the hash's job, which is why phase E now spawns a real capture. */
+const HELPER_PROGRAM_EXTENSIONS = new Set(['.ps1', '.cmd', '.bat', '.py'])
+const STATE_ROOT_ENV = 'TOOLSENABLED_STATE_ROOT'
+/* Where a helper program can learn its own location, per language. */
+const SCRIPT_LOCATION_ANCHOR = /\$PSScriptRoot|\$MyInvocation|%~dp0|__file__/i
+/* A quoted runtime-state directory, alone or as the head of a longer path --
+   browser.ps1 spells it 'profiles\chrome'. */
+const QUOTED_STATE_DIRECTORY = new RegExp(
+  String.raw`(['"])(?:${RUNTIME_STATE_DIRECTORIES.join('|')})(?:[\\/][^'"]*)?\1`,
+  'gi',
+)
+
+async function sweepHelperPrograms(capabilityRoot) {
+  const findings = []
+  async function walk(directory) {
+    let entries
+    try { entries = await readdir(directory, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name)
+      if (entry.isDirectory()) { await walk(full); continue }
+      if (!entry.isFile()) continue
+      if (!HELPER_PROGRAM_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue
+      let text
+      try { text = await readFile(full, 'utf8') } catch { continue }
+      /* A helper that never asks where it is cannot resolve anything against
+         the install directory, whatever else it names. */
+      if (!SCRIPT_LOCATION_ANCHOR.test(text)) continue
+      if (text.includes(STATE_ROOT_ENV)) continue
+      const relative = path.relative(capabilityRoot, full).split(path.sep).join('/')
+      for (const match of text.matchAll(QUOTED_STATE_DIRECTORY)) {
+        findings.push(`${relative}:${text.slice(0, match.index).split('\n').length}  ${match[0]}`)
+      }
+    }
+  }
+  await walk(capabilityRoot)
+  return findings.sort()
+}
+
 /* ---------------------------------------------------------------- hashing */
 
+/* DIRECTORIES ARE ENTRIES TOO, AND THAT IS NOT PEDANTRY.
+ *
+ * This walked files only, and it cost a real detection: with the defective
+ * tools/desktop.ps1 in place, the helper created captures/ in the install
+ * directory and then threw before writing the PNG into it. An EMPTY directory
+ * has no files, so the tree came back "byte-unchanged" while the program had
+ * just made a directory inside its own installation. A per-machine install
+ * fails on that mkdir exactly as it fails on a write, so it is the same defect
+ * and it must be the same finding. */
 async function hashTree(root) {
   const files = new Map()
   async function walk(directory) {
@@ -202,7 +306,11 @@ async function hashTree(root) {
     try { entries = await readdir(directory, { withFileTypes: true }) } catch { return }
     for (const entry of entries) {
       const full = path.join(directory, entry.name)
-      if (entry.isDirectory()) { await walk(full); continue }
+      if (entry.isDirectory()) {
+        files.set(`${path.relative(root, full).split(path.sep).join('/')}/`, 'DIRECTORY')
+        await walk(full)
+        continue
+      }
       if (!entry.isFile()) continue
       const relative = path.relative(root, full).split(path.sep).join('/')
       try {
@@ -311,7 +419,7 @@ async function terminateTree(child) {
 
 /* --------------------------------------------------------------- phase A/C */
 
-async function runPayloadInPlace(executable, capabilityRoot, profile, { label }) {
+async function runPayloadInPlace(executable, capabilityRoot, profile, { label, probeHelper = false }) {
   let record
   try { record = JSON.parse(await readFile(path.join(capabilityRoot, PAYLOAD_RECORD), 'utf8')) } catch (error) {
     throw new Error(`${label}: ${PAYLOAD_RECORD} is unreadable at ${capabilityRoot} (${error.message}).`)
@@ -364,7 +472,15 @@ async function runPayloadInPlace(executable, capabilityRoot, profile, { label })
       throw new Error(`${label}: the audit ledger returned unparseable content (${error.message}).`)
     }
     if (!Array.isArray(rows)) throw new Error(`${label}: the audit ledger returned no entry list.`)
-    return { rows, stderr }
+
+    /* Requested only by phase E; see there for what it proves. */
+    let probed = null
+    if (probeHelper) {
+      const asked = await client.request('tools/call', { name: HELPER_PROBE_TOOL, arguments: {} })
+      if (!asked.result) throw new Error(`${label}: ${HELPER_PROBE_TOOL} returned no result: ${JSON.stringify(asked.error)}`)
+      probed = { isError: Boolean(asked.result.isError), text: firstTextContent(asked.result) }
+    }
+    return { rows, stderr, probed }
   } finally {
     await terminateTree(child)
   }
@@ -437,7 +553,7 @@ async function main() {
 
   console.log(`install directory: ${unpacked}`)
   const before = await hashTree(unpacked)
-  console.log(`hashed ${before.size} file(s) before the session`)
+  console.log(`hashed ${before.size} entr(y|ies) — files and directories — before the session`)
 
   const failures = []
   try {
@@ -452,6 +568,20 @@ async function main() {
       )
     } else {
       console.log('phase 0: no payload source joins a runtime-state directory onto the program root')
+    }
+
+    const helperSweep = await sweepHelperPrograms(capabilityRoot)
+    if (helperSweep.length) {
+      failures.push(
+        `phase 0: ${helperSweep.length} place(s) in a shipped HELPER PROGRAM name a runtime-state directory, in a ` +
+        `file that resolves its own location and never reads ${STATE_ROOT_ENV}. A helper that derives a writable ` +
+        'directory from $PSScriptRoot writes into the INSTALL directory, and disagrees with the per-user path the ' +
+        'JavaScript half passes it -- which is a capture that both writes where it must not and then fails. Follow ' +
+        `tools/secrets.ps1: read ${STATE_ROOT_ENV} first, keep the <repo> fallback for a source checkout:\n  ` +
+        helperSweep.join('\n  '),
+      )
+    } else {
+      console.log('phase 0: every shipped helper program that resolves its own location consults the state root')
     }
 
     // ---- phase A: the payload, in place, told nothing.
@@ -553,6 +683,77 @@ async function main() {
     } else {
       console.log(`phase C: ${survived.length} ${ROUND_TRIP_TOOL} row(s) in the ledger — phase A's row survived the relaunch`)
     }
+
+    /* ---- phase E: a HELPER PROGRAM, in the case that tells it nothing.
+     *
+     * Phases A-D exercise JavaScript, and the JavaScript was already right. The
+     * product's other half is a set of PowerShell helpers, which are separate
+     * PROGRAMS: they resolve their own directories from $PSScriptRoot, which
+     * packaged is the install directory, and no amount of JavaScript being
+     * correct changes what they do. Measured on this payload with every phase
+     * above green, tools/desktop.ps1 created captures/ inside the program
+     * directory and then refused the per-user path Node had passed it -- so
+     * screen capture wrote where it must not AND failed, invisibly to this gate.
+     *
+     * IT RUNS IN THE STERILE PROFILE, so nothing sets TOOLSENABLED_STATE_ROOT.
+     * That makes it the only phase that proves the whole chain rather than one
+     * link: the payload derives its state root from the PAYLOAD.json marker,
+     * src/lib/runtime.js publishes it into the environment, and the helper reads
+     * it back. A check that set the variable itself would prove none of that.
+     *
+     * AN UNAVAILABLE DESKTOP IS A PASS, AND IS NOT A HOLE. A locked, headless or
+     * service session has no interactive desktop and the helper says so. What is
+     * asserted here is that the two programs AGREE on a directory, and a
+     * disagreement cannot present as "unavailable": the helper validates the
+     * path before it touches the screen, so disagreement is an error. */
+    /* ITS OWN PROFILE, FOR A REASON WORTH WRITING DOWN. Run in phase A's
+       profile, this phase failed on "the audit ledger could not be opened" --
+       phase C's process had only just been killed and still held the sqlite
+       file, so a check about PowerShell was reporting a transient sqlite lock.
+       A red gate that names the wrong thing is worse than no gate: it teaches
+       people to re-run until it passes. A fresh profile has its own ledger and
+       cannot contend with anything, and phase E loses nothing by it -- what it
+       proves is the derive/publish/read chain, which is per-profile anyway. */
+    const helperProfile = {
+      localAppData: path.join(scratch, 'helper', 'localappdata'),
+      userProfile: path.join(scratch, 'helper', 'userprofile'),
+      codexHome: path.join(scratch, 'helper', 'codexhome'),
+      temp: path.join(scratch, 'helper', 'temp'),
+      appData: path.join(scratch, 'helper', 'userprofile', 'AppData', 'Roaming'),
+    }
+    for (const value of Object.values(helperProfile)) await mkdir(value, { recursive: true })
+    const helperStateRoot = path.join(helperProfile.appData, STATE_ROOT_LEAF)
+    const helperRun = await runPayloadInPlace(executable, capabilityRoot, helperProfile, { label: 'phase E (helper program)', probeHelper: true })
+    const probed = helperRun.probed
+    let reported = null
+    if (!probed || probed.isError) {
+      failures.push(
+        `phase E: ${HELPER_PROBE_TOOL} did not complete, so nothing was learned about where a helper program ` +
+        `resolves its directories.\n${probed ? probed.text : 'no result'}`,
+      )
+    } else {
+      try { reported = JSON.parse(probed.text ?? 'null')?.profile ?? null } catch { /* reported just below */ }
+      if (typeof reported !== 'string' || !reported) {
+        failures.push(`phase E: ${HELPER_PROBE_TOOL} named no profile directory, so this phase proved nothing.`)
+      } else if (!path.relative(unpacked, path.resolve(reported)).startsWith('..')) {
+        /* THE DEFECT, STATED AS THE CUSTOMER MEETS IT. The helper resolved a
+           directory it intends to use INSIDE the program's own installation. */
+        failures.push(
+          `phase E: a helper program resolved its profile directory to ${reported}, which is INSIDE the install ` +
+          `directory ${unpacked}. It is deriving that path from its own location instead of reading ` +
+          `${STATE_ROOT_ENV}, so it will write where the next update deletes and a per-machine install forbids. ` +
+          'Follow the ladder in tools/secrets.ps1.',
+        )
+      } else if (path.relative(helperStateRoot, path.resolve(reported)).startsWith('..')) {
+        failures.push(
+          `phase E: a helper program resolved its profile directory to ${reported}, which is outside this run's ` +
+          `per-user state root ${helperStateRoot}. The JavaScript half and the helper disagree about where the ` +
+          'product keeps its data.',
+        )
+      } else {
+        console.log(`phase E: a PowerShell helper independently resolved its directory under ${helperStateRoot}`)
+      }
+    }
   } finally {
     const after = await hashTree(unpacked)
     const { added, removed, changed } = treeDifferences(before, after)
@@ -568,7 +769,7 @@ async function main() {
         `unable to be written in the first place on a normal deployment.\n${detail}`,
       )
     } else {
-      console.log(`the install directory is byte-unchanged after the session (${after.size} file(s) re-hashed)`)
+      console.log(`the install directory is byte-unchanged after the session (${after.size} entr(y|ies) re-hashed)`)
     }
     await rm(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {})
 
