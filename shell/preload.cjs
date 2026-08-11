@@ -12,51 +12,25 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('mcShell', {
   titlebarHeight: 36,
   getBridgeProof: () => ipcRenderer.invoke('mc-bridge-proof'),
+  // The shell names the exact bridge it supervises so the renderer pins to it
+  // instead of scanning localhost and trusting the first responder -- which is
+  // how a squatter is handed this boot's proof. See mc-bridge-endpoint in
+  // main.cjs and configuredBaseUrl() in src/mission-bridge.js.
+  getBridgeEndpoint: () => ipcRenderer.invoke('mc-bridge-endpoint'),
 })
 
-/* BLOCKER 2 (R1162 non-author review) removed an earlier version of this
-   exposure. That bridge was dead on every installation: the engine behind it
-   was resolved from a hardcoded path into a private sibling checkout that
-   shipped nowhere, so the control could only ever fail, and its failure path
-   rendered that internal repo name into the DOM.
+/* No agent bridge here, and that is not an oversight.
 
-   This exposure is re-established deliberately, and it is NOT the old one.
-   Three things are different, and each maps to one clause of that defect:
+   THIS FILE IS NOT THE LOADED BOUNDARY. main.cjs loads
+   shell/fleet-profile-preload.cjs (sandboxed preloads cannot require a
+   sibling, so that file is the shell's composed boundary), and nothing
+   outside the test suite references this one at all.
 
-   1. The engine path is configuration (MISSION_CONTROL_ENGINE), never a
-      filesystem guess. No engine configured means no engine -- it fails
-      closed instead of pretending.
-   2. `availability()` lets the renderer ASK before it offers a control, so a
-      build with no engine shows a stated-unavailable surface rather than a
-      button that is guaranteed to fail.
-   3. Nothing here can carry a path to the DOM. availability() replies
-      {ok, code}; the resolver's path-bearing message stays in the main
-      process.
-
-   The surface stays bounded on purpose: five named calls and a listener, each
-   forwarding a plain object to a channel main.cjs already validates. The
-   renderer never receives ipcRenderer itself.
-
-   See tools/test/chat-agent-bridge-gated.test.mjs, which now gates these
-   invariants instead of gating the exposure's absence. */
-const AGENT_EVENT_CHANNEL = 'mc-agent:event'
-
-contextBridge.exposeInMainWorld('mcAgent', {
-  availability: () => ipcRenderer.invoke('mc-agent:availability', {}),
-  start: (request) => ipcRenderer.invoke('mc-agent:start', request),
-  send: (request) => ipcRenderer.invoke('mc-agent:send', request),
-  interrupt: (request) => ipcRenderer.invoke('mc-agent:interrupt', request),
-  close: (request) => ipcRenderer.invoke('mc-agent:close', request),
-  /* Returns its own unsubscribe. A surface that mounts per navigation must be
-     able to detach exactly its own listener, or every visit to an agent page
-     leaves another one attached to the channel. */
-  onEvent: (listener) => {
-    if (typeof listener !== 'function') throw new TypeError('onEvent requires a listener function')
-    const forward = (_event, packet) => { listener(packet) }
-    ipcRenderer.on(AGENT_EVENT_CHANNEL, forward)
-    return () => { ipcRenderer.removeListener(AGENT_EVENT_CHANNEL, forward) }
-  },
-})
+   The renderer's agent bridge is re-established there, with the full
+   reasoning for why it is safe to re-establish. Exposing it here instead
+   would have produced a green test over a dead feature -- the same defect
+   class as BLOCKER 2 itself, which was a control that could only ever fail
+   on a real installation. */
 
 function rgbToHex(rgb) {
   const m = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)

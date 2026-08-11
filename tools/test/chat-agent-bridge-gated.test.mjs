@@ -65,7 +65,12 @@ test('the chat route is not registered in the hash router', () => {
 // tools/test/agent-session-surface.test.mjs. The other two clauses of this
 // suite are untouched and still permanent.
 test('the renderer bridge to the agent IPC channels stays bounded', () => {
-  const preload = read('shell/preload.cjs')
+  // The preload main.cjs actually loads, not a named guess -- see
+  // activePreloadPath() in agent-session-surface.test.mjs for why.
+  const main = read('shell/main.cjs')
+  const declared = main.match(/preload:\s*path\.join\(__dirname,\s*'([^']+)'\)/)
+  assert.ok(declared, 'main.cjs must declare its preload')
+  const preload = read(`shell/${declared[1]}`)
   // Not "no bridge" -- a bridge that cannot hand over raw IPC. The renderer
   // gets named calls only, so the reachable surface stays exactly the set
   // main.cjs validates.

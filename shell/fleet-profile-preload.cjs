@@ -8,7 +8,47 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('mcShell', {
   titlebarHeight: 36,
   getBridgeProof: () => ipcRenderer.invoke('mc-bridge-proof'),
+  // The shell names the exact bridge it supervises so the renderer pins to it
+  // instead of scanning localhost and trusting the first responder -- which is
+  // how a squatter is handed this boot's proof. See mc-bridge-endpoint in
+  // main.cjs and configuredBaseUrl() in src/mission-bridge.js.
+  getBridgeEndpoint: () => ipcRenderer.invoke('mc-bridge-endpoint'),
 })
+
+/* The agent bridge. BLOCKER 2 (R1162 non-author review) removed an earlier
+   version of this exposure, and removing it was right at the time: the engine
+   behind it was resolved from a hardcoded path into a private sibling checkout
+   that shipped nowhere, so the control could only ever fail, and its failure
+   path rendered that internal repo name into the DOM.
+
+   It is re-established deliberately here, and it is not the old one:
+   1. The engine path is configuration (MISSION_CONTROL_ENGINE), never a
+      filesystem guess -- unconfigured fails closed instead of pretending.
+   2. `availability()` lets the renderer ASK before it offers a control, so a
+      build with no engine shows a stated-unavailable surface rather than a
+      button guaranteed to fail.
+   3. Nothing here can carry a path to the DOM: availability() replies
+      {ok, code}, and the resolver's path-bearing message stays in main.
+
+   It lives in THIS file, not shell/preload.cjs, for the reason stated at the
+   top: this is the preload main.cjs actually loads. shell/preload.cjs is
+   reachable from no window. */
+contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
+  availability: () => ipcRenderer.invoke('mc-agent:availability', {}),
+  start: request => ipcRenderer.invoke('mc-agent:start', request),
+  send: request => ipcRenderer.invoke('mc-agent:send', request),
+  interrupt: request => ipcRenderer.invoke('mc-agent:interrupt', request),
+  close: request => ipcRenderer.invoke('mc-agent:close', request),
+  /* Returns its own unsubscribe. A surface that mounts per navigation must be
+     able to detach exactly its own listener, or every visit to an agent page
+     leaves another one attached to the channel. */
+  onEvent: listener => {
+    if (typeof listener !== 'function') throw new TypeError('onEvent requires a listener function')
+    const forward = (_event, packet) => { listener(packet) }
+    ipcRenderer.on('mc-agent:event', forward)
+    return () => { ipcRenderer.removeListener('mc-agent:event', forward) }
+  },
+}))
 
 /* Fleet data is resolved while the renderer's module graph is evaluating. An
    async-only bridge paints the sample first and leaves sim.js, vocab.js and

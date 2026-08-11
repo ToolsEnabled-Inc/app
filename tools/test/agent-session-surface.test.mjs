@@ -51,11 +51,33 @@ test('availability resolves a real configured engine', () => {
   }
 })
 
+/* Derive the preload from main.cjs rather than naming one. An earlier version
+   of this suite asserted against shell/preload.cjs, which no window loads --
+   it went green while window.mcAgent was undefined in the running app. A test
+   that names the wrong file is the same defect as a control that cannot work:
+   both report success for something that does not exist. */
+export function activePreloadPath() {
+  const main = read('shell/main.cjs')
+  const match = main.match(/preload:\s*path\.join\(__dirname,\s*'([^']+)'\)/)
+  assert.ok(match, 'main.cjs must declare its preload via path.join(__dirname, ...)')
+  return `shell/${match[1]}`
+}
+
+test('the loaded preload is the one the tests check', () => {
+  const active = activePreloadPath()
+  assert.equal(active, 'shell/fleet-profile-preload.cjs')
+  assert.doesNotMatch(
+    read('shell/preload.cjs'),
+    /exposeInMainWorld\('mcAgent'/,
+    'the unloaded preload must not carry an agent bridge that no window can reach',
+  )
+})
+
 test('the renderer has a bounded, deliberate bridge to the agent channels', () => {
   // The inverse of the old gate. The exposure is required now -- without it
   // no agent can be started from the interface at all -- but it stays a
   // fixed, named surface, and ipcRenderer itself is never handed over.
-  const preload = read('shell/preload.cjs')
+  const preload = read(activePreloadPath())
   assert.match(preload, /exposeInMainWorld\('mcAgent'/, 'preload must expose the agent bridge')
   for (const call of ['availability', 'start', 'send', 'interrupt', 'close', 'onEvent']) {
     assert.match(preload, new RegExp(`\\b${call}:`), `preload must expose ${call}`)
