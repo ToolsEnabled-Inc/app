@@ -14,6 +14,16 @@ dist/
 release/
 server.log
 npm-install.log
+# The Codex CLI cloud client writes error.log here on a failed run. It is a
+# diagnostic artifact, never product bytes, and as an untracked file it fails
+# tools/require-clean-tree.mjs and so blocks the packaged build outright.
+#
+# It must also never be committed for a second and harder reason: it records
+# account identifiers and the parsed GitHub origin, which carries the owner's
+# real name. That is exactly what check-no-owner-data refuses to ship. The
+# engine tree already ignores this filename; this worktree carries its own
+# .gitignore and did not, so the same file was safe there and a blocker here.
+error.log
 /private/
 # The staged capability payload. Derived output, like dist/ and release/:
 # `npm run pack:capability` cuts it fresh from the capability-layer source
