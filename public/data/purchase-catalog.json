@@ -1,0 +1,955 @@
+{
+  "version": 2,
+  "generatedAt": "2026-08-11T05:05:00.000Z",
+  "currency": "USD",
+  "spendPolicy": {
+    "dailyLimitUsd": 100,
+    "source": "config/toolsenabled.policy.json limits.defaultDailySpendUsd, read as dailyLimitCents by src/lib/providers/pay.js",
+    "readAt": "2026-08-11T04:32:00.000Z"
+  },
+  "categories": [
+    {
+      "id": "required-to-ship",
+      "label": "Needed to ship",
+      "blurb": "Without these the product cannot honestly go out the door. Three lines, and one of them is a server backup you already ordered switched on once."
+    },
+    {
+      "id": "required-before-charging",
+      "label": "Needed before you take money",
+      "blurb": "You can ship without all of these. Note what is no longer here: forming a company. Stripe takes payments from a sole proprietor, so the company is off this list and moved down to defensive."
+    },
+    {
+      "id": "optional-defensive",
+      "label": "Defensive, not urgent",
+      "blurb": "Real options with real reasons, none holding up a release. The company formation lives here, with all four state options priced, because nothing about shipping or charging actually requires it."
+    },
+    {
+      "id": "do-not-buy",
+      "label": "Do not buy yet",
+      "blurb": "You asked for all options. An option ruled out with a reason is information, not padding. Every line is something a reasonable person would consider and should not buy today."
+    }
+  ],
+  "items": [
+    {
+      "id": "azure-artifact-signing",
+      "name": "Code signing certificate",
+      "vendor": "Microsoft Azure Artifact Signing, Basic tier",
+      "category": "required-to-ship",
+      "cadence": "monthly",
+      "firstYearUsd": 9.99,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": true,
+      "whatItIs": "A signing service that puts a verified publisher name on the installer, so Windows stops telling people the download comes from an unknown publisher.",
+      "whatBreaksWithout": "Everyone who downloads the installer gets the full-screen blue panel with NO publisher name, and must find and click More info then Run anyway. Under workplace policy that bypass can be switched off entirely, making the installer unrunnable. The Guided installer tier built for non-technical users does not ship without this.",
+      "whyHeWantedIt": "You asked the price directly, R1203: okay how much is the certificate but also it is for ai friendly so if they are super pessimistic it wont work anyway, some amount of click through needs to happen. Your question became a tracked gate, and your adopted monetization ruling also names a code-signing certificate among the things that must exist before any payment is taken.",
+      "sourceUrl": "https://azure.microsoft.com/en-us/products/artifact-signing",
+      "warning": "The ORDER matters, and it is the opposite of what you were told. Microsoft states that a billing account of type Individual can only validate an individual identity and cannot validate an organization identity, or the reverse. Forming a company first pushes you onto the organization path, which needs business documents you will not have. Do the individual identity check FIRST, incorporate later if you want to.",
+      "blockers": [],
+      "notes": "Price verified four ways today including Microsoft's own retail price feed. Two costs the pricing page hides: it does not work on a free, trial or sponsored Azure subscription, so you need pay-as-you-go with a card on file; and billing is not pro-rated, so the full $9.99 is charged for whatever month you start in. Honest expectation: this does NOT remove the warning on day one. Microsoft's own docs say reputation builds only over several weeks and hundreds of clean installs, and that there is no mechanism to buy past it at any price."
+    },
+    {
+      "id": "droplet-backups-weekly",
+      "name": "Backups on the live server",
+      "vendor": "DigitalOcean",
+      "category": "required-to-ship",
+      "cadence": "monthly",
+      "firstYearUsd": 4.8,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": true,
+      "whatItIs": "Automatic weekly whole-machine images of the server that already runs your site, so it can be restored if it is lost, corrupted or broken into.",
+      "whatBreaksWithout": "This is not hypothetical. I read your DigitalOcean account today and backups are OFF: zero backup images, zero snapshots, on a server that has been running since June 2025. If it is lost tomorrow there is nothing at all to restore from.",
+      "whyHeWantedIt": "This is your own standing directive and it was never carried out. R1162, 2026-08-08: Droplet backups: default ON. Managed backups should be the default behavior on the production-serving droplet, not an opt-in. Three days later it is still opt-in and still off.",
+      "sourceUrl": "https://docs.digitalocean.com/products/backups/details/pricing/",
+      "warning": null,
+      "blockers": [],
+      "notes": "Priced from your actual server rather than a guess: it is a 4 GiB, 2 vCPU, 80 GiB instance at $24.00 a month, and weekly backups cost 20 percent of the server's monthly cost. That is $4.80 a month, $57.60 a year. The server itself is already running and already paid for, so it is not a purchase and is deliberately not on this list."
+    },
+    {
+      "id": "primary-domain",
+      "name": "Primary domain name",
+      "vendor": "Porkbun",
+      "category": "required-to-ship",
+      "cadence": "annual",
+      "firstYearUsd": 11.08,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 3,
+      "defaultSelected": false,
+      "whatItIs": "The web address the product lives at, and the domain every support and billing email is sent from.",
+      "whatBreaksWithout": "Your ruling requires published terms and a privacy policy before the first dollar, and a policy sitting in a code repository is not published. Stripe's signup asks for a business website. The strict minimum really is $0 - a free hosted page would technically carry both - so this is not impossible to ship without. What $11 buys is an address you own that does not put someone else's brand in the URL a customer reads before trusting you with their machine.",
+      "whyHeWantedIt": "You asked for it twice. R1162, 2026-08-07: ok do we need a digital ocean server for this then? because there needs to be a website. we also need a good url. you have my credit info in the vault, it sends me an approval, ill approve reasonable purchases. And again on 2026-08-08: we need a url then right? have any luna max subagents surface any or can you assign 2 personally? You also said plainly: Yes we need a hompage and a privacy policy.",
+      "sourceUrl": "https://porkbun.com/tld/com",
+      "warning": "There is a real deadline on this one and it has nothing to do with us. The wholesale .com price rises from $10.26 to $10.97 on 2026-11-01 - the registry gave formal notice on an earnings call - and every registrar passes it straight through. That is about twelve weeks away. Registering or renewing multiple years BEFORE that date locks today's rate; after it, every year costs about seventy cents more, forever.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "The company and product name is not settled, and a trademark and name-availability check is running right now. Buying before it clears risks paying for the wrong name and buying again.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "No first-year-versus-renewal gap here: $11.08 every year at this registrar, which is unusual and is exactly why it beats cheaper-looking alternatives. Quantity up to 3 in case you want the exact name plus a spelling or two. Availability was established by direct registry record lookups rather than by typing candidate names into a registrar search box, because search boxes are the actual front-running leak vector and you were right to worry about that."
+    },
+    {
+      "id": "stripe-account",
+      "name": "Payment processing account",
+      "vendor": "Stripe",
+      "category": "required-before-charging",
+      "cadence": "one-off",
+      "firstYearUsd": 0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The service that takes a customer's card and puts the money in your bank. There is nothing to buy - it takes a share of money you have already been paid.",
+      "whatBreaksWithout": "There is no way to charge anyone anything. Worth knowing that nothing in the product currently refuses to run unlicensed either, so this is one half of a two-part problem and the other half is engineering rather than a purchase.",
+      "whyHeWantedIt": "You asked directly: we have stripe for payment or whatever was decided? no need for anything else? The answer is that Stripe costs $0 up front and is already the right choice - the integration in this codebase already points at Stripe's real production API, with products, prices, checkout, the billing portal and webhook verification all built.",
+      "sourceUrl": "https://stripe.com/pricing",
+      "warning": "This corrects something you were told earlier, and it changes the shape of this whole list. Your approvals queue says a live Stripe account needs a registered business, so a company must come first. It does not. Stripe supports Individual and Sole Proprietor accounts directly - you give a social security number rather than a company tax ID. A company buys liability protection, not payment access. That fact takes company formation off the critical path, which is why it now sits under Defensive.",
+      "blockers": [],
+      "notes": "No setup fee, no monthly fee, no closure fee. 2.9 percent plus 30 cents per successful domestic card charge - a fee taken out of money already received, not a purchase you approve. At the 2-to-40-subscriber planning floor in your own ruling that is roughly $1 to $22 a month. Optional extras only if you later want them: Billing at 0.7 percent of billing volume, Tax at 0.5 percent per transaction."
+    },
+    {
+      "id": "terms-and-privacy-review",
+      "name": "Lawyer review of the terms, privacy policy and security disclosure",
+      "vendor": "Fixed-fee attorney (not engaged)",
+      "category": "required-before-charging",
+      "cadence": "one-off",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "estimateUsd": {
+        "lowUsd": 500,
+        "highUsd": 1500,
+        "basis": "Indicative market range for reviewing existing drafts; a legal marketplace publishes a ~$760 average flat fee. Drafting from scratch runs $3,500-$4,500. No attorney has been approached, so nobody has quoted you."
+      },
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A lawyer reading the three legal documents already drafted here and making the liability language actually hold up.",
+      "whatBreaksWithout": "The drafts contain sections marked for a lawyer - liability caps and disclaimers written to be honest but not drafted by one. The product's unsandboxed mode, where agents can change or delete any file on a user's machine by design, is exactly the fact that decides whether a liability cap survives a real dispute.",
+      "whyHeWantedIt": "You already ruled on this and the ruling was to wait. R1162, 2026-08-07: legal review is skipped until we make money so ignore it. And the alternative you chose the same session: where there are things like legal review for the messaging system look for admittances and disclosures instead. It stays on the list because your adopted ruling names published terms as a precondition before the first dollar, so your deferral and that gate meet at the moment you decide to charge, and not before.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NO_QUOTE_OBTAINED",
+          "summary": "No attorney was approached and no fee is invented here. Ask for a fixed fee scoped to review and finalize three existing drafts, never an open-ended engagement.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Deliberately shown with no price - a number here would be a guess about your money. One mechanical step that is easy to forget: the internal file paths cited throughout the three drafts must be stripped before the customer-facing versions are published."
+    },
+    {
+      "id": "policy-generator-subscription",
+      "name": "Policy generator subscription, the cheap alternative to a lawyer",
+      "vendor": "iubenda",
+      "category": "required-before-charging",
+      "cadence": "annual",
+      "firstYearUsd": 71.88,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A service that generates and hosts a maintained privacy policy, terms and cookie notice for a website, and keeps them current as laws change.",
+      "whatBreaksWithout": "Nothing breaks - but this is the option that matches what you actually said you wanted to do, and nobody had priced it for you before now.",
+      "whyHeWantedIt": "It is the concrete form of your own instruction, R1162: where there are things like legal review for the messaging system look for admittances and disclosures instead, and maybe we cant claim its super secure because we havent had legal review, but maybe we can still ship it with sections in our policiese and such that disclose it may or may not even work. A generated, maintained policy is the disclosure route. The lawyer above is the assurance route. You said disclosures.",
+      "sourceUrl": "https://www.iubenda.com/en/pricing",
+      "warning": "Not a substitute for the lawyer on the part that actually matters. A generator writes a competent privacy policy; it does not assess whether YOUR liability cap survives the fact that your product deletes files on a user's machine by design. Use it for the policy pages and keep the attorney for the liability language when you charge.",
+      "blockers": [],
+      "notes": "$5.99 per site per month billed annually, up to 25,000 pageviews. The other real option is Termly at $10 per site per month billed annually, with a free tier that carries their branding. TermsFeed sells documents once rather than by subscription if you would rather not carry a recurring line at all."
+    },
+    {
+      "id": "external-security-review",
+      "name": "Independent external security review",
+      "vendor": "Not quoted - no vendor approached",
+      "category": "required-before-charging",
+      "cadence": "one-off",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "estimateUsd": {
+        "lowUsd": 5000,
+        "highUsd": 18000,
+        "basis": "Your ruling says $8,000-$30,000, never checked against a vendor by anyone, including the council that wrote it. Research today puts a tightly scoped test at $5,000-$10,000 and a deeper assessment at $8,000-$18,000. Published vendor ranges, not a quote."
+      },
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "An outside firm attacking the product and reporting what they broke, so security claims rest on someone other than the people who built it.",
+      "whatBreaksWithout": "The mobile companion app cannot ship under its own threat model - and there is no mobile app yet, so nothing is blocked today. More broadly your adopted ruling turned your own sentence, we need to be secure if we want to charge for it, into a gate: until this closes, no tier may be sold on a security claim.",
+      "whyHeWantedIt": "It follows from your own words in the monetization proposal: although we need to be secure if we want to charge for it. Check with the council. The council adopted that clause and promoted it to a gate on the whole product rather than a per-tier promise, which is the version that can actually be passed.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NO_QUOTE_OBTAINED",
+          "summary": "No vendor has been approached. The range is published market pricing, not a price, and is excluded from every total on this page.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Your council's own recommendation is not to fund this up front: scope it to the relay and auth plane rather than the whole codebase, pay for it out of Team-tier deals and annual prepayments, and schedule it after the engineering ahead of it lands. Free tools that cover real ground meanwhile and cost nothing: OWASP ZAP, Dependabot, CodeQL, Semgrep, Trivy."
+    },
+    {
+      "id": "delaware-certificate-of-incorporation",
+      "name": "Company formation, Delaware corporation",
+      "vendor": "Delaware Division of Corporations",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 109,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The state filing that creates the company as a legal entity separate from you. The structure investors expect.",
+      "whatBreaksWithout": "Less than you were told. It does NOT block shipping. It does NOT block taking payments, because Stripe accepts sole proprietors. And it does NOT unlock code signing - it gets in the way of it. What you genuinely lose: liability separation between the product and you personally, a company name rather than your own on the certificate and policies, and the structure an investor expects.",
+      "whyHeWantedIt": "It has sat at the top of your approvals queue as decision one, and $159 of it is in the live cart in this app right now. It also connects to your own plan, R1162: i am planning after first launch for a agent campaign in my voice of investor emails. The corporation is the structure that campaign presupposes.",
+      "sourceUrl": "https://corpfiles.delaware.gov/Fee_Schedule/AugustFee2026.pdf",
+      "warning": "The franchise-tax trap is worth more than every other number on this page combined, and the figure is exact, not approximate. Delaware bills the Authorized Shares Method BY DEFAULT: at a common 10,000,000 shares that is $250 + (999 x $85) = $85,165.00 in year one. You only get the $400 alternative if whoever files the annual report actively enters Total Gross Assets and Total Issued Shares. A registered agent reminds you the report is due; they do not pick the cheaper method. Make it impossible instead: authorize 5,000 shares or fewer and the minimum is $175.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "You file under a specific name and the name is not decided. A trademark and name-availability check is running now. Filing first means filing the wrong name.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$109 is the state minimum for a one-page filing; add $9 per extra page and $50 for a certified copy. This line is the only one on the page that exceeds the $100 daily spend cap on its own, so if it is approved and later recorded through the purchase-recording path it is refused by itself while smaller lines succeed - which reads as partial success rather than a failure. Read the California warning on the home-state option before choosing any state."
+    },
+    {
+      "id": "delaware-llc",
+      "name": "Company formation, Delaware LLC - the simple alternative",
+      "vendor": "Delaware Division of Corporations",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 110,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The same liability separation as the corporation, in a simpler structure with no shares and no annual report.",
+      "whatBreaksWithout": "Nothing extra. This is an alternative to the corporation, not an addition.",
+      "whyHeWantedIt": "Not something you asked for by name. It is here because you asked for all the options, and this one removes the single largest financial risk on the page: an LLC has no authorized shares, so the $85,165 trap cannot exist at all.",
+      "sourceUrl": "https://corp.delaware.gov/alt-entitytaxinstructions/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same as the corporation - you file under a name that is not settled yet.",
+          "severity": "blocking"
+        },
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "An alternative to the corporation, not an addition. Choose one.",
+          "severity": "caution"
+        }
+      ],
+      "notes": "$110 to file, then a flat $400 a year due June 1 with NO annual report at all. Far more predictable than the corporation, whose floor is $225-$450 and whose worst case is $85,165. One widely repeated figure corrected: this tax is $400, not $300. The real trade-off is that investors expect a corporation and converting later costs money - so if the investor-email plan is serious, take the corporation and control the share count."
+    },
+    {
+      "id": "wyoming-llc",
+      "name": "Company formation, Wyoming LLC - the cheapest to keep",
+      "vendor": "Wyoming Secretary of State",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 100,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The same liability separation, in the cheapest state to keep a company alive year after year.",
+      "whatBreaksWithout": "Nothing. An alternative to the others, not an addition.",
+      "whyHeWantedIt": "Not requested by name - included because you asked for all options and this is the cheapest one that genuinely works.",
+      "sourceUrl": "https://sos.wyo.gov/business/docs/businessfees.pdf",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same as the others - the name is not settled.",
+          "severity": "blocking"
+        },
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "Pick one state, not several.",
+          "severity": "caution"
+        }
+      ],
+      "notes": "$100 to file, then a $60 minimum annual report tax - the cheapest yearly cost of the four. But read the California warning on the next line before choosing any out-of-state entity, because it applies to Wyoming exactly as much as to Delaware."
+    },
+    {
+      "id": "california-llc",
+      "name": "Company formation, home state - and the trap that changes the answer",
+      "vendor": "California Secretary of State",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 70,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Forming the company in the state you actually live and work in, rather than a state chosen for its corporate law.",
+      "whatBreaksWithout": "Nothing. An alternative to the three above.",
+      "whyHeWantedIt": "Not requested - it is on this list because of a trap nobody had checked until today, in the warning below. This is the cheapest total for someone in your situation and it was never put in front of you.",
+      "sourceUrl": "https://www.ftb.ca.gov/file/business/types/limited-liability-company/index.html",
+      "warning": "THIS CHANGES THE ANSWER ON ALL THREE OPTIONS ABOVE. California charges an $800 minimum annual tax on any company doing business in California, and the state says a company that does NOT register but does business there owes it anyway. Not registering does not avoid it. So an out-of-state company run from California costs its own fees PLUS $800. A Delaware LLC run from California is $400 + $800 + $50 agent = $1,250 a year, plus $70 to register as a foreign entity. A plain California LLC is $800 + about $10. The out-of-state company costs ~$450 a year MORE and buys a solo operator with no investors nothing.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same as the others - the name is not settled.",
+          "severity": "blocking"
+        },
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "Pick one state, not several.",
+          "severity": "caution"
+        }
+      ],
+      "notes": "$70 to file, plus $20 every two years for the information statement. The $800 dominates every entity choice here and applies the moment you do business from California, whichever state you file in. One asymmetry worth knowing if you do form a company: corporations are exempt from the $800 in their first year, LLCs are not, because that waiver expired for tax years starting in 2024."
+    },
+    {
+      "id": "delaware-registered-agent",
+      "name": "Registered agent service",
+      "vendor": "Harvard Business Services",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 50,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A business with a physical address in the filing state that accepts legal mail and lawsuits on the company's behalf. An out-of-state company must have one.",
+      "whatBreaksWithout": "The filing is rejected. If the service later lapses, the state can void the company's good standing without you finding out until something else fails. Not needed at all if you form the company in the state you live in.",
+      "whyHeWantedIt": "Bundled with the entity decision in your approvals queue and already in the live cart in this app at $50.",
+      "sourceUrl": "https://www.delawareinc.com/compare-registered-agent-fees/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "Only meaningful alongside an out-of-state filing. Do not buy on its own.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$50 a year, stated by the vendor as fixed and guaranteed never to increase - which is why the usual warning about a cheap first year and an expensive renewal does not apply here. That is the cheap end of a market running to $125, $200 and $249 at other vendors. The service is genuinely commodity: they receive mail and forward it. Prepaying is $90 for two years or $125 for three."
+    },
+    {
+      "id": "entity-annual-upkeep",
+      "name": "Yearly cost of keeping the company alive",
+      "vendor": "State tax authority",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 0,
+      "renewalUsd": 450,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The mandatory yearly filing and tax that keeps a company in good standing once it exists.",
+      "whatBreaksWithout": "The company falls out of good standing, then void. This is not something you can decline once you have filed - it is the recurring cost of the decision above, shown here so you see it BEFORE you choose rather than the following March.",
+      "whyHeWantedIt": "Not something you asked for - it is the consequence of the filing you did ask about. It is on the list because a purchase list that shows a $109 filing and hides the yearly bill is exactly the kind of list that makes a purchase go wrong.",
+      "sourceUrl": "https://corp.delaware.gov/frtaxcalc/",
+      "warning": "The $450 assumes the cheaper calculation method is chosen correctly EVERY year. Left on the default it is $85,165. Miss the March 1 deadline and it is a $200 penalty plus 1.5 percent monthly interest, then the company is dissolved.",
+      "blockers": [
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "Only applies once a company exists. Nothing to buy today.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Shown as $0 in year one because there is no annual report in the calendar year you file - the first is due the following March. The $450 is the Delaware corporation figure, $50 report plus about $400 tax under the sensible method; the true floor is $225 if you authorize few shares. A Delaware LLC is a flat $400 with no report. Wyoming is $60. California is $800. Add California's $800 to any of them if you operate from California."
+    },
+    {
+      "id": "federal-tax-id",
+      "name": "Federal tax ID",
+      "vendor": "Internal Revenue Service",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The company's federal tax number, needed to open a business bank account.",
+      "whatBreaksWithout": "No business bank account under the company name. Not needed at all to take payments as a sole proprietor.",
+      "whyHeWantedIt": "Part of the entity path in your approvals queue. It is listed at $0 specifically so you do not pay one of the services that charge $150 to $329 to file a free form for you.",
+      "sourceUrl": "https://www.irs.gov/businesses/small-businesses-self-employed/get-an-employer-identification-number",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "Apply after the company exists. Free either way.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Free, direct, issued immediately online. The tax authority's own site says plainly that you never have to pay a fee for one. It needs your own social security number and cannot be delegated to an agent."
+    },
+    {
+      "id": "business-bank-account",
+      "name": "Business bank account",
+      "vendor": "Mercury",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Where money from customers lands. Payouts go to an account in the company's name rather than a personal one.",
+      "whatBreaksWithout": "Nothing if you take payments as a sole proprietor - that pays out to your personal account. Once a company exists, running customer money through a personal account undermines the liability separation the company was formed to create.",
+      "whyHeWantedIt": "Named in your approvals queue as a step you personally must take for the payment path.",
+      "sourceUrl": "https://mercury.com/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "PICK_ONE_STRUCTURE",
+          "summary": "Needs the company and the tax ID first. Free either way.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$0 to open, $0 monthly, no minimum balance. Novo and Relay are equally free if you dislike this one. Needs a real business address - a registered-agent address or a PO box is not accepted."
+    },
+    {
+      "id": "uspto-trademark-filing",
+      "name": "Trademark registration, one class",
+      "vendor": "USPTO",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 350,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Federal registration of the product or company name - what actually lets you stop someone else using it.",
+      "whatBreaksWithout": "Nothing at launch. It matters later, once the name is worth copying.",
+      "whyHeWantedIt": "Not something you asked to buy. It surfaced because the name itself is unresolved: a clearance check is running now, and a live business already trades commercially as Mission Control in the productivity-software space, which is a real collision signal against the app name.",
+      "sourceUrl": "https://www.uspto.gov/trademarks/trademark-fee-information",
+      "warning": "The $350 is only the clean-filing price. The fee schedule was restructured in January 2025 and now adds $100 per class if required information is incomplete, $200 per class if you write your own goods-and-services description instead of picking from the approved list, and $200 per extra 1,000 characters. A sloppy filing is easily $650 instead of $350, and none of it comes back.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Filing before the name is settled means filing for the wrong name. The fee is not refundable and the application cannot be amended to a different mark.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Searching the register yourself is free. A professional knockout search is $50 to $150 and a full attorney clearance is $500 to $1,000 - and clearance is the step that stops you spending the filing fee on a name that was never available. That is the step currently running."
+    },
+    {
+      "id": "domain-defensive-net-org",
+      "name": "Defensive domains, .net and .org",
+      "vendor": "Porkbun",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 20.5,
+      "renewalUsd": 24.36,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The two other classic endings for the same name, registered so somebody else cannot take them.",
+      "whatBreaksWithout": "Nothing. Defensive registration protects a brand people are already trying to reach, and there is no traffic to defend yet.",
+      "whyHeWantedIt": "An earlier purchase list marked seven domains REQUIRED. That was wrong by about $247, and this pair is the only part of it worth considering, because these two are the only alternates with no renewal cliff.",
+      "sourceUrl": "https://porkbun.com/tld/net",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same name problem as the main domain.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$12.52 plus $7.98 in year one, renewing at $12.52 plus $11.84 - the .org is on sale and renews higher, the .net does not move. If you want a cheap hedge at all, this is the one to take: together about $2 a month."
+    },
+    {
+      "id": "domain-defensive-dev-app",
+      "name": "Defensive domains, .dev and .app",
+      "vendor": "Porkbun",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 17.5,
+      "renewalUsd": 27.8,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Two developer-oriented endings, both run by Google's registry, both forcing encrypted connections.",
+      "whatBreaksWithout": "Nothing.",
+      "whyHeWantedIt": "Both were on the earlier list of seven marked REQUIRED. They are not required; they are here so the choice is yours rather than assumed away.",
+      "sourceUrl": "https://porkbun.com/tld/dev",
+      "warning": "Both are on sale in year one and both jump at renewal: .dev goes $8.75 to $12.87, and .app goes $8.75 to $14.93, a 71 percent rise. The sale price is what you remember and the renewal is what you pay forever.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same name problem as the main domain.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Both are on the browser preload list, so encrypted connections are mandatory and cannot be switched off. That costs nothing extra because certificates are free, but a misconfigured certificate makes the site completely unreachable rather than merely insecure."
+    },
+    {
+      "id": "domain-defensive-io",
+      "name": "Defensive domain, .io",
+      "vendor": "Porkbun",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 28.12,
+      "renewalUsd": 51.8,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The ending most associated with developer tools and startups.",
+      "whatBreaksWithout": "Nothing.",
+      "whyHeWantedIt": "It was marked REQUIRED on the earlier purchase list. It is not, and it carries the worst renewal cliff of anything here except the yearly minimum on .ai.",
+      "sourceUrl": "https://porkbun.com/tld/io",
+      "warning": "$28.12 in year one becomes $51.80 every year after, an 84 percent jump. It is also a country-code ending whose registry sets the price and has raised it before, so even the $51.80 is not a promise.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same name problem as the main domain.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "The most tempting of the defensive registrations and the one whose long-run cost is most often underestimated. Over five years this single extra domain costs more than the main .com does over ten."
+    },
+    {
+      "id": "domain-defensive-ai",
+      "name": "Defensive domain, .ai",
+      "vendor": "Porkbun",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 165.4,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The ending most associated with AI products, and by far the most expensive line on this page that is not a tax.",
+      "whatBreaksWithout": "Nothing.",
+      "whyHeWantedIt": "It was marked REQUIRED on the earlier purchase list. If you buy one thing here against advice, please do not let it be this one.",
+      "sourceUrl": "https://porkbun.com/tld/ai",
+      "warning": "The registry requires a two-year minimum, so the $82.70 a year that is advertised means $165.40 due at checkout, and the same again at every renewal. It is very easy to under-budget this by exactly half. Confirm the total on the payment screen before paying.",
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "Same name problem as the main domain.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "On its own this costs more than the entire needed-to-ship set does in a year, several times over. It is the clearest example of why buy the matching domains is expensive advice."
+    },
+    {
+      "id": "domain-name-variants",
+      "name": "Typo and prefix domain variants",
+      "vendor": "Porkbun",
+      "category": "optional-defensive",
+      "cadence": "annual",
+      "firstYearUsd": 11.08,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 4,
+      "defaultSelected": false,
+      "whatItIs": "Near-miss spellings of the main name, registered so a typo lands on you instead of on somebody else.",
+      "whatBreaksWithout": "Nothing today. If the product gets real attention, somebody else can register the near-misses and point them wherever they like.",
+      "whyHeWantedIt": "Two of these were on the earlier list of seven marked REQUIRED.",
+      "sourceUrl": "https://porkbun.com/tld/com",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NAME_NOT_DECIDED",
+          "summary": "You cannot register variants of a name that is not chosen yet.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$11.08 each per year, flat, no renewal cliff - pick a quantity if you want any. The candidates checked and found available were a get prefix, a use prefix, a hyphenated form and a singular form. Honest assessment: buy these when someone is actually mistyping your name, not before."
+    },
+    {
+      "id": "droplet-backups-daily",
+      "name": "Backups on the live server, daily instead of weekly",
+      "vendor": "DigitalOcean",
+      "category": "optional-defensive",
+      "cadence": "monthly",
+      "firstYearUsd": 7.2,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The same automatic server backup as the weekly plan, taken every day instead of every week.",
+      "whatBreaksWithout": "Nothing extra - the weekly plan already gives you a recovery point. This only shortens how much you would lose in a restore, from up to a week to up to a day.",
+      "whyHeWantedIt": "Your directive said backups on; it did not say how often. Both plans are here so the choice stays yours.",
+      "sourceUrl": "https://docs.digitalocean.com/products/backups/details/pricing/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "ALTERNATIVE_TO_WEEKLY",
+          "summary": "Pick this or the weekly plan, not both. This one costs $2.40 a month more.",
+          "severity": "caution"
+        }
+      ],
+      "notes": "30 percent of the server's $24.00 monthly cost, so $7.20 a month or $86.40 a year, against $57.60 a year for weekly. Worth it only if a week of lost server-side state would actually hurt - today the server holds no customer data, so weekly is the honest recommendation."
+    },
+    {
+      "id": "custom-domain-email-forwarding",
+      "name": "An email address at your own domain, the free way",
+      "vendor": "Cloudflare Email Routing",
+      "category": "optional-defensive",
+      "cadence": "monthly",
+      "firstYearUsd": 0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Forwarding, so mail sent to an address at your domain arrives in an inbox you already have.",
+      "whatBreaksWithout": "Your privacy policy cannot be published. The draft policy here says so itself: there is no company domain yet, so there is no contact mailbox to publish, and that section must be completed with a real address before the policy goes anywhere. That makes this a genuine publication dependency that nobody had priced.",
+      "whyHeWantedIt": "Follows from your own Yes we need a hompage and a privacy policy - a published privacy policy needs a contact address on it.",
+      "sourceUrl": "https://developers.cloudflare.com/email-routing/",
+      "warning": "It is receive-only. Cloudflare's own documentation says Email Routing does not support sending or replying from your domain, so replies go out from whatever inbox you forwarded to. For a policy contact address that is fine. For customer support it looks wrong the first time you reply.",
+      "blockers": [
+        {
+          "code": "DEPENDS_ON_DOMAIN",
+          "summary": "Needs the domain first. Free once you have it.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$0, and the recommended registrar also offers free forwarding, so this costs nothing either way. Take this until somebody actually emails you."
+    },
+    {
+      "id": "custom-domain-mailbox",
+      "name": "An email address at your own domain you can send from",
+      "vendor": "Fastmail",
+      "category": "optional-defensive",
+      "cadence": "monthly",
+      "firstYearUsd": 5,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A proper mailbox at your domain you can both receive and send from, so support replies come from your address rather than a personal one.",
+      "whatBreaksWithout": "Nothing, until you have customers who email you and get a reply from an unrelated personal address.",
+      "whyHeWantedIt": "The step up from the free forwarding option above, priced so the choice is informed rather than discovered later.",
+      "sourceUrl": "https://www.fastmail.com/pricing/",
+      "warning": "Watch the decoy cheap tiers. Fastmail's $3 plan explicitly cannot use a custom domain at all, and Zoho's free tier has no IMAP or POP, so it works only in their own webmail and app - no desktop mail client, ever.",
+      "blockers": [
+        {
+          "code": "DEPENDS_ON_DOMAIN",
+          "summary": "Needs the domain first.",
+          "severity": "blocking"
+        },
+        {
+          "code": "ALTERNATIVE_TO_FORWARDING",
+          "summary": "Only needed if the free forwarding is not enough. Do not buy both.",
+          "severity": "caution"
+        }
+      ],
+      "notes": "Cheapest real option at $5 a month billed annually for one user. Google Workspace is $7 per user per month at list - the $3.50 you will see advertised is a first-year promotion only. Microsoft 365 Business Basic is $7 per user per month annually or $8.40 month to month. Zoho is genuinely free for up to 5 users on one domain, with the protocol limitation above."
+    },
+    {
+      "id": "api-credit-topup",
+      "name": "Top up the API credit your own build tooling runs on",
+      "vendor": "Not specified",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Adding credit to the account two of your scheduled internal sweeps draw on.",
+      "whatBreaksWithout": "Two scheduled internal sweeps keep failing on a too-low credit balance. That is your own build tooling burning schedule slots for zero output - nothing a customer touches, and not a ship gate.",
+      "whyHeWantedIt": "Listed in your own shipment plan as an owner action. Flagged with care because of R1179 - so did you spend real api money on my accounts? wtf who told you you were allowed to do that? - so this is surfaced for you to set an amount and is never auto-approved.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [
+        {
+          "code": "AMOUNT_IS_YOURS_TO_SET",
+          "summary": "There is no fixed price - you choose a top-up amount. None is proposed here.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Deliberately unpriced. This is the one line where an agent proposing a number would repeat exactly the mistake you called out. Separately: there is roughly $298 of Google API credit already paid for on one of your accounts that expires in October. Using it costs nothing and losing it costs $298."
+    },
+    {
+      "id": "microsoft-store-account",
+      "name": "Microsoft Store publisher account - the only way to remove the warning entirely",
+      "vendor": "Microsoft",
+      "category": "optional-defensive",
+      "cadence": "one-off",
+      "firstYearUsd": 0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A publisher account for distributing through the Microsoft Store, where Microsoft re-signs your package itself.",
+      "whatBreaksWithout": "Nothing today. But this is the only route that removes the SmartScreen warning outright on day one instead of waiting weeks for reputation to build, and it is now free.",
+      "whyHeWantedIt": "Not requested. It is here because ruling out the only complete solution to the problem you asked about in R1203 would be hiding a real option from you.",
+      "sourceUrl": "https://developer.microsoft.com/microsoft-store/register/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NOT_PACKAGED_FOR_STORE",
+          "summary": "The product is not packaged in the format the Store needs, and software whose whole purpose is unrestricted control of the user's machine is a poor fit for Store policy. That packaging is engineering work, not a purchase.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Corrects an earlier assumption: registration is now $0 for both individual and company accounts - the old $19 and $99 fees were removed. So the cost of this route is entirely the packaging work, not the account. Worth reconsidering seriously if SmartScreen reputation never accumulates, because it is the one path where a new user sees no warning at all."
+    },
+    {
+      "id": "code-signing-ev",
+      "name": "EV code signing certificate",
+      "vendor": "SSL.com, DigiCert, Sectigo and others",
+      "category": "do-not-buy",
+      "cadence": "annual",
+      "firstYearUsd": 728,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The premium tier of code signing certificate, which for years bought instant Windows trust.",
+      "whatBreaksWithout": "Nothing. This is the single most common expensive mistake in shipping Windows software.",
+      "whyHeWantedIt": "You did not ask for it. It is here because it is the obvious thing to buy, the answer is no, and you asked for all options including the ruled-out ones.",
+      "sourceUrl": "https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "RULED_OUT",
+          "summary": "Microsoft's own documentation states that paying a premium for EV solely to avoid SmartScreen warnings is no longer justified.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "The evidence is as strong as it gets: Microsoft's current documentation says EV certificates no longer bypass SmartScreen, that this behavior no longer exists, and puts EV and standard certificates in one shared row with identical behavior. $728 in year one at the cheapest vendor once the mandatory hardware token is included, against $119.88 for the recommended option - about six times the price for an identical result. Some vendors still advertise the obsolete claim on their own pages; that is stale sales copy. EV is genuinely needed only for signing Windows kernel drivers, which this product has none of."
+    },
+    {
+      "id": "code-signing-traditional-certificate",
+      "name": "A traditional code signing certificate you own outright",
+      "vendor": "SSL.com",
+      "category": "do-not-buy",
+      "cadence": "annual",
+      "firstYearUsd": 309,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A certificate you own rather than rent, with the private key held either on a physical USB security token posted to you or in the vendor's cloud.",
+      "whatBreaksWithout": "Nothing - the recommended service does the same job for a fraction of the price.",
+      "whyHeWantedIt": "Not requested. It is here because an earlier purchase document listed it at $129 a year as the cheap traditional option, and that figure was wrong in two ways worth correcting out loud rather than quietly dropping.",
+      "sourceUrl": "https://www.ssl.com/certificates/code-signing/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "RULED_OUT",
+          "summary": "$309 in year one at best against $119.88 for the recommended option, for an identical result.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Two corrections to the earlier $129. First, it was labelled an organization certificate, which needs a registered business you do not have; the product actually open to you is the individual one, which happens to cost the same. Second, $129 is not the cost of using it - since June 2023 the private key must live on certified hardware and no authority issues a downloadable key file. The real total is $129 plus $180/yr cloud signing, or $129 plus a $379 one-time token. The only reason to prefer this route is wanting to own a portable certificate rather than rent a service."
+    },
+    {
+      "id": "apple-developer-program",
+      "name": "Apple Developer Program, and the Mac behind it",
+      "vendor": "Apple",
+      "category": "do-not-buy",
+      "cadence": "annual",
+      "firstYearUsd": 99,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "The yearly membership required to sign and distribute Mac software, and behind it the cost of a Mac to build on.",
+      "whatBreaksWithout": "Nothing. The product is Windows-only - it depends on Windows credential storage, Windows task scheduling and Windows screen-capture APIs. There is no Mac version to sign.",
+      "whyHeWantedIt": "You raised this yourself, R1079: ok well i dont have a mac do you think its worth getting one right now or should we ship and launch this we already have a huge amount built i want to ship windows first i think. Your own instinct was right, and this line records the answer so the question stops being open.",
+      "sourceUrl": "https://developer.apple.com/programs/",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "RULED_OUT",
+          "summary": "No Mac version exists or is planned for this launch. There is nothing to sign.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "$99 is the same for individual and company membership. The Mac is the real cost hiding behind this line, and if a Mac build is ever needed before there is revenue, rented Mac build machines cost a few dollars an hour and need no hardware at all. One practical note for whenever this does become relevant: enrol on the web rather than in Apple's app, or it becomes an auto-renewing subscription."
+    },
+    {
+      "id": "paddle-merchant-of-record",
+      "name": "Paddle, a merchant of record instead of Stripe",
+      "vendor": "Paddle",
+      "category": "do-not-buy",
+      "cadence": "one-off",
+      "firstYearUsd": 0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "An alternative to Stripe that becomes the legal seller and handles sales tax and VAT worldwide on your behalf.",
+      "whatBreaksWithout": "Nothing today. It is a genuinely attractive option later, when international sales tax becomes a real burden.",
+      "whyHeWantedIt": "It was carried as an open alternative in your payment-path decision, and it matches your instruction to avoid legal spend before revenue - a merchant of record absorbs the tax-compliance problem instead of you paying someone to solve it.",
+      "sourceUrl": "https://www.paddle.com/pricing",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NEEDS_CODE_CHANGE_NOT_MONEY",
+          "summary": "No purchase would help. The Paddle integration in this codebase is hardcoded to the test host and rejects any live credential, so reaching a real account needs a source change first.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "5 percent plus 50 cents per transaction against Stripe's 2.9 percent plus 30 cents. The difference buys full tax registration, filing and remittance plus fraud and chargeback protection. Setup is $0. Buying an account today would give you something the product cannot connect to. If you ever do want a merchant of record, the obvious competitor was bought by Stripe and its chief executive said in January that users will soon be migrated onto Stripe's own product at about 6.4 percent all in - so Paddle is both cheaper and less likely to move underneath you."
+    },
+    {
+      "id": "paid-web-hosting",
+      "name": "Paid web hosting for the marketing site",
+      "vendor": "Vercel, Netlify or Cloudflare",
+      "category": "do-not-buy",
+      "cadence": "monthly",
+      "firstYearUsd": 20,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-10",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A paid plan to serve a homepage, a privacy policy and a download link.",
+      "whatBreaksWithout": "Nothing - this should stay free.",
+      "whyHeWantedIt": "Follows from your own there needs to be a website and we will need to have a website with a demo. The site is needed; paying for hosting is not.",
+      "sourceUrl": "https://pages.cloudflare.com/",
+      "warning": "A trap if somebody reaches for the obvious free tier. Vercel's free plan is restricted to non-commercial personal use, and their own example of commercial use is advertising the sale of a product - so a marketing site for paid software is not eligible, and the real Vercel price is $20 per user per month, not $0. Netlify's free tier is the tightest: 300 credits a month burned by deploys as well as traffic, and the site hard-stops when they run out. Use Cloudflare Pages, which has neither restriction.",
+      "blockers": [
+        {
+          "code": "ALREADY_FREE",
+          "summary": "A one-page site plus two policy pages is static and runs free indefinitely on Cloudflare Pages. Do not let a hosting line onto this list until there is an actual server to run.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Download distribution is also already free - the current build is published as a release asset and the auto-updater can point at that at no cost. The production server you already pay for is a separate thing and is not on this list because it is already running."
+    },
+    {
+      "id": "new-server",
+      "name": "A new server for the website",
+      "vendor": "DigitalOcean",
+      "category": "do-not-buy",
+      "cadence": "monthly",
+      "firstYearUsd": 24,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A cloud server to host the site and the hosted relay.",
+      "whatBreaksWithout": "Nothing - you already have one.",
+      "whyHeWantedIt": "You asked twice, R1162: ok do we need a digital ocean server for this then? because there needs to be a website, and If needed I can upgrade the server again so just tell me if so. The answer, which nobody had actually checked until now, is no. The server exists and is running.",
+      "sourceUrl": "https://www.digitalocean.com/pricing/droplets",
+      "warning": null,
+      "blockers": [
+        {
+          "code": "ALREADY_OWNED",
+          "summary": "You already have exactly one server running, a 4 GiB 2 vCPU instance at $24 a month, active since June 2025. Buying another would be paying twice.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Read from your account today rather than assumed. It is on a sensible tier for this job with no evidence it needs upgrading, so your standing offer to upgrade it does not need taking up. The one thing it does need is the backup at the top of this page. Separately worth flagging to whoever owns server hardening: it currently has no cloud firewall configured at all, which is free to fix and is engineering work rather than a purchase."
+    },
+    {
+      "id": "paid-tax-id-service",
+      "name": "Paid tax-ID filing service",
+      "vendor": "Various",
+      "category": "do-not-buy",
+      "cadence": "one-off",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "A company that charges to obtain your federal tax ID for you.",
+      "whatBreaksWithout": "Nothing.",
+      "whyHeWantedIt": "Not requested. On the list purely as a trap warning, because these services advertise aggressively alongside every incorporation service and are easy to click through while filing.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [
+        {
+          "code": "RULED_OUT",
+          "summary": "The tax authority issues these free and instantly, and says on its own site that you never have to pay a fee for one. Paying anybody is paying for a free form.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Deliberately unpriced - the price does not matter, the answer is no at any price. Sites charging $150 to $329 for this have been formally warned about by the consumer protection regulator."
+    },
+    {
+      "id": "google-casa-assessment",
+      "name": "Google third-party security assessment",
+      "vendor": "Approved assessment labs",
+      "category": "do-not-buy",
+      "cadence": "annual",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "estimateUsd": {
+        "lowUsd": 540,
+        "highUsd": 4500,
+        "basis": "Published range from approved assessment labs. Not quoted against a vendor, because it does not currently apply."
+      },
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "An annual paid security assessment Google requires of apps that ask for access to a user's mail or files.",
+      "whatBreaksWithout": "Nothing - it is not triggered.",
+      "whyHeWantedIt": "It is the rest of the answer to your own question, i think we just need google for login right? Sign-in itself costs nothing. This is the expensive thing sitting one step beyond it, which you would only hit if the product ever asked for a user's mail or files.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [
+        {
+          "code": "NOT_APPLICABLE",
+          "summary": "Sign-in only needs identity permissions, which are not restricted, so this assessment is never required. Adding mail or file access later would trigger it every year.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Listed as a tripwire rather than a purchase: if anyone ever proposes adding Gmail or Drive access to the product, the real cost of that feature includes this every year, forever."
+    },
+    {
+      "id": "paid-advertising",
+      "name": "Paid advertising and crowdfunding",
+      "vendor": "Meta, Kickstarter, GoFundMe",
+      "category": "do-not-buy",
+      "cadence": "one-off",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Buying attention, or running a crowdfunding campaign, to reach the first users.",
+      "whatBreaksWithout": "Nothing, and your own preferred approach costs $0.",
+      "whyHeWantedIt": "You floated both yourself and were unsure about both, R1162: oh and instagram, i had been working on an instagram account creation app and i was going to possibly use that to advertise on instagram not sure, and i was also thinking maybe kickstarter, gofundme, etc possibilities but not sure about those. You then answered your own question with the better plan: for the business plan we can maybe just post on my personal ig account its got a lot of ucr contacts might make sense.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [
+        {
+          "code": "RULED_OUT_FOR_NOW",
+          "summary": "Your council ruled both out for the first 90 days. The reason is time, not money - those are the exact weeks the paid product has to be built in.",
+          "severity": "blocking"
+        }
+      ],
+      "notes": "Posting organically to your own account, as you suggested, costs nothing and reaches people who already know you, which is a better first channel than paid traffic for a product with no reviews yet. Deliberately unpriced because the recommendation is not to spend."
+    }
+  ]
+}
