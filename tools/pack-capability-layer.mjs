@@ -5,8 +5,9 @@
 // extraResource. See tools/capability-manifest.json for what is staged and
 // why. Two rules govern this file:
 //
-//   1. The payload is DERIVED. Nothing is hand-listed except the two
-//      entrypoints and the data files a require() walk provably cannot see.
+//   1. The payload is DERIVED. Nothing is hand-listed except the closure roots
+//      and the runtime resources a require() walk provably cannot see -- the
+//      JSON in `dataFiles` and the spawned .ps1/.cmd/.py in `helperPrograms`.
 //      A hand-maintained file list drifts from the code the day someone adds
 //      a require, and drifts silently, because the missing file only shows
 //      up on a customer's machine where nobody is watching.
@@ -25,7 +26,7 @@ import { execFile as execFileCallback } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
@@ -38,6 +39,26 @@ const DEFAULTS_DIR = path.join(REPO_ROOT, 'capability-defaults')
 const DEFAULT_OUT = path.join(REPO_ROOT, 'capability')
 const PAYLOAD_RECORD = 'PAYLOAD.json'
 const UNSHIPPABLE_MARKER = 'UNSHIPPABLE-OWNER-DATA.txt'
+
+// THE VAULT SCRIPT IS A PROGRAM; THE VAULT IS ITS CONTENTS. Shipping
+// tools/secrets.ps1 is the fix this file exists to carry. Shipping
+// vault/secrets.json would be handing every customer the builder's credentials,
+// and the two live one directory apart under names that differ by four
+// characters. So the rule is stated mechanically rather than left to whoever
+// edits the manifest next: no staged path may sit under any of these roots, and
+// no staged file may carry one of these names, whatever list declared it.
+//
+// state/ is here for a second reason as well -- the bridge writes per-boot
+// bearer tokens into it when started out of the payload directory, so a hand-
+// copied payload can carry live tokens (config/payload-boundary.json's
+// `excluded` rule catches the same case at the other end of the build).
+const SECRET_MATERIAL_PREFIXES = ['vault/', 'state/', 'private/', 'reports/', 'logs/', '.git/']
+const SECRET_MATERIAL_BASENAMES = new Set(['secrets.json', 'auth.json', '.env', 'credentials.json'])
+const SECRET_MATERIAL_EXTENSIONS = new Set(['.pem', '.key', '.pfx', '.p12', '.sqlite', '.sqlite3'])
+// What a helperProgram is allowed to be. A helper program is spawned, so an
+// entry here that is not executable is either a mistake or an attempt to move
+// a data file past the rules that apply to data files.
+const HELPER_PROGRAM_EXTENSIONS = new Set(['.ps1', '.cmd', '.bat', '.py'])
 
 // WHERE THE SOURCE TREE IS, IS A SETTING -- NOT A CONSTANT IN THIS FILE.
 //
@@ -201,6 +222,105 @@ function computeClosure(root, entrypoints, declaredDynamic = []) {
   return { files, external: [...external].sort(), dynamic, unresolved, staleDeclarations }
 }
 
+// Refuses to stage credential storage no matter which manifest list named it.
+// Deliberately checked against the FINAL staged set rather than each list as it
+// is read: the whole point is that it cannot be bypassed by choosing a
+// different category, and a per-list check would have to be repeated four times
+// and would be forgotten on the fifth list someone adds.
+function assertNoSecretMaterial(relativePaths) {
+  const offenders = []
+  for (const relative of relativePaths) {
+    const normalized = relative.split(path.sep).join('/')
+    const basename = path.posix.basename(normalized).toLowerCase()
+    const extension = path.posix.extname(normalized).toLowerCase()
+    const prefix = SECRET_MATERIAL_PREFIXES.find((candidate) => normalized.toLowerCase().startsWith(candidate))
+    if (prefix) offenders.push(`${normalized} -- under ${prefix}`)
+    else if (SECRET_MATERIAL_BASENAMES.has(basename)) offenders.push(`${normalized} -- named ${basename}`)
+    else if (SECRET_MATERIAL_EXTENSIONS.has(extension)) offenders.push(`${normalized} -- ${extension} file`)
+  }
+  if (!offenders.length) return
+  throw new Error(
+    'refusing to stage credential or runtime-state material into the capability payload:\n  ' +
+      offenders.join('\n  ') +
+      '\nThe vault SCRIPT (tools/secrets.ps1) ships; the vault CONTENTS never do. If a program\n' +
+      'genuinely needs one of these paths at runtime it creates it on the customer\'s machine.',
+  )
+}
+
+function assertHelperProgramsAreExecutable(helperPrograms) {
+  const wrong = helperPrograms.filter((relative) => !HELPER_PROGRAM_EXTENSIONS.has(path.extname(relative).toLowerCase()))
+  if (!wrong.length) return
+  throw new Error(
+    'tools/capability-manifest.json lists helperPrograms that are not executable helpers:\n  ' +
+      wrong.join('\n  ') +
+      `\nhelperPrograms is for spawned non-JavaScript programs (${[...HELPER_PROGRAM_EXTENSIONS].join(', ')}).\n` +
+      'JavaScript the payload spawns belongs in spawnedPrograms, where its require() graph is walked;\n' +
+      'JSON read through a computed path belongs in dataFiles.',
+  )
+}
+
+// POWERSHELL HAS A DEPENDENCY GRAPH TOO, AND HAND-LISTING IT WOULD REPEAT THE
+// BUG THIS FILE JUST FIXED.
+//
+// tools/secrets.ps1 dot-sources tools/owner-prompt-theme.ps1 at line 736. Ship
+// the vault script alone and it still cannot run: PowerShell reports "The term
+// '...owner-prompt-theme.ps1' is not recognized as the name of a cmdlet,
+// function, script file, or operable program" -- measured, in a sterile payload,
+// AFTER secrets.ps1 was added to the manifest and the pack reported clean.
+// Declaring the second file by hand would fix today and leave the next
+// dot-source to be discovered by a customer, which is exactly how the first
+// file went missing. So the .ps1 closure is DERIVED, on the same terms as the
+// require() closure: walked from the declared helpers, and fail-closed on a
+// reference that does not resolve.
+//
+// Both $PSScriptRoot-relative forms this tree actually uses, and the reason
+// there are two: the first draft of this walk matched only `$PSScriptRoot\x`
+// and reported a clean pack over the very file it was written to catch, because
+// secrets.ps1 spells it `. (Join-Path $PSScriptRoot 'owner-prompt-theme.ps1')`.
+// A scanner that silently matches nothing is worse than no scanner, so both are
+// listed explicitly and there is a test that would fail if either stopped
+// matching.
+//
+// References anchored anywhere else -- $RepoRoot, an absolute path, a computed
+// name -- are deliberately NOT followed. The one instance in this tree
+// (owner-prompt-queue.ps1's Join-Path $RepoRoot 'tools\start-owner-host.ps1')
+// is guarded by a Test-Path that returns when the file is absent, so it
+// degrades rather than throws; a future unguarded one would surface as a
+// runtime failure in the packaged smoke gate, which now exercises a real
+// credential-backed call.
+const PS_SCRIPT_ROOT_REFERENCES = [
+  /\$PSScriptRoot[\\/]([A-Za-z0-9_.\\/-]+?\.(?:ps1|psm1|psd1))/gi,
+  /Join-Path\s+\$PSScriptRoot\s+['"]([A-Za-z0-9_.\\/-]+?\.(?:ps1|psm1|psd1))['"]/gi,
+]
+
+function computePowerShellClosure(root, seeds) {
+  const seen = new Set()
+  const unresolved = []
+  const queue = seeds.filter((seed) => /\.(ps1|psm1|psd1)$/i.test(seed))
+
+  while (queue.length) {
+    const relative = queue.pop()
+    if (seen.has(relative)) continue
+    const file = path.join(root, relative)
+    if (!existsSync(file)) { unresolved.push({ from: '<declared helper>', spec: relative }); continue }
+    seen.add(relative)
+
+    const source = readFileSync(file, 'utf8')
+    const directory = path.posix.dirname(relative.split(path.sep).join('/'))
+    for (const pattern of PS_SCRIPT_ROOT_REFERENCES) {
+      pattern.lastIndex = 0
+      let match
+      while ((match = pattern.exec(source))) {
+        const target = path.posix.normalize(path.posix.join(directory, match[1].split('\\').join('/')))
+        if (seen.has(target)) continue
+        if (!existsSync(path.join(root, target))) { unresolved.push({ from: relative, spec: target }); continue }
+        queue.push(target)
+      }
+    }
+  }
+  return { files: [...seen].sort(), unresolved }
+}
+
 async function runOwnerDataGuard(directory) {
   try {
     const { stdout } = await execFile(process.execPath, [path.join(REPO_ROOT, 'tools', 'check-no-owner-data.mjs'), directory], {
@@ -227,7 +347,14 @@ async function main() {
   // obey the same fail-closed rules; only entrypoints are startable, which is
   // why PAYLOAD.json keeps them apart.
   const hostModules = manifest.hostModules || []
-  const closure = computeClosure(source, [...manifest.entrypoints, ...hostModules], manifest.dynamicRequires || [])
+  // Programs the PAYLOAD spawns (see $comment_spawnedPrograms). They are
+  // closure roots for the same reason an entrypoint is: each has its own
+  // require() graph, and copying one verbatim would ship a program whose first
+  // require() throws on the customer's machine.
+  const spawnedPrograms = manifest.spawnedPrograms || []
+  const helperPrograms = manifest.helperPrograms || []
+  assertHelperProgramsAreExecutable(helperPrograms)
+  const closure = computeClosure(source, [...manifest.entrypoints, ...hostModules, ...spawnedPrograms], manifest.dynamicRequires || [])
   if (closure.staleDeclarations.length) {
     throw new Error(
       'tools/capability-manifest.json declares dynamic requires that no longer exist in the source:\n  ' +
@@ -255,8 +382,21 @@ async function main() {
     )
   }
 
+  const powershell = computePowerShellClosure(source, helperPrograms)
+  if (powershell.unresolved.length) {
+    throw new Error(
+      'a declared helper program references a PowerShell script that is not in the source tree:\n  ' +
+        powershell.unresolved.map((entry) => `${entry.from} -> ${entry.spec}`).join('\n  ') +
+        '\nStaging a helper that cannot dot-source its own dependencies ships a vault script that throws\n' +
+        'CommandNotFoundException on the customer\'s first credential read.',
+    )
+  }
+
   const neutral = new Set(manifest.neutralDefaults)
-  const staged = [...new Set([...closure.files, ...manifest.dataFiles])].filter((file) => !neutral.has(file)).sort()
+  const staged = [...new Set([...closure.files, ...manifest.dataFiles, ...helperPrograms, ...powershell.files])]
+    .filter((file) => !neutral.has(file))
+    .sort()
+  assertNoSecretMaterial([...staged, ...manifest.neutralDefaults])
 
   rmSync(out, { recursive: true, force: true })
   mkdirSync(out, { recursive: true })
@@ -299,6 +439,8 @@ async function main() {
     entrypoints: manifest.entrypoints,
     bridgeEntrypoint: manifest.entrypoints[0],
     hostModules,
+    spawnedPrograms,
+    helperPrograms,
     fileCount: all.length,
     byteCount: bytes,
     payloadSha256: digest.digest('hex'),
@@ -343,7 +485,26 @@ async function main() {
   log(`owner-data guard: DIRTY (${offenders.length} files) -- staged anyway under --allow-owner-data, marked ${UNSHIPPABLE_MARKER}`)
 }
 
-main().catch((error) => {
-  console.error(`pack-capability-layer: ${error.message}`)
-  process.exitCode = 1
-})
+// Run only when invoked as a program. Until this guard existed, importing this
+// module STAGED A PAYLOAD as a side effect, so the three refusals above -- the
+// ones that decide whether credentials or runtime state can reach a customer --
+// were the only rules in the build with no way to test them except by watching
+// a full pack fail. A guard nobody can exercise in isolation is a guard nobody
+// notices the day it stops firing.
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : ''
+if (invokedPath === import.meta.url) {
+  main().catch((error) => {
+    console.error(`pack-capability-layer: ${error.message}`)
+    process.exitCode = 1
+  })
+}
+
+export {
+  HELPER_PROGRAM_EXTENSIONS,
+  SECRET_MATERIAL_PREFIXES,
+  assertHelperProgramsAreExecutable,
+  assertNoSecretMaterial,
+  computeClosure,
+  computePowerShellClosure,
+  main,
+}
