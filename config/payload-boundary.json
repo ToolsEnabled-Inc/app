@@ -92,6 +92,7 @@
     "paths": [
       "PAYLOAD.json",
       "config/agent-org.json",
+      "config/capability-base-profiles.json",
       "config/dependency-acceptance.json",
       "config/managed-processes.json",
       "config/service-registry.json",
@@ -162,6 +163,7 @@
       "src/lib/discord-owner-commands.js",
       "src/lib/dispatch-permission-session.js",
       "src/lib/egress-preflight.js",
+      "src/lib/env-scrub.js",
       "src/lib/error-taxonomy.js",
       "src/lib/fleet-supervisor/queue.js",
       "src/lib/fleet-supervisor/state.js",
@@ -295,6 +297,7 @@
       "src/lib/telegram-pulse.js",
       "src/lib/telegram-reliability-observation.js",
       "src/lib/telegram-video-relay.js",
+      "src/lib/tool-pack-registry.js",
       "src/lib/tool-registry.js",
       "src/lib/tree-identity.js",
       "src/lib/uac-delegation.js",
