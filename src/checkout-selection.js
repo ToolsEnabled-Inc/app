@@ -317,6 +317,19 @@ export function createSelectionStore({ catalog, storage, now = () => new Date().
         recurringAnnualCents: current.recurringAnnualCents,
         capLimitCents: current.cap.limitCents,
         overCapLineIds: current.cap.overCapLineIds,
+        // THE CAVEAT IS ALSO HOISTED TO THE TOP LEVEL, next to overCapLineIds
+        // and for the same reason. Every line already carries `blocked` and
+        // `blockedReason`, but a future consumer that turns a saved record into
+        // an action is most likely to read the summary fields and act -- and a
+        // record that says "yes" is only safe while something reads the second
+        // half of the sentence. A caveat reachable only by iterating lines is a
+        // caveat waiting to be skipped, so refusing on a non-empty list here
+        // takes one check rather than a loop nobody remembers to write.
+        //
+        // This is not enforcement: nothing consumes these records today, and
+        // this module cannot bind a consumer that does not exist. It is the
+        // most legible shape to refuse on, put there deliberately.
+        blockedLineIds: current.blockedLines.map(line => line.id),
       }
       announce()
       return summary()

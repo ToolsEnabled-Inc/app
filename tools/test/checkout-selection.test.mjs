@@ -219,6 +219,39 @@ test('a blocked item CAN be chosen, and is counted separately so it cannot trave
   assert.equal(state.cashTodayCents, 2_108, 'a blocked line still costs what it costs')
 })
 
+test('a confirmed record hoists the blocked ids to the top level, not only onto lines', () => {
+  // The caveat has to survive a consumer that reads summary fields and acts.
+  // Anything that turns a saved record into a purchase must be able to refuse
+  // on one check rather than on a loop somebody remembers to write.
+  const catalog = catalogOf([
+    item({ id: 'clear-line', firstYearUsd: 10 }),
+    item({
+      id: 'blocked-line',
+      firstYearUsd: 11.08,
+      blockers: [{ code: 'NAME_NOT_DECIDED', summary: 'The name is not settled.', severity: 'blocking' }],
+    }),
+  ])
+  const { store, memory } = storeOn(catalog)
+  store.setSelected('clear-line', true)
+  store.setSelected('blocked-line', true)
+  store.confirm({ principal: PRINCIPAL })
+
+  const record = store.summary().confirmed
+  assert.deepEqual(record.blockedLineIds, ['blocked-line'])
+  assert.deepEqual(memory.raw().confirmed.blockedLineIds, ['blocked-line'],
+    'the caveat has to survive the round trip through storage, not just the in-memory object')
+})
+
+test('a record with nothing blocked says so with an empty list, not a missing field', () => {
+  // An absent field reads as "no information"; an empty array reads as "asked
+  // and the answer was none". A consumer must not have to tell those apart.
+  const catalog = catalogOf([item({ id: 'clear-line', firstYearUsd: 10 })])
+  const { store } = storeOn(catalog)
+  store.setSelected('clear-line', true)
+  store.confirm({ principal: PRINCIPAL })
+  assert.deepEqual(store.summary().confirmed.blockedLineIds, [])
+})
+
 test('a confirmed record marks which lines were blocked, with the reason', () => {
   const catalog = catalogOf([item({
     id: 'blocked-line',
