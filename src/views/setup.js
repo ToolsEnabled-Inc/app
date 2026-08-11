@@ -828,6 +828,31 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
    * failure stops everything. Applying the switches and then failing to record
    * the folder would leave a machine that half-agrees with the screen the person
    * is looking at, which is worse than a refusal they can act on.
+   *
+   * BEING DESTROYED IS NOT A REASON TO DROP THE PRESS, and reading it as one was
+   * a dead end at the last click of setup.
+   *
+   * MEASURED, on the packaged window from a sterile profile: this view can be
+   * mounted TWICE -- two [data-setup-section] elements and two Continue buttons
+   * exist in the DOM at once -- and the copy a person's eye reaches first is the
+   * one the router has already torn down. Every question still answered
+   * correctly on it, because each instance wires its own section. Then Finish
+   * awaited the folder write, came back to `destroyed === true`, and RETURNED.
+   * Nothing was applied, no profile was recorded, nothing navigated. The stored
+   * record was still `in-progress` and the walkthrough restarted at question 1,
+   * forever. The most important button in the product did precisely nothing and
+   * said nothing, which is the worst shape a failure can take.
+   *
+   * The guard was right about ONE thing: a destroyed instance must not paint,
+   * because its section is detached and painting it shows nobody anything. But
+   * applying the profile, recording it and navigating are writes to
+   * localStorage and to the route -- global, and every bit as correct from an
+   * instance that has been torn down as from one that has not. The person
+   * pressed Finish. The folder was already written by the time this returns.
+   * So the guard now covers only the paint, and the outcome happens either way.
+   *
+   * The double mount itself is the deeper defect and is not this file's to fix:
+   * it is the router that mounts a second copy without removing the first.
    */
   async function finish() {
     if (busy) return
@@ -844,7 +869,6 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       } catch (error) {
         result = { ok: false, reason: error?.message || String(error) }
       }
-      if (destroyed) return
       if (!result?.ok) {
         busy = false
         refusal = {
@@ -852,7 +876,9 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           code: result?.code || 'MC_SETUP_WORKSPACE_FAILED',
           reason: `${result?.reason || 'The application did not say why.'} Nothing else was changed either.`,
         }
-        paint()
+        /* A refusal a torn-down section cannot show is still a refusal, so the
+           run stops here rather than completing a setup whose folder failed. */
+        if (!destroyed) paint()
         return
       }
       answers = { ...answers, workspaceRoots: result.roots }

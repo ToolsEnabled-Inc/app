@@ -290,7 +290,9 @@ async function withApp(scratch, executable, label, seed, body, { signedInCodexHo
   const child = spawn(executable, [
     `--user-data-dir=${path.join(profile, 'userdata')}`,
     `--remote-debugging-port=${port}`,
-  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'] })
+    /* windowsHide kills the console flash only; the BrowserWindow is hidden by
+       MC_SMOKE_HEADLESS=1 in the inherited environment (shell/window-options.cjs). */
+  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   child.stdout.on('data', chunk => startupLog.push(String(chunk)))
   child.stderr.on('data', chunk => startupLog.push(String(chunk)))
 
@@ -352,13 +354,20 @@ async function recommendedPath(scratch, executable) {
      `guided` is what the tier question recommends, so seeding it measures the
      same combination a person who takes both recommendations lands on -- and it
      is the HARDER half, because guided's ceiling refuses two of the flags the
-     autonomy answer asks for. It is seeded because the first-run tier step is
-     not currently completable in a sterile profile in this tree: the existing
-     tools/setup-walkthrough-qa.mjs --mode finish fails at the same point on an
-     unmodified checkout, before any change in this lane, and diagnosing that
-     belongs to whoever owns the tier record. Reporting a green here that
-     depended on a step that does not work would be the false green this house
-     standard exists to stop. */
+     autonomy answer asks for. It is seeded so that this suite's subject stays
+     the AUTONOMY answer rather than the tier screen.
+
+     THIS USED TO SAY THE TIER STEP WAS NOT COMPLETABLE FROM A STERILE PROFILE,
+     citing tools/setup-walkthrough-qa.mjs --mode finish failing at the same
+     point, and handed the diagnosis to whoever owned the tier record. That was
+     honest when written and is now false, so it is corrected rather than left
+     to send the next reader hunting a defect that is gone. The failure was not
+     the tier step: it was Finish silently dropping the press when its view had
+     been torn down mid-flow (src/views/setup.js finish(), and the router's
+     420ms exit window that lets a person click a view already on its way out).
+     Both modes of that harness now pass, and
+     tools/setup-deadend-recommended-qa.mjs walks the whole walkthrough from a
+     sterile profile -- tier question included -- without seeding anything. */
   return withApp(scratch, executable, 'recommended', profile => {
     seedMachineRecord(profile, path.join(scratch, 'app'), 'guided')
     /* A declared agent has to EXIST for there to be an agent page to look at.
