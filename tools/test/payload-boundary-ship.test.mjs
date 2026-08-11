@@ -44,6 +44,41 @@ function cleanPayload() {
   return dir
 }
 
+// A MANIFEST WRITTEN FOR THE TEST, AND WHY THE LIVE ONE STOPPED WORKING HERE.
+//
+// The two tests below need a path that is `pending`, and the live manifest's
+// pending block is now empty -- legitimately: the owner ruled on every entry on
+// 2026-08-11 and the decoupling work landed. src/lib/entitlement.js, which these
+// tests had hard-coded as their pending example, moved pending -> paid in that
+// change. Both tests went red instantly, and neither the gate nor the behaviour
+// they pin had changed at all.
+//
+// That is the wrong dependency. These tests are about the SEMANTICS of pending --
+// permissive build verdict, strict publish verdict, no suppression of the
+// unclassified report -- and those semantics must stay covered whether or not any
+// real path happens to be pending this week. So the fixture names its own pending
+// path. The live manifest is still exercised by the other tests in this file,
+// which is where a real drift should surface.
+//
+// Written to the PARENT of the payload root on purpose: a manifest inside the
+// payload would itself be an unclassified file and change the verdict it defines.
+function fixtureManifest(payloadDir, { pending = {}, open = [], paid = [] } = {}) {
+  const file = path.join(path.dirname(payloadDir), 'fixture-boundary.json')
+  writeFileSync(file, `${JSON.stringify({
+    schemaVersion: 1,
+    status: 'proposed',
+    excluded: { paths: [], prefixes: [] },
+    paid: { paths: paid, prefixes: [] },
+    pending,
+    open: { paths: ['src/lib/agent-roles.js', ...open] },
+  }, null, 2)}\n`)
+  return file
+}
+
+const PENDING_FIXTURE = {
+  'src/lib/entitlement.js': 'the commercial tier table, owner-ruled as paid, still shipping until the decoupling lands',
+}
+
 test('a payload with no pending file is clean under BOTH verdicts', async () => {
   const dir = cleanPayload()
   try {
@@ -59,10 +94,11 @@ test('a payload with no pending file is clean under BOTH verdicts', async () => 
 test('a pending file passes the build verdict and FAILS the publish verdict', async () => {
   const dir = cleanPayload()
   try {
-    // entitlement.js is `pending` in the manifest: the commercial tier table,
-    // owner-ruled as paid, still shipping until the decoupling work lands.
+    // entitlement.js is `pending` in the FIXTURE manifest: the commercial tier
+    // table, owner-ruled as paid, still shipping until the decoupling work lands.
     mkdirSync(path.join(dir, 'src', 'lib'), { recursive: true })
     writeFileSync(path.join(dir, 'src', 'lib', 'entitlement.js'), '// the tier table\n')
+    const MANIFEST = fixtureManifest(dir, { pending: PENDING_FIXTURE })
 
     const bare = await gate([dir, '--manifest', MANIFEST])
     assert.equal(bare.code, 0, `the build verdict must stay permissive about pending:\n${bare.out}`)
@@ -85,6 +121,7 @@ test('--ship never suppresses the unclassified report', async () => {
   try {
     writeFileSync(path.join(dir, 'src', 'lib', 'entitlement.js'), '// pending\n')
     writeFileSync(path.join(dir, 'NOT-IN-THE-MANIFEST.js'), '// unclassified\n')
+    const MANIFEST = fixtureManifest(dir, { pending: PENDING_FIXTURE })
 
     const ship = await gate([dir, '--manifest', MANIFEST, '--ship'])
     assert.equal(ship.code, 1)

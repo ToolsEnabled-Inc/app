@@ -71,6 +71,34 @@ const SOURCE_EXTENSIONS = new Set(['.js', '.cjs', '.mjs'])
 // that edit is the point, because it forces the rename to be seen.
 const REQUIRED_LAUNCHERS = ['shell/launch.cjs', 'tools/smoke-packaged.mjs']
 
+// A FOURTH WAY TO BE SAFE, which the three idioms above cannot express.
+//
+// The idioms all describe REMOVING the variable from an inherited environment.
+// A harness that never inherits one is immune by construction: it passes `env:`
+// an explicit object literal with a fixed key set, so nothing from process.env
+// -- including ELECTRON_RUN_AS_NODE -- can reach the child at all. That is
+// strictly stronger than a delete, and no textual pattern for "this object was
+// built by allowlist rather than by spread" is worth trusting, so the two files
+// that do it are named here with the measurement that justifies each.
+//
+// Both were measured, not read: their env builders were invoked with a base
+// containing ELECTRON_RUN_AS_NODE=1 and the returned object inspected.
+//   org-window-proof.mjs   windowEnvironment()  -> key absent  (wants a window, gets one)
+//   org-persistence-proof.mjs sterileEnvironment() -> '1' HARDCODED, identical
+//                          under a clean base; it runs `exe -e <script>` on
+//                          purpose, so it is the capability-layer pattern the
+//                          header already blesses, not the bug this guard hunts.
+//
+// This is an exemption from the PATTERN, never from the rule. Each entry is
+// asserted below to still be a detected launcher, so deleting or renaming one
+// fails this test rather than silently shrinking the guard's reach.
+const ALLOWLIST_ENVIRONMENT_HARNESSES = new Map([
+  ['tools/org-window-proof.mjs',
+    'windowEnvironment() returns a fixed-key literal; ELECTRON_RUN_AS_NODE is absent from it.'],
+  ['tools/org-persistence-proof.mjs',
+    'sterileEnvironment() returns a fixed-key literal and sets ELECTRON_RUN_AS_NODE=1 deliberately, to run the binary as node with an explicit -e script.'],
+])
+
 const SPAWNS_A_PROCESS = /(?:^|[^\w.])(?:spawn|spawnSync|execFile|execFileSync)\s*\(|\.\s*spawn\s*\(/
 const NAMES_THE_GUI_EXE = [
   /(['"`])ToolsEnabled\.exe\1/,
@@ -148,9 +176,26 @@ test('every harness that launches the packaged app is still detected', async () 
   )
 })
 
+test('every exempt harness is still present and still detected', async () => {
+  // Fail-closed for the exemption list itself. An exemption for a file the scan
+  // no longer sees is dead text that makes the guard look narrower than it is.
+  const { launchers } = await scan()
+  const detected = new Set(launchers.map((entry) => entry.file))
+  const stale = [...ALLOWLIST_ENVIRONMENT_HARNESSES.keys()].filter((file) => !detected.has(file))
+  assert.deepEqual(
+    stale,
+    [],
+    `these files are exempted from the strip patterns but the scan no longer finds them: ${stale.join(', ')}. ` +
+      'If one was renamed or deleted, update ALLOWLIST_ENVIRONMENT_HARNESSES in the same commit -- ' +
+      're-measure the replacement before re-exempting it.',
+  )
+})
+
 test('every harness that launches the packaged app strips ELECTRON_RUN_AS_NODE', async () => {
   const { launchers } = await scan()
-  const offenders = launchers.filter((entry) => !entry.neutralised).map((entry) => entry.file)
+  const offenders = launchers
+    .filter((entry) => !entry.neutralised && !ALLOWLIST_ENVIRONMENT_HARNESSES.has(entry.file))
+    .map((entry) => entry.file)
   assert.deepEqual(
     offenders,
     [],
