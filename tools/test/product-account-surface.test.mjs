@@ -286,6 +286,139 @@ test('the settings surface no longer claims there is no account system', () => {
   }
 })
 
+/* ---------------- every absolute promise, and what pins it true ----------------
+ *
+ * WHY THIS EXISTS AS A TABLE AND NOT AS FIVE ASSERTIONS. The sign-in copy makes
+ * promises of the strongest possible shape -- "nothing", "never", "nowhere", "no
+ * server" -- because the honest description of a local account IS a list of
+ * things that do not happen. Every one of them was true when written and none
+ * was checked by anything, which is the exact shape of promise that a later lane
+ * falsifies without ever reading the sentence: somebody adds a telemetry ping,
+ * or an email field, or a password-reset flow, and the screen goes on
+ * reassuring the user in words that have quietly become lies.
+ *
+ * The pattern is borrowed from setup-profile-build's walkthrough rules, and the
+ * reason it is HERE is the lesson that produced them: they fixed the two
+ * sentences a test happened to name and then found twenty-nine more unwatched in
+ * the same file. One instance is not a class. Their rules walk
+ * src/views/setup.js; these sentences live in src/account-state.js and
+ * src/fleet-profile-settings.js, which their walker does not cover, so the same
+ * gap existed in my files until this table.
+ *
+ * EACH ENTRY REGISTERS THE CLAIM WITH THE MECHANICAL FACT THAT KEEPS IT TRUE.
+ * The claim text is asserted to still be on screen, so the registry cannot rot
+ * into a list of sentences nobody ships; and the pin is asserted to still hold,
+ * so the sentence cannot outlive its own truth. Changing the copy fails this
+ * test until somebody re-registers it, which is the two-minute speed bump that
+ * is the whole point.
+ *
+ * SCOPE, STATED RATHER THAN IMPLIED: the pins scan the three account modules.
+ * They do not prove the rest of the application sends nothing -- that is not
+ * what the sentence claims. It claims the ACCOUNT does not, and that is what is
+ * checked. */
+
+const ACCOUNT_SOURCES = Object.freeze({
+  'shell/product-account.cjs': stripComments(read('shell/product-account.cjs')),
+  'src/account-state.js': stripComments(read('src/account-state.js')),
+  'src/views/account.js': stripComments(VIEW),
+})
+
+const SHIPPED_COPY = `${read('src/account-state.js')}\n${SETTINGS}`
+
+const REGISTERED_CLAIMS = Object.freeze([
+  {
+    claim: 'Nothing is sent anywhere',
+    stillTrueBecause: 'no account module can reach the network: no fetch, no XHR, no WebSocket, no beacon, and no node networking module is imported anywhere in the three of them.',
+    pin() {
+      const network = /\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|navigator\.connection|require\(\s*['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]\s*\)|from\s+['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]/
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!network.test(source), `${name} can reach the network, so "Nothing is sent anywhere" is no longer true`)
+      }
+    },
+  },
+  {
+    claim: 'no email address is asked for',
+    stillTrueBecause: 'no surface in the account flow declares an email input, an email autocomplete hint, or a field named email.',
+    pin() {
+      const emailField = /type="email"|autocomplete="email"|name="email"|account-field="email"/i
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!emailField.test(source), `${name} collects an email address, so "no email address is asked for" is no longer true`)
+      }
+      assert.ok(!emailField.test(stripComments(read('src/views/setup.js'))),
+        'the first-run step collects an email address, so "no email address is asked for" is no longer true')
+    },
+  },
+  {
+    claim: 'there is also no password reset',
+    stillTrueBecause: 'the store exposes no reset, recovery or forgotten-password operation, and no mc-account channel offers one. Changing a password requires the current one.',
+    pin() {
+      /* Deliberately narrow. A first draft matched /reset[A-Z_]/ and flagged
+         `resetSharedAccountStoreForTests`, which resets a module singleton and
+         has nothing to do with a password -- a guard that cries wolf on correct
+         code gets widened by the next person until it catches nothing. */
+      const recovery = /resetPassword|resetCredential|recoverAccount|forgotPassword|passwordReset|mc-account:[a-z-]*(?:reset|recover|forgot)/i
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!recovery.test(source), `${name} offers a password recovery path, so "there is also no password reset" is no longer true`)
+      }
+      assert.ok(!/mc-account:[a-z-]*(?:reset|recover|forgot)/i.test(stripComments(MAIN)),
+        'the shell offers an account recovery channel, so "there is also no password reset" is no longer true')
+      /* And the one password change that DOES exist still demands the old one. */
+      assert.ok(ACCOUNT_SOURCES['shell/product-account.cjs'].includes('currentPassword'),
+        'changing a password no longer requires the current one, which would be a reset by another name')
+      /* The test-only singleton reset is exported, so it is reachable. Nothing
+         in a shipped path may call it: an app that can swap its own account
+         store mid-flight is an app whose audit principal can be swapped
+         mid-flight. */
+      assert.ok(!/resetSharedAccountStoreForTests/.test(stripComments(MAIN)),
+        'the shell calls the test-only store reset, which would let the signed-in identity be swapped at runtime')
+      assert.ok(!/resetSharedAccountStoreForTests/.test(stripComments(PRELOAD)),
+        'the preload exposes the test-only store reset to the page')
+    },
+  },
+  {
+    claim: 'It is not a login to Claude, ChatGPT or Google',
+    stillTrueBecause: 'no account module names a provider credential, key format, or provider auth environment variable. SHIPMENT-PLAN B14 bars taking a provider subscription login here.',
+    pin() {
+      const providerCredential = /anthropic|api[_-]?key|sk-ant|openai|oauth|access[_-]?token|refresh[_-]?token/i
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!providerCredential.test(source),
+          `${name} touches a provider credential, so "It is not a login to Claude, ChatGPT or Google" is no longer true`)
+      }
+    },
+  },
+  {
+    claim: 'this one never asks for them',
+    stillTrueBecause: 'the same pin as the claim above: the account flow has no field, channel, or storage key for a provider credential.',
+    pin() {
+      const providerField = /provider|claude|chatgpt|gemini/i
+      assert.ok(!providerField.test(ACCOUNT_SOURCES['shell/product-account.cjs']),
+        'the store now mentions a provider, so "this one never asks for them" needs re-checking')
+    },
+  },
+])
+
+for (const entry of REGISTERED_CLAIMS) {
+  test(`the promise "${entry.claim}" is still on screen and still true`, () => {
+    assert.ok(SHIPPED_COPY.includes(entry.claim),
+      `the copy no longer contains "${entry.claim}". If it was reworded, re-register it here with what keeps it true; if it was dropped, delete the entry.`)
+    assert.ok(entry.stillTrueBecause.length > 40, 'a registered claim must record WHY it is still true, not just that it is')
+    entry.pin()
+  })
+}
+
+/* The registry itself must not silently stop covering the copy. */
+test('every absolute-shaped promise in the account copy is registered', () => {
+  const sentences = [...ACCOUNT_SCOPE_NOTICE, ...SETTINGS.match(/<div class="settings-desc">[^<]*<\/div>/g) || []]
+    .join(' ')
+  const absolutes = ['Nothing is sent anywhere', 'no email address is asked for', 'there is also no password reset',
+    'It is not a login to Claude, ChatGPT or Google', 'this one never asks for them']
+  for (const claim of absolutes) {
+    assert.ok(REGISTERED_CLAIMS.some(entry => entry.claim === claim),
+      `"${claim}" is an absolute promise the product makes and nothing registers it`)
+  }
+  assert.ok(sentences.length > 0, 'the copy scan found nothing, which means this guard is checking air')
+})
+
 /* ------------------------------- the wiring ------------------------------- */
 
 test('the shell exposes the account bridge, and exposes no way to set the principal', () => {
