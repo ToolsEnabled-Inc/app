@@ -88,6 +88,42 @@ adoptLegacyUserData({
   path,
 })
 
+/* WHERE THE CAPABILITY LAYER KEEPS WHAT IT WRITES, AND WHY THE SHELL DECIDES IT.
+ *
+ * MEASURED, on the real per-user install at %LOCALAPPDATA%\Programs\toolsenabled:
+ * after one session the INSTALL DIRECTORY contained
+ * resources/capability/state/mission-bridge-token.json (a live bearer),
+ * state/audit.sqlite3 (the signed ledger), logs/actions.jsonl and
+ * vault/secrets.json -- the customer's credential vault. The layer was
+ * resolving those from its own module directory, so "next to the program" and
+ * "the user's data" were the same place.
+ *
+ * They must not be. An update REPLACES the install directory, so the vault and
+ * the audit ledger were living inside the blast radius of the next version; a
+ * per-machine install puts that directory under Program Files, where the writes
+ * fail or demand an elevation this product has no business asking for; and a
+ * program directory is world-readable by default, which is the wrong ACL for a
+ * bearer token.
+ *
+ * The layer can work this out for itself -- it does, from the PAYLOAD.json
+ * marker, so a payload started by something other than this shell is still
+ * safe -- but the shell is the component that knows where THIS install's user
+ * data actually is, including when a profile has been relocated. So it states
+ * the answer rather than letting two components derive it separately and drift.
+ *
+ * It is a subdirectory of userData rather than userData itself so the layer's
+ * state/, logs/ and vault/ cannot collide with the shell's own files there
+ * (renderer-prefs.json, shell-state.json, workspace/, purchase-catalog.json).
+ *
+ * SET ON THIS PROCESS TOO, not only on the child: shell/setup-record.cjs and
+ * shell/agent-org-record.cjs require capability modules IN THIS PROCESS, and
+ * they resolve their state root at require() time. This assignment is above
+ * every one of those requires for the same reason adoptLegacyUserData() is
+ * above the paths it protects. */
+const CAPABILITY_STATE_ROOT = path.join(app.getPath('userData'), 'capability')
+process.env.TOOLSENABLED_STATE_ROOT = CAPABILITY_STATE_ROOT
+try { fs.mkdirSync(CAPABILITY_STATE_ROOT, { recursive: true }) } catch { /* the layer reports its own refusal to start */ }
+
 const FLEET_PROFILE_FILE = path.join(app.getPath('userData'), 'fleet-profile.json')
 const MAX_FLEET_PROFILE_BYTES = 2 * 1024 * 1024
 const MAX_FLEET_PROFILE_RECORD_BYTES = MAX_FLEET_PROFILE_BYTES + 4096
@@ -1715,7 +1751,16 @@ async function startSupervisedCapabilityLayer() {
   const workspaceRoot = WORKSPACE_ROOT
   try { fs.mkdirSync(workspaceRoot, { recursive: true }) } catch { /* the layer reports its own refusal */ }
 
-  const started = await startCapabilityLayer({ root, origin: shellOrigin, workspaceRoot })
+  const started = await startCapabilityLayer({
+    root,
+    origin: shellOrigin,
+    workspaceRoot,
+    /* Stated, not inherited. The layer would derive the same directory on its
+       own, but a relocated profile (--user-data-dir, a portable install, a test
+       harness) is exactly the case where deriving it twice produces two
+       half-populated state roots. */
+    stateRoot: CAPABILITY_STATE_ROOT,
+  })
   capabilityLayerStatus = started.ok
     ? { ok: true, baseUrl: started.baseUrl, port: started.port, pid: started.pid }
     : { ok: false, code: started.code, reason: started.reason }

@@ -1,7 +1,7 @@
 {
   "name": "toolsenabled",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.6",
   "type": "module",
   "main": "shell/main.cjs",
   "author": "ToolsEnabled, Inc. in formation",
@@ -27,7 +27,8 @@
     "check:naming": "node tools/check-product-naming.mjs",
     "qa:checkout-privacy": "node tools/checkout-privacy-packaged-qa.mjs",
     "smoke:packaged": "node tools/smoke-packaged.mjs release/win-unpacked",
-    "dist": "npm run verify && node tools/check-research-queue.mjs && node tools/check-data-schemas.mjs && node tools/check-license-notices.mjs && npm run build && node tools/check-renderer-payload.mjs && npm run pack:capability && node tools/check-product-naming.mjs && node tools/check-payload-current.mjs capability && node tools/check-payload-boundary.mjs capability && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-renderer-payload.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/check-license-notices.mjs release/win-unpacked && node tools/check-payload-boundary.mjs release/win-unpacked/resources/capability && node tools/smoke-packaged.mjs release/win-unpacked",
+    "check:install-dir": "node tools/check-install-dir-immutable.mjs release/win-unpacked",
+    "dist": "npm run verify && node tools/check-research-queue.mjs && node tools/check-data-schemas.mjs && node tools/check-license-notices.mjs && npm run build && node tools/check-renderer-payload.mjs && npm run pack:capability && node tools/check-product-naming.mjs && node tools/check-payload-current.mjs capability && node tools/check-payload-boundary.mjs capability && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-renderer-payload.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/check-license-notices.mjs release/win-unpacked && node tools/check-payload-boundary.mjs release/win-unpacked/resources/capability && node tools/smoke-packaged.mjs release/win-unpacked && node tools/check-install-dir-immutable.mjs release/win-unpacked",
     "release:cut": "npm run check:boundary:ship && npm run check:naming && node tools/check-renderer-payload.mjs release/win-unpacked && node tools/release-packager/cut-release-candidate.mjs",
     "release:serve": "node tools/release-packager/serve-candidate.mjs",
     "check:boundary:ship": "node tools/check-payload-boundary.mjs --ship",

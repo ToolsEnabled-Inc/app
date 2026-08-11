@@ -77,6 +77,14 @@ const PRODUCT_STATE_ENTRIES = Object.freeze([
      customer loses it. Inert until that lane lands the file; the copy skips
      entries that do not exist. */
   'purchase-catalog.json',
+  /* The capability layer's own state root, <userData>/capability: state/ (the
+     signed audit ledger and the mission bridge's per-boot records), logs/,
+     vault/ (the person's credentials), captures/, profiles/, reports/. It moved
+     here from the INSTALL directory, where an update would have deleted it --
+     see shell/main.cjs CAPABILITY_STATE_ROOT. Listed for the same reason every
+     other name here is: the next rename must carry it, and a missed name is
+     invisible until a customer loses the thing it named. */
+  'capability',
 ])
 
 /* Chromium's localStorage partition. It is best-effort rather than required,

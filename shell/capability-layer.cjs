@@ -72,10 +72,21 @@ function readPayloadRecord(root, { readFileSync = fs.readFileSync } = {}) {
 
 /* The environment handed to the capability layer. Explicitly constructed
  * rather than spread-and-patched so that what the child gets is readable in
- * one place. */
-function childEnvironment(base) {
+ * one place.
+ *
+ * TOOLSENABLED_STATE_ROOT IS THE SECOND LOAD-BEARING VARIABLE HERE. It names
+ * the directory the layer writes into -- state/, logs/, vault/, captures/,
+ * profiles/, reports/. Without it the layer resolved those from its own module
+ * directory, which packaged is the INSTALL directory, and a measured session
+ * left a live bearer token, the signed audit ledger and the customer's
+ * credential vault sitting in a directory that the next update deletes and
+ * that a per-machine install makes read-only. shell/main.cjs sets it to
+ * <userData>/capability and passes it here; the layer refuses a relative value
+ * rather than resolving one against a cwd nobody chose. */
+function childEnvironment(base, { stateRoot } = {}) {
   const environment = { ...base }
   environment.ELECTRON_RUN_AS_NODE = '1'
+  if (typeof stateRoot === 'string' && stateRoot) environment.TOOLSENABLED_STATE_ROOT = stateRoot
   delete environment.ELECTRON_NO_ATTACH_CONSOLE
   return environment
 }
@@ -98,6 +109,7 @@ function startCapabilityLayer({
   root,
   origin,
   workspaceRoot,
+  stateRoot,
   execPath = process.execPath,
   spawn = nodeSpawn,
   env = process.env,
@@ -120,7 +132,7 @@ function startCapabilityLayer({
   const args = [entry, '--origin', origin, '--root', `main=${workspaceRoot}`]
   let child
   try {
-    child = spawn(execPath, args, { env: childEnvironment(env), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    child = spawn(execPath, args, { env: childEnvironment(env, { stateRoot }), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (error) {
     return Promise.resolve(failure('CAPABILITY_SPAWN_FAILED', `The capability layer could not be started: ${error.message}`))
   }
