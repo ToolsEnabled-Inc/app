@@ -112,8 +112,28 @@ const BUILT_IN_PATTERNS = [
   // product surfaces above have one; a checkout path always does, whether or
   // not it lives under C:\Users -- "D:\dev\ToolsEnabled\src" is caught here
   // and by nothing else in this list.
+  //
+  // THE DRIVE LETTER MUST NOT BE THE TAIL OF A URL SCHEME, and that is this
+  // rule's third correction -- the same over-match one step smaller again.
+  // Unanchored, `[A-Za-z]:[\\/]` matches the `s:/` inside `https://`, so
+  // `https://toolsenabled.com` parsed as drive `s`, root `/`, zero intervening
+  // characters, then `/toolsenabled`. The guard would therefore have refused
+  // the product's own website the moment the real URL appeared in any shipped
+  // file -- a page footer, a support link, an about box. Nothing shipped that
+  // URL yet, which is the only reason this had not fired: it was a trap armed
+  // for whoever added the link, and it would have read as "the payload leaks
+  // owner data" rather than "the regex is wrong".
+  //
+  // A drive letter is one letter, so the character before it is never a
+  // letter; every scheme that ends in one (https, wss, ws, file) is excluded
+  // by that alone. The lookbehind is deliberately `[A-Za-z]` and not `\b`:
+  // `\b` would additionally require the preceding character not be a digit or
+  // underscore, which would make the guard MISS `9C:\x\toolsenabled`. A leak
+  // guard must err towards catching, so this rejects only what a URL scheme
+  // can produce and keeps every real-path case `\b` would have kept.
+  // tools/test/check-no-owner-data.test.mjs pins both directions.
   { label: "toolsenabled-current", bytes: Buffer.from("toolsenabled-current"), caseInsensitive: true },
-  { label: "builder checkout path (<drive>:\\...\\ToolsEnabled)", regex: /[A-Za-z]:[\\/][^\r\n]{0,160}?[\\/]toolsenabled/gi },
+  { label: "builder checkout path (<drive>:\\...\\ToolsEnabled)", regex: /(?<![A-Za-z])[A-Za-z]:[\\/][^\r\n]{0,160}?[\\/]toolsenabled/gi },
   // "agent-coord" was here, as an "internal coordination surface". It is not
   // internal. It is the durable memory namespace this product's own shipped
   // tool descriptions instruct agents to use -- memory.set names it as the

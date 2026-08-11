@@ -125,6 +125,44 @@ test("passes a clean non-empty fixture", async () => {
   });
 });
 
+// THE BUILDER-CHECKOUT RULE, BOTH DIRECTIONS. It had no coverage at all, which
+// is how it came to match `s://` inside `https://toolsenabled.com` -- the
+// product's own website URL -- and stayed that way. The refusal case is listed
+// first and deliberately: a guard that stops refusing real leaks is far worse
+// than one that refuses a URL, so the pair is pinned together and neither test
+// is meaningful without the other.
+test("fails for a drive-rooted builder checkout path", async () => {
+  await withFixture(async ({ fixture, guardPath }) => {
+    await writeFile(path.join(fixture, "checkout.txt"), String.raw`D:\dev\ToolsEnabled\src\index.js`);
+    const result = runGuard(guardPath, fixture);
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /checkout\.txt/);
+    assert.match(result.output, /builder checkout path/i);
+  });
+});
+
+test("fails for a builder checkout path preceded by a digit", async () => {
+  // `\b` would have let this through; the lookbehind rejects only letters.
+  await withFixture(async ({ fixture, guardPath }) => {
+    await writeFile(path.join(fixture, "digit.txt"), String.raw`disk9C:\build\toolsenabled\out`);
+    const result = runGuard(guardPath, fixture);
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /builder checkout path/i);
+  });
+});
+
+test("passes the product's own website URL", async () => {
+  await withFixture(async ({ fixture, guardPath }) => {
+    await writeFile(
+      path.join(fixture, "footer.html"),
+      '<a href="https://toolsenabled.com/support">Support</a> ws://toolsenabled.com/relay',
+    );
+    const result = runGuard(guardPath, fixture);
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Total matches: 0/);
+  });
+});
+
 test("an explicitly supplied empty directory is not a silent success", async () => {
   await withFixture(async ({ fixture, guardPath }) => {
     const result = runGuard(guardPath, fixture);
