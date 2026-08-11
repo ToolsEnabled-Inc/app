@@ -76,6 +76,18 @@
 //   node tools/agent-route-reachability.mjs                 (all three tiers)
 //   node tools/agent-route-reachability.mjs --tier guided
 //   node tools/agent-route-reachability.mjs --keep          (keep the scratch dir)
+//   --open-timeout-ms <n>   how long to wait for the window (default 120000)
+//   --attempts <n>          attach retries per tier, clean profile each (default 3)
+//
+// READ THE EXIT CODE, IT HAS THREE VALUES AND ONLY TWO OF THEM ARE VERDICTS:
+//   0  every check passed
+//   1  a check FAILED -- this is a statement about the product
+//   2  NO VERDICT: the harness never attached, so nothing was measured. This is
+//      a statement about the probe or the machine, never about the product.
+// The third code exists because this suite once died at startup, exited 1, and
+// that 1 was quoted for hours as "the agent page is unreachable on a fresh
+// install" -- a claim it had in fact failed to test. Never read this tool's
+// status through a pipe, either: `node x.mjs | tail` reports TAIL's status.
 
 import { spawn } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
@@ -96,6 +108,16 @@ function argument(name, fallback = null) {
 const RELEASE = path.resolve(argument('--release', path.join(REPO_ROOT, 'release', 'win-unpacked')))
 const KEEP = process.argv.includes('--keep')
 const TIERS = argument('--tier') ? [argument('--tier')] : ['guided', 'standard', 'unrestricted']
+/* 30s was the old budget and it is not a safe one here. Ten lanes share this
+   machine and one of them can be running a full `npm run dist` while this
+   starts a packaged Electron from a freshly written asar; the first window has
+   been measured taking over 20s under that load. A budget tight enough to trip
+   on load manufactures exactly the false report this suite was quoted for. */
+const OPEN_BUDGET_MS = Number(argument('--open-timeout-ms', 120000))
+/* An attach that fails is an environment event far more often than a product
+   event, so try again on a clean profile before declaring the run unmeasurable.
+   Bounded, and every attempt is printed, so a retry can never be silent. */
+const ATTEMPTS = Number(argument('--attempts', 3))
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -107,16 +129,28 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
  * source rather than trusted. The single permitted deep link is tagged with the
  * marker below and is used by a check whose NAME says it is a state check. */
 const DEEP_LINK_MARKER = 'DEEP-LINK-STATE-CHECK'
-function auditSelf() {
-  const source = readFileSync(SELF, 'utf8')
-  const offenders = source
+/* ASSIGNMENT IS NAVIGATION; COMPARISON IS OBSERVATION. The first version of
+ * this guard tested /location\.hash\s*=/, which cannot tell the two apart: it
+ * fired on `location.hash === '#/setup'`, a READ that navigates nowhere. That
+ * is not a harmless over-catch. It made the suite structurally unable to CHECK
+ * where it had arrived, which is the one thing a reachability suite must be
+ * able to do -- so the first-launch measurement below could not be written at
+ * all until this was fixed. The rule is unchanged and this is strictly
+ * narrower: `=` not followed by `=`, plus `+=`, both of which move the window;
+ * `==`, `===` and `!==` do not.
+ * PROVEN, not asserted: tools/test/agent-route-self-audit.test.mjs feeds this
+ * function both forms and fails if either verdict flips. */
+export function offendingHashAssignments(source) {
+  return source
     .split('\n')
     .map((line, index) => ({ line, at: index + 1 }))
-    .filter(({ line }) => /location\.hash\s*=/.test(line))
+    .filter(({ line }) => /location\.hash\s*(=(?!=)|\+=)/.test(line))
     .filter(({ line }) => !line.includes(DEEP_LINK_MARKER))
     /* prose ABOUT the rule is not a breach of it */
     .filter(({ line }) => !/^\s*(\/\/|\*)/.test(line))
-  return offenders
+}
+function auditSelf() {
+  return offendingHashAssignments(readFileSync(SELF, 'utf8'))
 }
 
 /* ---------- stage a real packaged copy ----------
@@ -159,31 +193,66 @@ function appExecutable(appRoot) {
   throw new Error(`cannot tell which of these is the launcher: ${executables.join(', ')}`)
 }
 
-async function freePort() {
-  const net = await import('node:net')
-  return new Promise((resolve, reject) => {
-    const server = net.createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address()
-      server.close(() => resolve(port))
-    })
-  })
+/* ---------- A FAILURE OF THE PROBE IS NOT A FINDING ABOUT THE PRODUCT ----------
+ * This suite once died before reaching a single check -- "no debuggable page
+ * appeared within 30s" -- and exited 1. Exit 1 is also what a real reachability
+ * failure looks like, so for hours that sentence was quoted as the measurement
+ * it had failed to take: "the agent page is unreachable on a fresh install".
+ * Everything a harness cannot attach to must therefore be raised as this type,
+ * reported under a banner that says NO VERDICT, and exited with a code that
+ * cannot be mistaken for a red check. */
+class HarnessError extends Error {}
+
+/* ---------- finding the debugger, without a race ----------
+ * The first version asked the OS for a free port, closed the listener, then
+ * handed the number to Electron. Between that close and Electron's bind the
+ * port belongs to nobody, and roughly ten lanes on this machine run packaged
+ * harnesses that also ask the OS for ephemeral ports. When one of them wins
+ * that race Electron cannot bind, the app starts perfectly, no debugger ever
+ * answers, and the harness reports a sentence about itself in words that read
+ * like a sentence about the product.
+ * Chromium already solved this: with --remote-debugging-port=0 it chooses the
+ * port and writes it to <user-data-dir>/DevToolsActivePort. Asking the app
+ * which port it got, instead of telling it which port to want, removes the
+ * window in which the race can happen at all. */
+const ACTIVE_PORT_FILE = 'DevToolsActivePort'
+
+async function publishedDebuggerPort(userDataDir, child, budgetMs) {
+  const file = path.join(userDataDir, ACTIVE_PORT_FILE)
+  const started = Date.now()
+  while (Date.now() - started < budgetMs) {
+    if (child.exitCode !== null) {
+      throw new HarnessError(`the app exited with code ${child.exitCode} before it published a debugger port; this is a startup failure, not a slow paint`)
+    }
+    try {
+      const port = Number(readFileSync(file, 'utf8').split('\n')[0].trim())
+      if (Number.isInteger(port) && port > 0) return port
+    } catch { /* Electron has not written it yet */ }
+    await delay(200)
+  }
+  throw new HarnessError(`the app never wrote ${ACTIVE_PORT_FILE} into its profile within ${Math.round(budgetMs / 1000)}s, so its debugger never started`)
 }
 
-function createSession(port, child) {
+function createSession(child, userDataDir, say) {
   let socket = null
   let nextId = 1
   const pending = new Map()
   return {
-    async open() {
-      for (let attempt = 0; attempt < 60; attempt += 1) {
+    async open(budgetMs) {
+      const started = Date.now()
+      const port = await publishedDebuggerPort(userDataDir, child, budgetMs)
+      say(`debugger published on 127.0.0.1:${port} after ${Date.now() - started}ms`)
+      /* Say WHICH of the several different things went wrong. "No page
+         appeared" covers a refused connection, an empty target list and a
+         window that is not a page, and those have nothing in common. */
+      let lastSeen = 'the debugger endpoint never answered at all'
+      while (Date.now() - started < budgetMs) {
         if (child.exitCode !== null) {
-          throw new Error(`the app exited with code ${child.exitCode} before the debugger answered; this is a startup failure, not a slow paint`)
+          throw new HarnessError(`the app exited with code ${child.exitCode} before the debugger answered; this is a startup failure, not a slow paint`)
         }
         try {
-          const response = await fetch(`http://127.0.0.1:${port}/json/list`)
-          const page = (await response.json()).find(entry => entry.type === 'page' && entry.webSocketDebuggerUrl)
+          const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+          const page = targets.find(entry => entry.type === 'page' && entry.webSocketDebuggerUrl)
           if (page) {
             socket = new WebSocket(page.webSocketDebuggerUrl)
             await new Promise((resolve, reject) => {
@@ -195,12 +264,18 @@ function createSession(port, child) {
               const handler = pending.get(packet.id)
               if (handler) { pending.delete(packet.id); handler(packet) }
             })
+            say(`attached to the window after ${Date.now() - started}ms`)
             return
           }
-        } catch { /* not listening yet */ }
+          lastSeen = targets.length
+            ? `the endpoint answered with ${targets.length} target(s) and none was a debuggable page: ${targets.map(entry => `${entry.type}:${entry.title || entry.url || '?'}`).join(', ')}`
+            : 'the endpoint answered with an EMPTY target list, so the process is up but no window ever opened -- look for a modal error dialog or a main-process throw in the app output below'
+        } catch (error) {
+          lastSeen = `the endpoint refused the connection (${error?.cause?.code || error?.message || error})`
+        }
         await delay(500)
       }
-      throw new Error('no debuggable page appeared within 30s, and the app is still running')
+      throw new HarnessError(`no debuggable page within ${Math.round(budgetMs / 1000)}s and the app is still running -- ${lastSeen}`)
     },
     send(method, params = {}) {
       const id = nextId++
@@ -279,17 +354,18 @@ const PROBE = `(() => {
   }
 })()`
 
-async function drive(executable, scratch, tier) {
-  const port = await freePort()
-  const checks = []
-  const check = (name, ok, detail = '') => {
-    checks.push({ name, ok: Boolean(ok) })
-    console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `  -- ${detail}` : ''}`)
-  }
-
-  const profile = path.join(scratch, `profile-${tier}`)
+/* ---------- one packaged window, however it is going to be driven ----------
+ * Extracted so the SEEDED walk below and the TRUE first launch further down
+ * are the same instrument pointed at two different starting states. The second
+ * measurement exists because the first one cannot make the claim people were
+ * quoting from it: seedMachineRecord deliberately answers the permission
+ * question before the window opens, so every check below starts on a machine
+ * that has ALREADY been set up. That is a fair way to measure the three tiers
+ * against each other, and it is not "from first launch with shipped defaults". */
+async function openApp(executable, scratch, label, { seedTier = null } = {}) {
+  const profile = path.join(scratch, `profile-${label}`)
   for (const leaf of ['userdata', 'local', 'home']) mkdirSync(path.join(profile, leaf), { recursive: true })
-  seedMachineRecord(profile, path.join(scratch, 'app'), tier)
+  if (seedTier) seedMachineRecord(profile, path.join(scratch, 'app'), seedTier)
 
   const environment = { ...process.env }
   delete environment.ELECTRON_RUN_AS_NODE
@@ -298,46 +374,128 @@ async function drive(executable, scratch, tier) {
   environment.CODEX_HOME = path.join(profile, 'home', '.codex')
   mkdirSync(environment.CODEX_HOME, { recursive: true })
 
+  const userData = path.join(profile, 'userdata')
+  /* THE APP'S OWN WORDS ARE THE FIRST THING A STARTUP FAILURE NEEDS, and the
+     previous version threw them away with stdio:'ignore'. A main-process throw
+     puts up a modal dialog and leaves the process alive with no window, which
+     is indistinguishable from a slow paint unless you kept the message. */
   const child = spawn(executable, [
-    `--user-data-dir=${path.join(profile, 'userdata')}`,
-    `--remote-debugging-port=${port}`,
-  ], { env: environment, stdio: 'ignore' })
+    `--user-data-dir=${userData}`,
+    '--remote-debugging-port=0',
+  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'] })
+  const noise = []
+  for (const stream of [child.stdout, child.stderr]) {
+    stream.setEncoding('utf8')
+    stream.on('data', chunk => {
+      noise.push(chunk)
+      while (noise.length > 400) noise.shift()
+    })
+  }
+  child.on('error', error => noise.push(`[spawn error] ${error.message}\n`))
 
-  const session = createSession(port, child)
+  const session = createSession(child, userData, message => console.log(`  ..    ${message}`))
+  const teardown = async () => {
+    session.close()
+    /* child.kill() reaches the main process only; Electron's GPU, utility and
+       renderer processes survive it and accumulate. Seven of them were still
+       resident from earlier runs when this lane started, on the same machine
+       whose load is one of the candidate explanations for a slow start. Kill
+       the tree -- every process in it was started by this harness. */
+    try { child.kill() } catch { /* already gone */ }
+    if (child.pid) {
+      try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* nothing left */ }
+    }
+    await delay(400)
+  }
+
   try {
-    await session.open()
-    await session.send('Runtime.enable')
-    const evaluate = async expression => {
-      const packet = await session.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
-      if (packet.result?.exceptionDetails) {
-        throw new Error(packet.result.exceptionDetails.exception?.description || 'evaluate failed')
-      }
-      return packet.result?.result?.value
+    await session.open(OPEN_BUDGET_MS)
+  } catch (error) {
+    if (error instanceof HarnessError) {
+      const said = noise.join('').trim()
+      error.message += said
+        ? `\n  the app said:\n${said.split('\n').map(line => `    | ${line}`).join('\n')}`
+        : '\n  the app said nothing on stdout or stderr'
     }
-    const until = async (label, expression, attempts = 60) => {
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        if (await evaluate(expression)) return true
-        await delay(250)
-      }
-      return false
+    await teardown()
+    throw error
+  }
+
+  await session.send('Runtime.enable')
+  const evaluate = async expression => {
+    const packet = await session.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
+    if (packet.result?.exceptionDetails) {
+      throw new Error(packet.result.exceptionDetails.exception?.description || 'evaluate failed')
     }
-    /* Click by SELECTOR, and refuse to click what a person could not.
-       Returns why it refused, so a failure names the reason rather than just
-       reporting that nothing happened. */
-    const clickVisible = async selector => evaluate(`(() => {
+    return packet.result?.result?.value
+  }
+  const until = async (label, expression, attempts = 60) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (await evaluate(expression)) return true
+      await delay(250)
+    }
+    return false
+  }
+  /* CLICKS ARE COUNTED BY THE INSTRUMENT, NEVER BY HAND. "Seven clicks" was
+     being quoted from a hand count nobody could re-derive; a tally kept by the
+     thing doing the clicking cannot drift from what was actually pressed, and
+     it counts only presses that LANDED. */
+  let clicks = 0
+  /* Click by SELECTOR, and refuse to click what a person could not.
+     Returns why it refused, so a failure names the reason rather than just
+     reporting that nothing happened. */
+  const clickVisible = async selector => {
+    const outcome = await evaluate(`(() => {
       const node = document.querySelector(${JSON.stringify(selector)})
       if (!node) return 'absent'
       const box = node.getBoundingClientRect()
       const style = getComputedStyle(node)
       if (!(box.width > 0 && box.height > 0)) return 'zero-size'
       if (style.visibility === 'hidden' || style.display === 'none') return 'hidden'
+      if (node.disabled === true || node.getAttribute('aria-disabled') === 'true') return 'disabled'
       node.click()
       return 'clicked'
     })()`)
+    if (outcome === 'clicked') clicks += 1
+    return outcome
+  }
+  /* Some setup steps render the forward control LAST, with an earlier match on
+     the same screen being a back or secondary control. Same visibility rules,
+     same tally -- a press counted here is a press a person made. */
+  const clickLastVisible = async selector => {
+    const outcome = await evaluate(`(() => {
+      const nodes = [...document.querySelectorAll(${JSON.stringify(selector)})].filter(node => {
+        const box = node.getBoundingClientRect()
+        const style = getComputedStyle(node)
+        return box.width > 0 && box.height > 0
+          && style.visibility !== 'hidden' && style.display !== 'none'
+          && node.disabled !== true && node.getAttribute('aria-disabled') !== 'true'
+      })
+      if (!nodes.length) return 'absent'
+      nodes[nodes.length - 1].click()
+      return 'clicked'
+    })()`)
+    if (outcome === 'clicked') clicks += 1
+    return outcome
+  }
 
-    await until('the application origin',
-      `location.protocol === 'http:' && Boolean(document.querySelector('#stage'))`)
-    await delay(900)
+  await until('the application origin',
+    `location.protocol === 'http:' && Boolean(document.querySelector('#stage'))`)
+  await delay(900)
+
+  return { evaluate, until, clickVisible, clickLastVisible, teardown, profile, clicked: () => clicks }
+}
+
+async function drive(executable, scratch, tier, attempt = 1) {
+  const checks = []
+  const check = (name, ok, detail = '') => {
+    checks.push({ name, ok: Boolean(ok) })
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `  -- ${detail}` : ''}`)
+  }
+
+  const app = await openApp(executable, scratch, `${tier}-${attempt}`, { seedTier: tier })
+  const { evaluate, until, clickVisible } = app
+  try {
 
     /* ---------- 1. THE FRESH INSTALL, WALKED FROM FIRST PAINT ---------- */
     const first = await evaluate(PROBE)
@@ -434,9 +592,193 @@ async function drive(executable, scratch, tier) {
 
     return checks
   } finally {
-    session.close()
-    try { child.kill() } catch { /* already gone */ }
-    await delay(400)
+    await app.teardown()
+  }
+}
+
+/* ---------- what a person with the shipped defaults actually faces ----------
+ * THE MEASUREMENT THAT DID NOT EXIST. Everything above starts on a machine that
+ * has already answered the permission question, because seedMachineRecord
+ * answers it before the window opens. So the suite could say "a fresh install
+ * opens past the permission question" while never having met the question. The
+ * numbers people were quoting at each other -- "seven clicks", "no route at
+ * all" -- were about this path, and nothing was driving it.
+ *
+ * Here the walkthrough is walked, by clicking, from the screen a real first
+ * launch actually opens on, and the click count is kept by the clicker.
+ *
+ * BOTH SHIPPED ROUTES ARE MEASURED, because a person meets one or the other and
+ * they do not end in the same place: answering the questions applies a profile
+ * (src/setup-profile.js), and SKIPPING deliberately applies nothing at all --
+ * by design, so that skipping is byte-identical to never running setup. The
+ * agent page is downstream of both. Whether the control that RUNS an agent is
+ * on the page is downstream of which one you took, and that is the finding. */
+const SESSION_PROBE = `(() => {
+  const shown = node => {
+    if (!node) return false
+    const box = node.getBoundingClientRect()
+    const style = getComputedStyle(node)
+    return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
+  }
+  const surface = document.querySelector('.agent-session-surface')
+  const start = document.querySelector('[data-session-start]')
+  const status = document.querySelector('[data-session-status]')
+  const norm = node => (node ? node.textContent.replace(/\\s+/g, ' ').trim() : '')
+  return {
+    hash: location.hash,
+    route: document.body.dataset.route || '',
+    agentVisible: shown(document.querySelector('.agentv')),
+    liveMode: (document.querySelector('.agentv') || {}).dataset?.liveMode || '',
+    surfacePresent: Boolean(surface),
+    surfaceVisible: shown(surface),
+    startPresent: Boolean(start),
+    startVisible: shown(start),
+    startDisabled: start ? Boolean(start.disabled) : null,
+    startName: norm(start),
+    statusText: norm(status),
+    agentSessionFlag: (() => { try { return localStorage.getItem('mc.write.agent-session') } catch { return 'unreadable' } })(),
+  }
+})()`
+
+async function driveFirstLaunch(executable, scratch, tier, route, attempt = 1) {
+  const checks = []
+  const check = (name, ok, detail = '') => {
+    checks.push({ name, ok: Boolean(ok) })
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `  -- ${detail}` : ''}`)
+  }
+  const note = detail => console.log(`  ..    ${detail}`)
+
+  /* NO seedTier. This is the whole point: nothing has answered anything. */
+  const app = await openApp(executable, scratch, `firstrun-${tier}-${route}-${attempt}`, {})
+  const { evaluate, until, clickVisible, clickLastVisible, clicked } = app
+  try {
+    const onSetup = await until('the permission question', `location.hash === '#/setup'`)
+    check(`${tier}/${route}: a true first launch opens on the permission question`,
+      onSetup, `hash=${await evaluate('location.hash')}`)
+    if (!onSetup) return checks
+
+    /* The level is chosen by pressing it -- unless the walkthrough already
+       offers it, in which case a person presses nothing and the honest count
+       for that level is one lower. Measured, not assumed. */
+    const alreadyChosen = await evaluate(
+      `Boolean(document.querySelector('[data-setup-tier=${JSON.stringify(tier)}][aria-pressed="true"]'))`)
+    if (!alreadyChosen) {
+      const picked = await clickVisible(`[data-setup-tier=${JSON.stringify(tier)}]`)
+      check(`${tier}/${route}: the permission level can be chosen by pressing it`,
+        picked === 'clicked', `[data-setup-tier=${tier}]: ${picked}`)
+    } else {
+      note(`${tier} is the level the walkthrough already offers; choosing it costs no press`)
+    }
+
+    /* Both routes pass through the permission question: the level is the one
+       thing setup will not let you decline. "Skip the rest for now" is offered
+       on the QUESTION steps that follow it (src/views/setup.js actionsMarkup),
+       not on this screen -- a first draft of this harness looked for it here,
+       found nothing, and was one edit away from reporting the product's own
+       skip control as missing. */
+    const continued = await clickVisible('[data-setup-continue]')
+    check(`${tier}/${route}: the permission question continues`, continued === 'clicked', `${continued}`)
+
+    const atFolder = await until('the folder question',
+      `document.querySelector('[data-setup-section]')?.innerText.includes('Which folder')`)
+    check(`${tier}/${route}: it reaches the folder question`, atFolder)
+
+    if (route === 'skip') {
+      const skipped = await clickVisible('[data-setup-skip]')
+      check(`${tier}/skip: the remaining questions can be skipped, as the screen offers`,
+        skipped === 'clicked', `[data-setup-skip]: ${skipped}`)
+    } else {
+      await until('the folder to resolve', `document.querySelector('.setup-root-path') !== null`)
+      const nextFrom = async label => {
+        const outcome = await clickLastVisible('[data-setup-next]')
+        check(`${tier}/walkthrough: ${label}`, outcome === 'clicked', outcome)
+        return outcome
+      }
+      await nextFrom('the folder step moves on')
+
+      const atAccount = await until('the sign-in step',
+        `document.querySelector('[data-setup-section]')?.innerText.includes('Who is using this copy') || document.querySelector('[data-setup-section]')?.innerText.includes('Signed in as')`)
+      check(`${tier}/walkthrough: it reaches the sign-in step`, atAccount)
+      await nextFrom('a person can carry on without an account')
+
+      const atAutonomy = await until('the autonomy question',
+        `document.querySelector('[data-setup-section]')?.innerText.includes('without asking')`)
+      check(`${tier}/walkthrough: it reaches the autonomy question`, atAutonomy)
+      /* `assisted` is the MIDDLE answer of three, not the most permissive. The
+         cautious answer `observe` is measured as its own route below. */
+      const chose = await clickVisible('[data-setup-set="autonomy"][data-setup-value="assisted"]')
+      check(`${tier}/walkthrough: the middle autonomy answer can be chosen`, chose === 'clicked', chose)
+      const toReview = await clickVisible('[data-setup-next="review"]')
+      check(`${tier}/walkthrough: it reaches the review`, toReview === 'clicked', toReview)
+      await until('the review',
+        `document.querySelector('[data-setup-section]')?.innerText.includes('what those answers set')`)
+      const finished = await clickVisible('[data-setup-next="finish"]')
+      check(`${tier}/walkthrough: the review can be accepted`, finished === 'clicked', finished)
+    }
+
+    const intoApp = await until('the app itself', `location.hash === '#/' || location.hash === ''`, 120)
+    check(`${tier}/${route}: setup ends in the app`, intoApp, `hash=${await evaluate('location.hash')}`)
+    const clicksThroughSetup = clicked()
+    note(`clicks to get through first-run setup: ${clicksThroughSetup}`)
+    await delay(900)
+
+    /* ---------- and now the same two presses the seeded suite measures ---------- */
+    const toComputers = await clickVisible('#nav-next')
+    check(`${tier}/${route}: the forward chevron reaches the computers page`,
+      toComputers === 'clicked', `#nav-next: ${toComputers}`)
+    const atComputers = await until('the computers page', `document.body.dataset.route === 'computers'`)
+    check(`${tier}/${route}: the computers page draws`, atComputers)
+    await delay(1400)
+
+    const nodes = await evaluate(`document.querySelectorAll('.computers .static-tree-node').length`)
+    check(`${tier}/${route}: a true first launch draws this computer on the fleet page`,
+      nodes >= 1, `tree nodes on screen = ${nodes}`)
+
+    const opened = await clickVisible('.computers .graph-open-btn')
+    check(`${tier}/${route}: the door into the agent page is visible and can be pressed`,
+      opened === 'clicked', `.graph-open-btn: ${opened}`)
+    const arrived = await until('the agent detail page', `Boolean(document.querySelector('.agentv'))`)
+    await delay(1200)
+    const detail = await evaluate(SESSION_PROBE)
+
+    /* ================= THE ANSWER THE PROJECT HAS BEEN ARGUING ABOUT ================= */
+    check(`${tier}/${route}: THE AGENT PAGE IS REACHABLE FROM A TRUE FIRST LAUNCH`,
+      arrived && detail.agentVisible, `hash=${detail.hash} agentv=${detail.agentVisible}`)
+    check(`${tier}/${route}: and it is this machine's own agent, not a demonstration`,
+      detail.liveMode === 'live', `data-live-mode=${JSON.stringify(detail.liveMode)}`)
+    const totalClicks = clicked()
+    note(`TOTAL CLICKS from first paint to the agent page: ${totalClicks} (${clicksThroughSetup} of them are first-run setup)`)
+
+    /* ---------- reaching the page is not the same as being able to use it ----------
+       The owner's requirement is running a fleet FROM this software, and the
+       control that starts an agent is fenced by BOTH a live page and the
+       `agent-session` write flag. Which route the person took decides whether
+       that flag is on, so this is REPORTED for both and asserted only where the
+       product intends it. */
+    note(`mc.write.agent-session = ${JSON.stringify(detail.agentSessionFlag)}`)
+    note(`agent-session surface present=${detail.surfacePresent} visible=${detail.surfaceVisible}; ` +
+      `Start present=${detail.startPresent} visible=${detail.startVisible} disabled=${detail.startDisabled}`)
+    note(`session status row: ${JSON.stringify(detail.statusText.slice(0, 160))}`)
+    if (route === 'walkthrough') {
+      /* Answering the questions with the MIDDLE autonomy answer switches
+         agent-session on at every tier (setup-profile.js: AUTONOMY_WRITE_FLAGS
+         .assisted, and every TIER_CEILINGS entry permits it). So on this route
+         the run control must actually be on the page. */
+      check(`${tier}/walkthrough: the control that RUNS an agent is on the page it reached`,
+        detail.surfaceVisible && detail.startPresent && detail.startVisible,
+        `surface=${detail.surfaceVisible} start=${detail.startVisible}`)
+    } else {
+      /* Skipping applies nothing, deliberately. The page must still be reachable
+         -- asserted above -- and the run control must be ABSENT rather than
+         present-and-dead, because a dead control is the defect this whole suite
+         was written to refuse. */
+      check(`${tier}/skip: skipping the questions leaves no dead run control behind`,
+        !detail.startPresent, `Start present=${detail.startPresent}`)
+    }
+
+    return checks
+  } finally {
+    await app.teardown()
   }
 }
 
@@ -453,16 +795,51 @@ async function main() {
 
   const scratch = mkdtempSync(path.join(tmpdir(), 'agent-route-'))
   let failures = 0
+  let unmeasurable = null
   try {
     console.log(`staging a packaged copy from ${RELEASE}`)
     const executable = await stage(scratch)
-    console.log(`staged: ${executable}\n`)
+    console.log(`staged: ${executable}`)
+    /* A measurement that does not name the build it measured is a number
+       waiting to be quoted against a different tree. */
+    console.log(`measuring: dist/ and shell/ as they are in ${REPO_ROOT} right now, in the binary from ${RELEASE}\n`)
     for (const tier of TIERS) {
       console.log(`--- permission level: ${tier} ---`)
-      const checks = await drive(executable, scratch, tier)
+      let checks = null
+      for (let attempt = 1; attempt <= ATTEMPTS && !checks; attempt += 1) {
+        try {
+          checks = await drive(executable, scratch, tier, attempt)
+        } catch (error) {
+          if (!(error instanceof HarnessError) || attempt === ATTEMPTS) throw error
+          console.log(`  ..    could not attach on attempt ${attempt} of ${ATTEMPTS}: ${error.message}`)
+          console.log('  ..    retrying on a clean profile; nothing above is a statement about the product')
+        }
+      }
       failures += checks.filter(entry => !entry.ok).length
       console.log('')
     }
+
+    /* ---------- and the same question asked without the seed ---------- */
+    for (const tier of TIERS) {
+      for (const route of ['walkthrough', 'skip']) {
+        console.log(`--- TRUE FIRST LAUNCH, nothing seeded: ${tier}, ${route} ---`)
+        let checks = null
+        for (let attempt = 1; attempt <= ATTEMPTS && !checks; attempt += 1) {
+          try {
+            checks = await driveFirstLaunch(executable, scratch, tier, route, attempt)
+          } catch (error) {
+            if (!(error instanceof HarnessError) || attempt === ATTEMPTS) throw error
+            console.log(`  ..    could not attach on attempt ${attempt} of ${ATTEMPTS}: ${error.message}`)
+            console.log('  ..    retrying on a clean profile; nothing above is a statement about the product')
+          }
+        }
+        failures += checks.filter(entry => !entry.ok).length
+        console.log('')
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof HarnessError)) throw error
+    unmeasurable = error
   } finally {
     /* CLEANUP MUST NOT BE ABLE TO FAIL THE RUN.
        Windows holds the staged Electron's DLLs for a moment after the process
@@ -482,8 +859,31 @@ async function main() {
       if (!removed) console.log(`(could not remove the scratch copy at ${scratch}; it is safe to delete)`)
     }
   }
+  /* THREE OUTCOMES, THREE EXIT CODES. The middle one is the reason this block
+     exists: a run that never attached has measured NOTHING, and saying so with
+     the same exit 1 a red check uses is how "the harness could not start the
+     app" became "the customer cannot reach the agent page" on this board. */
+  if (unmeasurable) {
+    console.error('')
+    console.error('=================== NO VERDICT: THE HARNESS COULD NOT MEASURE ===================')
+    console.error(unmeasurable.message)
+    console.error('')
+    console.error('THIS SAYS NOTHING ABOUT WHETHER THE AGENT PAGE IS REACHABLE. It says this')
+    console.error('probe could not attach to the app. Do not quote this run, or its exit code,')
+    console.error('as evidence either way. Exit 2 is reserved for exactly this and never used')
+    console.error('for a failed check.')
+    console.error('================================================================================')
+    process.exitCode = 2
+    return
+  }
   console.log(failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`)
   process.exitCode = failures === 0 ? 0 : 1
 }
 
-await main()
+/* Run only when this file IS the command. The self-audit predicate above is
+   exported so a test can point both forms of `location.hash` at it, and an
+   unguarded `await main()` would have made importing it launch three packaged
+   Electron windows instead. */
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(SELF)) {
+  await main()
+}
