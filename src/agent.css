@@ -1,10 +1,321 @@
 /* ============================================================
-   AGENT PAGE (Lane T6, swept in C5) — additive only, scoped under
-   .agentv / .agentv-graph / .node-rim / .panel-dots / .agent-strip
-   so nothing here leaks to other pages that also use .node / .glass /
-   .apanel / .chip markup (the computers page's graph lives under the
-   sibling class .graph-wrap, never .agentv-graph).
+   AGENT PAGE — scoped under .agentv so nothing here leaks to other
+   pages that also use .glass / .apanel markup.
+
+   REDONE. Everything that used to live at the top of this file —
+   rim arcs on bubbles, the hover-reveal context chip, the .cx-badge,
+   the .cx-tight density escalation, the .cx-link leader hairlines,
+   and the transform-parking rules that stopped graph.js and the
+   placement solver racing each other within a frame — described a
+   layout that positioned text absolutely and then spent five rounds
+   of solver work discovering the overlaps that caused. It is gone
+   with the geometry it served. What replaces it is a grid of cards
+   in normal flow, which cannot overlap, so none of those rules has
+   anything left to do. See src/agent-roster.js for the reasoning.
    ============================================================ */
+
+/* ---------- the page column ---------- */
+.agentv { overflow-y: auto; }
+
+.agentv-top {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3, 12px);
+  flex-wrap: wrap;
+}
+/* THE BREADCRUMB JOINS THE FLOW, and it has to be told to.
+   styles.css gives `.graph-crumb` `position: absolute; top: 14px; left: 16px;
+   z-index: 5` -- correct when it was an overlay pinned inside the old graph
+   panel, and wrong the moment it became a flex child of a normal row: an
+   absolutely positioned box is out of flow, so it took no space and printed
+   straight through the example-data banner beside it. Caught by eye on the black
+   theme at 1280x800, not by the overlap assertion, which only walked the roster
+   -- the check has since been widened to every text-bearing element on the page.
+   Static here rather than edited in styles.css: the computers page still uses
+   the overlay form, and this is the one page that does not. */
+.agentv-top .graph-crumb {
+  position: static;
+  flex: 0 0 auto;
+  z-index: auto;
+}
+.agentv-top .graph-crumb,
+.agentv-top .graph-crumb button,
+.agentv-top .graph-crumb .sep { font-size: 12.5px; }
+
+/* ---------- provenance: what this page's data actually is -------------
+   A normal-flow row, never an overlay. The app-wide notice this replaces on
+   this route is `position: fixed`, which is exactly why the owner saw it
+   sitting on the panel beneath it. Anything that states what is real has to
+   be the one thing on the page guaranteed not to cover something else. */
+.agent-provenance {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--ink-4);
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--sheet) 92%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12.5px;              /* interface-text floor */
+  line-height: 1.45;
+}
+/* Example data is the one state that must not be missable, so it takes the
+   warning edge and the page's strongest small-text ink. It is deliberately
+   NOT a colour-only signal: the sentence itself says "Example data" first,
+   so a greyscale screenshot or a colour-blind reader loses nothing. */
+.agent-provenance[data-kind="example"] {
+  border-left-color: var(--s-warn);
+  background: color-mix(in oklab, var(--s-warn) 8%, var(--sheet));
+  color: var(--ink);
+  font-weight: 560;
+}
+.agent-provenance[data-kind="declared"] { border-left-color: var(--s-good); }
+
+/* TWO NOTICES THAT DISAGREE IS WORSE THAN EITHER ALONE. The app-wide
+   `.fleet-profile-notice` is keyed to the FLEET PROFILE being unconfigured,
+   not to this view's data being simulated, so on this route it can assert
+   "some screens show example data" over a page showing a real declared
+   topology — while also physically covering the Controls panel, since it is
+   fixed to the bottom-right at z-index 190. This page states its own
+   provenance above, in flow, so the floating one is suppressed here. The
+   serious variant is left alone: it carries failures, not this claim, and
+   home.css and setup.css already use exactly this `:not(.is-serious)` carve
+   for the same reason. */
+body[data-route="agent"] .fleet-profile-notice:not(.is-serious) { display: none; }
+
+/* ---------- the roster ---------- */
+/* THE ROSTER IS BOUNDED, and that is what keeps Chat and Controls on screen.
+   `.agentv` is a fixed-height flex column, so an unbounded roster simply pushes
+   the panels below the fold -- measured at 1280x800, which is the smallest
+   window this product ships at and exactly where the owner reported CHAT and
+   CONTROLS cut off. The roster is the right thing to bound rather than the
+   panels: it is a list, a list that scrolls is a normal thing, and a control
+   that is half a control is not. So the roster takes a share and scrolls its own
+   overflow, and the panels keep a floor. */
+.agentv-roster {
+  /* THE FLOOR IS THE POINT, and both ways of getting it wrong were measured.
+     `.agentv` is a fixed-height flex column whose content genuinely exceeds the
+     window, so any region left freely shrinkable absorbs the entire shortfall:
+     with `min-height: 0` the roster measured 35px at 1600x900 and 27px at
+     1280x800 -- its header row and ZERO cards -- while every other assertion on
+     this page still passed, because clipped cards keep perfectly good bounding
+     boxes. Pinning it to a fixed 40vh share instead was the opposite failure,
+     greedy rather than collapsing, and pushed the panels 306px past the bottom
+     edge at 1600x900.
+     `flex: 1 1 auto` with a real floor is the shape that works: the roster takes
+     whatever the other three regions leave, generous on a tall window and
+     compact on a short one, but it stops at 150px and scrolls its own overflow
+     rather than continuing down to nothing. */
+  flex: 1 1 auto;
+  min-height: 150px;
+  max-height: 40vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2, 8px);
+  padding: 16px 18px 18px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.ar-head-row {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3, 12px);
+}
+.ar-title {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 640;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ar-count {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* THE WHOLE COLLISION FIX, IN ONE DECLARATION.
+   `auto-fill` + a `minmax` track means the browser decides how many columns
+   fit and every card gets a real box with real gutters. Nothing is placed at
+   a coordinate, so nothing can be placed on top of anything — at any window
+   size, any zoom, any agent count, and with no code running. The previous
+   layout needed a depth-first search over lane runs to reach a weaker version
+   of this guarantee, and still withheld cards it could not place. */
+.agent-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: var(--s3, 12px);
+  align-content: start;
+}
+
+.ar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;                 /* see .ar-text — grid items default to auto */
+  padding: 13px 14px 14px;
+  text-align: left;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--sheet) 86%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.55 * var(--wa)));
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color .2s var(--ease), background .2s var(--ease), transform .12s var(--ease);
+}
+.ar-card:hover {
+  border-color: color-mix(in oklab, var(--rc) 42%, var(--line-2));
+  background: color-mix(in oklab, var(--sheet) 96%, transparent);
+}
+.ar-card:active { transform: scale(0.995); }
+.ar-card:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
+/* The card you asked for. A left rule in the role colour rather than a filled
+   background: this card sits in a grid of its peers and has to read as "the
+   one you named", not as a different kind of object. */
+.ar-card.is-selected {
+  border-color: color-mix(in oklab, var(--rc) 55%, var(--line-2));
+  border-left: 3px solid var(--rc);
+  padding-left: 12px;
+  background: color-mix(in oklab, var(--rc) 6%, var(--sheet));
+}
+
+.ar-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* `min-width: 0` is load-bearing, not defensive. A flex item's default
+   `min-width: auto` refuses to shrink below its longest unbreakable word, so
+   without this a long agent name pushes the card past its grid track and the
+   row overflows sideways — which is the one way a grid CAN produce the
+   overlap this layout exists to prevent. */
+.ar-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ar-name {
+  font-family: var(--font-mono);
+  font-size: 13px;              /* mono-content floor */
+  font-weight: 650;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ar-role {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--rc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the dial: role colour, minute sweep, no text inside it ever */
+.ar-dial { flex: none; width: 34px; height: 34px; }
+.ar-dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ar-dial-track { stroke: var(--line-2); stroke-width: 4; }
+.ar-dial-sweep {
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.9;
+  transition: stroke-dasharray .9s linear;
+}
+.ar-dial[data-running="false"] .ar-dial-sweep { opacity: 0.28; }
+
+/* THE RUNTIME ROW. Full card width, its own line, units inside the value.
+   `16h 27m 58s` cannot be read as a time of day; `16:27:58` under the word
+   RUNTIME very much could, and was. */
+.ar-runtime {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.ar-runtime-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 640;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ar-runtime-value.is-absent {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+/* The verb, carrying the state. Not a dot, not a colour — a stopped agent
+   says "stopped" in words, so the state survives greyscale and colour-blind
+   reading, and a frozen figure is never mistaken for a stalled clock. */
+.ar-runtime-note {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ar-card[data-runtime-state="stopped"] .ar-runtime-value { color: var(--ink-2); }
+.ar-card[data-runtime-state="stopped"] .ar-runtime-note { color: var(--s-warn); }
+
+/* THE STATUS ROW — what used to float above the graph with no tie to its
+   agent. It is inside its agent's own card, so the question the leader lines
+   were drawn to answer does not arise. Clamped so one long sentence cannot
+   make its card taller than the rest of the row. */
+.ar-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ar-status-current {
+  font-family: var(--font-mono);
+  font-size: 13px;              /* mono-content floor */
+  line-height: 1.4;
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.ar-status-previous {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--ink-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A DESCRIPTION IS NOT A FAULT, and it must not be painted as one.
+   `.write-surface [data-state="unavailable"]` resolves to --s-serious, so the
+   confinement sentences -- an accurate description of a perfectly healthy
+   Guided install -- rendered in alarm red on all three themes. Seen by eye in
+   the screenshots; no assertion could have caught it, because every word was
+   correct. The state is `note`, styled as ordinary ink, so the only red left on
+   this control is the refusal above it, which really is one. */
+.agentv .agent-session-surface [data-action-output][data-state="note"] { color: var(--ink-2); }
+
+/* The measured confinement sentences. Mono, because every fact in them is a
+   fact about this machine, and they sit under a mono form. Never clamped: a
+   sentence about what an agent may do to your disk is not a place to hide the
+   second half behind an ellipsis. */
+.agentv .agent-session-surface [data-action-output] {
+  grid-column: 1 / -1;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 /* ---------- 4. grey mono header strip: name · role · pool · model ------- */
 .agent-strip {
@@ -17,331 +328,74 @@
   font-size: 13px;                  /* type floor: mono content >= 13px */
   letter-spacing: 0.02em;
   /* --ink-25, not --ink-3: these spans are facts (role · pool · model), and
-     over the page composite --ink-3 measured 4.52:1 on white — no margin.
-     Small informational text is the --ink-25 lane by the sheet's own rules. */
+     over the page composite --ink-3 measured 4.52:1 on white — no margin. */
   color: var(--ink-25);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* model names carry version digits ("opus-4.6", "sonnet-4.5") and this
-     strip sits directly above a column of other mono readouts, so its
-     figures take the same fixed advance as everything under it */
   font-variant-numeric: tabular-nums;
 }
 .agent-strip .as-name { color: var(--ink-2); font-weight: 650; }
 .agent-strip .as-sep { color: var(--ink-4); }
 
-/* ---------- 3. never let combined min-heights clip past the view -------- */
-/* .agentv-graph/.agentv-panels min-heights can outgrow a short viewport;
-   this turns an invisible clip (the ancestor .view is overflow:hidden)
-   into a reachable scroll instead — inert whenever content already fits. */
-.agentv { overflow-y: auto; }
+/* ============================================================
+   Chat and Controls, side by side.
+   ============================================================ */
+.agentv-panels-wrap { position: relative; flex: 1 1 auto; min-height: 300px; }
 
-/* ---------- 2. Chat • Controls dot indicator, synced to scroll-snap ----- */
-/* .agentv-panels-wrap is the positioned, NON-scrolling box; the actual
-   scroll-snap row (.agentv-panels) fills it edge-to-edge. .scroll-cue is an
-   overlay child of the wrap, not of the scrolling row, so it stays put on
-   screen instead of being carried off with the scrolled content — and
-   because the wrap's box is exactly the visible viewport (not the full
-   scrollable width), a right/bottom-anchored overlay lands on the visible
-   edge of the row instead of in blank space past the last panel. */
-.agentv-panels-wrap { position: relative; flex: 1; min-height: 300px; }
-.agentv-panels-wrap > .agentv-panels { position: absolute; inset: 0; }
-
-/* Two panels must never both fit on screen at once at ANY viewport width —
-   otherwise there is nothing to scroll and the dot indicator/cue can never
-   engage. 74% + a 14px gap on each side always sums past 100% of the row's
-   width (2*0.74 = 1.48 > 1), independent of viewport, so .agentv-panels
-   always has real scrollable overflow and shows a peek of the next panel. */
-.agentv-panels .apanel { flex: 0 0 74%; }
-
-/* .panel-dots is its own normal-flow row above .agentv-panels-wrap (see
-   agent.js markup) rather than an overlay on top of the panels — it used
-   to float at top:12px directly over .apanel's title row (which starts at
-   padding-top:20px), guaranteeing a permanent visual collision regardless
-   of scroll position. As a normal flex child of .agentv it never overlaps
-   panel content, and align-self:center keeps the pill shrink-wrapped and
-   centered instead of stretching full width. */
-.panel-dots {
-  flex: none;
-  align-self: center;
-  display: flex; align-items: center; gap: 2px;
-  padding: 4px; border-radius: 3px;
-  background: linear-gradient(180deg, rgba(255,255,255,calc(0.72 * var(--wa))), rgba(255,255,255,calc(0.42 * var(--wa))));
-  backdrop-filter: blur(14px) saturate(1.5);
-  -webkit-backdrop-filter: blur(14px) saturate(1.5);
-  border: 1px solid rgba(255,255,255,calc(0.75 * var(--wa)));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,calc(0.9 * var(--wa))), 0 6px 16px -8px rgba(14,23,38,0.22);
+/* SHORT WINDOWS. At 800px of viewport the column has ~698px to spend and the
+   session control alone wants ~190 of it, so the roster's 40vh share and the
+   panels' 300px floor cannot both be paid. The roster yields — one row of cards
+   with its own scrollbar still answers "which agents exist", where a panel
+   showing its title and nothing else answers nothing. Both panels keep their own
+   internal scrollers, so a smaller floor costs reachability nowhere. */
+/* SHORT WINDOWS, and the arithmetic rather than a guess.
+   At 1280x800 the column has 698px to spend. Measured on the real packaged
+   window: the header row wants 34, the strip 23, the session control 307, and
+   the panels 236 — 600 before the roster gets anything, against 698 with four
+   12px gaps to pay. It does not fit, and pretending otherwise is what produced
+   the first attempt at this rule: `flex: 0 1 auto` with `min-height: 0` let the
+   roster absorb the entire shortfall and collapse to 27px, which is its header
+   and no cards at all. A region that shrinks to nothing is worse than a page
+   that scrolls, because nothing on screen says it happened.
+   So the roster gets a FLOOR it cannot be squeezed below, compact cards to make
+   that floor buy a real row, and the page scrolls the remainder. Every region
+   stays a usable size and the scroll is visible. */
+@media (max-height: 960px) {
+  .agentv-roster {
+    flex: 0 0 auto;
+    min-height: 168px;
+    max-height: 204px;
+    padding: 11px 14px 12px;
+  }
+  .agent-roster { grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: var(--s2, 8px); }
+  .ar-card { gap: 7px; padding: 10px 11px 11px; }
+  .ar-card.is-selected { padding-left: 9px; }
+  .ar-dial { width: 28px; height: 28px; }
+  .ar-status { padding-top: 6px; }
+  .ar-status-previous { display: none; }   /* the current line is the one that matters */
+  .agentv-panels-wrap { flex: 0 0 auto; min-height: 236px; }
 }
-.pdot {
-  border: none; background: transparent; cursor: pointer;
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 3px;
-  font-family: var(--font-ui); font-size: 12.5px; font-weight: 610;  /* type floor: interface text >= 12.5px */
-  color: var(--ink-3);
-  transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease), transform .15s var(--ease);
+.agentv-panels-wrap > .agentv-panels {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--s3, 12px);
+  overflow: visible;
 }
-.pdot span {
-  width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4);
-  transition: background .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease-spring);
+.agentv-panels .apanel {
+  min-width: 0; min-height: 0;
+  overflow: hidden;                       /* the inner scroller owns the overflow */
+  padding: 20px 26px 24px;
 }
-.pdot:hover { color: var(--ink-2); }
-.pdot:active { transform: scale(0.96); }
-.pdot.active { color: var(--ink); background: rgba(255,255,255,calc(0.88 * var(--wa))); box-shadow: inset 0 1px 0 #fff; }
-.pdot.active span {
-  background: var(--c-coordinator);
-  transform: scale(1.2);
-}
-/* --focus-ring, not the glow-tint cyan: rgba(69,214,255,.45) composited to
-   1.26:1 on white — decoration where the focus indicator should be */
-.pdot:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
-
-/* scroll cue overlays the fixed wrap (see above), landing on the visible
-   edge of the row next to the peeking panel; hides for good the first time
-   the user scrolls (no more nudging once they've found it) */
-.agentv-panels-wrap > .scroll-cue { position: absolute; right: 24px; bottom: 20px; z-index: 4; }
-/* The cue's cueSlide (styles.css) was declared `infinite`, and .scroll-cue is
-   rendered by exactly one view — this one — so that was a permanent nudge
-   animation running on the agent page for as long as it was open, whether or
-   not anyone had ever needed the hint. A nudge is an ARRIVAL gesture: three
-   passes say "there is more to the right", and after that the cue simply
-   rests in place, still visible, still pointing, until the first scroll hides
-   it for good (see .gone below). Navigating to another agent rebuilds the
-   view, so arriving replays it — the animation is now driven by the event it
-   was always about. Only the iteration count is overridden here; the name,
-   duration and easing stay with the shared rule, and the fill stays at the
-   default `none` deliberately, so the cue settles on its own computed style
-   (full opacity, no offset) rather than being held at the keyframe's 0.7 —
-   the resting cue ends up more legible than the animating one was, not less. */
-.agentv .scroll-cue {
-  animation-iteration-count: 3;
-}
-.scroll-cue.gone {
-  opacity: 0; transform: translateX(10px); pointer-events: none; animation: none;
-  transition: opacity .35s var(--ease), transform .35s var(--ease);
-}
-
-/* ---------- 1. orange rim activity arcs on child bubbles (sketch p.3) --- */
-/* Lives inside each .node — which is already sized to exactly the bubble
-   circle — so the arcs track the node's position/drag/force-layout for
-   free with zero per-frame JS and without ever touching graph.js. */
-.node-rim { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-.node-rim .rim-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-
-/* THEME PARITY (v6). The rest and peak opacities used to be the constants
-   0.4 and 1, written when white was the only theme — but a constant alpha is
-   not a constant amount of attention. --c-helper (#f57b00) composited at 0.4
-   measures ~1.5:1 against the white sheet and ~1.45:1 against the tan one (a
-   whisper, which is the intent: these arcs must be nearly invisible until
-   something happens), and ~2.0:1 against the black sheet, where a saturated
-   orange on near-black stops being a whisper and becomes a lit neon mark
-   sitting permanently on every child bubble — precisely the resting coloured
-   glow the design register rules out. The same applies at the pulse peak:
-   solid orange is ~2.7:1 on white, ~2.4:1 on tan, but ~7.4:1 on black.
-
-   So both ends become theme variables. Black takes 0.24 rest (measured back
-   to ~1.49:1, i.e. the light themes' whisper) and 0.6 peak, which preserves
-   the SAME 2.5x rest→peak jump the light themes get, so the event still
-   reads as unmistakably an event without flashing neon on a dark page. Tan
-   needs no override: it already measures at white's level, because orange
-   over a warm ground loses contrast rather than gaining it. */
-.node-rim {
-  --rim-rest: calc(0.4 * var(--glow));
-  --rim-peak: 1;
-}
-:root[data-theme="black"] .node-rim {
-  --rim-rest: calc(0.24 * var(--glow));
-  --rim-peak: 0.6;
-}
-.node-rim .rim-arc {
-  fill: none;
-  stroke: var(--c-helper);
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  opacity: var(--rim-rest);
-  transition: opacity .4s var(--ease);
-}
-.node-rim.pulse .rim-arc { animation: rimArcPulse .9s var(--ease) both; }
-.node-rim.pulse .rim-arc:nth-child(2) { animation-delay: .07s; }
-.node-rim.pulse .rim-arc:nth-child(3) { animation-delay: .14s; }
-/* professional-pass: the pulse peak used to add a drop-shadow bloom (the
-   one remaining per-frame SVG filter on this page); opacity + stroke-width
-   alone already read as unmistakable, so the filter is gone, not just quieter. */
-@keyframes rimArcPulse {
-  0%   { opacity: var(--rim-rest); stroke-width: 2.4; }
-  38%  { opacity: var(--rim-peak); stroke-width: 3.6; }
-  100% { opacity: var(--rim-rest); stroke-width: 2.4; }
-}
-
-@media (max-width: 640px) {
-  /* narrow the pill, never the text — 12.5px stays the interface-text floor */
-  .panel-dots .pdot { padding: 6px 9px; gap: 5px; }
-}
-
-/* ---------- 5. (C5) chips must never collide with node bubbles/labels --- *
- * Chip placement math lives in graph.js (read-only this wave) and only
- * reasons about the canvas edges, not about sibling bubbles — in this
- * page's short strip (min-height 240px) a full 168px context-preview panel
- * can land squarely on a neighbouring node or its name/role labels.
- *
- * Strategy: fewer chips by default + hover reveal + collision-avoiding
- * placement. Every chip is fully invisible at rest — zero rendered pixels,
- * so wherever graph.js's outward-radial math happens to place it, there is
- * nothing left to ever collide with — and becomes visible only while the
- * small role-coloured "cx-badge" pinned to ITS OWN node's corner (agent.js
- * pairs them; lives inside .node exactly like the rim arcs, so it always
- * tracks that one bubble) is hovered or focused. While open, agent.js's
- * placeOpenChips() (not this file — graph.js's own math is untouched)
- * re-anchors the chip every frame to a candidate slot that clears every
- * OTHER node's bubble/labels, so the reveal is both rare (one at a time,
- * always by direct pointer/keyboard intent) and always collision-free.
- * Click still opens the existing inline chat (graph.js-owned, untouched).
- * Scoped to .agentv-graph — the computers page's own graph (.graph-wrap)
- * never sees these rules. */
-/* The grey context boxes are VISIBLE at rest on this page: the owner wants
-   an agent identifiable — and chattable — at a glance, without hunting for a
-   badge first. They were hidden when this strip was 240px tall and a 168px
-   box could not be placed clear of anything; the strip is 362px now and
-   placeOpenChips() below hard-places every one of them against every bubble
-   and label, dimming any it genuinely cannot clear. */
-.agentv-graph .chip:not(.as-chat) {
-  /* ...but not until placeOpenChips() has actually found it a slot. Without
-     the .cx-placed gate every box painted at the canvas origin -- all five
-     stacked on each other and across the breadcrumb -- for every frame
-     between mount and the first placement pass, and again for any frame where
-     the only slot left would have crossed a bubble. */
-  opacity: 0;
-  pointer-events: none;
-  z-index: 5;
-  transition: opacity .18s var(--ease);
-  transform: none !important;
-}
-.agentv-graph .chip.cx-placed:not(.as-chat) { opacity: 1; pointer-events: auto; }
-.agentv-graph .chip.cx-open:not(.as-chat) {
-  z-index: 9;
-  /* While revealed, agent.js positions this ONE element itself, in left/top,
-     against every bubble disc and label row. graph.js keeps writing its own
-     per-tick transform (canvas-edge reasoning only) to the same element, and
-     whichever of the two wrote last within a frame is what paints — which is
-     how a chip could still land on a node even with the JS placement fixed.
-     Parking the transform for exactly this state ends that race: the inline
-     transform stays, is simply not applied while open, and comes straight
-     back for the rest state and for the .as-chat inline chat (excluded
-     above), both of which graph.js owns. */
-  transform: none !important;
-}
-/* Last resort, driven by agent.js: on a canvas so crowded that no lane
-   anywhere fits the full preview, the chip keeps its name and first context
-   line only — a shorter box fits gaps a taller one cannot, and the reading
-   text stays at the 13px floor set below (nothing is scaled down).
-   n+3, not n+2: the agent name is its own .cl now (it used to be a prefix on
-   the first context line), so the old selector would drop the name row's
-   companion and leave a chip that says who but not what.
-   No .cx-open in the selector any more, and that was not cosmetic: the boxes
-   are visible at rest on this page, so requiring the hover-reveal state meant
-   the whole escalation was inert. agent.js would set .cx-tight, the box would
-   not get one pixel shorter, and the placement that was supposed to fit the
-   shorter box was re-attempted against the same height it had just failed —
-   which is why the 1280 canvas showed 3 of 5 boxes and quietly stayed there. */
-.agentv-graph .chip.cx-tight:not(.as-chat) .chip-preview .cl:nth-child(n + 3) {
-  display: none;
-}
-/* The wrap-the-survivor treatment (two clamped rows fitting a THOUGHT, and
-   the previous-line hide that makes room for them) used to live here, born on
-   this page's 202px reading column. The computers page measured the identical
-   85% overflow through the identical column, and two copies of one reading
-   policy drift apart — so it moved to the shared .graph-canvas chip rules in
-   styles.css. Only the tight-mode escalation stays page-local, because only
-   this page's placement solver drives .cx-tight. */
-/* Under those shared rules the tight form keeps a real lever. Wrapping had
-   cost .cx-tight its entire purpose: dropping a line saved 19px while wrapping
-   the survivor added 19px, so the "compact" box was exactly as tall as the
-   full one and the solver had nothing to trade. With the previous line gone
-   everywhere, tight means one row of activity instead of two — a genuine
-   74px -> 55px — so it can still buy back a box on a canvas that truly cannot
-   hold five full ones. */
-.agentv-graph .chip.cx-tight:not(.as-chat) .chip-preview .cl:not(.cl-name) {
-  -webkit-line-clamp: 1;
-  text-overflow: ellipsis;
-}
-/* the corner badge — always exactly on its own bubble, so it can never
-   itself be the thing overlapping a *different* node */
-.agentv-graph .node .cx-badge {
-  position: absolute; top: -3px; right: -3px;
-  width: 20px; height: 20px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  z-index: 3;
-}
-.agentv-graph .node .cx-badge span {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--rc);
-  box-shadow: 0 0 0 2px var(--surface);
-  transition: transform .2s var(--ease-spring), box-shadow .2s var(--ease);
-}
-.agentv-graph .node .cx-badge:hover span { transform: scale(1.3); }
-.agentv-graph .node .cx-badge:focus-visible { outline: none; }
-.agentv-graph .node .cx-badge:focus-visible span {
-  transform: scale(1.3);
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px rgba(69,214,255,0.55);
-}
-/* the preview text is mono content — type floor >= 13px. Context lines are
-   stacked, so their figures (token counts, ids, elapsed times) are aligned
-   digits by construction and take tabular figures. */
-.agentv-graph .chip .cl {
-  font-size: 13px; line-height: 1.4;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------- 6. (C5) type floor: graph strip (crumb + bubble labels) ----- */
-.agentv-graph .graph-crumb,
-.agentv-graph .graph-crumb button,
-.agentv-graph .graph-crumb .sep { font-size: 12.5px; }
-.agentv-graph .node .rt { font-size: max(13px, calc(var(--d) * 0.155)); }
-.agentv-graph .node .rl { font-size: max(12.5px, calc(var(--d) * 0.088)); }
-.agentv-graph .node .node-name,
-.agentv-graph .node .node-role { font-size: 12.5px; }
-.agentv .scroll-cue { font-size: 12.5px; }
-/* the wheel-zoom readout (graph.js/graph.css, C3, read-only this wave) is
-   mono NUMERIC content ("1.00×"), not an uppercase micro-label — it needs
-   the 13px mono-content floor, not the 12px it ships with. Same pattern as
-   the overrides above: scope under .agentv-graph so only this page's own
-   instance of the shared graph-fit control is touched. */
-.agentv-graph .graph-fit .gf-z { font-size: 13px; }
-
-/* ---------- 7. (C5) type floor + breathing room: Chat/Controls panels --- *
- * The vertical spacing ABOVE the runtime ring (apanel's own top padding,
- * apanel-title's bottom margin, agent-ring-wrap's top padding) is
- * deliberately kept at its pre-sweep value: the Controls panel is short
- * enough at the 1280x800 mandated size that any extra push-down there costs
- * the ring visible height it does not have.
- * The .agent-head and .rail-sub rules that used to sit here went with the
- * elements themselves (see views/agent.js): both repeated the .agent-strip
- * that sits directly above the panels. */
-.agentv-panels .apanel { padding: 20px 26px 24px; }
+.agentv-panels .apanel > .rail-scroll,
+.agentv-panels .chat-panel .chat { min-height: 0; }
 .agentv .apanel-title { font-size: 12.5px; margin-bottom: 12px; }
 .agentv .agent-ring-wrap { padding: 10px 0 12px; }
 .agentv .rail-sec { font-size: 12.5px; margin: 26px 0 14px; }
-/* first thing in the Controls scroller now (the dial moved below the rows);
-   26px of lead-in against the panel title above it read as a hole */
 .agentv .rail-scroll > .rail-sec:first-child { margin-top: 2px; }
 .agentv .ctl-grid { gap: 10px; }
-/* --s3 rather than the inherited --s2: with the label flexing (below) the
-   slider's right end is now a fixed 8px from the value instead of floating
-   ~130px away from it, and at 8px the track end and the figure read as one
-   glued object. One step up gives the pair a seam without moving the value. */
 .agentv .ctl-row { padding: 11px 2px; gap: var(--s3, 12px); }
-/* The label takes the free space so the slider and the value form ONE fixed
-   right-hand cluster. .ctl-row is justify-content:space-between over a
-   shrink-wrapped label, a fixed 118px slider and a 4ch value; with the label
-   sizing itself, the middle item's position was a function of how long the
-   word was, so on this panel — much wider than the rail the row was tuned in
-   — the three sliders started at 1102.4 / 1096.5 / 1084.8px: a 17.6px
-   stagger down a stack of three, under three values that were already
-   perfectly flush (the 4ch rule below). Flexing the label pins the sliders to
-   the same edge as the values. nowrap is inherited, so the shrink case gets
-   an ellipsis rather than a spill; at every shipping width the labels are
-   ~60-93px against ~250px of room and it never engages. */
 .agentv .ctl-row .cl {
   font-size: 12.5px;
   flex: 1 1 auto;
@@ -349,14 +403,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* .ctl-row is `justify-content: space-between` over a fixed-width label, a
-   fixed-width slider and an auto-width value, so the value's own width was
-   deciding where the slider sat: "124k" (4 mono chars) pushed its row's
-   slider ~8px left of the "low" row's. Reserving the widest value's advance
-   — 4ch, which in a monospaced face is exactly four character widths —
-   locks all three sliders and all three values onto one vertical edge. The
-   figures are tabular (inherited from styles.css; restated because this
-   layout now depends on it rather than merely benefitting from it). */
 .agentv .ctl-row .cv {
   font-size: 13px;                                      /* mono content */
   min-width: 4ch;
@@ -364,11 +410,6 @@
   font-variant-numeric: tabular-nums;
 }
 .agentv .uring.compact .uring-caption { font-size: 12.5px; }
-/* The short-viewport runtime dial (views/agent.js drops it to 132px below
-   960px of viewport height so the panel does not become "a dial and
-   nothing else"). The compact step's 27px digits measure 128px, which is
-   wider than a 132px ring's ~100px inner chord, so the digits step with the
-   ring rather than escaping the disc. */
 .agentv .uring.ctl-ring-sm .uring-digits .n { font-size: 20px; }
 .agentv .uring.ctl-ring-sm .uring-digits .colon { font-size: 15px; padding: 0 2px; transform: translateY(-1px); }
 .agentv .uring.ctl-ring-sm .uring-caption { font-size: 11px; margin-top: var(--s1, 4px); }
@@ -376,87 +417,15 @@
 .agentv .msg { font-size: 13px; }                       /* chat content */
 .agentv .msg .who { font-size: 13px; }
 
-/* --- reduced motion: park every animation this layer introduces --- */
-body.reduce-motion .node-rim.pulse .rim-arc {
-  animation: none !important;
-}
-
-/* ============================================================
-   Bottom half, rebuilt: Chat and Controls SIDE BY SIDE
-   ------------------------------------------------------------
-   The horizontal scroll-snap pair was the wrong shape for this
-   content and the wrong reading of the sketch. Measured on the
-   black theme at 1600x900: the wrap was 341px tall, so the two
-   panels rendered 1137x341 — the Controls column needs 561px of
-   content and got 268px of visible height, which is why it read
-   as an empty box with a name in it, and the chat's six messages
-   floated in a wide hollow. Page 3 of the sketch draws Chat and
-   Controls as two boxes next to each other, both present.
-   So: one row, both visible, each scrolling its own overflow.
-   No dots, no scroll cue, no hidden second panel.
-   ============================================================ */
-.agentv-panels-wrap > .agentv-panels {
-  position: absolute; inset: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: var(--s3, 12px);
-  overflow: visible;
-  scroll-snap-type: none;
-}
-.agentv-panels .apanel {
-  flex: initial;
-  min-width: 0; min-height: 0;
-  scroll-snap-align: none;
-  overflow: hidden;                       /* the inner scroller owns the overflow */
-}
-/* each panel scrolls its own content instead of the row scrolling sideways */
-.agentv-panels .apanel > .rail-scroll,
-.agentv-panels .chat-panel .chat { min-height: 0; }
-
-/* ------------------------------------------------------------
-   Controls: a scroller that admits it is one, plus a pinned action row.
-   The panel is 389px tall at 1600x900 and 300px at 1280x800 (the graph
-   above it holds a hard 362px floor, so the panel gets what is left), and
-   its content is taller than that at every shipping viewport — it scrolls,
-   and that is a fact of the layout rather than something to hide. It was
-   doing it silently: overflow-y:auto with no scrollbar drawn, no mask, and
-   .scroll-cue already (correctly) display:none since both panels are on
-   screen — so at 1600x900 Respawn and Terminate rendered 7px of their 40px
-   as a stripe on the panel's bottom edge, and at 1280x800 all four buttons
-   sat entirely below the panel. Two changes fix that:
-     · the four primary actions leave the scroller (see views/agent.js) and
-       become a pinned row, so a control is never half-visible — measured
-       40/40px shown for all four at 1280x800, 1600x900 and 1920x1080;
-     · what is left (341px of dial + Tuning against a 201px / 112px window)
-       scrolls behind a themed thin scrollbar where the platform draws one,
-       and behind a bottom fade that lifts at the end of the scroll
-       (.at-end, set from the real scroll position in views/agent.js).
-   ------------------------------------------------------------ */
+/* Controls: a scroller that admits it is one, plus a pinned action row, so a
+   control is never half-visible on the panel's bottom edge. */
 .agentv-panels .ctl-panel .rail-scroll {
   flex: 1; min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: var(--s2, 8px);
   scrollbar-width: thin;
-  /* --scrollbar-thumb, not --ink-4. This is the one scroller on the site that
-     was picking its own thumb colour: everything else lands on the global
-     clinical scrollbar at the foot of styles.css, whose thumb is a
-     per-theme-solved token, and --ink-4 is the sheet's decoration-only grey.
-     (scrollbar-color also suppresses the ::-webkit- rules below in Chromium,
-     so the colour stated here is the only one that ever painted.) Thin stays:
-     a 6px gutter is right for a panel this tight. */
   scrollbar-color: var(--scrollbar-thumb) transparent;
-  /* The bottom fade, reshaped. It was a straight 28px ramp, and at 1600x900
-     the runtime dial's top arc lands 28px above this edge — so the sliver of
-     saturated cyan sat at the ramp's FULL-opacity end and read as a stray
-     swoosh under the tuning rows rather than as content continuing. The band
-     is longer and, more to the point, spends most of its length near zero:
-     whatever lands in the last ~30px is a hint of something below, not a
-     fragment asserting itself. Measured at the dial's top edge: 1.00 -> 0.39.
-     Content above 44px is untouched, and .at-end below still lifts the mask
-     entirely once the scroller is at the bottom, so nothing is ever ghosted
-     at rest. The numbers are literal — they are a measured fade band, not
-     spacing. */
   -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 44px), rgba(0,0,0,0.42) calc(100% - 30px), rgba(0,0,0,0.10) calc(100% - 12px), transparent 100%);
   mask-image: linear-gradient(180deg, #000 calc(100% - 44px), rgba(0,0,0,0.42) calc(100% - 30px), rgba(0,0,0,0.10) calc(100% - 12px), transparent 100%);
 }
@@ -466,7 +435,6 @@ body.reduce-motion .node-rim.pulse .rim-arc {
   -webkit-mask-image: none;
   mask-image: none;
 }
-/* Chromium still needs the -webkit- pseudo-elements to draw a themed bar */
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar { width: 6px; }
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-track { background: transparent; }
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb {
@@ -474,8 +442,6 @@ body.reduce-motion .node-rim.pulse .rim-arc {
 }
 .agentv-panels .ctl-panel .rail-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
-/* the pinned action row — outside the scroller, so all four buttons are
-   whole at every viewport instead of straddling the panel's bottom edge */
 .agentv-panels .ctl-panel > .ctl-actions {
   flex: none;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -568,51 +534,16 @@ body.reduce-motion .node-rim.pulse .rim-arc {
 .agentv-panels .ctl-result[data-phase="retry"] { color: var(--s-warn); }
 .agentv-panels .ctl-result[data-phase="success"] { color: var(--s-good); }
 
-/* both panels are on screen, so the wayfinding for a hidden one is noise */
-.panel-dots, .agentv-panels-wrap > .scroll-cue { display: none; }
-
-/* Give the halves a saner split — but the strip has a hard floor: below a
-   ~340px canvas the graph drops role labels (compact mode, which exists
-   because a shorter canvas genuinely cannot stack two labelled bubbles).
-   Trimming the strip cost the labels at 323px, so the floor is explicit. */
-.agentv-graph { flex: 0.95; min-height: 362px; }
-.agentv-panels-wrap { flex: 1.25; }
-
+/* ---------- narrow windows ----------
+   The roster reflows on its own (auto-fill), so only the panel pair needs a
+   breakpoint: below ~1000px two columns stop being two readable columns. */
 @media (max-width: 1000px) {
-  /* too narrow for two columns — stack them and let the wrap scroll */
   .agentv-panels-wrap > .agentv-panels {
     grid-template-columns: minmax(0, 1fr);
     grid-auto-rows: minmax(260px, auto);
     overflow-y: auto;
   }
 }
-
-/* connector layer: a hairline from each context box to its own bubble, so
-   "which box belongs to whom" needs no hunting */
-.agentv-graph .cx-links {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  pointer-events: none;
-  z-index: 4;                 /* over the graph's own links, under the boxes */
-  overflow: visible;
+@media (max-width: 640px) {
+  .agent-roster { grid-template-columns: minmax(0, 1fr); }
 }
-.agentv-graph .cx-link {
-  stroke-width: 1;
-  opacity: 0.38;
-  stroke-linecap: round;
-  transition: opacity .2s var(--ease);
-}
-/* placeOpenChips() withholds a box it cannot place clear of every bubble, and
-   hides that box's connector with setAttribute('opacity', '0') — removing the
-   attribute again when the box does get a slot. Those are SVG presentation
-   attributes, which sit below every author stylesheet in the cascade, so the
-   flat 0.38 above was overriding the hide and the withheld boxes' hairlines
-   went on painting: at 1600/1440/1280 two of the five boxes are withheld, so
-   the strip carried two stubs running from nothing to a bubble rim (the
-   36px and 110px blue ones, verified in the DOM). Matching the attribute the
-   JS actually writes hands the decision back to the code that makes it, and
-   the transition above now fades them rather than blinking them.
-   The hover rule has to opt out explicitly — at (0,4,0) it would otherwise
-   out-rank the hide and bring an orphan stub back on any chip hover. */
-.agentv-graph .cx-links .cx-link[opacity="0"] { opacity: 0; }
-.agentv-graph .chip:hover ~ .cx-links .cx-link:not([opacity="0"]) { opacity: 0.7; }

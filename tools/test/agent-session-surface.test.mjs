@@ -8,6 +8,7 @@ import { AVAILABILITY_CODES, createAgentHost, engineAvailability, engineCandidat
 import { RECORD_AVAILABILITY_CODES } from '../../shell/spawn-record.cjs'
 import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-events.js'
 import { UNAVAILABLE_TEXT, unavailableReason } from '../../src/agent-availability-copy.js'
+import { confinementNote } from '../../src/agent-confinement-copy.js'
 import { ENGINE_REASON, readAgentEngine } from '../../src/local-activity.js'
 
 // The interface can start an agent only if three things hold at once: the
@@ -146,13 +147,29 @@ test('the engine resolver carries no hardcoded sibling-repo default', () => {
   assert.match(agentHost, /MISSION_CONTROL_ENGINE/, 'the engine path must come from configuration')
 })
 
-test('the spawn surface states that no tier restricts a running session', () => {
-  // The permission tier is recorded but not enforced against a running child
-  // (T5, unbuilt). A spawn control that omitted this would imply a limit the
-  // product does not have.
+test('the spawn surface no longer claims that no tier restricts a running session', () => {
+  // THIS TEST USED TO ASSERT THE OPPOSITE, and that is the point of rewriting it
+  // rather than deleting it. It required the sentence "No permission tier limits
+  // a running session" to be PRESENT, because when it was written the tier was
+  // recorded and enforced against nothing (T5, unbuilt) and a control that
+  // implied a limit would have been claiming safety the product did not have.
+  //
+  // T5 was then built. capability/src/lib/agent-session-confinement.js resolves
+  // the recorded level into thread options and shell/agent-host.cjs startSession()
+  // passes them to the engine, so the sentence became false -- and this gate went
+  // on requiring it. A test that pins a claim rather than the reason for the claim
+  // becomes a gate protecting the defect, which is exactly what happened here.
+  //
+  // So it now asserts the property the original was reaching for: the control
+  // must not overstate the product's blast radius in EITHER direction.
   const surface = read('src/agent-session.js')
-  assert.match(surface, /No permission tier limits a running session/)
-  assert.match(surface, /UNRESTRICTED_NOTE/, 'the note must be rendered, not only defined')
+  assert.doesNotMatch(
+    surface.replace(/\/\*[\s\S]*?\*\//g, ''),
+    /No permission tier limits a running session/,
+    'the retired claim must not be reachable from the shipped code path',
+  )
+  assert.match(surface, /confinementNote\(/, 'the sentences must be computed from a reading of this install')
+  assert.match(surface, /bridge\.confinement/, 'the reading must come from the shell, not from a constant')
 })
 
 test('the spawn surface states that starts are recorded, and claims no more', () => {
@@ -160,10 +177,18 @@ test('the spawn surface states that starts are recorded, and claims no more', ()
   // device" is true: an app-local signed chain, written before the spawn.
   // Calling it the audit ledger, or implying off-device attestation, would
   // overstate a key that lives on the same machine as the records.
-  const surface = read('src/agent-session.js')
-  assert.match(surface, /recorded on this device before it runs/)
+  //
+  // Asserted against the SENTENCE the copy module produces rather than against a
+  // source constant. The constant this used to slice out of src/agent-session.js
+  // no longer exists, and the previous form -- a regex match indexed at [0] --
+  // threw a TypeError rather than failing with a message when it stopped
+  // matching, which is a test that cannot tell you what broke.
+  const sentences = confinementNote({
+    ok: true, tier: 'unrestricted', sandbox: 'danger-full-access', failedClosed: false,
+  }).sentences.join(' ')
+  assert.match(sentences, /recorded on this device before it runs/)
   assert.doesNotMatch(
-    surface.match(/const UNRESTRICTED_NOTE = '[^']*'/)[0],
+    sentences,
     /audit ledger|canonical|tamper-proof|verified by/i,
     'the note must not claim more than an app-local signed record',
   )

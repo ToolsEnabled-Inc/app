@@ -11,35 +11,55 @@
  */
 import { el } from './components.js'
 import { unavailableReason } from './agent-availability-copy.js'
+import { confinementNote } from './agent-confinement-copy.js'
 import { isWriteEnabled } from './write-flags.js'
 import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
 
-/* Said in the UI, not just in a comment, because it is the single most
-   load-bearing fact about this control.
-   A session started here runs with the same access as the person using the
-   desktop app. The permission tier recorded elsewhere in this product gates
-   who may REQUEST a spawn and which tools the remote tool surface lists; it
-   does not confine a child process once that process is running, and this
-   path performs no tier check at all. A control that implied otherwise would
-   be the UI telling a lie about its own blast radius. */
-/* Two facts the operator has to know before pressing Start, and the second
-   one changed:
-
-   1. No tier confines a running session. The permission tier gates who may
-      REQUEST a spawn and which tools the remote surface lists; it does not
-      restrain a child process once it exists, and this path performs no tier
-      check at all (T5, unbuilt).
-   2. The session IS recorded now -- every start writes a signed, hash-chained
-      entry to this app's own local ledger before anything is spawned, and a
-      start that cannot be recorded does not happen.
-
-   Precision matters on the second one: "recorded on this device" is the true
-   claim. It is this app's own signed ledger, not the canonical audit chain,
-   and the signing key lives on the same machine as the ledger -- so it is
-   tamper-evident against edits, not proof against this OS user. Saying more
-   than that would be the UI overstating its own evidence. */
-const UNRESTRICTED_NOTE = 'Runs with your full local access. No permission tier limits a running session. Every start is recorded on this device before it runs.'
+/* WHAT THIS CONTROL SAYS ABOUT THE SESSION IT IS ABOUT TO START.
+ *
+ * It used to say one frozen sentence, and two of its three clauses went false
+ * underneath it:
+ *
+ *   "Runs with your full local access. No permission tier limits a running
+ *    session. Every start is recorded on this device before it runs."
+ *
+ * That was true when it was written -- the tier gated who could REQUEST a spawn
+ * and which tools the remote surface listed, and confined nothing that ran. Tier
+ * confinement then landed (capability/src/lib/agent-session-confinement.js,
+ * bound by startSession() in shell/agent-host.cjs, which passes the resolved
+ * `threadOptions` straight to the engine's thread/start), and nothing recomputed
+ * the sentence. MEASURED per tier on this tree, with a real machine record at
+ * each level so the tier was the only variable:
+ *
+ *   guided        sandbox read-only           isolated assistant home
+ *   standard      sandbox workspace-write     isolated assistant home
+ *   unrestricted  sandbox danger-full-access  the user's own home, unnarrowed
+ *
+ * and a machine with NO record fails closed to `guided`. So on a fresh install --
+ * the normal first experience -- this control promised full local access and no
+ * tier limit over a session whose sandbox refuses every write.
+ *
+ * WHY IT IS NOW COMPUTED AND NOT REWRITTEN. Replacing one frozen sentence with a
+ * better frozen sentence would repeat the defect on a longer fuse: the claim is
+ * a property of THIS INSTALL's recorded level, and the level is changeable from
+ * Settings after first run. So the sentences come from mc-agent:confinement,
+ * which reads the same resolver the spawn uses -- one source, so the screen
+ * cannot describe a confinement the start would not apply.
+ *
+ * THE ONE CLAUSE THAT SURVIVES IS THE THIRD, unedited and for the same reason it
+ * was true before: mc-agent:start calls recordSpawnIntent() before
+ * getAgentHost().startSession(), and mc-agent:availability refuses on the
+ * recorder before it even asks about the engine. See RECORD_CLAUSE in
+ * src/agent-confinement-copy.js for why its wording is deliberately not stronger.
+ *
+ * NOTHING HERE IS ALLOWED TO SOUND SAFER THAN THE MEASUREMENT. At `unrestricted`
+ * the rendered copy is blunter than the sentence it replaces: "Nothing narrows
+ * it: it can read, change and delete any file on this computer and run any
+ * program, without asking." A product understating its own blast radius is the
+ * defect; a product overstating its safety is the same defect pointed at someone
+ * who will get hurt by it. */
+const CONFINEMENT_PENDING = 'Checking what a session here would be allowed to do…'
 
 const BRIDGE_ABSENT = 'the desktop shell is required; this surface is inert in a browser'
 
@@ -69,6 +89,18 @@ export function mountAgentSessionSurface(root, {
         <label class="write-wide">Prompt<textarea name="text" maxlength="16000" rows="2" required></textarea></label>
         <button type="submit" data-session-start disabled>Start</button>
         <button type="button" data-session-stop disabled>Stop</button>
+        <!-- THE SIGN-IN PRECONDITION IS NOT RESTATED HERE, and that is a
+             decision rather than an omission. This lane built a second notice
+             for it, and while it was being built a peer lane repaired the
+             probe itself: engineAvailability() now runs
+             confinedSessionIsSignedOut() and answers
+             {ok:false, AGENT_CONFINEMENT_SIGNED_OUT}, which DISABLES Start and
+             renders the remedy through unavailableReason() in the status row
+             above. That is strictly the better fix -- a disabled control with a
+             reason beats an enabled one with a warning beside it -- so the
+             second notice was removed rather than shipped alongside it. Two
+             elements saying one thing is how a screen starts contradicting
+             itself the first time only one of them is updated. -->
         <output data-action-output role="status"></output>
         <pre class="write-report" data-session-output hidden tabindex="0"></pre>
       </form>
@@ -83,8 +115,25 @@ export function mountAgentSessionSurface(root, {
   const transcript = surface.querySelector('[data-session-output]')
   const prompt = form.elements.text
 
-  actionState(output, 'unavailable', UNRESTRICTED_NOTE)
+  actionState(output, 'note', CONFINEMENT_PENDING)
   root.querySelector('.agent-strip')?.insertAdjacentElement('afterend', surface)
+
+  /* The confinement reading, asked for once per mount and rendered as sentences
+     by the pure copy module. `catch` collapses to the unknown reading rather than
+     to a cheerful default: a bridge that cannot answer is exactly the case where
+     guessing "full local access" would be the original defect all over again. */
+  let confinementText = ''
+  const renderConfinement = (reading) => {
+    const note = confinementNote(reading)
+    confinementText = note.sentences.join(' ')
+    /* 'note', not 'unavailable'. The shared write-surface stylesheet paints
+       [data-state="unavailable"] in --s-serious, which rendered this accurate
+       description of a perfectly healthy install in alarm red on all three
+       themes -- caught by looking at the screenshots, not by any assertion,
+       because every word of it was correct. Nothing here is a fault: the
+       refusal, when there is one, is the status row above. */
+    actionState(output, 'note', confinementText)
+  }
 
   let destroyed = false
   let sessionId = null
@@ -111,8 +160,25 @@ export function mountAgentSessionSurface(root, {
 
   if (!bridge || typeof bridge.availability !== 'function') {
     actionState(status, 'unavailable', `unavailable · ${BRIDGE_ABSENT}`)
+    /* No shell means no way to ask what a session would be confined to, so the
+       copy states that absence instead of leaving the pending sentence up
+       forever -- or, worse, falling back to the claim this repair removed. */
+    renderConfinement(null)
     return () => { destroyed = true }
   }
+
+  /* Asked separately from availability, and allowed to fail separately. A copy
+     of the product whose confinement cannot be read must still be able to say
+     why Start is disabled, and an install that is perfectly startable must still
+     describe itself even if this read fails. Coupling them would let either
+     failure blank the other's answer. */
+  void (async () => {
+    let reading = null
+    try {
+      reading = typeof bridge.confinement === 'function' ? await bridge.confinement() : null
+    } catch { reading = null }
+    if (!destroyed) renderConfinement(reading)
+  })()
 
   void (async () => {
     let available
@@ -169,7 +235,10 @@ export function mountAgentSessionSurface(root, {
     setStarted(true)
     appender.reset()
     actionState(status, 'pending', 'starting…')
-    actionState(output, 'pending', UNRESTRICTED_NOTE)
+    /* The same measured sentences, kept on screen while the session starts.
+       They describe what this start is about to do, so removing them at the
+       moment it happens would be exactly backwards. */
+    actionState(output, 'note', confinementText)
 
     const id = (globalThis.crypto?.randomUUID?.() || '')
     if (!id) {

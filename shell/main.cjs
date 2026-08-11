@@ -13,6 +13,7 @@ const path = require('path')
 const fs = require('fs')
 const { randomBytes, randomUUID } = require('crypto')
 const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
+const { readAgentConfinement } = require('./agent-confinement-read.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
@@ -371,10 +372,10 @@ function recordSpawnIntent(request) {
  * reports ENOENT -- attributed, misleadingly, to the COMMAND rather than the
  * cwd. The Codex child therefore died at spawn on every packaged install.
  *
- * MEASURED 2026-08-10, engine run under the shipped `Mission Control.exe`:
+ * MEASURED 2026-08-10, engine run under the shipped `ToolsEnabled.exe`:
  *   cwd = <any real directory>     -> START OK, threadId issued
  *   cwd = <app>\resources\app.asar -> CODEX_APP_SERVER_EXITED
- *     "spawn <app>\Mission Control.exe ENOENT"
+ *     "spawn <app>\ToolsEnabled.exe ENOENT"
  * Same binary, same engine, same auth; only the cwd differed.
  *
  * (Those paths are written as placeholders on purpose: this comment ships
@@ -443,6 +444,22 @@ ipcMain.handle('mc-agent:availability', async (event, value) => {
   const record = spawnRecordAvailability()
   if (record.ok !== true) return record
   return engineAvailability({ defaultCwd: ensureWorkspaceRoot() })
+})
+
+/* WHAT A SESSION STARTED HERE WOULD BE ALLOWED TO DO. A read, like availability
+   and history, and for the same reason it sits beside them: the agent page has to
+   describe the session before it offers to start one, and until this channel
+   existed it could not. It described it anyway -- from a frozen sentence written
+   before tier confinement landed -- which is the defect this repairs.
+
+   Same sender check as every other agent channel. The reply carries a tier name,
+   a sandbox word and two counts; it carries no path, because the resolver's own
+   messages name absolute roots and rendering one into the DOM is BLOCKER 2.
+   See shell/agent-confinement-read.cjs for what it measures and why nothing here
+   is a constant. */
+ipcMain.handle('mc-agent:confinement', async (event) => {
+  assertTrustedAgentSender(event)
+  return readAgentConfinement({ capabilityRoot: resolveCapabilityRoot() })
 })
 
 /* The second agent channel that starts nothing, and the only one that reads
