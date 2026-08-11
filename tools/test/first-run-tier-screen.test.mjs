@@ -141,6 +141,46 @@ test('the router mounts the setup route and gates on it', () => {
   assert.match(ROUTER, /location\.hash = '#\/setup'/, 'src/main.js never redirects a first launch to the question')
 })
 
+/* A sendSync handler that returns without assigning event.returnValue does not
+   refuse the renderer -- it blocks it forever. On this channel that is a window
+   that paints nothing at all on first launch: a hang, no error, no screen. The
+   handler is therefore a single assignment of a function that always returns an
+   object, and this asserts that shape rather than trusting it, because the
+   branch-per-outcome form it replaced was correct and still one careless early
+   return away from a deadlock. */
+test('the synchronous setup channel cannot fail to answer', () => {
+  const SHELL = read('shell/main.cjs')
+  const start = SHELL.indexOf("ipcMain.on('mc-setup:bootstrap'")
+  assert.notEqual(start, -1, 'shell/main.cjs no longer registers mc-setup:bootstrap')
+  const handler = SHELL.slice(start, SHELL.indexOf('\n', start))
+
+  const assignments = handler.match(/event\.returnValue\s*=/g) || []
+  assert.equal(assignments.length, 1, `the handler must assign event.returnValue exactly once, unconditionally; found ${assignments.length}`)
+  assert.doesNotMatch(
+    handler.replace(/returnValue/g, ''),
+    /\breturn\b/,
+    'the handler must contain no return statement -- an early return is how a sendSync handler deadlocks its renderer',
+  )
+
+  /* ...and the function it delegates to must answer on every branch. */
+  const replyStart = SHELL.indexOf('function setupBootstrapReply(')
+  assert.notEqual(replyStart, -1, 'the reply is no longer computed by a function that always answers')
+  const reply = SHELL.slice(replyStart, SHELL.indexOf('\nipcMain.on(', replyStart))
+  assert.ok((reply.match(/\breturn\b/g) || []).length >= 4, 'every branch of setupBootstrapReply must return a value')
+  assert.match(reply, /catch \(error\)/, 'a throw must become a reply, not an unassigned returnValue')
+})
+
+/* The renderer half of the same failure: whatever crosses the wire, including
+   nothing at all, must resolve to a state the gate can read. */
+test('garbage or silence from the shell fails open rather than crashing the gate', () => {
+  for (const bootstrap of [undefined, null, 'not an object', 42, []]) {
+    const state = readSetupState({ mcSetup: { chooseTier() {}, bootstrap } })
+    assert.equal(state.available, false, `bootstrap ${JSON.stringify(bootstrap)} was not treated as unusable`)
+    assert.equal(firstRunPending(state), false)
+    assert.equal(shouldOpenSetup(state, 'home'), false)
+  }
+})
+
 /* ---------- 2. the words ---------- */
 
 test('the three levels are the three the command line offers, in order', () => {

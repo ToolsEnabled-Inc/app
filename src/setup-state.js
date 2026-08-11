@@ -87,7 +87,13 @@ export function readSetupState(scope = globalThis) {
     }
   }
   const bootstrap = bridge.bootstrap
-  if (!bootstrap || typeof bootstrap !== 'object') {
+  /* Arrays are rejected explicitly. `typeof [] === 'object'`, so the obvious
+     guard lets one through, and an array then answers `undefined` to every
+     field below -- which reads as "available, nothing recorded yet" and opens
+     the question with a button guaranteed to fail. That is the precise trap
+     failing open exists to avoid. shell/main.cjs rejects arrays the same way in
+     isPlainObject(); this is the renderer half of the same rule. */
+  if (!bootstrap || typeof bootstrap !== 'object' || Array.isArray(bootstrap)) {
     return { available: false, configured: false, tier: null, code: 'MC_SETUP_STATE_ABSENT', reason: 'The application did not report whether this computer has been set up.' }
   }
   if (bootstrap.ok === false || bootstrap.available === false) {

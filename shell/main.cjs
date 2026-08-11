@@ -1053,19 +1053,34 @@ ipcMain.handle('mc-fleet-profile:probe', (event, profile) =>
  * The write is an invoke and carries the same sender check as every other
  * mutation here: a permission level arriving from a frame that is not this
  * window's main frame is refused, not recorded. */
-ipcMain.on('mc-setup:bootstrap', (event) => {
+/* EVERY PATH MUST PRODUCE A VALUE, and the handler must have no way not to
+ * assign it. A sendSync whose handler returns without setting returnValue does
+ * not refuse the caller -- it blocks the renderer forever. On this channel that
+ * means the window paints nothing at all on first launch: a hang, with no error
+ * and no screen, on the one launch a customer forms their opinion on.
+ *
+ * So the outcome is computed by a function that always returns an object, and
+ * the handler is a single assignment. Written first as a branch per outcome,
+ * which was correct but is the shape that can leak one -- a later edit adding an
+ * early return reintroduces the deadlock silently. This shape cannot.
+ * (The channel was reviewed by the agents-from-ui lane, which owns the sibling
+ * agent channels and asked the question.) */
+function setupBootstrapReply(event) {
   if (!trustedFleetProfileSender(event)) {
-    event.returnValue = { ok: false, code: 'MC_SETUP_SENDER_REFUSED', reason: 'Setup request did not come from the application main frame.' }
-    return
+    return { ok: false, code: 'MC_SETUP_SENDER_REFUSED', reason: 'Setup request did not come from the application main frame.' }
   }
   try {
-    event.returnValue = readTierState()
+    const state = readTierState()
+    /* readTierState is written not to throw and always to answer. Both are
+       still checked here, because the cost of it being wrong is a hang. */
+    if (state && typeof state === 'object') return state
+    return { ok: false, code: 'MC_SETUP_STATE_ABSENT', reason: 'Setup state could not be determined on this computer.' }
   } catch (error) {
-    /* readTierState is written not to throw. If it ever does, the first-run
-       gate must still get an answer, or the window paints nothing at all. */
-    event.returnValue = { ok: false, code: 'MC_SETUP_STATE_FAILED', reason: error?.message || String(error) }
+    return { ok: false, code: 'MC_SETUP_STATE_FAILED', reason: error?.message || String(error) }
   }
-})
+}
+
+ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrapReply(event) })
 
 ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
   withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '')))
