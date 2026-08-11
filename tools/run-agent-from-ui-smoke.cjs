@@ -71,9 +71,24 @@ child.stderr.on('data', (chunk) => process.stderr.write(chunk))
    launch regression that did not exist and nearly filed it against another
    lane's commits.
 
-   So teardown is explicit. Kill the whole tree by pid, once, and exit with the
-   code we were given. taskkill /T reaches the grandchildren that node's own
-   child.kill() does not. */
+   Teardown is split, because the two failure modes need different mechanisms
+   and only one of them can be handled from here:
+
+   - The smoke exited but its descendants outlived it. This runner CANNOT fix
+     that. Its only handle is the Electron pid, and by the time it acts that
+     pid is gone -- `taskkill /PID <dead> /T /F` fails outright with "process
+     not found" and reaps nothing, because /T walks LIVE parent->child links
+     and a dead middle ends the walk. Measured; see
+     tools/test/process-tree.test.mjs, which pins that behaviour. The reap
+     therefore happens inside the smoke, before it exits, while the links are
+     intact.
+   - The smoke wedged and Electron is still ALIVE. Then the middle exists, /T
+     does walk, and the kill below is what frees the lock.
+
+   An earlier version of this comment claimed /T "reaches the grandchildren
+   that child.kill() does not". That was verified against a tree whose middle
+   was still alive, which cannot distinguish the two cases. It is false for
+   the orphan case and is corrected here rather than left to mislead. */
 let finished = false
 function finish(code, reason) {
   if (finished) return

@@ -12,6 +12,7 @@
 
 const path = require('node:path')
 const { app, BrowserWindow } = require('electron')
+const { reapDescendants } = require('./process-tree.cjs')
 
 const APP_ROOT = process.env.MC_APP_ROOT || path.resolve(__dirname, '..')
 const TIMEOUT_MS = 180_000
@@ -24,7 +25,35 @@ function step(name, ok, detail) {
 
 function fatal(message) {
   console.error('E2E FATAL: ' + message)
-  app.exit(20)
+  finish(20)
+}
+
+/* Reap our own descendants BEFORE exiting, from here, while this process is
+   still alive.
+ *
+ * This must happen here and cannot be done by the runner. Booting the app
+ * starts a crashpad handler and the shell spawns the capability bridge, and
+ * both outlive this process. The runner's only handle is THIS pid, and by the
+ * time it acts this pid is already gone -- so `taskkill /PID <this> /T /F`
+ * fails outright with "process not found" and reaps nothing. Measured
+ * directly: /T walks live parent->child links, and a dead middle ends the
+ * walk. Credit to the tier-screen lane for catching that my first check used
+ * a LIVE middle and therefore could not tell the two cases apart.
+ *
+ * Here the links are still intact, so the walk finds everything.
+ *
+ * Why it is worth doing at all: a survivor holds the app-wide single-instance
+ * lock, and a peer's release harness read the installed app quitting on a
+ * lock this smoke was holding as a CRASH. It measured a launch regression
+ * that did not exist and nearly filed it against another lane's commits.
+ */
+let finishing = false
+function finish(code) {
+  if (finishing) return
+  finishing = true
+  const reaped = reapDescendants(process.pid)
+  if (reaped > 0) console.log(`[smoke] reaped ${reaped} descendant process(es) before exit`)
+  app.exit(code)
 }
 
 // Boot the real application.
@@ -134,10 +163,12 @@ app.whenReady().then(async () => {
     clearTimeout(guard)
     const failed = steps.filter(s => !s.ok)
     console.log(`\n${steps.length - failed.length}/${steps.length} steps passed`)
-    app.exit(failed.length === 0 ? 0 : 1)
+    /* Every exit path reaps. A failing run leaves the same survivors holding
+       the same lock as a passing one. */
+    finish(failed.length === 0 ? 0 : 1)
   } catch (error) {
     clearTimeout(guard)
     console.error('E2E ERROR:', error && error.stack ? error.stack : error)
-    app.exit(21)
+    finish(21)
   }
 })
