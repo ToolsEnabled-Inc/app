@@ -602,10 +602,41 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
         confirm.textContent = identity.canSignIn ? 'Sign in to confirm' : 'Confirming is unavailable'
         identityHost.replaceChildren(band('blocked', 'Not signed in', [identity.reason, identity.detail]))
         actionNote.textContent = 'Nothing has been recorded, and nothing has been lost — your choices are saved and will be here when you come back.'
+
+        // TELLING SOMEONE TO SIGN IN IS NOT THE SAME AS LETTING THEM.
+        //
+        // The disabled button reads "Sign in to confirm" and there was nowhere
+        // on this screen to do that. Sign-in lives at #/account, which every
+        // other blocked surface links to directly -- this was the one place a
+        // person is actively stopped, told the remedy, and left to find it.
+        //
+        // The link appears ONLY when signing in would actually work. When
+        // canSignIn is false the button already says "Confirming is
+        // unavailable", and offering a sign-in door there would be a door that
+        // does not open -- worse than no door, because it moves the dead end
+        // one click further in and makes the product look broken rather than
+        // unavailable. Same reason the agent page hides its entry control
+        // instead of disabling it.
+        if (identity.canSignIn && !actions.querySelector('[data-checkout-signin]')) {
+          const signIn = document.createElement('a')
+          signIn.className = 'ctl-btn'
+          signIn.href = '#/account'
+          signIn.dataset.checkoutSignin = 'true'
+          signIn.textContent = 'Open sign-in'
+          confirm.insertAdjacentElement('afterend', signIn)
+        }
         return
       }
       confirm.disabled = false
       confirm.textContent = 'Confirm and save my decision'
+      // Belt and braces. This block runs once per render today, so a stale
+      // sign-in link should not be reachable -- but the link is added to
+      // `actions` while the signed-in path only replaces `identityHost`, so the
+      // two halves of the invariant live in different elements. Removing it
+      // here keeps the rule local instead of resting on a render lifecycle a
+      // later change could alter without anyone noticing an "Open sign-in"
+      // button sitting next to an enabled Confirm.
+      actions.querySelector('[data-checkout-signin]')?.remove()
       // Signing in is attribution, not an attestation, and the vault half of
       // his condition is genuinely unverified in this build. Both are said
       // here rather than implied away by a green badge.
