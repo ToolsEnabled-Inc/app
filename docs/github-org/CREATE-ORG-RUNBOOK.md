@@ -116,17 +116,20 @@ default is deliberate, so development does not sit red.
 
 **Read the named paths, not the tally.** That block enumerates the files; go fix or
 reclassify the ones it names. Do not copy a number out of this guard into anything,
-including into this page — the summary line has already been wrong once (it counted
-findings rather than distinct paths, so a payload seen under two roots reported double),
-and the count I quoted here while warning about that had itself expired within the hour.
-The paths were never ambiguous through any of it. **A count is a summary of a set, and a
-summary can be wrong in ways the set cannot.**
+including into this page. **A count is a summary of a set, and a summary can be wrong in
+ways the set cannot** — the paths stay unambiguous through every way the number can go
+wrong.
 
 Read the **refusal block itself**, and do not count path-shaped lines across the whole
-output. A `--ship` run prints each pending file twice — once in the pending report and
-once in the refusal — so grepping the output yields double, while the block alone lists
-each path once. Two people have now produced a wrong number that way, one of them while
-verifying that this instruction was correct.
+output: a `--ship` run prints each pending file twice, once in the pending report and once
+in the refusal, so grepping the output doubles it while the block alone lists each path
+once.
+
+*History, so nobody re-derives it: the summary line once counted findings rather than
+distinct paths, and a payload seen under two roots reported double. Fixed in `70dad9f` —
+it now reads `Classified (distinct paths across N root(s))`. Do not reproduce that
+measurement; it no longer holds, and the reason this note carries its fix commit is that
+the earlier version of this page cited the broken number as evidence.*
 
 Pass the payload root explicitly anyway. A bare invocation answers a question about
 whatever default roots it finds — which can include a stale build under `release/` that
@@ -212,8 +215,10 @@ packer computes the count and digest over the staged set and *then* writes `PAYL
 into the same directory, so the record does not count itself. Verified in
 `tools/pack-capability-layer.mjs` — `fileCount: all.length` is evaluated before the
 `writeFileSync`. Comparing that number against `ls` or against the gate's `Files seen`
-will always look off by one. This repository has already had one near-miss from reading
-meaning into a file-count coincidence; do not spend a launch night on this one.
+will always look off by one, by construction. A file count is not an integrity signal
+here; the digest is. If you want to know whether the stage is sound, reproduce
+`payloadSha256` with a fresh pack — that is a command, and it answers the question the
+count only appears to.
 
 ### The files still shipping
 
