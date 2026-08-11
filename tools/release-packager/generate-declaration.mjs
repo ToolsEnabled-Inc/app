@@ -1,7 +1,7 @@
 /* Render the Machine-B-facing release declaration from MEASURED facts.
  *
- * This is the automated form of C:\Users\joshp\Desktop\MACHINE-A-INSTALLER-DECLARATION.md
- * (hand-written, 2026-08-10). Preserve what that document got right:
+ * This is the automated form of MACHINE-A-INSTALLER-DECLARATION.md (hand-written,
+ * 2026-08-10, on the builder's desktop). Preserve what that document got right:
  *
  *   - Separate the CONFIGURED appId from the OS-observed AUMID. Configuration
  *     passing electron-builder's schema check is not the same claim as "the
@@ -20,8 +20,27 @@
  * `facts` object, which cut-release-candidate.mjs populates from things it
  * actually measured (file hashes, VersionInfo read off the real exe, git
  * status output) -- never from what the pipeline was merely told to do.
+ *
+ * AND NEVER FROM WHO MEASURED THEM. This document is written into the transfer
+ * directory to travel with the installer, which makes an absolute path in it a
+ * leak of the builder's account name -- the same class as the appId that got an
+ * earlier build rejected for carrying the builder's username in its namespace,
+ * except here it is in the document that exists to be read by whoever verifies
+ * the release. Every path rendered below goes through
+ * lib/portable-paths.mjs (roles, %USERPROFILE%, repo-relative -- see that file
+ * for which shape applies where), and writeDeclaration() will not put this
+ * markdown on disk at all unless tools/check-declaration-privacy.mjs proves it
+ * clean first.
  */
 import { writeFile } from 'node:fs/promises'
+
+import { assertNoOwnerData } from '../check-declaration-privacy.mjs'
+import {
+  BUILD_WORKTREE_TOKEN,
+  DAY_TO_DAY_WORKTREE,
+  HOME_PLACEHOLDER,
+  toDeclarableFacts,
+} from './lib/portable-paths.mjs'
 
 function fmtBytes(n) {
   return n.toLocaleString('en-US')
@@ -51,12 +70,13 @@ function renderOtherCandidates(otherCandidates, stagingDir) {
 
 function renderExcludedWip(excludedWip) {
   if (!excludedWip || excludedWip.dirtyFiles.length === 0) {
-    return `\`${excludedWip?.sourceWorktree ?? 'the day-to-day worktree'}\` had no uncommitted changes when this ` +
-      `declaration was generated. Nothing was excluded on that account.`
+    return `${DAY_TO_DAY_WORKTREE[0].toUpperCase()}${DAY_TO_DAY_WORKTREE.slice(1)} had no uncommitted changes when ` +
+      `this declaration was generated. Nothing was excluded on that account.`
   }
   return (
-    `**Another lane's in-progress, uncommitted work exists in the day-to-day worktree ` +
-    `(\`${excludedWip.sourceWorktree}\`) and is NOT in this build.** It was measured, by ` +
+    `**Another lane's in-progress, uncommitted work exists in ${DAY_TO_DAY_WORKTREE} and is NOT in this build.** ` +
+    `The list below is what it was, by repo-relative path -- which is the part that says what is missing; where ` +
+    `that checkout sits on the build machine is not recorded. It was measured, by ` +
     `\`git status --porcelain\`, at declaration time (${excludedWip.measuredAt}):\n\n` +
     bulletList(excludedWip.dirtyFiles.map((line) => `\`${line}\``)) +
     `\n\nThis build was produced in an isolated, detached worktree checked out directly from git history ` +
@@ -139,13 +159,17 @@ const NOT_RUN_ITEMS = [
   'A full multi-cycle close/relaunch persistence test against the installed app -- Phase 1 scope.',
 ]
 
-export function renderDeclaration(facts) {
+export function renderDeclaration(rawFacts) {
+  // Applied here as well as at the call site (see lib/portable-paths.mjs): this
+  // function is also reachable directly and from a facts file written by an
+  // older version of this tool, and "clean depending on who called it" is not a
+  // property worth claiming. Idempotent, so the double application costs nothing.
+  const facts = toDeclarableFacts(rawFacts)
   const {
     test,
     date,
     version,
     previousVersion,
-    repo,
     branch,
     sourceRef,
     buildRef,
@@ -187,11 +211,37 @@ Governed by: \`MACHINE-B-REPLACEMENT-BUILD-ACCEPTANCE-MATRIX.md\`, "Immutable de
 | Version | ${version}${previousVersion ? ` (previous candidate: ${previousVersion})` : ''} |
 | Exact byte count | ${fmtBytes(candidate.bytes)} |
 | SHA-256 | \`${candidate.sha256}\` |
-| Build ref | commit \`${buildRef}\`, branch \`${branch}\`${branchAdvanced ? '' : ' (NOT YET the tip of that branch -- see "Branch state" below)'}, repo \`${repo}\` |
+| Build ref | commit \`${buildRef}\`, branch \`${branch}\`${branchAdvanced ? '' : ' (NOT YET the tip of that branch -- see "Branch state" below)'}, in the Mission Control application repository |
 | Publisher (CompanyName) | \`${versionInfo.companyName}\` |
 | ProductName | \`${versionInfo.productName}\` |
 | appId | \`${appId.configured}\` (configured; see appId section below) |
 | Immutable transfer location | \`${stagingDir}\\${candidate.filename}\` (blockmap alongside) |
+
+### Paths in this document
+
+Every path below identifies a location without identifying the builder, because this
+document is written to travel with the installer:
+
+- **\`${HOME_PLACEHOLDER}\`** is the build account's home directory, and it resolves as
+  written -- paste it into Explorer, \`cmd\`, or PowerShell (\`$env:USERPROFILE\`) and you
+  get the real directory. It is a working path, not a redaction.
+- **\`${BUILD_WORKTREE_TOKEN}\`** is a throwaway \`git worktree add --detach\` checkout made
+  for this build and removed after it. Any empty directory outside your own checkout
+  works when reproducing; nothing about this build depends on where it was.
+- **${DAY_TO_DAY_WORKTREE}** is the shared checkout other lanes work in. Its location is
+  deliberately not recorded; what matters about it here is only what was uncommitted in
+  it, listed by repo-relative path under "What this build deliberately excludes".
+- Everything else is relative to the repository root.
+
+The build ref above is the same kind of substitution: a commit hash identifies the
+source exactly, and on any clone, which is more than a path on one machine ever did.
+Nothing a verifier needs has been dropped -- hashes, byte counts, and the full
+reproduction sequence are all below.
+
+This is checked rather than intended: \`tools/check-declaration-privacy.mjs\` scanned
+this document with \`check-no-owner-data.mjs\`'s own pattern set -- the same guard, the
+same patterns as the packaged bytes -- and the file was written only because that scan
+came back clean. There is no override for it.
 
 ## Branch state
 
@@ -209,8 +259,8 @@ Built from \`${sourceRef}\` (the tip of \`${branch}\` at build start), then one 
 
 \`git status --porcelain\` was measured **empty** twice: immediately after the isolated detached worktree was ` +
     `created (before the version bump / dependency setup) and again immediately before \`npm run dist\`. Both ` +
-    `measurements ran in \`${treeState.worktreePath}\` -- a fresh worktree created with ` +
-    `\`git worktree add --detach ${treeState.worktreePath} ${sourceRef}\`, never the day-to-day worktree where ` +
+    `measurements ran in that isolated build worktree -- a fresh checkout created with ` +
+    `\`git worktree add --detach ${BUILD_WORKTREE_TOKEN} ${sourceRef}\`, never ${DAY_TO_DAY_WORKTREE} where ` +
     `other lanes' work happens. That distinction is the point: this candidate's bytes are reproducible from git ` +
     `history plus the version-bump commit above, plus the local, gitignored inputs listed below -- not from any ` +
     `ambient working-tree state that cannot be recreated.
@@ -225,8 +275,8 @@ This is not only this tool's own claim: \`require-clean-tree.mjs\` -- the pipeli
     } \`MC_ALLOW_DIRTY_BUILD\` was also explicitly stripped from the build's environment before \`npm run dist\` ran, ` +
     `rather than trusting that it happened not to be inherited from this process's own shell.
 
-Local, genuinely untracked inputs copied from \`${repo}\\private\` into the build worktree (these configure ` +
-    `what the privacy scanner looks for; they do not change the code being built): ` +
+Local, genuinely untracked inputs copied from ${DAY_TO_DAY_WORKTREE}'s \`private\\\` directory into the build ` +
+    `worktree (these configure what the privacy scanner looks for; they do not change the code being built): ` +
     `${privateInputsCopied.length > 0 ? privateInputsCopied.map((f) => `\`${f}\``).join(', ') : '(none found)'}. ` +
     `${(privateInputsSkippedTracked?.length ?? 0) > 0
       ? `Left as their git-tracked, committed content and NOT overwritten with this machine's local copies (already ` +
@@ -244,7 +294,7 @@ ${renderOtherCandidates(otherCandidates, stagingDir)}
 
 ## How the declared candidate was produced and verified
 
-1. \`git worktree add --detach ${treeState.worktreePath} ${sourceRef}\` -- clean checkout, the day-to-day worktree untouched throughout.
+1. \`git worktree add --detach ${BUILD_WORKTREE_TOKEN} ${sourceRef}\` -- clean checkout, ${DAY_TO_DAY_WORKTREE} untouched throughout.
 2. \`git status --porcelain\` -> empty (captured as evidence, not assumed).
 3. Version bumped ${previousVersion ? `from ${previousVersion} ` : ''}to ${version} in \`package.json\` only, committed alone (\`git commit -F - -- package.json\`) -> \`${buildRef}\`.
 4. Dependencies provisioned (junctioned from an existing, lockfile-matched \`node_modules\` when possible; \`npm ci\` otherwise -- see the run log for which happened this time).
@@ -252,7 +302,7 @@ ${renderOtherCandidates(otherCandidates, stagingDir)}
 6. \`npm run dist\` -> single unbroken run:
 ${renderPipelineSection(pipeline)}
 7. Setup exe and blockmap copied to the immutable transfer location **before** the build worktree was removed, and re-hashed at that location to confirm the copy is byte-identical to the measured build (SHA-256 \`${candidate.sha256}\`, re-verified after copy${treeState.worktreeRemoved ? ' and again after `git worktree remove`' : ''}).
-${treeState.worktreeRemoved ? `8. \`git worktree remove --force ${treeState.worktreePath}\` -- the day-to-day worktree was never entered, touched, or referenced except for the one read-only copy of \`private/**\` described above.` : `8. The build worktree was **kept** at \`${treeState.worktreePath}\` (removal was skipped) for inspection.`}
+${treeState.worktreeRemoved ? `8. \`git worktree remove --force ${BUILD_WORKTREE_TOKEN}\` -- ${DAY_TO_DAY_WORKTREE} was never entered, touched, or referenced except for the one read-only copy of \`private/**\` described above.` : `8. The build worktree was **kept** (removal was skipped) for inspection; the run log on the build machine names where.`}
 
 ### VersionInfo, measured on the actual artifact (not intended metadata)
 
@@ -291,8 +341,19 @@ Lane: release-packager (session 6f84bf9b)
 `
 }
 
+/* THE GATE IS INSIDE THE WRITE, NOT BESIDE IT.
+ *
+ * Putting the check in cut-release-candidate.mjs instead would leave this
+ * function -- the only function that puts a declaration on disk, and the one the
+ * standalone `--out` CLI mode below also calls -- able to write an unchecked
+ * document. Scan first, write second, and there is no ordering in which a
+ * leaking declaration exists as a file: the failure path never reaches
+ * writeFile(), so there is nothing half-written for a later step to pick up and
+ * transfer. Same rule require-clean-tree.mjs learned about build-info.json.
+ */
 export async function writeDeclaration(filePath, facts) {
   const markdown = renderDeclaration(facts)
+  assertNoOwnerData(filePath, markdown)
   await writeFile(filePath, markdown, 'utf8')
   return markdown
 }
@@ -332,11 +393,17 @@ async function main() {
     versionInfo: { ...versionInfo, ...overrides.versionInfo },
   }
 
-  const markdown = renderDeclaration(facts)
   if (outPath) {
-    await writeFile(outPath, markdown, 'utf8')
+    // Through writeDeclaration(), never writeFile() -- this path used to have
+    // its own copy of the write and would have been the one way to put an
+    // unscanned declaration on disk.
+    await writeDeclaration(outPath, facts)
     console.log(`[generate-declaration] wrote ${outPath}`)
   } else {
+    // Printing is not writing, but this is still the document, and stdout gets
+    // redirected into files. Same gate.
+    const markdown = renderDeclaration(facts)
+    assertNoOwnerData('the declaration (stdout)', markdown)
     console.log(markdown)
   }
 }

@@ -34,7 +34,7 @@
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, readdir, rm } from 'node:fs/promises'
+import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -56,11 +56,17 @@ import { provisionNodeModules } from './lib/node-modules-reuse.mjs'
 import { findOtherCandidates } from './lib/scan-artifacts.mjs'
 import { readExeVersionInfo } from './lib/version-info.mjs'
 import { computeNextVersion, writePackageVersion } from './lib/version-bump.mjs'
+import { toDeclarableFacts, portablePath } from './lib/portable-paths.mjs'
+import { assertNoOwnerData } from '../check-declaration-privacy.mjs'
 import { writeDeclaration } from './generate-declaration.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_REPO = path.resolve(HERE, '..', '..') // wt-installer
-const DEFAULT_STAGING_ROOT = 'C:\\Users\\joshp\\Desktop\\MACHINE-A-INSTALLER-CANDIDATE'
+// Derived from the running account's home directory rather than written out.
+// The literal that used to be here named the owner in this file's own source,
+// which is the leak this lane exists to close one step further upstream: a
+// hardcoded home path is owner data in the tool as well as in what it emits.
+const DEFAULT_STAGING_ROOT = path.join(os.homedir(), 'Desktop', 'MACHINE-A-INSTALLER-CANDIDATE')
 const DEFAULT_TEST_STAGING_ROOT = path.join(os.tmpdir(), 'release-packager-test-candidates')
 
 function parseArgs(argv) {
@@ -111,7 +117,7 @@ bump -> isolated clean build -> staged artifact -> re-hashed -> declaration.
   --allow-same-version         allow reusing the current version (loud, logged)
   --source-ref <ref>           default: current tip of the checked-out branch
   --repo <path>                default: ${DEFAULT_REPO}
-  --staging <dir>              default: ${DEFAULT_STAGING_ROOT}\\<version>  (or a scratch dir with --test)
+  --staging <dir>              default: ${portablePath(DEFAULT_STAGING_ROOT)}\\<version>  (or a scratch dir with --test)
   --build-dir <dir>            override the isolated worktree location
   --advance-branch             fast-forward the source branch to the build commit on success
   --keep-worktree              do not remove the isolated worktree on success
@@ -210,6 +216,34 @@ export async function copyPrivateInputs(repo, worktreePath, { log = console.log 
     log(`[private-inputs] left as git-tracked content, NOT overwritten with the local copy: ${skippedTracked.join(', ')}`)
   }
   return { copied, skippedTracked }
+}
+
+/* The two provenance documents, written as a pair or not at all.
+ *
+ * EXPORTED BECAUSE THE WIRING IS THE THING THAT BREAKS. The redaction and the
+ * scan both had unit tests while this sequence lived inline in main(), and a
+ * planted mutant that serialised the RAW facts into declaration-facts.json
+ * survived the whole suite -- reintroducing, in one line, exactly the leak in the
+ * shipped 1.0.2 and 1.0.4 files. Nothing could reach it: main() runs a build.
+ * Pulling the four steps out makes the order testable, and the order is the
+ * property: redact once, scan BOTH documents, then write.
+ *
+ * The facts file is scanned before the declaration is written so that a failure
+ * cannot leave one half of a matched pair sitting in the transfer directory --
+ * a lone DECLARATION.md next to an installer reads like a complete, declared
+ * candidate.
+ */
+export async function writeDeclarationArtifacts(stagingDir, measuredFacts, { test = false } = {}) {
+  const declarableFacts = toDeclarableFacts(measuredFacts)
+  const declarationPath = path.join(stagingDir, test ? 'TEST-DECLARATION.md' : 'DECLARATION.md')
+  const factsPath = path.join(stagingDir, 'declaration-facts.json')
+  const factsJson = `${JSON.stringify(declarableFacts, null, 2)}\n`
+
+  assertNoOwnerData(factsPath, factsJson)
+  await writeDeclaration(declarationPath, declarableFacts)
+  await writeFile(factsPath, factsJson, 'utf8')
+
+  return { declarationPath, factsPath, declarableFacts }
 }
 
 async function main() {
@@ -406,9 +440,13 @@ async function main() {
     const versionInfo = await readExeVersionInfo(stagedExePath)
 
     // --- what's uncommitted in the day-to-day worktree right now, for the declaration ---
+    //
+    // `sourceWorktree: repo` used to be here. The file list is the information
+    // -- it says what is NOT in the build -- and it is already repo-relative;
+    // the checkout's absolute location added nothing except the builder's
+    // account name, in a document written to be sent elsewhere.
     const sourceDirtyFiles = porcelainStatus(repo)
     const excludedWip = {
-      sourceWorktree: repo,
       measuredAt: new Date().toISOString(),
       dirtyFiles: sourceDirtyFiles,
     }
@@ -428,7 +466,13 @@ async function main() {
       date: new Date().toISOString().slice(0, 10),
       version,
       previousVersion: currentVersion,
-      repo,
+      // No `repo` and no `treeState.worktreePath`. Both were absolute paths on
+      // the build machine, both were rendered into the declaration verbatim, and
+      // neither told a recipient anything: they name directories on a machine
+      // that recipient does not have. What identifies the source is `buildRef`,
+      // which is true on every clone. toDeclarableFacts() strips them again
+      // below if a future edit puts them back -- but not putting them in the
+      // object at all is the fix, and the stripper is the net under it.
       branch,
       sourceRef,
       buildRef,
@@ -436,7 +480,6 @@ async function main() {
       branchAdvanceError,
       candidate: { filename: exeName, bytes: stagedMeasured.bytes, sha256: stagedMeasured.sha256 },
       treeState: {
-        worktreePath,
         worktreeRemoved: !args.keepWorktree,
         buildInfoConfirmedClean: buildInfo.dirty === false && buildInfo.overridden === false,
       },
@@ -452,10 +495,12 @@ async function main() {
       knownFixes: args.knownFixes,
     }
 
-    const declarationPath = path.join(stagingDir, args.test ? 'TEST-DECLARATION.md' : 'DECLARATION.md')
-    const factsPath = path.join(stagingDir, 'declaration-facts.json')
-    await writeDeclaration(declarationPath, facts)
-    await (await import('node:fs/promises')).writeFile(factsPath, `${JSON.stringify(facts, null, 2)}\n`, 'utf8')
+    // THE FACTS OBJECT IS ITSELF A PUBLISHED ARTIFACT: declaration-facts.json is
+    // written into the same transfer directory as the installer and the
+    // declaration, and the shipped 1.0.2 and 1.0.4 copies each carry the
+    // builder's account name 7 times. A renderer-only fix would produce a
+    // declaration that reads clean sitting next to a JSON file that is not.
+    const { declarationPath } = await writeDeclarationArtifacts(stagingDir, facts, { test: args.test })
 
     console.log('')
     console.log('='.repeat(72))
