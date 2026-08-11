@@ -68,6 +68,15 @@ const PRODUCT_STATE_ENTRIES = Object.freeze([
   'agent-spawn-key.enc',
   'agent-spawn-records.jsonl',
   'workspace',
+  /* The operator's own purchase list. It is the newest resident of userData and
+     it is exactly the kind of file this defect strands: a document the PERSON
+     put there, which the product only shows when it is present, so losing it
+     removes a surface rather than resetting a setting. Derived by sweeping every
+     getPath('userData') in shell/ rather than by listing the ones already known
+     -- the point of this file is that a missed name is invisible until a
+     customer loses it. Inert until that lane lands the file; the copy skips
+     entries that do not exist. */
+  'purchase-catalog.json',
 ])
 
 /* Chromium's localStorage partition. It is best-effort rather than required,
