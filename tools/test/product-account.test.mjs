@@ -298,6 +298,47 @@ test('fails closed: a session file that decrypts to a valid-looking but wrong sh
     'a session naming an account that does not exist must not sign anyone in')
 })
 
+/* JSON.parse accepts `null`, `"text"` and `42` as perfectly valid documents.
+   Each of them then meets a property read on the way to being validated, and a
+   TypeError thrown out of a read that the whole shell calls inside the spawn
+   path is not "signed out" -- it is a crash on the path that starts an agent. */
+test('fails closed: a session file that decrypts to valid JSON that is not an object', async (t) => {
+  const directory = workspace(t)
+  const account = await withAccount(directory)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+
+  for (const document of ['null', '"signed in"', '42', '[]', 'true']) {
+    writeFileSync(account.sessionPath, keystore().encryptString(document))
+    const reopened = store(directory)
+    assert.doesNotThrow(() => reopened.current(), `a session file of ${document} must not throw`)
+    assert.equal(reopened.current().signedIn, false, `a session file of ${document} must not sign anyone in`)
+    assert.equal(reopened.principal(), UNAUTHENTICATED_PRINCIPAL)
+  }
+})
+
+/* An account file that could not be read is a security-relevant event, not a
+   hiccup. Having answered "signed out" once because of it, the store must not
+   silently resurrect the old session when the file becomes readable again --
+   the person signs in, which is cheap, rather than being re-admitted by a
+   recovery nobody observed. */
+test('fails closed: a session is not resurrected after the account file becomes readable again', async (t) => {
+  const directory = workspace(t)
+  const account = await withAccount(directory)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  const goodStore = readFileSync(account.accountsPath)
+
+  const reopened = store(directory)
+  assert.equal(reopened.current().signedIn, true, 'the fixture must start signed in')
+
+  writeFileSync(account.accountsPath, '{ not json')
+  assert.equal(reopened.current().signedIn, false, 'an unreadable account file signs the session out')
+
+  writeFileSync(account.accountsPath, goodStore)
+  assert.equal(reopened.current().signedIn, false,
+    'and the session stays out; a readable file again is not a re-authentication')
+  assert.equal(reopened.principal(), UNAUTHENTICATED_PRINCIPAL)
+})
+
 test('fails closed: an expired session', async (t) => {
   const directory = workspace(t)
   const account = await withAccount(directory, { store: { sessionLifetimeMs: 1000 } })

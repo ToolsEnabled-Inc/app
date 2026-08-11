@@ -29,6 +29,7 @@ import {
   MIN_PASSWORD_LENGTH,
   accountBridge,
   accountStep,
+  isPlainObject,
   loadAccountState,
   readAccountState,
   readActionResult,
@@ -115,6 +116,21 @@ const SIGNED_IN = Object.freeze({
 })
 
 /* ------------------------- the renderer fails closed ------------------------- */
+
+test('an array is not a plain object, on this channel as on the setup channel', () => {
+  /* `typeof [] === 'object'`, so the obvious guard lets one through, and an
+     array then answers `undefined` to every field -- which on the sibling setup
+     channel read as "available, nothing recorded yet" and opened a question with
+     a button guaranteed to fail. */
+  assert.equal(isPlainObject([]), false)
+  assert.equal(isPlainObject([1, 2]), false)
+  assert.equal(isPlainObject(null), false)
+  assert.equal(isPlainObject(undefined), false)
+  assert.equal(isPlainObject('text'), false)
+  assert.equal(isPlainObject(0), false)
+  assert.equal(isPlainObject({}), true)
+  assert.equal(isPlainObject({ signedIn: true }), true)
+})
 
 test('a signed-in reply is read as signed in', () => {
   const state = readAccountState(READY, SIGNED_IN)

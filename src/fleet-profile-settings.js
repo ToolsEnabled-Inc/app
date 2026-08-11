@@ -263,9 +263,19 @@ export function createFleetProfileSettings() {
         <article class="settings-row">
           <div class="settings-copy">
             <div class="settings-name" id="fleet-profile-name-label">Profile name</div>
-            <div class="settings-desc">A local label for this system. It is exported with the profile; it is not an account persona. This version of Mission Control has no accounts, sign-in, or licence check — there is nothing here to log into.</div>
+            <div class="settings-desc">A local label for this system. It is exported with the profile; it is not who you are signed in as. Sign-in is the row below, and this name is not it.</div>
           </div>
           <div class="settings-control fleet-inline-control"><input class="fleet-profile-input" data-profile-field="label" value="${esc(draft.label)}" aria-labelledby="fleet-profile-name-label" placeholder="required" autocomplete="off" ${locked}/></div>
+        </article>
+
+        <article class="settings-row">
+          <div class="settings-copy">
+            <div class="settings-name">Your account</div>
+            <div class="settings-desc">Sign in, sign out, or change your password. Your account lives on this computer and nowhere else, so that the record of what your assistant does can say who asked for it. It is not a login to Claude, ChatGPT or Google, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them.</div>
+          </div>
+          <div class="settings-control fleet-inline-control">
+            <a class="ctl-btn" href="#/account">Open sign-in</a>
+          </div>
         </article>
 
         <article class="settings-row fleet-profile-block">
@@ -609,7 +619,12 @@ export function createFleetProfileSettings() {
     const normalized = String(query || '').trim().toLowerCase()
     if (!normalized) return true
     const haystack = [
-      'system profile fleet setup machine roster host address relay tool lane endpoint transport data source projection directory load import export reset connection account sign in signin login log in licence license sample demonstration one machine single computer',
+      /* The synonyms are what route someone typing "login" to the row that
+         answers them. They mattered when the answer was "there is nothing to
+         log into"; they matter more now that there IS, so `password`,
+         `sign out` and `user` are added rather than the list being left to go
+         stale against a row whose meaning changed. */
+      'system profile fleet setup machine roster host address relay tool lane endpoint transport data source projection directory load import export reset connection account sign in signin sign out signout login log in log out password user username identity who licence license sample demonstration one machine single computer',
       draft.label,
       ...(draft.machines || []).flatMap(machine => [machine.name, machine.ip || machine.address]),
       ...(draft.transports || []).flatMap(transport => [transport.label, transport.endpoint]),

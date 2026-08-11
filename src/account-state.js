@@ -6,7 +6,7 @@
  * by matching source text is a gate that can silently stop existing. Both were
  * tried on the tier screen; the source-matched one slipped through.
  *
- * WHAT A ToolsEnabled ACCOUNT IS, said here because the interface has to say it
+ * WHAT THIS ACCOUNT IS, said here because the interface has to say it
  * too. It is an account on THIS computer. It is not a login to Claude, ChatGPT
  * or Google, it does not carry a subscription, and it never asks for a provider
  * password -- docs/design/SHIPMENT-PLAN.md blocker B14 records that taking a
@@ -65,7 +65,18 @@ export function accountBridge(scope = globalThis) {
   return bridge
 }
 
-function isPlainObject(value) {
+/* Exported ONLY so its array guard can be tested directly.
+ *
+ * Mutation testing showed that removing `!Array.isArray(value)` changes no
+ * observable behaviour through the public API: both call sites compare against
+ * the literal `true`, so an array -- which answers `undefined` to every field --
+ * is refused anyway. The guard is kept because src/setup-state.js documents this
+ * exact trap on the sibling channel, where an array DID read as "available,
+ * nothing recorded yet". Depth that no test can see is depth nobody can tell
+ * from an accident, so it is tested here rather than left to survive a mutant
+ * and be reported as "equivalent".
+ */
+export function isPlainObject(value) {
   /* Arrays are rejected explicitly. `typeof [] === 'object'`, so the obvious
      guard lets one through and an array then answers `undefined` to every field
      -- which reads as "available, nobody signed in yet" and would offer a

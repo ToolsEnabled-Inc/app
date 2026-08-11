@@ -16,8 +16,10 @@ import { researchView } from './views/research.js'
 import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { approvalsView } from './views/approvals.js'
+import { checkoutView } from './views/checkout.js'
 import { settingsView } from './views/settings.js'
 import { setupView } from './views/setup.js'
+import { accountView } from './views/account.js'
 import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
@@ -35,7 +37,10 @@ let current = null           // { el(wrapper), view, route }
 // sits next to the ledger because it is the same kind of thing — a register of
 // owner requests — and because putting it last keeps home's neighbours stable
 // for anyone who navigates by muscle memory.
-const ORDER = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals']
+// Checkout sits directly after approvals: both are surfaces where the owner
+// decides about money, and the pair reads as one stretch of the ring rather
+// than a shop dropped between the register and home.
+const ORDER = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout']
 
 function parse() {
   const h = location.hash || '#/'
@@ -47,18 +52,22 @@ function parse() {
   if (parts[0] === 'comms') return { name: 'comms' }
   if (parts[0] === 'ledger') return { name: 'ledger' }
   if (parts[0] === 'approvals') return { name: 'approvals' }
+  if (parts[0] === 'checkout') return { name: 'checkout' }
   if (parts[0] === 'settings') return { name: 'settings' }
   if (parts[0] === 'setup') return { name: 'setup' }
+  if (parts[0] === 'account') return { name: 'account' }
   return { name: 'home' }
 }
 
 /* Screens that are not stops on the ring, and where each arrow goes from them.
-   `agent` is a drill-in; `setup` is the first-run question. Both were single
-   `route.name === 'agent'` ternaries below -- this is the same rule with a
-   second entry, not a new behaviour. */
+   `agent` is a drill-in; `setup` is the first-run question; `account` is the
+   sign-in surface, reached from the walkthrough and from Settings rather than
+   by walking the ring. All three were single `route.name === 'agent'` ternaries
+   below -- this is the same rule with more entries, not a new behaviour. */
 const RING_EXIT = {
   agent: { back: 'computers', next: 'metrics' },
   setup: { back: 'home', next: 'home' },
+  account: { back: 'home', next: 'home' },
 }
 
 function makeView(route) {
@@ -71,8 +80,10 @@ function makeView(route) {
     case 'comms': return commsView()
     case 'ledger': return ledgerView()
     case 'approvals': return approvalsView()
+    case 'checkout': return checkoutView({ navigate })
     case 'settings': return settingsView()
     case 'setup': return setupView({ navigate })
+    case 'account': return accountView({ navigate })
     default: return homeView()
   }
 }
@@ -86,8 +97,11 @@ function crumbFor(route) {
     case 'research': return `${base} / research`
     case 'comms': return `${base} / comms`
     case 'ledger': return `${base} / ledger`
+    case 'approvals': return `${base} / approvals`
+    case 'checkout': return `${base} / checkout`
     case 'settings': return `${base} / settings`
     case 'setup': return `${base} / setup`
+    case 'account': return `${base} / account`
     default: return `${base} / home`
   }
 }

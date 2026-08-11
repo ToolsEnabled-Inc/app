@@ -2,7 +2,7 @@
 
 /* THE PRODUCT ACCOUNT: who is using this installation.
  *
- * WHAT THIS IS. A ToolsEnabled account, held entirely on this computer. A
+ * WHAT THIS IS. An account for this product, held entirely on this computer. A
  * person creates one, signs in, and stays signed in across relaunches until
  * they sign out or the session expires. Its whole job is to turn "a session
  * started on this device" into "this person started it", which is the sentence
@@ -132,7 +132,13 @@ const REFUSED_PASSWORDS = Object.freeze([
   '123456789012', '111111111111', '000000000000', '123456123456',
   'password1234', 'passwordpassword', 'qwertyqwerty', 'qwerty123456',
   'letmein12345', 'iloveyou1234', 'adminadmin12', 'welcome12345',
-  'missioncontrol', 'toolsenabled', 'abcdefghijkl', 'aaaaaaaaaaaa',
+  /* The product's own on-screen name is here because people reach for it. The
+     COMPANY name is deliberately absent, not forgotten:
+     tools/test/chat-agent-bridge-gated.test.mjs forbids it anywhere under src/
+     or shell/, so spelling it here to refuse it would put it in the shipped
+     source the gate exists to keep it out of. Two entries are worth far less
+     than the scrypt cost and the lockout beside them, so the gate wins. */
+  'missioncontrol', 'abcdefghijkl', 'aaaaaaaaaaaa',
 ])
 
 class AccountError extends Error {
