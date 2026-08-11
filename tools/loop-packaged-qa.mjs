@@ -16,9 +16,56 @@
  * repeatedly and leave lanes running if the harness died mid-run. That is not a
  * cost a test may impose. So the engine is replaced by a bridge stub that speaks
  * the real protocol, and everything ABOVE it is the shipped product: the real
- * discovery scan, the real bootstrap-proof exchange, the real bearer auth, the
- * real postBridgeAction, the real controller, real setTimeout intervals, and a
- * real click on real glass.
+ * supervised startup, the real pin, the real bootstrap-proof exchange, the real
+ * bearer auth, the real postBridgeAction, the real controller, real setTimeout
+ * intervals, and a real click on real glass.
+ *
+ * WHICH HALF IS SUBSTITUTED, AND WHY IT MOVED.
+ *
+ * This harness used to suppress the app's own capability layer -- it set
+ * MC_BRIDGE_PROOF_FILE so the shell would report source 'env' and vouch for no
+ * origin, which left the renderer's `?bridge=` developer override free to select
+ * a bridge the harness had started. Commit 17a0483 fenced that variable out of
+ * packaged builds: HKCU\Environment is writable by any same-user process with no
+ * elevation, so the variable was never evidence that a developer was present,
+ * and honouring it sent this boot's bootstrap proof to whatever squatted a low
+ * discovery port. A packaged build can no longer report 'env', so the old gate
+ * could never pass again.
+ *
+ * The repair is NOT to re-open that path. An opt-in that an attacker can supply
+ * by writing the user's environment is the hole itself, so no environment
+ * variable, and no CLI switch on the shipped binary, re-enables it here. What
+ * moved instead is WHICH half is substituted: rather than subverting how the
+ * product FINDS its layer, the harness substitutes the ENGINE the product
+ * starts. It swaps `bridgeEntrypoint` in a scratch copy of the payload record
+ * (resources/capability/PAYLOAD.json), so shell/capability-layer.cjs starts the
+ * controlled stub as the app's own supervised layer. The product then takes the
+ * supervised customer path exactly as a double-clicked install does.
+ *
+ * WHAT EACH ARM ACTUALLY PROVES, STATED SO IT CANNOT BE OVERSOLD.
+ *
+ * PROVEN by this run, on the shipped packaged binary: that the app starts its
+ * own capability layer and reports it; that the renderer pins to that exact
+ * origin and pid rather than scanning; that the shell reads the layer's own
+ * bootstrap proof and the renderer exchanges it for a bearer; that a person can
+ * click to the loop control; and that real elapsed wall-clock time produces a
+ * second nested run and that pressing stop ends it.
+ *
+ * NOT PROVEN, and not claimed: anything about the real engine's behaviour below
+ * the bridge protocol, and -- because the entrypoint is swapped -- that the
+ * SHIPPED payload's own tools/mission-bridge.js starts and serves. A harness
+ * that substituted the engine and then reported on the engine would be checking
+ * air, so that is said here rather than left to be discovered.
+ *
+ * On the size of that second gap, measured rather than assumed:
+ * tools/smoke-packaged.mjs DOES start the shipped payload from a release
+ * directory copy in a sterile profile and round-trips a real tool call with a
+ * signed audit row -- but it starts the payload's MCP entrypoint
+ * (src/mcp-server.js), not its bridgeEntrypoint. As of this commit nothing
+ * starts a release directory's tools/mission-bridge.js. So "the shipped payload
+ * runs, reaches its vault and signs audit" is covered; "the shipped payload's
+ * BRIDGE binds and serves /v1/* under the supervisor" is not covered by anything,
+ * and this harness does not close it either. It is a known hole, written down.
  *
  * The half this deliberately does not cover -- that a spawned child is confined
  * to the installed tier -- is covered where it can be done honestly, by spawning
@@ -99,6 +146,63 @@ async function stage(scratch) {
   return appExecutable(app)
 }
 
+/* SUBSTITUTE THE ENGINE, IN THE COPY, LEAVING THE REST OF THE PAYLOAD ALONE.
+ *
+ * Only PAYLOAD.json's bridgeEntrypoint is repointed, and only inside the scratch
+ * copy. The rest of the payload stays as shipped -- which matters, because
+ * seedMachineRecord() below loads the real src/lib/setup/machine-record.js out of
+ * this same directory, and because readPayloadRecord() is shipped code that gets
+ * to parse a real record.
+ *
+ * The stub's per-run secret is generated HERE and written beside it. It is not
+ * an environment variable, and deliberately so: the whole reason this harness
+ * needed repairing is that a variable is settable by anything running as the
+ * user. This is a file inside a freshly created temp directory that exists only
+ * for this run, and it configures a stub that is never shipped -- it grants no
+ * capability inside the product at all.
+ */
+function installControlledLayer(executable, scratch) {
+  const capability = path.join(path.dirname(executable), 'resources', 'capability')
+  const record = path.join(capability, 'PAYLOAD.json')
+  if (!existsSync(record)) {
+    throw new Error(`the staged app ships no capability payload at ${capability}; a viewer with nothing behind it cannot take the supervised path`)
+  }
+  const stubDirectory = path.join(capability, 'qa-controlled-layer')
+  mkdirSync(stubDirectory, { recursive: true })
+  cpSync(path.join(REPO_ROOT, 'tools', 'test', 'loop-qa-bridge-stub.cjs'), path.join(stubDirectory, 'loop-qa-bridge-stub.cjs'))
+
+  const qaNonce = crypto.randomBytes(32).toString('base64url')
+  const announceFile = path.join(scratch, 'qa', 'controlled-layer-announce.json')
+  const proofFile = path.join(scratch, 'qa', 'controlled-layer-proof.json')
+  writeFileSync(
+    path.join(stubDirectory, 'loop-qa-bridge-stub.config.json'),
+    JSON.stringify({ qaNonce, announceFile, proofFile }),
+    'utf8',
+  )
+
+  const payload = JSON.parse(readFileSync(record, 'utf8'))
+  const shippedEntrypoint = payload.bridgeEntrypoint
+  payload.bridgeEntrypoint = 'qa-controlled-layer/loop-qa-bridge-stub.cjs'
+  writeFileSync(record, JSON.stringify(payload, null, 2), 'utf8')
+  return { qaNonce, announceFile, proofFile, shippedEntrypoint }
+}
+
+/* Wait for the layer the APP started to say where it is. This file is the
+   harness's own statement of the stub's identity, written by the stub before it
+   prints the line the shell parses -- so it is independent of anything the shell
+   or the renderer reports, which is what makes comparing them meaningful. */
+async function readAnnounce(announceFile, child, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`the app exited with code ${child.exitCode} before its capability layer announced itself`)
+    if (existsSync(announceFile)) {
+      try { return JSON.parse(readFileSync(announceFile, 'utf8')) } catch { /* still being written */ }
+    }
+    await delay(250)
+  }
+  throw new Error(`the app's own capability layer never announced itself at ${announceFile}`)
+}
+
 function seedMachineRecord(profile, appRoot, tier) {
   const servicesRoot = path.join(profile, 'local', 'ToolsEnabled')
   const workspace = path.join(profile, 'home', 'ToolsEnabled')
@@ -128,28 +232,28 @@ async function freePort() {
   })
 }
 
-/* THE CONTROLLED BRIDGE.
+/* THE DECOY, WHICH IS THE ADVERSARY IN THIS TEST RATHER THAN A HELPER.
  *
- * Speaks exactly the protocol src/mission-bridge.js requires -- the discovery
- * body is validated field by field by validRuntimeDiscovery(), so a sloppy stub
- * is simply not discovered and the harness fails rather than passing on a
- * fiction. It records every action it is asked to perform, which is what the
- * assertions are made against: what ARRIVED, not what the renderer believes it
- * sent. */
-function startBridgeStub(port, proofToken) {
+ * The supervised pin's whole promise is that once the shell vouches for an
+ * origin, the renderer binds THERE and the `?bridge=` developer override and the
+ * 4610-4619 range scan are both unreachable. This harness does not take that on
+ * faith and it does not take it from reading the source: it runs a second,
+ * structurally VALID bridge, names it on `?bridge=`, and requires that nothing
+ * ever arrives. If the pin regresses, this listener is where the traffic goes --
+ * and because it is ours, the regression is caught in a sink we control instead
+ * of on the owner's real engine.
+ *
+ * It also answers /v1/bootstrap for the decoy proof the harness deliberately
+ * puts on MC_BRIDGE_PROOF_FILE. That pair -- an environment variable naming a
+ * proof file, and a valid bridge waiting on the override -- IS the escalation
+ * 17a0483 closed, reproduced here as a controlled negative. A build where the
+ * fence regressed does not merely fail a label check; it completes the attack
+ * against this decoy, and the decoy's arrival log says so. */
+function startDecoyBridge(port, decoyProof) {
   const received = []
-  const bearer = crypto.randomBytes(32).toString('base64url')
   const startedAt = new Date().toISOString()
-  let launchSeq = 0
-
   const server = createServer((request, response) => {
     const url = new URL(request.url, `http://127.0.0.1:${port}`)
-    /* CORS, mirroring the real bridge (mission-bridge/server.js:211-214). The
-       renderer is a different origin from this listener and every audited call
-       carries `authorization` and `content-type`, which forces a preflight.
-       Without these headers the browser refuses the request before it is sent,
-       the stub records nothing at all, and the symptom on the glass is a bare
-       "Failed to fetch" that looks exactly like a broken product. */
     const cors = {
       'access-control-allow-origin': request.headers.origin || '*',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -161,80 +265,75 @@ function startBridgeStub(port, proofToken) {
       response.writeHead(status, { ...cors, 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) })
       response.end(payload)
     }
-
+    /* A preflight is the browser asking, not the product arriving, so it is not
+       recorded as contact -- recording it would make this check fail for a
+       reason that is not the regression it exists to catch. */
     if (request.method === 'OPTIONS') {
       response.writeHead(204, cors)
       return response.end()
     }
-
+    received.push({ pathname: url.pathname, at: Date.now() })
     if (url.pathname === '/v1/runtime') {
       return reply(200, { ok: true, baseUrl: `http://127.0.0.1:${port}`, port, startedAt, pid: process.pid })
     }
     if (url.pathname === '/v1/bootstrap') {
-      if (url.searchParams.get('proof') !== proofToken) return reply(403, { ok: false, error: { code: 'BRIDGE_PROOF_REFUSED', message: 'bad proof' } })
-      return reply(200, { ok: true, token: bearer })
+      if (url.searchParams.get('proof') !== decoyProof) return reply(403, { ok: false, error: { code: 'BRIDGE_PROOF_REFUSED', message: 'bad proof' } })
+      return reply(200, { ok: true, token: 'decoy-bearer' })
     }
-    if (request.headers.authorization !== `Bearer ${bearer}`) {
-      return reply(401, { ok: false, error: { code: 'BRIDGE_UNAUTHORIZED', message: 'no bearer' } })
-    }
-    if (url.pathname === '/v1/status') {
-      return reply(200, { ok: true, roots: ['isolated'], queue: [] })
-    }
-
-    let raw = ''
-    request.setEncoding('utf8')
-    request.on('data', chunk => { raw += chunk })
-    request.on('end', () => {
-      let body = null
-      try { body = JSON.parse(raw) } catch { body = null }
-      received.push({ pathname: url.pathname, body, at: Date.now() })
-
-      if (url.pathname === '/v1/actions/dispatch') {
-        launchSeq += 1
-        return reply(200, {
-          ok: true,
-          receipt: {
-            action: 'dispatch',
-            tier: body?.tier,
-            launchId: `launch_stub${String(launchSeq).padStart(4, '0')}`,
-            agentId: 'luna',
-            auditSequence: launchSeq,
-            auditEventHash: crypto.createHash('sha256').update(`dispatch-${launchSeq}`).digest('hex'),
-          },
-        })
-      }
-      if (url.pathname === '/v1/actions/terminate') {
-        return reply(200, {
-          ok: true,
-          receipt: {
-            action: 'terminate',
-            idempotencyKey: body?.idempotencyKey,
-            agentId: body?.agentId,
-            runId: body?.expectedRunId,
-            pid: body?.expectedPid,
-            verifiedGone: true,
-            terminalStatus: 'failed',
-            exitCode: 1,
-            verifiedGoneAt: new Date().toISOString(),
-            terminalAt: Date.now(),
-            auditSequence: 999,
-            auditEventHash: crypto.createHash('sha256').update('terminate').digest('hex'),
-          },
-        })
-      }
-      return reply(404, { ok: false, error: { code: 'BRIDGE_ROUTE_UNKNOWN', message: url.pathname } })
-    })
+    return reply(200, { ok: true })
   })
-
   return new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(port, '127.0.0.1', () => resolve({
-      server,
-      received,
-      dispatches: () => received.filter(entry => entry.pathname === '/v1/actions/dispatch'),
-      terminates: () => received.filter(entry => entry.pathname === '/v1/actions/terminate'),
-    }))
+    server.listen(port, '127.0.0.1', () => resolve({ server, received }))
   })
+}
+
+/* Read what ARRIVED at the app's own layer, from the layer itself.
+ *
+ * The stub is a child of the app, not of this process, so its record is fetched
+ * over its own listener behind the per-run nonce. This is the same doctrine the
+ * in-process version had -- assert on what arrived, never on what the renderer
+ * believes it sent -- with the record now living one process further away. */
+async function controlledLayerState(origin, nonce) {
+  const response = await fetch(`${origin}/qa/state?nonce=${encodeURIComponent(nonce)}`, { cache: 'no-store' })
+  if (!response.ok) throw new Error(`the controlled layer refused its own QA state route (${response.status})`)
+  const body = await response.json()
+  const received = Array.isArray(body.received) ? body.received : []
+  return {
+    received,
+    bootstrapAccepted: body.bootstrapAccepted === true,
+    dispatches: received.filter(entry => entry.pathname === '/v1/actions/dispatch'),
+    terminates: received.filter(entry => entry.pathname === '/v1/actions/terminate'),
+  }
+}
+
+/* Is the listener the shell named still the process the harness started?
+ *
+ * Other Claude sessions work on this machine and QA harnesses cycle ports
+ * continuously, so "something valid answers at that origin" is not an answer.
+ * The nonce is 32 random bytes minted for this run and known only to this
+ * harness and its own stub, so a neighbour that inherits the port cannot
+ * produce it and this check fails closed rather than binding to a stranger. */
+async function challengeControlledLayer(origin, nonce) {
+  try {
+    const response = await fetch(`${origin}/qa/whoami?nonce=${encodeURIComponent(nonce)}`, { cache: 'no-store' })
+    if (!response.ok) return { ok: false, reason: `status ${response.status}` }
+    const body = await response.json()
+    return { ok: body?.nonce === nonce, pid: body?.pid, port: body?.port }
+  } catch (error) {
+    return { ok: false, reason: error?.message || 'unreachable' }
+  }
+}
+
+async function waitFor(predicate, { timeoutMs, everyMs = 500 }) {
+  const deadline = Date.now() + timeoutMs
+  let last = null
+  while (Date.now() < deadline) {
+    last = await predicate()
+    if (last) return last
+    await delay(everyMs)
+  }
+  return last
 }
 
 function createSession(port, child) {
@@ -319,56 +418,66 @@ async function main() {
   const profile = path.join(scratch, 'profile')
   let child = null
   let session = null
-  let bridge = null
+  let decoy = null
+  let layer = null
 
   try {
     const executable = await stage(scratch)
     const appRoot = path.dirname(executable)
+    const controlled = installControlledLayer(executable, scratch)
     seedMachineRecord(profile, appRoot, 'standard')
 
-    /* THE STUB IS PINNED EXPLICITLY, NEVER DISCOVERED.
+    /* THE DECOY IS THE ATTACK, SET UP DELIBERATELY.
      *
-     * The first version of this harness put the stub on 4610 and let the shipped
-     * renderer's discovery scan find it. That is unsafe on a developer machine
-     * and it was caught here doing exactly the unsafe thing: this box already
-     * runs a real capability layer inside the declared 4610-4619 range, so the
-     * scan would have bound the loop to the REAL engine and every iteration
-     * would have spawned a real agent on the owner's machine -- repeatedly,
-     * which is the whole point of a loop.
+     * A valid bridge on `?bridge=`, plus MC_BRIDGE_PROOF_FILE naming a proof
+     * file it will accept, is precisely the escalation commit 17a0483 closed.
+     * The harness arranges both and then requires that NOTHING arrives here. On
+     * a build where the fence or the supervised pin regressed, the product
+     * completes the attack against this listener and the checks below go red
+     * with the arrival log as the evidence.
      *
-     * So the stub listens OUTSIDE the discovery range and is named explicitly
-     * with the product's own `?bridge=` developer override, which
-     * configuredBaseUrl() honours before it ever scans. A pin cannot fall
-     * through to somebody else's bridge; a scan can. */
-    const proofToken = crypto.randomBytes(32).toString('base64url')
-    const proofFile = path.join(scratch, 'bridge-proof.json')
-    writeFileSync(proofFile, JSON.stringify({ token: proofToken }), 'utf8')
-    const bridgePort = await freePort()
-    if (bridgePort >= 4610 && bridgePort <= 4619) throw new Error('the stub must not sit inside the discovery range')
-    bridge = await startBridgeStub(bridgePort, proofToken)
+     * It sits outside 4610-4619 for the same reason the controlled layer does:
+     * this box runs a real capability layer inside that range, and a test that
+     * squats there could be found by somebody else's scan. */
+    const decoyProof = crypto.randomBytes(32).toString('base64url')
+    const decoyProofFile = path.join(scratch, 'decoy-bridge-proof.json')
+    writeFileSync(decoyProofFile, JSON.stringify({ token: decoyProof }), 'utf8')
+    const decoyPort = await freePort()
+    if (decoyPort >= 4610 && decoyPort <= 4619) throw new Error('the decoy must not sit inside the discovery range')
+    decoy = await startDecoyBridge(decoyPort, decoyProof)
+    const decoyOrigin = `http://127.0.0.1:${decoyPort}`
 
-    /* Probe the stub from here before the app is allowed anywhere near it. A
-       stub that is silently broken would otherwise be reported as the product
-       failing to dispatch, which is the most expensive kind of wrong answer a
-       harness can give. */
-    const probe = await fetch(`http://127.0.0.1:${bridgePort}/v1/bootstrap?proof=${proofToken}`).then(r => r.json())
-    if (probe?.ok !== true || typeof probe.token !== 'string') {
-      throw new Error(`the controlled bridge did not answer its own bootstrap: ${JSON.stringify(probe)}`)
-    }
+    /* Probe the decoy from here before the app is allowed anywhere near it. A
+       decoy that is silently broken would report "nothing arrived" for the wrong
+       reason, which is the most expensive kind of wrong answer a harness can
+       give: a green light bought with a dead listener. */
+    const decoyProbe = await fetch(`${decoyOrigin}/v1/bootstrap?proof=${decoyProof}`).then(r => r.json())
+    if (decoyProbe?.ok !== true) throw new Error(`the decoy bridge did not answer its own bootstrap: ${JSON.stringify(decoyProbe)}`)
+    const decoyContactsBeforeLaunch = decoy.received.length
 
     const port = await freePort()
+    const userData = path.join(profile, 'userdata')
     const environment = { ...process.env }
     delete environment.ELECTRON_RUN_AS_NODE
     delete environment.ELECTRON_NO_ATTACH_CONSOLE
     environment.LOCALAPPDATA = path.join(profile, 'local')
     environment.USERPROFILE = path.join(profile, 'home')
     environment.CODEX_HOME = path.join(profile, 'home', '.codex')
-    environment.MC_BRIDGE_PROOF_FILE = proofFile
+    /* Set ON PURPOSE, and expected to be ignored. This is no longer how the
+       harness reaches its bridge -- it is the adversary's input, and the checks
+       below require the packaged build to refuse it. */
+    environment.MC_BRIDGE_PROOF_FILE = decoyProofFile
     mkdirSync(environment.CODEX_HOME, { recursive: true })
 
-    child = spawn(executable, [`--remote-debugging-port=${port}`, `--user-data-dir=${path.join(profile, 'userdata')}`], {
+    child = spawn(executable, [`--remote-debugging-port=${port}`, `--user-data-dir=${userData}`], {
       env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     })
+
+    /* The app starts its own layer. Wait for THAT process to say where it is,
+       from its own file, before asking the shell anything. */
+    const announce = await readAnnounce(controlled.announceFile, child)
+    layer = { origin: announce.baseUrl, nonce: controlled.qaNonce }
+
     session = createSession(port, child)
     await session.open()
 
@@ -389,38 +498,99 @@ async function main() {
     await evaluate('document.fonts ? document.fonts.ready.then(() => true) : true')
     await delay(1200)
 
-    /* Reload onto the explicitly pinned bridge. This is app-level setup, not
-       route navigation: page 2 is still reached by clicking, below. */
-    const bridgeOrigin = `http://127.0.0.1:${bridgePort}`
+    /* ---------- SAFETY GATE, PART 1: IDENTITY ----------
+     *
+     * WHAT REPLACED `source === 'env'`, AND WHY IT IS STRONGER.
+     *
+     * The old gate asked the shell to describe itself and accepted the answer
+     * 'env' as proof. That label only ever established a NEGATIVE -- that no
+     * supervised layer was being reported -- and left the actual binding to a
+     * `?bridge=` query parameter nobody checked had been honoured. It could not
+     * survive the fence, and it should not have: a self-reported label is not
+     * evidence of which process is on the other end of a socket.
+     *
+     * What is required now is that THREE independent sources agree:
+     *   (a) the shell, over IPC, names a supervised origin and a pid;
+     *   (b) the layer the app started names the same origin and the same pid in
+     *       a file it wrote itself, before the shell ever spoke;
+     *   (c) a live challenge to that origin returns a 32-byte secret minted for
+     *       this run and known only to this harness and its own stub.
+     *
+     * (a) alone is a claim. (a)+(b) proves the shell is describing the process
+     * the harness planted. (c) additionally proves that process is STILL the one
+     * answering there now -- which is the part that matters on this machine,
+     * where other sessions and QA harnesses cycle ports continuously. A
+     * neighbour that inherits the port cannot produce the nonce, so a busy box
+     * makes this gate refuse rather than make it lie. */
+    const endpoint = await evaluate(`(async () => {
+      const reported = await window.mcShell?.getBridgeEndpoint?.()
+      return reported ?? null
+    })()`)
+    const challenge = await challengeControlledLayer(announce.baseUrl, controlled.qaNonce)
+    const identity = {
+      source: endpoint?.source ?? 'none',
+      shellBaseUrl: endpoint?.baseUrl ?? null,
+      shellPid: endpoint?.pid ?? null,
+      announcedBaseUrl: announce.baseUrl,
+      announcedPid: announce.pid,
+      challengeOk: challenge.ok === true,
+      challengePid: challenge.pid ?? null,
+    }
+    const boundToControlledLayer = endpoint?.ok === true
+      && endpoint.source === 'supervised'
+      && endpoint.baseUrl === announce.baseUrl
+      && endpoint.pid === announce.pid
+      && challenge.ok === true
+      && challenge.pid === announce.pid
+
+    check('the app runs its own supervised layer and it is the one this harness planted',
+      boundToControlledLayer === true, JSON.stringify(identity))
+    if (!boundToControlledLayer) {
+      throw new Error(`refusing to dispatch: the app's capability layer is not provably the controlled one (${JSON.stringify(identity)}). A loop bound to a real bridge would spawn real agents repeatedly.`)
+    }
+    /* Recorded for cleanup only once the challenge has proved this pid is the
+       harness's own stub. Before this line the harness knows a pid; after it,
+       the harness knows WHOSE. */
+    layer.pid = announce.pid
+
+    /* The fence itself, regression-tested by the harness it broke. The variable
+       is set on this launch; a packaged build must ignore it, keep reporting the
+       supervised layer, and leave a record beside the user's data saying so. */
+    check('a packaged build refuses the environment proof path rather than honouring it',
+      endpoint.envProofRefused === true, `envProofRefused=${String(endpoint.envProofRefused)} source=${endpoint.source}`)
+    check('the refusal is recorded where a person can find it, not only in memory',
+      existsSync(path.join(userData, '.bridge-env-refusal.json')), path.join(userData, '.bridge-env-refusal.json'))
+
+    /* Renderer settings, and the decoy named on the developer override. The
+       override is honoured ONLY when the shell vouches for no supervised layer,
+       so on a correct build this parameter must change nothing at all -- that is
+       what the silence check below measures. This is app-level setup, not route
+       navigation: page 2 is still reached by clicking, below. */
+    /* LIVE, NOT SIMULATED -- and that is the product's rule, not a shortcut.
+     *
+     * This harness used to select the simulated rail. When it was written the
+     * loop box was built for both rails; it has since been fenced to the
+     * projection rail, which showControls() reaches only when the computers view
+     * is live, because that rail is "the only caller entitled to build a control
+     * that reaches the bridge". A loop control that reaches the bridge cannot be
+     * exercised anywhere else, so asking for the simulated rail now asks for a
+     * page that legitimately has no Loop panel on it.
+     *
+     * That is a SECOND breakage in this harness, independent of the fence, and it
+     * was hidden behind the first: the safety gate threw before the click ever
+     * happened, so the stale selector never got to fail. Going live is safe here
+     * for exactly the reason the gate above established -- "live" resolves to the
+     * controlled layer this harness planted, and nothing else. */
     await evaluate(`(() => {
-      localStorage.setItem('mc.live.computers', 'simulated')
+      localStorage.setItem('mc.live.computers', 'live')
       localStorage.setItem('mc.write.dispatch', 'enabled')
       const url = new URL(window.location.href)
-      url.search = 'bridge=${bridgeOrigin}'
+      url.search = 'bridge=${decoyOrigin}'
       window.location.replace(url.toString())
       return true
     })()`)
     await delay(3000)
     await evaluate('document.fonts ? document.fonts.ready.then(() => true) : true')
-
-    /* ---------- THE SAFETY GATE ----------
-     * Nothing below may click Start unless BOTH branch conditions that select
-     * the pinned stub are true on the glass. If the shell reported a supervised
-     * layer, configuredBaseUrl() pins to THAT and ignores ?bridge= entirely --
-     * and this machine has a real one running. Refusing here is the difference
-     * between a test and an incident. */
-    const binding = await evaluate(`(async () => {
-      const endpoint = await window.mcShell?.getBridgeEndpoint?.()
-      return { search: window.location.search, source: endpoint?.source ?? 'none' }
-    })()`)
-    const pinned = binding
-      && binding.search.includes(`bridge=${bridgeOrigin}`)
-      && binding.source === 'env'
-    check('the renderer is bound to the controlled stub, not to any real bridge',
-      pinned === true, JSON.stringify(binding))
-    if (!pinned) {
-      throw new Error(`refusing to dispatch: the renderer is not provably pinned to the stub (${JSON.stringify(binding)}). A loop bound to a real bridge would spawn real agents repeatedly.`)
-    }
 
     /* ---------- reachability, by clicking ---------- */
 
@@ -428,12 +598,61 @@ async function main() {
     const route = await evaluate('document.body.dataset.route')
     check('the forward control reaches page 2 by clicking', toPage2 === 'clicked' && route === 'computers', `${toPage2} route=${route}`)
 
+    /* ---------- SAFETY GATE, PART 2: ARRIVAL ----------
+     *
+     * Identity proves where the shell POINTS. This proves where the renderer
+     * WENT, and it is measured at the far end rather than asked of the glass.
+     *
+     * Reaching page 2 runs the computers view's prepareBridgeOnce(), which calls
+     * the shipped bridgeReachable() -- a real configuredBaseUrl() resolution and
+     * a real bootstrap exchange. So by now the controlled layer must have been
+     * handed the proof that only it minted and only the shell could read, and
+     * must have accepted it. Nothing has been dispatched yet, so this is still
+     * before any agent could be spawned anywhere.
+     *
+     * If that handshake did not land here, the renderer resolved somewhere else
+     * and this harness must not click Start. */
+    const beforeStart = await waitFor(
+      async () => {
+        const state = await controlledLayerState(announce.baseUrl, controlled.qaNonce)
+        return state.bootstrapAccepted ? state : null
+      },
+      { timeoutMs: 45_000 },
+    ) || await controlledLayerState(announce.baseUrl, controlled.qaNonce)
+
+    check('the renderer completed the real bootstrap handshake against the controlled layer',
+      beforeStart.bootstrapAccepted === true,
+      JSON.stringify(beforeStart.received.map(entry => entry.pathname)))
+    check('nothing has been dispatched before the start control is pressed',
+      beforeStart.dispatches.length === 0, `dispatches=${beforeStart.dispatches.length}`)
+    const decoySilentBeforeStart = decoy.received.length === decoyContactsBeforeLaunch
+    check('the supervised pin beats the ?bridge= override: the decoy bridge was never contacted',
+      decoySilentBeforeStart, JSON.stringify(decoy.received.map(entry => entry.pathname)))
+
+    if (!beforeStart.bootstrapAccepted || beforeStart.dispatches.length !== 0 || !decoySilentBeforeStart) {
+      throw new Error(`refusing to dispatch: the renderer is not provably talking to the controlled layer (bootstrapAccepted=${beforeStart.bootstrapAccepted}, dispatches=${beforeStart.dispatches.length}, decoyContacts=${JSON.stringify(decoy.received.map(entry => entry.pathname))}). A loop bound to a real bridge would spawn real agents repeatedly.`)
+    }
+
     const opened = await clickVisible('.static-tree-node')
     await delay(700)
     check('clicking an agent opens the rail board', opened === 'clicked', opened)
 
     const loopBox = await evaluate(`(${VISIBLE})('.board-loop-box')`)
-    check('the Loop panel is on the glass, not merely in the DOM', loopBox.state === 'visible', loopBox.state)
+    /* When this is absent the bare word "absent" is not enough to act on -- it
+       cannot distinguish "the panel regressed" from "the harness opened the
+       wrong rail", which is exactly the confusion that cost this file a full
+       debugging cycle. So report which rail is open and what boxes are on it. */
+    const railState = loopBox.state === 'visible' ? null : await evaluate(`(() => {
+      const rail = document.querySelector('.rail-scroll')
+      return {
+        liveMode: document.querySelector('#view-computers')?.dataset?.liveMode ?? rail?.dataset?.liveMode ?? 'unknown',
+        railTitle: document.querySelector('.rail-title')?.textContent?.trim() ?? 'no rail',
+        boxes: [...document.querySelectorAll('.board-box')].map(node => node.className),
+        treeNodes: document.querySelectorAll('.static-tree-node').length,
+      }
+    })()`)
+    check('the Loop panel is on the glass, not merely in the DOM', loopBox.state === 'visible',
+      railState ? `${loopBox.state} ${JSON.stringify(railState)}` : loopBox.state)
 
     /* ---------- the stop is beside the start, before anything runs ---------- */
 
@@ -489,15 +708,16 @@ async function main() {
         rows: box.querySelectorAll('.team-row').length,
       }
     })()`)
-    check('the first run starts immediately, without waiting an interval', bridge.dispatches().length === 1,
-      `dispatches=${bridge.dispatches().length} out="${afterStart.out}" stubSaw=${JSON.stringify(bridge.received.map(entry => entry.pathname))}`)
+    const firstRun = await controlledLayerState(announce.baseUrl, controlled.qaNonce)
+    check('the first run starts immediately, without waiting an interval', firstRun.dispatches.length === 1,
+      `dispatches=${firstRun.dispatches.length} out="${afterStart.out}" layerSaw=${JSON.stringify(firstRun.received.map(entry => entry.pathname))}`)
     check('the stop becomes available the moment a loop is running', afterStart.stopDisabled === false, String(afterStart.stopDisabled))
 
     /* Fail fast rather than spend two more minutes waiting for intervals that
        cannot produce anything. A harness that waits anyway just reports the same
        failure three times and hides which one was first. */
-    if (bridge.dispatches().length === 0) {
-      throw new Error(`no run reached the controlled bridge, so there is no loop to wait for. panel said: "${afterStart.out}". stub saw: ${JSON.stringify(bridge.received.map(entry => entry.pathname))}`)
+    if (firstRun.dispatches.length === 0) {
+      throw new Error(`no run reached the controlled layer, so there is no loop to wait for. panel said: "${afterStart.out}". the layer saw: ${JSON.stringify(firstRun.received.map(entry => entry.pathname))}`)
     }
 
     /* ---------- IT LOOPS. Wait out a real interval. ---------- */
@@ -505,7 +725,7 @@ async function main() {
     console.log(`  ..  waiting ${Math.round(INTERVAL_WAIT_MS / 1000)}s for the interval to elapse`)
     await delay(INTERVAL_WAIT_MS)
 
-    const dispatches = bridge.dispatches()
+    const { dispatches } = await controlledLayerState(announce.baseUrl, controlled.qaNonce)
     check('leaving the loop alone produces a SECOND run — this is the loop', dispatches.length === 2, `dispatches=${dispatches.length}`)
 
     const anchorId = 'launch_stub0001'
@@ -542,8 +762,16 @@ async function main() {
 
     console.log(`  ..  waiting a further ${Math.round(INTERVAL_WAIT_MS / 1000)}s to prove the stop held`)
     await delay(INTERVAL_WAIT_MS)
+    const afterHold = await controlledLayerState(announce.baseUrl, controlled.qaNonce)
     check('after the stop, a further elapsed interval produces NO third run — this is the stop',
-      bridge.dispatches().length === 2, `dispatches=${bridge.dispatches().length}`)
+      afterHold.dispatches.length === 2, `dispatches=${afterHold.dispatches.length}`)
+
+    /* The decoy, asked one last time. Everything above could be true while a
+       second binding quietly also existed; this says the whole run reached one
+       bridge and it was the controlled one. */
+    check('across the entire run the decoy bridge was never contacted once',
+      decoy.received.length === decoyContactsBeforeLaunch,
+      JSON.stringify(decoy.received.map(entry => entry.pathname)))
 
     const errors = await evaluate(`(() => (window.__qaErrors || []).length)()`)
     check('the renderer logged no errors reaching or driving the loop', errors === undefined || errors === 0, String(errors))
@@ -552,11 +780,22 @@ async function main() {
   } finally {
     /* Cleanup may never decide the verdict. */
     try { session?.close() } catch { /* already gone */ }
-    try { bridge?.server?.close() } catch { /* already gone */ }
+    try { decoy?.server?.close() } catch { /* already gone */ }
     try {
       if (child && child.exitCode === null) {
         spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
         await delay(1500)
+      }
+    } catch { /* the OS will reap it */ }
+    /* The controlled layer is a CHILD of the app, so the /T above normally takes
+       it. This is the case where the app died first and left it orphaned. Only
+       ever the pid this harness's OWN stub announced, and only after the nonce
+       challenge confirmed that pid was the stub: never a process this harness
+       did not start. */
+    try {
+      if (Number.isSafeInteger(layer?.pid)) {
+        spawn('taskkill.exe', ['/PID', String(layer.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+        await delay(500)
       }
     } catch { /* the OS will reap it */ }
     try { rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) }
