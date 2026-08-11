@@ -122,6 +122,12 @@ and the count I quoted here while warning about that had itself expired within t
 The paths were never ambiguous through any of it. **A count is a summary of a set, and a
 summary can be wrong in ways the set cannot.**
 
+Read the **refusal block itself**, and do not count path-shaped lines across the whole
+output. A `--ship` run prints each pending file twice — once in the pending report and
+once in the refusal — so grepping the output yields double, while the block alone lists
+each path once. Two people have now produced a wrong number that way, one of them while
+verifying that this instruction was correct.
+
 Pass the payload root explicitly anyway. A bare invocation answers a question about
 whatever default roots it finds — which can include a stale build under `release/` that
 nobody is shipping — and "which directory did this verdict describe?" is not a question
@@ -153,29 +159,30 @@ did not reproduce, and it reproduces exactly.
 half-finished work into the shared payload, which is worse than a red gate telling the
 truth.
 
-### A shipping defect the red gate happens to be sitting on
+### The licence verifier must be able to refuse
 
-Chasing that gate turned up something that outlives it, and it is a launch blocker in its
-own right rather than a packaging question.
+There was a period when a fresh install could mint a licence and then accept its own —
+the verifier treated an absent pinned key as permission to trust whatever signing material
+was on the disk. A signature check answers *was this signed by key K*; only a pinned key
+answers *should I trust K*.
 
-In the **staged, shipping** copy of `src/lib/providers/license.js`, `verifyKey` defaults
-`trustedPublicKeyPem` to `''`, and the helper that resolves it reads that falsy default as
-permission to fall back to the machine's own signing material:
+**That is fixed, and this page is not the way to find out.** Ask the test:
 
-```js
-const pem = publicKeyPem || validateSigner(signingMaterial(dependencies)).publicKeyPem;
+```
+node --test tests/license-trust-pinning.test.js        # in the engine tree
 ```
 
-A signature check answers *was this signed by key K*. Only a pinned key answers *should I
-trust K*. With no pinned vendor key anywhere in the path, the verifier answers the second
-question with "whatever key is on this disk" — so a fresh install can mint a licence and
-then accept it. Demonstrated on an empty vault: `toolsenabled-anywhere`, tier `team`,
-9999 seats, `valid: true, active: true`.
+That is the durable form. This section originally read "do not cut a release until the
+pinning lands", which was true when written and became **actively harmful the moment it
+was fixed** — a fence that blocks a legitimate release, with nothing in it to tell the
+reader the reason had been discharged. Staleness in that direction is worse than the kind
+this page keeps warning about, because it looks responsible.
 
-**This is in the bytes today.** The fix is the uncommitted work described above and exists
-in nobody's commit, so it is not in any build cut from this stage. Owner: the
-`license-trust-pinning` lane. Do not treat "the gate went green" as evidence this is
-fixed — the gate is about staleness, not about this.
+The general rule, and the one this whole page is now built on: **any statement about the
+world that a command can answer should be replaced by the command.** A command
+re-measures on every invocation and cannot be stale. Prose in the grammar of a rule —
+"do not cut until X" — is a measurement of the world wearing a rule's clothes, and it
+decays exactly like a count does.
 
 **And a green reading expires.** Re-run the gate against the payload you are actually
 about to ship. The full reasoning for both — why the guard does not fail on `pending`, and
