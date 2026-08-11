@@ -221,7 +221,7 @@ function labelFor(record, pitch) {
 }
 
 /**
- * Deterministic, DOM-free top-down tree layout for Mission Control page 2.
+ * Deterministic, DOM-free top-down tree layout for ToolsEnabled page 2.
  * The returned maps and sets are new values on every call; input records are
  * never mutated.
  */

@@ -2,7 +2,7 @@
 
 /* Starts the half of the product that is not the viewer.
  *
- * Mission Control discovers an action bridge on 127.0.0.1:4610-4619 and, until
+ * ToolsEnabled discovers an action bridge on 127.0.0.1:4610-4619 and, until
  * now, something else had to have started it -- in practice a developer, by
  * hand, out of a checkout. On a customer's machine nothing did, so discovery
  * found nothing and every write action answered BRIDGE_UNREACHABLE. This module

@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld('mcShell', {
    reachable from no window. */
 contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   availability: () => ipcRenderer.invoke('mc-agent:availability', {}),
+  /* What a session started here would be CONFINED to. Read-only, starts
+     nothing, and the reason the Start control can finally describe the session
+     it is about to start instead of reciting a sentence written before the
+     permission level reached a running agent. Returns {ok:false, code} rather
+     than a path on every failure, exactly like availability(). */
+  confinement: () => ipcRenderer.invoke('mc-agent:confinement'),
   /* Read-only, and the reason the home screen has something true to show on a
      computer with nothing else connected. Returns bounded records of what has
      run here: sequence, time, action. No path, no hash, no signature -- see
@@ -171,7 +177,7 @@ function injectTitlebar() {
   document.head.appendChild(style)
   const bar = document.createElement('div')
   bar.id = 'shell-titlebar'
-  bar.textContent = 'MISSION CONTROL'
+  bar.textContent = 'TOOLSENABLED'
   document.body.prepend(bar)
 }
 

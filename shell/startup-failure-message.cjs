@@ -41,7 +41,7 @@ function startupFailureDetail(err, { min, max } = {}) {
     )
 
     if (allInUse) {
-      return `All shell ports ${range} are in use — other Mission Control shells (or stray servers) are holding them. Close them and relaunch.${causeDetail}`
+      return `All shell ports ${range} are in use — other ToolsEnabled shells (or stray servers) are holding them. Close them and relaunch.${causeDetail}`
     }
 
     const refused = failures.find(
@@ -64,7 +64,7 @@ function startupFailureDetail(err, { min, max } = {}) {
 
     return `No shell port in ${range} could be opened. Individual port failure details were not recorded.${causeDetail}`
   } catch {
-    return 'Mission Control could not start because of an unknown startup error.'
+    return 'ToolsEnabled could not start because of an unknown startup error.'
   }
 }
 

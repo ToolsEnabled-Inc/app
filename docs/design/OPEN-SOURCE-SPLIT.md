@@ -151,10 +151,10 @@ that address ships. The gate in section 3 turns that from luck into a caught fai
 **PROPOSE: `must-not-ship-at-all`, independent of any licence decision.**
 
 18 provider files plus `src/lib/aicalendar-root.js` are the complete Chrome Web Store
-release pipeline for **AICalendar — a separate commercial product**. Not Mission Control
+release pipeline for **AICalendar — a separate commercial product**. Not ToolsEnabled
 automating a third party on a user's behalf: release/ops tooling for the owner's *other*
 product, hardwired to that product's specific Store listing, Firebase project and revenue
-backend. It is currently redistributed inside Mission Control's installer.
+backend. It is currently redistributed inside ToolsEnabled's installer.
 
 **Two live third-party identifiers ship in plaintext today.** Verified present in both the
 staged payload and `release/win-unpacked`:
@@ -173,7 +173,7 @@ other product. Neither is caught by `check-no-owner-data.mjs`, because neither i
 **The sharpest item in this group:**
 `src/lib/providers/aicalendar-publisher-identity-evidence.js` stages and OCRs the **owner's
 passport MRZ** for Chrome Web Store publisher verification. It is in the payload. No
-stranger's Mission Control installation has any use for passport-document handling.
+stranger's ToolsEnabled installation has any use for passport-document handling.
 
 **Two files in this cluster must NOT simply be deleted:**
 
@@ -466,8 +466,8 @@ classified `paid` or `excluded` reach the payload unnoticed.
 
 ## 5. Open questions for the owner
 
-1. **AICalendar** — is excluding its release pipeline from Mission Control's installer the
-   right call, or is that pipeline meant to be a Mission Control feature? (The two live
+1. **AICalendar** — is excluding its release pipeline from ToolsEnabled's installer the
+   right call, or is that pipeline meant to be a ToolsEnabled feature? (The two live
    identifiers should be removed from a public build either way.)
 2. **The tier table** — `entitlement.js` names $19 / $299 and a 3-seat minimum. Publish as
    part of an open product's documentation of its own commercial model, or hold back?

@@ -44,7 +44,7 @@ test('the read channel carries the same sender check as every other agent channe
 /* THE ONE ABSOLUTE CLAIM THE HOME SCREEN MAKES, PINNED TO THE CODE THAT MAKES
  * IT TRUE.
  *
- * Home prints "Mission Control writes each one down on this computer before it
+ * Home prints "ToolsEnabled writes each one down on this computer before it
  * starts", and in its footer "Written down on this computer as it happened".
  * Every other sentence on that screen is derived from state and recomputed, so
  * it cannot go stale. These two are different in kind: they are standing claims

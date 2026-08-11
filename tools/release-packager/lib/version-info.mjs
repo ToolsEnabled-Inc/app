@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile)
 
 export async function readExeVersionInfo(exePath) {
   // -LiteralPath so a filename containing brackets or wildcards (unlikely,
-  // but "Mission Control Setup 1.0.1.exe" is user-visible product naming,
+  // but "ToolsEnabled Setup 1.0.1.exe" is user-visible product naming,
   // not a controlled identifier) is read literally, not glob-expanded.
   // PowerShell's default console output encoding on Windows is a legacy
   // codepage, not UTF-8 -- without forcing it, non-ASCII bytes (e.g. the "©"

@@ -52,7 +52,7 @@ function bulletList(items) {
 
 function renderOtherCandidates(otherCandidates, stagingDir) {
   if (otherCandidates.length === 0) {
-    return `No other \`Mission Control Setup *.exe\` files were found in the scanned locations ` +
+    return `No other \`ToolsEnabled Setup *.exe\` files were found in the scanned locations ` +
       `(${stagingDir} and its siblings). If one appears later, it is not this candidate unless its ` +
       `SHA-256 matches the value declared above.`
   }
@@ -195,13 +195,13 @@ export function renderDeclaration(rawFacts) {
       `be transferred, referenced, or treated as satisfying any row of the acceptance matrix.\n\n---\n\n`
     : ''
 
-  return `${header}# Machine A installer declaration -- Mission Control ${version}
+  return `${header}# Machine A installer declaration -- ToolsEnabled ${version}
 
 Date: ${date}
 From: automated release packager (\`tools/release-packager/cut-release-candidate.mjs\`)
 Governed by: \`MACHINE-B-REPLACEMENT-BUILD-ACCEPTANCE-MATRIX.md\`, "Immutable declaration" / "Product identity" / "appId" gates.
 
-**Disposition: ${test ? 'TEST ARTIFACT -- not offered as a candidate.' : 'this is the immutable candidate. Do not treat any other `Mission Control Setup *.exe` file as a candidate -- see "Artifacts that are NOT this candidate" below.'}**
+**Disposition: ${test ? 'TEST ARTIFACT -- not offered as a candidate.' : 'this is the immutable candidate. Do not treat any other `ToolsEnabled Setup *.exe` file as a candidate -- see "Artifacts that are NOT this candidate" below.'}**
 
 ## The fields the matrix names
 
@@ -211,7 +211,7 @@ Governed by: \`MACHINE-B-REPLACEMENT-BUILD-ACCEPTANCE-MATRIX.md\`, "Immutable de
 | Version | ${version}${previousVersion ? ` (previous candidate: ${previousVersion})` : ''} |
 | Exact byte count | ${fmtBytes(candidate.bytes)} |
 | SHA-256 | \`${candidate.sha256}\` |
-| Build ref | commit \`${buildRef}\`, branch \`${branch}\`${branchAdvanced ? '' : ' (NOT YET the tip of that branch -- see "Branch state" below)'}, in the Mission Control application repository |
+| Build ref | commit \`${buildRef}\`, branch \`${branch}\`${branchAdvanced ? '' : ' (NOT YET the tip of that branch -- see "Branch state" below)'}, in the ToolsEnabled application repository |
 | Publisher (CompanyName) | \`${versionInfo.companyName}\` |
 | ProductName | \`${versionInfo.productName}\` |
 | appId | \`${appId.configured}\` (configured; see appId section below) |

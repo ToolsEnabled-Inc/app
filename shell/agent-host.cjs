@@ -10,8 +10,8 @@ const path = require('node:path')
 const { resolveCapabilityRoot } = require('./capability-layer.cjs')
 
 const CLIENT_INFO = Object.freeze({
-  name: 'mission-control',
-  title: 'Mission Control',
+  name: 'toolsenabled',
+  title: 'ToolsEnabled',
   version: '1.0.0',
 })
 
@@ -56,7 +56,7 @@ const PAYLOAD_ENGINE_MODULE = 'src/lib/agent-engine/codex-process.js'
  * resolved from -- a session confined by one installation's answer while running
  * another installation's engine would be two products pretending to be one.
  *
- * THE GAP THIS CLOSES. Mission Control's first-run screen asks how much the
+ * THE GAP THIS CLOSES. ToolsEnabled's first-run screen asks how much the
  * assistant may do and records the answer. This module used to start every
  * session with `threadOptions: {}` and no environment, so Codex fell back to the
  * user's own ~/.codex/config.toml -- measured on the build machine as
@@ -120,7 +120,7 @@ function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot()
   //   await window.mcAgent.availability()    -> {ok:false, code:"AGENT_ENGINE_UNAVAILABLE"}
   // A customer has no checkout and no MISSION_CONTROL_ENGINE, and there is no
   // UI anywhere to set one, so with only the two candidates below this could
-  // never resolve. "Start an agent from inside Mission Control" was dead on
+  // never resolve. "Start an agent from inside ToolsEnabled" was dead on
   // every shipped copy BY CONSTRUCTION -- not misconfigured, and not something
   // onboarding could fix.
   //
@@ -629,7 +629,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     const sessionEnv = sessionLaunchEnvironment(
       loadLaunchEnvironment(engineRoot),
       plan,
-      { context: 'Mission Control agent session' },
+      { context: 'ToolsEnabled agent session' },
     )
 
     const session = {

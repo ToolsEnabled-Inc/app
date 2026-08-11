@@ -100,7 +100,7 @@ function leakyFacts(overrides = {}) {
     sourceRef: '0c13106',
     buildRef: 'b'.repeat(40),
     branchAdvanced: false,
-    candidate: { filename: 'Mission Control Setup 1.0.4.exe', bytes: 101509214, sha256: 'ABCDEF01' },
+    candidate: { filename: 'ToolsEnabled Setup 1.0.4.exe', bytes: 101509214, sha256: 'ABCDEF01' },
     treeState: {
       worktreePath: path.join(home, 'Desktop', 'wt-release-build-1.0.4'),
       worktreeRemoved: true,
@@ -108,12 +108,12 @@ function leakyFacts(overrides = {}) {
     },
     versionInfo: {
       companyName: 'ToolsEnabled, Inc.',
-      productName: 'Mission Control',
+      productName: 'ToolsEnabled',
       fileVersion: '1.0.4',
       productVersion: '1.0.4',
-      legalCopyright: 'Copyright \u00A9 2026 Mission Control',
+      legalCopyright: 'Copyright \u00A9 2026 ToolsEnabled',
     },
-    appId: { configured: 'com.toolsenabled.missioncontrol' },
+    appId: { configured: 'com.toolsenabled.desktop' },
     unsigned: { signExecutable: false },
     pipeline: { verifySummary: null, checkNoOwnerData: null, smokePackagedLine: null, distExitCode: 0 },
     excludedWip: {
@@ -123,7 +123,7 @@ function leakyFacts(overrides = {}) {
     },
     otherCandidates: [
       {
-        path: path.join(home, 'Desktop', 'MACHINE-A-INSTALLER-CANDIDATE', '1.0.3', 'Mission Control Setup 1.0.3.exe'),
+        path: path.join(home, 'Desktop', 'MACHINE-A-INSTALLER-CANDIDATE', '1.0.3', 'ToolsEnabled Setup 1.0.3.exe'),
         bytes: 101490181,
         sha256: 'CAFEBABE',
         mtime: '2026-08-11T00:05:26.219Z',
@@ -246,13 +246,13 @@ test('the redacted declaration still gives a verifier everything they act on', (
   assert.match(markdown, /ABCDEF01/, 'the SHA-256 a recipient checks the bytes against is missing')
   assert.match(markdown, /101,509,214/, 'the exact byte count is missing')
   assert.match(markdown, /b{40}/, 'the build ref -- the only portable identity of the source -- is missing')
-  assert.match(markdown, /Mission Control Setup 1\.0\.4\.exe/, 'the candidate filename is missing')
+  assert.match(markdown, /ToolsEnabled Setup 1\.0\.4\.exe/, 'the candidate filename is missing')
 
   // The transfer location must stay FINDABLE. %USERPROFILE% resolves as written
   // in Explorer, cmd and PowerShell, so this is still a working path.
   assert.match(
     markdown,
-    /%USERPROFILE%\\Desktop\\MACHINE-A-INSTALLER-CANDIDATE\\1\.0\.4\\Mission Control Setup 1\.0\.4\.exe/,
+    /%USERPROFILE%\\Desktop\\MACHINE-A-INSTALLER-CANDIDATE\\1\.0\.4\\ToolsEnabled Setup 1\.0\.4\.exe/,
     'the immutable transfer location is no longer a path anyone can follow',
   )
   // The reproduction steps must stay RUNNABLE.
@@ -278,7 +278,7 @@ test('the redacted declaration still gives a verifier everything they act on', (
   // is worthless without paths a reader can resolve.
   assert.match(
     markdown,
-    /%USERPROFILE%\\Desktop\\MACHINE-A-INSTALLER-CANDIDATE\\1\.0\.3\\Mission Control Setup 1\.0\.3\.exe/,
+    /%USERPROFILE%\\Desktop\\MACHINE-A-INSTALLER-CANDIDATE\\1\.0\.3\\ToolsEnabled Setup 1\.0\.3\.exe/,
     'the "artifacts that are NOT this candidate" list lost the paths that make it actionable',
   )
 })

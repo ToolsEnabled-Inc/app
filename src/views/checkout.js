@@ -1,7 +1,7 @@
 // /checkout — the purchase list as a shop he walks through on his own time.
 //
 // The owner asked for "a complete checkout I can pick and choose", inside
-// Mission Control, actually working, following the site's theme.
+// ToolsEnabled, actually working, following the site's theme.
 //
 // WHERE "WORKING" ENDS, AND WHY THE SCREEN SAYS SO.
 //
@@ -446,7 +446,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     noticesHost.replaceChildren()
     if (state.persistenceFailed) {
       noticesHost.append(band('blocked', 'Not saved', [
-        'This computer refused to store your choices, so they will be gone when Mission Control is closed. Everything on screen is still correct for right now.',
+        'This computer refused to store your choices, so they will be gone when ToolsEnabled is closed. Everything on screen is still correct for right now.',
       ]))
     }
     for (const change of state.priceChanges) {
@@ -555,7 +555,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       return box
     }
     truth.append(panel('does', 'What confirming does', '✓', [
-      'Saves this exact list of choices on this computer, so it is still here next time you open Mission Control.',
+      'Saves this exact list of choices on this computer, so it is still here next time you open ToolsEnabled.',
       'Writes a dated note of what you chose and what it would cost, at today\'s prices, against the account you are signed in as.',
       'Keeps both totals with it, so a price that changes later cannot quietly rewrite what you agreed to.',
     ]))

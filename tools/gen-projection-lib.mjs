@@ -1,5 +1,5 @@
 /**
- * Shared, fail-closed projection machinery for the seven Mission Control data
+ * Shared, fail-closed projection machinery for the seven ToolsEnabled data
  * domains.  This module never reads live SQLite files and never reaches the
  * network.  Domain generators use existing ToolsEnabled readers/CLIs, validate
  * their complete payload against the public schema, then replace one snapshot

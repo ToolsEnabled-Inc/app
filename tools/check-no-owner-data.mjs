@@ -68,10 +68,12 @@ const BUILT_IN_PATTERNS = [
   // this product had a public identity of its own -- so at the time, every
   // occurrence really was a leak. That stopped being true the day the product
   // got a real publisher: "ToolsEnabled, Inc." is now the required
-  // CompanyName/Publisher (Machine B's acceptance matrix), and
-  // com.toolsenabled.missioncontrol is the required appId. Case-insensitive
-  // and unanchored, the bare word matched both of those every time, which
-  // means it did not just block one manifest field -- it forbade the
+  // CompanyName/Publisher (Machine B's acceptance matrix), and the appId is
+  // com.toolsenabled.desktop. Since the 2026-08-11 product rename the word is
+  // also the ProductName, the FileDescription and the window title, so the
+  // reasons not to forbid it have only multiplied. Case-insensitive and
+  // unanchored, the bare word matched every one of those, which means it did
+  // not just block one manifest field -- it forbade the
   // product's own identity namespace in every future build, forever. The
   // actual owner-data leak in the old rejected build was
   // com.joshp.missioncontrol, which carries the owner's username; that is

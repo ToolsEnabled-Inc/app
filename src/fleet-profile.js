@@ -1127,7 +1127,7 @@ if (FLEET_PROFILE_RESOLUTION.kind === 'invalid') {
   /* ONE STATEMENT, because this banner floats over every screen and cannot see
      what the screen under it is already saying.
      It used to be two: "this is a labelled sample fleet, not your machines" AND
-     "Mission Control already works on this one computer". On home the second
+     "ToolsEnabled already works on this one computer". On home the second
      sentence landed two inches below the page's own "No local agent fleet host
      detected on this machine", and a person cannot act on both. The banner now
      says only the thing that is true on every route it appears over, in the

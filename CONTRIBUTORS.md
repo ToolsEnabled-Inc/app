@@ -5,7 +5,7 @@
 **Contributors and maintainers are never founders.**
 
 This file credits people who contribute code, documentation, review, translation, testing
-or design to ToolsEnabled with Mission Control. It is a list of *contributors and
+or design to ToolsEnabled. It is a list of *contributors and
 maintainers*, and it is the only place outside developers are listed.
 
 Founder credit is separate, singular and fixed:
@@ -53,7 +53,7 @@ be merged without adding you.
 | --- | --- |
 | Company / copyright holder | ToolsEnabled, Inc. *(in formation)* — copyright currently held personally by Joshua Pinckard |
 | Sole founder and creator | Joshua Pinckard |
-| Official product | ToolsEnabled with Mission Control |
+| Official product | ToolsEnabled |
 | Official publisher | ToolsEnabled, Inc. *(in formation)* |
 
 Contributions do not transfer the project's names or marks, and do not make a fork the
@@ -61,5 +61,5 @@ official build. See [`NOTICE`](NOTICE) for the full attribution and current lega
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

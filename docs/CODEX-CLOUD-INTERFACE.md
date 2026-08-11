@@ -8,7 +8,7 @@ not color.
 
 ## What it is
 
-A Mission Control surface for running work on Codex Cloud: compose a task, bind it to an
+A ToolsEnabled surface for running work on Codex Cloud: compose a task, bind it to an
 environment, dispatch in waves, watch status, read results, and stage diffs for apply.
 The product already runs LOCAL codex through the mission bridge; this is the remote
 counterpart. Nothing here invents new backend capability — it productizes the proven CLI:
@@ -90,5 +90,5 @@ counterpart. Nothing here invents new backend capability — it productizes the 
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

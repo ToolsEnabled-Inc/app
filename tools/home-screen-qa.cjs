@@ -38,7 +38,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const APP_EXE = 'Mission Control.exe'
+const APP_EXE = 'ToolsEnabled.exe'
 const CDP_PORT = 9411
 const LAUNCH_TIMEOUT_MS = 60_000
 
@@ -59,7 +59,7 @@ function check(name, ok, detail) {
    Control may legitimately be running from somewhere else, and it is not ours
    to touch. */
 function instancesOfThisExecutable() {
-  const script = `@(Get-Process -Name 'Mission Control' -ErrorAction SilentlyContinue `
+  const script = `@(Get-Process -Name 'ToolsEnabled' -ErrorAction SilentlyContinue `
     + `| Where-Object { $_.Path -eq '${exe.replace(/'/g, "''")}' } `
     + `| Select-Object -ExpandProperty Id) -join ','`
   try {
@@ -162,12 +162,12 @@ async function main() {
     console.error(
       `REFUSING: ${running.length} process(es) from this executable are already running (PIDs ${running.join(', ')}).\n`
       + 'Electron\'s single-instance lock is app-wide, so a second launch would quit instantly and silently.\n'
-      + 'Close Mission Control and run again. This tool never kills a process it did not start.',
+      + 'Close ToolsEnabled and run again. This tool never kills a process it did not start.',
     )
     process.exit(2)
   }
 
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mission-control-home-qa-'))
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'toolsenabled-home-qa-'))
   const environment = { ...process.env }
   delete environment.ELECTRON_RUN_AS_NODE
   delete environment.ELECTRON_NO_ATTACH_CONSOLE

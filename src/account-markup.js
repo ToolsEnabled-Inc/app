@@ -84,7 +84,7 @@ export function unavailableMarkup({ state = null } = {}) {
     </div>
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
-      <button type="button" class="ctl-btn" data-account-home>Back to Mission Control</button>
+      <button type="button" class="ctl-btn" data-account-home>Back to ToolsEnabled</button>
     </div>`
 }
 
@@ -120,7 +120,7 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
     </div>
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
-      <button type="button" class="ctl-btn" data-account-home>Back to Mission Control</button>
+      <button type="button" class="ctl-btn" data-account-home>Back to ToolsEnabled</button>
     </div>`
 }
 

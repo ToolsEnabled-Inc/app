@@ -1,4 +1,4 @@
-// WHOSE ACCOUNT DOES THE AGENT MISSION CONTROL STARTS ACTUALLY SPEND?
+// WHOSE ACCOUNT DOES THE AGENT TOOLSENABLED STARTS ACTUALLY SPEND?
 //
 // Until this suite, shell/agent-host.cjs handed its agent child the user's
 // ENTIRE environment, by both of its branches and with nothing removed:

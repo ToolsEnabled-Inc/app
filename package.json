@@ -1,5 +1,5 @@
 {
-  "name": "mission-control",
+  "name": "toolsenabled",
   "private": true,
   "version": "1.0.3",
   "type": "module",
@@ -9,6 +9,8 @@
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
     "test": "node tools/check-suites-discovered.mjs && npm run test:data",
     "test:data": "node --test --test-concurrency=1 tools/test/*.test.mjs",
+    "test:chatbox": "node --test tools/test/chatbox-feed.test.mjs",
+    "qa:chatbox": "node tools/chatbox-settings-qa.mjs",
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
     "preview": "vite preview --port 4600 --strictPort",
@@ -36,9 +38,9 @@
     "d3-force": "^3.0.0",
     "echarts": "6.1.0"
   },
-  "productName": "Mission Control",
+  "productName": "ToolsEnabled",
   "build": {
-    "appId": "com.toolsenabled.missioncontrol",
+    "appId": "com.toolsenabled.desktop",
     "copyright": "Copyright © 2026 Joshua Pinckard",
     "asar": true,
     "electronDist": "node_modules/electron/dist",
