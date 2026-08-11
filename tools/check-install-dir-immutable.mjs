@@ -88,6 +88,111 @@ const GUI_TIMEOUT_MS = 90_000
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
+/* ------------------------------------------------- phase 0: what did not run
+ *
+ * THE HASH IS THE REAL ASSERTION, AND IT HAS ONE BLIND SPOT: it can only see
+ * what the session executed. A tool nobody called in these four phases -- a
+ * screen capture writing to captures/, a browser profile under profiles/, an
+ * agent lane writing a console log -- could still be resolving its path against
+ * the program directory, and the run would come back clean.
+ *
+ * So this phase reads the shipped payload's source for the one shape that
+ * causes it: a mutable top-level directory joined onto a root that is not the
+ * state root. It is explicitly the WEAKER of the two checks -- source text
+ * cannot see reachability, and dead code greps identically to live code -- and
+ * it exists only to cover what a single session does not reach. Neither check
+ * substitutes for the other, which is why both run.
+ *
+ * MEASURED WORTH: this found eight leaks the four behavioural phases missed --
+ * extension packaging into logs/, the agent launch/mailbox/presence records,
+ * the multi-account state file, the lane console logs, the state database read
+ * path, and the owner request ledger in two tools. Every one of them would have
+ * shipped behind a green hash.
+ *
+ * WHAT IT STILL CANNOT SEE, said plainly rather than left for someone to
+ * discover: a root computed inside a function and passed along as a parameter.
+ * src/lib/providers/model.js has exactly that shape. Rules that chase it start
+ * flagging genuinely caller-supplied roots -- the supervised project's
+ * directory, another worktree's -- which are not this defect and whose false
+ * positives would get the whole check disabled. The hash is what covers that
+ * case, for anything a session executes. */
+const RUNTIME_STATE_DIRECTORIES = ['state', 'logs', 'vault', 'captures', 'profiles', 'reports']
+
+/* WHAT THE SWEEP LOOKS FOR IS "DERIVED FROM WHERE THE CODE LIVES", NOT "any
+ * identifier". The first version of this flagged every `path.join(x, 'state')`
+ * and reported two false positives that taught the real rule:
+ * fleet-supervisor's defaultStateFile(repoRoot) is handed the SUPERVISED
+ * PROJECT's root, and model.js's commonWorktreeRoot() is deliberately another
+ * worktree's directory. Neither is this defect: a caller-supplied root is the
+ * caller's question. The defect is a path resolved from the MODULE'S OWN
+ * LOCATION, because that is the one thing that becomes the install directory
+ * when the code is packaged.
+ *
+ * So each file is read for the identifiers it assigns from a __dirname
+ * expression -- whatever they are named, since ROOT, REPO_ROOT, MODULE_ROOT and
+ * DEFAULT_ROOT all appear in this codebase and the next one will be named
+ * something else -- and only joins onto those (or onto __dirname directly) are
+ * reported. */
+const MODULE_ROOT_ASSIGNMENT = /(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*path\.(?:resolve|join)\(\s*__dirname/g
+/* A module root can also arrive by import: src/lib/providers/extension.js does
+   `const { ROOT, ... } = require('../runtime')` and then joins 'logs' onto it.
+   That is the same defect wearing a different hat, and the first version of this
+   sweep could not see it -- measured, against the pre-fix payload, where it
+   found 18 of the 19 sites and missed exactly that one. */
+const IMPORTED_ROOT_NAMES = /^(?:ROOT|REPO_ROOT|MODULE_ROOT|PROGRAM_ROOT|DEFAULT_ROOT|REPOSITORY_ROOT)$/
+const DESTRUCTURED_REQUIRE = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(/g
+const DIRNAME_STATE_JOIN = new RegExp(
+  String.raw`path\.(?:join|resolve)\(\s*__dirname\s*(?:,\s*'\.\.'\s*)*,\s*'(?:${RUNTIME_STATE_DIRECTORIES.join('|')})'`,
+  'g',
+)
+
+/* The resolver itself compares a candidate against the unredirected path, so it
+   necessarily contains the shape it forbids. It is the one place allowed to. */
+const STATE_ROOT_RESOLVER = new Set(['src/lib/runtime-state-root.js', 'src/lib/runtime.js'])
+
+function moduleRootIdentifiers(text) {
+  const names = new Set()
+  for (const match of text.matchAll(MODULE_ROOT_ASSIGNMENT)) names.add(match[1])
+  for (const match of text.matchAll(DESTRUCTURED_REQUIRE)) {
+    for (const part of match[1].split(',')) {
+      const name = part.split(':').pop().trim()
+      if (IMPORTED_ROOT_NAMES.test(name)) names.add(name)
+    }
+  }
+  return names
+}
+
+async function sweepPayloadSource(capabilityRoot) {
+  const findings = []
+  async function walk(directory) {
+    let entries
+    try { entries = await readdir(directory, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name)
+      if (entry.isDirectory()) { await walk(full); continue }
+      if (!entry.isFile() || !entry.name.endsWith('.js')) continue
+      const relative = path.relative(capabilityRoot, full).split(path.sep).join('/')
+      if (STATE_ROOT_RESOLVER.has(relative)) continue
+      let text
+      try { text = await readFile(full, 'utf8') } catch { continue }
+
+      const report = (index, matched) => {
+        findings.push(`${relative}:${text.slice(0, index).split('\n').length}  ${matched.replace(/\s+/g, ' ')}`)
+      }
+      for (const match of text.matchAll(DIRNAME_STATE_JOIN)) report(match.index, match[0])
+      const roots = moduleRootIdentifiers(text)
+      if (roots.size === 0) continue
+      const joinOntoModuleRoot = new RegExp(
+        String.raw`path\.(?:join|resolve)\(\s*(?:${[...roots].join('|')})\s*,\s*'(?:${RUNTIME_STATE_DIRECTORIES.join('|')})'`,
+        'g',
+      )
+      for (const match of text.matchAll(joinOntoModuleRoot)) report(match.index, match[0])
+    }
+  }
+  await walk(capabilityRoot)
+  return findings.sort()
+}
+
 /* ---------------------------------------------------------------- hashing */
 
 async function hashTree(root) {
@@ -336,6 +441,19 @@ async function main() {
 
   const failures = []
   try {
+    // ---- phase 0: the writers this session will not execute.
+    const sweep = await sweepPayloadSource(capabilityRoot)
+    if (sweep.length) {
+      failures.push(
+        `phase 0: ${sweep.length} place(s) in the shipped payload still join a runtime-state directory onto a ` +
+        'root that is not the state root. The behavioural phases below cannot see these unless the session ' +
+        'happens to execute them, which is exactly how they get shipped. Route each through statePath() or ' +
+        `programOrStatePath() in src/lib/runtime-state-root.js:\n  ${sweep.join('\n  ')}`,
+      )
+    } else {
+      console.log('phase 0: no payload source joins a runtime-state directory onto the program root')
+    }
+
     // ---- phase A: the payload, in place, told nothing.
     const first = await runPayloadInPlace(executable, capabilityRoot, profile, { label: 'phase A (payload in place)' })
     const landed = first.rows.find((row) => row?.target === ROUND_TRIP_TOOL && String(row?.action || '').startsWith('mcp.tool.'))
