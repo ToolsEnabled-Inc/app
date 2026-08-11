@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* THE ONE COMMAND: produce a declarable Mission Control release candidate.
+/* THE ONE COMMAND: produce a declarable ToolsEnabled release candidate.
  *
  * Owner's ask, verbatim: "we should have a packager that makes sending them
  * the new version easy." Today that means a full session by hand -- a build
@@ -109,7 +109,7 @@ export function parseKnownFixArg(raw) {
 function printHelp() {
   console.log(`usage: node tools/release-packager/cut-release-candidate.mjs [options]
 
-Produces a declarable Mission Control release candidate end to end: version
+Produces a declarable ToolsEnabled release candidate end to end: version
 bump -> isolated clean build -> staged artifact -> re-hashed -> declaration.
 
   --bump <patch|minor|major>   default: patch
@@ -366,7 +366,7 @@ async function main() {
 
     // --- locate + copy the built artifact BEFORE any cleanup ------------------
     const releaseDir = path.join(worktreePath, 'release')
-    const exeName = `Mission Control Setup ${version}.exe`
+    const exeName = `ToolsEnabled Setup ${version}.exe`
     const builtExePath = path.join(releaseDir, exeName)
     const builtBlockmapPath = `${builtExePath}.blockmap`
     if (!existsSync(builtExePath)) {

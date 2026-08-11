@@ -6,7 +6,7 @@ fixed by [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 ---
 
-# ToolsEnabled with Mission Control `<version>`
+# ToolsEnabled `<version>`
 
 *Released `<YYYY-MM-DD>`*
 
@@ -47,7 +47,7 @@ SmartScreen warning.
 
 ## Publisher and copyright
 
-> **ToolsEnabled with Mission Control**
+> **ToolsEnabled**
 > Published by ToolsEnabled, Inc. (in formation)
 > Copyright © `<year>` Joshua Pinckard
 >
@@ -74,12 +74,19 @@ Not part of the published note. Delete this section before release.
       is clean
 - [ ] **Binary VersionInfo verified in the artifact, not the config:**
       ```powershell
-      (Get-Item "release\win-unpacked\Mission Control.exe").VersionInfo |
-        Select-Object CompanyName, LegalCopyright, ProductName, FileVersion
+      (Get-Item "release\win-unpacked\ToolsEnabled.exe").VersionInfo |
+        Select-Object CompanyName, LegalCopyright, ProductName, FileDescription, FileVersion
       ```
-      `CompanyName` reads `ToolsEnabled, Inc. (in formation)` and `LegalCopyright` reads
-      `Copyright © <year> Joshua Pinckard`. Check the installer `.exe` too — it carries
-      its own VersionInfo.
+      `CompanyName` reads `ToolsEnabled, Inc. in formation`, `LegalCopyright` reads
+      `Copyright © <year> Joshua Pinckard`, and `ProductName` and `FileDescription` both
+      read `ToolsEnabled`. Check the installer `.exe` too — it carries its own VersionInfo.
+
+      **`CompanyName` has no parentheses, and that is not a typo to fix.**
+      electron-builder normalizes `author` with npm's people-string rules, so a trailing
+      `(...)` is parsed as a URL field and silently dropped from the binary. A build once
+      shipped asserting a company that does not exist because the config said one thing
+      and the `.exe` said another. Read the value out of the artifact; never trust
+      `package.json` for this field.
 - [ ] Installer SHA-256 recorded above matches the file being published
 - [ ] No trademark symbol (®) anywhere in the notes, and no claim that ToolsEnabled, Inc.
       currently exists
@@ -87,5 +94,5 @@ Not part of the published note. Delete this section before release.
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

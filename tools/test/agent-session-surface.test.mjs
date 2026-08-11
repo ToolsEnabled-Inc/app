@@ -280,7 +280,7 @@ test('availability resolves the engine the installer ships, with no environment 
   // mc.write.agent-session was already "enabled" and availability() still
   // answered AGENT_ENGINE_UNAVAILABLE, because engineCandidates() knew only an
   // explicit enginePath and MISSION_CONTROL_ENGINE. A customer has neither, and
-  // no UI sets one, so "start an agent from inside Mission Control" could never
+  // no UI sets one, so "start an agent from inside ToolsEnabled" could never
   // work. The engine now ships in the capability payload
   // (tools/capability-manifest.json hostModules) and resolves from the same
   // root shell/setup-record.cjs already uses.
@@ -756,7 +756,7 @@ test('the recorder half of the vocabulary is derived from what the recorder can 
 })
 
 /* THE THIRD DEV-ONLY-WORKS BUG on this path, and the last one blocking
-   "start an agent from inside Mission Control".
+   "start an agent from inside ToolsEnabled".
 
    getAgentHost() passed `path.join(__dirname, '..')` as the session cwd. In a
    checkout that is the repo root; in a packaged app `__dirname` lives inside

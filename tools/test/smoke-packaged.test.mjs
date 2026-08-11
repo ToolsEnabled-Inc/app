@@ -34,11 +34,11 @@ test('missing packaged directory throws with a clear message', async (t) => {
   })
 })
 
-test('directory without Mission Control.exe throws', async (t) => {
+test('directory without ToolsEnabled.exe throws', async (t) => {
   const directory = await temporaryDirectory(t)
   await assert.rejects(main(directory), (error) => {
     assert.match(error.message, /Packaged executable does not exist/)
-    assert.match(error.message, /Mission Control\.exe/)
+    assert.match(error.message, /ToolsEnabled\.exe/)
     return true
   })
 })
@@ -75,7 +75,7 @@ test('application that never binds times out and terminates', async (t) => {
   assert.equal(terminated, true)
 })
 
-test('existing Mission Control instance refuses launch without killing it', async (t) => {
+test('existing ToolsEnabled instance refuses launch without killing it', async (t) => {
   const directory = await temporaryDirectory(t)
   await writeFile(path.join(directory, APP_EXE), 'test placeholder')
 
@@ -144,7 +144,7 @@ test('successful probe reports the serving port, status, and marker and terminat
 })
 
 test('a fatal startup window fails smoke even after the HTTP marker responds', async (t) => {
-  for (const title of ['Error', 'Mission Control could not start']) {
+  for (const title of ['Error', 'ToolsEnabled could not start']) {
     await t.test(title, async (t) => {
       const directory = await temporaryDirectory(t)
       await writeFile(path.join(directory, APP_EXE), 'test placeholder')

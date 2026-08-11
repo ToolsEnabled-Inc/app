@@ -265,7 +265,7 @@ function swapView(route, morph, zoom, snapshotted) {
   back.setAttribute('aria-label', backName); back.setAttribute('title', backName)
   next.setAttribute('aria-label', nextName); next.setAttribute('title', nextName)
   const routeName = route.name === 'agent' ? `agent ${route.agent}` : route.name
-  document.title = `${routeName} · Mission Control`
+  document.title = `${routeName} · ToolsEnabled`
 }
 
 window.addEventListener('hashchange', render)

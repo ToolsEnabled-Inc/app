@@ -211,7 +211,7 @@ test('the screen renders the levels through the settings surface, not a new one'
 
 /* ---------- 3. the disclosure, AT the point of choice ---------- */
 
-/* The claim moved because the fact moved. T5 landed: a session Mission Control
+/* The claim moved because the fact moved. T5 landed: a session ToolsEnabled
    starts is confined by the recorded level, measured from a real packaged build
    -- `guided` had its shell command refused ("rejected: blocked by policy", file
    not created) where `unrestricted` performed the same write and exited 0.
@@ -248,7 +248,7 @@ test('the disclosure still admits the sessions it cannot confine', () => {
 /* THE OVER-BROAD FAILURE MODE, which the first version of this notice shipped
    with and which the lane building attach caught.
 
-   "It cannot confine an assistant Mission Control did not start" reads as the
+   "It cannot confine an assistant ToolsEnabled did not start" reads as the
    cautious claim and is false for two of the three attach modes. MEASURED: a
    thread created at danger-full-access, which had already written outside its
    own folder, was resumed inside a process started with sandbox 'read-only' and
@@ -265,7 +265,7 @@ test('the disclosure does not overclaim the gap for sessions it does confine', (
   assert.match(notice, /Take a session over so it continues here and this level applies/)
   assert.doesNotMatch(
     notice,
-    /cannot confine an assistant Mission Control did not start/,
+    /cannot confine an assistant ToolsEnabled did not start/,
     'taking a session over DOES confine it; the blanket claim is measurably false',
   )
   /* The peer's qualification, kept because it is the true half of the old

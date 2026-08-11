@@ -97,7 +97,7 @@ function stage(scratch) {
   }
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   return asar.createPackage(unpacked, path.join(app, 'resources', 'app.asar'))
-    .then(() => path.join(app, 'Mission Control.exe'))
+    .then(() => path.join(app, 'ToolsEnabled.exe'))
 }
 
 /* ---------- a bounded CDP client ---------- */
@@ -304,10 +304,10 @@ async function drive(mode, executable, scratch) {
     session.close()
     await delay(300)
     /* By PATH, under this run's own scratch copy. Never by process name: another
-       lane's Mission Control, or the owner's, must not be touched. */
+       lane's ToolsEnabled, or the owner's, must not be touched. */
     try {
       execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-        `Get-CimInstance Win32_Process -Filter "Name='Mission Control.exe'" | Where-Object { $_.ExecutablePath -like '${path.join(scratch, 'app').replace(/\\/g, '\\\\')}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+        `Get-CimInstance Win32_Process -Filter "Name='ToolsEnabled.exe'" | Where-Object { $_.ExecutablePath -like '${path.join(scratch, 'app').replace(/\\/g, '\\\\')}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
       ], { stdio: 'ignore' })
     } catch { /* nothing of ours left to stop */ }
     try { child.kill() } catch { /* already gone */ }

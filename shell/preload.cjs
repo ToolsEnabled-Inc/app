@@ -85,7 +85,7 @@ function injectTitlebar() {
   document.head.appendChild(style)
   const bar = document.createElement('div')
   bar.id = 'shell-titlebar'
-  bar.textContent = 'MISSION CONTROL'
+  bar.textContent = 'TOOLSENABLED'
   document.body.prepend(bar)
 }
 

@@ -94,7 +94,7 @@ async function shellBridgeEndpoint() {
 async function pinnedOwnLayer(endpoint) {
   const normalized = normalizedBaseUrl(endpoint.baseUrl)
   if (!normalized.ok) {
-    return { ok: false, reason: 'the Mission Control shell reported a malformed own-layer origin', code: 'BRIDGE_OWN_LAYER_INVALID' }
+    return { ok: false, reason: 'the ToolsEnabled shell reported a malformed own-layer origin', code: 'BRIDGE_OWN_LAYER_INVALID' }
   }
   try {
     const response = await fetch(`${normalized.baseUrl}/v1/runtime`, {
@@ -111,7 +111,7 @@ async function pinnedOwnLayer(endpoint) {
   }
   return {
     ok: false,
-    reason: 'the Mission Control shell started a capability layer this renderer could not confirm; refusing to hand its bootstrap proof to any other local listener',
+    reason: 'the ToolsEnabled shell started a capability layer this renderer could not confirm; refusing to hand its bootstrap proof to any other local listener',
     code: 'BRIDGE_OWN_LAYER_UNCONFIRMED',
   }
 }
@@ -164,7 +164,7 @@ async function bootstrap() {
   if (typeof getBridgeProof !== 'function') {
     return {
       ok: false,
-      reason: 'action bridge bootstrap proof is unavailable outside the Mission Control desktop shell',
+      reason: 'action bridge bootstrap proof is unavailable outside the ToolsEnabled desktop shell',
       code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE',
     }
   }
@@ -175,7 +175,7 @@ async function bootstrap() {
   } catch {
     return {
       ok: false,
-      reason: 'the Mission Control desktop shell could not provide the action bridge bootstrap proof',
+      reason: 'the ToolsEnabled desktop shell could not provide the action bridge bootstrap proof',
       code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE',
     }
   }
@@ -185,7 +185,7 @@ async function bootstrap() {
       ok: false,
       reason: typeof proofResult?.reason === 'string'
         ? proofResult.reason
-        : 'the Mission Control desktop shell has no valid action bridge bootstrap proof',
+        : 'the ToolsEnabled desktop shell has no valid action bridge bootstrap proof',
       code: 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE',
     }
   }

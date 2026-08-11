@@ -114,7 +114,30 @@ test('no source under src/ or shell/ names the internal repo or the dead chat pl
   const forbidden = [
     { label: 'toolsenabled-current', pattern: /toolsenabled-current/ },
     { label: 'Ask Codex or Claude', pattern: /Ask Codex or Claude/ },
-    { label: 'ToolsEnabled', pattern: /toolsenabled/i },
+    // NARROWED, and the narrowing is the product rename, not a relaxation.
+    //
+    // This clause used to be a bare, unanchored /toolsenabled/i. That was
+    // correct while "ToolsEnabled" was only ever the name of the owner's
+    // private tree: at the time, every occurrence in shipped source really was
+    // a leak of an internal name. It stopped being correct the moment the
+    // product was RENAMED to ToolsEnabled, because the rule then forbade the
+    // product's own on-screen name -- the window title, the titlebar, and every
+    // sentence of user-facing copy that says which program is speaking. A gate
+    // that forbids the product from naming itself does not protect anybody.
+    //
+    // tools/check-no-owner-data.mjs, which is the authority and which scans the
+    // BUILT bundle, has already been through this exact correction twice and
+    // settled on the shape below; see its comment at the "toolsenabled-current"
+    // rule. What the rule is actually aiming at is the tree name as a DIRECTORY
+    // COMPONENT OF AN ABSOLUTE PATH ON A REAL MACHINE, which always has a drive
+    // root. The product's own identity never does. So the drive root is what is
+    // matched, and this file now agrees with the guard it exists to front-run.
+    //
+    // Still caught by this clause, and by nothing else here:
+    //   C:\Users\joshp\Desktop\ToolsEnabled\src   D:/dev/toolsenabled/lib
+    // Still caught by the exact clause above it, unchanged:  toolsenabled-current
+    // Now permitted, deliberately:  "ToolsEnabled", 'toolsenabled', TOOLSENABLED
+    { label: 'builder checkout path (<drive>:\\...\\ToolsEnabled)', pattern: /[A-Za-z]:[\\/][^\r\n]{0,160}?[\\/]toolsenabled/i },
     { label: 'agent-coord', pattern: /agent-coord/i },
     { label: "the owner's account aliases", pattern: /jpinckard/i },
     { label: "the owner's university account", pattern: /jpinc005/i },

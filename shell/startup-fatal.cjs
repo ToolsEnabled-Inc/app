@@ -85,7 +85,7 @@ function createFatalStartupHandler({
       writeFileSync(candidate, report, 'utf8')
       logPath = candidate
     } catch (logError) {
-      writeStderr(`Mission Control could not write its startup error log: ${fullErrorText(logError)}\n`)
+      writeStderr(`ToolsEnabled could not write its startup error log: ${fullErrorText(logError)}\n`)
     }
 
     const action = logPath
@@ -93,17 +93,17 @@ function createFatalStartupHandler({
       : 'Copy this error before closing the dialog so it can be diagnosed.'
     try {
       dialog.showErrorBox(
-        'Mission Control could not start',
+        'ToolsEnabled could not start',
         `${safeString(origin)}\n\n${detail}\n\n${action}`,
       )
     } catch (dialogError) {
-      writeStderr(`Mission Control could not show its fatal error dialog: ${fullErrorText(dialogError)}\n`)
+      writeStderr(`ToolsEnabled could not show its fatal error dialog: ${fullErrorText(dialogError)}\n`)
     }
 
     try {
       app.exit(1)
     } catch (exitError) {
-      writeStderr(`Mission Control app.exit(1) failed: ${fullErrorText(exitError)}\n`)
+      writeStderr(`ToolsEnabled app.exit(1) failed: ${fullErrorText(exitError)}\n`)
       hardExit(1)
     }
   }

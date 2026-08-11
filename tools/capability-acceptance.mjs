@@ -43,7 +43,7 @@ import { guiEnvironment } from '../shell/capability-layer.cjs'
 
 const execFile = promisify(execFileCallback)
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const APP_EXE = 'Mission Control.exe'
+const APP_EXE = 'ToolsEnabled.exe'
 const BRIDGE_PORTS = Array.from({ length: 10 }, (_, index) => 4610 + index)
 const LIVENESS_SECONDS = Number(process.env.MC_ACCEPTANCE_LIVENESS_SECONDS || 60)
 
@@ -110,10 +110,10 @@ async function capabilityProcessesUnder(installRoot) {
    * standing "orphaned capability-layer process" failure whose pid was the
    * probe, and a 30-second wait for a count to reach zero that never could.
    * Restricting to the app binary excludes the observer from the observation.
-   * The capability layer runs as Mission Control.exe under
+   * The capability layer runs as ToolsEnabled.exe under
    * ELECTRON_RUN_AS_NODE, so this is also exactly what it is. */
   const output = await powershell(
-    "Get-CimInstance Win32_Process -Filter \"Name='Mission Control.exe'\" | Where-Object { $_.CommandLine -like " +
+    "Get-CimInstance Win32_Process -Filter \"Name='ToolsEnabled.exe'\" | Where-Object { $_.CommandLine -like " +
       `'*${needle}*' } | Select-Object -ExpandProperty ProcessId`,
   )
   return output ? output.split(/\s+/).map(Number).filter(Number.isInteger) : []
@@ -209,8 +209,8 @@ async function reachCapabilityLayer(installRoot, shellOriginPort) {
  * rather than assume the first.
  *
  * AND IT MUST CONFIRM THE SERVER IS OURS. The first version of this function
- * accepted any port answering with the Mission Control title, and on the first
- * real run it bound to a DIFFERENT Mission Control -- an older build installed
+ * accepted any port answering with the ToolsEnabled title, and on the first
+ * real run it bound to a DIFFERENT ToolsEnabled -- an older build installed
  * under Programs -- and would have reported that this install's capability
  * layer was unreachable. That is the same mistake this file's own header warns
  * about for the bridge ("a port answering is not evidence that the right
@@ -226,7 +226,7 @@ async function findShellPort(installRoot) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1500) })
       const body = await response.text()
-      if (!body.includes('<title>Mission Control</title>')) continue
+      if (!body.includes('<title>ToolsEnabled</title>')) continue
       const listener = await listenerPidFor(port)
       if (listener !== null && owned.has(listener)) return port
     } catch {}
@@ -282,10 +282,10 @@ async function main() {
     return
   }
 
-  const blocking = await processesNamed('Mission Control')
+  const blocking = await processesNamed('ToolsEnabled')
   if (blocking.length) {
     console.error(
-      `capability-acceptance: REFUSING TO RUN. ${blocking.length} Mission Control process(es) are already running ` +
+      `capability-acceptance: REFUSING TO RUN. ${blocking.length} ToolsEnabled process(es) are already running ` +
         `(pids ${blocking.join(', ')}). Electron's single-instance lock would make the copy under test quit ` +
         'immediately, and this harness would report that as a product failure. Close them and re-run.',
     )
@@ -294,7 +294,7 @@ async function main() {
   }
 
   const stagingParent = mkdtempSync(path.join(tmpdir(), 'mc-install-'))
-  const installRoot = path.join(stagingParent, 'Mission Control')
+  const installRoot = path.join(stagingParent, 'ToolsEnabled')
   let appChild = null
 
   try {

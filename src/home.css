@@ -525,7 +525,7 @@ a.home-fact:focus-visible {
 /* The global "you are seeing example data" banner is suppressed on home, and
    only here. Home now states its own source in its own words, and the banner
    sat directly under it saying a second, differently-worded version of the same
-   thing -- which is how "Mission Control already works on this one computer"
+   thing -- which is how "ToolsEnabled already works on this one computer"
    came to sit two inches below "No local agent fleet host detected on this
    machine". Serious notices (an invalid or unreadable profile) are real faults
    and are never hidden. */

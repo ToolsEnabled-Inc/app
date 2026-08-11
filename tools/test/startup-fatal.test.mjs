@@ -25,7 +25,7 @@ test('fullErrorText retains an Error stack and safely formats non-Errors', () =>
 })
 
 test('fatal startup is visible, durable, logged in full, and exits non-zero', (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mission-control-fatal-test-'))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'toolsenabled-fatal-test-'))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
 
   let stderr = ''
@@ -55,7 +55,7 @@ test('fatal startup is visible, durable, logged in full, and exits non-zero', (t
   assert.match(stderr, /Error: deliberate createWindow failure/)
   assert.match(stderr, /startup-fatal\.test\.mjs/)
   assert.deepEqual(dialogCall && Object.keys(dialogCall), ['title', 'detail'])
-  assert.equal(dialogCall.title, 'Mission Control could not start')
+  assert.equal(dialogCall.title, 'ToolsEnabled could not start')
   assert.match(dialogCall.detail, /Actionable detail: deliberate createWindow failure/)
   assert.match(dialogCall.detail, new RegExp(STARTUP_ERROR_LOG.replace('.', '\\.')))
 

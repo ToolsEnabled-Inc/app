@@ -52,7 +52,7 @@ test('research is an independent ring route backed by the research projection', 
   // absent from ORDER is a route nobody can reach.
   //
   // 'checkout' joined it next, directly after approvals, when the owner asked
-  // for the purchase list to be a working surface inside Mission Control
+  // for the purchase list to be a working surface inside ToolsEnabled
   // rather than a document. The two sit together because both are places he
   // decides about money. This edit IS the visible reviewed change the pin
   // exists to force.

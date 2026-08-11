@@ -73,7 +73,7 @@ const REQUIRED_LAUNCHERS = ['shell/launch.cjs', 'tools/smoke-packaged.mjs']
 
 const SPAWNS_A_PROCESS = /(?:^|[^\w.])(?:spawn|spawnSync|execFile|execFileSync)\s*\(|\.\s*spawn\s*\(/
 const NAMES_THE_GUI_EXE = [
-  /(['"`])Mission Control\.exe\1/,
+  /(['"`])ToolsEnabled\.exe\1/,
   /\bAPP_EXE\b/,
   /require\(\s*['"]electron['"]\s*\)/,
   /from\s+['"]electron['"]/,
@@ -154,7 +154,7 @@ test('every harness that launches the packaged app strips ELECTRON_RUN_AS_NODE',
   assert.deepEqual(
     offenders,
     [],
-    'These files spawn the packaged Mission Control executable without removing ' +
+    'These files spawn the packaged ToolsEnabled executable without removing ' +
       `ELECTRON_RUN_AS_NODE from the child environment: ${offenders.join(', ')}.\n` +
       'Under an agent harness that variable is exported as 1, and the app will then start as ' +
       'plain Node, read stdin, hit EOF and exit 0 with no window -- which reads as a product ' +

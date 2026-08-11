@@ -1,4 +1,4 @@
-ToolsEnabled with Mission Control
+ToolsEnabled
 Copyright © 2026 Joshua Pinckard
 
 ToolsEnabled was founded and created by Joshua Pinckard. The original platform was
@@ -6,7 +6,7 @@ developed by directing autonomous AI-agent fleets through the system's own evolv
 coordination architecture.
 
 Sole founder and creator : Joshua Pinckard
-Official product         : ToolsEnabled with Mission Control
+Official product         : ToolsEnabled
 Official publisher       : ToolsEnabled, Inc. (in formation)
 Copyright holder         : Joshua Pinckard
 
@@ -19,8 +19,13 @@ publisher and is marked "(in formation)" for that reason. Copyright is held
 personally by Joshua Pinckard until the entity exists and the rights are
 assigned to it; this NOTICE is updated at that point.
 
-No trademark application has been filed for "ToolsEnabled" or "Mission Control".
-Neither name is claimed here as a registered mark.
+No trademark application has been filed for "ToolsEnabled". The name is not
+claimed here as a registered mark.
+
+The interface was previously called "Mission Control". That name was dropped
+before launch: a USPTO search returned 17 live marks for it in the relevant
+classes, including Apple Inc. (Reg. 4240125, IC 009) and BMC Software.
+"ToolsEnabled" returned no hits, live or dead.
 
 No open-source license has been selected yet, so this file makes no license
 grant and all rights are reserved. A license will be chosen and added before

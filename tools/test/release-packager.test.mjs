@@ -101,8 +101,8 @@ test("findOtherCandidates finds same-pattern installers one level deep and exclu
     const versionedSubdir = path.join(root, "1.0.1");
     await mkdir(versionedSubdir, { recursive: true });
 
-    const stray = path.join(root, "Mission Control Setup 1.0.0.exe");
-    const nested = path.join(versionedSubdir, "Mission Control Setup 1.0.1.exe");
+    const stray = path.join(root, "ToolsEnabled Setup 1.0.0.exe");
+    const nested = path.join(versionedSubdir, "ToolsEnabled Setup 1.0.1.exe");
     const irrelevant = path.join(root, "readme.txt");
     await writeFile(stray, Buffer.from("stray"));
     await writeFile(nested, Buffer.from("this-is-the-declared-one"));
@@ -148,16 +148,16 @@ function baseFacts(overrides = {}) {
     sourceRef: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     buildRef: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     branchAdvanced: false,
-    candidate: { filename: "Mission Control Setup 1.0.2.exe", bytes: 123456789, sha256: "DEADBEEF" },
+    candidate: { filename: "ToolsEnabled Setup 1.0.2.exe", bytes: 123456789, sha256: "DEADBEEF" },
     treeState: { worktreePath: "C:\\fixture\\wt", worktreeRemoved: true, buildInfoConfirmedClean: true },
     versionInfo: {
       companyName: "ToolsEnabled, Inc.",
-      productName: "Mission Control",
+      productName: "ToolsEnabled",
       fileVersion: "1.0.2",
       productVersion: "1.0.2",
-      legalCopyright: "Copyright \u00A9 2026 Mission Control",
+      legalCopyright: "Copyright \u00A9 2026 ToolsEnabled",
     },
-    appId: { configured: "com.toolsenabled.missioncontrol" },
+    appId: { configured: "com.toolsenabled.desktop" },
     unsigned: { signExecutable: false },
     pipeline: { verifySummary: null, checkNoOwnerData: null, smokePackagedLine: null, distExitCode: 0 },
     excludedWip: { sourceWorktree: "C:\\fixture\\repo", measuredAt: "2026-08-10T00:00:00.000Z", dirtyFiles: [] },
@@ -170,12 +170,12 @@ function baseFacts(overrides = {}) {
 
 test("renderDeclaration includes every field the acceptance matrix names, measured not assumed", () => {
   const markdown = renderDeclaration(baseFacts());
-  assert.match(markdown, /Mission Control Setup 1\.0\.2\.exe/);
+  assert.match(markdown, /ToolsEnabled Setup 1\.0\.2\.exe/);
   assert.match(markdown, /123,456,789/);
   assert.match(markdown, /DEADBEEF/);
   assert.match(markdown, /bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/);
   assert.match(markdown, /ToolsEnabled, Inc\./);
-  assert.match(markdown, /com\.toolsenabled\.missioncontrol/);
+  assert.match(markdown, /com\.toolsenabled\.desktop/);
   assert.match(markdown, /certifies the configured value only/);
 });
 
@@ -204,11 +204,11 @@ test("renderDeclaration lists other same-name installers as explicitly NOT the c
   const markdown = renderDeclaration(
     baseFacts({
       otherCandidates: [
-        { path: "C:\\fixture\\release\\Mission Control Setup 1.0.1.exe", bytes: 999, sha256: "CAFEBABE", mtime: "x" },
+        { path: "C:\\fixture\\release\\ToolsEnabled Setup 1.0.1.exe", bytes: 999, sha256: "CAFEBABE", mtime: "x" },
       ],
     }),
   );
-  assert.match(markdown, /Mission Control Setup 1\.0\.1\.exe/);
+  assert.match(markdown, /ToolsEnabled Setup 1\.0\.1\.exe/);
   assert.match(markdown, /CAFEBABE/);
   assert.match(markdown, /not this candidate; different bytes/);
 });

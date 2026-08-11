@@ -132,13 +132,16 @@ const REFUSED_PASSWORDS = Object.freeze([
   '123456789012', '111111111111', '000000000000', '123456123456',
   'password1234', 'passwordpassword', 'qwertyqwerty', 'qwerty123456',
   'letmein12345', 'iloveyou1234', 'adminadmin12', 'welcome12345',
-  /* The product's own on-screen name is here because people reach for it. The
-     COMPANY name is deliberately absent, not forgotten:
-     tools/test/chat-agent-bridge-gated.test.mjs forbids it anywhere under src/
-     or shell/, so spelling it here to refuse it would put it in the shipped
-     source the gate exists to keep it out of. Two entries are worth far less
-     than the scrypt cost and the lockout beside them, so the gate wins. */
-  'missioncontrol', 'abcdefghijkl', 'aaaaaaaaaaaa',
+  /* The product's own on-screen name is here because people reach for it, and
+     it is exactly MIN_PASSWORD_LENGTH characters, so length alone will not
+     refuse it. The product and the COMPANY are now the same word, so this one
+     entry covers both -- it used to be 'missioncontrol', and the company name
+     had to be left out because tools/test/chat-agent-bridge-gated.test.mjs
+     forbade it anywhere under src/ or shell/. That clause was written when
+     "ToolsEnabled" was only an internal tree name; it is the shipped product
+     name now, and the gate has been narrowed to the internal-path forms it was
+     always aiming at. */
+  'toolsenabled', 'abcdefghijkl', 'aaaaaaaaaaaa',
 ])
 
 class AccountError extends Error {

@@ -152,6 +152,6 @@ test('plain-browser bootstrap degrades to a typed unavailable result without fet
 
   assert.equal(result.ok, false)
   assert.equal(result.code, 'BRIDGE_BOOTSTRAP_PROOF_UNAVAILABLE')
-  assert.match(result.reason, /outside the Mission Control desktop shell/i)
+  assert.match(result.reason, /outside the ToolsEnabled desktop shell/i)
   assert.equal(fetches, 0)
 })

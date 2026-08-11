@@ -193,7 +193,7 @@ test('C5 - spawn environment removes ELECTRON_RUN_AS_NODE', async (t) => {
   );
 });
 
-test('C6 - a responding port without the Mission Control title marker is rejected', async (t) => {
+test('C6 - a responding port without the ToolsEnabled title marker is rejected', async (t) => {
   const dir = await packagedFixture(t);
   const h = harness({
     fetch: async () => response('<html><title>Some Other Service</title></html>'),

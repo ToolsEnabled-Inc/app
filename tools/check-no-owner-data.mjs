@@ -68,10 +68,12 @@ const BUILT_IN_PATTERNS = [
   // this product had a public identity of its own -- so at the time, every
   // occurrence really was a leak. That stopped being true the day the product
   // got a real publisher: "ToolsEnabled, Inc." is now the required
-  // CompanyName/Publisher (Machine B's acceptance matrix), and
-  // com.toolsenabled.missioncontrol is the required appId. Case-insensitive
-  // and unanchored, the bare word matched both of those every time, which
-  // means it did not just block one manifest field -- it forbade the
+  // CompanyName/Publisher (Machine B's acceptance matrix), and the appId is
+  // com.toolsenabled.desktop. Since the 2026-08-11 product rename the word is
+  // also the ProductName, the FileDescription and the window title, so the
+  // reasons not to forbid it have only multiplied. Case-insensitive and
+  // unanchored, the bare word matched every one of those, which means it did
+  // not just block one manifest field -- it forbade the
   // product's own identity namespace in every future build, forever. The
   // actual owner-data leak in the old rejected build was
   // com.joshp.missioncontrol, which carries the owner's username; that is
@@ -542,10 +544,14 @@ async function main() {
     throw new Error(`nothing to check: scanned 0 files in ${roots.length} director${roots.length === 1 ? "y" : "ies"}`);
   }
 
-  console.log(
-    `Scanned ${filesScanned} files (${bytesScanned} bytes), single-byte and UTF-16LE. ` +
-      `Total matches: ${totalMatches}.`,
-  );
+  // DO NOT REWORD THIS LINE. tools/release-packager/cut-release-candidate.mjs parses it
+  // with /Scanned (\d+) files \((\d+) bytes\)\. Total matches: (\d+)\./ to put the
+  // owner-data evidence into the release declaration, and a miss there is SILENT --
+  // extractPipelineFacts just records null and the declaration ships without the number.
+  // Adding ", single-byte and UTF-16LE" mid-sentence broke exactly that, which is why the
+  // encoding note is its own line below instead.
+  console.log(`Scanned ${filesScanned} files (${bytesScanned} bytes). Total matches: ${totalMatches}.`);
+  console.log("Encodings scanned: single-byte and UTF-16LE.");
   console.log(
     `Per-pattern matches: ${ACTIVE_PATTERNS.map(({ label }) => `${JSON.stringify(label)}=${perPattern.get(label)}`).join(", ")}`,
   );

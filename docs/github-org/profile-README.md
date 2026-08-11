@@ -22,15 +22,15 @@ coordination architecture.**
 | --- | --- |
 | Company / copyright holder | ToolsEnabled, Inc. *(in formation)* |
 | Sole founder and creator | Joshua Pinckard |
-| Official product | ToolsEnabled with Mission Control |
+| Official product | ToolsEnabled |
 | Official publisher | ToolsEnabled, Inc. *(in formation)* |
 
 ## What we build
 
-**ToolsEnabled with Mission Control** is a free, open-source platform that gives an AI
+**ToolsEnabled** is a free, open-source platform that gives an AI
 agent a governed set of real tools — a policy kernel that decides what is allowed, a
 tamper-evident audit ledger that records what happened, and a provider surface that does
-the work. **Mission Control** is its reference interface.
+the work. It ships with a reference interface of the same name.
 
 Run it locally, over your own LAN, or self-hosted. No account required.
 
@@ -59,11 +59,14 @@ is singular and is not shared.
 - **ToolsEnabled, Inc. is not yet incorporated.** It is named as the intended publisher and
   marked *(in formation)*. Copyright is held personally by Joshua Pinckard until the entity
   exists and the rights are assigned to it.
-- **No trademark application has been filed** for "ToolsEnabled" or "Mission Control", and
-  neither is claimed as a registered mark. "Mission Control" is a common phrase and
-  unrelated businesses use it.
+- **No trademark application has been filed** for "ToolsEnabled", and it is not claimed as
+  a registered mark.
+- **The interface was previously called "Mission Control", and that name has been
+  dropped.** A USPTO search returned 17 live marks for it in the relevant classes,
+  including Apple Inc. (Reg. 4240125, IC 009) and BMC Software. "ToolsEnabled" returned no
+  hits, live or dead.
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

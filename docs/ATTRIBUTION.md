@@ -1,6 +1,6 @@
 # Attribution: the canonical strings
 
-This is the single source for how ToolsEnabled with Mission Control is attributed. Every
+This is the single source for how ToolsEnabled is attributed. Every
 other surface copies from here. If a string has to change, change it here first, then
 follow the placement table.
 
@@ -10,7 +10,7 @@ follow the placement table.
 | --- | --- |
 | Company / copyright holder | ToolsEnabled, Inc. *(in formation)* — see [Current legal status](#current-legal-status) |
 | Sole founder and creator | Joshua Pinckard |
-| Official product | ToolsEnabled with Mission Control |
+| Official product | ToolsEnabled |
 | Official publisher | ToolsEnabled, Inc. *(in formation)* |
 
 ## The founding line
@@ -38,7 +38,7 @@ Appended to product documentation:
 ```
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*
 ```
 
@@ -107,16 +107,23 @@ Once ToolsEnabled, Inc. exists and the copyright is assigned to it:
 
 Nothing about the founder credit changes at incorporation, or ever.
 
-## Two things not to write
+## Three things not to write
 
-- **Do not claim a trademark.** No application has been filed for "ToolsEnabled" or
-  "Mission Control". Neither may be described as a registered mark, and neither may carry
-  ® anywhere. "Mission Control" in particular is a common phrase with unrelated businesses
-  using it.
+- **Do not claim a trademark.** No application has been filed for "ToolsEnabled". It may
+  not be described as a registered mark and may not carry ® anywhere.
 - **Do not describe the company as existing.** Until incorporation, every use of
   "ToolsEnabled, Inc." carries *(in formation)*.
+- **Do not call the product "Mission Control", and do not reintroduce it as a name for
+  the interface.** It was the interface's name until 2026-08-11 and was dropped on a
+  clearance result: 17 live USPTO marks in the relevant classes, including Apple Inc.
+  (Reg. 4240125, IC 009, graphical user interface software) and BMC Software.
+  "ToolsEnabled" returned no hits, live or dead, across nine query forms with a working
+  control query. The interface has no name of its own — it is the reference interface for
+  ToolsEnabled and is called ToolsEnabled. The phrase survives in this repository only
+  where it is historically true: commit messages, dated reports, and prose like this one
+  that is *about* the decision.
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

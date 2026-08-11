@@ -1,4 +1,4 @@
-/* Find other "Mission Control Setup *.exe" files so the declaration can name
+/* Find other "ToolsEnabled Setup *.exe" files so the declaration can name
  * them as NOT the candidate, instead of leaving a same-named file for
  * Machine B to stumble into and mistake for the real thing.
  *
@@ -12,7 +12,7 @@ import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { measureFile } from './hash.mjs'
 
-const CANDIDATE_NAME_PATTERN = /^Mission Control Setup .+\.exe$/i
+const CANDIDATE_NAME_PATTERN = /^ToolsEnabled Setup .+\.exe$/i
 
 export async function findOtherCandidates(searchRoots, excludePath) {
   const excludeResolved = path.resolve(excludePath)

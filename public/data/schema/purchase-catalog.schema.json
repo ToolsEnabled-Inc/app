@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://missioncontrol.local/schema/purchase-catalog.schema.json",
+  "$id": "https://schema.toolsenabled.local/schema/purchase-catalog.schema.json",
   "title": "Purchase catalogue",
   "description": "The list of things the owner may choose to buy, rendered by the checkout screen at #/checkout. THE RENDERER OWNS THIS SCHEMA; the purchase-catalog lane owns the CONTENT of public/data/purchase-catalog.json. tools/check-data-schemas.mjs validates one against the other on every build, so a field that is not declared here fails the build rather than reaching the screen. Money is written in MAJOR units (dollars) with at most two decimal places; the renderer converts to exact minor units once, at load, and never does floating-point arithmetic on a total afterwards.",
   "type": "object",

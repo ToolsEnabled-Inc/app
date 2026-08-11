@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://mission-control.local/data/schema/ops.schema.json", "title": "Mission Control ops-channel projection v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://schema.toolsenabled.local/data/schema/ops.schema.json", "title": "ToolsEnabled ops-channel projection v1",
   "type": "object", "additionalProperties": false, "required": ["schemaVersion", "domain", "generatedAt", "ok", "reason", "sources", "data"],
   "properties": { "schemaVersion": { "const": 1 }, "domain": { "const": "ops" }, "generatedAt": { "type": "string", "format": "date-time" }, "ok": { "type": "boolean" }, "reason": { "type": ["string", "null"], "minLength": 1, "maxLength": 160 }, "sources": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/source" } }, "data": { "anyOf": [{ "$ref": "#/$defs/data" }, { "type": "null" }] } },
   "allOf": [{ "if": { "properties": { "ok": { "const": true } } }, "then": { "properties": { "reason": { "type": "null" }, "data": { "$ref": "#/$defs/data" } } }, "else": { "properties": { "reason": { "type": "string", "minLength": 1 }, "data": { "type": "null" } } } }],

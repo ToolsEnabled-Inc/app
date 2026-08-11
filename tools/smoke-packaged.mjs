@@ -7,8 +7,8 @@ import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
 
-export const APP_EXE = 'Mission Control.exe'
-export const APP_MARKER = '<title>Mission Control</title>'
+export const APP_EXE = 'ToolsEnabled.exe'
+export const APP_MARKER = '<title>ToolsEnabled</title>'
 export const DEFAULT_PORTS = Object.freeze(Array.from({ length: 9 }, (_, index) => 4601 + index))
 
 /* WHAT THIS FILE ASSERTS, AND WHY THAT CHANGED.
@@ -61,7 +61,7 @@ const ROUND_TRIP_TIMEOUT_MS = 120_000
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
-const makeSmokeProfileDirectory = () => mkdtemp(path.join(tmpdir(), 'mission-control-smoke-'))
+const makeSmokeProfileDirectory = () => mkdtemp(path.join(tmpdir(), 'toolsenabled-smoke-'))
 const removeSmokeProfileDirectory = (directory) => rm(directory, {
   recursive: true,
   force: true,
@@ -91,7 +91,7 @@ async function runPowerShell(command) {
 
 async function findExistingInstances() {
   const output = await runPowerShell(
-    "@(Get-Process -Name 'Mission Control' -ErrorAction SilentlyContinue | " +
+    "@(Get-Process -Name 'ToolsEnabled' -ErrorAction SilentlyContinue | " +
     "Select-Object -ExpandProperty Id) -join ','",
   )
   return output ? output.split(',').map((value) => Number(value)).filter(Number.isInteger) : []
@@ -236,7 +236,7 @@ export async function main(directory = 'release/win-unpacked', overrides = {}) {
   try {
     existingInstances = await dependencies.findExistingInstances()
   } catch (error) {
-    throw new Error(`Could not check for another Mission Control instance: ${error.message}`)
+    throw new Error(`Could not check for another ToolsEnabled instance: ${error.message}`)
   }
   if (existingInstances.length > 0) {
     throw new Error(
@@ -304,7 +304,7 @@ export async function main(directory = 'release/win-unpacked', overrides = {}) {
         return
       }
       const normalizedTitle = title.trim().toLowerCase()
-      if (normalizedTitle === 'error' || normalizedTitle === 'mission control could not start') {
+      if (normalizedTitle === 'error' || normalizedTitle === 'toolsenabled could not start') {
         throw new Error(
           `Packaged application opened a fatal startup window (${JSON.stringify(title)}, PID ${child.pid}).\n` +
           capturedOutput(stdout, stderr),

@@ -94,7 +94,7 @@ test('the listening address and proof file are taken from the layer, not assumed
     root: 'R:\\capability',
     origin: 'http://127.0.0.1:4603',
     workspaceRoot: 'W:\\ws',
-    execPath: 'R:\\app\\Mission Control.exe',
+    execPath: 'R:\\app\\ToolsEnabled.exe',
     env: {},
     spawn: (execPath, args, options) => { spawnedWith = { execPath, args, options }; return child },
     // The entrypoint check reads the real filesystem, so point at a file that

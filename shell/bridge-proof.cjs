@@ -10,7 +10,7 @@ function failure(reason) {
 function readBridgeProof({ env = process.env, readFileSync = fs.readFileSync } = {}) {
   const proofFile = env?.[PROOF_ENV]
   if (typeof proofFile !== 'string' || proofFile.trim() === '') {
-    return failure(`${PROOF_ENV} is not set. Set it to the bridge bootstrap proof JSON file created for this Mission Control boot.`)
+    return failure(`${PROOF_ENV} is not set. Set it to the bridge bootstrap proof JSON file created for this ToolsEnabled boot.`)
   }
 
   let contents
