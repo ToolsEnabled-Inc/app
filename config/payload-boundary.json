@@ -453,6 +453,7 @@
       "src/lib/tool-registry.js",
       "src/lib/tree-identity.js",
       "src/lib/uac-delegation.js",
+      "src/lib/vault-presence.js",
       "src/lib/workspace-boundary.js",
       "src/mcp-server.js",
       "src/playwright-gateway.js",
