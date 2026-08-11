@@ -181,6 +181,21 @@ function main() {
       const size = statSync(entry).size
       console.log(`check-asar-manifest: capability payload present -- ${payload.fileCount} files, bridge entrypoint ${payload.bridgeEntrypoint} (${size} bytes)`)
     }
+
+    // hostModules is the same kind of claim as bridgeEntrypoint -- a relative
+    // path the payload asserts is really staged under capabilityRoot -- and
+    // gets the same check. Without this, PAYLOAD.json could list a module
+    // (e.g. the setup screen's machine-record.js/workspace.js) that never
+    // actually got staged, and nothing before a customer's own require()
+    // would have noticed.
+    const hostModules = Array.isArray(payload.hostModules) ? payload.hostModules : []
+    const missingHostModules = hostModules.filter((relative) => !existsSync(path.join(capabilityRoot, relative)))
+    if (missingHostModules.length) {
+      problems.push(`the capability payload declares hostModules not present on disk:\n    ${missingHostModules.join('\n    ')}`)
+    } else if (hostModules.length) {
+      console.log(`check-asar-manifest: all ${hostModules.length} declared hostModules are present`)
+    }
+
     if (payload.ownerDataClean !== true) {
       problems.push('the capability payload is marked ownerDataClean:false; it carries builder-identifying data and must not ship')
     }
