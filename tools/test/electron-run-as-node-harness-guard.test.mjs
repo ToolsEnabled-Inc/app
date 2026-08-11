@@ -113,6 +113,21 @@ const SOURCE_EXTENSIONS = new Set(['.js', '.cjs', '.mjs'])
 // that edit is the point, because it forces the rename to be seen.
 const REQUIRED_LAUNCHERS = ['shell/launch.cjs', 'tools/smoke-packaged.mjs']
 
+// Real launchers in this tree that a PRECISE detector can lose without anyone
+// noticing, because none of them is on the ship path and all of them currently
+// strip the variable correctly -- so losing them costs no red test today and
+// all of the guard's value tomorrow. Each was measured, and each was in fact
+// dropped by the first precise rewrite:
+//   check-install-dir-immutable.mjs  launches at :324/:384 via `spawn as nodeSpawn`
+//   agent-subpage-qa.mjs             :773 `const executable = await stage(scratch)`
+//   setup-walkthrough-qa.mjs         :331 the same shape
+// stage() returns appExecutable(app): the packaged executable, not a stand-in.
+const LAUNCHERS_A_PRECISE_DETECTOR_CAN_LOSE = [
+  'tools/agent-subpage-qa.mjs',
+  'tools/check-install-dir-immutable.mjs',
+  'tools/setup-walkthrough-qa.mjs',
+]
+
 // A FOURTH WAY TO BE SAFE, which the three idioms above cannot express.
 //
 // The idioms all describe REMOVING the variable from an inherited environment.
@@ -156,7 +171,37 @@ const NEUTRALISES_THE_VARIABLE = [
 
 // Any call to one of the process-spawning functions, including the
 // `dependencies.spawn(...)` member form used by tools/smoke-packaged.mjs.
-const SPAWN_CALL = /\b(spawn|spawnSync|execFile|execFileSync)\s*\(/g
+const SPAWN_FUNCTIONS = ['spawn', 'spawnSync', 'execFile', 'execFileSync']
+
+// ...and any LOCAL ALIAS of one (DEFECT 3, measured after the rewrite above).
+// `\bspawn\s*\(` cannot match `nodeSpawn(`, and two files here import the
+// function under exactly that name: tools/smoke-packaged.mjs:1 and
+// tools/check-install-dir-immutable.mjs:65 both do
+// `import { spawn as nodeSpawn } from 'node:child_process'`.
+// check-install-dir-immutable.mjs launches the packaged app at :324 and :384
+// through that alias, and was detected ONLY by the accident of an unrelated
+// execFile('taskkill.exe') at :305 cleaning up the child it had already
+// spawned invisibly. Delete that cleanup line and a real GUI launch becomes
+// undetectable -- which is the "a harness written next week does not inherit
+// the rule" failure this whole guard exists to prevent.
+const CHILD_PROCESS_IMPORT =
+  /(?:import\s*\{([^}]*)\}\s*from\s*|\{([^}]*)\}\s*=\s*require\(\s*)['"](?:node:)?child_process['"]/g
+
+function spawnCallPattern(source) {
+  const names = new Set(SPAWN_FUNCTIONS)
+  for (const match of source.matchAll(CHILD_PROCESS_IMPORT)) {
+    for (const part of (match[1] ?? match[2] ?? '').split(',')) {
+      const aliased = /^\s*([A-Za-z_$][\w$]*)\s*(?:as|:)\s*([A-Za-z_$][\w$]*)\s*$/.exec(part)
+      if (aliased && SPAWN_FUNCTIONS.includes(aliased[1])) names.add(aliased[2])
+    }
+  }
+  return new RegExp(String.raw`\b(${[...names].join('|')})\s*\(`, 'g')
+}
+
+// A command the detector can positively ACCOUNT FOR: a quoted literal that is
+// not the application ('powershell.exe', 'taskkill'), or the Node binary.
+const QUOTED_LITERAL_COMMAND = /^(['"])(?:(?!\1)[^\\]|\\.)*\1$/
+const NODE_BINARY_COMMAND = /^process\s*\.\s*(?:execPath|argv\s*\[\s*0\s*\])$/
 
 // `const x = <expr>` / `let` / `var`, including an `export const` prefix. The
 // initializer is taken to the end of the logical line, which is enough for the
@@ -185,6 +230,28 @@ function withoutCommentLines(source) {
     })
     .join('\n')
 }
+
+// KNOWN LIMITATION, measured and left in place deliberately.
+//
+// This file is itself scanned, and its inline fixtures are source text. The
+// detector reads them as code, so the guard reports ITSELF as a launcher. It
+// stays green because a fixture below also contains the `delete
+// env.ELECTRON_RUN_AS_NODE` idiom, which reads as the file neutralising the
+// variable. Both halves are wrong about this file and they cancel.
+//
+// Blanking literal bodies before scanning was tried and REVERTED: doing it by
+// pairing backticks desynchronises on the backticks that appear inside
+// ordinary quoted strings here (the offender message below) and inside the
+// regex literal in NAMES_THE_GUI_EXE, which contains a quote, a double quote
+// and a backtick in one character class. Telling a literal from code in this
+// file needs a real tokeniser, including regex-literal handling; that is a
+// bigger change than the hazard justifies, and a half-correct one measured
+// WORSE than none -- it turned this file into a false offender.
+//
+// The live consequence, so the next person is not surprised by it: if the
+// fixtures below are edited such that none of them contains an accepted strip
+// idiom, this guard goes RED against a file that launches nothing. If that
+// happens, the fix is a tokeniser, not an exemption.
 
 // The text of a call's FIRST argument, given the index of its `(`.
 // Returns null when the call is unbalanced within the file, which the caller
@@ -253,6 +320,31 @@ function guiExeIdentifiers(source) {
   return tainted
 }
 
+// name -> every initializer bound to it, so a command that is a bare
+// identifier can be followed rather than guessed at.
+function localBindings(code) {
+  const map = new Map()
+  for (const match of code.matchAll(LOCAL_BINDING)) {
+    if (!map.has(match[1])) map.set(match[1], [])
+    map.get(match[1]).push(match[2])
+  }
+  return map
+}
+
+// Can this command be accounted for as something that is NOT the application?
+// Only a literal, the Node binary, or an identifier whose binding chain ends in
+// one of those. `await stage(scratch)` cannot: it is a helper's return value.
+function commandIsAccountedFor(expression, bindings, depth = 0) {
+  const trimmed = expression.trim()
+  if (QUOTED_LITERAL_COMMAND.test(trimmed)) return true
+  if (NODE_BINARY_COMMAND.test(trimmed)) return true
+  if (depth >= 4) return false
+  if (!/^[A-Za-z_$][\w$]*$/.test(trimmed)) return false
+  const initializers = bindings.get(trimmed)
+  if (!initializers || initializers.length === 0) return false
+  return initializers.every((initializer) => commandIsAccountedFor(initializer, bindings, depth + 1))
+}
+
 /**
  * The core judgement, exported from the module scope so the tests below can run
  * it against inline fixtures as well as against real files.
@@ -260,19 +352,35 @@ function guiExeIdentifiers(source) {
 export function classifySource(source) {
   const tainted = guiExeIdentifiers(source)
   const code = withoutCommentLines(source)
+  const bindings = localBindings(code)
 
-  let spawnsTheGuiExe = false
+  let provenSpawnTarget = false
   let unparseableSpawnCall = false
-  SPAWN_CALL.lastIndex = 0
-  for (const match of code.matchAll(SPAWN_CALL)) {
+  let unresolvedCommand = false
+  for (const match of code.matchAll(spawnCallPattern(code))) {
     const openParenIndex = match.index + match[0].length - 1
     const command = firstArgumentText(code, openParenIndex)
     if (command === null) { unparseableSpawnCall = true; continue }
-    if (denotesTheGuiExe(command, tainted)) spawnsTheGuiExe = true
+    if (denotesTheGuiExe(command, tainted)) { provenSpawnTarget = true; continue }
+    if (!commandIsAccountedFor(command, bindings)) unresolvedCommand = true
   }
 
+  // DEFECT 4, measured: precision may only be spent where the target is
+  // positively accounted for. An UNRESOLVED command used to answer "not a
+  // launcher", which fails OPEN -- and two real harnesses take exactly that
+  // shape, `const executable = await stage(scratch)` where stage() returns the
+  // packaged executable (tools/agent-subpage-qa.mjs:773,
+  // tools/setup-walkthrough-qa.mjs:331). Proved by deleting the real strip at
+  // agent-subpage-qa.mjs:485: the file then genuinely launched the app with the
+  // variable inherited and this guard stayed green. So an unreadable target in
+  // a file that NAMES the application falls back to the old co-occurrence
+  // answer: blunt, occasionally over-eager, but never silently blind.
+  const namesTheGuiExe = NAMES_THE_GUI_EXE.some((pattern) => pattern.test(source))
+
   return {
-    spawnsTheGuiExe,
+    spawnsTheGuiExe: provenSpawnTarget || (unresolvedCommand && namesTheGuiExe),
+    provenSpawnTarget,
+    unresolvedCommand,
     unparseableSpawnCall,
     neutralised: NEUTRALISES_THE_VARIABLE.some((pattern) => pattern.test(code)),
   }
@@ -352,6 +460,24 @@ test('every harness that launches the packaged app is still detected', async () 
     [],
     `these launch the packaged app and the guard no longer sees them: ${missing.join(', ')}. ` +
       'If a file was renamed, update REQUIRED_LAUNCHERS in this test in the same commit.',
+  )
+})
+
+test('the launchers that are easiest to lose are still detected', async () => {
+  // Fixtures prove the detector CAN see a shape. This proves it still sees the
+  // real files, which is a different claim: a fixture cannot notice that a real
+  // harness was refactored into a shape the detector stopped following.
+  const { launchers } = await scan()
+  const detected = new Set(launchers.map((entry) => entry.file))
+  const missing = LAUNCHERS_A_PRECISE_DETECTOR_CAN_LOSE.filter((file) => !detected.has(file))
+  assert.deepEqual(
+    missing,
+    [],
+    `these really do launch the packaged app and the guard no longer sees them: ${missing.join(', ')}.\n` +
+      'They all strip the variable today, so nothing else in this suite would go red -- which is ' +
+      'exactly why they are pinned here. Verified by deleting the strip at ' +
+      'tools/agent-subpage-qa.mjs:485: a guard that has lost that file stays green while a real ' +
+      'harness launches the app with ELECTRON_RUN_AS_NODE inherited.',
   )
 })
 
@@ -446,6 +572,58 @@ test('a comment describing the strip does not count as performing it', () => {
   assert.equal(verdict.spawnsTheGuiExe, true, 'the fixture must be a launcher for this test to be about anything')
   assert.equal(verdict.neutralised, false,
     'a harness that only DESCRIBES the strip in a comment was accepted as protected -- prose about a protection is what a half-finished harness carries')
+})
+
+test('a spawn imported under an alias is still a spawn', () => {
+  // DEFECT 3 as a fixture. `\bspawn\s*\(` cannot match `nodeSpawn(`, so this
+  // whole shape used to be invisible. tools/check-install-dir-immutable.mjs is
+  // written exactly like this and was detected only through an unrelated
+  // execFile('taskkill.exe') elsewhere in the file.
+  const verdict = classifySource(`
+    import { spawn as nodeSpawn } from 'node:child_process'
+    const APP_EXE = 'ToolsEnabled.exe'
+    const executable = path.join(unpacked, APP_EXE)
+    const child = nodeSpawn(executable, ['--user-data-dir=' + dir], { env: { ...process.env } })
+  `)
+  assert.equal(verdict.spawnsTheGuiExe, true,
+    'a harness that imports spawn under another name still launches the app; if this is false the alias is a hole in the rule')
+  assert.equal(verdict.provenSpawnTarget, true,
+    'it must be caught by RESOLVING the target, not by the co-occurrence fallback')
+  assert.equal(verdict.neutralised, false)
+})
+
+test('a spawn target the detector cannot resolve fails CLOSED', () => {
+  // DEFECT 4 as a fixture, and the load-bearing one. Precision may only be
+  // spent where the target is positively accounted for. This is the shape of
+  // tools/agent-subpage-qa.mjs:773 and tools/setup-walkthrough-qa.mjs:331,
+  // where stage() returns the packaged executable.
+  const verdict = classifySource(`
+    import { spawn } from 'node:child_process'
+    const APP_EXE = 'ToolsEnabled.exe'
+    // stage() unpacks the build into scratch and returns appExecutable(app)
+    const executable = await stage(scratch)
+    const child = spawn(executable, ['--smoke'], { env: { ...process.env } })
+  `)
+  assert.equal(verdict.provenSpawnTarget, false, 'nothing here proves the target IS the app')
+  assert.equal(verdict.unresolvedCommand, true, 'the target came from a helper and cannot be followed')
+  assert.equal(verdict.spawnsTheGuiExe, true,
+    'an unresolvable spawn target in a file that names the app must still be flagged. Answering ' +
+      '"not a launcher" here is how a real harness goes unchecked: it is the silent-miss half of ' +
+      'the same bug the co-occurrence rule caused loudly.')
+})
+
+test('the fail-closed fallback does not flag every file that spawns something', () => {
+  // The bound on the rule above, and the reason it is gated on the file naming
+  // the application at all. Without this, every file in the tree that shells
+  // out to anything would be reported as an unprotected GUI launcher and the
+  // guard would be useless in the other direction.
+  const verdict = classifySource(`
+    import { spawn } from 'node:child_process'
+    const child = spawn(await resolveFormatter(), ['--write'], { env: process.env })
+  `)
+  assert.equal(verdict.unresolvedCommand, true, 'the target is genuinely unresolvable')
+  assert.equal(verdict.spawnsTheGuiExe, false,
+    'a file that never names the application must not be dragged in by the fallback')
 })
 
 test('an unbalanced spawn call is reported rather than assumed harmless', () => {
