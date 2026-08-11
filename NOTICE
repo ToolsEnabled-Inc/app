@@ -27,9 +27,13 @@ before launch: a USPTO search returned 17 live marks for it in the relevant
 classes, including Apple Inc. (Reg. 4240125, IC 009) and BMC Software.
 "ToolsEnabled" returned no hits, live or dead.
 
-No open-source license has been selected yet, so this file makes no license
-grant and all rights are reserved. A license will be chosen and added before
-public release.
+The intended license is AGPLv3 for the free product, with separate commercial
+terms for ToolsEnabled Anywhere. Dual licensing remains available because
+Joshua Pinckard is the sole copyright holder.
+
+That is a decision, not yet a grant. A license is granted by a LICENSE file and
+none has been added, so THIS FILE MAKES NO LICENSE GRANT AND ALL RIGHTS ARE
+RESERVED until one is. It will be added before public release.
 
 -------------------------------------------------------------------------------
 CONTRIBUTORS

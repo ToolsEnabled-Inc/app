@@ -102,26 +102,69 @@ node tools/check-payload-boundary.mjs capability
 0, and not the last line of the output.** A `pending` file is one whose fate has been
 decided but which *still ships today*; the guard deliberately does not fail on those.
 
-**`pending = 0` is necessary and not sufficient. The stage must also be current.** The
-boundary gate judges the *staged* payload, so it can pass on bytes that no longer match
-the source those bytes came from — and then the thing reviewed and the thing shipped are
-two different programs. That is a third gate, and it is red right now:
+**`pending = 0` is necessary and not sufficient**, and it is now checkable by a command
+rather than by a reader remembering it:
 
 ```
-node tools/check-payload-current.mjs capability
-  REFUSING: the staged payload does not match the code it came from.
-    src/lib/providers/license.js   (vs source)          exit 1
+node tools/check-payload-boundary.mjs --ship capability
+  Classified: open=<n> pending=6 paid=0 excluded=0 unclassified=0     exit 1
 ```
 
-Measured 2026-08-11: the staged copy of that file is missing roughly 47 lines the source
-has, including the block that pins which key is allowed to vouch for a licence. So the
-staged bytes are not merely older — they are missing a hardening the source has. Re-stage
-with `npm run pack:capability` and re-run **all three** gates before publishing anything
-cut from this directory.
+`--ship` is the strict verdict: it fails while anything is `pending`. The permissive
+default is deliberate, so development does not sit red. **Pass the root explicitly.** The
+bare `npm run check:boundary:ship` walks several default roots, including a second copy of
+the payload under `release/`, and every count comes back roughly doubled — `pending=12`
+for the same six files.
 
-Worth noting how this was found, because it is the same lesson twice: a lane closed out
-reporting "all three payload gates exit 0", and that was true when measured. It was false
-within the hour. Do not inherit a gate result from a report, including this one.
+### The third gate, and why "all three green" is not the fence
+
+`check-payload-current` compares the staged bytes against the **working tree**. So it goes
+red the moment any lane has an uncommitted edit to a payload file, which during active
+work is most of the time. A gate that is permanently red in normal conditions is one that
+gets waived, so do not write "all three green" into a checklist and expect it to survive.
+
+The order that makes the third gate meaningful instead of noisy:
+
+1. **`require-clean-tree`** green — this forces the tree clean, which is what makes the
+   next two mean anything
+2. **a fresh `npm run pack:capability`**
+3. **all three payload gates** on that fresh stage
+4. **`pending = 0`** via `--ship`
+
+At the time of writing, `check-payload-current` is red on `src/lib/providers/license.js`.
+**That is the ordinary case, not an alarm**, and it is worth knowing what it looks like so
+nobody hunts a corrupted stage: the staged copy is byte-identical to the committed file,
+and the *source* has moved — a lane has +241/−11 uncommitted in the engine tree. Nothing
+is wrong with the stage. A partial re-stage would have shown up as a `payloadSha256` that
+did not reproduce, and it reproduces exactly.
+
+**Do not re-stage to make it green while that lane is mid-edit.** That would bake
+half-finished work into the shared payload, which is worse than a red gate telling the
+truth.
+
+### A shipping defect the red gate happens to be sitting on
+
+Chasing that gate turned up something that outlives it, and it is a launch blocker in its
+own right rather than a packaging question.
+
+In the **staged, shipping** copy of `src/lib/providers/license.js`, `verifyKey` defaults
+`trustedPublicKeyPem` to `''`, and the helper that resolves it reads that falsy default as
+permission to fall back to the machine's own signing material:
+
+```js
+const pem = publicKeyPem || validateSigner(signingMaterial(dependencies)).publicKeyPem;
+```
+
+A signature check answers *was this signed by key K*. Only a pinned key answers *should I
+trust K*. With no pinned vendor key anywhere in the path, the verifier answers the second
+question with "whatever key is on this disk" — so a fresh install can mint a licence and
+then accept it. Demonstrated on an empty vault: `toolsenabled-anywhere`, tier `team`,
+9999 seats, `valid: true, active: true`.
+
+**This is in the bytes today.** The fix is the uncommitted work described above and exists
+in nobody's commit, so it is not in any build cut from this stage. Owner: the
+`license-trust-pinning` lane. Do not treat "the gate went green" as evidence this is
+fixed — the gate is about staleness, not about this.
 
 **And a green reading expires.** Re-run the gate against the payload you are actually
 about to ship. The full reasoning for both — why the guard does not fail on `pending`, and

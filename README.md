@@ -91,9 +91,14 @@ Stated plainly, because a public repository is a dated, permanent record:
   interface software) and one held by BMC Software. "ToolsEnabled" returned no hits, live
   or dead. The name was changed before launch rather than after, because once a name is
   in forks, package registries and third-party redistributions it cannot be recalled.
-- **Licensing is not yet final.** No open-source license has been selected, so no license
-  grant is made by this file and all rights are reserved for now. The license will be
-  chosen and added before this repository is made public.
+- **The license is chosen but not yet in force.** The intended license is **AGPLv3** for
+  this, the free product, with separate commercial terms for ToolsEnabled Anywhere. Dual
+  licensing stays available because Joshua Pinckard is the sole copyright holder and is
+  therefore not bound by his own AGPL grant.
+
+  A license is granted by a `LICENSE` file, not by a sentence in a README, and there is no
+  `LICENSE` file yet. **Until one is added, no grant is made and all rights are reserved.**
+  It will be added before this repository is made public.
 
 ## Status
 
