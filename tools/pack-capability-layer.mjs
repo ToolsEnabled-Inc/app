@@ -222,7 +222,12 @@ async function main() {
   const out = path.resolve(options.out)
   log(`capability source: ${source}`)
 
-  const closure = computeClosure(source, manifest.entrypoints, manifest.dynamicRequires || [])
+  // Entrypoints are walked with the host modules the shell require()s directly
+  // (see $comment_hostModules in the manifest). Both are closure ROOTS and
+  // obey the same fail-closed rules; only entrypoints are startable, which is
+  // why PAYLOAD.json keeps them apart.
+  const hostModules = manifest.hostModules || []
+  const closure = computeClosure(source, [...manifest.entrypoints, ...hostModules], manifest.dynamicRequires || [])
   if (closure.staleDeclarations.length) {
     throw new Error(
       'tools/capability-manifest.json declares dynamic requires that no longer exist in the source:\n  ' +
@@ -293,6 +298,7 @@ async function main() {
     stagedAt: new Date().toISOString(),
     entrypoints: manifest.entrypoints,
     bridgeEntrypoint: manifest.entrypoints[0],
+    hostModules,
     fileCount: all.length,
     byteCount: bytes,
     payloadSha256: digest.digest('hex'),
