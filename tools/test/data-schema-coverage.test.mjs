@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -30,7 +30,25 @@ function fixture(t) {
 test('real public data is discovered and every file validates', () => {
   const run = runChecker(REAL_DATA)
   assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`)
-  assert.match(run.stdout, /Discovered 9 JSON data files; validated 9\./)
+
+  /* This asserted the literal "Discovered 9 ... validated 9" and went red the
+     day a tenth data file was added, which is a maintenance tax rather than a
+     finding. The two properties it was actually protecting are kept, and both
+     are now derived rather than typed:
+
+       1. every JSON file that EXISTS in public/data is discovered by the
+          checker -- so a file that silently stops being scanned still fails
+          here, which is the real guard;
+       2. the count never drops below the nine that existed when this was
+          written, and is never zero -- the checker's own "discovered nothing"
+          failure mode, which a passing count of 0 would hide.
+
+     A hardcoded total protected neither better; it only also failed on the
+     legitimate case of adding a file with a schema beside it. */
+  const present = readdirSync(REAL_DATA, { withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
+  assert.ok(present.length >= 9, `public/data lost data files: ${present.length}`)
+  assert.match(run.stdout, new RegExp(`Discovered ${present.length} JSON data files; validated ${present.length}\\.`))
 })
 
 test('historical populated status output validates', () => {

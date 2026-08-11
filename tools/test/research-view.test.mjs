@@ -50,7 +50,13 @@ test('research is an independent ring route backed by the research projection', 
   // joined it when the owner replaced the interrupting prompt popup with a
   // screen he navigates to; the arrows are the only navigation, so a route
   // absent from ORDER is a route nobody can reach.
-  assert.match(main, /const ORDER = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals'\]/)
+  //
+  // 'checkout' joined it next, directly after approvals, when the owner asked
+  // for the purchase list to be a working surface inside Mission Control
+  // rather than a document. The two sit together because both are places he
+  // decides about money. This edit IS the visible reviewed change the pin
+  // exists to force.
+  assert.match(main, /const ORDER = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout'\]/)
   assert.match(main, /if \(parts\[0\] === 'research'\) return \{ name: 'research' \}/)
   assert.match(main, /case 'research': return researchView\(\)/)
   assert.match(main, /case 'research': return `\$\{base\} \/ research`/)
