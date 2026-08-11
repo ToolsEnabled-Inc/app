@@ -94,9 +94,27 @@ actually asserts:
 
 ```
 node tools/check-payload-boundary.mjs capability
-  Classified: open=233 pending=6 paid=0 excluded=0 unclassified=0
+  Classified: open=<n> pending=6 paid=0 excluded=0 unclassified=0
   Payload boundary: clean. Nothing paid, excluded or unclassified is present.
 ```
+
+### Run it immediately before publishing, not once
+
+**A boundary reading has a shelf life, and this document is not a substitute for one.**
+The `open` count is written as `<n>` above on purpose: it moved while this page was being
+written.
+
+The payload is derived from a `require()` closure, not from a list. So *any* lane's commit
+can pull a new file into it without anyone touching `config/payload-boundary.json`, and an
+unclassified file fails the gate by design. That is exactly what happened on 2026-08-11: a
+re-stage pulled in a new engine module, the gate went from exit 0 to **exit 1** with the
+boundary file untouched, and it took a classification commit to go green again.
+
+So a green reading proves the payload was clean **at the moment it was taken** and nothing
+more. Re-run the gate against the payload you are actually about to ship, and read
+`pending` in that run. A condition that was true when it was written and quietly stopped
+being true is the precise defect the "exit 1 means excluded files" line above had; do not
+reintroduce it one level up.
 
 `config/payload-boundary.json` separates what is **decided** from what is **decoupled**,
 and only the second one is what "clean" is about:
@@ -133,7 +151,7 @@ quietly points at his separate revenue product.
 | --- | --- | --- |
 | `src/lib/providers/firebase.js` | A GCP project id **with live payment infrastructure behind it** — 6 active Stripe-extension Functions, a live webhook endpoint and a Firestore checkout flow, last active 2026-07-23 | **Highest.** A project id with live billing attached is an abuse target |
 | `src/lib/providers/chrome-web-store.js` | A Store listing id | Lower. A published extension's item id **is public by construction** — it is in its own store URL |
-| `src/lib/aicalendar-root.js` | Resolves a checkout path for that separate product | Lower |
+| `src/lib/aicalendar-root.js` | Resolves a checkout path for that separate product | Lower — and **not independently retirable**, see below |
 
 ### Do not "clean up" the Store item id to make the gate green
 
@@ -150,6 +168,14 @@ control:
   literal to shrink the payload would silently delete that fence.** It needs the id turned
   into configuration with the check preserved — real work, and not work for whoever is in
   a hurry to make this gate green.
+
+**And `aicalendar-root.js` is not the cheap one to start with**, though it looks like it.
+It is in the payload because `chrome-web-store.js` requires it for a *package-path* fence
+(`isWithinAicalendarRoot`), and `chrome-web-store.js` is in the payload because
+`providers/launch.js` uses the generic client for its publish step. So it is held up by
+the same file as everything else here, and there is a second fence under it. It falls out
+for free once the `chrome-web-store.js` fences become configuration, and cannot be removed
+before that without deleting one. Do not start with it because it looks smallest.
 
 Neither has been done. The measured analysis is in `agent-coord` under
 `payload-firebase-cws-identifiers`; start from it rather than from this summary.
