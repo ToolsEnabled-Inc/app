@@ -320,6 +320,26 @@ function compare(observed, label) {
   return missing
 }
 
+/* THE THEME THE PAGE ACTUALLY ENDED UP ON, which is a different claim from
+   "the key round-tripped": it fails if a setting survives in storage but never
+   reaches the surface a person looks at.
+
+   WHAT IT DOES NOT COVER, measured rather than assumed: this reads the SETTLED
+   theme, and src/main.js applies the stored theme when it evaluates. A packaged
+   app built with the durable store installed BELOW the inline pre-paint read
+   still passed this check, because the page corrects itself before anything can
+   observe it. The cost of that regression is a white flash on one frame, which
+   no assertion here can see. Document order is therefore asserted directly, in
+   tools/test/durable-storage.test.mjs.
+
+   Checked only on the RELAUNCH, because the first launch writes storage
+   directly without asking the app to re-theme itself. */
+function paintedThemeFailures(observed) {
+  const expected = PROBE_SETTINGS.find((setting) => setting.key === 'mc.theme').value
+  if (observed.__paintedTheme === expected) return []
+  return [`the page painted the ${JSON.stringify(observed.__paintedTheme)} theme while the stored theme is ${JSON.stringify(expected)}: the setting survived the port change but the pre-paint read did not see it`]
+}
+
 /* SCENARIO ONE -- AN EXISTING INSTALL. Settings already chosen under the port
    the application happened to bind first, then a relaunch with that port held.
    This is the measured customer story: nothing was uninstalled, nothing was
@@ -352,7 +372,7 @@ async function existingInstallScenario(context) {
       return { name: 'existing install', ok: false, reason: `the premise did not hold: the second launch bound ${second.origin} again, so the origin never changed and nothing was tested. The occupied socket on ${firstPort} did not force a move.` }
     }
     const observed = await second.session.evaluate(readProbe)
-    const failures = compare(observed, 'the second launch sees')
+    const failures = [...compare(observed, 'the second launch sees'), ...paintedThemeFailures(observed)]
     const detail = `first origin ${firstOrigin} -> second origin ${second.origin}; painted theme ${JSON.stringify(observed.__paintedTheme)}`
     if (failures.length) {
       return { name: 'existing install', ok: false, reason: `${detail}\n  ${failures.join('\n  ')}` }
@@ -407,7 +427,7 @@ async function freshInstallScenario(context) {
       return { name: 'fresh install', ok: false, reason: `the premise did not hold: the second launch bound ${second.origin} again.` }
     }
     const observed = await second.session.evaluate(readProbe)
-    const failures = compare(observed, 'the second launch sees')
+    const failures = [...compare(observed, 'the second launch sees'), ...paintedThemeFailures(observed)]
     const detail = `first origin ${firstOrigin} -> second origin ${second.origin}; painted theme ${JSON.stringify(observed.__paintedTheme)}`
     if (failures.length) {
       return { name: 'fresh install', ok: false, reason: `${detail}\n  ${failures.join('\n  ')}` }

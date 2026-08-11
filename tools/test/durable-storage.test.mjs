@@ -161,6 +161,49 @@ test('the replacement cannot be silently overwritten by a stray assignment', () 
   assert.equal(window.localStorage.getItem('mc.theme'), 'black')
 })
 
+/* ---------- where the install has to sit in the document ----------
+ *
+ * WHY A SOURCE-ORDER ASSERTION AND NOT A BEHAVIOUR ONE. The packaged proof
+ * reads document.documentElement.dataset.theme, and that is the SETTLED theme:
+ * src/main.js applies the stored theme when it evaluates, so by the time
+ * anything can be observed the page has already corrected itself. Measured --
+ * moving the install below the inline theme read and rebuilding the packaged
+ * app did NOT fail the proof. What breaks in that build is the first paint: a
+ * black-theme user gets a white flash, which is a frame, not a state, and the
+ * gate cannot see it. Document order is the property that actually matters
+ * here, so it is asserted directly rather than hoped for. */
+function indexHtmlWithoutComments() {
+  return fs.readFileSync(path.join(REPO_ROOT, 'index.html'), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+}
+
+test('the settings store is installed before anything in the document reads a setting', () => {
+  const html = indexHtmlWithoutComments()
+  const install = html.indexOf('/durable-storage.js')
+  const firstRead = html.indexOf('localStorage')
+
+  assert.notEqual(install, -1, 'index.html must load public/durable-storage.js')
+  assert.ok(
+    firstRead === -1 || install < firstRead,
+    'The inline pre-paint theme read runs before any module, so the durable store must be installed '
+    + 'above it. Below it, the theme is read from the origin-scoped store -- empty after a port '
+    + 'change -- and a black-theme user gets a white flash that no assertion in the packaged proof '
+    + 'can see, because src/main.js corrects the theme before anything can observe it.',
+  )
+})
+
+test('the install is a classic script, because a module would be deferred', () => {
+  const html = indexHtmlWithoutComments()
+  const tag = /<script([^>]*)src="\/durable-storage\.js"([^>]*)>/.exec(html)
+
+  assert.notEqual(tag, null)
+  assert.equal(
+    /type\s*=\s*"module"/.test(tag[1] + tag[2]),
+    false,
+    'A module script is deferred to after document parsing, which would put the install after the '
+    + 'inline theme read no matter where the tag sits.',
+  )
+})
+
 /* ---------- the invariant the design rests on ---------- */
 
 function sourceFiles(directory) {
