@@ -321,15 +321,39 @@ function computePowerShellClosure(root, seeds) {
   return { files: [...seen].sort(), unresolved }
 }
 
+// The guard has THREE outcomes, not two, and collapsing the last two is how a
+// payload nobody scanned gets described as a payload somebody scanned.
+//
+//   exit 0  clean       -- it ran, and found nothing.
+//   exit 1  violations  -- it ran, and found offenders it can name.
+//   exit 2  COULD NOT RUN -- a setup problem, almost always a missing or
+//                            foreign private/owner-data-patterns.owner.json.
+//
+// Treating 2 as 1 produced a genuinely misleading failure: the packer printed
+// "0 file(s) carry builder-identifying data" followed by prose blaming the
+// capability-layer SOURCE for carrying the builder's name -- a diagnosis of a
+// scan that never happened, sending the builder hunting for data nothing had
+// detected. Worse, under --allow-owner-data the same collapse staged an
+// UNSCANNED payload and logged it as "DIRTY (0 files)".
+//
+// tools/check-declaration-privacy.mjs already draws this line correctly
+// ("Unchecked is not clean, so nothing was written"); this mirrors it.
+const GUARD_SETUP_ERROR = 2
+
 async function runOwnerDataGuard(directory) {
   try {
     const { stdout } = await execFile(process.execPath, [path.join(REPO_ROOT, 'tools', 'check-no-owner-data.mjs'), directory], {
       cwd: REPO_ROOT,
       maxBuffer: 32 * 1024 * 1024,
     })
-    return { clean: true, report: stdout }
+    return { clean: true, ran: true, report: stdout }
   } catch (error) {
-    return { clean: false, report: `${error.stdout || ''}${error.stderr || ''}`, exitCode: error.code }
+    const report = `${error.stdout || ''}${error.stderr || ''}`
+    // A spawn failure (ENOENT, EACCES) has no numeric exit status at all. That
+    // is even less evidence than exit 2, so it takes the same fail-closed path
+    // rather than the "we found offenders" one.
+    const ran = error.code !== GUARD_SETUP_ERROR && typeof error.code === 'number'
+    return { clean: false, ran, report, exitCode: error.code }
   }
 }
 
@@ -495,6 +519,30 @@ async function main() {
   if (guard.clean) {
     rmSync(path.join(out, UNSHIPPABLE_MARKER), { force: true })
     log('owner-data guard: clean')
+    return
+  }
+
+  // THE GUARD COULD NOT RUN. Say only that, and refuse -- including under
+  // --allow-owner-data. That flag means "I know what this payload carries and
+  // I am staging it anyway for an engineering run"; its whole contract is the
+  // named offender list it writes into the marker. When the scanner never ran
+  // there is no such list, so the flag's premise does not hold and honouring it
+  // would stage an unscanned payload under a marker claiming 0 offenders.
+  if (!guard.ran) {
+    writeFileSync(
+      path.join(out, UNSHIPPABLE_MARKER),
+      'The owner-data guard could not run against this payload, so nothing has checked it.\n' +
+        'Unchecked is not clean. This payload must not be shipped.\n',
+    )
+    console.error('\nOwner-data guard COULD NOT RUN, so this payload is UNCHECKED -- not clean, and not known-dirty.')
+    console.error(guard.report.trim() || `check-no-owner-data.mjs exited ${guard.exitCode} without a message.`)
+    console.error(
+      '\nNothing was scanned, so there is no offender list and no conclusion to draw about the\n' +
+        'capability-layer source. Fix the guard\'s setup and re-run; --allow-owner-data will NOT\n' +
+        'bypass this, because it accepts KNOWN owner data and nothing here is known.\n' +
+        `The staged payload is marked ${UNSHIPPABLE_MARKER}.`,
+    )
+    process.exitCode = 1
     return
   }
 
