@@ -13,6 +13,9 @@ import {
   LAUNCH_TIERS, launchTier, tierArgvFragment, UNSUPPORTED_CONTROLS,
   CAP_BOUNDS, clampCapMs, capMinutes, sandboxLevel,
 } from '../orchestration-controls.js'
+import {
+  TIER_AGENT_IDENTITY, TEAM_BOUNDS, planTeam, createTeamController,
+} from '../agent-teams.js'
 import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../node-chatbox.js'
 /* COPY and readLocalSessions are borrowed rather than rewritten: the home
    screen already says these sentences, and a second wording for "some agents
@@ -21,6 +24,15 @@ import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../no
 import { COPY, readLocalSessions } from '../local-activity.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
+/* The editing surface for the DECLARED organisation. It is a separate module
+   for the reason given at the top of that file: it is the only part of this
+   page that writes, and it is the only part that has to keep a role's wording
+   and the role's enforcement side by side. */
+import {
+  ORG_ABSENT_REASON, REVISION_CONFLICT_ADVICE,
+  buildRoleAssignBox, buildRoleLibraryBox, failureSentence, isRevisionConflict,
+  orgBridge, orgNoticeMarkup, readOrg,
+} from '../org-controls.js'
 import '../board.css'
 import '../tree-graph.css'
 
@@ -138,6 +150,12 @@ function projectedComputer(computer, projection) {
     graphEdges: edges,
     graphRevision: projection.revision,
     projection: true,
+    /* THE FAST, LOCAL HALF OF A DRAG. It is not the authority — the
+       organisation store behind window.mcOrg is, and computersView sends every
+       accepted move there — but a drag needs an answer in the same frame as the
+       pointer, and these are the guards that drive the .drop-ok highlight and
+       the .refuse shake. The engine's own cycle check is the one that decides
+       whether the move is KEPT; this one only decides what the cursor does. */
     reparentAgent(agentId, parentId) {
       const agent = byId.get(agentId)
       const parent = byId.get(parentId)
@@ -150,15 +168,64 @@ function projectedComputer(computer, projection) {
         current = current.parentId ? byId.get(current.parentId) : null
       }
       agent.parentId = parent.id
+      /* The declared edge list moves with the node. Left alone, the edge that
+         named the FORMER manager stays in graphEdges, and src/tree-graph.js
+         draws every declared edge that is not already covered by a parent link
+         — so the canvas kept asserting a management relationship the person had
+         just dragged away from, as a second and softer line. */
+      for (let index = edges.length - 1; index >= 0; index -= 1) {
+        if (edges[index].to === agentId && HIERARCHY_EDGE_TYPES.has(edges[index].type)) edges.splice(index, 1)
+      }
+      edges.push({ from: parent.id, to: agentId, type: 'manages', sourceKind: 'declared' })
       return true
     },
   }
 }
 
-function projectionComputers(data) {
+/* WHY THE SAVED ORGANISATION IS LAID OVER THE GENERATED FILE.
+ *
+ * public/data/fleet.json is produced by tools/gen-fleet.mjs from
+ * config/agent-org.json — the SHIPPED baseline. A person's own edits live in an
+ * overlay behind window.mcOrg, and the generator never sees them. Without this
+ * merge a reparent could be written to disk correctly and still be absent from
+ * the page on the next load, which a person cannot tell apart from not having
+ * been written at all.
+ *
+ * IT APPLIES ONLY WHEN THERE IS SOMETHING TO APPLY. `source === 'baseline'`
+ * means the store is serving the same shipped file the projection was generated
+ * from, so there is nothing to overlay and the projection is returned untouched
+ * — including when the overlay was DAMAGED, where the shipped default is
+ * genuinely what the person is looking at and the rail says so.
+ *
+ * Within an agent the saved org is authoritative for hierarchy: it is the
+ * owner-authored management graph, it is what this page's drag control writes,
+ * and a page that edited one graph while drawing another would be editing
+ * something invisible. Agents the saved org does not declare keep every edge
+ * the projection gave them, observed ones included.
+ */
+const HIERARCHY_EDGE_TYPES = new Set(['manages', 'delegates_to'])
+
+function mergeOrgIntoProjection(graph, org) {
+  if (org?.source !== 'overlay' || !Array.isArray(org.agents) || !Array.isArray(org.relationships)) return graph
+  const declared = new Map(org.agents.map(agent => [agent.id, agent]))
+  const nodes = graph.nodes.map(node => {
+    const agent = declared.get(node.id)
+    return agent ? { ...node, role: agent.role, enabled: agent.enabled } : node
+  })
+  const present = new Set(nodes.map(node => node.id))
+  const edges = graph.edges
+    .filter(edge => !(HIERARCHY_EDGE_TYPES.has(edge.type) && declared.has(edge.to)))
+    .concat(org.relationships
+      .filter(relation => relation.type === 'manages' && present.has(relation.from) && present.has(relation.to))
+      .map(relation => ({ from: relation.from, to: relation.to, type: 'manages', sourceKind: 'declared' })))
+  return { ...graph, nodes, edges, revision: org.revision ?? graph.revision }
+}
+
+function projectionComputers(data, org = null) {
   const graph = data?.graph
   if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges) || !Array.isArray(data?.computers)) return []
-  return data.computers.map(computer => projectedComputer(computer, graph))
+  const merged = mergeOrgIntoProjection(graph, org)
+  return data.computers.map(computer => projectedComputer(computer, merged))
 }
 
 /* Every live card used to read "role: manager / state: disabled" — the same two
@@ -382,6 +449,14 @@ export function computersView({ initialComputer = null, navigate }) {
             <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
           </div>
           <div class="graph-edit-note">drag onto a parent or into empty space</div>
+          <!-- WHAT THE ORGANISATION STORE SAID ABOUT THE LAST DRAG.
+               A drag has no other place to report from: the rail is showing
+               whichever node was last clicked, which is not necessarily the one
+               being moved, and the canvas itself can only show the node's
+               position. A refusal stays until the next attempt; a save clears
+               itself, because a persistent "saved" would be indistinguishable
+               from a stale one. -->
+          <div class="org-status" data-state="idle" role="status" hidden></div>
         </div>
         <aside class="rail glass">
           <div class="rail-page stats-page is-active"></div>
@@ -411,6 +486,48 @@ export function computersView({ initialComputer = null, navigate }) {
      It occupies the same slot the graph canvas does, so the two can never be on
      screen together. */
   let emptyPanel = null
+  const orgStatusElement = root.querySelector('.org-status')
+  let orgStatusTimer = 0
+  /* THE ONE ANSWER EVERY ORGANISATION CONTROL BRANCHES ON.
+     Read once per projection load and held here, so the rail's role menu, the
+     role library and the drag can never disagree about which revision they are
+     editing or about whether there is a store behind them at all. It starts as
+     'absent' because that is what a plain browser is, and a control offered
+     before the read has answered would be a control with no backend. */
+  let orgAvailability = { state: 'absent', code: 'ORG_BRIDGE_ABSENT', reason: ORG_ABSENT_REASON }
+  const orgReady = () => orgAvailability.state === 'ready'
+  /* The last fleet payload, kept so the projection can be re-derived from the
+     saved organisation without a second network read. Every org write goes
+     through this: re-deriving is the same path a reload takes, so what the
+     person sees after an edit cannot disagree with what they would see after
+     restarting the app. */
+  let lastFleetData = null
+
+  function setOrgStatus(text, state = 'info', { sticky = false } = {}) {
+    clearTimeout(orgStatusTimer)
+    orgStatusTimer = 0
+    orgStatusElement.textContent = text || ''
+    orgStatusElement.dataset.state = text ? state : 'idle'
+    orgStatusElement.hidden = !text
+    if (text && !sticky) {
+      orgStatusTimer = setTimeout(() => {
+        orgStatusElement.hidden = true
+        orgStatusElement.textContent = ''
+        orgStatusElement.dataset.state = 'idle'
+      }, 7000)
+    }
+  }
+
+  const agentNameOf = (agentId) =>
+    computer?.agents?.find(entry => entry.id === agentId)?.name || agentId || 'nobody'
+
+  async function refreshOrg() {
+    const next = await readOrg()
+    if (destroyed) return next
+    orgAvailability = next
+    syncEditAvailability()
+    return next
+  }
 
   function clearBoard() {
     clearInterval(boardClock)
@@ -443,6 +560,90 @@ export function computersView({ initialComputer = null, navigate }) {
     editButton.setAttribute('aria-pressed', editing ? 'true' : 'false')
     graphWrap.classList.toggle('editing', editing)
     syncResetButton()
+  }
+
+  /* IN LIVE MODE THE EDIT BUTTON IS A DOOR TO A WRITE.
+     Editing the hierarchy means dragging a node onto a new manager, and that
+     move is only a change if an organisation store accepts it. With no store
+     behind this window — a plain browser, or a build whose payload carries no
+     organisation modules — every drag would be undone the moment it was tried,
+     so the button is disabled and carries the reason instead of opening a mode
+     that can only disappoint.
+     The SIMULATED fleet is a different case and stays available: its drag moves
+     demonstration data around demonstration data, which is exactly what it
+     claims to do. */
+  function syncEditAvailability() {
+    const blocked = liveMode && !orgReady()
+      ? failureSentence(orgAvailability, 'The declared organisation could not be read.')
+      : null
+    editButton.disabled = Boolean(blocked)
+    if (blocked) {
+      editButton.title = `The hierarchy cannot be edited here. ${blocked}`
+      editButton.setAttribute('aria-label', editButton.title)
+      if (graph?.editMode) {
+        graph.setEditMode(false)
+        syncEditButton()
+      }
+    } else {
+      editButton.title = 'Edit the role hierarchy'
+      editButton.removeAttribute('aria-label')
+    }
+  }
+
+  /* THE DRAG, AND WHAT MAKES IT A CHANGE RATHER THAN AN APPEARANCE.
+   *
+   * src/tree-graph.js asks this question synchronously and commits the visual
+   * move on a truthy answer, so the local guards answer first — they are the
+   * fast path and they are what drives the drop highlight and the refusal
+   * shake. The store's answer arrives afterwards, and if it is a refusal the
+   * projection is re-derived from what is actually saved, which puts the node
+   * back where it was and leaves the store's own sentence on screen.
+   *
+   * A move that stays on the canvas after the store refused it is precisely the
+   * defect this control existed to have: the page would be drawing an
+   * organisation that nobody has. */
+  function handleReparent(agentId, parentId) {
+    if (!computer?.reparentAgent?.(agentId, parentId)) return false
+    void persistReparent(agentId, parentId)
+    return true
+  }
+
+  async function persistReparent(agentId, parentId) {
+    const bridge = orgBridge()
+    if (!bridge || !orgReady()) {
+      reprojectFromOrg()
+      setOrgStatus(failureSentence(orgAvailability, 'The move could not be saved.'), 'refuse', { sticky: true })
+      return
+    }
+    const version = fetchVersion
+    setOrgStatus('Saving the new manager…', 'busy', { sticky: true })
+    let result
+    try {
+      result = await bridge.reparent({
+        agentId,
+        parentId,
+        /* A stale window is refused rather than allowed to overwrite whatever a
+           second window saved in the meantime. */
+        expectedRevision: orgAvailability.org.revision,
+      })
+    } catch (error) {
+      result = { ok: false, code: 'ORG_REPARENT_THREW', reason: `The move could not be sent to the organisation store: ${error?.message || error}` }
+    }
+    if (destroyed || version !== fetchVersion) return
+    if (result?.ok) {
+      orgAvailability = { ...orgAvailability, org: result.org }
+      setOrgStatus(`Saved. ${agentNameOf(agentId)} now reports to ${agentNameOf(parentId)}.`, 'ok')
+      return
+    }
+    if (isRevisionConflict(result)) {
+      await refreshOrg()
+      if (destroyed || version !== fetchVersion) return
+      reprojectFromOrg()
+      setOrgStatus(REVISION_CONFLICT_ADVICE, 'refuse', { sticky: true })
+      return
+    }
+    reprojectFromOrg()
+    setOrgStatus(failureSentence(result, 'The move was not saved.'), 'refuse', { sticky: true })
   }
 
   /* HIDDEN, NOT DISABLED, WHEN THERE IS NOBODY TO OPEN.
@@ -561,7 +762,7 @@ export function computersView({ initialComputer = null, navigate }) {
       screenChips: true,
       contextFeed: liveMode ? projectionMonitorContext : monitorContextFor,
       edges: liveMode ? computer.graphEdges : null,
-      onReparent: liveMode ? ((agentId, parentId) => computer.reparentAgent(agentId, parentId)) : null,
+      onReparent: liveMode ? handleReparent : null,
       onOpenControls: (agent) => { setOpenTarget(agent); showControls(agent) },
       onRootChange: renderCrumb,
       onOverridesChange: syncResetButton,
@@ -571,10 +772,44 @@ export function computersView({ initialComputer = null, navigate }) {
     window.__mcGraph = graph
     renderCrumb(null)
     syncEditButton()
+    syncEditAvailability()
     /* Aim the button before anything is clicked, so it is a way IN rather than a
        reward for having already found the way in. A computer with no agents at
        all leaves the target null and the button hidden. */
     setOpenTarget(computer.agents?.[0] || null)
+  }
+
+  /**
+   * REDRAW THE PAGE FROM WHAT IS ACTUALLY SAVED.
+   *
+   * Used after every organisation write, successful or refused. It re-derives
+   * the projection from the cached fleet payload and the current saved org, so
+   * a refused move goes back where it came from and an accepted one is drawn
+   * the same way a fresh launch would draw it. Rebuilding rather than patching
+   * is the point: a patch is a second renderer, and the second one is the one
+   * that ends up showing something the store does not hold.
+   *
+   * The drill-in root, the edit mode and the selected node are carried across,
+   * because none of those are facts about the organisation and losing them
+   * would make a correct save feel like a page reset.
+   */
+  function reprojectFromOrg({ keepAgentId = null } = {}) {
+    if (!lastFleetData || !liveMode) return
+    const rootId = graph?.rootId || null
+    const editing = !!graph?.editMode
+    const computerId = computer?.id || null
+    const selected = keepAgentId || null
+    mountProjection(lastFleetData, { preferComputerId: computerId })
+    if (rootId && graph?.nodes.has(rootId)) graph.setRoot(rootId)
+    if (editing && !editButton.disabled) {
+      graph?.setEditMode(true)
+      syncEditButton()
+    }
+    const agent = selected ? computer?.agents?.find(entry => entry.id === selected) : null
+    if (!agent) return
+    setOpenTarget(agent)
+    graph?.select(agent.id)
+    showProjectionControls(agent)
   }
 
   function renderStats() {
@@ -626,7 +861,67 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>
         <div class="rail-sec">Declared graph</div>
         <div class="rail-sub">${computer.graphEdges.length} declared relationships · runtime, load, tasks, and messages unavailable · not provided by fleet projection</div>
+        ${orgSourceMarkup()}
+        <div class="rail-sec">Roles</div>
+        <div class="board-org-slot"></div>
       </div>`
+    mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
+  }
+
+  /* WHAT THE PERSON IS LOOKING AT, BEFORE THEY EDIT IT.
+     Three facts change what an edit MEANS and none of them is visible unless
+     something says it: that their saved organisation could not be loaded and
+     this is the shipped default (`damaged`), that the shipped default moved
+     under their edits (`baselineDrift`), and that there is no store here at all.
+     orgNoticeMarkup carries the first two verbatim from the engine; the third is
+     added here because a rail that offers no editing owes a reason. */
+  function orgSourceMarkup() {
+    if (!orgReady()) {
+      return `<div class="org-notice" data-notice="off">${escapeMarkup(failureSentence(orgAvailability, 'The declared organisation could not be read.'))}</div>`
+    }
+    const source = orgAvailability.org.source === 'overlay'
+      ? 'Showing your saved organisation.'
+      : 'Showing the organisation this build ships. Nothing has been changed on this computer yet.'
+    return `${orgNoticeMarkup(orgAvailability.org)}<div class="rail-sub">${escapeMarkup(source)} Revision ${escapeMarkup(String(orgAvailability.org.revision))}.</div>`
+  }
+
+  /* The role library is HIDDEN, not disabled, when there is no bridge at all.
+     A whole panel of dead fields is noise in a browser that was never going to
+     have an organisation store; the one-line reason above it has already been
+     said. A bridge that answered with a FAILURE is different — that copy owes an
+     explanation — so the panel is built and renders itself disabled. */
+  function mountOrgLibrary(slot) {
+    if (!slot) return
+    if (orgAvailability.state === 'absent') {
+      slot.remove()
+      return
+    }
+    slot.replaceWith(buildRoleLibraryBox({
+      availability: orgAvailability,
+      onCreate: (definition) => callRoleBridge('createRole', definition, 'The role was not created.'),
+      onEdit: (edit) => callRoleBridge('editRole', edit, 'The role wording was not saved.'),
+      onReset: (target) => callRoleBridge('resetRole', target, 'The shipped wording was not restored.'),
+    }))
+  }
+
+  /* One door to the three role-vocabulary calls. Each returns {ok, roles} and
+     nothing else changes, so the cached role list is replaced and the graph is
+     left alone — a role's WORDING is not a fact the canvas draws. */
+  async function callRoleBridge(method, request, fallback) {
+    const bridge = orgBridge()
+    if (!bridge || typeof bridge[method] !== 'function') {
+      return { ok: false, code: 'ORG_BRIDGE_ABSENT', reason: ORG_ABSENT_REASON }
+    }
+    let result
+    try {
+      result = await bridge[method](request)
+    } catch (error) {
+      result = { ok: false, code: 'ORG_ROLE_CALL_THREW', reason: `${fallback} ${error?.message || error}` }
+    }
+    if (result?.ok && Array.isArray(result.roles) && orgReady()) {
+      orgAvailability = { ...orgAvailability, roles: result.roles }
+    }
+    return result
   }
 
   function updateBars() {
@@ -825,6 +1120,141 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   /**
+   * TEAMS — one brief, several agents, nested under a lead.
+   *
+   * Every control here is backed by the same audited dispatch call the single
+   * lane button uses. There is deliberately no new engine concept: a team is a
+   * lead dispatch plus one nested dispatch per member, which is why the
+   * engine's own fan-out cap (LAUNCH_FANOUT_EXCEEDED) finally applies to it.
+   *
+   * The two things this panel must not imply, and says out loud instead:
+   *   - Six tiers are only FOUR concurrent agents. All three Claude tiers are
+   *     the declared agent `claude`, and the presence registry allows one live
+   *     lane per identity. A picker that let you tick Opus and Sonnet together
+   *     would 409 on the second one every time.
+   *   - "Started" is not "answered". Dispatch returns when the child process is
+   *     running; the result is never returned to the caller. A panel that said
+   *     "collecting results" would be describing a channel that does not exist.
+   *
+   * No animation is used anywhere in here: page 2 asserts that nothing inside
+   * .computers is animating once settled.
+   */
+  function teamControlsBox(agent) {
+    const dispatchEnabled = isWriteEnabled('dispatch')
+    const box = el(`
+      <div class="board-box board-team-box">
+        <div class="board-box-h"><span class="bh-t">Team</span></div>
+        <div class="board-cap">send one brief to several agents, nested under a lead</div>
+        <label class="ctl-field"><span class="cl">Lead</span>
+          <select class="ctl-select" data-team="lead" aria-label="Team lead tier">
+            ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.id)}">${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider)}</option>`).join('')}
+          </select>
+        </label>
+        <div class="ctl-field ctl-team-members"><span class="cl">Members</span>
+          <div class="team-member-grid" data-team="members">
+            ${LAUNCH_TIERS.map(tier => `
+              <label class="team-member"><input type="checkbox" data-team-member="${escapeMarkup(tier.id)}"/>
+                <span>${escapeMarkup(tier.label)}</span>
+                <code>${escapeMarkup(TIER_AGENT_IDENTITY[tier.id] || '?')}</code>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="rail-sub" data-team="identity-note">The code beside each name is the declared agent it becomes. Two members that resolve to the same agent cannot run at once, so at most ${TEAM_BOUNDS.maxConcurrent} lanes can be live together on this computer.</div>
+        <div class="rail-sub" data-team="plan" role="status"></div>
+        <div class="ctl-dispatch">
+          <button class="ctl-btn" type="button" data-team="go"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Dispatch the lead, then nest each member under its launch' : 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'}">Dispatch team</button>
+          <output class="ctl-out" data-team="out" role="status">${dispatchEnabled ? '' : 'dispatch is off in Settings'}</output>
+        </div>
+        <div class="team-roster" data-team="roster"></div>
+        <div class="rail-sub" data-team="honesty">Started means the process is running, not that it has answered. A dispatch returns a launch receipt, never a result.</div>
+      </div>`)
+
+    const leadSelect = box.querySelector('[data-team="lead"]')
+    const planLine = box.querySelector('[data-team="plan"]')
+    const goButton = box.querySelector('[data-team="go"]')
+    const output = box.querySelector('[data-team="out"]')
+    const roster = box.querySelector('[data-team="roster"]')
+    let controller = null
+
+    const selectedMembers = () => [...box.querySelectorAll('[data-team-member]')]
+      .filter(input => input.checked)
+      .map(input => input.getAttribute('data-team-member'))
+
+    const currentPlan = () => planTeam({ lead: leadSelect.value, members: selectedMembers() })
+
+    /* The plan is recomputed on every change and the button follows it, so an
+       undispatchable team is refused BEFORE anything is started rather than
+       part-way through. */
+    const paintPlan = () => {
+      const plan = currentPlan()
+      planLine.textContent = plan.dispatchable
+        ? `Ready: ${plan.lead} leads ${plan.members.length} member${plan.members.length === 1 ? '' : 's'}; ${plan.size} lanes total.`
+        : plan.problems.join(' ')
+      goButton.disabled = !dispatchEnabled || !plan.dispatchable
+      if (!dispatchEnabled) goButton.title = 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'
+      else if (!plan.dispatchable) goButton.title = plan.problems.join(' ')
+      else goButton.title = 'Dispatch the lead, then nest each member under its launch'
+      return plan
+    }
+
+    const paintRoster = state => {
+      const rows = [state.lead ? { ...state.lead, lead: true } : null, ...state.members].filter(Boolean)
+      roster.replaceChildren(...rows.map(row => el(`
+        <div class="team-row" data-phase="${escapeMarkup(row.phase)}">
+          <b>${escapeMarkup(row.tier)}${row.lead ? ' · lead' : ''}</b>
+          <code>${escapeMarkup(row.identity || '?')}</code>
+          <span>${escapeMarkup(row.detail)}</span>
+        </div>`)))
+    }
+
+    leadSelect.addEventListener('change', paintPlan)
+    for (const input of box.querySelectorAll('[data-team-member]')) {
+      input.addEventListener('change', paintPlan)
+    }
+    paintPlan()
+
+    if (dispatchEnabled) {
+      goButton.addEventListener('click', async () => {
+        const plan = paintPlan()
+        if (!plan.dispatchable) return
+        goButton.disabled = true
+        output.textContent = 'checking audited bridge…'
+        const status = await prepareBridgeOnce()
+        if (!box.isConnected) return
+        const rootId = Array.isArray(status?.roots) ? status.roots[0] : null
+        if (!status?.ok || !rootId) {
+          output.textContent = `unavailable · ${status?.reason || 'no declared worktree root'}`
+          goButton.disabled = false
+          return
+        }
+        const settings = readLaunchSettings()
+        controller?.destroy()
+        controller = createTeamController({
+          plan,
+          dispatchBody: {
+            rootId,
+            objectiveRef: `page2-team-${String(agent.id).replace(/[^a-z0-9_-]/gi, '-').slice(0, 50)}`,
+            brief: `Team requested from the fleet page, led under ${agent.name}.`,
+            cap: { kind: 'turns', value: 8, capMs: clampCapMs(settings.capMs) },
+          },
+          postAction: postBridgeAction,
+          onState: state => {
+            if (!box.isConnected) return
+            output.textContent = state.message
+            paintRoster(state)
+          },
+        })
+        await controller.run()
+        if (!box.isConnected) return
+        goButton.disabled = false
+        paintPlan()
+      })
+    }
+
+    return box
+  }
+
+  /**
    * The chatbox the owner asked for, in the rail, for the clicked node.
    *
    * What appears is decided by src/node-chatbox.js, which in turn defers to the
@@ -942,7 +1372,9 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
 
     mountRailChat(agent, role)
-    controlsPage.querySelector('.board-ctl-box').replaceWith(launchControlsBox(agent))
+    const simulatedLaunchBox = launchControlsBox(agent)
+    controlsPage.querySelector('.board-ctl-box').replaceWith(simulatedLaunchBox)
+    simulatedLaunchBox.after(teamControlsBox(agent))
 
     const ringSize = Math.max(180, Math.min(214, (railElement.clientWidth || 320) - 130))
     boardRing = uptimeRing({
@@ -1000,6 +1432,7 @@ export function computersView({ initialComputer = null, navigate }) {
           ${taskSummary === null ? '' : `<div class="rail-sub">${escapeMarkup(taskSummary)}</div>`}
           <div class="projection-unavailable">${escapeMarkup(missing.join(', '))} unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
         </div>
+        <div class="board-role-slot"></div>
         <div class="board-launch-slot"></div>
       </div>
       <div class="board-actions">
@@ -1007,10 +1440,64 @@ export function computersView({ initialComputer = null, navigate }) {
         <button class="ctl-btn" data-a="open">Open full view</button>
       </div>`
     mountRailChat(agent, role)
-    controlsPage.querySelector('.board-launch-slot').replaceWith(launchControlsBox(agent))
+    mountRoleControl(agent, controlsPage.querySelector('.board-role-slot'))
+    const projectionLaunchBox = launchControlsBox(agent)
+    controlsPage.querySelector('.board-launch-slot').replaceWith(projectionLaunchBox)
+    projectionLaunchBox.after(teamControlsBox(agent))
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     activateRail(controlsPage)
+  }
+
+  /**
+   * THE ROLE OF THE SELECTED AGENT.
+   *
+   * Same absence rule as the role library: with no bridge at all the control is
+   * removed rather than drawn dead, and a bridge that FAILED gets a disabled
+   * control carrying its reason. src/org-controls.js decides which of those two
+   * shapes to draw; this function owns what happens after a successful write,
+   * which is a full re-derivation — a role decides a node's colour, its radius
+   * and its tier on the canvas, so it is not a label the rail can repaint.
+   */
+  function mountRoleControl(agent, slot) {
+    if (!slot) return
+    if (orgAvailability.state === 'absent') {
+      slot.remove()
+      return
+    }
+    slot.replaceWith(buildRoleAssignBox({
+      agent,
+      availability: orgAvailability,
+      onAssign: async (roleId) => {
+        const bridge = orgBridge()
+        if (!bridge) return { ok: false, code: 'ORG_BRIDGE_ABSENT', reason: ORG_ABSENT_REASON }
+        const version = fetchVersion
+        let result
+        try {
+          result = await bridge.assignRole({
+            agentId: agent.id,
+            role: roleId,
+            expectedRevision: orgAvailability.org?.revision,
+          })
+        } catch (error) {
+          result = { ok: false, code: 'ORG_ASSIGN_ROLE_THREW', reason: `The role could not be sent to the organisation store: ${error?.message || error}` }
+        }
+        if (destroyed || version !== fetchVersion) return result
+        if (result?.ok) {
+          orgAvailability = { ...orgAvailability, org: result.org }
+          setOrgStatus(`Saved. ${agent.name} is now ${roleId}.`, 'ok')
+          reprojectFromOrg({ keepAgentId: agent.id })
+          return result
+        }
+        if (isRevisionConflict(result)) {
+          await refreshOrg()
+          if (destroyed || version !== fetchVersion) return result
+          reprojectFromOrg({ keepAgentId: agent.id })
+          setOrgStatus(REVISION_CONFLICT_ADVICE, 'refuse', { sticky: true })
+        }
+        return result
+      },
+    }))
   }
 
   function loadRailRuns() {
@@ -1086,9 +1573,18 @@ export function computersView({ initialComputer = null, navigate }) {
     graphTitle.textContent = ''
     crumbElement.innerHTML = ''
     hintElement.classList.remove('show')
-    statsPage.innerHTML = `<div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Fleet projection loading…' : `Fleet projection unavailable · ${escapeMarkup(reason)}`}</div>`
+    /* THE ROLE LIBRARY OUTLIVES THE FLEET.
+       This is the state a fresh install actually opens in — public/data/fleet.json
+       ships with ok:false — and roles are not a fact about a running fleet: they
+       are the vocabulary an organisation is written in, and they can be prepared
+       before any computer reports. Leaving the panel out here would have put the
+       only way to reach it behind a host most copies do not have. */
+    statsPage.innerHTML = `
+      <div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Fleet projection loading…' : `Fleet projection unavailable · ${escapeMarkup(reason)}`}</div>
+      ${loading ? '' : `<div class="rail-scroll rail-org-only">${orgSourceMarkup()}<div class="board-org-slot"></div></div>`}`
     controlsPage.innerHTML = ''
     activateRail(statsPage)
+    if (!loading) mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
 
     clearEmptyPanel()
     if (loading) return
@@ -1102,8 +1598,9 @@ export function computersView({ initialComputer = null, navigate }) {
     graphWrap.insertBefore(emptyPanel, graphTitle)
   }
 
-  function mountProjection(data) {
-    const next = projectionComputers(data)
+  function mountProjection(data, { preferComputerId = null } = {}) {
+    lastFleetData = data
+    const next = projectionComputers(data, orgReady() ? orgAvailability.org : null)
     if (!next.length) {
       showProjectionUnavailable('fleet projection has no usable computers or declared graph')
       return
@@ -1114,19 +1611,27 @@ export function computersView({ initialComputer = null, navigate }) {
     liveComputers = next
     root.dataset.liveMode = 'live'
     root.dataset.projectionState = 'available'
-    computer = next.find(candidate => candidate.id === initialComputer) || next[0]
+    computer = next.find(candidate => candidate.id === preferComputerId)
+      || next.find(candidate => candidate.id === initialComputer)
+      || next[0]
     renderTabs()
     mountGraph()
     showStats()
   }
 
+  /* The fleet and the saved organisation are read TOGETHER, and the projection
+     is not mounted until both have answered. Mounting on the fleet alone would
+     draw the shipped hierarchy first and correct itself a moment later, which
+     looks exactly like an edit being undone. */
   function loadProjection() {
     const version = ++fetchVersion
     showProjectionUnavailable('', true)
-    fetchFleet().then(result => {
+    Promise.all([fetchFleet(), readOrg()]).then(([result, org]) => {
       if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
+      orgAvailability = org
       if (!result.ok) showProjectionUnavailable(result.reason)
       else mountProjection(result.data.data)
+      syncEditAvailability()
     }).catch(error => {
       if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
       showProjectionUnavailable(`fleet projection request failed: ${error?.message || error}`)
@@ -1151,6 +1656,7 @@ export function computersView({ initialComputer = null, navigate }) {
       destroyed = true
       fetchVersion += 1
       clearTimeout(railDisposeTimer)
+      clearTimeout(orgStatusTimer)
       clearBoard()
       clearSourceUnsubs()
       clearMountedGraph()
