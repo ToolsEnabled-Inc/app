@@ -80,7 +80,10 @@
     "src/lib/providers/vertex-gemini-seat.js": "PROPOSE EXCLUDE (owner account binding). Pinned to a second owner 'seat' account/project by SHA256 commitment.",
     "src/lib/providers/firebase.js": "PROPOSE SPLIT (live identifier). Generic Firebase CLI wrapper plus a function hardcoding AICalendar's revenue Firebase project id 'aica-aed2a' (line 12). Generic half is publishable once that is removed.",
     "config/toolsenabled.policy.json": "PROPOSE SANITIZE BEFORE PUBLIC RELEASE. Ships today and is required at runtime, but carries the live GCP project id 'aica-aed2a' (line 55), the owner's daily spend cap, and paid-plan API quota pools.",
-    "config/model-floor.json": "PROPOSE SANITIZE BEFORE PUBLIC RELEASE. Required at runtime, but carries verbatim owner directives and an internal incident narrative with dates."
+    "config/model-floor.json": "PROPOSE SANITIZE BEFORE PUBLIC RELEASE. Required at runtime, but carries verbatim owner directives and an internal incident narrative with dates.",
+    "src/lib/agent-session-confinement.js": "PROPOSE OPEN. Binds the recorded permission level to the agent sessions Mission Control itself starts, via the thread's sandbox/approvalPolicy and a prepared CODEX_HOME. This is SAFETY enforcement, not entitlement enforcement: it decides what an agent may touch, never what a customer has paid for. Read the whole file before reclassifying -- the distinction from src/lib/entitlement.js is the reason they land in different buckets.",
+    "src/lib/fra-machine-identity.js": "PROPOSE OPEN. Single derivation point for which machine a per-machine FRA file describes, keyed on the stable machine id in config/service-registry.json rather than an interpolated address. Generic id validation and resolution. Carried two owner LAN literals in comments until B26; re-measured on the staged payload after that fix -- 0 matches, and the payload-wide owner-data guard now reports clean.",
+    "src/lib/providers/subscription-launch-env.js": "PROPOSE OPEN. Strips the UNION of every provider's billing credentials from the environment before a subscription CLI is spawned, so a child process cannot silently bill a metered API account instead of the user's subscription. Protects the user's money; contains no prices, tiers, or entitlement logic."
   },
   "open": {
     "$comment": [
