@@ -71,7 +71,7 @@ export function sealPathFor(artifactDirectory) {
  * This field used to hold `path.resolve(artifactDirectory)`. Measured on this
  * machine on 2026-08-11, that wrote
  *
- *   "artifact": "C:\\Users\\joshp\\Desktop\\wt-capability\\release\\win-unpacked"
+ *   "artifact": "C:\\Users\\<account>\\<checkout>\\release\\win-unpacked"
  *
  * into release/.artifact-seal-win-unpacked.json on EVERY build -- the builder's
  * home directory and account name, in the output folder, written by the very
