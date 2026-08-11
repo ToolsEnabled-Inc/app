@@ -1,0 +1,399 @@
+/* What the home screen is allowed to say, and in whose words.
+ *
+ * WHY THIS IS A SEPARATE MODULE AND NOT A BLOCK INSIDE home.js.
+ *
+ * The defect this exists to make impossible was measured on a real installed
+ * build: the home screen told one person, in one viewport, both of these.
+ *
+ *     "No local agent fleet host detected on this machine."   (twice)
+ *     "Mission Control already works on this one computer."
+ *
+ * Nobody wrote that pair. It assembled itself, because five independent pieces
+ * of the screen each answered a different question from a different source and
+ * none of them could see what the others had already said. A rule that lives
+ * inside a render function can only ever be checked by reading the render
+ * function. So the decision of WHAT THE SCREEN SAYS is made here, as one pure
+ * function over one input, returning one flat list of sentences -- and
+ * tools/test/home-screen.test.mjs walks every reachable combination of that
+ * input and asserts the list never contradicts itself and never repeats itself.
+ * That check is only possible because the sentences are values, not DOM.
+ *
+ * ON VOCABULARY. The screen this replaced was written from inside the system:
+ * "read-only projection", "audited bridge", "coordinator thread", "source
+ * unavailable", "last health sweep". Every one of those names a mechanism. A
+ * person opening this product owns agents, a computer, and some decisions
+ * waiting on them; they do not own a projection. Nothing below names a
+ * mechanism, an availability envelope, a transport, or a file. It is also
+ * deliberately free of the punctuation a README uses and an interface does not:
+ * no interpuncts between clauses, no ellipses on states, no em dash standing in
+ * for a value that is simply absent. Where there is no reading, the screen
+ * omits the line rather than printing a placeholder for it.
+ */
+
+/* Everything the screen can be in. Named states rather than booleans checked in
+   sequence: a boolean ladder is exactly how the contradictory pair got in, and
+   a state machine makes the illegal pair unreachable instead of unlikely. */
+export const HOME_MODES = Object.freeze({
+  /* Other computers are connected and answering. The fleet reading is the
+     valuable one, so it gets the hero. */
+  FLEET: 'fleet',
+  /* Other computers are connected and NOT answering. Worth saying, once. */
+  FLEET_UNREACHABLE: 'fleet-unreachable',
+  /* This computer only, and agents have run here. Their record is the hero. */
+  LOCAL: 'local',
+  /* This computer only, and nothing has run here yet. Not an error. */
+  LOCAL_IDLE: 'local-idle',
+  /* The labelled demonstration, reachable from Settings. */
+  SAMPLE: 'sample',
+  /* Not the installed application: a plain browser pointed at the same build.
+     There is no computer here to report on, which is a different thing from a
+     computer with nothing on it, and must not be reported as a fault. */
+  NO_HOST: 'no-host',
+})
+
+/* ---------------------------------------------------------------
+   Reading the shell's reply.
+   --------------------------------------------------------------- */
+
+const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+/**
+ * Normalize `mcAgent.history()` into something a view can render without
+ * re-validating it.
+ *
+ * THREE OUTCOMES, NOT TWO, and the third is the one worth naming. "No runs
+ * yet", "the record could not be read", and "this copy cannot see a computer at
+ * all" are three different sentences, and collapsing the third into the second
+ * would have this page report a fault against a browser that is behaving
+ * correctly. `undefined` means nobody could be asked; anything malformed means
+ * somebody was asked and the answer did not parse.
+ */
+export function readLocalSessions(raw) {
+  if (raw === undefined) {
+    return Object.freeze({ supported: false, readable: false, total: 0, runs: Object.freeze([]), verified: null })
+  }
+  if (!isRecord(raw) || raw.ok !== true || !Array.isArray(raw.entries)) {
+    return Object.freeze({ supported: true, readable: false, total: 0, runs: Object.freeze([]), verified: null })
+  }
+  const runs = raw.entries
+    .filter(entry => isRecord(entry)
+      && typeof entry.at === 'string'
+      && Number.isFinite(Date.parse(entry.at))
+      && Number.isSafeInteger(entry.sequence))
+    .map(entry => Object.freeze({ sequence: entry.sequence, atMs: Date.parse(entry.at) }))
+  const total = Number.isSafeInteger(raw.total) && raw.total >= runs.length ? raw.total : runs.length
+  return Object.freeze({
+    supported: true,
+    readable: true,
+    total,
+    runs: Object.freeze(runs),
+    verified: raw.verified === true ? true : (raw.verified === false ? false : null),
+  })
+}
+
+/**
+ * Can an agent be started on this computer at all? `mcAgent.availability()`
+ * answers `{ok, code}`; the code is a fixed identifier, never a path, but it is
+ * still a code, so it is translated here and never rendered raw.
+ */
+export function readAgentEngine(raw, sessionsEnabled = false) {
+  const enabled = sessionsEnabled === true
+  if (raw === undefined) return Object.freeze({ supported: false, ready: false, sessionsEnabled: enabled, why: null })
+  if (isRecord(raw) && raw.ok === true) return Object.freeze({ supported: true, ready: true, sessionsEnabled: enabled, why: null })
+  const code = isRecord(raw) && typeof raw.code === 'string' ? raw.code : ''
+  return Object.freeze({
+    supported: true,
+    ready: false,
+    sessionsEnabled: enabled,
+    why: ENGINE_REASON[code] || 'This copy is not set up to run agents yet',
+  })
+}
+
+const ENGINE_REASON = Object.freeze({
+  AGENT_ENGINE_UNAVAILABLE: 'This copy is not set up to run agents yet',
+  AGENT_HOST_CLOSED: 'Mission Control is shutting down',
+  SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let Mission Control protect its record of what runs here, so it will not start an agent',
+  SPAWN_RECORD_KEY_UNREADABLE: 'The record of what has run here cannot be opened, so Mission Control will not add to it',
+  MC_AGENT_INVALID_PAYLOAD: 'This copy is not set up to run agents yet',
+})
+
+/* ---------------------------------------------------------------
+   Time, in words.
+   --------------------------------------------------------------- */
+
+/**
+ * Plain English, and never a symbol standing in for a number. Returns null for
+ * an unreadable input so callers omit the phrase instead of printing a dash.
+ */
+export function whenWords(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return null
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 45) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return minutes <= 1 ? 'a minute ago' : `${minutes} minutes ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return hours === 1 ? 'an hour ago' : `${hours} hours ago`
+  const days = Math.round(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 30) return `${days} days ago`
+  const months = Math.round(days / 30)
+  if (months < 12) return months === 1 ? 'last month' : `${months} months ago`
+  const years = Math.round(months / 12)
+  return years === 1 ? 'last year' : `${years} years ago`
+}
+
+const countOf = (n, one, many) => `${n} ${n === 1 ? one : many}`
+
+/* ---------------------------------------------------------------
+   The decision.
+   --------------------------------------------------------------- */
+
+/**
+ * @param {object} input
+ * @param {boolean} input.sample          the labelled demonstration is showing
+ * @param {boolean} input.fleetConfigured other computers have been connected
+ * @param {object|null} input.fleetHealth  {available, total, ok, down, unknown, atMs}
+ * @param {object|null} input.peer         {reachable, name, atMs}
+ * @param {object} input.sessions          from readLocalSessions
+ * @param {object} input.engine            from readAgentEngine
+ * @param {object|null} input.approvals    {readable, count}
+ * @param {number} input.nowMs
+ *
+ * @returns a description, never a rendering. `clock` is null whenever there is
+ * no real instant to count from -- the screen then shows no digits at all,
+ * because four dashes under the word SECONDS is a broken clock and a person
+ * reads it as one.
+ */
+export function describeHome(input) {
+  const {
+    sample = false,
+    fleetConfigured = false,
+    fleetHealth = null,
+    peer = null,
+    sessions = readLocalSessions(null),
+    engine = readAgentEngine(null),
+    approvals = null,
+    nowMs = Date.now(),
+  } = input || {}
+
+  const mode = pickMode({ sample, fleetConfigured, fleetHealth, sessions })
+  const newestRun = sessions.runs.length ? Math.max(...sessions.runs.map(run => run.atMs)) : null
+
+  /* ---- the hero ---- */
+  let clock = null
+  let caption = 'This computer'
+  let headline = null
+
+  if (mode === HOME_MODES.FLEET) {
+    clock = fleetHealth.atMs
+    caption = 'Last checked'
+    headline = fleetHeadline(fleetHealth)
+  } else if (mode === HOME_MODES.FLEET_UNREACHABLE) {
+    caption = 'Your computers'
+    headline = 'The computers you connected could not be reached'
+  } else if (mode === HOME_MODES.LOCAL) {
+    clock = newestRun
+    caption = 'Last agent run'
+    headline = `${countOf(sessions.total, 'agent run', 'agent runs')} on this computer`
+  } else if (mode === HOME_MODES.SAMPLE) {
+    caption = 'Example fleet'
+    headline = 'Everything on this screen is an example, not your data'
+  } else if (mode === HOME_MODES.NO_HOST) {
+    caption = 'Mission Control'
+    headline = 'Open Mission Control on your computer to see what has run there'
+  } else if (!sessions.readable) {
+    caption = 'This computer'
+    headline = 'The record of what has run here could not be read'
+  } else {
+    /* Deliberately NOT a second "nothing has run here". The panel two inches to
+       the right already says that, and it is the panel's job to; a hero
+       repeating it in almost the same words was the first thing wrong with this
+       screen when it was looked at rather than reasoned about. The hero answers
+       a different question -- what state is this computer in -- and on a fresh
+       install the honest answer is a good one. */
+    caption = 'This computer'
+    headline = engine.ready ? 'Ready when you are' : 'Not ready yet'
+  }
+
+  /* ---- the short true statements under the hero ----
+     Assembled in one place so the whole set is visible at once. This is the
+     list the contradiction test walks. */
+  const facts = []
+
+  if (mode === HOME_MODES.SAMPLE) {
+    facts.push({ id: 'sample', tone: 'neutral', text: 'Turn this off in Settings to see your own computer' })
+  } else if (mode === HOME_MODES.NO_HOST) {
+    facts.push({ id: 'engine', tone: 'neutral', text: 'This page is running in a browser, not the installed app' })
+  } else {
+    /* Whether agents can run here. Stated once, positively when it is true --
+       a person needs to know this either way, and it is the single most
+       load-bearing fact about the product on a machine with nothing connected. */
+    facts.push(engine.ready
+      ? { id: 'engine', tone: 'good', text: 'Agents can run on this computer' }
+      : { id: 'engine', tone: 'warn', text: engine.why })
+
+    /* The other computers. Exactly one sentence, and only one of these three
+       branches can ever be taken, which is the whole point of the mode. */
+    if (mode === HOME_MODES.FLEET && peer?.reachable) {
+      const when = whenWords(nowMs - peer.atMs)
+      facts.push({
+        id: 'peer',
+        tone: 'good',
+        text: when ? `Connected to ${peer.name}, checked ${when}` : `Connected to ${peer.name}`,
+      })
+    } else if (mode === HOME_MODES.FLEET) {
+      /* Health read, link unread. NOTHING is said, deliberately: a fleet whose
+         services just reported in is plainly answering, so "your computers are
+         not answering" would be flatly contradicted by the headline directly
+         above it. The link's own freshness is a detail for the computers page,
+         not a headline claim on home. */
+    } else if (mode === HOME_MODES.FLEET_UNREACHABLE) {
+      facts.push({ id: 'peer', tone: 'warn', text: 'Nothing has been heard from them recently' })
+    } else {
+      /* The one true thing to say when there is no fleet. NOT "no fleet host
+         was detected", which describes a search this product performed and
+         reads as a fault; and never beside a claim that it works here. */
+      facts.push({ id: 'peer', tone: 'neutral', text: 'This is the only computer connected' })
+    }
+
+    /* Decisions waiting. Omitted entirely when the count could not be read: a
+       home screen is not the place that reports why a queue is unreadable, and
+       "0 waiting" when eight are queued would be the one wrong thing it could
+       say. Zero is stated positively, because "nothing needs you" is
+       information a person wants. */
+    if (approvals?.readable) {
+      facts.push(approvals.count > 0
+        ? { id: 'approvals', tone: 'warn', href: '#/approvals', text: `${countOf(approvals.count, 'decision', 'decisions')} waiting for you` }
+        : { id: 'approvals', tone: 'good', text: 'Nothing is waiting for your approval' })
+    }
+  }
+
+  const panel = Object.freeze(describePanel(mode, sessions, engine))
+
+  return Object.freeze({
+    mode,
+    clock,
+    caption,
+    headline,
+    facts: Object.freeze(facts.map(Object.freeze)),
+    panel,
+    /* An input a person can type into but that accepts nothing is worse than no
+       input at all, so the composer exists only where it does something. */
+    composer: mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET,
+    /* Every sentence this screen will print, flattened. The test walks this. */
+    statements: Object.freeze([headline, ...facts.map(fact => fact.text), ...panelStatements(panel)].filter(Boolean)),
+  })
+}
+
+function pickMode({ sample, fleetConfigured, fleetHealth, sessions }) {
+  if (sample) return HOME_MODES.SAMPLE
+  /* Checked before the fleet, because a browser cannot report on a fleet
+     either -- the projections it can read are the ones bundled in the build. */
+  if (!sessions.supported) return HOME_MODES.NO_HOST
+  if (fleetConfigured) {
+    return fleetHealth?.available && Number.isFinite(fleetHealth.atMs)
+      ? HOME_MODES.FLEET
+      : HOME_MODES.FLEET_UNREACHABLE
+  }
+  return sessions.readable && sessions.runs.length > 0 ? HOME_MODES.LOCAL : HOME_MODES.LOCAL_IDLE
+}
+
+function fleetHeadline(health) {
+  const { total, ok, down, unknown } = health
+  if (down > 0) return `${down} of ${total} ${down === 1 ? 'service is' : 'services are'} down`
+  if (unknown > 0) return `${ok} of ${total} services are running and ${unknown} could not be checked`
+  return total === 1 ? 'The one service you run is up' : `All ${total} services are running`
+}
+
+/* ---------------------------------------------------------------
+   The panel between the braces.
+   --------------------------------------------------------------- */
+
+function describePanel(mode, sessions, engine) {
+  if (mode === HOME_MODES.SAMPLE) {
+    return { kind: 'sample', title: 'Example conversation', badge: 'Example, not your data', empty: null, footer: null }
+  }
+  if (mode === HOME_MODES.FLEET) {
+    return { kind: 'conversation', title: 'Your coordinator', badge: null, empty: null, footer: null }
+  }
+  if (mode === HOME_MODES.NO_HOST) {
+    return {
+      kind: 'runs',
+      title: 'Activity on this computer',
+      badge: null,
+      empty: {
+        title: 'Nothing to show in a browser',
+        body: 'Mission Control shows the agents that have run on a computer. Open the installed app to see them.',
+      },
+      footer: null,
+    }
+  }
+  /* FLEET_UNREACHABLE, LOCAL and LOCAL_IDLE all show the same thing: what has
+     run on THIS computer. A fleet that is not answering does not stop the
+     machine in front of the person from having a history. */
+  if (!sessions.readable) {
+    return {
+      kind: 'runs',
+      title: 'Activity on this computer',
+      badge: null,
+      empty: {
+        title: 'The record could not be read',
+        body: 'Mission Control keeps a record of every agent it starts here, and this copy could not open it. Nothing has been lost; new runs are still recorded.',
+      },
+      footer: null,
+    }
+  }
+  if (sessions.runs.length === 0) {
+    return {
+      kind: 'runs',
+      title: 'Activity on this computer',
+      badge: null,
+      empty: {
+        title: 'No agents have run here yet',
+        body: engine.ready
+          ? 'When you start an agent, every run shows up here. Mission Control writes each one down on this computer before it starts.'
+          : 'When this copy can run agents, every run will show up here.',
+        /* The one next step, and only when it is genuinely the next step.
+           Running an agent from this window is a control a person switches on
+           themselves, so an installation that has not switched it on is told
+           where the switch is. An installation that has is told nothing here,
+           because a button that repeats what the person already did is
+           clutter, and a button pointing at a screen that cannot help them is
+           worse than clutter. */
+        action: engine.ready && !engine.sessionsEnabled
+          ? { label: 'Turn on agent sessions in Settings', href: '#/settings' }
+          : null,
+      },
+      footer: null,
+    }
+  }
+  return {
+    kind: 'runs',
+    title: 'Activity on this computer',
+    badge: null,
+    empty: null,
+    footer: recordFooter(sessions),
+  }
+}
+
+/* What the record is worth, said exactly and not one word further. It is signed
+   on this machine with a key held on this machine, so it proves the list has not
+   been quietly edited; it does not prove who ran anything, and this product has
+   no accounts, so it never will from here. Both halves ship or neither does. */
+function recordFooter(sessions) {
+  const counted = countOf(sessions.total, 'run', 'runs')
+  if (sessions.verified === true) return `Written down on this computer as it happened. All ${counted} still check out.`
+  if (sessions.verified === false) return `Written down on this computer as it happened. The record no longer checks out, so treat this list as a guide, not a receipt.`
+  return `Written down on this computer as it happened, ${counted} in all.`
+}
+
+function panelStatements(panel) {
+  const out = [panel.title]
+  if (panel.badge) out.push(panel.badge)
+  if (panel.empty) {
+    out.push(panel.empty.title, panel.empty.body)
+    if (panel.empty.action) out.push(panel.empty.action.label)
+  }
+  if (panel.footer) out.push(panel.footer)
+  return out
+}

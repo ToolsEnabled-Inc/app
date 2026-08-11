@@ -163,10 +163,32 @@ test('the approvals screen is actually reachable, not dead code in the bundle', 
     'the arrows are the only navigation, so a route missing from ORDER is unreachable')
 })
 
-test('home states the count, and shows a dash rather than a false zero', () => {
+test('home states the count, and states nothing at all when it cannot read one', async () => {
   const home = readFileSync(new URL('../../src/views/home.js', import.meta.url), 'utf8')
   assert.match(home, /ownerPromptSnapshot/, 'home reads the same queue the screen does')
-  assert.match(home, /home-load home-approvals/, 'the count reuses the readout row home already has')
-  assert.match(home, /approvalsVal\.textContent = '—'/,
-    'an unreadable queue must not render as "0 waiting" when decisions are actually queued')
+
+  /* This assertion used to read `approvalsVal.textContent = '—'`: home printed
+     an em dash where the number would go. That was right about the danger --
+     "0 waiting" while eight decisions are queued is the one wrong thing this
+     row can say -- and wrong about the remedy, because a dash beside the words
+     "APPROVALS WAITING" is one more unreadable notice on a screen the owner
+     reported as unreadable. Home now omits the row entirely when the queue
+     cannot be read, which satisfies the original rule strictly: there is no
+     rendering at all, so there is no false zero in it.
+
+     Asserted against the decision function rather than the source text,
+     because a source match cannot tell a live branch from a dead one. */
+  const { describeHome } = await import('../../src/local-activity.js')
+  const facts = state => describeHome({ fleetConfigured: false, approvals: state }).facts.map(f => f.id)
+
+  assert.ok(!facts({ readable: false, count: 0 }).includes('approvals'),
+    'an unreadable queue renders no approvals row, so it cannot render a false zero')
+  assert.ok(!facts(null).includes('approvals'), 'and neither does a queue nobody has asked about yet')
+  assert.ok(facts({ readable: true, count: 0 }).includes('approvals'), 'a genuine zero is still stated')
+  assert.ok(facts({ readable: true, count: 4 }).includes('approvals'), 'and so is a genuine count')
+
+  const waiting = describeHome({ fleetConfigured: false, approvals: { readable: true, count: 4 } })
+  const row = waiting.facts.find(fact => fact.id === 'approvals')
+  assert.match(row.text, /4 decisions waiting for you/)
+  assert.equal(row.href, '#/approvals', 'and it goes to the screen that can act on them')
 })

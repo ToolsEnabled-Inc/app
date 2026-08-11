@@ -1,72 +1,75 @@
-// /home — the giant hero ring + the coordinator's session thread.
+// /home — the hero ring and, between the braces, what is actually happening.
 //
-// DATA WIRING NOTE: the RING still reads public/data/status.json (written by
-// tools/gen-status.mjs from real, read-only fleet-host state) via
-// src/live-status.js, and still refuses to invent a number when that file is
-// missing. The THREAD between the braces is different on purpose: it is the
-// PLAN.md simulation — a written coordinator session, like every other page's
-// conversations — because the real coordinator's context never leaves its own
-// machine. The two do not mix: live numbers feed the ring caption, the thread
-// feeds nothing and reads from nothing.
+// WHAT CHANGED AND WHY, because the previous version of this file argued at
+// length for a design that did not survive contact with an installed copy.
 //
-// The thread replaced the one-line lane-activity ticker (and its
-// click-to-open chat morph). The braces stay — they bracket the session
-// context, which is the sketch's whole gesture — but what they bracket is now
-// the session itself, fully expanded, at rest: directives, the coordinator's
-// reasoning, delegations and report-backs, and the quiet tool-action lines a
-// session transcript carries between turns.
+// It assumed the interesting thing on this screen is a FLEET: other computers,
+// a coordinator running on one of them, and a health sweep across all of them.
+// On the machine of someone who has just installed this product none of that
+// exists, and the screen degraded into five separate notices about the absence
+// of a thing that person never had -- a clock reading four dashes, "SOURCE
+// UNAVAILABLE", "coordinator thread unavailable", and "No local agent fleet
+// host detected on this machine" printed twice -- directly above a banner
+// saying "Mission Control already works on this one computer". Those last two
+// cannot both be acted on. It was the product's first impression.
 //
-// THE TRANSCRIPT IS PROFILE DATA (src/fleet-profile.js), and of everything the
-// profile carries it is the piece that most needed to be. The set that used to
-// sit in this file as literals was a written morning from one real fleet: an
-// owner asking why a host went quiet, a coordinator answering with two port
-// numbers, a named canonical checkout, real durable-memory keys, and an owner
-// decision to retire a real machine at month-end. It shipped inside app.asar
-// and it is the first screen a stranger sees. A scripted conversation is the
-// hardest thing in this app to ship honestly, because a channel log reads as
-// records and a transcript reads as people.
+// The premise was wrong, not the implementation. There IS something real to
+// show on one computer with nothing connected: the agents that have run on it.
+// Starting an agent from inside Mission Control works now, and every start is
+// written to this app's own signed record before the process exists. So home
+// reads that record, and a machine with no fleet gets its own history rather
+// than a fleet-shaped hole.
+//
+// THE DIVISION OF LABOUR IN THIS FILE. src/local-activity.js decides WHAT the
+// screen says -- one pure function, one flat list of sentences, walked
+// exhaustively by tools/test/home-screen.test.mjs to prove the screen can never
+// again contradict or repeat itself. This file only renders that decision and
+// wires the sources that feed it. Copy does not live here; if a sentence needs
+// changing, it changes there, where the test can see it.
+//
+// WHAT IS STILL SIMULATED, AND SAID SO. The labelled demonstration -- the
+// written coordinator session and its cast -- is still here, still reachable
+// from Settings, and now the only thing on the screen that carries a badge. It
+// never appears unless a person asked for it: the previous version showed a
+// header reading "SESSION - SAMPLE TRANSCRIPT" beside a badge reading "LIVE
+// SOURCE" on a live screen, which is the same defect in miniature.
 
 import { el, uptimeRing } from '../components.js'
-import { fetchStatus, fetchCoordinator, ageMs, fmtAge } from '../live-status.js'
+import { fetchStatus, fetchCoordinator } from '../live-status.js'
 import { ownerPromptSnapshot } from '../mission-bridge.js'
 import { isLiveView } from '../live-flags.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
-import { FLEET } from '../fleet-profile.js'
+import { FLEET, isSampleFleet } from '../fleet-profile.js'
+import {
+  HOME_MODES,
+  describeHome,
+  readAgentEngine,
+  readLocalSessions,
+  whenWords,
+} from '../local-activity.js'
 import '../home.css'
 
-const POLL_MS = 45_000
-// The approvals queue changes only when an agent enqueues a request or the
-// owner decides one, so this asks far less often than it could. It is a count,
-// not a live feed.
+/* The fleet health snapshot changes when a sweep runs, which is minutes apart.
+   It is only asked for at all when other computers have actually been
+   connected -- an install with none used to run this poll forever against a
+   file that always answered the same refusal. */
+const HEALTH_POLL_MS = 45_000
+/* Decisions appear when an agent enqueues one, so this is a count and not a
+   feed. Two cadences on purpose: the fast one once the queue is genuinely
+   readable, and a slow heartbeat while it is not, so a screen opened before
+   this app's own capability layer has finished starting still picks the queue
+   up when it does -- without spending a request every twenty seconds in the
+   ordinary case where there is no queue on this machine at all. */
 const APPROVALS_POLL_MS = 20_000
-const DASH = '—' // em dash — used for "no reading", never "0"
+const APPROVALS_RETRY_MS = 120_000
 
 /* ============================================================
-   The session cast. Hues are the site's role palette (vocab.js
-   ROLES / the graph nodes), so the same agent wears the same
-   colour on every page. The owner has no dot: the owner is not
-   a fleet role, and the transcript marks that typographically
-   (UI face, full ink) rather than with a badge.
-
-   WHO is in the cast is profile data, because a fleet names its
-   own agents. A speaker the profile does not describe still
-   renders — addTurn falls back to the agent style and uses the
-   speaker's own id as the label, rather than dropping the turn.
+   The demonstration's cast and script. Profile data, because a
+   fleet names its own agents; untouched by this rewrite except
+   that it now renders only when a person has asked for it.
    ============================================================ */
 const SPEAKERS = FLEET.speakers || {}
-
-/* The seeded session, oldest first, written rather than generated so that it
-   reads as a conversation with an arc. Both halves of the pair are deliberate.
-
-   The SAMPLE profile's arc is about this interface: what the ring reads, what
-   the thread is, and what replaces it. A demonstration of the product cannot
-   be mistaken for a recording of somebody's working day; a generic-sounding
-   work transcript can, and that is exactly what shipped before. Its notice is
-   the LAST turn, not the first, because the log opens pinned to the newest
-   line — anything at the top is scrolled out of sight before it is read.
-
-   A LOADED profile's arc is whatever that fleet's own session was. */
 const SESSION = (FLEET.session || []).filter(turn => turn && typeof turn.text === 'string')
 const ARRIVALS = (FLEET.arrivals || []).filter(turn => turn && typeof turn.text === 'string')
 const REPLIES = (FLEET.replies || []).filter(text => typeof text === 'string' && text)
@@ -74,11 +77,11 @@ const REPLY_ACTS = (FLEET.replyActs || []).filter(text => typeof text === 'strin
 
 const escText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/* Draw from a shuffled bag so the pool is spent before anything repeats —
-   the comms board learned this the hard way (see bagDraw there): nothing
-   gives a generated transcript away faster than a verbatim repeat two
-   messages apart. On refill, the new bag must not open with the line that
-   just closed the old one, or the one guarded repeat appears at the seam. */
+/* Draw from a shuffled bag so the pool is spent before anything repeats — the
+   comms board learned this the hard way: nothing gives a generated transcript
+   away faster than a verbatim repeat two messages apart. On refill the new bag
+   must not open with the line that just closed the old one, or the one guarded
+   repeat appears at the seam. */
 function makeBag(items) {
   let bag = []
   let last = null
@@ -98,99 +101,66 @@ function makeBag(items) {
   }
 }
 
+const BRACE_SVG = `<svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+
 export function homeView() {
-  const liveMode = isLiveView('home')
-  const writeReplyEnabled = liveMode && isWriteEnabled('thread-reply')
-  /* Who the composer addresses is the profile's coordinator, not a hardcoded
-     agent name — the placeholder, the aria-label and the voice that answers a
-     simulated reply all have to be the same agent, and only one of the three
-     used to be. */
+  /* A person chose the demonstration in Settings, or they did not. This is the
+     ONLY thing that puts sample content on this screen, and it is the only
+     thing that puts a badge on it. */
+  const sample = !isLiveView('home')
+  const fleetConfigured = !isSampleFleet()
+  const writeReplyEnabled = !sample && isWriteEnabled('thread-reply')
   const composerTarget = FLEET.composerTarget || 'coordinator'
+
   const root = el(`
-    <div class="home" data-live-mode="${liveMode ? 'live' : 'simulated'}">
+    <div class="home" data-mode="loading">
       <div class="home-ring-wrap"></div>
       <div class="home-feed-wrap">
-        <span class="brace" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="brace" aria-hidden="true">${BRACE_SVG}</span>
         <div class="home-feed">
-          <div class="session-head"><span data-session-title>session — ${escText(FLEET.sessionTitle || 'transcript')}</span><span class="projection-mode">${liveMode ? 'live source' : 'simulated source'}</span></div>
+          <div class="session-head">
+            <span data-panel-title></span>
+            <span class="panel-badge" data-panel-badge hidden></span>
+          </div>
           <div class="session-view">
-            <div class="session-log" tabindex="0" role="log" aria-label="Coordinator session transcript"></div>
+            <div class="session-log" tabindex="0" role="log"></div>
           </div>
-          <div class="chat-input session-input">
-            <input type="text" placeholder="Message ${escText(composerTarget)}…" aria-label="Message ${escText(composerTarget)}" />
-            <button class="chat-send" aria-label="Send">
-              <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-          </div>
+          <div class="session-foot" data-panel-foot hidden></div>
         </div>
-        <span class="brace is-right" aria-hidden="true"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="brace is-right" aria-hidden="true">${BRACE_SVG}</span>
       </div>
     </div>
   `)
 
+  const feed = root.querySelector('.home-feed')
+  const logEl = root.querySelector('.session-log')
+  const panelTitle = root.querySelector('[data-panel-title]')
+  const panelBadge = root.querySelector('[data-panel-badge]')
+  const panelFoot = root.querySelector('[data-panel-foot]')
+
+  /* ------------------------------------------------------------------
+     The hero ring.
+     ------------------------------------------------------------------ */
   const ringSize = Math.min(520, Math.max(380, window.innerHeight - 300))
-  const ring = uptimeRing({
-    size: ringSize,
-    epoch: Date.now(),          // placeholder only; real epoch set once data loads
-    caption: 'Last Health Sweep',
-    sub: 'loading…',
-    crescent: true,
-  })
+  const ring = uptimeRing({ size: ringSize, epoch: Date.now(), caption: '', sub: '', crescent: true })
   ring.el.dataset.load = 'unknown'
   root.querySelector('.home-ring-wrap').appendChild(ring.el)
 
-  const loadRow = el(`<div class="home-load"><i></i><span class="lt">no data yet</span><span class="lv"></span></div>`)
-  const loadLabel = loadRow.querySelector('.lt')
-  const loadVal = loadRow.querySelector('.lv')
-  ring.el.querySelector('.uring-inner').appendChild(loadRow)
-
-  /* How the owner finds out anything is waiting for him.
-     Deliberately the whole signal: no badge, no dot, no toast, no sound, no
-     focus steal. He replaced the interrupting popup with a screen he visits on
-     his own time, and this readout is what makes visiting it something he
-     never has to REMEMBER to do -- home is where every launch lands, and this
-     row is already the shape home uses to state a number.
-     It shows a dash, never a zero, whenever the queue could not be read: "0
-     waiting" when eight decisions are actually queued and the bridge is simply
-     down would be the one wrong thing this row could say. */
-  const approvalsRow = el(`<div class="home-load home-approvals"><i></i><span class="lt">approvals waiting</span><span class="lv">—</span></div>`)
-  const approvalsLabel = approvalsRow.querySelector('.lt')
-  const approvalsVal = approvalsRow.querySelector('.lv')
-  ring.el.querySelector('.uring-inner').appendChild(approvalsRow)
-
-  // Its own stop flag rather than the view's `destroyed`, which is declared
-  // further down: this block runs before that declaration is reached, and
-  // leaning on the temporal dead zone resolving in our favour is not a thing
-  // to leave for the next person to discover.
-  let approvalsStopped = false
-  async function loadApprovals() {
-    let raw
-    try { raw = await ownerPromptSnapshot() }
-    catch { raw = null }
-    if (approvalsStopped) return
-    if (raw?.ok !== true || !Array.isArray(raw.prompts)) {
-      approvalsVal.textContent = '—'
-      approvalsLabel.textContent = 'approvals unavailable'
-      return
-    }
-    const count = raw.prompts.length
-    approvalsVal.textContent = String(count)
-    approvalsLabel.textContent = count === 1 ? 'approval waiting' : 'approvals waiting'
-  }
-  void loadApprovals()
-  const approvalsTimer = setInterval(() => { void loadApprovals() }, APPROVALS_POLL_MS)
-
-  /* ---- fixed-width crossfading digits (same mechanism as the rest of the
-     app used for its clock) — the epoch they read is real once loaded, and
-     the digits show DASH (never 0s) until it is. ---- */
-  const showDays = true
-  const UNITS = showDays
-    ? [['d', 'Days'], ['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
-    : [['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
-
+  const captionEl = ring.el.querySelector('.uring-caption')
   const digitsEl = ring.el.querySelector('.uring-digits')
+  const innerEl = ring.el.querySelector('.uring-inner')
+  /* uptimeRing only emits `.uring-sub` when it is given text at construction,
+     and this view has none until a source answers. Create it once here rather
+     than passing placeholder text that would paint and then be replaced. */
+  const subEl = el('<div class="uring-sub"></div>')
+  innerEl.appendChild(subEl)
+
+  const factsEl = el('<div class="home-facts"></div>')
+  innerEl.appendChild(factsEl)
+
+  const UNITS = [['d', 'Days'], ['h', 'Hours'], ['m', 'Minutes'], ['s', 'Seconds']]
   digitsEl.innerHTML = UNITS
-    .map(([, label]) => `<span class="seg"><span class="n-stack"><span class="n cur">${DASH}</span></span><span class="u">${label}</span></span>`)
+    .map(([, label]) => `<span class="seg"><span class="n-stack"><span class="n cur">0</span></span><span class="u">${label}</span></span>`)
     .join('<span class="colon">:</span>')
   const stacks = [...digitsEl.querySelectorAll('.n-stack')]
 
@@ -213,69 +183,32 @@ export function homeView() {
     next.addEventListener('transitionend', () => { clearTimeout(tid); finish() }, { once: true })
   }
 
-  function uptimeParts(epoch) {
+  function elapsedParts(epoch) {
     let s = Math.max(0, Math.floor((Date.now() - epoch) / 1000))
     const d = Math.floor(s / 86400); s -= d * 86400
     const h = Math.floor(s / 3600); s -= h * 3600
     const m = Math.floor(s / 60); s -= m * 60
     const pad = (n) => String(n).padStart(2, '0')
-    return { d: String(d), h: pad(h), m: pad(m), s: pad(s) }
-  }
-  const partsToValues = (p) => (showDays ? [p.d, p.h, p.m, p.s] : [p.h, p.m, p.s])
-
-  let epochMs = null   // null until a real health-sweep timestamp is loaded
-
-  let lastTickAt = 0
-  function renderTick(ts) {
-    if (epochMs != null && ts - lastTickAt >= 80) {
-      lastTickAt = ts
-      partsToValues(uptimeParts(epochMs)).forEach((v, i) => setDigit(stacks[i], v))
-    }
+    return [String(d), pad(h), pad(m), pad(s)]
   }
 
-  /* ============================================================
-     The session thread between the braces.
-     ============================================================ */
-  const logEl = root.querySelector('.session-log')
-  const input = root.querySelector('.session-input input')
-  const sendButton = root.querySelector('.chat-send')
-  const writeState = writeReplyEnabled
-    ? el('<div class="session-write-state" data-state="checking" role="status">checking audited bridge…</div>')
-    : null
-  if (writeState) root.querySelector('.session-input').insertAdjacentElement('afterend', writeState)
-  const timers = []
-  let destroyed = false
-
+  /* ------------------------------------------------------------------
+     The braces.
+     ------------------------------------------------------------------ */
   const braces = [...root.querySelectorAll('.brace')]
   braces.forEach(b => b.addEventListener('animationend', () => b.classList.remove('brace-pulse')))
   const pulseBraces = () => {
     braces.forEach(b => { b.classList.remove('brace-pulse'); void b.offsetWidth; b.classList.add('brace-pulse') })
   }
 
-  function addTurn(who, text, fresh = false) {
-    const meta = SPEAKERS[who] || { cls: 'is-agent', label: who }
-    const dot = meta.hue ? `<i class="turn-dot" style="background:${meta.hue}"></i>` : ''
-    const label = meta.label ? `<span class="turn-who">${dot}${escText(meta.label)}</span>` : ''
-    const node = el(`<div class="turn ${meta.cls}${fresh ? ' fresh' : ''}">${label}<div class="turn-text">${escText(text)}</div></div>`)
-    logEl.appendChild(node)
-    return node
-  }
-  /* A profile that declares no session is a reachable state now, and a blank
-     panel between the braces reads as a failed load rather than as an empty
-     transcript. showThreadState cannot be used this early — it closes over
-     pinAfterMount, which is a const declared further down — so the notice is
-     built here in the same shape. */
-  if (!liveMode) {
-    if (SESSION.length) SESSION.forEach(turn => addTurn(turn.who, turn.text))
-    else logEl.innerHTML = '<div class="projection-state" role="status"><strong>no transcript in this profile</strong><span>This profile declares no session, so there is nothing to show between the braces.</span></div>'
-  }
-
-  /* The seeded history renders while the view is still DETACHED (the router
-     mounts it after assembly), where scrollHeight is 0 and any snap here is a
-     no-op. So the thread keeps the standard chat contract from
-     components.js buildChat instead: pinned to the newest turn through every
-     resize and append, unpinned the moment the reader scrolls up to read
-     history, re-pinned when they return to the bottom. */
+  /* ------------------------------------------------------------------
+     Scroll pinning for the panel. The seeded history renders while the view is
+     still DETACHED (the router mounts it after assembly), where scrollHeight is
+     0 and any snap is a no-op — so the panel keeps the standard chat contract
+     instead: pinned to the newest line through every resize and append,
+     unpinned the moment the reader scrolls up, re-pinned on return.
+     ------------------------------------------------------------------ */
+  let destroyed = false
   let pinned = true
   logEl.addEventListener('scroll', () => {
     pinned = logEl.scrollTop >= logEl.scrollHeight - logEl.clientHeight - 24
@@ -283,18 +216,14 @@ export function homeView() {
   const pinToBottom = () => {
     if (!destroyed && pinned && logEl.scrollHeight) logEl.scrollTop = logEl.scrollHeight
   }
-  const anchorRo = new ResizeObserver(() => {
-    pinToBottom()
-  })
+  const anchorRo = new ResizeObserver(pinToBottom)
   anchorRo.observe(logEl)
-  const anchorMo = new MutationObserver(() => {
-    pinToBottom()
-  })
+  const anchorMo = new MutationObserver(pinToBottom)
   anchorMo.observe(logEl, { childList: true })
   /* ...and the webfont swap, the one growth path with NO mutation and NO box
-     resize. `fonts.ready` may settle while the assembled view is detached,
-     so its immediate measurement is still zero. Re-elect the pin after two
-     painted frames, and repeat for any later font-loading generation. */
+     resize. `fonts.ready` may settle while the assembled view is detached, so
+     its immediate measurement is still zero. Re-elect the pin after two painted
+     frames, and repeat for any later font-loading generation. */
   let firstPinFrame = 0
   let settledPinFrame = 0
   const pinAfterMount = () => {
@@ -307,230 +236,450 @@ export function homeView() {
   document.fonts?.ready?.then(pinAfterMount)
   pinAfterMount()
 
-  const sessionTitle = root.querySelector('[data-session-title]')
-  function showThreadState(title, reason, detail = '', loading = false) {
-    logEl.innerHTML = `<div class="projection-state ${loading ? 'is-loading' : 'projection-unavailable'}" role="status"><strong>${escText(title)}</strong><span>${escText(reason)}</span>${detail ? `<small>${escText(detail)}</small>` : ''}</div>`
-    pinned = true
+  /* ------------------------------------------------------------------
+     Everything this screen knows. One object, so describeHome() sees the whole
+     picture at once and no part of the screen can answer from a source the rest
+     cannot see — which is precisely how the contradictory pair got in.
+     ------------------------------------------------------------------ */
+  const state = {
+    sample,
+    fleetConfigured,
+    fleetHealth: null,
+    peer: null,
+    /* `undefined` is the honest starting value: nobody has been asked yet, and
+       it is NOT the same as having asked and been refused. Nothing renders
+       until the first answers land (see `settle` below), so this state is never
+       painted -- but it must still be truthful, because a source that never
+       answers leaves it in place. */
+    sessions: readLocalSessions(undefined),
+    engine: readAgentEngine(undefined),
+    approvals: null,
+    nowMs: Date.now(),
+  }
+
+  const timers = []
+  let clockEpoch = null
+  let raf = 0
+  let lastTickAt = 0
+  let renderedPanelKind = null
+
+  function stopClock() {
+    if (raf) { cancelAnimationFrame(raf); raf = 0 }
+  }
+  /* The clock runs only when it has a real instant to count from. Four dashes
+     under the word SECONDS is a broken clock, and a person reads it as one. */
+  function startClock(epoch) {
+    clockEpoch = epoch
+    if (epoch == null) {
+      stopClock()
+      digitsEl.hidden = true
+      return
+    }
+    digitsEl.hidden = false
+    if (raf) return
+    const loop = (ts) => {
+      if (clockEpoch != null && ts - lastTickAt >= 250) {
+        lastTickAt = ts
+        elapsedParts(clockEpoch).forEach((v, i) => setDigit(stacks[i], v))
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+  }
+
+  const TONE_COLOR = { good: 'var(--s-good)', warn: 'var(--s-warn)', neutral: 'var(--ink-4)' }
+
+  /* Nothing is painted until the two local reads have answered.
+   *
+   * Not a nicety: this screen's whole job is to say one true thing, and for the
+   * first few hundred milliseconds of a launch it does not yet know which one
+   * that is. Rendering an interim guess means flashing "the record could not be
+   * read" at a person whose record is about to load perfectly -- which is the
+   * same class of defect as the pair this rewrite exists to remove, just
+   * shorter-lived. The ring holds its rim and the panel holds its frame; both
+   * are already the screen's real furniture, so the wait reads as the page
+   * arriving rather than as a spinner. */
+  let awaitingFirstAnswers = 2
+  function settle() {
+    if (awaitingFirstAnswers > 0) awaitingFirstAnswers -= 1
+    apply()
+  }
+
+  function apply() {
+    if (destroyed || awaitingFirstAnswers > 0) return
+    state.nowMs = Date.now()
+    const view = describeHome(state)
+    root.dataset.mode = view.mode
+    /* Two layout signals, not decoration. A panel holding an empty state must
+       shrink to it, or the braces bracket six hundred pixels of nothing and the
+       calm empty state reads as a container that failed to fill. Likewise the
+       ring gives its middle back to the headline when there are no digits in
+       it. Both are stated here because only this function knows. */
+    root.dataset.panel = view.panel.empty ? 'empty' : view.panel.kind
+    root.dataset.clock = view.clock == null ? 'none' : 'running'
+
+    captionEl.textContent = view.caption
+    subEl.textContent = view.headline || ''
+    startClock(view.clock)
+
+    /* The crescent's colour is the only thing on this page that carries state by
+       hue, so it answers the same question the sentences do rather than a
+       second one: something needs attention, something is working, or there is
+       nothing to report. */
+    ring.el.dataset.load = ringLoad(view)
+
+    factsEl.replaceChildren(...view.facts.map(fact => {
+      const node = el(fact.href
+        ? `<a class="home-fact" href="${fact.href}"><i></i><span></span></a>`
+        : `<div class="home-fact"><i></i><span></span></div>`)
+      node.querySelector('i').style.background = TONE_COLOR[fact.tone] || TONE_COLOR.neutral
+      node.querySelector('span').textContent = fact.text
+      return node
+    }))
+
+    panelTitle.textContent = view.panel.title
+    panelBadge.hidden = !view.panel.badge
+    if (view.panel.badge) panelBadge.textContent = view.panel.badge
+    panelFoot.hidden = !view.panel.footer
+    if (view.panel.footer) panelFoot.textContent = view.panel.footer
+
+    renderPanel(view)
+    ensureComposer(view)
+  }
+
+  function ringLoad(view) {
+    if (view.mode === HOME_MODES.FLEET) {
+      const { down, unknown } = state.fleetHealth
+      return down > 0 ? 'peak' : (unknown > 0 ? 'busy' : 'idle')
+    }
+    if (view.mode === HOME_MODES.FLEET_UNREACHABLE) return 'busy'
+    if (!state.engine.ready) return 'busy'
+    return view.mode === HOME_MODES.LOCAL ? 'idle' : 'unknown'
+  }
+
+  /* ------------------------------------------------------------------
+     The panel body. Only re-rendered when the KIND changes; a runs list that
+     rebuilt itself on every poll would fight the scroll pin and re-animate
+     lines a person is reading.
+     ------------------------------------------------------------------ */
+  function renderPanel(view) {
+    const kind = view.panel.kind
+    if (kind === 'runs') {
+      renderRuns(view)
+      renderedPanelKind = 'runs'
+      return
+    }
+    if (renderedPanelKind === kind) return
+    renderedPanelKind = kind
+    logEl.replaceChildren()
+    if (kind === 'sample') {
+      if (SESSION.length) SESSION.forEach(turn => addTurn(turn.who, turn.text))
+      else showNotice('This example has no conversation in it', 'Nothing was written for this profile to show here.')
+      if (ARRIVALS.length) scheduleArrival(true)
+    } else {
+      showNotice('Loading', 'Reading the conversation from the computer that holds it.', true)
+      void loadCoordinatorThread()
+    }
     pinAfterMount()
   }
 
-  async function loadCoordinatorThread() {
-    const result = await fetchCoordinator()
-    if (destroyed) return
-    if (!result.ok) {
-      showThreadState('coordinator thread unavailable', result.reason)
-      return
-    }
-    const projection = result.data.data
-    const identity = projection.identity
-    if (sessionTitle) sessionTitle.textContent = `session — ${identity.displayName} · ${writeReplyEnabled ? 'audited write' : 'read-only projection'}`
-    const sessions = projection.sessions
-    const observed = sessions.ok ? sessions.value : null
-    const latestAt = observed?.reduce((latest, session) => {
-      const at = Date.parse(session.updatedAt)
-      return Number.isFinite(at) ? Math.max(latest, at) : latest
-    }, 0) || 0
-    const sessionDetail = sessions.ok
-      ? `${observed.length} observed session${observed.length === 1 ? '' : 's'}${latestAt ? ` · latest ${fmtAge(ageMs(latestAt))}` : ''}`
-      : `sessions unavailable · ${sessions.reason}`
-    const thread = projection.thread
-    if (!thread.ok) {
-      showThreadState('coordinator thread unavailable', thread.reason, sessionDetail)
-      return
-    }
+  let runsSignature = null
+  function renderRuns(view) {
+    const signature = `${view.panel.empty ? view.panel.empty.title : ''}|${state.sessions.runs.map(r => r.sequence).join(',')}`
+    if (runsSignature === signature) return
+    runsSignature = signature
     logEl.replaceChildren()
-    for (const message of thread.value) addTurn(message.sender, message.text)
-    if (!thread.value.length) showThreadState('coordinator thread unavailable', 'source returned no messages', sessionDetail)
-    else pinAfterMount()
+    if (view.panel.empty) {
+      showNotice(view.panel.empty.title, view.panel.empty.body, false, view.panel.empty.action)
+      return
+    }
+    const list = el('<ol class="home-runs"></ol>')
+    for (const run of state.sessions.runs) {
+      /* The run's own number, not a decorative index. It is the position in
+         this computer's record, so it stays the same on every later visit and
+         still means something after the list is truncated to its newest twenty.
+         It also stops three runs started within a minute of each other from
+         rendering as three identical rows reading "just now", which is honest
+         and useless. */
+      const row = el('<li class="home-run"><span class="run-what"></span><span class="run-when"></span></li>')
+      row.querySelector('.run-what').textContent = `Agent run ${run.sequence}`
+      row.querySelector('.run-when').textContent = whenWords(state.nowMs - run.atMs) || 'at a time this record does not give'
+      list.appendChild(row)
+    }
+    logEl.appendChild(list)
+    pinned = false            // a list reads from the top; a transcript reads from the bottom
+    logEl.scrollTop = 0
   }
 
-  if (liveMode) {
-    showThreadState('coordinator thread', 'reading live projection…', '', true)
-    input.disabled = true
-    input.placeholder = writeReplyEnabled ? 'Checking audited bridge…' : 'Read-only projection'
-    sendButton.disabled = true
-    loadCoordinatorThread()
-    if (writeReplyEnabled) {
+  function showNotice(title, body, loading = false, action = null) {
+    logEl.replaceChildren(el(
+      `<div class="projection-state${loading ? ' is-loading' : ''}" role="status">`
+      + `<strong>${escText(title)}</strong><span>${escText(body)}</span>`
+      + (action ? `<a class="home-next" href="${escText(action.href)}">${escText(action.label)}</a>` : '')
+      + '</div>',
+    ))
+    pinned = true
+  }
+
+  function addTurn(who, text, fresh = false) {
+    const meta = SPEAKERS[who] || { cls: 'is-agent', label: who }
+    const dot = meta.hue ? `<i class="turn-dot" style="background:${meta.hue}"></i>` : ''
+    const label = meta.label ? `<span class="turn-who">${dot}${escText(meta.label)}</span>` : ''
+    const node = el(`<div class="turn ${meta.cls}${fresh ? ' fresh' : ''}">${label}<div class="turn-text">${escText(text)}</div></div>`)
+    logEl.appendChild(node)
+    return node
+  }
+
+  /* ------------------------------------------------------------------
+     The composer. It exists only where it does something: a person can type
+     into it and a message goes somewhere. An input that accepts nothing is
+     worse than no input, which is what "Read-only projection" was — a
+     placeholder describing the reason the box in front of you is inert.
+     ------------------------------------------------------------------ */
+  let composerEl = null
+  let writeStateEl = null
+  let inputEl = null
+  let sendButtonEl = null
+
+  function ensureComposer(view) {
+    const wanted = view.composer
+    if (!wanted) {
+      if (composerEl) { composerEl.remove(); composerEl = null }
+      if (writeStateEl) { writeStateEl.remove(); writeStateEl = null }
+      inputEl = null
+      sendButtonEl = null
+      return
+    }
+    if (composerEl) return
+    const placeholder = view.mode === HOME_MODES.SAMPLE
+      ? `Try writing to ${composerTarget}`
+      : `Message ${composerTarget}`
+    composerEl = el(`
+      <div class="chat-input session-input">
+        <input type="text" placeholder="${escText(placeholder)}" aria-label="${escText(placeholder)}" />
+        <button class="chat-send" aria-label="Send">
+          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>`)
+    feed.insertBefore(composerEl, panelFoot)
+    inputEl = composerEl.querySelector('input')
+    sendButtonEl = composerEl.querySelector('.chat-send')
+    sendButtonEl.addEventListener('click', () => { void send() })
+    inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void send() } })
+
+    if (view.mode !== HOME_MODES.SAMPLE) {
+      /* The audited path. Until the bridge confirms it will take a message the
+         controls are disabled and say why in one short sentence — not in the
+         placeholder, which is a label for the box and not a status line. */
+      writeStateEl = el('<div class="session-write-state" data-state="checking" role="status">Checking whether replies can be sent</div>')
+      composerEl.insertAdjacentElement('afterend', writeStateEl)
+      inputEl.disabled = true
+      sendButtonEl.disabled = true
       void bridgeStatus().then(result => {
-        if (destroyed) return
+        if (destroyed || !writeStateEl) return
         if (!result.ok) {
-          writeState.dataset.state = 'unavailable'
-          writeState.textContent = `bridge unavailable · ${result.reason}`
-          input.placeholder = 'Audited bridge unavailable'
+          writeStateEl.dataset.state = 'unavailable'
+          writeStateEl.textContent = 'Replies cannot be sent right now'
           return
         }
-        writeState.dataset.state = 'ready'
-        writeState.textContent = result.channels?.discord?.ok === false
-          ? 'audited replies ready · discord channel unavailable'
-          : 'audited replies ready'
-        input.disabled = false
-        sendButton.disabled = false
-        input.placeholder = 'Reply through audited bridge…'
+        writeStateEl.dataset.state = 'ready'
+        writeStateEl.textContent = result.channels?.discord?.ok === false
+          ? 'Replies will be sent and recorded. One message channel is offline.'
+          : 'Replies will be sent and recorded'
+        inputEl.disabled = false
+        sendButtonEl.disabled = false
       })
     }
   }
 
-  /* ---- live continuation: rare, whole-message arrivals ----
-     The old ticker re-rendered every 45s poll; a session is quieter. First
-     arrival lands inside the first half-minute (so the page visibly lives),
-     then one every 24-48s. The brace pulse marks each arrival — the bracket
-     reacting to the context it holds growing. */
-  const drawArrival = makeBag(ARRIVALS)
-  let arrivalT = 0
-  const scheduleArrival = (first = false) => {
-    arrivalT = setTimeout(() => {
-      const t = drawArrival()
-      addTurn(t.who, t.text, true)
-      pulseBraces()
-      scheduleArrival()
-    }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
-    timers.push(arrivalT)
-  }
-  /* No arrivals declared means a still thread, not a crash: makeBag on an
-     empty pool returns undefined and the turn below would read .who off it. */
-  if (!liveMode && ARRIVALS.length) scheduleArrival(true)
-
-  /* ---- the composer: the owner speaks, the coordinator answers ---- */
   const drawReply = makeBag(REPLIES)
   const drawReplyAct = makeBag(REPLY_ACTS)
-  const send = async () => {
-    if (liveMode && !writeReplyEnabled) return
-    const v = input.value.trim()
+
+  async function send() {
+    if (!inputEl) return
+    const v = inputEl.value.trim()
     if (!v) return
-    if (liveMode) {
-      input.disabled = true
-      sendButton.disabled = true
-      writeState.dataset.state = 'pending'
-      writeState.textContent = 'recording durable reply…'
+
+    if (!sample) {
+      if (!writeReplyEnabled || inputEl.disabled) return
+      inputEl.disabled = true
+      sendButtonEl.disabled = true
+      writeStateEl.dataset.state = 'pending'
+      writeStateEl.textContent = 'Sending'
       const result = await postBridgeAction('thread-reply', {
         idempotencyKey: crypto.randomUUID(),
         threadId: 'owner-thread',
         message: v,
       })
-      if (destroyed) return
+      if (destroyed || !writeStateEl) return
       if (!result.ok) {
-        writeState.dataset.state = 'refused'
-        writeState.textContent = `reply refused · ${result.reason}`
+        writeStateEl.dataset.state = 'refused'
+        writeStateEl.textContent = 'That message was not sent. Nothing was recorded.'
       } else {
-        input.value = ''
+        inputEl.value = ''
         addTurn(result.receipt.actor || composerTarget, v, true)
-        addTurn('act', `durable reply · revision ${result.receipt.revision}`, true)
         pulseBraces()
-        writeState.dataset.state = 'confirmed'
-        writeState.textContent = 'reply confirmed by audited bridge'
+        writeStateEl.dataset.state = 'confirmed'
+        writeStateEl.textContent = 'Sent and recorded'
       }
-      input.disabled = false
-      sendButton.disabled = false
-      input.focus()
+      inputEl.disabled = false
+      sendButtonEl.disabled = false
+      inputEl.focus()
       return
     }
-    input.value = ''
+
+    inputEl.value = ''
     addTurn('owner', v, true)
-    // Sometimes the tool line the coordinator ran to answer arrives first —
-    // that beat is what makes the reply read as work done, not text served.
+    /* Sometimes the tool line the coordinator ran to answer arrives first —
+       that beat is what makes the reply read as work done, not text served. */
     const withAct = REPLY_ACTS.length > 0 && Math.random() < 0.35
     const replyAt = 1100 + Math.random() * 1100
     if (withAct) timers.push(setTimeout(() => addTurn('act', drawReplyAct(), true), replyAt - 550))
-    /* A profile with no replies answers with a stated silence rather than the
-       word "undefined", which is what an empty bag draws. */
     timers.push(setTimeout(() => {
-      addTurn(composerTarget, REPLIES.length ? drawReply() : 'This profile declares no replies, so there is nothing to answer with.', true)
+      addTurn(composerTarget, REPLIES.length ? drawReply() : 'This example has no reply written for that.', true)
       pulseBraces()
     }, replyAt + (withAct ? 500 : 0)))
   }
-  sendButton.addEventListener('click', send)
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void send() } })
 
-  /* ---- apply a fetched (or failed) status result to the ring widgets ---- */
-  function applyResult(result) {
+  /* ---- the demonstration's live continuation: rare, whole-message arrivals ---- */
+  const drawArrival = makeBag(ARRIVALS)
+  const scheduleArrival = (first = false) => {
+    const t = setTimeout(() => {
+      if (destroyed || renderedPanelKind !== 'sample') return
+      const turn = drawArrival()
+      addTurn(turn.who, turn.text, true)
+      pulseBraces()
+      scheduleArrival()
+    }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
+    timers.push(t)
+  }
+
+  /* ------------------------------------------------------------------
+     Sources.
+     ------------------------------------------------------------------ */
+  async function loadCoordinatorThread() {
+    const result = await fetchCoordinator()
+    if (destroyed || renderedPanelKind !== 'conversation') return
     if (!result.ok) {
-      ring.el.dataset.load = 'unknown'
-      loadLabel.textContent = 'source unavailable'
-      loadVal.textContent = ''
-      const subEl = ring.el.querySelector('.uring-sub')
-      if (subEl) subEl.textContent = result.reason
-      epochMs = null
+      showNotice('This conversation is on another computer', 'Mission Control could not reach the computer that holds it.')
+      return
+    }
+    const thread = result.data.data.thread
+    if (!thread.ok || !thread.value.length) {
+      showNotice('Nothing has been said yet', 'When your coordinator starts talking, it appears here.')
+      return
+    }
+    logEl.replaceChildren()
+    for (const message of thread.value) addTurn(message.sender, message.text)
+    pinned = true
+    pinAfterMount()
+  }
+
+  async function loadHealth() {
+    const result = await fetchStatus()
+    if (destroyed) return
+    if (!result.ok) {
+      state.fleetHealth = null
+      state.peer = null
+      apply()
       return
     }
     const { health, peerLink } = result.data
-    const subEl = ring.el.querySelector('.uring-sub')
-
-    if (health && health.available) {
-      epochMs = health.observedAtMs
-      const c = health.counts
-      if (subEl) {
-        subEl.textContent =
-          `${health.total} subsystems · ${c.OK} ok · ${c.DOWN} down · ${c.STOPPED} stopped${c.UNKNOWN ? ` · ${c.UNKNOWN} unknown` : ''}`
+    state.fleetHealth = health?.available
+      ? {
+        available: true,
+        atMs: health.observedAtMs,
+        total: health.total,
+        ok: health.counts.OK,
+        down: health.counts.DOWN + health.counts.STOPPED,
+        unknown: health.counts.UNKNOWN + health.counts.OTHER,
       }
-      const severity = c.DOWN > 0 ? 'peak' : (c.UNKNOWN > 0 ? 'busy' : 'idle')
-      ring.el.dataset.load = severity
-      loadLabel.textContent = c.DOWN > 0 ? `${c.DOWN} subsystem${c.DOWN === 1 ? '' : 's'} down`
-        : c.UNKNOWN > 0 ? 'partially verifiable' : 'all subsystems clear'
-      const sweepAge = fmtAge(ageMs(health.observedAtMs))
-      loadVal.textContent = sweepAge ? `swept ${sweepAge}` : ''
-    } else {
-      epochMs = null
-      if (subEl) subEl.textContent = health?.error || 'health snapshot unavailable'
-      ring.el.dataset.load = 'unknown'
-      loadLabel.textContent = 'health snapshot unavailable'
-      loadVal.textContent = ''
-    }
-
-    // second real reading, appended below the load row rather than invented
-    // into the same field: cross-machine link freshness (a DIFFERENT age
-    // than the health sweep above, on purpose).
-    let peerRow = ring.el.querySelector('.home-peer')
-    if (!peerRow) {
-      peerRow = el(`<div class="home-load home-peer"><i></i><span class="lt"></span><span class="lv"></span></div>`)
-      ring.el.querySelector('.uring-inner').appendChild(peerRow)
-    }
-    const peerLt = peerRow.querySelector('.lt')
-    const peerLv = peerRow.querySelector('.lv')
-    const peerDot = peerRow.querySelector('i')
+      : null
     const out = peerLink?.outbound
-    // This dot is intentionally coloured independently of the ring's
-    // --load-col (which it would otherwise silently inherit): it reports the
-    // cross-machine link's OWN freshness, a different signal than the health
-    // sweep above, and the two must never be visually conflated.
-    if (out?.available) {
-      const age = ageMs(out.authenticatedAtMs)
-      const age2 = fmtAge(age)
-      peerLt.textContent = `link to ${out.peerHost || 'peer'}`
-      peerLv.textContent = age2 ? `verified ${age2}` : 'age unknown'
-      peerDot.style.background = age != null && age < 30 * 60_000 ? 'var(--s-good)' : 'var(--s-warn)'
-    } else {
-      peerLt.textContent = 'cross-machine link'
-      peerLv.textContent = 'unavailable'
-      peerDot.style.background = 'var(--ink-4)'
+    state.peer = out?.available
+      ? { reachable: true, name: out.peerHost || 'your other computer', atMs: out.authenticatedAtMs }
+      : null
+    apply()
+  }
+
+  /* Both of these always report, including "there was nobody to ask" — a load
+     that returns early without touching state would leave the first-paint gate
+     closed forever, and the screen would never appear at all. */
+  async function loadSessions(first = false) {
+    /* Three cases, and conflating the last two would make this screen lie.
+       No bridge at all is a plain browser: there is no computer here to report
+       on. A bridge WITHOUT this channel is an installed copy older than the
+       channel -- there is a computer, its record exists, and this copy cannot
+       read it. Saying "you are in a browser" to someone sitting in front of the
+       application would be the same class of untrue statement this rewrite
+       exists to remove. */
+    const bridge = globalThis.mcAgent
+    let raw
+    if (!bridge) raw = undefined
+    else if (typeof bridge.history !== 'function') raw = null
+    else {
+      try { raw = await bridge.history({ limit: 20 }) } catch { raw = null }
     }
-  }
-
-  async function load() {
-    const result = await fetchStatus()
     if (destroyed) return
-    applyResult(result)
+    state.sessions = readLocalSessions(raw)
+    if (first) settle()
+    else apply()
   }
-  load()
-  const pollTimer = setInterval(load, POLL_MS)
 
-  let raf
-  const loop = (ts) => { renderTick(ts); raf = requestAnimationFrame(loop) }
-  raf = requestAnimationFrame(loop)
+  async function loadEngine() {
+    const bridge = globalThis.mcAgent
+    let raw
+    if (!bridge || typeof bridge.availability !== 'function') raw = undefined
+    else {
+      try { raw = await bridge.availability() } catch (error) { raw = { ok: false, code: error?.code } }
+    }
+    if (destroyed) return
+    state.engine = readAgentEngine(raw, isWriteEnabled('agent-session'))
+    settle()
+  }
+
+  /* Self-pacing rather than a fixed interval, so a machine with no queue is not
+     charged twenty seconds of request forever, and a machine whose capability
+     layer is still starting still picks the queue up once it answers. */
+  let approvalsTimer = 0
+  async function loadApprovals() {
+    let raw
+    try { raw = await ownerPromptSnapshot() } catch { raw = null }
+    if (destroyed) return
+    const readable = raw?.ok === true && Array.isArray(raw.prompts)
+    state.approvals = readable ? { readable: true, count: raw.prompts.length } : { readable: false, count: 0 }
+    apply()
+    approvalsTimer = setTimeout(() => { void loadApprovals() }, readable ? APPROVALS_POLL_MS : APPROVALS_RETRY_MS)
+  }
+
+  /* A run started from the agent page while this window was open should be here
+     when the person comes back to it. */
+  const onFocus = () => { void loadSessions() }
+  window.addEventListener('focus', onFocus)
+
+  void loadEngine()
+  void loadSessions(true)
+  void loadApprovals()
+  let healthTimer = 0
+  if (fleetConfigured) {
+    void loadHealth()
+    healthTimer = setInterval(() => { void loadHealth() }, HEALTH_POLL_MS)
+  }
 
   return {
     el: root,
     destroy() {
       destroyed = true
-      cancelAnimationFrame(raf)
-      clearInterval(pollTimer)
-      approvalsStopped = true
-      clearInterval(approvalsTimer)
+      stopClock()
+      clearInterval(healthTimer)
+      clearTimeout(approvalsTimer)
       timers.forEach(clearTimeout)
       anchorRo.disconnect()
       anchorMo.disconnect()
       cancelAnimationFrame(firstPinFrame)
       cancelAnimationFrame(settledPinFrame)
       document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
+      window.removeEventListener('focus', onFocus)
     },
   }
 }

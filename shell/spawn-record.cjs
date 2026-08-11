@@ -213,9 +213,12 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
       at: now(),
       action,
       sessionId,
-      /* Null until an account exists. When one does, the MAIN process reads it
-         and puts it here; it is never accepted from the renderer, because an
-         identity a page can choose is not an identity. */
+      /* Supplied by the MAIN process from the product account store, never by
+         the renderer, because an identity a page can choose is not an identity.
+         It stays nullable here on purpose: this writer is used by callers that
+         legitimately have no account concept, and a null is an honest "this
+         record cannot say who". shell/main.cjs passes a stated word rather than
+         a null, so its own records are never ambiguous. */
       principal,
       details: boundedDetails(details),
       previousHash: previous.hash,
@@ -274,7 +277,64 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
     return Object.freeze({ ok: true, count: lines.length })
   }
 
-  return Object.freeze({ availability, record, verify, ledgerPath, keyPath })
+  /* The newest records, for the screen that shows a person what has actually
+     run on their computer.
+   *
+   * THREE RULES, AND EACH ONE IS THE REASON A FIELD IS MISSING BELOW.
+   *
+   * 1. NO PATH LEAVES THIS FUNCTION. `details` carries the session's working
+   *    directory, and this reply is bound for the renderer, i.e. the DOM. The
+   *    same rule keeps the engine resolver's path-bearing message inside main
+   *    (see mc-agent:availability). So `details` is dropped outright rather
+   *    than filtered -- a filter is a thing someone widens later.
+   * 2. NO SIGNATURE OR HASH LEAVES EITHER. Neither is renderable, both invite a
+   *    UI that prints them as if a reader could check them, and the check that
+   *    matters has already been done here: `verified` below is this process's
+   *    own answer, computed over the WHOLE chain, not over the returned tail.
+   * 3. IT NEVER THROWS. A home screen that cannot render because a ledger line
+   *    is malformed is a product that cannot be recovered from its own first
+   *    screen. Unreadable collapses to `{ok:false, code}` and the screen says
+   *    so in one sentence.
+   *
+   * `total` is the whole chain and `entries` is the tail, deliberately: "3 of
+   * 41 sessions" is a true thing a screen can say, and it cannot be said from a
+   * truncated list alone. */
+  function history({ limit = 20 } = {}) {
+    const bounded = Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 200) : 20
+    let lines
+    try {
+      if (!fs.existsSync(ledgerPath)) lines = []
+      else lines = fs.readFileSync(ledgerPath, 'utf8').split('\n').filter(line => line.trim().length > 0)
+    } catch (error) {
+      return Object.freeze({
+        ok: false,
+        code: typeof error?.code === 'string' ? error.code : 'SPAWN_RECORD_LEDGER_UNREADABLE',
+      })
+    }
+
+    const entries = []
+    for (const line of lines.slice(-bounded)) {
+      let parsed
+      try { parsed = JSON.parse(line) } catch { continue }
+      if (!Number.isSafeInteger(parsed?.sequence) || typeof parsed?.at !== 'string') continue
+      if (typeof parsed.action !== 'string' || typeof parsed.sessionId !== 'string') continue
+      entries.push(Object.freeze({ sequence: parsed.sequence, at: parsed.at, action: parsed.action }))
+    }
+    entries.reverse() // newest first, which is the order a reader wants
+
+    /* Verification is reported, never assumed, and its failure is NOT this
+       function's failure: the records still exist and the person should still
+       see them, alongside the fact that the chain no longer checks out. */
+    let verified = null
+    try {
+      const result = verify()
+      verified = result.ok === true ? true : false
+    } catch { verified = null }
+
+    return Object.freeze({ ok: true, total: lines.length, entries: Object.freeze(entries), verified })
+  }
+
+  return Object.freeze({ availability, record, verify, history, ledgerPath, keyPath })
 }
 
 module.exports = { createSpawnRecorder, SpawnRecordError, GENESIS }

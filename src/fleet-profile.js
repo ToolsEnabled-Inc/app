@@ -1124,7 +1124,16 @@ if (FLEET_PROFILE_RESOLUTION.kind === 'invalid') {
   const first = FLEET_PROFILE_RESOLUTION.errors[0]
   mountRuntimeProfileNotice(`Fleet profile was not loaded: ${first?.path || 'profile'} ${first?.message || 'is invalid'}. The sample demonstration is active.`, true)
 } else if (!FLEET_PROFILE_RESOLUTION.configured) {
-  mountRuntimeProfileNotice('This is a labelled sample fleet, not your machines. Mission Control already works on this one computer; connecting others is optional.')
+  /* ONE STATEMENT, because this banner floats over every screen and cannot see
+     what the screen under it is already saying.
+     It used to be two: "this is a labelled sample fleet, not your machines" AND
+     "Mission Control already works on this one computer". On home the second
+     sentence landed two inches below the page's own "No local agent fleet host
+     detected on this machine", and a person cannot act on both. The banner now
+     says only the thing that is true on every route it appears over, in the
+     tense of a next step rather than a correction. Home suppresses it outright
+     (see src/home.css) because home states its own source itself. */
+  mountRuntimeProfileNotice('Some screens show example data until you connect your own computers.')
 } else if (FLEET_PROFILE_RESOLUTION.kind === 'recovered') {
   mountRuntimeProfileNotice('The fleet loaded from browser storage, but its durable userData copy needs attention.', true)
 } else if (FLEET_PROFILE_RESOLUTION.warnings.length) {
