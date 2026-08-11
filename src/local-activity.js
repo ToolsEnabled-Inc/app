@@ -171,6 +171,10 @@ export function readAgentEngine(raw, sessionsEnabled = false) {
 export const ENGINE_REASON = Object.freeze({
   AGENT_ENGINE_UNAVAILABLE: 'This copy is not set up to run agents yet',
   AGENT_CONFINEMENT_UNAVAILABLE: 'This copy did not ship the permission-level enforcement an agent session needs, so it will not start one',
+  /* The one reason on this list that is not a fault at all, and the only one
+     the reader can clear themselves -- so it says what to do rather than what
+     is wrong. */
+  AGENT_CONFINEMENT_SIGNED_OUT: 'Sign in to Codex on this computer: the permission level recorded here builds each agent session from that sign-in',
   AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'This copy did not ship the protection that keeps an agent session off your billed API account, so it will not start one',
   AGENT_HOST_INVALID_CWD: 'Mission Control cannot use its own workspace folder, so an agent has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'Mission Control could not check whether an agent can run here',

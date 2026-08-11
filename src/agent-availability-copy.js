@@ -28,6 +28,15 @@
 export const UNAVAILABLE_TEXT = Object.freeze({
   AGENT_ENGINE_UNAVAILABLE: 'no agent engine is configured on this installation',
   AGENT_CONFINEMENT_UNAVAILABLE: 'this copy shipped without the permission-level enforcement a session needs (agent-session-confinement), so it will not start one at a level it cannot hold; reinstall Mission Control from a complete build',
+  /* NOT A PACKAGING FAULT, and the copy must not read like one. The install is
+     complete; the assistant is signed out, and a confined level builds its
+     session from that sign-in. This is the one refusal on this list the person
+     in front of the screen can actually clear themselves, so it is the one that
+     most needs to say what to do. It reaches this table by BOTH routes -- the
+     probe returns it, and a start that gets past the probe raises the same code
+     through plan.code -- which is why the press used to show the bare
+     identifier here too. */
+  AGENT_CONFINEMENT_SIGNED_OUT: 'the assistant is not signed in on this computer, and the permission level recorded here builds its session from that sign-in; sign in to Codex and this control will enable itself',
   AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'this copy shipped without the protection that keeps a session off your billed API account (subscription-launch-env), so it will not start one; reinstall Mission Control from a complete build',
   AGENT_HOST_INVALID_CWD: 'Mission Control cannot use its own workspace folder, so an agent session has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'the agent host refused the availability request',

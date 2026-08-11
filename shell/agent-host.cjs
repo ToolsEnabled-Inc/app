@@ -3,6 +3,7 @@
 // This module intentionally has no Electron dependency. It owns Codex session
 // lifecycles; shell/main.cjs is only the IPC boundary around it.
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 // capability-layer.cjs is itself Electron-free (node:child_process, node:fs,
 // node:path only), so requiring it here preserves the property above.
@@ -255,6 +256,63 @@ function loadLaunchEnvironment(engineRoot) {
   return launchEnvironment
 }
 
+/* The Codex credential a CONFINED session is built from, asked as a question
+ * rather than answered by writing.
+ *
+ * THE FIFTH PRECONDITION, and it was found by another lane measuring the
+ * shipped build rather than by reading this file. Same packaged binary, same
+ * isolated user-data directory, one variable changed:
+ *
+ *   USERPROFILE with no Codex sign-in -> availability READY, start() REFUSED
+ *   USERPROFILE with a Codex sign-in  -> availability READY, start() STARTED
+ *
+ * The refusal is correct: prepareConfinedCodexHome() links the user's
+ * auth.json into the isolated home, and linkCredential() refuses rather than
+ * starting a session against an account it cannot name. What was wrong is that
+ * the probe could not see it, so the product offered an enabled button that
+ * refused every press -- the exact defect this function was repaired for,
+ * surviving in the one precondition nobody had enumerated.
+ *
+ * IT IS CONDITIONAL, AND THE CONDITION IS THE POINT. Only an ISOLATED level
+ * (guided, standard) builds a confined home, so only those levels need the
+ * credential; `unrestricted` runs against the user's own Codex home and must
+ * not be refused for the absence of a file it never reads. A probe that
+ * demanded a sign-in at every level would report the product broken on the
+ * default level -- a false negative, which costs more than the bug.
+ *
+ * FAIL OPEN ON ITS OWN UNCERTAINTY, WHICH IS THE OPPOSITE OF HOW THE START
+ * FAILS, DELIBERATELY. Every branch that cannot PROVE the start would refuse
+ * returns null and lets readiness stand. A probe that cannot resolve the
+ * recorded level has learned nothing about the credential, and turning "I could
+ * not tell" into "unavailable" would delete the product's core feature on any
+ * machine whose payload shape this shell does not recognise. The start path
+ * still fails closed on all of those, so a null here is never worse than the
+ * behaviour that shipped -- it is only less helpful.
+ *
+ * THE PATH IS DUPLICATED FROM THE PAYLOAD MODULE, and that duplication is
+ * checked rather than trusted: tools/test/agent-session-surface.test.mjs reads
+ * agent-session-confinement.js and asserts it still resolves CODEX_HOME (or
+ * ~/.codex) and still raises AGENT_CONFINEMENT_SIGNED_OUT for a missing
+ * auth.json. The module exports no read-only sign-in probe to call instead --
+ * linkCredential() is private and writes -- so the choice is a checked copy or
+ * no answer at all. */
+function confinedSessionIsSignedOut(planner) {
+  if (!planner || typeof planner.resolveAgentConfinement !== 'function') return false
+  let confinement
+  try {
+    confinement = planner.resolveAgentConfinement({})
+  } catch {
+    return false
+  }
+  if (!confinement || confinement.isolated !== true) return false
+  try {
+    const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
+    return !fs.existsSync(path.join(codexHome, 'auth.json'))
+  } catch {
+    return false
+  }
+}
+
 /* The environment an agent child is allowed to inherit, at EVERY level.
  *
  * BOTH BRANCHES, DELIBERATELY, because the asymmetry WAS the defect. Handling
@@ -317,11 +375,13 @@ function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
  * it -- not because it seemed prudent:
  *
  *   loadEngine                -> createAgentHost's first statement.
- *   loadConfinementPlanner    -> planConfinement(), before anything is spawned.
- *   loadLaunchEnvironment     -> resolved per session, after the plan.
- *   normalizeCwd(defaultCwd)  -> createAgentHost's second statement, and the
+ *   normalizeCwd(defaultCwd)  -> createAgentHost's SECOND statement, and the
  *                                asar-path defect that killed every PACKAGED
  *                                start while every checkout stayed green.
+ *   loadConfinementPlanner    -> planConfinement(), before anything is spawned.
+ *   the Codex sign-in         -> inside confinedSessionPlan(), at an isolated
+ *                                level only. See confinedSessionIsSignedOut().
+ *   loadLaunchEnvironment     -> resolved per session, after the plan.
  *
  * The ORDER is the start path's order so a payload missing more than one module
  * reports the same code from the probe as from the press. A probe that named a
@@ -345,9 +405,15 @@ function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
 function engineAvailability({ enginePath, defaultCwd = process.cwd(), ...options } = {}) {
   try {
     const { engineRoot } = loadEngine(enginePath, options)
-    loadConfinementPlanner(engineRoot)
-    loadLaunchEnvironment(engineRoot)
     normalizeCwd(defaultCwd, defaultCwd)
+    const planner = loadConfinementPlanner(engineRoot)
+    if (confinedSessionIsSignedOut(planner)) {
+      fail(
+        'AGENT_CONFINEMENT_SIGNED_OUT',
+        'The assistant is not signed in on this computer, so no confined session can be started for it.',
+      )
+    }
+    loadLaunchEnvironment(engineRoot)
     return Object.freeze({ ok: true, code: 'AGENT_ENGINE_READY' })
   } catch (error) {
     return Object.freeze({
@@ -370,6 +436,7 @@ function engineAvailability({ enginePath, defaultCwd = process.cwd(), ...options
 const AVAILABILITY_CODES = Object.freeze([
   'AGENT_ENGINE_UNAVAILABLE',
   'AGENT_CONFINEMENT_UNAVAILABLE',
+  'AGENT_CONFINEMENT_SIGNED_OUT',
   'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE',
   'AGENT_HOST_INVALID_CWD',
   'AGENT_HOST_INVALID_ARGUMENT',

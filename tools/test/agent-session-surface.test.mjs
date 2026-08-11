@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
@@ -355,6 +355,187 @@ test('a payload missing two host modules reports the one the start would report'
     })
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+/* ------------------------------------------------------------------
+   THE FIFTH PRECONDITION, found by another lane measuring the shipped build.
+
+   Same packaged binary, same isolated user-data directory, one variable:
+     USERPROFILE with no Codex sign-in -> availability READY, start() REFUSED
+     USERPROFILE with a Codex sign-in  -> availability READY, start() STARTED
+   The refusal was correct -- a confined level builds its session from the
+   user's auth.json -- but the probe could not see it, so the product offered an
+   enabled button that refused every press.
+   ------------------------------------------------------------------ */
+
+function withCodexHome(home, run) {
+  const previous = process.env.CODEX_HOME
+  const previousResolved = process.env.MC_TEST_CONFINEMENT_RESOLVED
+  if (home === null) delete process.env.CODEX_HOME
+  else process.env.CODEX_HOME = home
+  try {
+    return run()
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME
+    else process.env.CODEX_HOME = previous
+    if (previousResolved === undefined) delete process.env.MC_TEST_CONFINEMENT_RESOLVED
+    else process.env.MC_TEST_CONFINEMENT_RESOLVED = previousResolved
+  }
+}
+
+test('a confined level with no Codex sign-in is not ready', () => {
+  const home = mkdtempSync(join(tmpdir(), 'mc-codex-home-'))
+  try {
+    withCodexHome(home, () => {
+      process.env.MC_TEST_CONFINEMENT_RESOLVED = JSON.stringify({ tier: 'guided', isolated: true })
+      const result = engineAvailability({ enginePath: COMPLETE_ENGINE })
+      assert.equal(result.ok, false, 'a confined level cannot build a session without the sign-in it links')
+      assert.equal(result.code, 'AGENT_CONFINEMENT_SIGNED_OUT', 'the refusal must name the sign-in, not the packaging')
+    })
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a confined level WITH a Codex sign-in is ready', () => {
+  // The converse, and the one that matters: this precondition must not report
+  // a working, signed-in install as unavailable.
+  const home = mkdtempSync(join(tmpdir(), 'mc-codex-home-'))
+  try {
+    writeFileSync(join(home, 'auth.json'), '{"tokens":"redacted"}')
+    withCodexHome(home, () => {
+      process.env.MC_TEST_CONFINEMENT_RESOLVED = JSON.stringify({ tier: 'guided', isolated: true })
+      const result = engineAvailability({ enginePath: COMPLETE_ENGINE })
+      assert.equal(result.ok, true, 'a signed-in confined install must report ready')
+      assert.equal(result.code, 'AGENT_ENGINE_READY')
+    })
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('an unrestricted level is ready with no Codex sign-in at all', () => {
+  /* THE FALSE NEGATIVE THIS PRECONDITION COULD EASILY HAVE CAUSED, pinned
+     explicitly. `unrestricted` runs against the user's own Codex home and never
+     links a credential, so demanding a sign-in there would report the DEFAULT
+     level broken -- costing more than the bug being fixed. */
+  const home = mkdtempSync(join(tmpdir(), 'mc-codex-home-'))
+  try {
+    withCodexHome(home, () => {
+      process.env.MC_TEST_CONFINEMENT_RESOLVED = JSON.stringify({ tier: 'unrestricted', isolated: false })
+      const result = engineAvailability({ enginePath: COMPLETE_ENGINE })
+      assert.equal(result.ok, true, 'an unrestricted level must not require a sign-in it never reads')
+      assert.equal(result.code, 'AGENT_ENGINE_READY')
+    })
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the sign-in probe fails OPEN when it cannot resolve the recorded level', () => {
+  /* A planner that predates this question -- exporting confinedSessionPlan and
+     nothing else -- must leave readiness exactly as it was. Turning "I could not
+     tell" into "unavailable" would delete the product's core feature on any
+     payload shape this shell does not recognise, and the start path still fails
+     closed on all of them, so a pass here is never worse than what shipped. */
+  const root = stagePayload()
+  try {
+    const planner = join(root, ...HOST_MODULES.confinement.split('/'))
+    writeFileSync(planner, "'use strict'\nmodule.exports = { confinedSessionPlan: () => ({ ok: true }) }\n")
+    const home = mkdtempSync(join(tmpdir(), 'mc-codex-home-'))
+    try {
+      withCodexHome(home, () => {
+        const result = engineAvailability({ enginePath: join(root, ...HOST_MODULES.engine.split('/')) })
+        assert.equal(result.ok, true, 'an unrecognised planner must not be turned into an unavailable product')
+      })
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the sign-in the probe looks for is declared the way the host declares every payload module', () => {
+  /* THE DUPLICATION, CHECKED AS FAR AS A TRACKED FILE CAN CHECK IT.
+     shell/agent-host.cjs rebuilds the credential path because the payload module
+     exports no read-only sign-in probe -- linkCredential() is private and
+     writes. A copy nobody compares is how two answers to one question drift.
+
+     THIS HALF IS UNCONDITIONAL because it reads only tracked files. An earlier
+     version of this test read capability/src/lib/agent-session-confinement.js
+     directly and passed here while failing in any clean checkout: `capability/`
+     is DERIVED OUTPUT and gitignored, so it does not exist until
+     `npm run pack:capability` cuts it. Proven by materialising the committed
+     tree with `git archive` and running the suite there -- the payload was
+     absent and this was the only red test. Payload-shape checks belong to the
+     build pipeline (`npm run dist` runs check-payload-current, check-asar-
+     manifest and check-payload-boundary), which is where the payload is
+     guaranteed to exist; `npm test` must not depend on it. */
+  const host = read('shell/agent-host.cjs')
+  assert.match(host, /process\.env\.CODEX_HOME \|\| path\.join\(os\.homedir\(\), '\.codex'\)/, 'the probe must resolve the user Codex home as CODEX_HOME or ~/.codex')
+  assert.match(host, /'auth\.json'/, 'the probe must look for the credential file the payload links')
+  assert.match(host, /PAYLOAD_CONFINEMENT_MODULE = 'src\/lib\/agent-session-confinement\.js'/, 'the module the probe questions must still be the declared one')
+
+  const manifest = JSON.parse(read('tools/capability-manifest.json'))
+  assert.ok(
+    manifest.hostModules.includes('src/lib/agent-session-confinement.js'),
+    'the module that owns the sign-in refusal must be staged as a hostModule, or the probe questions something no customer has',
+  )
+})
+
+test('the payload, when one is staged, still links the credential the probe expects', () => {
+  /* THE OTHER HALF, and it is CONDITIONAL rather than skipped-in-disguise: the
+     assertions below are the real drift check, and they run on every machine
+     that has cut a payload -- which is every machine that can build an
+     installer, including the one that cuts releases. On a bare checkout there
+     is nothing to compare against and this reports that in its name rather than
+     pretending to have checked. The unconditional test above is what holds when
+     this cannot run. */
+  const payloadPath = resolve(ROOT, 'capability/src/lib/agent-session-confinement.js')
+  if (!existsSync(payloadPath)) {
+    assert.ok(true, 'no payload is staged in this checkout, so there is nothing to compare')
+    return
+  }
+  const payload = readFileSync(payloadPath, 'utf8')
+  assert.match(payload, /process\.env\.CODEX_HOME \|\| path\.join\(require\('node:os'\)\.homedir\(\), '\.codex'\)/,
+    'the payload still resolves the user Codex home as CODEX_HOME or ~/.codex; the probe copies that construction')
+  assert.match(payload, /path\.join\(userHome, 'auth\.json'\)/, 'the payload still names auth.json as the credential')
+  assert.match(payload, /'AGENT_CONFINEMENT_SIGNED_OUT'/, 'the payload still raises the code the probe reports')
+  assert.match(payload, /confinement\.isolated !== true/, 'the payload still builds a confined home only for an isolated level')
+})
+
+test('a bad working directory outranks a missing planner, because construction does', () => {
+  /* createAgentHost() resolves the engine and THEN validates the default cwd,
+     both before anything asks for a confinement plan. An earlier version of
+     this probe checked the cwd LAST, so an installation with both faults was
+     told about the planner while the press would have told it about the
+     directory -- the same send-them-to-the-wrong-thing defect as the
+     record/engine ordering, one level down. */
+  const root = stagePayload({ omit: ['confinement'] })
+  const cwdRoot = mkdtempSync(join(tmpdir(), 'mc-agent-cwd-'))
+  try {
+    const archive = join(cwdRoot, 'resources', 'app.asar')
+    mkdirSync(join(cwdRoot, 'resources'), { recursive: true })
+    writeFileSync(archive, 'not a directory')
+    const enginePath = join(root, ...HOST_MODULES.engine.split('/'))
+
+    assert.equal(
+      engineAvailability({ enginePath, defaultCwd: archive }).code,
+      'AGENT_HOST_INVALID_CWD',
+      'the probe must report the fault the host construction hits first',
+    )
+    assert.throws(
+      () => createAgentHost({ enginePath, defaultCwd: archive }),
+      (error) => {
+        assert.equal(error.code, 'AGENT_HOST_INVALID_CWD', 'this test\'s premise: construction really does refuse the cwd first')
+        return true
+      },
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(cwdRoot, { recursive: true, force: true })
   }
 })
 
