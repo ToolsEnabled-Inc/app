@@ -54,7 +54,8 @@
   ],
   "hostModules": [
     "src/lib/setup/machine-record.js",
-    "src/lib/setup/workspace.js"
+    "src/lib/setup/workspace.js",
+    "src/lib/agent-engine/codex-process.js"
   ],
   "dataFiles": [
     "config/model-floor.json",

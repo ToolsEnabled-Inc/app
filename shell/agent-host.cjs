@@ -4,6 +4,9 @@
 // lifecycles; shell/main.cjs is only the IPC boundary around it.
 const fs = require('node:fs')
 const path = require('node:path')
+// capability-layer.cjs is itself Electron-free (node:child_process, node:fs,
+// node:path only), so requiring it here preserves the property above.
+const { resolveCapabilityRoot } = require('./capability-layer.cjs')
 
 const CLIENT_INFO = Object.freeze({
   name: 'mission-control',
@@ -37,9 +40,17 @@ function normalizedModulePath(candidate) {
     : path.join(resolved, 'codex-process.js')
 }
 
-function engineCandidates(enginePath) {
-  // An explicit path is useful to embedders and focused tests. Without one,
-  // only the configured environment path is tried.
+// The engine module the payload carries, declared in
+// tools/capability-manifest.json under `hostModules`. The path is duplicated
+// here because the manifest is a BUILD input and this is a RUNTIME read; the
+// same unavoidable duplication shell/setup-record.cjs documents for the setup
+// modules. tools/check-asar-manifest.mjs gates every hostModules entry against
+// the built payload, so a build that lists this file without shipping it fails
+// rather than reaching a customer.
+const PAYLOAD_ENGINE_MODULE = 'src/lib/agent-engine/codex-process.js'
+
+function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot() } = {}) {
+  // An explicit path is useful to embedders and focused tests.
   //
   // BLOCKER 2 (R1162 non-author review): this used to fall back to a
   // hardcoded path into a private sibling checkout one level above this repo
@@ -47,8 +58,24 @@ function engineCandidates(enginePath) {
   // no shipped installation. The chat feature that depended on it was
   // therefore guaranteed dead everywhere it shipped, and the resulting
   // AGENT_ENGINE_UNAVAILABLE failure rendered that internal path into the
-  // DOM. There is no working default to fall back to, so this fails closed:
-  // no engine, no guess.
+  // DOM. Removing it was right. Replacing it with NOTHING was not, and that
+  // is what this function did until now.
+  //
+  // MEASURED 2026-08-10 in the real installed 1.0.5, over CDP:
+  //   localStorage['mc.write.agent-session'] -> "enabled"   (the flag was ON)
+  //   await window.mcAgent.availability()    -> {ok:false, code:"AGENT_ENGINE_UNAVAILABLE"}
+  // A customer has no checkout and no MISSION_CONTROL_ENGINE, and there is no
+  // UI anywhere to set one, so with only the two candidates below this could
+  // never resolve. "Start an agent from inside Mission Control" was dead on
+  // every shipped copy BY CONSTRUCTION -- not misconfigured, and not something
+  // onboarding could fix.
+  //
+  // The fix is the same shape the setup modules already use: ship the engine
+  // in the capability payload and resolve it from the root the shell already
+  // computes. The environment variable still WINS when set, so a developer
+  // pointing at their own checkout keeps getting that checkout rather than the
+  // packaged copy -- the same precedence shell/main.cjs applies to
+  // MC_BRIDGE_PROOF_FILE.
   if (enginePath !== undefined && enginePath !== null) {
     return [{ source: 'enginePath', value: boundedString(enginePath, 'enginePath', 32_768) }]
   }
@@ -56,6 +83,9 @@ function engineCandidates(enginePath) {
   const candidates = []
   if (process.env.MISSION_CONTROL_ENGINE) {
     candidates.push({ source: 'MISSION_CONTROL_ENGINE', value: process.env.MISSION_CONTROL_ENGINE })
+  }
+  if (capabilityRoot) {
+    candidates.push({ source: 'capability-payload', value: path.join(capabilityRoot, PAYLOAD_ENGINE_MODULE) })
   }
   return candidates
 }
