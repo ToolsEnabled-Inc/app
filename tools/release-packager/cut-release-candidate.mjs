@@ -366,11 +366,38 @@ async function main() {
     }
 
     // --- optionally advance the shared branch -----------------------------------
+    //
+    // A FAILURE HERE MUST NOT COST THE DECLARATION. Advancing the branch is
+    // bookkeeping; the declaration is the artifact's only record of what it is.
+    // On the 1.0.3 cut this step threw AFTER a fully successful, fully verified
+    // build, and because it threw, control jumped to the catch and the
+    // declaration was never written -- leaving a 101 MB installer on disk with
+    // no filename/bytes/sha256/build-ref record beside it, and a build ref that
+    // no branch pointed at and gc was free to delete. The build was fine. The
+    // evidence that it was fine is what got lost.
+    //
+    // So: capture the error, finish writing the declaration (which records the
+    // failure in branchAdvanceError so nobody reads branchAdvanced:false as a
+    // deliberate choice), and only then rethrow.
     let branchAdvanced = false
+    let branchAdvanceError = null
     if (args.advanceBranch && !args.test) {
-      fastForwardBranch(repo, branch, buildRef)
-      branchAdvanced = true
-      console.log(`[cut-release-candidate] fast-forwarded ${branch} -> ${buildRef}`)
+      try {
+        fastForwardBranch(repo, branch, buildRef)
+        branchAdvanced = true
+        console.log(`[cut-release-candidate] fast-forwarded ${branch} -> ${buildRef}`)
+      } catch (error) {
+        branchAdvanceError = error instanceof Error ? error.message : String(error)
+        console.error(
+          `[cut-release-candidate] branch advance FAILED (the build itself is fine and is staged): ${branchAdvanceError}`,
+        )
+        console.error(
+          `[cut-release-candidate] the declaration will still be written. To put ${buildRef} on a branch by hand:\n` +
+            `    cd <the worktree that has ${branch} checked out> && git merge --ff-only ${buildRef}\n` +
+            `  Do this promptly: until some ref reaches it, ${buildRef} is unreachable and gc may delete the ` +
+            `provenance this candidate depends on.`,
+        )
+      }
     } else if (args.advanceBranch && args.test) {
       console.log('[cut-release-candidate] --test overrides --advance-branch: the shared branch was NOT moved.')
     }
@@ -406,6 +433,7 @@ async function main() {
       sourceRef,
       buildRef,
       branchAdvanced,
+      branchAdvanceError,
       candidate: { filename: exeName, bytes: stagedMeasured.bytes, sha256: stagedMeasured.sha256 },
       treeState: {
         worktreePath,
@@ -440,6 +468,11 @@ async function main() {
     console.log('='.repeat(72))
     if (args.test) {
       console.log('This was a --test run. Nothing was sent anywhere and the shared branch was not moved.')
+    }
+    if (branchAdvanceError) {
+      throw new Error(
+        `candidate is staged and declared, but advancing ${branch} to ${buildRef} failed: ${branchAdvanceError}`,
+      )
     }
   } catch (error) {
     if (!worktreeRemoved && existsSync(worktreePath) && !args.keepWorktree) {

@@ -94,7 +94,25 @@ export function commitPaths(cwd, paths, message) {
 
 /** Fast-forward-only branch move. Refuses (rather than force-moves) unless
  * newRef is a descendant of the branch's current tip, so this can never
- * discard history other lanes might be relying on. */
+ * discard history other lanes might be relying on.
+ *
+ * `git branch -f` CANNOT MOVE A BRANCH THAT IS CHECKED OUT IN A WORKTREE, and
+ * that is the normal case here, not the exotic one: the packager is run from a
+ * worktree that has the source branch checked out, so `--advance-branch` used
+ * to fail 100% of the time with
+ *
+ *   fatal: cannot force update the branch 'X' used by worktree at '...'
+ *
+ * It was measured failing on the 1.0.3 cut after a fully successful build.
+ * `git branch -f` is also the wrong tool there even if git allowed it: it moves
+ * the ref while leaving HEAD's index and working tree behind, so the checkout
+ * would instantly report every file changed by the bump as locally modified.
+ *
+ * So: if the branch is checked out HERE, advance it the way a person would --
+ * `git merge --ff-only`, which moves ref, index and working tree together. If
+ * it is checked out in a DIFFERENT worktree, refuse: moving a branch out from
+ * under another lane's checkout is how a lane loses work it never touched.
+ * Only a branch nobody has checked out gets the plain `git branch -f`. */
 export function fastForwardBranch(cwd, branchName, newRef) {
   const currentTip = revParse(cwd, branchName)
   if (!isAncestor(cwd, currentTip, newRef)) {
@@ -103,5 +121,35 @@ export function fastForwardBranch(cwd, branchName, newRef) {
         'This would not be a fast-forward.',
     )
   }
+
+  if (currentBranch(cwd) === branchName) {
+    git(['merge', '--ff-only', newRef], { cwd })
+    return
+  }
+
+  const holder = worktreeHoldingBranch(cwd, branchName)
+  if (holder) {
+    throw new GitError(
+      `refusing to move ${branchName}: it is checked out in another worktree (${holder}). ` +
+        'Moving it from here would leave that checkout\'s index and working tree describing a commit ' +
+        'it is no longer on. Run the packager from that worktree, or advance the branch there.',
+    )
+  }
+
   git(['branch', '-f', branchName, newRef], { cwd })
+}
+
+/** Absolute path of the worktree that has `branchName` checked out, or null.
+ * Parses `git worktree list --porcelain`, whose records are blank-line
+ * separated with `worktree <path>` and `branch refs/heads/<name>` lines. */
+export function worktreeHoldingBranch(cwd, branchName) {
+  const { stdout } = git(['worktree', 'list', '--porcelain'], { cwd, allowFailure: true })
+  let path = null
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) path = line.slice('worktree '.length).trim()
+    else if (line.startsWith('branch ') && line.slice('branch '.length).trim() === `refs/heads/${branchName}`) {
+      return path
+    }
+  }
+  return null
 }
