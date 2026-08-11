@@ -148,16 +148,20 @@ The order that makes the third gate meaningful instead of noisy:
 3. **all three payload gates** on that fresh stage
 4. **`pending = 0`** via `--ship`
 
-At the time of writing, `check-payload-current` is red on `src/lib/providers/license.js`.
-**That is the ordinary case, not an alarm**, and it is worth knowing what it looks like so
-nobody hunts a corrupted stage: the staged copy is byte-identical to the committed file,
-and the *source* has moved — a lane has +241/−11 uncommitted in the engine tree. Nothing
-is wrong with the stage. A partial re-stage would have shown up as a `payloadSha256` that
-did not reproduce, and it reproduces exactly.
+**When that gate is red, it is usually the ordinary case rather than an alarm.** Tell the
+two apart before doing anything, because the instinct — re-stage until it goes green — is
+wrong in one of them:
 
-**Do not re-stage to make it green while that lane is mid-edit.** That would bake
-half-finished work into the shared payload, which is worse than a red gate telling the
-truth.
+| What you find | What it is | What to do |
+| --- | --- | --- |
+| Staged file is byte-identical to its committed version, and the *source* has uncommitted changes | A lane is mid-edit. Normal. | **Wait.** Re-staging bakes half-finished work into the shared payload, which is worse than a red gate telling the truth |
+| `payloadSha256` in `capability/PAYLOAD.json` does not reproduce on a fresh pack | The stage itself is wrong | Re-stage, and find out why the first one was bad |
+
+The first row is what a healthy busy tree looks like all day. A partial or corrupted stage
+announces itself through the hash, not through this gate — so check the hash before
+concluding anything is broken. This page previously named a specific file as red, which
+was true for about an hour; that is the failure this whole section is about, so the
+diagnosis is given as a shape you can apply instead.
 
 ### The licence verifier must be able to refuse
 
