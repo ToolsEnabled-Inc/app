@@ -37,7 +37,7 @@ import {
   readRunsMode,
   readAgentSelection,
 } from './chatbox-feed.js'
-import { resolveChatChannel } from './orchestration-controls.js'
+import { resolveChatChannel, channelHasConversation } from './orchestration-controls.js'
 
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const text = value => (typeof value === 'string' ? value : '')
@@ -95,7 +95,7 @@ export function planNodeChatbox({
    * layer down: "nobody to ask", "asked and unreadable" and "asked, nothing
    * yet" are three sentences, and emptiness is the empty state's job. */
   const plan = planChatbox({
-    contextAvailable: channel.kind !== 'none',
+    contextAvailable: channelHasConversation(channel),
     runsAvailable: Boolean(runsSupported),
     runsMode: readRunsMode(),
     selection,
@@ -150,9 +150,15 @@ export function planNodeChatbox({
        screen, and that frame used to fall back to "No channel to this agent."
        — which is a lie on a simulated node in "show only runs", where the
        channel is fine and the person simply asked for runs. Found while fixing
-       the gating above: same root, one layer over. Non-null only when a usable
-       channel exists and the mode is what is hiding the conversation. */
-    contextHiddenReason: !plan.showContext && channel.canSend
+       the gating above: same root, one layer over. Non-null only when a
+       conversation EXISTS and the mode is what is hiding it.
+
+       Keyed on channelHasConversation(), not on canSend. It read `canSend`
+       first, which is the same fact only by accident: no channel kind yet has
+       a conversation it cannot be written to. The first one that does — an
+       interrupted session, or a read-only simulated fleet — would have flipped
+       this back to null and revived the very defect it was added to fix. */
+    contextHiddenReason: !plan.showContext && channelHasConversation(channel)
       ? 'Your chat settings show runs only, so this conversation is hidden here.'
       : null,
   })

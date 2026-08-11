@@ -194,6 +194,33 @@ export const RELATION_TYPES = Object.freeze(['manages', 'reviews', 'delegates_to
  *
  * @returns {{kind: 'session'|'simulated'|'none', canSend: boolean, reason: string|null}}
  */
+export const CHAT_CHANNEL_KINDS = Object.freeze(['session', 'simulated', 'none'])
+
+/**
+ * DOES A CONVERSATION EXIST AT ALL — one definition, used everywhere.
+ *
+ * This is deliberately NOT `channel.canSend`, even though the two agree for
+ * every kind that exists today. They answer different questions: whether there
+ * is a conversation to show, and whether a person may add to it. Two callers
+ * were asking the first question in two different ways — one testing
+ * `kind !== 'none'` and one testing `canSend` — and they coincided only because
+ * no kind has yet existed that has a conversation and cannot be written to.
+ *
+ * The drift that would actually happen: a session that exists but is mid-turn
+ * or interrupted (mcAgent.interrupt() already exists), or a decision to make
+ * the simulated fleet read-only. Either adds a kind with a conversation and
+ * `canSend: false`, at which point the caller that meant "a conversation
+ * exists" starts reporting "there is no channel to this agent" — reviving,
+ * silently, exactly the defect commit f4b4433 fixed.
+ *
+ * Adding a kind therefore forces a decision about which side of this it sits
+ * on, and tools/test/node-chatbox.test.mjs pins the enum so the decision
+ * cannot be skipped.
+ */
+export function channelHasConversation(channel) {
+  return Boolean(channel) && channel.kind !== 'none'
+}
+
 export function resolveChatChannel({ live = false, sessionAvailable = false, sessionAgentId = null, agentId = null } = {}) {
   if (sessionAvailable && sessionAgentId && agentId && sessionAgentId === agentId) {
     return Object.freeze({ kind: 'session', canSend: true, reason: null })

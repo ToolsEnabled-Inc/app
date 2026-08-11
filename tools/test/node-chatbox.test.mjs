@@ -44,6 +44,7 @@ globalThis.localStorage = {
 }
 
 const { planNodeChatbox, channelCaption } = await import('../../src/node-chatbox.js')
+const { resolveChatChannel, channelHasConversation, CHAT_CHANNEL_KINDS } = await import('../../src/orchestration-controls.js')
 
 const AGENT = { id: 'terra-01', name: 'Terra 01' }
 const TURNS = [{ who: 'terra-01', text: 'picking up the lane' }, { who: 'luna-02', text: 'ack' }]
@@ -76,6 +77,98 @@ test('the simulated fleet never claims to reach a process', () => {
   assert.equal(plan.channel.kind, 'simulated')
   assert.match(channelCaption(plan.channel), /simulated/)
   assert.doesNotMatch(channelCaption(plan.channel), /running agent/)
+})
+
+/* ---------------------------------------------------------------
+   "a conversation exists" and "you may write to it" are two questions
+
+   These were being asked in two different ways — `channel.kind !== 'none'` in
+   one place and `channel.canSend` in another — and they agreed only because no
+   kind has yet existed that HAS a conversation and cannot be written to. That
+   is an invariant holding by construction with nothing asserting it, which is
+   the same shape as the two defects this pairing has already produced: true
+   today, one refactor from silently false, and quiet in both directions.
+
+   The drift that would actually happen is an interrupted session
+   (mcAgent.interrupt() already exists) or a read-only simulated fleet. Either
+   adds a kind with a conversation and canSend:false, at which point the caller
+   that meant "a conversation exists" starts reporting "no channel to this
+   agent" — reviving the defect commit f4b4433 fixed, without a test going red.
+   --------------------------------------------------------------- */
+
+test('a conversation that cannot be written to is still a conversation', () => {
+  /* The drift case, asserted directly because resolveChatChannel cannot
+     produce it yet. This is the whole point: it must already be pinned when
+     someone adds the kind, not after. */
+  assert.equal(channelHasConversation({ kind: 'session', canSend: false }), true)
+  assert.equal(channelHasConversation({ kind: 'simulated', canSend: false }), true)
+  assert.equal(channelHasConversation({ kind: 'none', canSend: false }), false)
+  assert.equal(channelHasConversation(null), false)
+})
+
+test('every channel kind is declared, so a fourth forces a decision', () => {
+  const reached = new Set()
+  for (const live of [true, false]) {
+    for (const sessionAvailable of [true, false]) {
+      for (const sessionAgentId of [null, 'terra-01', 'someone-else']) {
+        const channel = resolveChatChannel({ live, sessionAvailable, sessionAgentId, agentId: 'terra-01' })
+        assert.ok(CHAT_CHANNEL_KINDS.includes(channel.kind),
+          `resolveChatChannel returned undeclared kind "${channel.kind}"`)
+        reached.add(channel.kind)
+      }
+    }
+  }
+  assert.deepEqual([...reached].sort(), [...CHAT_CHANNEL_KINDS].sort(),
+    'a declared kind is unreachable, or a reachable kind is undeclared')
+})
+
+test('the use site asks by name, which no behavioural test can yet prove', () => {
+  /* A SOURCE-TEXT ASSERTION, AND THE ONE PLACE ONE IS THE RIGHT TOOL.
+     Swapping `channelHasConversation(channel)` back to `channel.canSend` at
+     this use site is behaviourally INVISIBLE today: the two agree for every
+     channel resolveChatChannel can currently return, so every behavioural test
+     above stays green through that revert. The choice only becomes observable
+     on the day someone adds the fourth kind — which is the day it is too late
+     to notice. Pinning the intent is therefore the only protection available,
+     and pinning it as text is honest about being exactly that.
+
+     Anchored precisely, with the anchor and the bound both asserted, because a
+     test of mine earlier in this lane sliced from a CALL SITE instead of a
+     definition and was checking air until a mutant exposed it.
+
+     BOTH use sites are covered. The first version of this test pinned only
+     `contextHiddenReason`, and a mutant swapping `contextAvailable` to
+     `canSend` survived it — the same partial-coverage failure, found the same
+     way, one turn later. */
+  const source = readFileSync(path.join(ROOT, 'src/node-chatbox.js'), 'utf8')
+  const sites = [
+    { field: 'contextAvailable', end: ',\n', why: 'whether there is a conversation to show' },
+    { field: 'contextHiddenReason', end: '      : null,', why: 'whether a conversation exists to be hidden' },
+  ]
+  for (const site of sites) {
+    const start = source.indexOf(`    ${site.field}:`)
+    assert.notEqual(start, -1, `${site.field} not found — this test is checking air`)
+    const end = source.indexOf(site.end, start)
+    assert.notEqual(end, -1, `${site.field} has no terminator — this test is checking air`)
+    const expression = source.slice(start, end)
+    assert.ok(expression.includes('channelHasConversation(channel)'),
+      `${site.field} stopped asking ${site.why}`)
+    assert.ok(!expression.includes('canSend'),
+      `${site.field} is asking about sendability again; the first non-writable conversation revives f4b4433`)
+  }
+})
+
+test('the two questions are asked by name over every reachable channel', () => {
+  for (const live of [true, false]) {
+    for (const sessionAvailable of [true, false]) {
+      const channel = resolveChatChannel({ live, sessionAvailable, sessionAgentId: 'terra-01', agentId: 'terra-01' })
+      const plan = planNodeChatbox({ agent: AGENT, live, sessionAvailable, sessionAgentId: 'terra-01' })
+      assert.equal(plan.showContext, channelHasConversation(channel),
+        'showContext stopped tracking whether a conversation exists')
+      assert.equal(plan.composerReason === null, channel.canSend,
+        'the composer stopped tracking whether the person may write')
+    }
+  }
 })
 
 /* ---------------------------------------------------------------
