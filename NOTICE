@@ -37,7 +37,9 @@ ToolsEnabled Anywhere is a separate, commercially licensed product and is not
 covered by that grant.
 
 Dual licensing remains available because Joshua Pinckard is the sole copyright
-holder, and only while copyright stays unfragmented. See LICENSING.md.
+holder, and only while copyright stays unfragmented. See LICENSING.md for why
+that choice was made, and COMMERCIAL-LICENSE.md for the commercial terms and
+the governance of the official build.
 
 -------------------------------------------------------------------------------
 CONTRIBUTORS
@@ -64,3 +66,13 @@ This product bundles third-party open-source components, each governed by its
 own license. Those licenses are unaffected by this NOTICE, and nothing here
 adds to or removes from them. The bundled dependencies are declared in
 package.json and resolved in package-lock.json.
+
+Several of those licenses -- the SIL Open Font License on the bundled fonts, the
+Apache License 2.0, and the BSD 3-Clause License -- require that their copyright
+notices and license texts accompany the copies we distribute. Naming the
+dependency files above does not discharge that; reproducing the texts does. They
+are reproduced in full in THIRD-PARTY-LICENSES.md, which ships with the
+installer as well as living in this repository.
+
+Electron and Chromium notices are placed beside the executable by the build as
+LICENSE.electron.txt and LICENSES.chromium.html.

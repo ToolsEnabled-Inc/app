@@ -59,6 +59,11 @@ Anyone may fork this project and propose changes. Only approved code enters the 
 build. A fork is your own; it is not the official product and must not present itself as
 the official build or as published by ToolsEnabled, Inc.
 
+That last limit is a trademark one, not a restriction on the code: your rights in the code
+are the AGPL's in full, and renaming a fork is always enough to satisfy it. The distinction
+is drawn out in [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md), which also covers who
+actually needs a commercial license — most users do not.
+
 Cloud infrastructure, billing, provisioning, security operations and internal development
 tooling are developed separately and are not intended to be part of this repository.
 
@@ -95,7 +100,12 @@ Stated plainly, because a public repository is a dated, permanent record:
   General Public License, version 3 or later**. The grant is made by [`LICENSE`](LICENSE),
   which holds the unmodified text as published by the Free Software Foundation; if
   anything here disagrees with that file, that file controls. ToolsEnabled Anywhere is a
-  separate, commercially licensed product and is not covered by this grant.
+  separate, commercially licensed product and is not covered by this grant; its terms and
+  the governance of the official build are in [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md).
+- **Bundled third-party components keep their own licenses.** Their notices and full texts
+  are reproduced in [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md), which ships with
+  the installer because the SIL Open Font, Apache-2.0 and BSD-3-Clause terms require the
+  notices to travel with the binary rather than merely be listed in a manifest.
 
   Dual licensing stays available because Joshua Pinckard is the sole copyright holder and
   is therefore not bound by his own AGPL grant — but that holds **only while copyright
