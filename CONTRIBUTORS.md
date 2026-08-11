@@ -37,15 +37,45 @@ is part of a normal pull request.
 
 *(none yet)*
 
-## How to be listed
+## Outside code contributions are not open yet
 
-1. Open a pull request with your change.
-2. In the same pull request, add a line to the **Contributors** list above:
+**Not because they are unwelcome — because merging one today would quietly cost the
+project something it cannot get back.**
+
+ToolsEnabled is AGPLv3, and ToolsEnabled Anywhere is offered under separate commercial
+terms. That arrangement is only possible because copyright in this work is held by one
+person, and the AGPL binds people who receive the software rather than the copyright
+holder. It **stops** being possible the moment copyright fragments: a contributor who
+signs nothing keeps copyright in their part, and from then on no commercial license can be
+granted over the whole work without going back to every contributor individually and
+getting each one to agree.
+
+**There is no contributor agreement yet.** Until there is, this project cannot accept
+outside code, because the first merge is the irreversible step — it is a decision to be
+made before the first pull request is merged, not after. `LICENSING.md` explains the
+mechanism in full.
+
+That agreement is a real decision with real trade-offs, not a formality: assignment and a
+broad license grant are different things, and some contributors decline both on principle.
+It is owed a proper choice rather than a template pasted in under time pressure.
+
+**Not blocked, and genuinely wanted right now:** bug reports, reproductions, documentation
+of behaviour you found confusing, security reports, and design feedback. None of those
+create a copyright interest in the codebase, and all of them are worth crediting — open an
+issue.
+
+### When it does open
+
+The steps will be:
+
+1. Complete whatever contributor agreement the project settles on.
+2. Open a pull request with your change.
+3. In the same pull request, add yourself to the **Contributors** list above:
    `- Name (@github-handle) — what you contributed`
-3. Use whatever name you want to be credited under. A handle alone is fine.
 
-If you would rather not be listed at all, say so in the pull request and your change will
-be merged without adding you.
+Use whatever name you want to be credited under; a handle alone is fine. If you would
+rather not be listed at all, say so in the pull request and your change will be merged
+without adding you.
 
 ## Attribution this file does not change
 
