@@ -110,6 +110,22 @@ async function run() {
     location.reload();
   `)
   await waitFor(webContents, `document.querySelectorAll('.static-tree-node').length >= 9 && window.__mcGraph`)
+  /* WAIT FOR THE FONTS BEFORE STARTING THE SETTLE WINDOW.
+     Web fonts land after first paint and change text metrics with NO DOM
+     mutation and NO resize event, so nothing in the page announces them. Any
+     relayout they trigger — and a label's box is exactly what a font swap
+     moves — landed inside the 900ms settle window below and was counted as
+     unsettled activity. That is the most likely cause of this harness's
+     intermittent reds on "no idle requestAnimationFrame callbacks" and on "no
+     settled Page 2 CSS animation" with target `node-labels`, both of which
+     fire here, before any node has been clicked.
+     Diagnosed by the agent-subpage lane, which hit the same class of bug in
+     its own harness: its roster measured 149px against a settled 251px, and
+     `await document.fonts.ready` removed it.
+     This is a fix to the INSTRUMENT's timing, not a loosening of what it
+     asserts — every check below still demands exactly what it demanded. */
+  await webContents.executeJavaScript(`document.fonts.ready.then(() => true)`)
+  await webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`)
   await webContents.executeJavaScript(`(() => {
     const nativeMatchMedia = window.matchMedia.bind(window);
     window.matchMedia = query => query === '(prefers-reduced-motion: reduce)'
