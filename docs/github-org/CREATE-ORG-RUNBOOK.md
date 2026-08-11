@@ -111,14 +111,48 @@ and only the second one is what "clean" is about:
 So a `pending` file is in the installer right now, and the verdict line does not cover it.
 Six files are in that state:
 
-| Still shipping | Why it matters |
+These are not one problem. They are two, and they are not equally urgent.
+
+**Group A — the commercial model, in source form.** Publishing these discloses more of the
+business than intended. Nothing operational breaks by publishing them; nothing is at risk
+of abuse.
+
+| Still shipping | What it discloses |
 | --- | --- |
 | `src/lib/entitlement.js` | The actual commercial tier table and prices — the business plan in source form |
 | `src/lib/providers/license.js` | Licence-key issuance and verification |
 | `src/lib/license-store.js` | The revocation store behind it |
-| `src/lib/providers/chrome-web-store.js` | Generic client carrying a hardcoded other-product listing id |
-| `src/lib/providers/firebase.js` | Generic client carrying a hardcoded other-product GCP project id |
-| `src/lib/aicalendar-root.js` | Resolves a checkout path for a separate product |
+
+**Group B — identifiers for the owner's *other* product.** These are **not a third
+party's**. Both name a separate commercial product of the owner's own
+(`src/lib/aicalendar-root.js` says so in its header). The harm is not third-party
+disclosure — it is **cross-linkage**: an open-source release published under his name that
+quietly points at his separate revenue product.
+
+| Still shipping | What it discloses | Priority |
+| --- | --- | --- |
+| `src/lib/providers/firebase.js` | A GCP project id **with live payment infrastructure behind it** — 6 active Stripe-extension Functions, a live webhook endpoint and a Firestore checkout flow, last active 2026-07-23 | **Highest.** A project id with live billing attached is an abuse target |
+| `src/lib/providers/chrome-web-store.js` | A Store listing id | Lower. A published extension's item id **is public by construction** — it is in its own store URL |
+| `src/lib/aicalendar-root.js` | Resolves a checkout path for that separate product | Lower |
+
+### Do not "clean up" the Store item id to make the gate green
+
+The remedy for those two is **not symmetric**, and getting this wrong removes a security
+control:
+
+- **`firebase.js` is the easy one and the urgent one.** The project id is reachable from a
+  single tool that belongs with the rest of that product's release automation. Nothing
+  generic depends on it.
+- **`chrome-web-store.js` is not a deletion.** Its literal is load-bearing. At line 154 it
+  backs a second, independent fence — the fixed Store item is unreachable through the
+  generic upload path unless a broker attestation is supplied, *even if the bytes are
+  copied out of the tree*. It is also used to redact the audit target. **Deleting the
+  literal to shrink the payload would silently delete that fence.** It needs the id turned
+  into configuration with the check preserved — real work, and not work for whoever is in
+  a hurry to make this gate green.
+
+Neither has been done. The measured analysis is in `agent-coord` under
+`payload-firebase-cws-identifiers`; start from it rather than from this summary.
 
 **The condition for making a product repository public is `pending=0`,** not `exit 0`.
 Publishing while any of those six are staged publishes them, because the installer *is* a
