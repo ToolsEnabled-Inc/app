@@ -351,6 +351,12 @@ export function computersView({ initialComputer = null, navigate }) {
      distinguishes "no runs" from "could not read" from "nobody to ask", so
      this view does not get to invent a fourth answer. */
   let railRuns = []
+  /* Whether a run record can be READ AT ALL, kept separate from whether it
+     currently holds anything. `supported: false` means there was nobody to ask
+     — a browser with no shell behind it — and that is not the same fact as an
+     empty list. src/chatbox-feed.js's availability flags are about the source,
+     so the source's existence is what has to be passed to them. */
+  let railRunsSupported = false
   let railChatUnsub = null
 
   const root = el(`
@@ -773,6 +779,7 @@ export function computersView({ initialComputer = null, navigate }) {
         sessionAgentId: null,
         turns: liveMode ? [] : [{ who: agent.id }],
         runs: railRuns,
+        runsSupported: railRunsSupported,
       })
       host.innerHTML = ''
       host.dataset.chatChannel = plan.channel.kind
@@ -935,7 +942,9 @@ export function computersView({ initialComputer = null, navigate }) {
     void (async () => {
       const raw = await globalThis.mcAgent?.history?.({}).catch(() => null)
       if (destroyed) return
-      railRuns = readLocalSessions(raw ?? undefined).runs
+      const local = readLocalSessions(raw ?? undefined)
+      railRuns = local.runs
+      railRunsSupported = local.supported
     })()
   }
 

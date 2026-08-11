@@ -64,6 +64,7 @@ export function planNodeChatbox({
   sessionAgentId = null,
   turns = [],
   runs = [],
+  runsSupported = false,
 } = {}) {
   const agentId = text(agent?.id) || null
   const channel = resolveChatChannel({ live, sessionAvailable, sessionAgentId, agentId })
@@ -71,9 +72,31 @@ export function planNodeChatbox({
   const allTurns = (Array.isArray(turns) ? turns : []).filter(isRecord)
   const allRuns = (Array.isArray(runs) ? runs : []).filter(isRecord)
   const selection = readAgentSelection()
+  /* AVAILABILITY IS ABOUT THE SOURCE, NOT ABOUT ITS CONTENTS.
+   *
+   * These two flags first read `allTurns.length > 0` and `allRuns.length > 0`,
+   * which quietly answers a different question: not "does this rail have a
+   * conversation and a run record to draw on" but "do they happen to be
+   * non-empty this second". The author of src/chatbox-feed.js flagged it, and
+   * they are right about their own API's contract.
+   *
+   * Worth being precise about the blast radius rather than overstating it: on
+   * this rail today the RENDERED output is identical either way, because the
+   * runs section is guarded on `runs.length` and the empty-state layer below
+   * reports the emptiness with its own specific sentence. The two symptoms
+   * reported against it do not occur here — page 2 never renders
+   * `chatboxNothingChosen`, and `filteredToNothing` is
+   * `speaking.length > 0 && shown.length === 0`, independent of these flags.
+   *
+   * It is fixed anyway, because `showContext`/`showRuns` are the module's
+   * vocabulary and not this file's, and a caller that means something else by
+   * them is a defect waiting for the first person who trusts the name. This is
+   * the same three-outcomes-not-two rule readLocalSessions() already keeps one
+   * layer down: "nobody to ask", "asked and unreadable" and "asked, nothing
+   * yet" are three sentences, and emptiness is the empty state's job. */
   const plan = planChatbox({
-    contextAvailable: allTurns.length > 0,
-    runsAvailable: allRuns.length > 0,
+    contextAvailable: channel.kind !== 'none',
+    runsAvailable: Boolean(runsSupported),
     runsMode: readRunsMode(),
     selection,
     agentsInSource: allTurns.map(turn => text(turn.who) || text(turn.sender)).filter(Boolean),

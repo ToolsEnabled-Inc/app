@@ -92,7 +92,7 @@ test('runs mode "hidden" removes the runs half and leaves the conversation', () 
 
 test('runs mode "only" removes the conversation and leaves the runs', () => {
   store.set('mc.chat.runs', 'only')
-  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: TURNS, runs: RUNS })
+  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: TURNS, runs: RUNS, runsSupported: true })
   assert.equal(plan.showContext, false)
   assert.equal(plan.turns.length, 0)
   assert.equal(plan.showRuns, true)
@@ -105,6 +105,40 @@ test('a chosen-agent selection hides the others and counts what it held back', (
   assert.equal(plan.hiddenAgents, 1)
   assert.equal(plan.turns.length, 1)
   assert.equal(plan.turns[0].who, 'terra-01')
+})
+
+/* ---------------------------------------------------------------
+   availability is about the SOURCE, not about its contents
+   --------------------------------------------------------------- */
+
+test('a node with a channel but nothing said still HAS a context source', () => {
+  /* The first version of this planner passed `contextAvailable: turns.length > 0`,
+     which answers "is it non-empty right now" rather than "does it exist".
+     src/chatbox-feed.js's flags are about the source; emptiness is the empty
+     state's job, one layer down. */
+  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: [], runs: [] })
+  assert.equal(plan.showContext, true, 'a simulated node with no turns yet reported no context SOURCE')
+  assert.equal(plan.turns.length, 0)
+  assert.equal(plan.emptyReason, 'Nothing said yet.')
+})
+
+test('a rail that can read a run record HAS a runs source, even with zero runs', () => {
+  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: [], runs: [], runsSupported: true })
+  assert.equal(plan.showRuns, true, 'a readable but empty run record reported no runs SOURCE')
+  assert.equal(plan.runs.length, 0)
+})
+
+test('a rail with nobody to ask has no runs source at all', () => {
+  /* readLocalSessions(undefined).supported === false — a browser with no shell
+     behind it. Distinct from "asked, and there are none". */
+  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: TURNS, runs: [], runsSupported: false })
+  assert.equal(plan.showRuns, false)
+})
+
+test('a live node with no channel has no context source', () => {
+  const plan = planNodeChatbox({ agent: AGENT, live: true, turns: [], runs: [] })
+  assert.equal(plan.channel.kind, 'none')
+  assert.equal(plan.showContext, false, 'a node with no channel claimed to have a conversation source')
 })
 
 /* ---------------------------------------------------------------

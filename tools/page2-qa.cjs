@@ -540,17 +540,30 @@ async function run() {
   check('reduce-motion makes drill and return instant', Boolean(reducedMotion.target) && reducedMotion.instant && reducedMotion.returned, JSON.stringify(reducedMotion))
   window.hide()
 
-  // Agent detail retains FleetGraph and the legacy physics implementation.
+  /* THE SEAM BETWEEN PAGE 2 AND THE DRILL-IN, which is all this block is for.
+     Page 2's "Open full view" navigates to #/agent/<compId>/<agentId>, so this
+     harness has to know that the route still lands on something. It used to
+     assert FleetGraph and a .graph-canvas node; the drill-in was rewritten and
+     no longer mounts FleetGraph at all, so that contract was checking for a
+     thing that is deliberately gone. Measured RED on an unchanged tree before
+     this lane changed anything — an instrument asserting a retired contract
+     manufactures a kill, so it is corrected rather than carried.
+
+     What is asserted is only what the drill-in promises: the route resolves and
+     the roster mounts with at least one card. `selected` is captured as
+     DIAGNOSTIC DETAIL and deliberately not asserted — which card the drill-in
+     selects is that page's decision, not this seam's, and asserting it from
+     here would plant a red in someone else's territory. */
   await webContents.executeJavaScript(`location.hash = '#/agent/c1/codex'`)
-  await waitFor(webContents, `document.querySelector('.agentv .graph-canvas .node')`)
+  await waitFor(webContents, `document.querySelector('.agentv .ar-card')`)
   await delay(500)
   const agentView = await webContents.executeJavaScript(`({
-    graphMounted: Boolean(document.querySelector('.agentv .graph-canvas')),
-    layout: document.querySelector('.agentv .graph-canvas')?.dataset?.layout,
-    nodeCount: document.querySelectorAll('.agentv .graph-canvas .node').length,
-    hasPhysicsControl: Boolean(document.querySelector('.agentv .graph-layout-seg')),
+    rosterMounted: Boolean(document.querySelector('.agentv .agent-roster')),
+    cardCount: document.querySelectorAll('.agentv .ar-card').length,
+    selected: document.querySelector('.agentv .ar-card.is-selected')?.dataset?.agentId || null,
   })`)
-  check('agent detail still mounts FleetGraph', agentView.graphMounted && agentView.nodeCount >= 1, JSON.stringify(agentView))
+  check('page 2 "Open full view" still lands on a mounted agent detail',
+    agentView.rosterMounted && agentView.cardCount >= 1, JSON.stringify(agentView))
   fs.writeFileSync(path.join(outputDir, 'agent-detail-tan-1600x900.png'), (await webContents.capturePage()).toPNG())
 
   check('renderer emitted no errors', rendererErrors.length === 0, rendererErrors.join(' | '))
