@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 import {
+  ACCOUNT_SCOPE_LEAD,
   ACCOUNT_SCOPE_NOTICE,
   MIN_PASSWORD_LENGTH,
   accountBridge,
@@ -34,6 +35,12 @@ import {
   readAccountState,
   readActionResult,
 } from '../../src/account-state.js'
+import {
+  esc,
+  formMarkup,
+  scopeMarkup,
+  screenMarkup,
+} from '../../src/account-markup.js'
 import { MIN_PASSWORD_LENGTH as SHELL_MIN_PASSWORD_LENGTH } from '../../shell/product-account.cjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -609,6 +616,111 @@ test('the spawn record carries a real principal read in the main process', () =>
   assert.ok(!MAIN.includes('createAccountStore({'), 'main must not build a second store')
 })
 
+/* ---- what the screen RENDERS, proved by rendering it ----
+ *
+ * THREE ATTEMPTS, AND THE FIRST TWO WERE BOTH WRONG. Two planted defects --
+ * an empty sign-in form, and an empty scope notice -- ship a screen with no
+ * fields, or one that never says there is no password reset and that this is
+ * not a provider login (the SHIPMENT-PLAN B14 disclosure).
+ *
+ *   Attempt 1 searched the whole file for strings. Survived: the strings live
+ *   in the change-password form too.
+ *   Attempt 2 searched the function's own source slice. Survived as well,
+ *   because the plant was an early `return ''` with the real markup still
+ *   below it -- DEAD CODE MATCHES A TEXT SEARCH.
+ *
+ * No assertion over source text can see reachability. So the builders moved to
+ * src/account-markup.js, which imports no stylesheet and holds no DOM, and
+ * these tests CALL them and read the output. That is the only instrument that
+ * can see the defect -- the rule homescreen-fix stated tonight: ask what your
+ * instrument shows if the thing you are checking for is present. */
+
+const SIGNED_OUT_VIEW = Object.freeze({ available: true, signedIn: false, accountCount: 0, canPersistSession: true })
+const SIGNED_IN_VIEW = Object.freeze({
+  available: true, signedIn: true, accountCount: 1, canPersistSession: true,
+  username: 'josh', displayName: 'Josh P', expiresAtMs: Date.now() + 5 * 86400000,
+})
+
+test('the sign-in form renders its fields', () => {
+  for (const mode of ['sign-in', 'create']) {
+    const html = formMarkup({ mode, state: SIGNED_OUT_VIEW })
+    assert.match(html, /<input[^>]*name="username"/, `${mode}: no name field is rendered`)
+    assert.match(html, /<input[^>]*name="password"[^>]*type="password"|<input[^>]*type="password"[^>]*name="password"/,
+      `${mode}: no password field is rendered`)
+    assert.match(html, /type="submit"/, `${mode}: nothing to submit the form with`)
+    assert.ok(html.length > 800, `${mode}: the form collapsed to ${html.length} characters`)
+  }
+  assert.match(formMarkup({ mode: 'create', state: SIGNED_OUT_VIEW }), /name="displayName"/,
+    'creating an account no longer offers a display name')
+})
+
+test('the scope notice is rendered, and reaches the person creating an account', () => {
+  const notice = scopeMarkup()
+  for (const paragraph of ACCOUNT_SCOPE_NOTICE) {
+    assert.ok(notice.includes(paragraph.slice(0, 60)),
+      'scopeMarkup does not render one of the sentences it exists to show')
+  }
+
+  /* And it must reach BOTH readers: the one creating an account and the one
+     signing in. A notice rendered only on one path is a notice half the
+     product never shows. */
+  for (const mode of ['create', 'sign-in']) {
+    const html = formMarkup({ mode, state: SIGNED_OUT_VIEW })
+    assert.ok(html.includes(ACCOUNT_SCOPE_NOTICE[0].slice(0, 60)),
+      `${mode}: the scope notice never reaches the screen`)
+    assert.ok(html.includes(esc(ACCOUNT_SCOPE_LEAD)), `${mode}: the notice lost its heading`)
+  }
+})
+
+test('every state the screen can be in renders something a person can act on', () => {
+  const states = [
+    ['reading', { state: null }, /Reading this computer/],
+    ['unavailable', { state: { available: false, signedIn: false, reason: 'no shell here' } }, /no account on this page/],
+    ['signed out', { state: SIGNED_OUT_VIEW }, /name="password"/],
+    ['signed in', { state: SIGNED_IN_VIEW }, /data-account-sign-out/],
+    ['changing password', { state: SIGNED_IN_VIEW, mode: 'change-password' }, /name="currentPassword"/],
+  ]
+  for (const [name, input, expected] of states) {
+    const html = screenMarkup(input)
+    assert.ok(html.length > 100, `${name} renders ${html.length} characters, which is not a screen`)
+    assert.match(html, expected, `${name} does not render its own control`)
+  }
+})
+
+test('the keystore warning appears exactly when the keystore is missing', () => {
+  const withKeystore = screenMarkup({ state: SIGNED_OUT_VIEW })
+  const without = screenMarkup({ state: { ...SIGNED_OUT_VIEW, canPersistSession: false } })
+  assert.ok(!withKeystore.includes('cannot remember a sign-in'), 'the warning shows when it should not')
+  assert.ok(without.includes('cannot remember a sign-in'), 'the warning is missing when the keystore is unavailable')
+})
+
+test('no rendered screen can carry a password value', () => {
+  /* The builders take no parameter a password could arrive in, so this is
+     structural rather than hopeful: a value cannot be rendered that cannot be
+     passed. Asserted against every state anyway. */
+  const secret = "hunter2-correct-horse"
+  for (const input of [
+    { state: SIGNED_OUT_VIEW }, { state: SIGNED_IN_VIEW },
+    { state: SIGNED_IN_VIEW, mode: 'change-password' },
+    { state: SIGNED_OUT_VIEW, mode: 'create', notice: { tone: 'bad', title: 'x', detail: 'y' } },
+  ]) {
+    assert.ok(!screenMarkup(input).includes(secret))
+    assert.ok(!/value="[^"]*password/i.test(screenMarkup(input)), 'a password field renders a value attribute')
+  }
+})
+
+test('the view owns no markup of its own', () => {
+  /* If HTML creeps back into the view it becomes untestable again, which is
+     how this defect existed in the first place. */
+  const code = stripComments(VIEW)
+  assert.ok(code.includes('screenMarkup(view())'), 'the view no longer paints through the tested builder')
+  const inlineTags = code.match(/<(form|input|button|article|h1)\b/g) || []
+  assert.deepEqual(inlineTags, [],
+    `the view has grown ${inlineTags.length} copy- or control-bearing element(s) that no test can render`)
+  /* The root shell (<main>/<div>/<section>) is deliberately allowed: it is
+     the container the view mounts into and carries no words. */
+  assert.ok(code.includes('data-account-section'), 'the view no longer mounts a section to paint into')
+})
 test('the sign-in screen is reachable as its own route', () => {
   assert.ok(ROUTER.includes("import { accountView }"), 'the view must be imported')
   assert.ok(ROUTER.includes("parts[0] === 'account'"), 'the route must parse')
@@ -628,6 +740,11 @@ test('the sign-in screen never stores a password anywhere that outlives the call
   /* Cleared on refusal too. A wrong password left sitting in the field is a
      password left in the DOM of a window somebody may walk away from. */
   assert.ok(/Cleared on every outcome/.test(VIEW), 'and cleared on failure, not only on success')
-  assert.ok(/autocomplete="new-password"/.test(VIEW), 'creation must invite a generated password')
-  assert.ok(/autocomplete="current-password"/.test(VIEW), 'sign-in must let a manager fill it')
+  /* Asserted on the RENDERED output now, not on the file: these moved to
+     src/account-markup.js with the rest of the markup, and a file search
+     could not tell a rendered hint from a dead one anyway. */
+  assert.match(formMarkup({ mode: 'create', state: { available: true, signedIn: false } }),
+    /autocomplete="new-password"/, 'creation must invite a generated password')
+  assert.match(formMarkup({ mode: 'sign-in', state: { available: true, signedIn: false } }),
+    /autocomplete="current-password"/, 'sign-in must let a password manager fill it')
 })

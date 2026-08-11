@@ -26,6 +26,7 @@
  */
 
 import { el } from '../components.js'
+import { screenMarkup } from '../account-markup.js'
 import {
   ACCOUNT_QUESTION,
   ACCOUNT_QUESTION_SUB,
@@ -40,19 +41,6 @@ import {
 import '../settings.css'
 import '../fleet-profile-settings.css'
 import '../setup.css'
-
-const esc = value => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-
-function expiryText(expiresAtMs) {
-  if (!Number.isSafeInteger(expiresAtMs)) return ''
-  const days = Math.max(0, Math.round((expiresAtMs - Date.now()) / 86_400_000))
-  if (days <= 0) return 'This sign-in expires today.'
-  return `This sign-in expires in ${days} day${days === 1 ? '' : 's'}, and you sign in again then.`
-}
 
 export function accountView({ navigate = hash => { location.hash = hash } } = {}) {
   const root = el(`<main class="view-pad setup-page">
@@ -74,174 +62,19 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
      form. */
   let mode = 'sign-in'
 
-  function statusMarkup() {
-    if (notice) {
-      return `<div class="fleet-profile-status ${notice.tone === 'good' ? 'is-good' : notice.tone === 'warn' ? 'is-warn' : 'is-serious'}" role="${notice.tone === 'good' ? 'status' : 'alert'}">
-        <strong>${esc(notice.title)}</strong>
-        <span>${esc(notice.detail)}</span>
-      </div>`
-    }
-    /* is-warn, not is-serious: a sign-in that cannot be remembered across a
-       relaunch is a working product with a stated limit, not a fault. */
-    if (state?.available && state.canPersistSession === false) {
-      return `<div class="fleet-profile-status is-warn" role="status">
-        <strong>This computer cannot remember a sign-in.</strong>
-        <span>Windows did not offer the protected storage this uses, so signing in will last until you close the program and you will be asked again next time. Everything else works normally.</span>
-      </div>`
-    }
-    return ''
-  }
-
-  function scopeMarkup() {
-    return `<div class="fleet-profile-status is-warn" role="status">
-      <strong>${esc(ACCOUNT_SCOPE_LEAD)}</strong>
-      ${ACCOUNT_SCOPE_NOTICE.map(paragraph => `<span>${esc(paragraph)}</span>`).join('')}
-    </div>`
-  }
-
-  function unavailableMarkup() {
-    return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
-      <div class="fleet-profile-status is-serious" role="alert">
-        <strong>There is no account on this page to sign in to.</strong>
-        <span>${esc(state?.reason || 'The application did not say why.')}</span>
-      </div>
-      <div class="setup-actions">
-        <div class="setup-actions-spacer"></div>
-        <button type="button" class="ctl-btn" data-account-home>Back to Mission Control</button>
-      </div>`
-  }
-
-  function signedInMarkup() {
-    return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
-      ${statusMarkup()}
-      <div class="settings-section-rows">
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name">Account</div>
-            <div class="settings-desc">${esc(state.username)} — an account on this computer only. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs))}</div>
-          </div>
-        </article>
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name">Change password</div>
-            <div class="settings-desc">Changing it signs you out here and ends every other sign-in to this account, including any that was copied off this computer.</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <button type="button" class="ctl-btn" data-account-mode="change-password" ${busy ? 'disabled' : ''}>Change password</button>
-          </div>
-        </article>
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name">Sign out</div>
-            <div class="settings-desc">“Sign out” ends this sign-in on this computer. “Sign out everywhere” also refuses any saved sign-in taken from this computer earlier — use it if you think a copy of it exists.</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <button type="button" class="ctl-btn" data-account-sign-out ${busy ? 'disabled' : ''}>${busy ? 'Working…' : 'Sign out'}</button>
-            <button type="button" class="ctl-btn" data-account-sign-out-everywhere ${busy ? 'disabled' : ''}>Sign out everywhere</button>
-          </div>
-        </article>
-      </div>
-      <div class="setup-actions">
-        <div class="setup-actions-spacer"></div>
-        <button type="button" class="ctl-btn" data-account-home>Back to Mission Control</button>
-      </div>`
-  }
-
-  function changePasswordMarkup() {
-    return `<h1 class="setup-title">Change your password</h1>
-      ${statusMarkup()}
-      <form class="settings-section-rows" data-account-form="change-password" autocomplete="on">
-        <input type="text" name="username" value="${esc(state.username)}" autocomplete="username" hidden readonly aria-hidden="true" tabindex="-1"/>
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name" id="account-current-label">Current password</div>
-            <div class="settings-desc">Asked for even though you are signed in, so an unlocked window left alone is not enough to take the account over.</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <input class="fleet-profile-input" type="password" name="currentPassword" autocomplete="current-password" aria-labelledby="account-current-label" ${busy ? 'disabled' : ''}/>
-          </div>
-        </article>
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name" id="account-new-label">New password</div>
-            <div class="settings-desc">At least ${MIN_PASSWORD_LENGTH} characters. Length is what makes a password hard to guess — a few unrelated words beat a short one with symbols in it.</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <input class="fleet-profile-input" type="password" name="newPassword" autocomplete="new-password" aria-labelledby="account-new-label" ${busy ? 'disabled' : ''}/>
-          </div>
-        </article>
-        <div class="setup-actions">
-          <button type="button" class="ctl-btn" data-account-mode="signed-in" ${busy ? 'disabled' : ''}>Back</button>
-          <div class="setup-actions-spacer"></div>
-          <button type="submit" class="ctl-btn" ${busy ? 'disabled' : ''}>${busy ? 'Saving…' : 'Change password'}</button>
-        </div>
-      </form>`
-  }
-
-  function formMarkup() {
-    const creating = mode === 'create'
-    return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
-      <p class="setup-subtitle">${esc(ACCOUNT_QUESTION_SUB)}</p>
-      ${statusMarkup()}
-      <form class="settings-section-rows" data-account-form="${creating ? 'create' : 'sign-in'}" autocomplete="on">
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name" id="account-username-label">Name</div>
-            <div class="settings-desc">${creating
-              ? 'Letters, numbers, and . _ - between them. This is what the record of your assistant’s work will name.'
-              : 'The name you chose when you made the account on this computer.'}</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <input class="fleet-profile-input" type="text" name="username" autocomplete="username" spellcheck="false" autocapitalize="off" aria-labelledby="account-username-label" ${busy ? 'disabled' : ''}/>
-          </div>
-        </article>
-        ${creating ? `<article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name" id="account-display-label">Shown as</div>
-            <div class="settings-desc">Optional. How the program greets you. Leave it blank to be greeted by the name above.</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <input class="fleet-profile-input" type="text" name="displayName" autocomplete="nickname" aria-labelledby="account-display-label" ${busy ? 'disabled' : ''}/>
-          </div>
-        </article>` : ''}
-        <article class="settings-row">
-          <div class="settings-copy">
-            <div class="settings-name" id="account-password-label">Password</div>
-            <div class="settings-desc">${creating
-              ? `At least ${MIN_PASSWORD_LENGTH} characters. Length is what makes a password hard to guess — a few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager.`
-              : 'The password for that account.'}</div>
-          </div>
-          <div class="settings-control fleet-inline-control">
-            <input class="fleet-profile-input" type="password" name="password" autocomplete="${creating ? 'new-password' : 'current-password'}" aria-labelledby="account-password-label" ${busy ? 'disabled' : ''}/>
-          </div>
-        </article>
-        ${creating ? scopeMarkup() : ''}
-        <div class="setup-actions">
-          <button type="button" class="ctl-btn" data-account-mode="${creating ? 'sign-in' : 'create'}" ${busy ? 'disabled' : ''}>${creating
-            ? 'I already have an account'
-            : 'Create an account'}</button>
-          <div class="setup-actions-spacer"></div>
-          <button type="button" class="ctl-btn" data-account-home ${busy ? 'disabled' : ''}>Not now</button>
-          <button type="submit" class="ctl-btn" ${busy ? 'disabled' : ''}>${busy ? 'Working…' : creating ? 'Create account' : 'Sign in'}</button>
-        </div>
-      </form>
-      ${creating ? '' : scopeMarkup()}`
-  }
+  /* The markup lives in src/account-markup.js, called rather than inlined.
+     Two planted defects -- an empty form and an empty scope notice -- survived
+     every source-searching assertion, including ones narrowed to the function
+     slice, because an early `return ''` leaves the real markup below it and
+     dead code still matches a text search. Builders that a test can CALL are
+     the only thing that catches it. This view now owns state and events; it
+     owns no HTML. */
+  const view = () => ({ state, mode, busy, notice })
 
   function paint() {
     if (destroyed) return
-    if (state === null) {
-      section.innerHTML = `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1><p class="setup-subtitle">Reading this computer’s accounts…</p>`
-      return
-    }
-    if (!state.available) { section.innerHTML = unavailableMarkup(); return }
-    if (state.signedIn) {
-      section.innerHTML = mode === 'change-password' ? changePasswordMarkup() : signedInMarkup()
-      return
-    }
-    section.innerHTML = formMarkup()
+    section.innerHTML = screenMarkup(view())
   }
-
   async function refresh() {
     state = await loadAccountState()
     if (destroyed) return
