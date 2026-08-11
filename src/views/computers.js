@@ -8,7 +8,7 @@ import { el, uptimeRing, setViewMorph, buildChat } from '../components.js'
 import { StaticTreeGraph } from '../tree-graph.js'
 import { withAlpha } from '../echarts-theme.js'
 import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
-import { fetchFleet } from '../live-status.js'
+import { fetchFleet, fetchAgents } from '../live-status.js'
 import {
   LAUNCH_TIERS, launchTier, tierArgvFragment, UNSUPPORTED_CONTROLS,
   CAP_BOUNDS, clampCapMs, capMinutes, sandboxLevel,
@@ -16,6 +16,9 @@ import {
 import {
   TIER_AGENT_IDENTITY, TEAM_BOUNDS, planTeam, createTeamController,
 } from '../agent-teams.js'
+import {
+  LOOP_BOUNDS, LOOP_OVERRUN, LOOP_RUN_CAP, planLoop, createLoopController,
+} from '../agent-loops.js'
 import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../node-chatbox.js'
 /* COPY and readLocalSessions are borrowed rather than rewritten: the home
    screen already says these sentences, and a second wording for "some agents
@@ -798,7 +801,13 @@ export function computersView({ initialComputer = null, navigate }) {
     const rootId = graph?.rootId || null
     const editing = !!graph?.editMode
     const computerId = computer?.id || null
-    const selected = keepAgentId || null
+    /* If the rail was showing an agent, it goes back to showing that agent. A
+       refused drag already surprises the person by moving a node back; sending
+       the rail to the fleet summary at the same moment would make a refusal
+       look like a navigation. */
+    const selected = keepAgentId
+      || (controlsPage.classList.contains('is-active') ? graph?.selectedId : null)
+      || null
     mountProjection(lastFleetData, { preferComputerId: computerId })
     if (rootId && graph?.nodes.has(rootId)) graph.setRoot(rootId)
     if (editing && !editButton.disabled) {
@@ -1255,6 +1264,171 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   /**
+   * LOOPS — running one agent again and again, with the stop beside the start.
+   *
+   * The one control on this page a person is meant to start and then WALK AWAY
+   * from, which is why the panel spends most of its space on bounds rather than
+   * on options. Three sentences are always on screen, not behind a tooltip,
+   * because each one is a promise somebody is relying on while not watching:
+   * what happens on overrun, what bounds a single run, and the fact that this
+   * loop lives only as long as the window does.
+   *
+   * THE STOP IS RENDERED BESIDE THE START AND IS NEVER HIDDEN. It is disabled
+   * when no loop is running and enabled the moment one is, driven by the
+   * controller's own `stoppable` flag rather than by this view's opinion of what
+   * phase it is in. A stop control that is only reachable from somewhere else,
+   * or that appears once a loop is already going, is a stop a panicking person
+   * cannot find.
+   *
+   * `observeLiveTarget` re-reads the agents projection at stop time rather than
+   * caching a target at start time: the run in flight when someone presses stop
+   * is usually not the run that was in flight when they pressed start, and
+   * terminating a stale pid is refused by the engine anyway
+   * (BRIDGE_TERMINATE_STALE_PID).
+   */
+  function loopControlsBox(agent) {
+    const dispatchEnabled = isWriteEnabled('dispatch')
+    const runOptions = []
+    for (let runs = 2; runs <= LOOP_BOUNDS.maxIterations; runs += 1) runOptions.push(runs)
+    const intervalOptions = [1, 5, 10, 20, 30, 60]
+
+    const box = el(`
+      <div class="board-box board-loop-box">
+        <div class="board-box-h"><span class="bh-t">Loop</span></div>
+        <div class="board-cap">run one agent again and again, bounded and stoppable</div>
+        <label class="ctl-field"><span class="cl">Agent</span>
+          <select class="ctl-select" data-loop="tier" aria-label="Looped agent tier">
+            ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.id)}">${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="ctl-field"><span class="cl">Runs</span>
+          <select class="ctl-select" data-loop="runs" aria-label="How many runs">
+            ${runOptions.map(runs => `<option value="${runs}"${runs === LOOP_BOUNDS.maxIterations ? ' selected' : ''}>${runs}</option>`).join('')}
+          </select>
+        </label>
+        <label class="ctl-field"><span class="cl">Every</span>
+          <select class="ctl-select" data-loop="every" aria-label="Minutes between runs">
+            ${intervalOptions.map(minutes => `<option value="${minutes}"${minutes === 20 ? ' selected' : ''}>${minutes} min</option>`).join('')}
+          </select>
+        </label>
+        <div class="rail-sub" data-loop="bounds">Every run after the first is nested under the first, so the engine's own cap of ${LOOP_BOUNDS.maxFanOut} applies. ${escapeMarkup(LOOP_OVERRUN.sentence)} ${escapeMarkup(LOOP_RUN_CAP.sentence)}</div>
+        <div class="rail-sub" data-loop="plan" role="status"></div>
+        <div class="ctl-dispatch">
+          <button class="ctl-btn" type="button" data-loop="go"${dispatchEnabled ? '' : ' disabled'}>Start loop</button>
+          <button class="ctl-btn danger" type="button" data-loop="stop" disabled title="No loop is running.">Stop loop</button>
+          <output class="ctl-out" data-loop="out" role="status">${dispatchEnabled ? '' : 'dispatch is off in Settings'}</output>
+        </div>
+        <div class="team-roster" data-loop="roster"></div>
+        <div class="rail-sub" data-loop="honesty">This loop runs while this window is open. It is not durable across a restart, and closing the window ends the schedule — though any run already going is still bounded by its own cap.</div>
+      </div>`)
+
+    const tierSelect = box.querySelector('[data-loop="tier"]')
+    const runsSelect = box.querySelector('[data-loop="runs"]')
+    const everySelect = box.querySelector('[data-loop="every"]')
+    const planLine = box.querySelector('[data-loop="plan"]')
+    const goButton = box.querySelector('[data-loop="go"]')
+    const stopButton = box.querySelector('[data-loop="stop"]')
+    const output = box.querySelector('[data-loop="out"]')
+    const roster = box.querySelector('[data-loop="roster"]')
+    let controller = null
+
+    const currentPlan = () => planLoop({
+      tier: tierSelect.value,
+      iterations: Number(runsSelect.value),
+      intervalMs: Number(everySelect.value) * 60_000,
+    })
+
+    const paintPlan = () => {
+      const plan = currentPlan()
+      planLine.textContent = plan.runnable
+        ? `Ready: ${plan.tier} runs up to ${plan.iterations} times, one every ${Math.round(plan.intervalMs / 60_000)} minutes.`
+        : plan.problems.join(' ')
+      goButton.disabled = !dispatchEnabled || !plan.runnable
+      goButton.title = !dispatchEnabled
+        ? 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'
+        : (plan.runnable ? 'Start the loop. The first run starts immediately.' : plan.problems.join(' '))
+      return plan
+    }
+
+    const paintRuns = state => {
+      roster.replaceChildren(...state.runs.map(run => el(`
+        <div class="team-row" data-phase="${escapeMarkup(run.phase)}">
+          <b>run ${run.index}</b>
+          <code>${escapeMarkup(run.phase)}</code>
+          <span>${escapeMarkup(run.detail)}</span>
+        </div>`)))
+    }
+
+    /* Read the agents projection fresh, and hand back only an exactly-shaped
+       running target. Anything else is reported by the controller as "nothing
+       observed in flight" rather than guessed at. */
+    const observeLiveTarget = async identity => {
+      const result = await fetchAgents()
+      if (!result?.ok) return null
+      const rows = Array.isArray(result.data?.data) ? result.data.data : []
+      const match = rows.find(row => row?.id === identity && row?.controlTarget)
+      return match ? match.controlTarget : null
+    }
+
+    for (const control of [tierSelect, runsSelect, everySelect]) control.addEventListener('change', paintPlan)
+    paintPlan()
+
+    if (dispatchEnabled) {
+      goButton.addEventListener('click', async () => {
+        const plan = paintPlan()
+        if (!plan.runnable) return
+        goButton.disabled = true
+        output.textContent = 'checking audited bridge…'
+        const status = await prepareBridgeOnce()
+        if (!box.isConnected) return
+        const rootId = Array.isArray(status?.roots) ? status.roots[0] : null
+        if (!status?.ok || !rootId) {
+          output.textContent = `unavailable · ${status?.reason || 'no declared worktree root'}`
+          goButton.disabled = false
+          return
+        }
+        const settings = readLaunchSettings()
+        controller?.destroy()
+        controller = createLoopController({
+          plan,
+          dispatchBody: {
+            rootId,
+            objectiveRef: `page2-loop-${String(agent.id).replace(/[^a-z0-9_-]/gi, '-').slice(0, 50)}`,
+            brief: `Loop requested from the fleet page, under ${agent.name}.`,
+            cap: { kind: 'turns', value: 8, capMs: clampCapMs(settings.capMs) },
+          },
+          postAction: postBridgeAction,
+          observeLiveTarget,
+          onState: state => {
+            if (!box.isConnected) return
+            output.textContent = state.message
+            /* The stop follows the controller, not this handler's idea of what
+               is happening: it is live exactly while a loop is. */
+            stopButton.disabled = !state.stoppable
+            stopButton.title = state.stoppable ? 'Stop the loop and terminate the run in flight.' : 'No loop is running.'
+            paintRuns(state)
+          },
+        })
+        await controller.start()
+        if (!box.isConnected) return
+        goButton.disabled = false
+        paintPlan()
+      })
+
+      stopButton.addEventListener('click', async () => {
+        if (!controller) return
+        stopButton.disabled = true
+        await controller.stop()
+        if (!box.isConnected) return
+        goButton.disabled = false
+        paintPlan()
+      })
+    }
+
+    return box
+  }
+
+  /**
    * The chatbox the owner asked for, in the rail, for the clicked node.
    *
    * What appears is decided by src/node-chatbox.js, which in turn defers to the
@@ -1374,7 +1548,9 @@ export function computersView({ initialComputer = null, navigate }) {
     mountRailChat(agent, role)
     const simulatedLaunchBox = launchControlsBox(agent)
     controlsPage.querySelector('.board-ctl-box').replaceWith(simulatedLaunchBox)
-    simulatedLaunchBox.after(teamControlsBox(agent))
+    const simulatedTeamBox = teamControlsBox(agent)
+    simulatedLaunchBox.after(simulatedTeamBox)
+    simulatedTeamBox.after(loopControlsBox(agent))
 
     const ringSize = Math.max(180, Math.min(214, (railElement.clientWidth || 320) - 130))
     boardRing = uptimeRing({
@@ -1443,7 +1619,9 @@ export function computersView({ initialComputer = null, navigate }) {
     mountRoleControl(agent, controlsPage.querySelector('.board-role-slot'))
     const projectionLaunchBox = launchControlsBox(agent)
     controlsPage.querySelector('.board-launch-slot').replaceWith(projectionLaunchBox)
-    projectionLaunchBox.after(teamControlsBox(agent))
+    const projectionTeamBox = teamControlsBox(agent)
+    projectionLaunchBox.after(projectionTeamBox)
+    projectionTeamBox.after(loopControlsBox(agent))
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     activateRail(controlsPage)

@@ -1,0 +1,458 @@
+/* LOOPS — running one agent repeatedly, and the four bounds that make that safe.
+ *
+ * The owner asked for "loop and graph engineering". A loop is not a new engine
+ * concept any more than a team was: it is the SAME `dispatch` action, sent again
+ * on an interval, with every run after the first nested under the first. Nothing
+ * here schedules anything the engine does not already understand, and nothing
+ * here spawns a process by a route that page 2's single-lane button does not
+ * already use.
+ *
+ * WHY THIS IS NOT BUILT ON THE WINDOWS TASK SCHEDULER SAGA.
+ *
+ * The obvious design — and the one recorded by the previous lane — was to
+ * allowlist an agent-spawn action in SUPPORTED_SCHEDULED_ACTIONS
+ * (capability/src/lib/scheduled-actions.js:3) and let the existing durable
+ * scheduler drive it. That design does not work, and the reason is worth
+ * recording so it is not re-derived a third time:
+ *
+ *   The scheduler fires TOOL-REGISTRY TOOL CALLS. `job-runner.js:69` binds
+ *   `executeTool` and `job-runner.js:111` invokes the action as a tool, in a
+ *   DETACHED process started by Windows Task Scheduler. It has no route to
+ *   `startAgentLane` (capability/src/lib/mission-bridge/agent-lane-dispatch.js:324),
+ *   which is where the run cap's process-tree kill, the fan-out cap, and the
+ *   permission-tier confinement of the spawned child all actually live. Grep of
+ *   capability/src/lib/providers/scheduler.js for the bridge returns nothing.
+ *
+ * So adding the allowlist entry would have produced a scheduled action that
+ * spawns no agent — a control that looks real and does nothing, which is the
+ * exact class of thing seven controls were removed from this page for being.
+ *
+ * The cost of that decision, stated plainly because the panel must not imply
+ * otherwise: THIS LOOP RUNS WHILE THE WINDOW IS OPEN. It is not durable across
+ * a restart. Durable unattended looping is a separate feature that needs the
+ * scheduler to reach the bridge, and it is not built.
+ *
+ * THE FOUR BOUNDS.
+ *
+ * 1. ATTEMPTS ARE CAPPED, AND A SKIP STILL COSTS AN ATTEMPT.
+ *    `maxIterations` is 8, matching MAX_FAN_OUT at
+ *    capability/src/lib/controller-launch-record.js:50. Run 1 is the anchor and
+ *    runs 2..8 are its at-most-7 children, so a correct loop stays strictly
+ *    inside the engine's cap and the engine's cap is a true backstop rather than
+ *    the thing that stops the loop. Termination is guaranteed by counting
+ *    ATTEMPTS, not successes: a loop whose every dispatch is skipped still ends.
+ *
+ * 2. THE CHILDREN ARE NESTED, SO THE ENGINE'S CAP APPLIES AT ALL.
+ *    MAX_FAN_OUT/MAX_DEPTH are enforced at controller-launch-record.js:781-787
+ *    but ONLY when a launch names a `parentLaunchId`. Until the teams work, no
+ *    UI had ever sent one, so every dispatch this product made was a depth-0
+ *    orphan and the cap had never once applied. A loop that did not nest would
+ *    re-create exactly that: an unbounded orphan every interval, forever.
+ *
+ *    Note the engine's own caveat at controller-launch-record.js:700-705 — the
+ *    sibling count is a best-effort scan of the last 200 audit events and can
+ *    UNDERCOUNT a parent whose children have scrolled out of the window. That is
+ *    precisely why the attempt counter above is the primary bound and the engine
+ *    cap is the backstop, and not the other way around.
+ *
+ * 3. OVERRUN IS DEFINED, AND IT IS SKIP — ENFORCED BY THE ENGINE, NOT BY A TIMER
+ *    HERE. Every run of a loop uses the same tier, which resolves to one
+ *    declared identity (TIER_AGENT_IDENTITY in ./agent-teams.js). The presence
+ *    registry refuses a second live lane for an identity that already has one:
+ *    AGENT_PRESENCE_ACTIVE at capability/src/lib/agent-presence.js:571, surfaced
+ *    as BRIDGE_AGENT_LANE_COLLISION at
+ *    capability/src/lib/mission-bridge/actions.js:472. So if run N is still
+ *    going when run N+1 comes due, run N+1 is refused and the loop reports it as
+ *    a SKIP. This is the same overrun rule the durable scheduler uses
+ *    (SCHEDULER_RUN_OVERLAP), arrived at through the mechanism that was already
+ *    there rather than a second one that could disagree with it.
+ *
+ * 4. EVERY RUN IS BOUNDED EVEN IF NOBODY IS WATCHING.
+ *    Each run carries `cap.capMs`, and the cap now kills the lane's PROCESS TREE
+ *    (`taskkill /PID <pid> /T /F`) at agent-lane-dispatch.js:272-296. Before
+ *    2026-08-11 it was a bare `child.kill()` against the direct child, which
+ *    orphaned everything the agent's CLI had started while the record said the
+ *    lane had stopped. For a single dispatch that was a leak; for a loop it
+ *    would have been a fork bomb, because the next run is admitted as soon as
+ *    the previous one goes terminal.
+ *
+ * STOPPING. `stop()` always does the thing it can always do — no further run is
+ * attempted, which is local state and cannot fail. It then tries to terminate
+ * the run already in flight, which needs a live runId and PID from the agents
+ * projection and therefore CAN fail. The two outcomes are reported separately
+ * and neither is described in the other's words, because "stopped" meaning "no
+ * more will start" and "stopped" meaning "the one running is dead" are different
+ * promises and a person walking away is relying on whichever one they were told.
+ *
+ * tools/test/agent-loops.test.mjs parses the engine's own source for bounds 1-4
+ * and fails if this file drifts from it.
+ */
+
+import { LAUNCH_TIERS, CAP_BOUNDS } from './orchestration-controls.js'
+import { TIER_AGENT_IDENTITY } from './agent-teams.js'
+
+/* Mirrors capability/src/lib/controller-launch-record.js:50-51.
+   `maxIterations` is deliberately EQUAL to maxFanOut rather than maxFanOut + 1
+   (which the anchor-plus-children arithmetic would permit): staying one under
+   the engine's refusal keeps that refusal a backstop that never fires in
+   correct operation, so if it ever does fire it means this file is wrong. */
+export const LOOP_BOUNDS = Object.freeze({
+  maxIterations: 8,
+  maxFanOut: 8,
+  maxDepth: 3,
+  minIntervalMs: 60_000,
+  maxIntervalMs: 4 * 60 * 60_000,
+  defaultIntervalMs: 20 * 60_000,
+})
+
+/** What happens when a run is still going as the next one comes due. */
+export const LOOP_OVERRUN = Object.freeze({
+  behaviour: 'skip',
+  code: 'BRIDGE_AGENT_LANE_COLLISION',
+  sentence: 'If a run is still going when the next one is due, the next one is skipped, not queued and not run alongside. The engine refuses it: one declared identity may only have one live lane.',
+  evidence: 'capability/src/lib/agent-presence.js:571',
+})
+
+/** The run cap, restated here only to name the bound and its address. */
+export const LOOP_RUN_CAP = Object.freeze({
+  sentence: "Each run stops at its own cap, and the cap kills that run's whole process tree.",
+  evidence: 'capability/src/lib/mission-bridge/agent-lane-dispatch.js:272',
+})
+
+/* Same absent-is-not-zero rule as clampCapMs in ./orchestration-controls.js:113.
+   `Number(null)` and `Number('')` are both 0, which is finite, so clamping
+   straight to the bounds would turn "nothing chosen" into "the shortest
+   interval this product allows" — a one-minute loop nobody asked for. */
+export function clampLoopIntervalMs(value) {
+  if (value === null || value === undefined || value === '') return LOOP_BOUNDS.defaultIntervalMs
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return LOOP_BOUNDS.defaultIntervalMs
+  return Math.min(LOOP_BOUNDS.maxIntervalMs, Math.max(LOOP_BOUNDS.minIntervalMs, Math.round(parsed)))
+}
+
+/** Same rule for the iteration count. */
+export function clampLoopIterations(value) {
+  if (value === null || value === undefined || value === '') return LOOP_BOUNDS.maxIterations
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return LOOP_BOUNDS.maxIterations
+  return Math.min(LOOP_BOUNDS.maxIterations, Math.max(2, Math.round(parsed)))
+}
+
+const TIER_IDS = new Set(LAUNCH_TIERS.map(tier => tier.id))
+
+/**
+ * Validate a proposed loop and say exactly why it is or is not runnable.
+ *
+ * Returns the problems rather than a boolean for the same reason planTeam does:
+ * a person who cannot start a loop deserves to be told which rule stopped them.
+ */
+export function planLoop({ tier = null, iterations = LOOP_BOUNDS.maxIterations, intervalMs = LOOP_BOUNDS.defaultIntervalMs } = {}) {
+  const problems = []
+
+  if (!tier) problems.push('A loop needs an agent tier to run.')
+  else if (!TIER_IDS.has(tier)) problems.push(`"${tier}" is not one of the ${LAUNCH_TIERS.length} dispatchable tiers.`)
+
+  const runs = clampLoopIterations(iterations)
+  const every = clampLoopIntervalMs(intervalMs)
+
+  if (Number(iterations) > LOOP_BOUNDS.maxIterations) {
+    problems.push(`A loop runs at most ${LOOP_BOUNDS.maxIterations} times. The engine admits at most ${LOOP_BOUNDS.maxFanOut} runs under one parent (LAUNCH_FANOUT_EXCEEDED), and this loop nests every run under its first.`)
+  }
+  if (Number(iterations) === 1) {
+    problems.push('A loop that runs once is an ordinary dispatch. Use the single-lane control instead.')
+  }
+
+  return Object.freeze({
+    tier,
+    identity: tier ? (TIER_AGENT_IDENTITY[tier] || null) : null,
+    iterations: runs,
+    intervalMs: every,
+    /* The worst case a person is agreeing to, computed rather than asserted:
+       every run taking its full cap, back to back. Stated because "8 runs every
+       20 minutes" sounds bounded and "up to 2 hours 40 of agent time" is the
+       same sentence in the units that matter. */
+    maxRunMs: runs * CAP_BOUNDS.maxMs,
+    overrun: LOOP_OVERRUN,
+    runCap: LOOP_RUN_CAP,
+    runnable: problems.length === 0,
+    problems: Object.freeze(problems),
+  })
+}
+
+/** The receipt shape a dispatch must return before a run may be called started. */
+export function verifiedLoopReceipt(result, expectedTier) {
+  const receipt = result?.receipt
+  return result?.ok === true
+    && receipt && typeof receipt === 'object' && !Array.isArray(receipt)
+    && receipt.action === 'dispatch'
+    && receipt.tier === expectedTier
+    && typeof receipt.launchId === 'string' && receipt.launchId.length > 0
+    && typeof receipt.agentId === 'string' && receipt.agentId.length > 0
+    && Number.isSafeInteger(receipt.auditSequence) && receipt.auditSequence > 0
+    && /^[a-f0-9]{64}$/.test(String(receipt.auditEventHash || ''))
+}
+
+function runState(index, phase, detail, receipt = null) {
+  return Object.freeze({ index, phase, detail, receipt })
+}
+
+/**
+ * DOM-independent loop driver, modelled on createTeamController.
+ *
+ * Timers are injected so the packaged probe can drive real elapsed intervals
+ * without waiting minutes of wall clock, and so a test can prove the loop
+ * ACTUALLY LOOPED rather than that it would have.
+ *
+ * `observeLiveTarget` is an async function returning the live control target
+ * ({ agentId, runId, pid, status }) for this loop's identity, or null. It is
+ * injected rather than imported so that stop() has no hard dependency on the
+ * agents projection being reachable — a stop that cannot observe still stops the
+ * schedule, and says so.
+ */
+export function createLoopController({
+  plan,
+  dispatchBody,
+  postAction,
+  onState = () => {},
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  clearTimer = handle => clearTimeout(handle),
+  observeLiveTarget = async () => null,
+  createIdempotencyKey = () => globalThis.crypto?.randomUUID?.(),
+} = {}) {
+  let destroyed = false
+  let timerHandle = null
+  let anchorLaunchId = null
+  let attempts = 0
+
+  let state = Object.freeze({
+    phase: plan?.runnable ? 'idle' : 'unavailable',
+    enabled: Boolean(plan?.runnable),
+    /* `stoppable` is separate from `enabled` because the stop control must be
+       live exactly when a loop is, and dead when one is not — the panel binds
+       the button to this and nothing else. */
+    stoppable: false,
+    attempts: 0,
+    started: 0,
+    skipped: 0,
+    anchorLaunchId: null,
+    runs: Object.freeze([]),
+    stopReport: null,
+    message: plan?.runnable
+      ? `Run ${plan.tier} ${plan.iterations} times, every ${Math.round(plan.intervalMs / 60_000)} minutes. ${plan.overrun.sentence}`
+      : (plan?.problems || ['No loop is configured.']).join(' '),
+  })
+
+  const publish = next => {
+    state = next
+    if (!destroyed) onState(state)
+  }
+  publish(state)
+
+  const patch = fields => publish(Object.freeze({ ...state, ...fields }))
+  const appendRun = next => Object.freeze([...state.runs, next])
+  const replaceRun = (index, next) => Object.freeze(
+    state.runs.map(run => (run.index === index ? next : run)),
+  )
+
+  async function send(index, parentLaunchId) {
+    let result
+    try {
+      result = await postAction('dispatch', {
+        ...dispatchBody,
+        tier: plan.tier,
+        ...(parentLaunchId ? { parentLaunchId } : {}),
+      })
+    } catch (error) {
+      result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'dispatch request failed' }
+    }
+    if (verifiedLoopReceipt(result, plan.tier)) return { ok: true, receipt: result.receipt }
+
+    /* The overrun case is not a failure and must never be reported as one: the
+       loop is working exactly as designed, and the previous run is still doing
+       the work. Folding it into "refused" would teach a person to shorten their
+       cap to make the errors stop, which is the opposite of correct. */
+    if (result?.code === LOOP_OVERRUN.code) {
+      return { ok: false, skipped: true, code: LOOP_OVERRUN.code, reason: 'The previous run was still going, so this one was skipped.' }
+    }
+
+    const shapedSuccess = result?.ok === true
+    return {
+      ok: false,
+      skipped: false,
+      code: shapedSuccess ? 'BRIDGE_DISPATCH_RECEIPT_INVALID' : (result?.code || 'BRIDGE_REQUEST_FAILED'),
+      reason: shapedSuccess
+        ? 'The dispatch response was incomplete or named a different tier. This run may be going; check the fleet before starting the loop again.'
+        : (result?.reason || 'The dispatch was refused with no receipt.'),
+    }
+  }
+
+  function finish(reason) {
+    patch({
+      phase: 'completed',
+      enabled: true,
+      stoppable: false,
+      message: `${reason} ${state.started} run${state.started === 1 ? '' : 's'} started, ${state.skipped} skipped, out of ${state.attempts} attempt${state.attempts === 1 ? '' : 's'}. Nothing further will start.`,
+    })
+  }
+
+  async function attempt() {
+    if (destroyed || state.phase !== 'running') return
+    attempts += 1
+    const index = attempts
+    patch({ attempts, runs: appendRun(runState(index, 'pending', 'Dispatching.')) })
+
+    const result = await send(index, anchorLaunchId)
+    if (destroyed || state.phase !== 'running') return
+
+    if (result.ok) {
+      if (anchorLaunchId === null) anchorLaunchId = result.receipt.launchId
+      patch({
+        started: state.started + 1,
+        anchorLaunchId,
+        runs: replaceRun(index, runState(index, 'started',
+          index === 1
+            ? `Run 1 running as launch ${result.receipt.launchId}. Every later run nests under it.`
+            : `Run ${index} running as launch ${result.receipt.launchId}, nested under ${anchorLaunchId}.`,
+          result.receipt)),
+      })
+    } else if (result.skipped) {
+      patch({
+        skipped: state.skipped + 1,
+        runs: replaceRun(index, runState(index, 'skipped', result.reason)),
+      })
+    } else {
+      patch({
+        runs: replaceRun(index, runState(index, 'refused', `${result.code}: ${result.reason}`)),
+      })
+    }
+
+    if (attempts >= plan.iterations) {
+      finish('The loop finished its runs.')
+      return
+    }
+    patch({ message: `Run ${index} of ${plan.iterations} handled. Next in ${Math.round(plan.intervalMs / 60_000)} minutes. Stop is available now.` })
+    timerHandle = setTimer(() => { void attempt() }, plan.intervalMs)
+  }
+
+  return Object.freeze({
+    getState() { return state },
+    destroy() {
+      destroyed = true
+      if (timerHandle !== null) clearTimer(timerHandle)
+      timerHandle = null
+    },
+
+    start() {
+      if (destroyed || !state.enabled || state.phase === 'running') return Promise.resolve(state)
+      attempts = 0
+      anchorLaunchId = null
+      patch({
+        phase: 'running',
+        enabled: false,
+        stoppable: true,
+        attempts: 0,
+        started: 0,
+        skipped: 0,
+        anchorLaunchId: null,
+        runs: Object.freeze([]),
+        stopReport: null,
+        message: `Loop running. Up to ${plan.iterations} runs of ${plan.tier}, every ${Math.round(plan.intervalMs / 60_000)} minutes. Stop is available now.`,
+      })
+      return attempt().then(() => state)
+    },
+
+    /**
+     * Stop the loop. The schedule always stops. The run already in flight is
+     * terminated if it can be observed, and if it cannot, that is said rather
+     * than implied away.
+     */
+    async stop() {
+      if (destroyed) return state
+      if (timerHandle !== null) clearTimer(timerHandle)
+      timerHandle = null
+
+      const scheduleStopped = 'No further run will start.'
+      patch({ phase: 'stopping', stoppable: false, message: `${scheduleStopped} Looking for a run still in flight.` })
+
+      let target = null
+      try { target = await observeLiveTarget(plan.identity) } catch { target = null }
+      if (destroyed) return state
+
+      const usable = target
+        && typeof target.runId === 'string' && target.runId.length > 0
+        && typeof target.agentId === 'string' && target.agentId.length > 0
+        && Number.isSafeInteger(target.pid) && target.pid > 0
+        && target.status === 'running'
+
+      if (!usable) {
+        /* Not a failure: most stops land between runs, when there is correctly
+           nothing to kill. The cap sentence is repeated because it is the only
+           bound left on anything that IS still going. */
+        patch({
+          phase: 'stopped',
+          enabled: true,
+          stoppable: false,
+          stopReport: Object.freeze({ scheduleStopped: true, terminated: false, code: null }),
+          message: `${scheduleStopped} No run was observed in flight to terminate. ${LOOP_RUN_CAP.sentence}`,
+        })
+        return state
+      }
+
+      let idempotencyKey = null
+      try { idempotencyKey = createIdempotencyKey() } catch { idempotencyKey = null }
+      if (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0) {
+        patch({
+          phase: 'stopped',
+          enabled: true,
+          stoppable: false,
+          stopReport: Object.freeze({ scheduleStopped: true, terminated: false, code: 'BRIDGE_IDEMPOTENCY_UNAVAILABLE' }),
+          message: `${scheduleStopped} Run ${target.runId} could not be terminated: no idempotency key could be created, so no terminate was sent. ${LOOP_RUN_CAP.sentence}`,
+        })
+        return state
+      }
+
+      const body = Object.freeze({
+        idempotencyKey,
+        agentId: target.agentId,
+        expectedRunId: target.runId,
+        expectedPid: target.pid,
+      })
+
+      let result
+      try { result = await postAction('terminate', body) }
+      catch (error) { result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'terminate request failed' } }
+      if (destroyed) return state
+
+      const receipt = result?.receipt
+      const verified = result?.ok === true
+        && receipt && typeof receipt === 'object'
+        && receipt.action === 'terminate'
+        && receipt.idempotencyKey === body.idempotencyKey
+        && receipt.agentId === body.agentId
+        && receipt.runId === body.expectedRunId
+        && receipt.pid === body.expectedPid
+        && receipt.verifiedGone === true
+
+      if (verified) {
+        patch({
+          phase: 'stopped',
+          enabled: true,
+          stoppable: false,
+          stopReport: Object.freeze({ scheduleStopped: true, terminated: true, code: null, pid: receipt.pid, runId: receipt.runId }),
+          message: `${scheduleStopped} Run ${receipt.runId} is ${receipt.terminalStatus} and PID ${receipt.pid} is gone, with its process tree.`,
+        })
+        return state
+      }
+
+      const code = result?.ok === true ? 'BRIDGE_TERMINATE_RECEIPT_INVALID' : (result?.code || 'BRIDGE_REQUEST_FAILED')
+      patch({
+        phase: 'stopped',
+        enabled: true,
+        stoppable: false,
+        stopReport: Object.freeze({ scheduleStopped: true, terminated: false, code }),
+        message: `${scheduleStopped} Run ${target.runId} was NOT confirmed stopped (${code}). It is still bounded: ${LOOP_RUN_CAP.sentence}`,
+      })
+      return state
+    },
+  })
+}

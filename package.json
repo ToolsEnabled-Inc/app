@@ -12,6 +12,7 @@
     "test:chatbox": "node --test tools/test/chatbox-feed.test.mjs",
     "qa:chatbox": "node tools/chatbox-settings-qa.mjs",
     "qa:team-panel": "node tools/team-panel-packaged-qa.mjs",
+    "qa:loop": "node tools/loop-packaged-qa.mjs",
     "dev": "vite --port 4600 --strictPort",
     "build": "vite build",
     "preview": "vite preview --port 4600 --strictPort",
