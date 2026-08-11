@@ -4,12 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mission Control</title>
-  <!-- the favicon is the palette at 16px: the coordinator's ring around the
-       shadow manager's core. Hexes are --c-coordinator / --c-shadow and move
-       with them (see the role palette block in src/styles.css). The ring
-       thickened 9 -> 10 and the core grew 12 -> 13 because the deeper hues
-       are read at a tab's scale as area, not as line. -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='38' fill='none' stroke='%23008dab' stroke-width='10'/><circle cx='50' cy='50' r='13' fill='%2300956c'/></svg>" />
+  <!-- The favicon was the role palette at 16px — a coordinator ring around a
+       shadow-manager core. It was a stand-in from before this product had a
+       mark of its own. It now has one, so the favicon is the mark: the TE
+       monogram, plated, generated from the owner's artwork by
+       `node tools/gen-brand-icons.mjs` (see tools/brand-mark.mjs for why a
+       favicon gets the plate and the in-window mark does not). Do not hand-edit
+       brand-icon.svg; tools/test/brand-mark.test.mjs will fail if it drifts. -->
+  <link rel="icon" href="/brand-icon.svg" />
   <!-- theme before first paint: /src/main.js is a module (deferred), so
        reading the stored theme there alone flashed the white page at every
        tan/black user. Same key and same guarded read as main.js. -->
