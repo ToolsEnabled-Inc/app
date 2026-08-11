@@ -210,7 +210,14 @@ export const PROFILE_INTENT = Object.freeze([
        because the reader resolves it and we do not get to say which way. The
        half that is still true is the half that matters, and it is the one
        SHIPMENT-PLAN B14 turns on. */
-    desc: 'The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is collected anywhere in this product; you sign in to those inside their own programs.',
+    /* NARROWED A THIRD TIME, and the narrowing is the point. This said
+       "anywhere in this product", which is a promise about code no test of mine
+       can see: another lane adding a provider key field on some other screen
+       would falsify it silently, and I would never know. A claim is only worth
+       making if something can keep it true, so it is scoped to setup, which is
+       what the copy rules actually walk. The sentence lost nothing a reader
+       needed and gained a keeper. */
+    desc: 'The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup; you sign in to those inside their own programs.',
   }),
 ])
 

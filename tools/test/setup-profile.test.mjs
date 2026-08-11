@@ -331,15 +331,49 @@ test('nothing a setup surface collects can reach the stored profile', () => {
  * cross-lane fields -- is covered separately, because those ARE structured data
  * and are asserted against by name elsewhere in this file.
  */
-function walkthroughCopy() {
-  const text = [...VIEW.matchAll(/>([A-Z][a-z][^<>{}$]{10,})</g)].map(match => match[1])
-  const attributes = [...VIEW.matchAll(/(?:aria-label|placeholder)="([^"${}]{10,})"/g)].map(match => match[1])
+function renderedCopy(source) {
+  const text = [...source.matchAll(/>([A-Z][a-z][^<>{}$]{10,})</g)].map(match => match[1])
+  const attributes = [...source.matchAll(/(?:aria-label|placeholder)="([^"${}]{10,})"/g)].map(match => match[1])
   return [...text, ...attributes]
 }
 
-test('no sentence the walkthrough shows names a mechanism', () => {
-  const copy = walkthroughCopy()
-  assert.ok(copy.length >= 20, `only ${copy.length} sentences were found; the extraction broke and this test is checking nothing`)
+/* THE MODEL'S COPY IS WALKED AS DATA, NOT AS SOURCE.
+ *
+ * The choices and the four cross-lane fields are structured objects, so the test
+ * reads the real exported values instead of regexing the file. That is strictly
+ * stronger: a sentence assembled from two halves, or moved between fields, is
+ * still seen. */
+function modelCopy() {
+  const strings = []
+  for (const choice of [...AUTONOMY_CHOICES, ...SCREENS_CHOICES]) {
+    strings.push(choice.label, choice.note, choice.detail)
+  }
+  for (const field of PROFILE_INTENT) {
+    strings.push(field.name, field.desc, ...Object.values(field.labels))
+  }
+  return strings.filter(value => typeof value === 'string' && value.trim().length >= 10)
+}
+
+/* ALL THREE PLACES THIS LANE PUTS WORDS IN FRONT OF A PERSON.
+ *
+ * The first version of these rules walked ONE of them -- the view -- and that
+ * was the same error the rules exist to catch, committed inside the fix for it.
+ * Measured immediately afterwards: seven absolute claims were sitting
+ * unregistered in the other two files, including the very sentence that had
+ * already gone false twice. Fixing one instance and not asking what else is
+ * unwatched is apparently the hardest habit here to break; this is the third
+ * time in one session it has come up, and the first time it was mine twice. */
+function everySentenceThisLaneShows() {
+  return [
+    ...renderedCopy(VIEW),
+    ...renderedCopy(read('src/setup-profile-settings.js')),
+    ...modelCopy(),
+  ]
+}
+
+test('no sentence this lane shows names a mechanism', () => {
+  const copy = everySentenceThisLaneShows()
+  assert.ok(copy.length >= 60, `only ${copy.length} sentences were found; the extraction broke and this test is checking nothing`)
   /* A stranger reads this screen before they have any idea what the program is
      made of. An internal identifier here is not jargon-as-style, it is a leak. */
   const mechanism = /\b(localStorage|sessionStorage|IPC|ipcRenderer|preload|renderer|asar|machine\.json|workspaceRoots|mc\.write|mc\.live|mc\.set|JSON|schema|payload|boolean|null|undefined|serialise|serialize|git|repository|commit)\b/i
@@ -357,20 +391,68 @@ test('no sentence the walkthrough shows names a mechanism', () => {
  * this test until someone writes that reason down, which is the whole point --
  * the cost of the sentence is paid at the moment it is added, by the person who
  * knows why they added it, instead of by whoever finds it false later. */
+/* Two kinds of entry, because a word is not a promise.
+ *
+ * `pinned` is a claim about what the product does, and its reason must name the
+ * MECHANISM that keeps it true -- ideally a test in this file, so falsifying the
+ * behaviour turns something red before the sentence becomes a lie.
+ * `not-a-promise` is a sentence where the word appears without any claim being
+ * made: the name of an ANSWER a person is choosing, not an assertion by us.
+ *
+ * Splitting them is the precise repair rather than the loose one. The loose
+ * repair -- exempting short strings, or dropping "nothing" from the pattern --
+ * would have silenced a real promise the next time one was written short. */
 const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
   {
     match: /Nothing has been written yet/,
-    pinnedBy: 'the review step applies nothing until Finish; asserted by "nothing but the permission level is written before Finish" above, and observed in a real packaged run with every mc.write.* key still absent at that point',
+    kind: 'pinned',
+    pinnedBy: 'the review step applies nothing until Finish; asserted by "nothing but the permission level is written before Finish", which counts applyDerived() call sites and allows exactly two, and observed in a real packaged run with every mc.write.* key still absent at that point',
   },
   {
     match: /No subscription, key, or password for Claude, ChatGPT or Google is asked for anywhere in this setup/,
-    pinnedBy: 'the only credential any setup surface collects is the local account password, which never leaves the machine; the provider half is what SHIPMENT-PLAN B14 turns on and no setup surface asks for it',
+    kind: 'pinned',
+    pinnedBy: 'no setup surface collects a provider credential; asserted by "nothing a setup surface collects can reach the stored profile", which discovers the collected fields rather than listing them, and by the credential-claims test',
+  },
+  {
+    match: /No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup/,
+    kind: 'pinned',
+    pinnedBy: 'same mechanism as above. Deliberately scoped to SETUP: this sentence said "anywhere in this product" until a lane could have falsified it on a screen no test of mine can see, and a claim nothing can keep is not worth making',
+  },
+  {
+    match: /nothing at all is switched on that acts: no assistant starts/,
+    kind: 'pinned',
+    pinnedBy: 'AUTONOMY_WRITE_FLAGS.observe is the empty array, so the answer requests no write-action flag; asserted by "skipping applies exactly the state of a machine that never ran setup", which checks every flag false at all three levels',
+  },
+  {
+    match: /None of it is your data and each screen says so/,
+    kind: 'pinned',
+    pinnedBy: 'the demonstration answer sets every live-view flag false, so each surface reads its preserved simulation and labels itself; asserted by "the other answer reaches every screen"',
+  },
+  {
+    match: /These are the shipped defaults: nothing that acts is switched on/,
+    kind: 'pinned',
+    pinnedBy: 'shown only when no profile is stored, where the flags are untouched and src/write-flags.js returns false for anything but the literal "enabled"; same mechanism the skip-equivalence test asserts',
+  },
+  {
+    match: /Nothing that acts is switched on and the working folder is whatever was already recorded/,
+    kind: 'pinned',
+    pinnedBy: 'shown only for status "skipped", which applies SAFE_ANSWERS and records no workspace; asserted by the skip-equivalence test and by the packaged skip run, which read workspaceChosen back as undefined',
+  },
+  {
+    match: /Nothing is written until you finish it, and leaving partway changes nothing/,
+    kind: 'pinned',
+    pinnedBy: 'the walkthrough holds answers in an in-progress record and applies them only from Finish or Skip; asserted by the applyDerived() call-site count and by the packaged run, which found every write flag still absent mid-walkthrough',
+  },
+  {
+    match: /^Nothing yet — let me look around first$/,
+    kind: 'not-a-promise',
+    pinnedBy: 'the NAME of the answer a person is choosing, not an assertion about the product. The promise that answer carries is the detail beneath it, which is pinned separately above',
   },
 ])
 
 test('every absolute claim on screen is registered with the reason it is true', () => {
   const absolute = /\b(never|nothing|no one|anywhere|always|none)\b/i
-  const claims = walkthroughCopy().filter(sentence => absolute.test(sentence))
+  const claims = everySentenceThisLaneShows().filter(sentence => absolute.test(sentence))
   for (const claim of claims) {
     const pin = PINNED_ABSOLUTE_CLAIMS.find(entry => entry.match.test(claim))
     assert.ok(
@@ -378,6 +460,7 @@ test('every absolute claim on screen is registered with the reason it is true', 
       `this sentence promises something absolute and nothing pins it true:\n    "${claim}"\n  Register it in PINNED_ABSOLUTE_CLAIMS with the reason, or soften it. Two sentences of this exact shape went false in one session.`,
     )
     assert.ok(pin.pinnedBy.length > 40, 'a pinned claim needs a real reason, not a placeholder')
+    assert.ok(['pinned', 'not-a-promise'].includes(pin.kind), `${pin.kind} is not a kind of entry this registry has`)
   }
   /* And the pins are not allowed to rot into decoration: a registered claim that
      no longer appears means the sentence was reworded and its reason was left
