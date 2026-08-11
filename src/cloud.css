@@ -84,6 +84,84 @@
 .board-cloud-box .cloud-env { width: 100%; font-family: var(--font-mono); }
 .board-cloud-box .cloud-task-list { max-height: 200px; }
 
+/* The binding line and the watch line are the same kind of thing -- a sentence
+   about state, in the meta voice the task rows already use -- so they share it
+   rather than inventing a third. */
+.cloud-binding,
+.cloud-watch {
+  grid-column: 1 / -1;
+  font: 11.5px/1.5 var(--font-mono);
+  color: var(--ink-4);
+  overflow-wrap: anywhere;
+}
+
+.cloud-watch[data-state="confirmed"] { color: var(--s-good); }
+.cloud-watch[data-state="refused"] { color: var(--s-serious); }
+
+/* THE RECEIPT IS BORDERED AND QUIET ON PURPOSE. It is the one region of this
+   surface that never changes after it appears, and it has to read that way: a
+   record, not a status. The status that does change sits below it. */
+.cloud-receipt {
+  grid-column: 1 / -1;
+  margin-top: var(--s1);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+
+.cloud-receipt-title {
+  display: block;
+  font: 620 11px/1.4 var(--font-mono);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: var(--s1);
+}
+
+.cloud-receipt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1px;
+}
+
+.cloud-receipt-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 128px) minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: baseline;
+}
+
+.cloud-receipt-k { font: 11px/1.5 var(--font-mono); color: var(--ink-4); }
+.cloud-receipt-v { font: 11.5px/1.5 var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* The switch a switched-off panel offers, so the feature can be found and
+   turned on from where it lives instead of only from Settings. */
+.cloud-enable {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  font: 11.5px/1.4 var(--font-mono);
+  cursor: pointer;
+}
+
+.cloud-enable:hover { border-color: var(--ink-3); color: var(--ink); }
+
+.board-cloud-box .ctl-select { width: 100%; min-width: 0; font-family: var(--font-mono); }
+
+/* "Not now" is the second half of the two-step launch and must vanish the moment
+   there is nothing armed. MEASURED on a real launched window: it did not --
+   `hidden` loses to the display rule the rail's buttons carry, so the panel kept
+   offering a way to cancel something that had already been sent, which is the
+   one thing this surface must never appear to offer. The same trap is recorded
+   in home.css for the uptime digits; stating it is the fix in both places. */
+.board-cloud-box .ctl-btn[hidden],
+.cloud-surface .write-form button[hidden] { display: none; }
+
 /* The armed state of the two-step launch. Same treatment the terminate control
    uses for its confirm phase, so "select again to confirm" looks the same
    wherever the product asks it. */

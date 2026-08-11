@@ -32,6 +32,15 @@
  *      then "prove" the failure path while reporting the feature exercised. The
  *      permission level -- the thing rule 2 exists for -- comes from the machine
  *      record under LOCALAPPDATA, which IS isolated, so nothing is weakened.
+ *
+ * WHAT CHANGED WHEN ENVIRONMENT DISCOVERY LANDED. This harness used to TYPE a
+ * 32-character environment id into a text box, which meant the run could only
+ * ever prove that a person who already knew the id could use it. The id is now
+ * chosen from the environments the configured accounts are authorized for, so
+ * the step below asserts the picker filled ITSELF and that the surface names the
+ * repository the chosen environment is bound to before anything is sent.
+ * CLOUD_QA_ENVIRONMENT is now a preference, not a requirement: absent, the run
+ * takes the first environment the product offers.
  */
 import { spawn, execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -46,8 +55,11 @@ const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
 const RELEASE = path.join(REPO_ROOT, 'release', 'win-unpacked')
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
+/* Optional: which environment to launch into. There is deliberately no BRANCH
+   knob any more. The branch comes from the environment the product discovered,
+   and a harness that carried its own "main" default would have gone on passing
+   after the surface stopped supplying one. */
 const ENVIRONMENT_ID = process.env.CLOUD_QA_ENVIRONMENT || ''
-const BRANCH = process.env.CLOUD_QA_BRANCH || 'main'
 const PROMPT = process.env.CLOUD_QA_PROMPT
   || 'Read README.md and reply with one sentence naming what this repository is. Do not create, edit or delete any file.'
 const ACCOUNTS_SOURCE = process.env.CLOUD_QA_ACCOUNTS || ''
@@ -294,8 +306,8 @@ async function main() {
     process.exitCode = 1
     return
   }
-  if (!/^[0-9a-f]{32}$/.test(ENVIRONMENT_ID)) {
-    console.error('set CLOUD_QA_ENVIRONMENT to a 32-character Codex Cloud environment id')
+  if (ENVIRONMENT_ID && !/^[0-9a-f]{32}$/.test(ENVIRONMENT_ID)) {
+    console.error('CLOUD_QA_ENVIRONMENT, when set, must be a 32-character Codex Cloud environment id')
     process.exitCode = 2
     return
   }
@@ -326,7 +338,10 @@ async function main() {
     // USERPROFILE deliberately NOT overridden -- see rule 4 in the header.
 
     child = spawn(executable, [`--remote-debugging-port=${port}`, `--user-data-dir=${userData}`], {
-      env: environment, windowsHide: false, stdio: ['ignore', 'pipe', 'pipe'],
+      /* windowsHide suppresses the CONSOLE window only; the BrowserWindow is
+         hidden by MC_SMOKE_HEADLESS=1 in the inherited environment (see
+         shell/window-options.cjs), which tools/packaged-qa-suite.mjs sets. */
+      env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stderr = ''
     child.stderr.on('data', chunk => { stderr += chunk })
@@ -521,27 +536,54 @@ async function main() {
       Array.isArray(listState?.rows) && listState.rows.length > 0, JSON.stringify(listState).slice(0, 400))
     console.log('  cloud surface screenshot:', await shot('4-cloud-surface'))
 
-    /* Fill the form and launch. */
-    const filled = await evaluate(`(() => {
+    /* DISCOVERY: the picker fills itself, and no id is typed anywhere in this
+       file. A run that had to be told the id could not tell a working discovery
+       from a missing one. */
+    let picker = null
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      picker = await evaluate(`(() => {
+        const scope = document.querySelector('.cloud-surface') || document.querySelector('.board-cloud-box')
+        const select = scope?.querySelector('select[name="environment"], [data-cloud="environment"]')
+        if (!select) return { found: false }
+        return {
+          found: true,
+          options: [...select.options].map(option => ({ value: option.value, text: option.textContent, disabled: option.disabled })),
+          message: scope.querySelector('[data-cloud-environments-output], [data-cloud="environments-out"]')?.textContent || null,
+        }
+      })()`)
+      if (picker?.found && picker.options.length > 1) break
+      await delay(2000)
+    }
+    check('the environment picker discovered the authorized environments without anyone typing an id',
+      Boolean(picker?.found) && picker.options.filter(option => option.value && !option.disabled).length > 0,
+      String(picker?.message || '').slice(0, 200))
+
+    const target = (picker?.options || []).find(option => option.value === ENVIRONMENT_ID)
+      || (picker?.options || []).find(option => option.value && !option.disabled)
+    check('the environment this run targets is offered by the product', Boolean(target), JSON.stringify(target || null))
+    if (!target) throw new Error('no launchable environment was offered')
+
+    const chosen = await evaluate(`(() => {
       const scope = document.querySelector('.cloud-surface') || document.querySelector('.board-cloud-box')
-      const set = (node, value) => {
-        if (!node) return false
-        const proto = node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-        Object.getOwnPropertyDescriptor(proto, 'value').set.call(node, value)
-        node.dispatchEvent(new Event('input', { bubbles: true }))
-        return true
-      }
-      const environment = scope.querySelector('input[name="environment"], [data-cloud="environment"]')
+      const select = scope.querySelector('select[name="environment"], [data-cloud="environment"]')
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, ${JSON.stringify('%ENVIRONMENT%')})
+      select.dispatchEvent(new Event('change', { bubbles: true }))
       const branch = scope.querySelector('input[name="branch"], [data-cloud="branch"]')
       const prompt = scope.querySelector('textarea[name="prompt"], [data-cloud="prompt"]')
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(prompt, ${JSON.stringify(PROMPT)})
+      prompt.dispatchEvent(new Event('input', { bubbles: true }))
       return {
-        environment: set(environment, ${JSON.stringify(ENVIRONMENT_ID)}),
-        branch: set(branch, ${JSON.stringify(BRANCH)}),
-        prompt: set(prompt, ${JSON.stringify(PROMPT)}),
+        value: select.value,
+        binding: scope.querySelector('[data-cloud-binding], [data-cloud="binding"]')?.textContent || null,
+        branch: branch?.value || null,
+        prompt: prompt.value.length,
       }
-    })()`)
-    check('the launch form accepts an environment, a branch and a task',
-      filled?.environment && filled?.branch && filled?.prompt, JSON.stringify(filled))
+    })()`.replace('"%ENVIRONMENT%"', JSON.stringify(target.value)))
+    check('choosing an environment shows the source repository it is bound to',
+      /^Bound to \S+\/\S+/.test(chosen?.binding || ''), String(chosen?.binding).slice(0, 200))
+    check('the branch comes from that environment rather than from a hardcoded default',
+      Boolean(chosen?.branch) && String(chosen.binding).includes(chosen.branch), String(chosen?.branch))
+    check('the launch form accepts the task', Number(chosen?.prompt) > 0, String(chosen?.prompt))
 
     const armed = await clickVisible('[data-cloud-launch], [data-cloud="go"]')
     check('pressing Launch arms rather than sending', armed === 'clicked', armed)
@@ -578,29 +620,44 @@ async function main() {
     console.log('  launch result on the glass:', launchMessage)
     const taskId = (launchMessage.match(/task_[A-Za-z0-9_]+/) || [])[0] || null
     check('a real Codex Cloud task id came back to the window', Boolean(taskId), launchMessage.slice(0, 300))
+
+    const receipt = await evaluate(`(() => {
+      const scope = document.querySelector('.cloud-surface') || document.querySelector('.board-cloud-box')
+      const node = scope.querySelector('[data-cloud-receipt], [data-cloud="receipt"]')
+      if (!node || node.hidden) return { shown: false }
+      const rows = {}
+      for (const row of node.querySelectorAll('li')) rows[row.querySelector('.cloud-receipt-k').textContent] = row.querySelector('.cloud-receipt-v').textContent
+      return { shown: true, rows }
+    })()`)
+    check('the window shows an immutable receipt naming task, environment, repository, branch and state',
+      receipt?.shown === true
+      && /task_/.test(receipt.rows.task || '')
+      && (receipt.rows.repository || '').includes('/')
+      && Boolean(receipt.rows.branch)
+      && Boolean(receipt.rows['state at submission'])
+      && (receipt.rows.environment || '').includes(target.value),
+      JSON.stringify(receipt?.rows || {}).slice(0, 400))
     console.log('  launched screenshot:', await shot('6-launched'))
 
-    /* Follow it to a terminal state, still through the product's own surface. */
-    let finalRow = null
-    if (taskId) {
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        await clickVisible('[data-cloud-refresh], [data-cloud="refresh"]')
-        await delay(20000)
-        finalRow = await evaluate(`(() => {
-          const row = [...document.querySelectorAll('.cloud-task')].find(node => node.textContent.includes(${JSON.stringify(taskId)}))
-          if (!row) return null
-          return {
-            state: row.querySelector('.cloud-task-state')?.textContent || null,
-            text: row.textContent.replace(/\\s+/g, ' ').trim().slice(0, 200),
-          }
-        })()`)
-        console.log(`  poll ${attempt + 1}:`, JSON.stringify(finalRow))
-        if (finalRow && ['finished', 'failed', 'cancelled'].includes(finalRow.state)) break
+    /* FOLLOW IT WITHOUT PRESSING ANYTHING. The surface watches the task on its
+       own; a harness that clicked Refresh here would prove the old behaviour and
+       hide a broken watch. */
+    const watchSeen = []
+    let terminal = false
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await delay(10000)
+      const watch = await evaluate(`(() => {
+        const scope = document.querySelector('.cloud-surface') || document.querySelector('.board-cloud-box')
+        return scope.querySelector('[data-cloud-watch], [data-cloud="watch"]')?.textContent || ''
+      })()`)
+      if (watch && watchSeen.at(-1) !== watch) {
+        watchSeen.push(watch)
+        console.log(`  watch ${watchSeen.length}: ${watch}`)
       }
+      if (/^finished|^failed|^cancelled/.test(watch)) { terminal = true; break }
     }
-    check('the launched task appears in the product\'s own task list', Boolean(finalRow), JSON.stringify(finalRow))
-    check('the task reached a terminal state the window reports honestly',
-      finalRow && ['finished', 'failed'].includes(finalRow.state), JSON.stringify(finalRow))
+    check('the status watch updates on its own, with no Refresh click', watchSeen.length > 1, JSON.stringify(watchSeen.slice(0, 4)))
+    check('the watch followed the task to a terminal state the window reports honestly', terminal, JSON.stringify(watchSeen.at(-1) || ''))
     console.log('  final screenshot:', await shot('7-terminal'))
 
     if (stderr.trim()) console.log('  app stderr tail:', stderr.trim().split('\n').slice(-4).join(' | '))
