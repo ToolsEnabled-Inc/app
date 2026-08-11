@@ -14,6 +14,7 @@ const fs = require('fs')
 const { randomBytes, randomUUID } = require('crypto')
 const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
+const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const {
   readCapabilityProof,
@@ -21,7 +22,13 @@ const {
   startCapabilityLayer,
   stopCapabilityLayer,
 } = require('./capability-layer.cjs')
-const { readTierState, recordTier } = require('./setup-record.cjs')
+const {
+  readTierState,
+  recordTier,
+  readWorkspaceState,
+  checkWorkspace,
+  recordWorkspaces,
+} = require('./setup-record.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
 const { startupFailureDetail } = require('./startup-failure-message.cjs')
@@ -246,6 +253,70 @@ function spawnRecordAvailability() {
   }
 }
 
+/* What has actually run on this computer. The home screen asks, because a
+   person opening this product on one machine with nothing else connected has a
+   real answer available -- their own sessions -- and used to be shown five
+   unavailability notices about a fleet they never had instead.
+
+   The recorder drops paths, hashes and signatures before returning (see
+   history() there); this wrapper adds only the same never-throws contract every
+   other agent channel keeps. */
+function spawnRecordHistory(limit) {
+  try {
+    return getSpawnRecorder().history({ limit })
+  } catch (error) {
+    return Object.freeze({
+      ok: false,
+      code: typeof error?.code === 'string' ? error.code : 'SPAWN_RECORD_UNAVAILABLE',
+    })
+  }
+}
+
+/* The product account, built lazily for the same two reasons the spawn
+   recorder is: safeStorage is only meaningful after the app is ready, and
+   userData is not resolvable before then. */
+let accountStore = null
+function getAccountStore() {
+  if (accountStore) return accountStore
+  /* `sharedAccountStore`, not `createAccountStore`. Any other main-process
+     consumer that needs to know who is signed in -- the purchase-approval
+     surface is the first -- must call the same function and get this same
+     instance. Two instances would each hold their own idea of the session
+     whenever the OS keystore is unavailable, and the audit record would then
+     name whichever one it happened to ask. */
+  accountStore = sharedAccountStore({
+    safeStorage,
+    directory: app.getPath('userData'),
+  })
+  return accountStore
+}
+
+/**
+ * Who this installation is recording work against.
+ *
+ * READ HERE, IN THE MAIN PROCESS. This function is the whole reason the spawn
+ * record's `principal` stopped being `null`, and the rule attached to it has
+ * not changed: the value is never accepted from the renderer, because an
+ * identity a page can choose is not an identity. Nothing in the `mc-account:*`
+ * channels below sets it either -- they act on a username and a password and
+ * the store decides what comes out.
+ *
+ * It CANNOT throw, and it never returns null. A damaged account file must not
+ * be able to stop an agent from starting, so every failure resolves to the
+ * stated `unauthenticated` -- an honest "nobody was signed in", which is a
+ * fact worth recording rather than a reason to refuse.
+ */
+function accountPrincipal() {
+  try {
+    const value = getAccountStore().principal()
+    return typeof value === 'string' && value.length > 0 && value.length <= 200
+      ? value
+      : UNAUTHENTICATED_PRINCIPAL
+  } catch {
+    return UNAUTHENTICATED_PRINCIPAL
+  }
+}
+
 /* Starting an agent is an external mutation: it creates a process. The audited
    dispatch action refuses without a durable receipt, and this path now behaves
    the same way, against this app's OWN signed local ledger rather than the
@@ -259,10 +330,18 @@ function recordSpawnIntent(request) {
     receipt = getSpawnRecorder().record({
       action: 'agent_session_start',
       sessionId: request.sessionId,
-      /* Null deliberately: there is no account system yet. When there is, the
-         value is read HERE, in the main process, and never accepted from the
-         renderer -- an identity a page can choose is not an identity. */
-      principal: null,
+      /* Read HERE, in the main process, and never accepted from the renderer:
+         an identity a page can choose is not an identity. This was `null` until
+         the product had an account system; it now carries the signed-in
+         account, or the stated word `unauthenticated` when nobody is signed in.
+
+         IT IS A RECORD, NOT A GATE. Starting an agent does not require being
+         signed in, and this line must not be read as though it did. The record
+         states who it was when it can and says plainly that it could not when
+         it cannot; whether the product should refuse to start an agent for a
+         signed-out person is a decision for the owner, and until he makes it
+         the honest record is the one that does not pretend to be a lock. */
+      principal: accountPrincipal(),
       details: { cwd: request.cwd === undefined ? null : request.cwd },
     })
   } catch (error) {
@@ -339,6 +418,16 @@ ipcMain.handle('mc-agent:availability', async (event, value) => {
   const engine = engineAvailability()
   if (engine.ok !== true) return engine
   return spawnRecordAvailability()
+})
+
+/* The second agent channel that starts nothing, and the only one that reads
+   backwards. Same sender check as every other agent channel: this returns a
+   record of what ran on this machine, which is not something any frame that
+   happens to be loaded may ask for. */
+ipcMain.handle('mc-agent:history', async (event, value) => {
+  assertTrustedAgentSender(event)
+  const payload = agentPayload(value === undefined || value === null ? {} : value, ['limit'])
+  return spawnRecordHistory(payload.limit)
 })
 
 ipcMain.handle('mc-agent:start', async (event, value) => {
@@ -1120,6 +1209,106 @@ ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrap
 
 ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
   withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '')))
+
+/* ---------- first run: the workspace ----------
+ *
+ * Step 7 of docs/design/INSTALLER-EXPERIENCE.md section 3, and the half of first
+ * run that shipped missing: the level was asked, the folder was not, so
+ * `recordTier` chose one silently. These four channels let the walkthrough ask.
+ *
+ * Every one of them carries the same sender check as `mc-setup:choose-tier`.
+ * `record-workspaces` creates directories and starts a history in them, which is
+ * the most consequential thing this window can be asked to do to a disk, so it is
+ * an invoke behind the sender check and never a sendSync convenience.
+ *
+ * The candidate a person typed is validated in the MAIN process, not the
+ * renderer, because the refusals depend on the install root and on the recorded
+ * level -- neither of which the renderer has, and neither of which it should. */
+ipcMain.handle('mc-setup:workspace-state', event =>
+  withFleetProfileSender(event, () => readWorkspaceState()))
+
+ipcMain.handle('mc-setup:check-workspace', (event, candidate) =>
+  withFleetProfileSender(event, () => checkWorkspace(typeof candidate === 'string' ? candidate : '')))
+
+ipcMain.handle('mc-setup:record-workspaces', (event, roots) =>
+  withFleetProfileSender(event, () => recordWorkspaces(
+    Array.isArray(roots) ? roots.filter(entry => typeof entry === 'string' && entry.trim() !== '') : [],
+  )))
+
+ipcMain.handle('mc-setup:choose-workspace', event => withFleetProfileSender(event, async () => {
+  const choice = await dialog.showOpenDialog(win, {
+    title: 'Choose a folder for your assistant to work in',
+    /* `createDirectory` because the answer to this question is very often a
+       folder that does not exist yet, and sending someone out to File Explorer
+       to make one is how a first run ends. */
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath: app.getPath('documents'),
+  })
+  if (choice.canceled || choice.filePaths.length !== 1) return { ok: true, canceled: true }
+  /* Checked here rather than only on save: a picker that accepts a refused
+     folder and reports it three screens later has wasted the click. */
+  const verdict = checkWorkspace(choice.filePaths[0])
+  if (!verdict.ok) return { ...verdict, canceled: false }
+  return { ok: true, canceled: false, path: verdict.resolved }
+}))
+
+/* ---------- the product account ----------
+ *
+ * Step 6 of docs/design/INSTALLER-EXPERIENCE.md section 3, and the owner's
+ * ruling that a user login is a launch requirement.
+ *
+ * WHAT CROSSES THIS BOUNDARY, IN EACH DIRECTION, IS THE POINT OF THE BLOCK.
+ * Inward: a username, a display name, and a password, all as ordinary strings
+ * from a form. Outward: NEVER a password, a verifier, a salt, a session token
+ * or an account id that was not asked for -- the replies are status words and
+ * a display name. There is no channel here that returns a secret, which is why
+ * the whole surface is safe to log.
+ *
+ * The password is used and dropped inside `shell/product-account.cjs`; nothing
+ * in this file holds one, writes one, or puts one in an error message.
+ *
+ * Every channel carries the same sender check as `mc-setup:*`, and every one is
+ * an `invoke` rather than a `sendSync` convenience -- these mutate durable state
+ * and deliberately take about a second, because that second is what makes a
+ * stolen verifier expensive to attack.
+ *
+ * THE SIGNED-IN VALUE IS NOT SENT INWARD. There is no `mc-account:set-principal`
+ * and there must never be one. `accountPrincipal()` above reads the store
+ * directly, so the audit record's identity cannot be chosen by the page. */
+ipcMain.handle('mc-account:availability', event =>
+  withFleetProfileSender(event, () => getAccountStore().availability()))
+
+/* The read the interface actually renders from. `currentForRenderer`, NOT
+   `current`: the session identifier that main-process consumers use to say
+   which sign-in approved something is projected out here. The page gets
+   `signedIn`, a display name and an expiry, and nothing else. */
+ipcMain.handle('mc-account:current', event =>
+  withFleetProfileSender(event, () => getAccountStore().currentForRenderer()))
+
+ipcMain.handle('mc-account:create', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().createAccount({
+    username: typeof value?.username === 'string' ? value.username : '',
+    displayName: typeof value?.displayName === 'string' ? value.displayName : '',
+    password: typeof value?.password === 'string' ? value.password : '',
+  })))
+
+ipcMain.handle('mc-account:sign-in', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().signIn({
+    username: typeof value?.username === 'string' ? value.username : '',
+    password: typeof value?.password === 'string' ? value.password : '',
+  })))
+
+ipcMain.handle('mc-account:sign-out', event =>
+  withFleetProfileSender(event, () => getAccountStore().signOut()))
+
+ipcMain.handle('mc-account:sign-out-everywhere', event =>
+  withFleetProfileSender(event, () => getAccountStore().signOutEverywhere()))
+
+ipcMain.handle('mc-account:change-password', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().changePassword({
+    currentPassword: typeof value?.currentPassword === 'string' ? value.currentPassword : '',
+    newPassword: typeof value?.newPassword === 'string' ? value.newPassword : '',
+  })))
 
 /* Two ways to get the bootstrap proof, and the order matters.
  *

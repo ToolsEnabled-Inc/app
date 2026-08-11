@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('mcShell', {
    reachable from no window. */
 contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   availability: () => ipcRenderer.invoke('mc-agent:availability', {}),
+  /* Read-only, and the reason the home screen has something true to show on a
+     computer with nothing else connected. Returns bounded records of what has
+     run here: sequence, time, action. No path, no hash, no signature -- see
+     history() in shell/spawn-record.cjs for why each is absent. */
+  history: request => ipcRenderer.invoke('mc-agent:history', request || {}),
   start: request => ipcRenderer.invoke('mc-agent:start', request),
   send: request => ipcRenderer.invoke('mc-agent:send', request),
   interrupt: request => ipcRenderer.invoke('mc-agent:interrupt', request),
@@ -80,6 +85,42 @@ const setup = ipcRenderer.sendSync('mc-setup:bootstrap')
 contextBridge.exposeInMainWorld('mcSetup', Object.freeze({
   bootstrap: setup,
   chooseTier: tier => ipcRenderer.invoke('mc-setup:choose-tier', tier),
+  /* The workspace question. Async, unlike `bootstrap`, and deliberately: the
+     first-run gate has to know the permission level before the first paint, but
+     nothing has to know the folder before the person has been asked about the
+     level. A second synchronous read on startup would slow every launch to buy
+     nothing. */
+  workspaceState: () => ipcRenderer.invoke('mc-setup:workspace-state'),
+  checkWorkspace: candidate => ipcRenderer.invoke('mc-setup:check-workspace', candidate),
+  chooseWorkspace: () => ipcRenderer.invoke('mc-setup:choose-workspace'),
+  recordWorkspaces: roots => ipcRenderer.invoke('mc-setup:record-workspaces', roots),
+}))
+
+/* The product account.
+ *
+ * ASYNC ONLY, unlike `mcSetup.bootstrap` and the fleet profile, and that is a
+ * decision rather than an oversight. Both of those are read synchronously
+ * because the router must know them before the first paint. Signed-in state is
+ * not in that class: the app opens on the fleet either way, and the sign-in
+ * surface is a screen a person navigates to. Making it a fourth `sendSync`
+ * would put a keystore read and a file read on every launch to buy nothing.
+ *
+ * NOTHING THIS BRIDGE RETURNS IS A SECRET. There is no token to hold: the
+ * session lives in the main process and `current()` answers with `signedIn`, a
+ * display name and an expiry. A password travels INWARD from the form and never
+ * comes back out, in a reply or in an error message.
+ *
+ * There is deliberately no method that SETS who is signed in. The audit
+ * principal is read in the main process from the store; a page that could name
+ * the principal would make the record worthless. */
+contextBridge.exposeInMainWorld('mcAccount', Object.freeze({
+  availability: () => ipcRenderer.invoke('mc-account:availability'),
+  current: () => ipcRenderer.invoke('mc-account:current'),
+  create: request => ipcRenderer.invoke('mc-account:create', request),
+  signIn: request => ipcRenderer.invoke('mc-account:sign-in', request),
+  signOut: () => ipcRenderer.invoke('mc-account:sign-out'),
+  signOutEverywhere: () => ipcRenderer.invoke('mc-account:sign-out-everywhere'),
+  changePassword: request => ipcRenderer.invoke('mc-account:change-password', request),
 }))
 
 function rgbToHex(rgb) {

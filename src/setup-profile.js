@@ -202,7 +202,15 @@ export const PROFILE_INTENT = Object.freeze([
       manual: 'Stop and let me switch',
       auto: 'Switch to another account automatically',
     }),
-    desc: 'Signing in never happens on this screen and no account details are ever collected here; you sign in inside the assistant’s own program.',
+    /* CORRECTED WHEN THE SIGN-IN STEP LANDED. This said "signing in never
+       happens on this screen and no account details are ever collected here",
+       which became ambiguous the moment setup grew an account step: if "here"
+       means this row it is arguably true, and if a reader takes it to mean the
+       walkthrough it is false. On a disclosure the ambiguity IS the defect,
+       because the reader resolves it and we do not get to say which way. The
+       half that is still true is the half that matters, and it is the one
+       SHIPMENT-PLAN B14 turns on. */
+    desc: 'The account setup asks for is a ToolsEnabled account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is collected anywhere in this product; you sign in to those inside their own programs.',
   }),
 ])
 
@@ -439,6 +447,49 @@ export function resumeStep(stored, { tierRecorded, steps }) {
   if (!stored) return order[1] ?? 'review'
   if (stored.status === 'in-progress' && order.includes(stored.step)) return stored.step
   return order[order.length - 1] ?? 'review'
+}
+
+/* THE FLOW IS DERIVED FROM THE STEP LIST, NOT WRITTEN OUT TWICE.
+ *
+ * Every Continue and Back used to name its destination as a literal, which is
+ * fine until someone inserts a step -- and then the list says the step exists
+ * while no button goes there. That happened: an entire sign-in screen was added
+ * to STEPS, built, and tested, and nothing routed to it. It was dead on arrival
+ * and every test over it was green, because a test that a screen RENDERS cannot
+ * see that a person can never reach it.
+ *
+ * So the destination is computed from the list. Adding a step to STEPS now wires
+ * it into the flow by construction, and `stepsAreReachable` below asserts the
+ * chain actually covers the list rather than trusting that it does.
+ */
+export function stepAfter(steps, current) {
+  const order = Array.isArray(steps) ? steps : []
+  const index = order.indexOf(current)
+  if (index === -1) return order[order.length - 1] ?? null
+  return order[index + 1] ?? null
+}
+
+export function stepBefore(steps, current) {
+  const order = Array.isArray(steps) ? steps : []
+  const index = order.indexOf(current)
+  if (index <= 0) return null
+  return order[index - 1]
+}
+
+/** Walking forward from the first step, is every step actually arrived at? */
+export function stepsAreReachable(steps) {
+  const order = Array.isArray(steps) ? steps : []
+  if (order.length === 0) return false
+  const seen = new Set([order[0]])
+  let current = order[0]
+  for (let guard = 0; guard < order.length + 1; guard += 1) {
+    const next = stepAfter(order, current)
+    if (next === null) break
+    if (seen.has(next)) return false
+    seen.add(next)
+    current = next
+  }
+  return seen.size === order.length
 }
 
 export function intentField(id) {

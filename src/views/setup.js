@@ -63,6 +63,14 @@ import {
   TIER_QUESTION_SUB,
   noteTierRecorded,
 } from '../setup-state.js'
+import {
+  ACCOUNT_QUESTION,
+  ACCOUNT_QUESTION_SUB,
+  ACCOUNT_SCOPE_LEAD,
+  ACCOUNT_SCOPE_NOTICE,
+  MIN_PASSWORD_LENGTH,
+  accountStep,
+} from '../account-state.js'
 import { LIVE_VIEW_FLAGS, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, setWriteEnabled } from '../write-flags.js'
 import {
@@ -76,6 +84,8 @@ import {
   intentField,
   readStoredProfile,
   resumeStep,
+  stepAfter,
+  stepBefore,
   writeStoredProfile,
 } from '../setup-profile.js'
 
@@ -91,7 +101,12 @@ const esc = value => String(value ?? '')
 
 /* The order is the flow. `resumeStep` reads it, the step counter counts it, and
    Back walks it, so there is one place that decides what "next" means. */
-const STEPS = Object.freeze(['tier', 'workspace', 'autonomy', 'review'])
+/* `account` is in STEPS but deliberately NOT in QUESTION_STEPS. The walkthrough
+   is three questions that land on nineteen settings; signing in sets none of
+   them, so counting it as "Question 3 of 4" would inflate the promise this
+   screen makes. It is a step the person walks through, not a question that
+   derives a profile. */
+const STEPS = Object.freeze(['tier', 'workspace', 'account', 'autonomy', 'review'])
 const QUESTION_STEPS = Object.freeze(['tier', 'workspace', 'autonomy'])
 
 const WRITE_FLAG_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
@@ -117,6 +132,17 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let workspace = null
   let workspaceBusy = false
   let workspaceRefusal = null
+
+  /* The sign-in step's own state. `null` means "not asked yet", which is
+     distinct from a reply that came back unavailable -- painting an empty form
+     during the read would show "create an account" to somebody who has one.
+     No password is ever held here; see submitAccount(). */
+  const account = accountStep()
+  let accountState = null
+  let accountBusy = false
+  let accountNotice = null
+  let accountMode = 'sign-in'
+  let accountPicked = false
 
   const root = el(`<main class="view-pad setup-page">
     <div class="settings-shell setup-shell">
@@ -239,9 +265,11 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
   function progressMarkup() {
     const index = QUESTION_STEPS.indexOf(step)
-    const label = index === -1
-      ? 'Everything you just chose'
-      : `Question ${index + 1} of ${QUESTION_STEPS.length}`
+    const label = step === 'account'
+      ? 'One more thing, and it is not a question'
+      : index === -1
+        ? 'Everything you just chose'
+        : `Question ${index + 1} of ${QUESTION_STEPS.length}`
     return `<p class="setup-progress" data-setup-progress>${esc(label)}</p>`
   }
 
@@ -256,8 +284,155 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
   function stepMarkup() {
     if (step === 'workspace') return workspaceMarkup()
+    if (step === 'account') return accountMarkup()
     if (step === 'autonomy') return autonomyMarkup()
     return reviewMarkup()
+  }
+
+  /* ---------- step 3: signing in ----------
+   *
+   * docs/design/INSTALLER-EXPERIENCE.md section 3 step 6. It is HERE rather
+   * than behind a link from the end, because a walkthrough that finishes with
+   * "now go and find the account screen" is the one-way door this design
+   * forbids. The same screen also lives at #/account for every later visit;
+   * one screen, two entry points.
+   *
+   * IT FAILS OPEN, exactly like the folder question. No bridge, an unreadable
+   * account file, or a refused sign-in all leave Continue working. Signing in
+   * is not a wall: a person who skips it is signed out, which is an honest
+   * working state, and their assistant's records say `unauthenticated` rather
+   * than naming somebody who never signed in.
+   *
+   * NOTHING HERE TOUCHES `answers`. That object is serialised to localStorage
+   * and rendered on the review page, so a password reaching it would be written
+   * to disk in the clear. The account is its own durable state, written by the
+   * shell at the moment of sign-in, and the only thing this step ever reads
+   * back is a display name. */
+
+  function accountMarkup() {
+    if (accountState === null) {
+      return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
+        <div class="fleet-profile-status is-quiet" role="status">
+          <strong>Reading this computer’s accounts…</strong>
+        </div>
+        ${actionsMarkup({ back: stepBefore(STEPS, 'account') })}`
+    }
+    if (!accountState.available) {
+      return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
+        <div class="fleet-profile-status is-serious" role="alert">
+          <strong>This copy cannot hold an account</strong>
+          <span>${esc(accountState.reason || 'The application did not say why.')} Nothing on this computer has been changed, and the rest of setup still works. Your assistant’s records will say that nobody was signed in.</span>
+        </div>
+        ${actionsMarkup({ back: stepBefore(STEPS, 'account'), next: stepAfter(STEPS, 'account') })}`
+    }
+    if (accountState.signedIn) {
+      return `<h1 class="setup-title">Signed in as ${esc(accountState.displayName)}</h1>
+        <div class="fleet-profile-status is-good" role="status">
+          <strong>From now on, the record of what your assistant does says who asked for it.</strong>
+          <span>You can sign out or change this later in Settings.</span>
+        </div>
+        ${actionsMarkup({ back: stepBefore(STEPS, 'account'), next: stepAfter(STEPS, 'account') })}`
+    }
+
+    const creating = accountMode === 'create'
+    return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
+      <p class="setup-subtitle">${esc(ACCOUNT_QUESTION_SUB)}</p>
+      ${accountNotice ? `<div class="fleet-profile-status is-serious" role="alert">
+        <strong>That did not work</strong>
+        <span>${esc(accountNotice)}</span>
+      </div>` : ''}
+      <div class="settings-section-rows">
+        <article class="settings-row fleet-profile-block setup-question">
+          <div class="settings-copy">
+            <div class="settings-name" id="setup-account-name">Name</div>
+            <div class="settings-desc">${esc(creating
+              ? 'Letters, numbers, and . _ - between them. This is what your assistant’s records will name.'
+              : 'The name you chose when you made the account on this computer.')}</div>
+          </div>
+          <div class="fleet-profile-fields">
+            <input class="fleet-profile-input" type="text" data-setup-account-field="username" autocomplete="username" spellcheck="false" autocapitalize="off" aria-labelledby="setup-account-name" ${accountBusy ? 'disabled' : ''}/>
+          </div>
+        </article>
+        <article class="settings-row fleet-profile-block setup-question">
+          <div class="settings-copy">
+            <div class="settings-name" id="setup-account-password">Password</div>
+            <div class="settings-desc">${esc(creating
+              ? `At least ${MIN_PASSWORD_LENGTH} characters. A few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager.`
+              : 'The password for that account.')}</div>
+          </div>
+          <div class="fleet-profile-fields">
+            <input class="fleet-profile-input" type="password" data-setup-account-field="password" autocomplete="${creating ? 'new-password' : 'current-password'}" aria-labelledby="setup-account-password" ${accountBusy ? 'disabled' : ''}/>
+          </div>
+        </article>
+      </div>
+      <div class="fleet-profile-status is-warn" role="status">
+        <strong>${esc(ACCOUNT_SCOPE_LEAD)}</strong>
+        ${ACCOUNT_SCOPE_NOTICE.map(paragraph => `<span>${esc(paragraph)}</span>`).join('')}
+      </div>
+      <div class="setup-actions">
+        <button type="button" class="setup-skip" data-setup-skip>Skip the rest for now</button>
+        <span class="setup-actions-spacer"></span>
+        <button type="button" class="ctl-btn" data-setup-account-mode="${creating ? 'sign-in' : 'create'}" ${accountBusy ? 'disabled' : ''}>${creating ? 'I already have one' : 'Create an account'}</button>
+        <button type="button" class="ctl-btn" data-setup-back="workspace" ${accountBusy ? 'disabled' : ''}>Back</button>
+        <button type="button" class="ctl-btn" data-setup-next="${esc(stepAfter(STEPS, 'account'))}" ${accountBusy ? 'disabled' : ''}>Not now</button>
+        <button type="button" class="ctl-btn" data-setup-account-submit="${creating ? 'create' : 'sign-in'}" ${accountBusy ? 'disabled' : ''}>${accountBusy ? 'Working…' : creating ? 'Create and continue' : 'Sign in and continue'}</button>
+      </div>`
+  }
+
+  async function loadAccount() {
+    accountState = await account.load()
+    if (destroyed) return
+    /* A computer with no account opens on "create"; one that already has
+       accounts opens on "sign in". Only on the first read -- after that the
+       person's own choice of form stands. */
+    if (!accountPicked && accountState.available && accountState.accountCount === 0) accountMode = 'create'
+    accountPicked = true
+    if (step === 'account') paint()
+  }
+
+  /**
+   * Create or sign in, then move on.
+   *
+   * The password is read from the field at the moment this runs, handed to the
+   * shell, and the field is cleared on EVERY outcome -- a refused password left
+   * sitting in the input is a password left in the DOM of a window somebody may
+   * walk away from. Neither value is ever assigned to anything that outlives
+   * this function.
+   */
+  async function submitAccount(kind) {
+    if (accountBusy) return
+    const usernameField = section.querySelector('[data-setup-account-field="username"]')
+    const passwordField = section.querySelector('[data-setup-account-field="password"]')
+    const username = usernameField ? usernameField.value : ''
+    const password = passwordField ? passwordField.value : ''
+
+    accountBusy = true
+    accountNotice = null
+    paint()
+
+    let result
+    if (kind === 'create') {
+      result = await account.create({ username, displayName: '', password })
+      /* Created and then signed in, as one action from the person's point of
+         view. Making them retype the password they just chose, inside their own
+         first run, is friction that buys nothing. */
+      if (result.ok) result = await account.signIn({ username, password })
+    } else {
+      result = await account.signIn({ username, password })
+    }
+    if (destroyed) return
+
+    accountBusy = false
+    const stillThere = section.querySelector('[data-setup-account-field="password"]')
+    if (stillThere) stillThere.value = ''
+    if (!result.ok) {
+      accountNotice = result.reason
+      await loadAccount()
+      paint()
+      return
+    }
+    await loadAccount()
+    goTo('autonomy')
   }
 
   /* ---------- question 2: the folder ---------- */
@@ -275,7 +450,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           <strong>Reading this computer’s configuration…</strong>
           <span>The folder question needs to know which permission level was recorded, because the level decides which folders can be used.</span>
         </div>
-        ${actionsMarkup({ back: 'tier' })}`
+        ${actionsMarkup({ back: stepBefore(STEPS, 'workspace') })}`
     }
     if (workspace.available === false) {
       /* Fails OPEN, exactly like the permission gate. A copy that cannot record
@@ -287,7 +462,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           <strong>This copy cannot record a folder</strong>
           <span>${esc(workspace.reason || 'The application did not say why.')} Nothing on this computer has been changed, and the rest of setup still works.</span>
         </div>
-        ${actionsMarkup({ back: 'tier', next: 'autonomy' })}`
+        ${actionsMarkup({ back: stepBefore(STEPS, 'workspace'), next: stepAfter(STEPS, 'workspace') })}`
     }
 
     const roots = workspaceRoots()
@@ -322,7 +497,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         <strong>That folder cannot be used</strong>
         <span>${esc(workspaceRefusal)}</span>
       </div>` : ''}
-      ${actionsMarkup({ back: 'tier', next: 'autonomy', nextDisabled: roots.length === 0 })}`
+      ${actionsMarkup({ back: stepBefore(STEPS, 'workspace'), next: stepAfter(STEPS, 'workspace'), nextDisabled: roots.length === 0 })}`
   }
 
   /* ---------- question 3: how much it does on its own ---------- */
@@ -355,7 +530,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         <strong>Your permission level does not allow all of that</strong>
         <span>${esc(refused.join(', '))} stays off however this question is answered, because the “${esc(TIER_CHOICES.find(choice => choice.tier === recordedTier())?.label || recordedTier())}” level does not include it. Change the level to change that.</span>
       </div>` : ''}
-      ${actionsMarkup({ back: 'workspace', next: 'review', nextLabel: 'See what that sets' })}`
+      ${actionsMarkup({ back: stepBefore(STEPS, 'autonomy'), next: stepAfter(STEPS, 'autonomy'), nextLabel: 'See what that sets' })}`
   }
 
   /* ---------- the review ---------- */
@@ -447,7 +622,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       <div class="fleet-profile-status is-warn" role="status">
         <strong>What those four do today, stated plainly.</strong>
         <span>They record what you want and this program keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. They are set to the cautious end unless you moved them.</span>
-        <span>No account, password, or key is asked for anywhere in this setup, and none is stored by it. You sign in to an assistant inside that assistant’s own program.</span>
+        <span>The only account this setup asks for is the one on this computer, described where it was offered. No subscription, key, or password for Claude, ChatGPT or Google is asked for anywhere in this setup or stored by this program — those stay in their own programs.</span>
       </div>
 
       ${refusal ? `<div class="fleet-profile-status is-serious" data-setup-status role="alert">
@@ -455,7 +630,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         <span>${esc(refusal.reason || 'The application did not say why.')}</span>
       </div>` : ''}
 
-      ${actionsMarkup({ back: 'autonomy', next: 'finish', nextLabel: busy ? 'Saving…' : 'Finish setup' })}`
+      ${actionsMarkup({ back: stepBefore(STEPS, 'review'), next: 'finish', nextLabel: busy ? 'Saving…' : 'Finish setup' })}`
   }
 
   /* ---------- moving between steps ---------- */
@@ -632,6 +807,19 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     const remove = event.target.closest('[data-setup-remove-root]')
     if (remove) { removeRoot(Number(remove.dataset.setupRemoveRoot)); return }
 
+    const accountSubmit = event.target.closest('[data-setup-account-submit]')
+    if (accountSubmit) { submitAccount(accountSubmit.dataset.setupAccountSubmit); return }
+
+    const accountModeButton = event.target.closest('[data-setup-account-mode]')
+    if (accountModeButton) {
+      if (accountBusy) return
+      accountMode = accountModeButton.dataset.setupAccountMode
+      accountNotice = null
+      accountPicked = true
+      paint()
+      return
+    }
+
     const setter = event.target.closest('[data-setup-set]')
     if (setter) setAnswer(setter.dataset.setupSet, setter.dataset.setupValue)
   }
@@ -670,6 +858,9 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   section.addEventListener('click', onClick)
   paint()
   if (step === 'workspace' || step === 'review') loadWorkspace()
+  /* Read on mount rather than on arrival at the step, so the step paints its
+     real state on the first frame instead of flashing "reading accounts". */
+  loadAccount()
 
   return {
     el: root,

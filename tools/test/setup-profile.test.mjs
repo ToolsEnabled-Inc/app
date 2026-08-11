@@ -46,6 +46,9 @@ import {
   intentField,
   readStoredProfile,
   resumeStep,
+  stepAfter,
+  stepBefore,
+  stepsAreReachable,
   writeStoredProfile,
 } from '../../src/setup-profile.js'
 import { WRITE_ACTION_FLAGS } from '../../src/write-flags.js'
@@ -74,11 +77,54 @@ test('the walkthrough is three questions and a review, not a form', () => {
   assert.ok(questions, 'src/views/setup.js no longer declares which steps are questions')
 
   const parse = match => match[1].split(',').map(part => part.trim().replace(/^'|'$/g, '')).filter(Boolean)
-  assert.deepEqual(parse(steps), ['tier', 'workspace', 'autonomy', 'review'])
-  /* Section 1 of docs/design/INSTALLER-EXPERIENCE.md promises a beginner "a
-     total of three questions". Four would break that promise; two would mean a
-     question was dropped rather than folded. */
-  assert.deepEqual(parse(questions), ['tier', 'workspace', 'autonomy'])
+  const stepList = parse(steps)
+  const questionList = parse(questions)
+
+  /* THE PROMISE, not the list. Section 1 of docs/design/INSTALLER-EXPERIENCE.md
+     promises a beginner "a total of three questions", and THAT is what must not
+     drift. Pinning the whole of STEPS was too tight for a file several lanes
+     touch: the account lane added a sign-in step, correctly kept it OUT of
+     QUESTION_STEPS because it derives none of the nineteen settings, and turned
+     this red for doing exactly the right thing. A step may be added; a QUESTION
+     may not be, because each question is a promise about how few there are. */
+  assert.deepEqual(questionList, ['tier', 'workspace', 'autonomy'])
+  assert.equal(stepList.at(-1), 'review', 'the walkthrough no longer ends on the page that shows what was chosen')
+  for (const question of questionList) {
+    assert.ok(stepList.includes(question), `${question} is counted as a question but is not a step`)
+  }
+  assert.ok(!questionList.includes('review'), 'the review is not a question and must not be counted as one')
+
+  /* EVERY STEP IS ARRIVED AT. This is the assertion that would have caught the
+     worst defect of the session: an entire sign-in screen was added to STEPS,
+     built, and covered by green tests, while the workspace step's Continue still
+     named 'autonomy' -- so nothing routed to it and no user could ever reach it.
+     A test that a screen RENDERS cannot see that. */
+  assert.ok(stepsAreReachable(stepList), `walking forward from ${stepList[0]} does not arrive at every step: ${stepList.join(' -> ')}`)
+})
+
+test('a step is reachable by construction, not by remembering to wire it', () => {
+  /* The destinations are computed from STEPS. A literal here is how the flow and
+     the list drift apart, so literals are banned rather than merely discouraged:
+     the previous version of this file named every destination by hand, which is
+     exactly how a step got added with nothing pointing at it. */
+  const literals = [...VIEW.matchAll(/next: '([a-z-]+)'/g)].map(match => match[1]).filter(value => value !== 'finish')
+  assert.deepEqual(literals, [], `these Continue targets are hardcoded instead of derived from STEPS: ${literals.join(', ')}`)
+  assert.match(VIEW, /stepAfter\(STEPS,/, 'the walkthrough no longer derives its Continue target from the step list')
+  assert.match(VIEW, /stepBefore\(STEPS,/, 'the walkthrough no longer derives its Back target from the step list')
+})
+
+test('the step helpers walk the list and refuse a broken one', () => {
+  const steps = ['a', 'b', 'c']
+  assert.equal(stepAfter(steps, 'a'), 'b')
+  assert.equal(stepAfter(steps, 'c'), null, 'the last step must not claim a next one')
+  assert.equal(stepBefore(steps, 'a'), null, 'the first step must not claim a previous one')
+  assert.equal(stepBefore(steps, 'c'), 'b')
+  assert.equal(stepsAreReachable(steps), true)
+  /* An unknown current step resolves to the END rather than to the beginning: a
+     stale stored step must never drop someone back at the start of a walkthrough
+     they already finished. */
+  assert.equal(stepAfter(steps, 'nonsense'), 'c')
+  assert.equal(stepsAreReachable([]), false)
 })
 
 test('one answer moves ten settings, which is what earns it a step', () => {
@@ -231,19 +277,49 @@ test('a setting that is recorded but not yet acted on says so where it is shown'
   assert.match(VIEW, /still being built/, 'the review no longer states which of its settings are not yet acted on')
 })
 
-test('no setup surface asks for or stores a credential', () => {
-  for (const [name, source] of [['the walkthrough', VIEW], ['the settings section', read('src/setup-profile-settings.js')]]) {
-    assert.match(source, /No account, password, or key is asked for/, `${name} no longer states that it collects nothing`)
-    assert.doesNotMatch(source, /type="password"/, `${name} grew a password field`)
-  }
-  /* And the model drops anything it does not know, so a value cannot reach the
-     stored record by being assigned somewhere careless. */
+/* WHAT THIS ASSERTED FIRST, AND WHY THAT WAS THE WRONG PROPERTY.
+ *
+ * It used to assert that no setup surface contained `type="password"` at all,
+ * and that both surfaces stated "No account, password, or key is asked for
+ * anywhere in this setup". That went red the moment the account lane added a
+ * sign-in step to this same walkthrough -- and it was right to, because the
+ * sentence had become FALSE: a password IS asked for now, for a local account on
+ * this computer. A first-impression screen promising it collects nothing while
+ * collecting something is the worst defect either lane could ship, so the copy
+ * was corrected rather than the assertion deleted.
+ *
+ * The property worth defending is not "no field exists". It is that whatever any
+ * setup surface collects CANNOT REACH THE STORED PROFILE, which is serialised to
+ * localStorage and rendered on the review page. That is asserted below against
+ * the fields actually present in the walkthrough, so it keeps holding as other
+ * lanes add steps, instead of going stale the way the literal ban did. */
+test('nothing a setup surface collects can reach the stored profile', () => {
+  const collected = [...VIEW.matchAll(/data-setup-account-field="([a-zA-Z]+)"/g)].map(match => match[1])
+  const fields = [...new Set([...collected, 'password', 'apiKey', 'token', 'secret'])]
   const stored = writeStoredProfile(
-    { status: 'complete', answers: { autonomy: 'observe', apiKey: 'sk-not-a-real-key', password: 'hunter2' } },
+    { status: 'complete', answers: { autonomy: 'observe', ...Object.fromEntries(fields.map(field => [field, 'a-value-that-must-not-persist'])) } },
     fakeStorage(),
   )
-  assert.equal(stored.answers.apiKey, undefined)
-  assert.equal(stored.answers.password, undefined)
+  for (const field of fields) {
+    assert.equal(stored.answers[field], undefined, `${field} survived into the stored profile`)
+  }
+  assert.equal(JSON.stringify(stored).includes('a-value-that-must-not-persist'), false)
+})
+
+test('the setup surfaces claim only what is still true about credentials', () => {
+  for (const [name, source] of [['the walkthrough', VIEW], ['the settings section', read('src/setup-profile-settings.js')]]) {
+    /* The absolute claim is banned, not merely absent: it read well, it is the
+       obvious sentence to write, and it is now untrue. */
+    assert.doesNotMatch(
+      source, /No account, password, or key is asked for anywhere in this setup/,
+      `${name} still claims setup asks for no account, which stopped being true when the sign-in step landed`,
+    )
+    assert.match(
+      source, /stay in their own programs/,
+      `${name} no longer says where an assistant subscription actually lives`,
+    )
+    assert.doesNotMatch(source, /ANTHROPIC_API_KEY|sk-[a-zA-Z0-9]{10}/, `${name} names a provider credential`)
+  }
 })
 
 /* ---------- 4. REVERSIBLE ---------- */
