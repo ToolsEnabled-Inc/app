@@ -18,6 +18,8 @@ import { createTerminateController } from '../mission-bridge.js'
 import { mountAgentWriteSurface } from '../write-surfaces.js'
 import { mountAgentSessionSurface } from '../agent-session.js'
 import { fetchAgents } from '../live-status.js'
+import { readOrg } from '../org-controls.js'
+import { declaredAgentsData, THIS_COMPUTER_ID, THIS_COMPUTER_LABEL } from '../declared-fleet.js'
 import { buildAgentRoster } from '../agent-roster.js'
 import { rangeFill } from './computers.js'
 import '../agent.css'
@@ -119,7 +121,9 @@ function declaredAgentProjection(compId, agentId, data) {
   const agent = asGraphAgent(selected)
   const computer = {
     id: compId,
-    name: `${compId} · declared topology`,
+    /* The machine this copy runs on has a name a person recognises; a route
+       segment is not it. Everything else keeps the id it arrived with. */
+    name: `${compId === THIS_COMPUTER_ID ? THIS_COMPUTER_LABEL : compId} · declared topology`,
     agents: [agent, ...relatedIds.map(id => asGraphAgent(declaredById.get(id), agent.id))],
   }
   return {
@@ -160,7 +164,22 @@ export function agentView(args) {
   showState('Declared agent projection', 'reading live projection…', true)
   let destroyed = false
   let current = null
-  void fetchAgents().then((result) => {
+  /* THE SAME SOURCE THE GRAPH WAS DRAWN FROM.
+     /data/agents.json is a build-time file and ships `ok:false` on every
+     customer install, so a drill-in opened from a declared computer resolved to
+     "Agent projection unavailable" — a door drawn on a wall. When the generated
+     projection has nothing, the organisation store answers instead, exactly as
+     it does for the graph on the computers page. If it has nothing either, the
+     generated file's own refusal is still what the person is shown: the
+     fallback adds a source, it never invents an answer. */
+  const agentsProjection = async () => {
+    const result = await fetchAgents()
+    if (result.ok) return result
+    const org = await readOrg()
+    const declared = org.state === 'ready' ? declaredAgentsData(org.org) : null
+    return declared ? { ok: true, data: { data: declared } } : result
+  }
+  void agentsProjection().then((result) => {
     if (destroyed) return
     const projection = result.ok ? declaredAgentProjection(args.compId, args.agentId, result.data?.data) : null
     if (!projection) {

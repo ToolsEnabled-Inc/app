@@ -27,6 +27,10 @@ import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../no
 import { COPY, readLocalSessions } from '../local-activity.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
+/* The other source of computers, and on a customer machine the only one that
+   can ever answer. See the header of src/declared-fleet.js for the measurement:
+   the fleet projection is a BUILD-TIME file and ships `ok:false` forever. */
+import { declaredFleetData } from '../declared-fleet.js'
 /* The editing surface for the DECLARED organisation. It is a separate module
    for the reason given at the top of that file: it is the only part of this
    page that writes, and it is the only part that has to keep a role's wording
@@ -505,6 +509,13 @@ export function computersView({ initialComputer = null, navigate }) {
      person sees after an edit cannot disagree with what they would see after
      restarting the app. */
   let lastFleetData = null
+  /* WHY THE GRAPH ON SCREEN IS THE DECLARED ONE, when it is.
+     Set to the fleet projection's own refusal sentence whenever the graph was
+     built from the declared organisation instead, and printed in the rail. The
+     customer is entitled to both facts at once: that these are the agents this
+     copy declares, and that no fleet host reported them. Dropping the second one
+     to make the page look healthier is how a screen starts lying. */
+  let declaredOnlyReason = null
 
   function setOrgStatus(text, state = 'info', { sticky = false } = {}) {
     clearTimeout(orgStatusTimer)
@@ -808,7 +819,15 @@ export function computersView({ initialComputer = null, navigate }) {
     const selected = keepAgentId
       || (controlsPage.classList.contains('is-active') ? graph?.selectedId : null)
       || null
-    mountProjection(lastFleetData, { preferComputerId: computerId })
+    /* A DECLARED GRAPH IS RE-DERIVED FROM THE ORGANISATION, NOT FROM THE COPY
+       THAT WAS DRAWN. `lastFleetData` is a projection of the record as it stood
+       when the page loaded; re-projecting it after a save would redraw the old
+       node set with the new relationships laid over it, which is a second
+       renderer of the same fact and the one that drifts. */
+    const source = declaredOnlyReason && orgReady()
+      ? (declaredFleetData(orgAvailability.org) || lastFleetData)
+      : lastFleetData
+    mountProjection(source, { preferComputerId: computerId })
     if (rootId && graph?.nodes.has(rootId)) graph.setRoot(rootId)
     if (editing && !editButton.disabled) {
       graph?.setEditMode(true)
@@ -861,6 +880,7 @@ export function computersView({ initialComputer = null, navigate }) {
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Declared graph nodes</span></div>
         <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
+        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">Fleet projection unavailable · ${escapeMarkup(declaredOnlyReason)} These are the agents this copy declares, not agents observed running.</div>` : ''}
         <div class="rail-sec">Services</div>
         <div class="task-list projection-state">
           ${services.length ? services.map(service => {
@@ -1744,6 +1764,7 @@ export function computersView({ initialComputer = null, navigate }) {
     liveMode = true
     liveComputers = []
     computer = null
+    declaredOnlyReason = null
     setOpenTarget(null)
     root.dataset.liveMode = 'live'
     root.dataset.projectionState = loading ? 'loading' : 'unavailable'
@@ -1776,8 +1797,9 @@ export function computersView({ initialComputer = null, navigate }) {
     graphWrap.insertBefore(emptyPanel, graphTitle)
   }
 
-  function mountProjection(data, { preferComputerId = null } = {}) {
+  function mountProjection(data, { preferComputerId = null, declaredReason = declaredOnlyReason } = {}) {
     lastFleetData = data
+    declaredOnlyReason = declaredReason
     const next = projectionComputers(data, orgReady() ? orgAvailability.org : null)
     if (!next.length) {
       showProjectionUnavailable('fleet projection has no usable computers or declared graph')
@@ -1788,7 +1810,7 @@ export function computersView({ initialComputer = null, navigate }) {
     liveMode = true
     liveComputers = next
     root.dataset.liveMode = 'live'
-    root.dataset.projectionState = 'available'
+    root.dataset.projectionState = declaredOnlyReason ? 'declared' : 'available'
     computer = next.find(candidate => candidate.id === preferComputerId)
       || next.find(candidate => candidate.id === initialComputer)
       || next[0]
@@ -1807,8 +1829,21 @@ export function computersView({ initialComputer = null, navigate }) {
     Promise.all([fetchFleet(), readOrg()]).then(([result, org]) => {
       if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
       orgAvailability = org
-      if (!result.ok) showProjectionUnavailable(result.reason)
-      else mountProjection(result.data.data)
+      /* THE FLEET PROJECTION IS NOT THE ONLY SOURCE OF COMPUTERS, and on a
+         customer machine it is the one that can never answer. When it has
+         nothing, the organisation this copy declares is drawn instead — the
+         same record this page's own drag and role menu write to — so the
+         machine in front of the person appears on their own fleet page and the
+         drill-in behind it is a real one. The refusal sentence travels with it
+         and is printed in the rail; nothing is hidden by drawing something.
+         The empty state below is still reached, and is still right, when there
+         is no organisation to draw: a plain browser, or a store that refused. */
+      if (result.ok) mountProjection(result.data.data, { declaredReason: null })
+      else {
+        const declared = orgReady() ? declaredFleetData(orgAvailability.org) : null
+        if (declared) mountProjection(declared, { declaredReason: result.reason })
+        else showProjectionUnavailable(result.reason)
+      }
       syncEditAvailability()
     }).catch(error => {
       if (destroyed || version !== fetchVersion || !isLiveView('computers')) return

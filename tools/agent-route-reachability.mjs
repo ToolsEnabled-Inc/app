@@ -2,6 +2,34 @@
 
 // CAN A PERSON GET TO THE AGENT DETAIL PAGE? DRIVEN BY CLICKS, IN A REAL WINDOW.
 //
+// WHAT CHANGED, AND WHY THE FRESH-INSTALL CHECKS BELOW ARE NOT THE ONES THIS
+// FILE SHIPPED WITH.
+//
+// This suite was written against a fresh install that drew NO computers at all,
+// and it pinned that: `nodeCount === 0`, an explanation panel, and one door
+// leading to the DEMONSTRATION copy of the drill-in. Every one of those checks
+// passed, and a customer still could not open a real agent on their own machine
+// — because the page's only source of computers was /data/fleet.json, a
+// BUILD-TIME file that ships `ok:false` on every install and can never say
+// anything else. Measured on this build, fresh profile: fleet.json ok:false,
+// agents.json ok:false, and `window.mcOrg.read()` ok:true with a declared
+// organisation sitting right there unread. See src/declared-fleet.js.
+//
+// So the machine now appears, drawn from the organisation this copy declares,
+// and these checks assert THAT. The suite's rules are unchanged and are the
+// reason the old pass was not worth much: reachability is claimed only for
+// navigation performed by clicking a visible, named control, and a control that
+// leads nowhere is a defect rather than a pass. What moved is the destination —
+// the drill-in a fresh install can reach is now the LIVE page for an agent this
+// machine really declares, not a labelled demonstration whose controls are
+// deliberately inert.
+//
+// The empty state did not disappear and is not untested: it is now the answer
+// for a copy with no organisation store behind it (a plain browser), and
+// `declaredFleetData()` returning null for that case is pinned by name in
+// tools/test/declared-fleet.test.mjs. What cannot be produced in a packaged
+// window is not asserted here as though it had been.
+//
 // WHY THIS EXISTS AND WHY IT IS NOT tools/agent-subpage-qa.mjs. That harness
 // checks the agent page renders correctly, and it reaches the page by doing
 //     location.hash = '#/agent/c1/codex'
@@ -106,7 +134,11 @@ async function stage(scratch) {
   cpSync(RELEASE, app, { recursive: true, dereference: true })
   asar.extractAll(path.join(app, 'resources', 'app.asar'), unpacked)
   for (const directory of ['dist', 'shell']) {
-    const from = path.join(REPO_ROOT, directory)
+    /* ~10 lanes share this worktree, so `shell/` or `dist/` can be mid-edit and
+       fail to boot for reasons that have nothing to do with what is under test.
+       --dist/--shell point the stage at a copy of your own; the DEFAULT is still
+       the working tree, so an unqualified run measures what is actually here. */
+    const from = path.resolve(argument(`--${directory}`, path.join(REPO_ROOT, directory)))
     if (!existsSync(from)) throw new Error(`${directory}/ is missing; run \`npm run build\` first`)
     rmSync(path.join(unpacked, directory), { recursive: true, force: true })
     cpSync(from, path.join(unpacked, directory), { recursive: true })
@@ -236,8 +268,10 @@ const PROBE = `(() => {
     emptyNote: read('.computers .graph-empty-note'),
     openButton: read('.computers .graph-open-btn'),
     railUnavailable: read('.computers .stats-page .projection-unavailable'),
+    projectionState: (document.querySelector('.computers') || {}).dataset?.projectionState || '',
     nodeCount: document.querySelectorAll('.computers .static-tree-node').length,
     agentView: read('.agentv'),
+    agentLiveMode: (document.querySelector('.agentv') || {}).dataset?.liveMode || '',
     provenance: read('.agent-provenance'),
     cardCount: document.querySelectorAll('.ar-card').length,
     stateOut: read('.projection-state-out'),
@@ -321,43 +355,40 @@ async function drive(executable, scratch, tier) {
 
     const empty = await evaluate(PROBE)
 
-    /* The state under test really is the shipping one: no fleet, no nodes. If a
-       machine running this suite DOES have a fleet host, say so rather than
-       silently checking a different page. */
-    check(`${tier}: the shipped fleet projection is empty (this is the fresh-install case)`,
-      empty.nodeCount === 0, `tree nodes on screen = ${empty.nodeCount}`)
+    /* THE CHECK THAT WOULD HAVE CAUGHT IT. A fresh install has no fleet host and
+       never will have one from a build-time file, so this is the state every
+       customer opens on. The machine in front of the person must be ON their own
+       fleet page. `0` here is the exact defect this repair closes. */
+    check(`${tier}: a fresh install draws this computer on the fleet page`,
+      empty.nodeCount >= 1, `tree nodes on screen = ${empty.nodeCount}`)
+    check(`${tier}: and says the graph is the declared one, not an observed fleet`,
+      empty.projectionState === 'declared', `data-projection-state=${JSON.stringify(empty.projectionState)}`)
 
-    /* ---------- 2. THE EMPTY PAGE EXPLAINS ITSELF ---------- */
-    check(`${tier}: the empty computers page shows an explanation, not a blank panel`,
-      empty.empty.visible, `.graph-empty visible=${empty.empty.visible} present=${empty.empty.present}`)
-    check(`${tier}: the explanation names what this page is for`,
-      empty.emptyBody.visible && /detail page/i.test(empty.emptyBody.text),
-      JSON.stringify(empty.emptyBody.text.slice(0, 110)))
-    /* The honest reason must SURVIVE the redesign. An empty state that explains
-       the product while dropping "your machine has no fleet host" would be a
-       friendlier page that tells the customer less. */
-    check(`${tier}: the empty page still states the real reason verbatim`,
-      empty.emptyReason.visible && /no local agent fleet host detected/i.test(empty.emptyReason.text),
-      JSON.stringify(empty.emptyReason.text.slice(0, 110)))
+    /* ---------- 2. DRAWING SOMETHING MUST NOT HIDE ANYTHING ----------
+       The fleet projection's own refusal is a fact the customer is entitled to,
+       and the easiest way to make this page look healthy would be to drop it.
+       It has to survive, verbatim, beside the graph. */
+    check(`${tier}: the page still states the fleet projection's own reason verbatim`,
+      empty.railUnavailable.visible && /no local agent fleet host detected/i.test(empty.railUnavailable.text),
+      JSON.stringify(empty.railUnavailable.text.slice(0, 140)))
+    /* ...and says what a declared agent is, so a configured agent is never read
+       as a running one. */
+    check(`${tier}: and distinguishes declared agents from observed ones`,
+      /not agents observed running/i.test(empty.railUnavailable.text),
+      JSON.stringify(empty.railUnavailable.text.slice(0, 160)))
 
-    /* ---------- 3. NO DEAD CONTROLS ---------- */
-    /* A disabled or dead "Open agent detail" would be the same defect one layer
-       along: a door drawn on a wall. With no agents it must be ABSENT. */
-    check(`${tier}: no dead "open agent detail" control on a page with no agents`,
-      !empty.openButton.visible, `visible=${empty.openButton.visible}`)
+    /* ---------- 3. NO DEAD CONTROLS, AND NO EMPTY PANEL OVER A GRAPH ---------- */
+    check(`${tier}: the "no computers are reporting" panel is gone now that one is`,
+      !empty.empty.visible, `.graph-empty visible=${empty.empty.visible}`)
 
     /* ---------- 4. THE DOOR IS VISIBLE AND NAMED ---------- */
-    check(`${tier}: the empty page offers a visible, named way to see the drill-in`,
-      empty.emptyAction.visible && empty.emptyAction.name.trim().length > 0,
-      `visible=${empty.emptyAction.visible} name=${JSON.stringify(empty.emptyAction.name)}`)
-    /* ...and says what it is before it is pressed, not only after. */
-    check(`${tier}: the door says it leads to demonstration data before it is pressed`,
-      empty.emptyNote.visible && /demonstration/i.test(empty.emptyNote.text),
-      JSON.stringify(empty.emptyNote.text.slice(0, 90)))
+    check(`${tier}: the fleet page offers a visible, named way into the drill-in`,
+      empty.openButton.visible && empty.openButton.name.trim().length > 0,
+      `visible=${empty.openButton.visible} name=${JSON.stringify(empty.openButton.name)}`)
 
-    /* ---------- 5. IT ACTUALLY GOES THERE ---------- */
-    const opened = await clickVisible('.computers .graph-empty-action')
-    check(`${tier}: the door can be pressed`, opened === 'clicked', `.graph-empty-action: ${opened}`)
+    /* ---------- 5. IT ACTUALLY GOES THERE, AND WHAT IT REACHES IS REAL ---------- */
+    const opened = await clickVisible('.computers .graph-open-btn')
+    check(`${tier}: the door can be pressed`, opened === 'clicked', `.graph-open-btn: ${opened}`)
     const arrived = await until('the agent detail page', `Boolean(document.querySelector('.agentv'))`)
     await delay(900)
     const detail = await evaluate(PROBE)
@@ -366,8 +397,15 @@ async function drive(executable, scratch, tier) {
     /* Reaching a page that renders nothing is the defect one layer along again. */
     check(`${tier}: the page it lands on has agents on it`,
       detail.cardCount >= 1, `roster cards = ${detail.cardCount}`)
-    check(`${tier}: the page it lands on declares itself demonstration data`,
-      detail.provenance.visible && /example data/i.test(detail.provenance.text),
+    /* THE POINT OF THE WHOLE REPAIR. The drill-in a fresh install can reach must
+       be the LIVE page for an agent this machine declares — not the labelled
+       demonstration, whose controls are deliberately inert and which therefore
+       cannot be a route to using the product. */
+    check(`${tier}: what it reaches is this machine's own agent, not a demonstration`,
+      detail.agentLiveMode === 'live' && !/\/example$/.test(detail.hash),
+      `hash=${detail.hash} data-live-mode=${JSON.stringify(detail.agentLiveMode)}`)
+    check(`${tier}: and the page says whose data it is`,
+      detail.provenance.visible && /declared topology read from this computer/i.test(detail.provenance.text),
       JSON.stringify(detail.provenance.text.slice(0, 110)))
 
     /* ---------- 6. THE DEEP-LINK STATE IS NOT TERMINAL ---------- */
