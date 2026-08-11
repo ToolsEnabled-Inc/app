@@ -65,6 +65,43 @@ const PAYLOAD_ENGINE_MODULE = 'src/lib/agent-engine/codex-process.js'
  * keep it for its own agent. */
 const PAYLOAD_CONFINEMENT_MODULE = 'src/lib/agent-session-confinement.js'
 
+/* The module that decides WHOSE MONEY and WHICH ENDPOINT an agent session uses.
+ * Declared in tools/capability-manifest.json under `hostModules` beside the
+ * other two, and resolved from the SAME engine root, for the same reason.
+ *
+ * THE GAP THIS CLOSES. Until now this host handed the agent child the user's
+ * ENTIRE environment, by both of its branches. At `unrestricted` no `env` key
+ * was passed at all, and codex-process.js falls back to `process.env` when
+ * `env` is undefined; at every confined level `{ ...process.env, ...plan.env }`
+ * was the whole parent environment plus CODEX_HOME. Neither branch removed
+ * anything. Measured on the build machine: ANTHROPIC_API_KEY is set AND
+ * persisted in HKCU:\Environment, so it is inherited by every process the owner
+ * starts -- including this one, including the agent, including anything the
+ * agent spawns.
+ *
+ * TWO DISTINCT HARMS, and they are not the same harm.
+ *
+ *   1. BILLING. The agent session can spawn a Claude CLI, and Claude Code gives
+ *      ANTHROPIC_API_KEY PRECEDENCE over the owner's Max subscription login.
+ *      That is not a hypothesis: subscription-launch-env.js records the outage
+ *      it came from -- the R1186 sweeps "billed a drained API account for hours
+ *      while reporting logged in", under a perfect green `claude auth status`.
+ *
+ *   2. REDIRECTION. OPENAI_BASE_URL / ANTHROPIC_BASE_URL send the session's
+ *      prompts and the file contents they carry to an arbitrary host. The
+ *      session still starts, still answers, and is indistinguishable from a
+ *      correct one, so there is no failure for anyone to notice.
+ *
+ * WHY THE PAYLOAD'S MODULE AND NOT A LIST WRITTEN HERE. A second list is how
+ * vocabularies drift, and drifting silently is the entire failure mode above --
+ * centralising it is the stated reason subscription-launch-env.js exists. It
+ * also carries the insight this host needs and a per-provider scrub does not:
+ * providerEnvironment(id) strips only the NAMED provider's own credentials, so
+ * a Codex launcher that scrubs "its" provider still hands ANTHROPIC_API_KEY to
+ * a child. Launching is not a per-provider act. A launch takes the UNION across
+ * every provider, and that union is what safeLaunchEnvironment() returns. */
+const PAYLOAD_LAUNCH_ENVIRONMENT_MODULE = 'src/lib/providers/subscription-launch-env.js'
+
 function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot() } = {}) {
   // An explicit path is useful to embedders and focused tests.
   //
@@ -183,6 +220,66 @@ function loadConfinementPlanner(engineRoot) {
     fail('AGENT_CONFINEMENT_UNAVAILABLE', 'The engine carries a permission-level module this shell does not recognize.')
   }
   return planner
+}
+
+/* Resolve the billing/redirection scrub out of the engine tree.
+ *
+ * FAIL CLOSED, WITH THE SAME MEANING AS ABOVE: refusing to start. The tempting
+ * shape is to fall back to `{ ...process.env }` when the module is missing,
+ * because that is "what it did before" and it always works. That fallback is
+ * the bug wearing a seatbelt: a payload that cannot scrub is a payload that
+ * hands over a metered API key, and it would do so on exactly the installs
+ * where a packaging mistake removed the protection -- silently, because a
+ * mis-billed session looks identical to a correct one.
+ *
+ * Recognition is checked against the two functions this host actually calls, so
+ * a payload carrying a differently-shaped module refuses rather than skipping
+ * the scrub it cannot perform. */
+function loadLaunchEnvironment(engineRoot) {
+  const modulePath = path.join(engineRoot, PAYLOAD_LAUNCH_ENVIRONMENT_MODULE)
+  if (!fs.existsSync(modulePath)) {
+    fail(
+      'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE',
+      `This copy cannot protect the account an agent session bills (${PAYLOAD_LAUNCH_ENVIRONMENT_MODULE} is absent from the engine at ${engineRoot}). It is staged by tools/capability-manifest.json under hostModules.`,
+    )
+  }
+  let launchEnvironment
+  try {
+    launchEnvironment = require(modulePath)
+  } catch (error) {
+    fail('AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE', `The launch-environment module could not be loaded (${error.message}).`)
+  }
+  if (
+    !launchEnvironment
+    || typeof launchEnvironment.safeLaunchEnvironment !== 'function'
+    || typeof launchEnvironment.assertNoBillingCredentials !== 'function'
+  ) {
+    fail('AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE', 'The engine carries a launch-environment module this shell does not recognize.')
+  }
+  return launchEnvironment
+}
+
+/* The environment an agent child is allowed to inherit, at EVERY level.
+ *
+ * BOTH BRANCHES, DELIBERATELY, because the asymmetry WAS the defect. Handling
+ * only the `plan.env` branch leaves `unrestricted` -- the default, and the level
+ * most people run -- reaching the full `process.env` through codex-process.js's
+ * `env === undefined ? process.env : env` fallback. So this always returns an
+ * object and the caller always passes it; there is no longer a branch on which
+ * "no environment" silently means "all of it".
+ *
+ * ORDER MATTERS. Scrub first, apply the account pin (CODEX_HOME) second, then
+ * assert again -- the order subscription-launch-env.js's own comment prescribes,
+ * so a pin can never reintroduce a credential the scrub removed.
+ *
+ * WHAT IS NOT TAKEN AWAY. The scrub is a named list of credentials and endpoint
+ * redirectors, not a filter: PATH, APPDATA and the rest survive, which is what
+ * lets Codex still be found on Windows, and CODEX_HOME is not on the list, so a
+ * user who sets their own still gets it at `unrestricted`. */
+function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
+  const scrubbed = launchEnvironment.safeLaunchEnvironment(process.env, { context })
+  if (!plan.env) return scrubbed
+  return launchEnvironment.assertNoBillingCredentials({ ...scrubbed, ...plan.env }, { context })
 }
 
 /**
@@ -387,6 +484,26 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       )
     }
 
+    /* WHOSE ACCOUNT THIS SESSION SPENDS, decided before anything is spawned.
+     *
+     * Resolved per session for the same reason the plan is, and AFTER it so the
+     * two failures keep distinct codes in a fixed order: an engine missing both
+     * modules still reports the confinement one, which is the answer that was
+     * true before this existed.
+     *
+     * Synchronous, like every other refusal startSession makes, so a caller
+     * never receives a session handle it could mistake for a running agent. A
+     * refusal here is loud and costs nothing; the alternative it replaces was
+     * silent and cost real money.
+     *
+     * The context carries NO caller data -- it is rendered into an error message
+     * and a session id has no business in one (BLOCKER 2). */
+    const sessionEnv = sessionLaunchEnvironment(
+      loadLaunchEnvironment(engineRoot),
+      plan,
+      { context: 'Mission Control agent session' },
+    )
+
     const session = {
       sessionId: id,
       cwd: sessionCwd,
@@ -417,9 +534,28 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
           // What bounds the agent AROUND the process. MCP servers are separate
           // children that no sandbox applied to the agent covers, so a confined
           // level points Codex at a home this installation owns and the user's
-          // own servers are never inherited. Null at `unrestricted`, which keeps
-          // that level byte-for-byte the session it was before.
-          ...(plan.env ? { env: { ...process.env, ...plan.env } } : {}),
+          // own servers are never inherited.
+          //
+          // ALWAYS PASSED NOW, at every level including `unrestricted`, which is
+          // a deliberate change to a documented property. This used to omit the
+          // key entirely at `unrestricted` to keep that level "byte-for-byte the
+          // session it was before" -- but omitting it does not mean "no
+          // environment", it means codex-process.js's `env === undefined ?
+          // process.env : env` fallback hands over the whole parent environment,
+          // API key included. The level that got the LEAST protection was the
+          // default one.
+          //
+          // THE REQUIREMENTS CALL, STATED RATHER THAN SLIPPED IN: a permission
+          // tier governs what the agent may REACH. This governs whose money it
+          // spends and which host its prompts go to, which is a different axis.
+          // `unrestricted` means "I trust this agent with my computer"; nobody
+          // choosing it was consenting to have a metered API account billed by
+          // surprise, or to have their prompts routed through whatever host an
+          // inherited BASE_URL happens to name. So the scrub applies at every
+          // level, and what `unrestricted` still means is intact: no redirected
+          // Codex home, no substituted MCP servers, and the user's own
+          // CODEX_HOME (not on the scrub list) still honoured.
+          env: sessionEnv,
           onEvent: (event) => emit(session, event),
         })
         // Retain a usable close handle before validating the rest of the

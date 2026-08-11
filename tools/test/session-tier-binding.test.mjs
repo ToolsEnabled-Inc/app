@@ -76,7 +76,11 @@ test('the recorded level reaches the engine as thread options, not as a comment'
   }
 })
 
-test('unrestricted is handed no environment of ours at all', async () => {
+// Renamed with the assertion below it. The old title -- "unrestricted is handed
+// no environment of ours at all" -- describes a mechanism that is deliberately
+// no longer true, and a test whose name states the opposite of what it checks
+// is worse than no name: it is what the next reader greps for and believes.
+test('unrestricted keeps the user own Codex configuration and loses only their billing credentials', async () => {
   const workdir = mkdtempSync(path.join(tmpdir(), 'mc-tier-unres-'))
   try {
     const plan = {
@@ -84,18 +88,68 @@ test('unrestricted is handed no environment of ours at all', async () => {
       threadOptions: { sandbox: 'danger-full-access', approvalPolicy: 'never' },
       env: null,
     }
-    await withPlan(plan, async () => {
-      const before = engineCalls().length
-      const host = createAgentHost({ enginePath: CONFINED_ENGINE, defaultCwd: workdir })
-      await host.startSession({ sessionId: 'u1' })
-      const call = engineCalls()[before]
-      assert.equal(call.threadOptions.sandbox, 'danger-full-access')
-      // No features dropped. The level whose contract is that nothing is decided
-      // for the user gets no redirected home and inherits their own Codex
-      // configuration exactly as before this existed.
-      assert.equal('env' in call, false, 'unrestricted must not be handed a replacement environment')
-      await host.closeAll()
-    })
+    // A variable that is neither a credential nor an endpoint, standing for
+    // "everything the user's own environment carries", and one that IS a
+    // credential. Both are needed below: the point of this test is that
+    // unrestricted keeps the first and no longer keeps the second.
+    const saved = {
+      keep: Object.hasOwn(process.env, 'MC_TIER_UNRESTRICTED_KEEP') ? process.env.MC_TIER_UNRESTRICTED_KEEP : undefined,
+      key: Object.hasOwn(process.env, 'ANTHROPIC_API_KEY') ? process.env.ANTHROPIC_API_KEY : undefined,
+    }
+    process.env.MC_TIER_UNRESTRICTED_KEEP = 'inherited-by-the-user'
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-fixture-would-bill-a-metered-account'
+    try {
+      await withPlan(plan, async () => {
+        const before = engineCalls().length
+        const host = createAgentHost({ enginePath: CONFINED_ENGINE, defaultCwd: workdir })
+        await host.startSession({ sessionId: 'u1' })
+        const call = engineCalls()[before]
+        assert.equal(call.threadOptions.sandbox, 'danger-full-access',
+          'unrestricted stopped asking the engine for the sandbox its own level implies')
+
+        /* WHAT THIS ASSERTION USED TO BE, AND WHY IT CHANGED.
+         *
+         * It was `assert.equal('env' in call, false)` -- unrestricted is handed
+         * no environment of ours at all. That was doing two jobs. The one worth
+         * keeping is (a) "no redirected Codex home, no narrowing of the MCP
+         * servers the user configured". The one that had to go is (b) "no env
+         * key is passed", which merely IMPLIED (a) as a side effect.
+         *
+         * (b) is not a protection, it is a leak. codex-process.js does
+         * `env === undefined ? process.env : env`, so passing no key hands the
+         * child the ENTIRE parent environment -- on this machine including a
+         * live ANTHROPIC_API_KEY persisted in HKCU:\Environment, which Claude
+         * Code prefers over the owner's subscription login. `unrestricted` was
+         * the least protected level, not the most faithful one.
+         *
+         * So (a) is now asserted DIRECTLY rather than as a consequence of
+         * absence, which is also strictly stronger: the old form could not see
+         * a CODEX_HOME slipped into a newly-passed env, and this one names it.
+         */
+        assert.equal(Object.hasOwn(call.env, 'CODEX_HOME'), false,
+          'unrestricted was handed a CODEX_HOME: this level must not redirect the user to a home this installation owns, nor narrow the MCP servers they configured')
+
+        // The user's own environment still reaches the agent. Unrestricted has
+        // not become a confined level by the back door.
+        assert.equal(call.env.MC_TIER_UNRESTRICTED_KEEP, 'inherited-by-the-user',
+          'unrestricted stopped inheriting the user own environment, which is the capability this level exists to preserve')
+
+        // And the part that is new: what the user never chose is taken away.
+        // Set to a poisoned value above and asserted here, so a pass means
+        // REMOVED rather than absent on whatever machine this runs on.
+        assert.equal(process.env.ANTHROPIC_API_KEY === 'sk-ant-fixture-would-bill-a-metered-account', true,
+          'the fixture failed to set ANTHROPIC_API_KEY, so the assertion below would prove nothing')
+        assert.equal(Object.hasOwn(call.env, 'ANTHROPIC_API_KEY'), false,
+          'a metered billing credential reached the agent child at unrestricted: choosing that level means trusting the agent with the computer, not consenting to have an API account billed instead of the subscription')
+
+        await host.closeAll()
+      })
+    } finally {
+      if (saved.keep === undefined) delete process.env.MC_TIER_UNRESTRICTED_KEEP
+      else process.env.MC_TIER_UNRESTRICTED_KEEP = saved.keep
+      if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = saved.key
+    }
   } finally {
     rmSync(workdir, { recursive: true, force: true })
   }
