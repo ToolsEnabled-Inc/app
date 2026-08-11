@@ -40,24 +40,99 @@
  * carried the owner's username). check-no-owner-data.mjs, which runs later
  * in the same `dist` chain, would also be the thing to catch it if this ever
  * regressed -- but the right fix is to never write it, not to rely on that.
+ *
+ * THE INSTALLER IS BUILT FROM TWO REPOSITORIES, AND THIS ONLY EVER CHECKED
+ * ONE. The Electron app is this repo. The 224-file capability payload under
+ * resources/capability is cut by pack-capability-layer.mjs from a SEPARATE
+ * checkout (the engine tree) that this repo does not contain and git here
+ * cannot see. So a build could stamp `dirty: false` -- whose stated meaning
+ * above is "reproducible from git history alone" -- on a package whose larger
+ * half was uncommitted. That is strictly worse than the gap it replaced: a
+ * known blind spot at least reads as unknown, whereas this produced a
+ * confident false claim, and the release packager then re-read that claim as
+ * independent confirmation (cut-release-candidate.mjs asserts dirty===false).
+ *
+ * Both repos are now measured and both are recorded. They are held to the SAME
+ * standard rather than the payload getting a softer one: dirty is dirty, the
+ * one override covers both, and using it still broadcasts the fact and the
+ * file list. A second, quieter rule for the payload half would be the same
+ * shape of mistake as checking only one repo -- strict where you are looking,
+ * lenient where you are not.
+ *
+ * The payload repo's ABSOLUTE PATH is deliberately never recorded (it names
+ * the builder and their machine layout -- which is why the file that
+ * configures it, private/capability-source.owner.json, is untracked and says
+ * so). Its commit SHA and its repo-relative dirty paths carry the provenance
+ * without carrying the identity.
  */
 import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const OVERRIDE_VARIABLE = 'MC_ALLOW_DIRTY_BUILD'
 
-// Deliberately process.cwd(), not a path derived from this file's own
-// location: npm always runs package.json scripts with cwd already at the
-// repo root, so this matches real usage exactly, and it also means this
+// Resolved from process.cwd(), NOT from this file's location, to stay
+// consistent with the app-repo check above -- the setting file belongs to
+// whichever checkout is being built, so pointing this script at a different
+// checkout has to move both halves or it silently measures one tree's app
+// against another tree's payload. In the real `dist` chain the two are the
+// same directory, so this changes nothing there. (pack-capability-layer.mjs
+// keys the same file off its own location because it always runs inside the
+// repo it packs from; this script explicitly does not.)
+const settingFile = () => path.join(process.cwd(), 'private', 'capability-source.owner.json')
+
+// Deliberately process.cwd() for the app repo, not a path derived from this
+// file's own location: npm always runs package.json scripts with cwd already
+// at the repo root, so this matches real usage exactly, and it also means this
 // script can be pointed at a DIFFERENT checkout for testing (see its own
 // tests) without needing to live inside that checkout.
-function git(args) {
-  const result = spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', windowsHide: true })
+function git(args, cwd = process.cwd()) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed (exit ${result.status}): ${result.stderr || result.stdout}`)
   }
   return result.stdout
+}
+
+// Mirrors pack-capability-layer.mjs's resolveSource() precedence exactly, so
+// the tree we MEASURE is the tree it PACKS. This is duplicated rather than
+// imported on purpose: that module calls main() at import time, so importing
+// it here would run the packer. The `--source` branch of its precedence is
+// omitted because it is a flag on that script, not this one -- and the `dist`
+// chain invokes `pack:capability` with no flags, so env-or-config is the whole
+// real-world path. If a future dist script starts passing --source, this
+// resolves a different tree than it packs, so keep them together.
+function resolvePayloadSource() {
+  const candidates = [process.env.TOOLSENABLED_SOURCE, configuredPayloadSource()].filter(Boolean)
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate)
+    if (existsSync(path.join(resolved, 'tools', 'mission-bridge.js'))) return resolved
+  }
+  return null
+}
+
+function configuredPayloadSource() {
+  const file = settingFile()
+  if (!existsSync(file)) return null
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    return typeof parsed?.path === 'string' && parsed.path.trim() ? parsed.path.trim() : null
+  } catch {
+    return null
+  }
+}
+
+// Returns null when the tree is not resolvable or not a git checkout at all.
+// A null is NOT treated as clean by the caller -- unknown provenance is the
+// exact condition this gate exists to refuse to paper over.
+function inspectRepo(cwd) {
+  try {
+    const dirtyFiles = parseDirtyFiles(git(['status', '--porcelain'], cwd))
+    return { ref: git(['rev-parse', 'HEAD'], cwd).trim(), dirty: dirtyFiles.length > 0, dirtyFiles }
+  } catch {
+    return null
+  }
 }
 
 // Best-effort, informational file list: porcelain v1 status lines are two
@@ -82,55 +157,83 @@ async function writeProvenance(distDirectory, record) {
 }
 
 async function requireCleanTree(distDirectory) {
-  const porcelain = git(['status', '--porcelain'])
-  const ref = git(['rev-parse', 'HEAD']).trim()
   const checkedAt = new Date().toISOString()
-  const dirtyFiles = parseDirtyFiles(porcelain)
-  const dirty = dirtyFiles.length > 0
+
+  const app = inspectRepo(process.cwd())
+  if (!app) throw new Error(`not a git checkout, so this build has no provenance to state: ${process.cwd()}`)
+
+  const payloadRoot = resolvePayloadSource()
+  const payloadRepo = payloadRoot ? inspectRepo(payloadRoot) : null
+
+  // Unresolvable or non-git payload source => unknown, and unknown is not
+  // clean. Recorded as resolved:false so the artifact says "we could not tell"
+  // rather than silently omitting the half nobody measured.
+  const payload = payloadRepo
+    ? { resolved: true, ref: payloadRepo.ref, dirty: payloadRepo.dirty, dirtyFiles: payloadRepo.dirtyFiles }
+    : { resolved: false, ref: null, dirty: null, dirtyFiles: [] }
+
+  const payloadClean = payload.resolved && payload.dirty === false
+  const dirty = app.dirty || !payloadClean
+
+  // Namespaced so a reader can never mistake which repo a path belongs to --
+  // both trees contain a tools/ and a src/, so a bare merged list would be
+  // actively misleading about where to go look.
+  const labelled = [
+    ...app.dirtyFiles.map((file) => `app: ${file}`),
+    ...payload.dirtyFiles.map((file) => `payload: ${file}`),
+    ...(payload.resolved ? [] : ['payload: <source tree unresolved -- provenance unknown>']),
+  ]
+
+  const record = {
+    schemaVersion: 2,
+    dirty,
+    overridden: false,
+    ref: app.ref,
+    checkedAt,
+    dirtyFiles: labelled,
+    app: { ref: app.ref, dirty: app.dirty, dirtyFiles: app.dirtyFiles },
+    payload,
+  }
+
+  const describe = () =>
+    `app ${app.ref.slice(0, 12)}${app.dirty ? ' (dirty)' : ''}, ` +
+    (payload.resolved ? `payload ${payload.ref.slice(0, 12)}${payload.dirty ? ' (dirty)' : ''}` : 'payload UNRESOLVED')
 
   if (!dirty) {
-    const target = await writeProvenance(distDirectory, {
-      schemaVersion: 1,
-      dirty: false,
-      overridden: false,
-      ref,
-      checkedAt,
-      dirtyFiles: [],
-    })
-    console.log(`[require-clean-tree] tree is clean at ${ref}. Provenance recorded: ${target}`)
+    const target = await writeProvenance(distDirectory, record)
+    console.log(`[require-clean-tree] both trees are clean -- ${describe()}. Provenance recorded: ${target}`)
     return { ok: true, dirty: false, overridden: false }
   }
 
   const overridden = process.env[OVERRIDE_VARIABLE] === '1'
 
   if (!overridden) {
-    console.error('[require-clean-tree] REFUSING TO BUILD: the working tree is not clean.')
-    console.error('These bytes could not be reproduced from git history alone:')
-    for (const file of dirtyFiles) console.error(`  ${file}`)
+    console.error('[require-clean-tree] REFUSING TO BUILD: this package cannot state its own provenance.')
+    console.error(`  app repo     : ${app.ref} -- ${app.dirty ? `${app.dirtyFiles.length} uncommitted` : 'clean'}`)
+    console.error(
+      `  payload repo : ${payload.resolved ? `${payload.ref} -- ${payload.dirty ? `${payload.dirtyFiles.length} uncommitted` : 'clean'}` : 'UNRESOLVED -- could not be measured at all'}`,
+    )
     console.error('')
-    console.error('A release build must be able to state its own provenance. If this is')
-    console.error('deliberate -- e.g. packaging reviewed, uncommitted work on purpose --')
-    console.error(`set ${OVERRIDE_VARIABLE}=1. That does not silence this: it records`)
-    console.error('dirty:true and the exact file list above into dist/build-info.json,')
+    console.error('These bytes could not be reproduced from git history alone:')
+    for (const file of labelled) console.error(`  ${file}`)
+    console.error('')
+    console.error('Both repositories ship inside the installer, so both must be reproducible.')
+    console.error('If this is deliberate -- e.g. packaging reviewed, uncommitted work on')
+    console.error(`purpose -- set ${OVERRIDE_VARIABLE}=1. That does not silence this: it`)
+    console.error('records dirty:true and the exact file list above into dist/build-info.json,')
     console.error('which ships inside the package.')
     return { ok: false, dirty: true, overridden: false }
   }
 
   console.warn('='.repeat(72))
   console.warn(`[require-clean-tree] ${OVERRIDE_VARIABLE}=1 -- BUILDING FROM A DIRTY TREE.`)
+  console.warn(`${describe()}.`)
   console.warn('This build is NOT reproducible from git history alone. dirty:true and')
   console.warn('the file list below are recorded in dist/build-info.json and ship')
   console.warn('inside the package so this fact cannot get lost.')
-  for (const file of dirtyFiles) console.warn(`  ${file}`)
+  for (const file of labelled) console.warn(`  ${file}`)
   console.warn('='.repeat(72))
-  const target = await writeProvenance(distDirectory, {
-    schemaVersion: 1,
-    dirty: true,
-    overridden: true,
-    ref,
-    checkedAt,
-    dirtyFiles,
-  })
+  const target = await writeProvenance(distDirectory, { ...record, overridden: true })
   console.warn(`[require-clean-tree] provenance recorded: ${target}`)
   return { ok: true, dirty: true, overridden: true }
 }
