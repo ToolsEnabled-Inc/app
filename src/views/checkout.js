@@ -475,7 +475,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       noticesHost.append(band('warn', 'Over the daily spend cap', [
         `Your selection comes to ${money(state.cap.cashTodayCents, catalog.currency)} today, above the ${money(state.cap.limitCents, catalog.currency)} daily cap this installation is configured with.`,
         lines > 0
-          ? `${lines} line${lines === 1 ? ' is' : 's are'} over the cap on their own and would be refused individually, while roughly ${money(state.cap.recordableCents, catalog.currency)} of smaller lines would be recorded. That is a partial result, not a failure, and it is easy to read as everything having worked.`
+          ? `${lines} line${lines === 1 ? ' is' : 's are'} over the cap on ${lines === 1 ? 'its' : 'their'} own and would be refused individually, while roughly ${money(state.cap.recordableCents, catalog.currency)} of smaller lines would be recorded. That is a partial result, not a failure, and it is easy to read as everything having worked.`
           : 'No single line is over the cap, so each would be checked on its own; the cap applies per amount, and a day\'s spending accumulates against it.',
         `Cap read from ${catalog.spendPolicy.source}.`,
       ]))
@@ -534,7 +534,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       section.append(band('warn', 'Spend cap', [
         `The daily spend cap on this installation is ${money(state.cap.limitCents, catalog.currency)} and this selection is ${money(state.cap.cashTodayCents, catalog.currency)} today.`,
         state.cap.overCapLineIds.length > 0
-          ? `${state.cap.overCapLineIds.length} line${state.cap.overCapLineIds.length === 1 ? '' : 's'} exceed the cap alone and would be refused individually if put through the spend ledger, while the rest would be recorded.`
+          ? `${state.cap.overCapLineIds.length} line${state.cap.overCapLineIds.length === 1 ? ' exceeds' : 's exceed'} the cap alone and would be refused individually if put through the spend ledger, while the rest would be recorded.`
           : 'No single line exceeds it, but the day\'s total does.',
         'Confirming here does not touch the spend ledger, so nothing is refused and nothing is recorded against the cap. This is what you would run into next.',
       ]))
