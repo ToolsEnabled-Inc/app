@@ -336,6 +336,15 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
      fooled that way -- identical hash means identical content means the earlier
      verdict is still the correct verdict, with no assumption about anything.
 
+     THAT IS MEASURED, NOT ARGUED. The performance lane built the attack against
+     this module independently and reported the numbers: after editing one old
+     record in place, the file's size came back BYTE-IDENTICAL (163892 -> 163892)
+     and the restored modification time landed within half a millisecond. Those
+     are precisely the two values a size-and-mtime key compares, so that key
+     would have found them equal and served a stale `verified: true` over a
+     tampered chain. The content hash catches it. Anyone tempted to make this
+     cheaper by keying on stat() should read that sentence twice.
+
      It costs one sha256 pass over the file, which is roughly seventy times
      cheaper than the ed25519 chain it replaces, so this is not a trade of
      safety for speed. The guarantee is unchanged.

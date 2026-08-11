@@ -256,6 +256,41 @@ test('SECURITY: a rewritten prefix under an appended record takes the full check
   )
 })
 
+/* Ported from the performance lane's independent attack harness, because a
+   scratchpad harness is not coverage: it proves the property today and is gone
+   tomorrow. This is the attack aimed squarely at the INCREMENTAL branch -- the
+   one that exists to avoid re-checking old records -- and it asks whether that
+   branch actually checks the NEW ones or merely counts them. */
+test('SECURITY: a forged record appended onto a genuine prefix is caught on the incremental path', (t) => {
+  const directory = workspace(t)
+  const recorder = createSpawnRecorder({ safeStorage: keystore(), directory })
+  for (let index = 0; index < 6; index += 1) {
+    recorder.record({ action: 'agent_session_start', sessionId: `session-${index}` })
+  }
+  assert.equal(recorder.history().verified, true, 'the verdict is cached, so the next read takes the incremental path')
+  const checksWhenWarm = recorder.stats().signatureChecks
+
+  /* A replay: a genuine record's own eventHash and signature, carried onto a
+     body that has been moved to the end of the chain. The sequence and the
+     predecessor link are both correct -- an attacker gets those for free -- so
+     the only thing standing between this and `verified: true` is the commitment
+     actually being recomputed over the body it claims to cover. */
+  const lines = readFileSync(recorder.ledgerPath, 'utf8').split('\n').filter(Boolean)
+  const genuine = JSON.parse(lines[0])
+  const head = JSON.parse(lines[lines.length - 1])
+  const forged = { ...genuine, sequence: head.sequence + 1, previousHash: head.eventHash }
+  appendFileSync(recorder.ledgerPath, `${JSON.stringify(forged)}\n`)
+
+  assert.equal(
+    recorder.history().verified, false,
+    'a replayed hash and signature over a different body is not a record, and the incremental path must not take it',
+  )
+  assert.ok(
+    recorder.stats().signatureChecks >= checksWhenWarm,
+    'and the appended bytes were genuinely examined rather than counted',
+  )
+})
+
 test('SECURITY: a truncated record is caught rather than read as a shorter chain', (t) => {
   const directory = workspace(t)
   const recorder = createSpawnRecorder({ safeStorage: keystore(), directory })

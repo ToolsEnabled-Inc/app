@@ -41,6 +41,50 @@ test('the read channel carries the same sender check as every other agent channe
   assert.match(body, /spawnRecordHistory\(/, 'and it answers from the recorder rather than reading the file itself')
 })
 
+/* THE ONE ABSOLUTE CLAIM THE HOME SCREEN MAKES, PINNED TO THE CODE THAT MAKES
+ * IT TRUE.
+ *
+ * Home prints "Mission Control writes each one down on this computer before it
+ * starts", and in its footer "Written down on this computer as it happened".
+ * Every other sentence on that screen is derived from state and recomputed, so
+ * it cannot go stale. These two are different in kind: they are standing claims
+ * about the ORDERING of two statements in shell/main.cjs, a file the home lane
+ * does not own, and they would go quietly false if a refactor moved the spawn
+ * ahead of the record. Nothing on the screen would change.
+ *
+ * The first-run lane derived this rule from an incident in its own file -- a
+ * sentence about credentials that went false twice in one session because the
+ * lane that falsified it never read it. An absolute claim needs a written
+ * reason it is still true, held where the claim can be broken rather than where
+ * it is printed. This is that reason for these two sentences.
+ *
+ * The behavioural half already exists (tools/test/spawn-record.test.mjs: no
+ * keystore means no receipt, and therefore no spawn). This is the ordering
+ * half, which no behavioural test can see, because a recorder that writes
+ * AFTER a successful spawn passes every one of them. */
+test('a session is recorded BEFORE it is spawned, which is what home tells the reader', () => {
+  const main = readFileSync(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
+  const start = main.indexOf("ipcMain.handle('mc-agent:start'")
+  assert.ok(start >= 0, 'the start channel is handled in the main process')
+  const body = main.slice(start, main.indexOf('\n})', start))
+
+  const recordedAt = body.indexOf('recordSpawnIntent(')
+  const spawnedAt = body.indexOf('startSession(')
+  assert.ok(recordedAt >= 0, 'the start path records a spawn intent')
+  assert.ok(spawnedAt >= 0, 'and the start path spawns')
+  assert.ok(
+    recordedAt < spawnedAt,
+    'the record is written first. Home says "before it starts"; if this ordering flips, that sentence is false '
+    + 'and nothing else in the product would show it.',
+  )
+  /* And there is only one spawn in this handler, so "the first one is after the
+     record" cannot be true while a second one runs before it. */
+  assert.equal(
+    (body.match(/startSession\(/g) || []).length, 1,
+    'exactly one spawn, so the ordering above covers the whole path',
+  )
+})
+
 test('the channel starts nothing', () => {
   const main = readFileSync(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
   const start = main.indexOf("ipcMain.handle('mc-agent:history'")
