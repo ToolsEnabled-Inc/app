@@ -62,6 +62,37 @@ const ELECTRON_BUILDER_NS_UUID = UUID.parse('50e065bc-3134-11e6-9bab-38c9862bdaf
    appId every shipped build up to and including 1.0.5 used. */
 const SHIPPED_PRODUCT_GUID = '21cb002d-a6ac-5e62-b88d-ba3c87d67396'
 
+/* The highest version ever installed under that GUID. Same kind of fact as the
+   GUID above -- it describes machines, not this repo -- so it is written down
+   rather than derived, and it is the number a new build has to beat.
+   Enumerated from the built installers on Machine A, 2026-08-11: Mission
+   Control shipped 1.0.0, 1.0.1, 1.0.2, 1.0.3, 1.0.4 and 1.0.5, all under
+   appId com.toolsenabled.missioncontrol and therefore all under this GUID.
+
+   WHY THIS MATTERS ONLY NOW. Before the GUID was pinned, the renamed build
+   wrote a SECOND uninstall entry, so its 1.0.3 sat beside Mission Control's
+   1.0.5 rather than replacing it. Pinning the GUID is correct and is what
+   makes an upgrade an upgrade -- and it is exactly what makes the version
+   visible as a regression: one entry in Programs and Features whose
+   DisplayVersion now moves 1.0.5 -> 1.0.3. Windows and every update channel
+   read that as a downgrade, and so does the person looking at the list. */
+const HIGHEST_SHIPPED_VERSION = '1.0.5'
+
+/* Numeric compare, so "1.0.10" beats "1.0.9" -- a string compare would not, and
+   this product will reach two digits. Returns >0 when a is newer than b. */
+function compareVersions(a, b) {
+  const parse = (v) => String(v).split('.').map((n) => Number.parseInt(n, 10))
+  const left = parse(a)
+  const right = parse(b)
+  assert.ok(left.every(Number.isInteger), `unparseable version ${a}`)
+  assert.ok(right.every(Number.isInteger), `unparseable version ${b}`)
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
 /* Mirrors NsisTarget.js:157. `nsisDriftGuard` below fails if that line changes
    shape, so this cannot quietly stop describing what the build does. */
 function resolveInstallerGuid({ nsisOptions, appId }) {
@@ -126,6 +157,29 @@ test('every product name this app has shipped under can still be found', () => {
     false,
     'the current productName is the destination, not a source to adopt from',
   )
+})
+
+test('the upgrade raises the version it replaces, rather than lowering it', () => {
+  /* One entry in Programs and Features, and its number has to go up. This is
+     the other half of owning the installed base's registry key: taking the
+     entry over is only an upgrade if what lands in DisplayVersion is newer
+     than what was there. */
+  assert.ok(
+    compareVersions(packageJson.version, HIGHEST_SHIPPED_VERSION) > 0,
+    `version ${packageJson.version} does not beat ${HIGHEST_SHIPPED_VERSION}, already installed under the same GUID; `
+    + 'upgrading would move Programs and Features backwards and read as a downgrade',
+  )
+})
+
+test('compareVersions orders releases numerically, not as text', () => {
+  /* The guard above is only as good as this comparison. A string compare puts
+     1.0.10 BELOW 1.0.9 and would wave through a real regression once the patch
+     number reaches two digits. */
+  assert.ok(compareVersions('1.0.10', '1.0.9') > 0, '1.0.10 must count as newer than 1.0.9')
+  assert.ok(compareVersions('1.0.6', '1.0.5') > 0)
+  assert.ok(compareVersions('1.0.3', '1.0.5') < 0)
+  assert.equal(compareVersions('1.0.5', '1.0.5'), 0)
+  assert.ok(compareVersions('1.1.0', '1.0.99') > 0)
 })
 
 test('nsisDriftGuard: electron-builder still resolves the guid the way this suite mirrors', () => {
