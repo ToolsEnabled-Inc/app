@@ -306,6 +306,90 @@ test('nothing a setup surface collects can reach the stored profile', () => {
   assert.equal(JSON.stringify(stored).includes('a-value-that-must-not-persist'), false)
 })
 
+/* EVERY SENTENCE THE WALKTHROUGH SHOWS, WALKED UNDER ONE RULE.
+ *
+ * Twenty-nine user-facing sentences live as literals in src/views/setup.js and,
+ * until this test, exactly two of them were looked at by anything. The rest could
+ * have named a mechanism, leaked an internal identifier, or made a promise the
+ * product had stopped keeping, and every test in this repo would have stayed
+ * green. That is not hypothetical here: the credential sentence went false TWICE
+ * in one session, and only one of the two was caught by a test -- the other was
+ * caught by another lane reading it.
+ *
+ * WHY THE COPY IS NOT MOVED INTO A `COPY` OBJECT, which is the stronger fix and
+ * the one a sibling lane applied to its own view. src/views/setup.js is now
+ * shared: the account step and its sentences belong to another lane and are
+ * being edited concurrently. Hoisting every string would rewrite their work to
+ * make my test tidier, which is the collision the coordination board exists to
+ * prevent. Walking the rendered source gets the same RULES over the same
+ * sentences without touching a line anyone else owns. If this file ever settles
+ * to one owner, hoist them.
+ *
+ * KNOWN BOUND, stated rather than papered over: this reads text nodes plus
+ * aria-label and placeholder values. Copy assembled at runtime from a variable
+ * is not visible to it. The model's own copy -- the choices and the four
+ * cross-lane fields -- is covered separately, because those ARE structured data
+ * and are asserted against by name elsewhere in this file.
+ */
+function walkthroughCopy() {
+  const text = [...VIEW.matchAll(/>([A-Z][a-z][^<>{}$]{10,})</g)].map(match => match[1])
+  const attributes = [...VIEW.matchAll(/(?:aria-label|placeholder)="([^"${}]{10,})"/g)].map(match => match[1])
+  return [...text, ...attributes]
+}
+
+test('no sentence the walkthrough shows names a mechanism', () => {
+  const copy = walkthroughCopy()
+  assert.ok(copy.length >= 20, `only ${copy.length} sentences were found; the extraction broke and this test is checking nothing`)
+  /* A stranger reads this screen before they have any idea what the program is
+     made of. An internal identifier here is not jargon-as-style, it is a leak. */
+  const mechanism = /\b(localStorage|sessionStorage|IPC|ipcRenderer|preload|renderer|asar|machine\.json|workspaceRoots|mc\.write|mc\.live|mc\.set|JSON|schema|payload|boolean|null|undefined|serialise|serialize|git|repository|commit)\b/i
+  for (const sentence of copy) {
+    assert.doesNotMatch(sentence, mechanism, `a user-facing sentence names a mechanism: "${sentence}"`)
+  }
+})
+
+/* THE CLASS THAT ACTUALLY BIT, TWICE, so it gets the strictest rule.
+ *
+ * An absolute claim about what the product never does is the most fragile
+ * sentence a first-run screen can carry: it is written when it is true, and it
+ * is falsified by a lane that never reads it. So every one of them has to be
+ * REGISTERED HERE with the reason it is still true. A new absolute claim fails
+ * this test until someone writes that reason down, which is the whole point --
+ * the cost of the sentence is paid at the moment it is added, by the person who
+ * knows why they added it, instead of by whoever finds it false later. */
+const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
+  {
+    match: /Nothing has been written yet/,
+    pinnedBy: 'the review step applies nothing until Finish; asserted by "nothing but the permission level is written before Finish" above, and observed in a real packaged run with every mc.write.* key still absent at that point',
+  },
+  {
+    match: /No subscription, key, or password for Claude, ChatGPT or Google is asked for anywhere in this setup/,
+    pinnedBy: 'the only credential any setup surface collects is the local account password, which never leaves the machine; the provider half is what SHIPMENT-PLAN B14 turns on and no setup surface asks for it',
+  },
+])
+
+test('every absolute claim on screen is registered with the reason it is true', () => {
+  const absolute = /\b(never|nothing|no one|anywhere|always|none)\b/i
+  const claims = walkthroughCopy().filter(sentence => absolute.test(sentence))
+  for (const claim of claims) {
+    const pin = PINNED_ABSOLUTE_CLAIMS.find(entry => entry.match.test(claim))
+    assert.ok(
+      pin,
+      `this sentence promises something absolute and nothing pins it true:\n    "${claim}"\n  Register it in PINNED_ABSOLUTE_CLAIMS with the reason, or soften it. Two sentences of this exact shape went false in one session.`,
+    )
+    assert.ok(pin.pinnedBy.length > 40, 'a pinned claim needs a real reason, not a placeholder')
+  }
+  /* And the pins are not allowed to rot into decoration: a registered claim that
+     no longer appears means the sentence was reworded and its reason was left
+     behind describing nothing. */
+  for (const entry of PINNED_ABSOLUTE_CLAIMS) {
+    assert.ok(
+      claims.some(claim => entry.match.test(claim)),
+      `a claim is pinned here but no longer appears on screen: ${entry.match}. Remove the pin, or restore the sentence.`,
+    )
+  }
+})
+
 test('the setup surfaces claim only what is still true about credentials', () => {
   for (const [name, source] of [['the walkthrough', VIEW], ['the settings section', read('src/setup-profile-settings.js')]]) {
     /* The absolute claim is banned, not merely absent: it read well, it is the
