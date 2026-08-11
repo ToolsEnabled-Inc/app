@@ -4,7 +4,9 @@
 // titlebar strip — the VSCode arrangement: the app owns the top strip, the
 // OS owns min/max/close (which keeps Win11 snap layouts on the maximize
 // button for free).
-const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu, safeStorage, screen } = require('electron')
+/* `shell` is here for exactly one thing: handing a Google sign-in URL to the
+   operating system's default browser. It is never given a URL from the page. */
+const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu, safeStorage, screen, shell: electronShell } = require('electron')
 const http = require('http')
 const https = require('https')
 const net = require('net')
@@ -16,6 +18,8 @@ const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
 const { readAgentConfinement } = require('./agent-confinement-read.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
+const { createGoogleSignIn } = require('./google-signin.cjs')
+const { resolveGoogleSignInConfig } = require('./google-signin-config.cjs')
 const { vaultRecordPresence: readVaultRecordPresence } = require('./vault-presence.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
@@ -25,6 +29,10 @@ const {
   startCapabilityLayer,
   stopCapabilityLayer,
 } = require('./capability-layer.cjs')
+/* Passed back INTO startCapabilityLayer through its own `spawn` seam, so this
+   shell can hold the layer's child from the moment it exists rather than only
+   from the moment it speaks. See capabilityLayerChild. */
+const { spawn: spawnChildProcess } = require('node:child_process')
 const {
   readTierState,
   recordTier,
@@ -241,6 +249,31 @@ let runtimeLegacyFleetProfile = null
    until then. */
 let capabilityLayer = null
 let capabilityLayerStatus = { ok: false, code: 'CAPABILITY_NOT_STARTED', reason: 'The capability layer has not been started yet.' }
+/* THE START, WHILE IT IS STILL HAPPENING.
+ *
+ * The window used to be constructed only after the layer had announced itself,
+ * so "starting" was a state no renderer could ever observe and these two
+ * variables were unnecessary. Measured on this machine, that wait is a median
+ * 525ms (worst 626ms) of a packaged cold start whose whole median is 1503ms --
+ * roughly a third of the launch spent on a subsystem the first screen does not
+ * read. The window is now built while the layer boots, which makes "starting"
+ * observable, and an observable state has to be answered honestly:
+ *
+ *   capabilityLayerStarting  the in-flight promise. Every reader of the layer's
+ *     status awaits it, so nobody is ever told "no capability layer" during the
+ *     window where the truthful answer is "not yet". That is the absence case
+ *     and it is the whole risk of this change: an unstarted layer read as an
+ *     ABSENT one would make a working install report BRIDGE_UNREACHABLE for
+ *     half a second on every launch, which is a lie the renderer would act on.
+ *
+ *   capabilityLayerChild  the child as soon as it EXISTS, rather than only once
+ *     it has spoken. `will-quit` can now arrive mid-start -- a person can close
+ *     the window while the layer is still coming up -- and a child nobody holds
+ *     a handle to is an orphan holding a port in the 4610-4619 discovery range,
+ *     which is precisely the failure the will-quit handler below exists to
+ *     prevent. */
+let capabilityLayerStarting = null
+let capabilityLayerChild = null
 
 function agentIpcError(code, message) {
   const error = new Error(message)
@@ -1786,6 +1819,23 @@ ipcMain.handle('mc-account:change-password', (event, value) =>
     newPassword: typeof value?.newPassword === 'string' ? value.newPassword : '',
   })))
 
+/* THE NAME THIS PROGRAM SHOWS, changed after the fact.
+ *
+ * The one channel on this surface whose absent value is NOT coerced to `''`.
+ * Every other handler above reads a missing string as the empty one, and that
+ * is right for them: an empty password is refused and an empty username is
+ * refused. Here the empty string is a MEANING -- "show me as my username
+ * again" -- so coercing a malformed call into it would silently clear
+ * somebody's name because a field arrived undefined. `null` reaches the store,
+ * which refuses it. Absence read as consent is this codebase's signature
+ * defect and this is precisely the shape of it.
+ *
+ * The slice is the boundary doing its own job. The store bounds it again. */
+ipcMain.handle('mc-account:change-display-name', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().changeDisplayName({
+    displayName: typeof value?.displayName === 'string' ? value.displayName.slice(0, 1024) : null,
+  })))
+
 /* ---------- what belongs to the signed-in account ----------
  *
  * The partition, reached from the page. Same sender check as every other
@@ -1865,6 +1915,137 @@ ipcMain.handle('mc-account:payment-presence', event =>
     }
   }))
 
+/* ---------- SIGN IN WITH GOOGLE ----------
+ *
+ * THE DIRECTION IS THE SAME AS EVERY OTHER ACCOUNT CHANNEL: the page presses a
+ * button, and NOTHING the page sends decides who gets signed in. There is no
+ * parameter on any of these handlers. The identity comes back from Google,
+ * through shell/google-oidc.cjs, which checks the signature, the issuer, the
+ * audience, the expiry and the nonce before it is a name at all -- and
+ * shell/product-account.cjs refuses an identity that did not come out of that
+ * verifier. A page that could hand in an email address would be a page that
+ * could sign in as anybody, so no channel here takes one.
+ *
+ * NOTHING GOOGLE ISSUES REACHES THE PAGE OR THE DISK. The authorization code,
+ * the access token and the id_token exist inside one function call in the main
+ * process and are gone when it returns. What comes back to the renderer is the
+ * same `{ok, code, reason}` shape every other account channel uses.
+ *
+ * ONE ATTEMPT AT A TIME. Pressing the button again cancels the previous attempt
+ * rather than running two loopback listeners -- which is also what a person who
+ * lost the browser window will do, and they should get a fresh window, not a
+ * refusal. */
+let googleSignInAttempt = null
+
+function googleSignInConfig() {
+  return resolveGoogleSignInConfig({
+    userDataDir: app.getPath('userData'),
+    /* The shipped default lives beside the shell inside the package. */
+    appRoot: path.join(__dirname, '..'),
+    env: process.env,
+  })
+}
+
+ipcMain.handle('mc-account:google-availability', event =>
+  withFleetProfileSender(event, () => {
+    const config = googleSignInConfig()
+    if (config.ok !== true) return { ok: false, code: config.code, reason: config.reason }
+    return {
+      ok: true,
+      available: true,
+      source: config.source,
+      /* SAID OUT LOUD, ALWAYS. A build pointed at a test identity provider must
+         never look like a build pointed at Google -- the screen prints this. */
+      testProvider: config.testProvider ? { issuer: config.testProvider.issuer } : null,
+    }
+  }))
+
+ipcMain.handle('mc-account:google-sign-in', event =>
+  withFleetProfileSender(event, async () => {
+    const config = googleSignInConfig()
+    if (config.ok !== true) return { ok: false, code: config.code, reason: config.reason }
+
+    if (googleSignInAttempt) {
+      try { googleSignInAttempt.cancel() } catch { /* already finished */ }
+      googleSignInAttempt = null
+    }
+    const attempt = createGoogleSignIn({
+      clientId: config.clientId,
+      /* THE SYSTEM BROWSER, NOT A WINDOW THIS PROGRAM CAN SEE INTO. The URL is
+         built in shell/google-signin.cjs from constants and freshly generated
+         random values; nothing from the renderer reaches it. */
+      openExternal: url => electronShell.openExternal(url),
+      ...(config.testProvider
+        ? {
+          authorizationEndpoint: config.testProvider.authorizationEndpoint,
+          tokenEndpoint: config.testProvider.tokenEndpoint,
+          jwksUri: config.testProvider.jwksUri,
+          issuers: [config.testProvider.issuer],
+        }
+        : {}),
+    })
+    googleSignInAttempt = attempt
+    let outcome
+    try {
+      outcome = await attempt.run()
+    } finally {
+      if (googleSignInAttempt === attempt) googleSignInAttempt = null
+    }
+    /* EVERY REFUSAL IS SIGNED OUT, AND SAYS WHY. There is no branch below that
+       falls back to another way of signing in: a person whose Google sign-in
+       failed is still signed out, and the screen offers the account on this
+       computer as a choice they make, not as one made for them. */
+    if (!outcome || outcome.ok !== true) {
+      return {
+        ok: false,
+        code: outcome?.code || 'GOOGLE_SIGNIN_FAILED',
+        reason: outcome?.reason || 'The Google sign-in did not complete, so nobody was signed in.',
+      }
+    }
+    const signedIn = await getAccountStore().signInWithGoogle({ identity: outcome.identity })
+    if (!signedIn || signedIn.ok !== true) {
+      return { ok: false, code: signedIn?.code || 'ACCOUNT_GOOGLE_SIGNIN_FAILED', reason: signedIn?.reason || 'The sign-in could not be recorded on this computer, so nobody was signed in.' }
+    }
+    return {
+      ok: true,
+      created: signedIn.created === true,
+      persisted: signedIn.persisted,
+      /* The display name, exactly as `mc-account:sign-in` answers. No token, no
+         subject identifier and no session id crosses. */
+      account: signedIn.account,
+      expiresAtMs: signedIn.expiresAtMs,
+      usedTestProvider: Boolean(config.testProvider),
+    }
+  }))
+
+/* WHERE THE BROWSER WAS SENT, for the attempt that is running right now.
+ *
+ * "The browser did not open" is a real state -- a computer with no default
+ * browser association, or a broken one -- and without this it is a dead end
+ * with a message and nothing to do. The screen shows this address so the person
+ * can open it themselves, which is what every command-line sign-in has always
+ * done.
+ *
+ * It carries no credential: a public client id, a loopback address, a SHA-256
+ * hash of a verifier that never leaves the main process, and this attempt's
+ * single-use state and nonce. It answers `null` the moment the attempt settles,
+ * so nothing can offer a link to a sign-in that is already over. */
+ipcMain.handle('mc-account:google-url', event =>
+  withFleetProfileSender(event, () => {
+    const address = googleSignInAttempt?.authorizationAddress || null
+    return address
+      ? { ok: true, url: address }
+      : { ok: false, code: 'GOOGLE_SIGNIN_NOT_RUNNING', reason: 'No Google sign-in is waiting for a browser just now.' }
+  }))
+
+ipcMain.handle('mc-account:google-cancel', event =>
+  withFleetProfileSender(event, () => {
+    if (!googleSignInAttempt) return { ok: true, cancelled: false }
+    try { googleSignInAttempt.cancel() } catch { /* already finished */ }
+    googleSignInAttempt = null
+    return { ok: true, cancelled: true }
+  }))
+
 /* Two ways to get the bootstrap proof, and the order matters.
  *
  * MC_BRIDGE_PROOF_FILE is the developer path: a bridge was started outside
@@ -1891,7 +2072,10 @@ function currentBridgeProof() {
     : { ok: false, reason: capabilityLayerStatus.reason }
 }
 
-ipcMain.handle('mc-bridge-proof', () => currentBridgeProof())
+ipcMain.handle('mc-bridge-proof', async () => {
+  await capabilityLayerSettled()
+  return currentBridgeProof()
+})
 
 /* Which bridge is legitimately this app's own -- answered by the only party
  * that can know: the shell that started it.
@@ -1931,7 +2115,10 @@ function currentBridgeEndpoint() {
   return { ok: false, source: 'none', reason: capabilityLayerStatus.reason, envProofRefused }
 }
 
-ipcMain.handle('mc-bridge-endpoint', () => currentBridgeEndpoint())
+ipcMain.handle('mc-bridge-endpoint', async () => {
+  await capabilityLayerSettled()
+  return currentBridgeEndpoint()
+})
 
 function currentWorkAreas() {
   try {
@@ -1957,40 +2144,74 @@ function currentWorkAreas() {
  * renderer through the existing bridge-unavailable path -- so an unreachable
  * layer looks to the user exactly like it did before this supervisor existed,
  * with no new surface and nothing new to render. */
-async function startSupervisedCapabilityLayer() {
-  const root = resolveCapabilityRoot()
-  const workspaceRoot = WORKSPACE_ROOT
-  try { fs.mkdirSync(workspaceRoot, { recursive: true }) } catch { /* the layer reports its own refusal */ }
+function startSupervisedCapabilityLayer() {
+  /* Idempotent. The window no longer awaits this before it is built, so the
+     call site and the readers below can both reach it; two layers on two ports
+     is not a performance improvement. */
+  if (capabilityLayerStarting) return capabilityLayerStarting
+  capabilityLayerStarting = (async () => {
+    const root = resolveCapabilityRoot()
+    const workspaceRoot = WORKSPACE_ROOT
+    try { fs.mkdirSync(workspaceRoot, { recursive: true }) } catch { /* the layer reports its own refusal */ }
 
-  const started = await startCapabilityLayer({
-    root,
-    origin: shellOrigin,
-    workspaceRoot,
-    /* Stated, not inherited. The layer would derive the same directory on its
-       own, but a relocated profile (--user-data-dir, a portable install, a test
-       harness) is exactly the case where deriving it twice produces two
-       half-populated state roots. */
-    stateRoot: CAPABILITY_STATE_ROOT,
-  })
-  capabilityLayerStatus = started.ok
-    ? { ok: true, baseUrl: started.baseUrl, port: started.port, pid: started.pid }
-    : { ok: false, code: started.code, reason: started.reason }
+    const started = await startCapabilityLayer({
+      root,
+      origin: shellOrigin,
+      workspaceRoot,
+      /* Stated, not inherited. The layer would derive the same directory on its
+         own, but a relocated profile (--user-data-dir, a portable install, a test
+         harness) is exactly the case where deriving it twice produces two
+         half-populated state roots. */
+      stateRoot: CAPABILITY_STATE_ROOT,
+      /* The spawn seam capability-layer.cjs already exposes, used for the one
+         thing this shell needs that its resolved value cannot give: a handle to
+         the child BEFORE it has announced itself. See capabilityLayerChild. */
+      spawn: (command, args, options) => {
+        const child = spawnChildProcess(command, args, options)
+        capabilityLayerChild = child
+        return child
+      },
+    })
+    capabilityLayerStatus = started.ok
+      ? { ok: true, baseUrl: started.baseUrl, port: started.port, pid: started.pid }
+      : { ok: false, code: started.code, reason: started.reason }
 
-  if (!started.ok) {
-    console.error(`[capability-layer] not started: ${started.code} ${started.reason}`)
+    if (!started.ok) {
+      capabilityLayerChild = null
+      console.error(`[capability-layer] not started: ${started.code} ${started.reason}`)
+      return capabilityLayerStatus
+    }
+
+    capabilityLayer = started
+    /* A layer that dies after a successful start must stop being reported as
+       running. Without this the proof handler would keep reading a proof file
+       for a process that is gone, and the renderer would see an authorization
+       failure instead of an unreachable bridge. */
+    started.child.once('exit', (code) => {
+      if (capabilityLayerChild === started.child) capabilityLayerChild = null
+      if (capabilityLayer !== started) return
+      capabilityLayer = null
+      capabilityLayerStatus = { ok: false, code: 'CAPABILITY_EXITED', reason: `The capability layer exited with code ${code}.` }
+    })
     return capabilityLayerStatus
-  }
+  })()
+  return capabilityLayerStarting
+}
 
-  capabilityLayer = started
-  /* A layer that dies after a successful start must stop being reported as
-     running. Without this the proof handler would keep reading a proof file
-     for a process that is gone, and the renderer would see an authorization
-     failure instead of an unreachable bridge. */
-  started.child.once('exit', (code) => {
-    if (capabilityLayer !== started) return
-    capabilityLayer = null
-    capabilityLayerStatus = { ok: false, code: 'CAPABILITY_EXITED', reason: `The capability layer exited with code ${code}.` }
-  })
+/* THE ANSWER EVERY READER OF THE LAYER'S STATUS MUST WAIT FOR.
+ *
+ * `capabilityLayerStatus` begins life as a refusal -- CAPABILITY_NOT_STARTED --
+ * and that value is now reachable by a renderer, because the window is built
+ * while the layer is still coming up. Handing it out would be this codebase's
+ * signature defect pointed at the bridge: a state that means "not yet" read as
+ * a state that means "there is none". So the readers await the start they know
+ * is in flight, and only a start that has actually SETTLED can produce a
+ * refusal. A launch where the layer was never started at all still answers
+ * immediately, with the same refusal it always gave. */
+async function capabilityLayerSettled() {
+  if (capabilityLayerStarting) {
+    try { await capabilityLayerStarting } catch { /* the status field carries the outcome */ }
+  }
   return capabilityLayerStatus
 }
 
@@ -2011,7 +2232,20 @@ async function createWindow() {
   const server = await serveDist()
   const port = server.address().port
   shellOrigin = `http://127.0.0.1:${port}`
-  await startSupervisedCapabilityLayer()
+  /* STARTED HERE, AWAITED AT THE BOTTOM. Not a micro-optimisation: this line
+     used to be `await`ed, and everything below it -- constructing the window,
+     Chromium creating a renderer, parsing 1.3MB of application -- waited on a
+     node process booting the mission bridge, opening its vault and binding a
+     port. Measured on this machine that is a median 525ms of a 1503ms cold
+     start, spent showing nothing. The two are independent: the layer needs
+     only `shellOrigin`, which the line above just produced, and the first
+     screen reads nothing from the layer. So they now run at the same time.
+
+     createWindow()'s contract is unchanged -- it still does not resolve until
+     the layer has settled -- so every caller and every startup gate downstream
+     of it sees exactly what it saw before. What changed is only WHEN the
+     person gets their window. */
+  const capabilityLayerStart = startSupervisedCapabilityLayer()
 
   const window = new BrowserWindow({
     ...state.bounds,
@@ -2069,6 +2303,12 @@ async function createWindow() {
     if (closeRequested && (window.isDestroyed() || win !== window)) return
     throw error
   }
+  /* The other half of the concurrency above. Awaited AFTER the window is on
+     screen and loaded, so the wait costs the person nothing, and awaited at
+     all so that a caller which has seen createWindow() resolve can still rely
+     on the layer having settled -- the same guarantee it had when this was the
+     first thing that happened. */
+  await capabilityLayerStart
 }
 
 /* The renderer reports its REAL composited surface colours whenever the
@@ -2128,8 +2368,14 @@ wireSingleInstance({
    belonging to a dead app -- a live listener that is the wrong listener, which
    is a mistake this project has already made once at the service level. */
 app.on('will-quit', () => {
-  const child = capabilityLayer?.child
+  /* `capabilityLayerChild` covers the case `capabilityLayer` cannot: a quit
+     that lands while the layer is still starting. Since the window is built
+     concurrently with that start, a person closing it during launch is an
+     ordinary event, and the child they would leave behind is exactly the
+     orphaned port-holder this handler exists to prevent. */
+  const child = capabilityLayer?.child || capabilityLayerChild
   capabilityLayer = null
+  capabilityLayerChild = null
   /* Killed SYNCHRONOUSLY, before the promise-based helper is allowed to await
      anything. `will-quit` is the last point at which this process is still
      alive to act, and an awaited kill can lose the race with app teardown --
