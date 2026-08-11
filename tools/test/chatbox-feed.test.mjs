@@ -215,30 +215,45 @@ const SESSION_INPUTS = [
   ['many runs', historyReply(7)],
 ]
 
+/* Other computers connected and ANSWERING, versus connected and silent. Two
+   states, not one, and the second was missing until the page 2 lane asked
+   whether my walk could actually reach both sides of what it was asserting.
+   It could for the kinds, and could not for this: every combination here set a
+   health reading whenever a fleet was configured, so HOME_MODES.FLEET_UNREACHABLE
+   was generated zero times in 432 rows. Five of the six modes were being walked
+   across every value of these two settings and the sixth across none of them,
+   which is the same "generates the state, asserts nothing" hole one level up --
+   except here it did not even generate it. */
+const HEALTH_INPUTS = [
+  ['answering', { available: true, atMs: NOW - minutes(3), total: 4, ok: 4, down: 0, unknown: 0 }],
+  ['silent', null],
+]
+
 function everyCombination() {
   const out = []
   for (const sample of [false, true]) {
     for (const fleetConfigured of [false, true]) {
-      for (const [runsLabel, mode] of RUNS_MODES.map(entry => [entry.id, entry.id])) {
-        for (const [selectionLabel, selection] of SELECTIONS) {
-          for (const [speakingLabel, agentsInSource] of SPEAKING) {
-            for (const [sessionLabel, sessionRaw] of SESSION_INPUTS) {
-              out.push({
-                label: `sample=${sample} fleet=${fleetConfigured} runs=${runsLabel} agents=${selectionLabel} talking=${speakingLabel} record=${sessionLabel}`,
-                input: {
-                  sample,
-                  fleetConfigured,
-                  fleetHealth: fleetConfigured
-                    ? { available: true, atMs: NOW - minutes(3), total: 4, ok: 4, down: 0, unknown: 0 }
-                    : null,
-                  peer: null,
-                  sessions: readLocalSessions(sessionRaw),
-                  engine: readAgentEngine({ ok: true }),
-                  approvals: { readable: true, count: 0 },
-                  chatbox: { runsMode: mode, selection, agentsInSource },
-                  nowMs: NOW,
-                },
-              })
+      for (const [healthLabel, fleetHealth] of HEALTH_INPUTS) {
+        for (const mode of RUNS_MODES.map(entry => entry.id)) {
+          for (const [selectionLabel, selection] of SELECTIONS) {
+            for (const [speakingLabel, agentsInSource] of SPEAKING) {
+              for (const [sessionLabel, sessionRaw] of SESSION_INPUTS) {
+                out.push({
+                  label: `sample=${sample} fleet=${fleetConfigured} health=${healthLabel} runs=${mode} `
+                    + `agents=${selectionLabel} talking=${speakingLabel} record=${sessionLabel}`,
+                  input: {
+                    sample,
+                    fleetConfigured,
+                    fleetHealth: fleetConfigured ? fleetHealth : null,
+                    peer: null,
+                    sessions: readLocalSessions(sessionRaw),
+                    engine: readAgentEngine({ ok: true }),
+                    approvals: { readable: true, count: 0 },
+                    chatbox: { runsMode: mode, selection, agentsInSource },
+                    nowMs: NOW,
+                  },
+                })
+              }
             }
           }
         }
