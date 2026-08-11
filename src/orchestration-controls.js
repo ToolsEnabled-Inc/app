@@ -157,12 +157,20 @@ export const UNSUPPORTED_CONTROLS = Object.freeze([
     reason: 'Fixed at Read, Edit, Write, Glob, Grep for a Claude lane, and absent entirely for a Codex lane. Both are string literals in the argv builder, not parameters.',
     evidence: 'capability/src/lib/mission-bridge/actions.js:463',
   }),
-  Object.freeze({
-    id: 'custom-role-id',
-    label: 'Invented role names',
-    reason: 'A role must be one of the nine the engine declares. A role outside that list is refused when the organization is loaded, so a box that accepted a new name would produce a file the engine rejects.',
-    evidence: 'capability/src/lib/agent-org.js:120',
-  }),
+  /* REMOVED, BECAUSE IT STOPPED BEING TRUE.
+     This list carried an entry saying invented role names were impossible --
+     "a role must be one of the nine the engine declares... a box that accepted
+     a new name would produce a file the engine rejects." That was correct when
+     written and false the moment the org store gained knownRoles(), which feeds
+     custom roles into normalizeOrg. Custom roles are now created, stored and
+     assigned from this very rail.
+
+     The entry is deleted rather than reworded. This list's whole job is naming
+     things the product genuinely cannot do, and the value of that honesty is
+     that every entry is load-bearing. A capability that starts working leaves
+     the list; it does not get a softer sentence. An impossibility claim printed
+     directly above a working control that performs it is worse than no claim at
+     all, because it teaches a reader that the other entries are decoration too. */
 ])
 
 /* THE NINE ROLES THE ENGINE ACTUALLY ACCEPTS.
