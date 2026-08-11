@@ -52,6 +52,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
+import { countEnvironmentKeys, readEnvironmentVariable } from './lib/windows-environment.mjs'
 
 const require = createRequire(import.meta.url)
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -192,10 +193,28 @@ for (const [label, makePlan] of [
       const { call } = await startAndCapture(makePlan(workdir), `keep-${label.replace(/\s+/g, '-')}`)
       assert.equal(call.env.MC_LAUNCH_ENV_FIXTURE_KEEP, 'must-survive',
         `an unrelated variable was dropped at ${label}: the scrub is filtering rather than removing a named list`)
+
+      // WINDOWS ENV KEYS ARE CASE-INSENSITIVE; A SPREAD COPY'S KEYS ARE NOT.
+      // `call.env` is a plain object -- the scrub returns `{ ...baseEnvironment }`
+      // -- and on this host the underlying key is literally lowercase `path`.
+      // So `call.env.PATH` is undefined while `process.env.PATH` resolves
+      // through Node's case-insensitive host proxy, and the comparison this
+      // assertion used to make (`call.env.PATH === process.env.PATH`) was FALSE
+      // on every run regardless of what the product did. A guard that is red
+      // unconditionally cannot report the regression it exists for. Measured
+      // and explained in tools/test/lib/windows-environment.mjs.
+      //
+      // Fail closed before comparing: with no PATH in the parent, both sides
+      // would be undefined and the equality below would pass proving nothing.
+      assert.equal(
+        typeof process.env.PATH === 'string' && process.env.PATH.length > 0, true,
+        'the parent process has no PATH, so the pass-through assertion below would be satisfied by two undefineds and prove nothing')
+      assert.equal(countEnvironmentKeys(call.env, 'PATH'), 1,
+        `the child environment at ${label} does not carry exactly one PATH key. Zero means the scrub REMOVED it, which breaks the executable resolution that finds codex on Windows; more than one means the scrub emitted case-variant duplicates and which value the child resolves is then unspecified`)
       // Compared as a boolean on purpose: a value comparison prints both PATHs
       // on failure, and this machine's PATH is full of the owner's home
       // directory. Same rule as the credential assertions -- no values in logs.
-      assert.equal(call.env.PATH === process.env.PATH, true,
+      assert.equal(readEnvironmentVariable(call.env, 'PATH') === process.env.PATH, true,
         `PATH was altered at ${label}, which breaks the executable resolution that finds codex on Windows`)
     } finally {
       rmSync(workdir, { recursive: true, force: true })

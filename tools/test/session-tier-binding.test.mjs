@@ -22,6 +22,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
+import { countEnvironmentKeys, readEnvironmentVariable } from './lib/windows-environment.mjs'
 
 const require = createRequire(import.meta.url)
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -66,7 +67,20 @@ test('the recorded level reaches the engine as thread options, not as a comment'
       assert.equal(call.env.CODEX_HOME, plan.env.CODEX_HOME)
       // The environment is EXTENDED, not replaced: dropping PATH/APPDATA would
       // break the very resolution that finds codex on Windows.
-      assert.equal(call.env.PATH, process.env.PATH)
+      //
+      // Read case-INSENSITIVELY. `call.env` is a plain object and on this host
+      // the real key is lowercase `path`, so the previous `call.env.PATH`
+      // compared `undefined` against the string `process.env.PATH` resolves to
+      // through Node's case-insensitive proxy -- false on every run, whatever
+      // the product did. See tools/test/lib/windows-environment.mjs.
+      assert.equal(
+        typeof process.env.PATH === 'string' && process.env.PATH.length > 0, true,
+        'the parent process has no PATH, so the assertion below would compare two undefineds and prove nothing')
+      assert.equal(countEnvironmentKeys(call.env, 'PATH'), 1,
+        'the child environment does not carry exactly one PATH key: zero means it was dropped, breaking the resolution that finds codex on Windows')
+      // Boolean comparison: a value comparison would print the owner's PATH.
+      assert.equal(readEnvironmentVariable(call.env, 'PATH') === process.env.PATH, true,
+        'PATH was altered: the environment was replaced rather than extended, which breaks the resolution that finds codex on Windows')
       // The caller can see which level the session actually runs at.
       assert.equal(started.tier, 'guided')
       await host.closeAll()

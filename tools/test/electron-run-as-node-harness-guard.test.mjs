@@ -24,16 +24,49 @@
 // guard is the rule: it derives the set of harnesses that launch the GUI app
 // and fails if any one of them does not neutralise the variable.
 //
-// WHAT COUNTS AS LAUNCHING THE GUI APP. A file qualifies when it both spawns a
-// process and names the packaged executable. Naming it means a "Mission
-// Control.exe" literal, the APP_EXE constant, or importing 'electron' (in a
-// plain-Node context require('electron') returns the binary path, which is
-// precisely how shell/launch.cjs obtains it).
+// ---------------------------------------------------------------------------
+// TWO DEFECTS IN THIS GUARD ITSELF, both fixed below. Recorded because each is
+// a shape that recurs, and because a guard nobody can trust gets suppressed.
+//
+// DEFECT 1 -- CO-OCCURRENCE READ AS CAUSATION (a false positive, measured).
+//   The old rule was: the file contains a spawn ANYWHERE, and the file mentions
+//   the GUI exe ANYWHERE. Those are two independent facts about a file, and
+//   ANDing them does not yield "this file spawns the GUI exe".
+//   tools/test/artifact-seal.test.mjs was reported as an unprotected launcher.
+//   It launches nothing. It spawns `process.execPath` (plain Node, to run the
+//   sealing tool under test) and it WRITES a fixture file that happens to be
+//   named ToolsEnabled.exe:
+//       spawnSync(process.execPath, [TOOL, mode, directory], ...)
+//       writeFileSync(path.join(artifact, 'ToolsEnabled.exe'), 'binary\n')
+//   A guard that is red about a file with no hazard trains everyone to add a
+//   suppression, and the next suppression hides a real one.
+//   THE FIX: ask whether the exe reaches a spawn as its COMMAND. The command
+//   expression of each spawn call is extracted, and identifiers are traced back
+//   to the expressions that bind them, so `const exe = path.join(dir, APP_EXE)`
+//   followed by `spawn(exe, ...)` still counts while `spawn(process.execPath)`
+//   in a file that merely writes the name does not.
+//
+// DEFECT 2 -- THE NEUTRALISATION CHECK READ COMMENTS (a false negative).
+//   `NEUTRALISES_THE_VARIABLE` was tested against the whole file text, comments
+//   included. This very header contains the literal
+//   `delete <env>.ELECTRON_RUN_AS_NODE` idiom as documentation. Any harness
+//   that DESCRIBED the strip in a comment without performing it would have been
+//   accepted as protected -- and prose about a protection is exactly what a
+//   half-finished harness carries. Comment lines are now removed before the
+//   neutralisation patterns run.
+// ---------------------------------------------------------------------------
+//
+// WHAT COUNTS AS LAUNCHING THE GUI APP. A file qualifies when it spawns a
+// process whose COMMAND names the packaged executable. Naming it means a
+// "ToolsEnabled.exe" literal, the APP_EXE constant, or importing 'electron' (in
+// a plain-Node context require('electron') returns the binary path, which is
+// precisely how shell/launch.cjs obtains it) -- either written directly at the
+// call site or reached through a chain of local bindings.
 //
 // WHAT COUNTS AS NEUTRALISING IT. Three idioms are accepted because all three
 // are in use and all three are correct:
 //   1. `delete <env>.ELECTRON_RUN_AS_NODE`  -- shell/launch.cjs:9,
-//                                              tools/smoke-packaged.mjs:200
+//                                              tools/smoke-packaged.mjs:248
 //   2. `guiEnvironment(...)`                -- the shared helper exported from
 //                                              shell/capability-layer.cjs:86,
 //                                              used by capability-acceptance
@@ -43,16 +76,25 @@
 // WHAT IS DELIBERATELY NOT FLAGGED. shell/capability-layer.cjs SETS
 // ELECTRON_RUN_AS_NODE=1 on purpose (line 78): it reuses Electron's own binary
 // as the Node runtime for the capability layer, so no second Node ships. It
-// spawns process.execPath and never names the GUI exe, so it does not match,
-// which is the correct answer rather than a suppression. If a future file both
-// names the GUI exe and sets the variable, it will be reported -- that
-// combination is the actual bug this guard exists to catch.
+// spawns process.execPath and never names the GUI exe as a command, so it does
+// not match, which is the correct answer rather than a suppression. If a future
+// file both spawns the GUI exe and sets the variable, it will be reported --
+// that combination is the actual bug this guard exists to catch.
 //
 // FAIL-CLOSED. A scan that matches nothing must never read as a pass; that is
 // the same rule tools/check-suites-discovered.mjs applies to the test glob and
 // tools/check-no-owner-data.mjs applies to itself. So this asserts that files
-// were actually read, that at least one launcher was found, and that the two
-// launchers the ship path depends on are among them.
+// were actually read, that at least one launcher was found, that the two
+// launchers the ship path depends on are among them, and -- new with the
+// precise detector -- that every spawn call site in the tree could actually be
+// parsed, because a call site the extractor gives up on is a call site nobody
+// is checking.
+//
+// PROVEN AGAINST ITS OWN DEFECT. The classifier is exercised below against
+// inline fixtures, including the exact artifact-seal shape that produced the
+// false positive and a genuine unprotected launcher that must still be caught.
+// Without those, "I fixed the false positive" is a claim about a run that
+// happened once on somebody's machine.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -99,7 +141,7 @@ const ALLOWLIST_ENVIRONMENT_HARNESSES = new Map([
     'sterileEnvironment() returns a fixed-key literal and sets ELECTRON_RUN_AS_NODE=1 deliberately, to run the binary as node with an explicit -e script.'],
 ])
 
-const SPAWNS_A_PROCESS = /(?:^|[^\w.])(?:spawn|spawnSync|execFile|execFileSync)\s*\(|\.\s*spawn\s*\(/
+// Expressions that denote the packaged GUI executable.
 const NAMES_THE_GUI_EXE = [
   /(['"`])ToolsEnabled\.exe\1/,
   /\bAPP_EXE\b/,
@@ -107,10 +149,134 @@ const NAMES_THE_GUI_EXE = [
   /from\s+['"]electron['"]/,
 ]
 const NEUTRALISES_THE_VARIABLE = [
-  /delete\s+[A-Za-z_$][\w$.]*\.ELECTRON_RUN_AS_NODE/,
+  /delete\s+[A-Za-z_$][\w$]*(?:\.[\w$]+)*\.ELECTRON_RUN_AS_NODE/,
   /guiEnvironment\s*\(/,
   /startsWith\(\s*['"]ELECTRON_/,
 ]
+
+// Any call to one of the process-spawning functions, including the
+// `dependencies.spawn(...)` member form used by tools/smoke-packaged.mjs.
+const SPAWN_CALL = /\b(spawn|spawnSync|execFile|execFileSync)\s*\(/g
+
+// `const x = <expr>` / `let` / `var`, including an `export const` prefix. The
+// initializer is taken to the end of the logical line, which is enough for the
+// single-line binding forms every launcher in this repo uses.
+const LOCAL_BINDING = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([^\n;]*)/g
+
+// `import electron from 'electron'`, `import { app } from 'electron'` -- the
+// bound names all denote the Electron module, which in a plain-Node context is
+// the binary path.
+const ELECTRON_IMPORT = /import\s+([^;\n]*?)\s+from\s+['"]electron['"]/g
+
+function escapeForRegExp(literal) {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
+}
+
+// Comment lines are removed before the neutralisation patterns run (DEFECT 2).
+// Whole-line stripping only: it covers the documentation-header shape that
+// caused the problem without the risk of mangling a regex literal or a URL
+// inside a string, which a naive inline comment stripper does.
+function withoutCommentLines(source) {
+  return source
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim()
+      return !(trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*'))
+    })
+    .join('\n')
+}
+
+// The text of a call's FIRST argument, given the index of its `(`.
+// Returns null when the call is unbalanced within the file, which the caller
+// reports rather than swallows -- an unreadable call site is an unchecked one.
+function firstArgumentText(source, openParenIndex) {
+  let depth = 0
+  let quote = null
+  for (let index = openParenIndex; index < source.length; index += 1) {
+    const character = source[index]
+    if (quote !== null) {
+      if (character === '\\') { index += 1; continue }
+      if (character === quote) quote = null
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') { quote = character; continue }
+    if (character === '(' || character === '[' || character === '{') { depth += 1; continue }
+    if (character === ')' || character === ']' || character === '}') {
+      depth -= 1
+      if (depth === 0) return source.slice(openParenIndex + 1, index)
+      continue
+    }
+    if (character === ',' && depth === 1) return source.slice(openParenIndex + 1, index)
+  }
+  return null
+}
+
+function referencesIdentifier(expression, name) {
+  // Excluding a preceding `.` keeps `process.execPath` from matching a binding
+  // called `exec`, and keeps a property named `exe` from matching a local `exe`.
+  return new RegExp(`(?:^|[^\\w$.])${escapeForRegExp(name)}(?:$|[^\\w$])`).test(expression)
+}
+
+function denotesTheGuiExe(expression, taintedNames) {
+  if (NAMES_THE_GUI_EXE.some((pattern) => pattern.test(expression))) return true
+  for (const name of taintedNames) {
+    if (referencesIdentifier(expression, name)) return true
+  }
+  return false
+}
+
+// Local names that carry the GUI executable, to a fixpoint, so a chain such as
+//   const APP_EXE = 'ToolsEnabled.exe'
+//   const executable = path.join(appDirectory, APP_EXE)
+// taints `executable` as well.
+function guiExeIdentifiers(source) {
+  const tainted = new Set()
+
+  for (const match of source.matchAll(ELECTRON_IMPORT)) {
+    for (const name of match[1].matchAll(/[A-Za-z_$][\w$]*/g)) {
+      if (name[0] !== 'as' && name[0] !== 'from') tainted.add(name[0])
+    }
+  }
+
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const match of source.matchAll(LOCAL_BINDING)) {
+      const [, name, initializer] = match
+      if (tainted.has(name)) continue
+      if (denotesTheGuiExe(initializer, tainted)) {
+        tainted.add(name)
+        changed = true
+      }
+    }
+  }
+  return tainted
+}
+
+/**
+ * The core judgement, exported from the module scope so the tests below can run
+ * it against inline fixtures as well as against real files.
+ */
+export function classifySource(source) {
+  const tainted = guiExeIdentifiers(source)
+  const code = withoutCommentLines(source)
+
+  let spawnsTheGuiExe = false
+  let unparseableSpawnCall = false
+  SPAWN_CALL.lastIndex = 0
+  for (const match of code.matchAll(SPAWN_CALL)) {
+    const openParenIndex = match.index + match[0].length - 1
+    const command = firstArgumentText(code, openParenIndex)
+    if (command === null) { unparseableSpawnCall = true; continue }
+    if (denotesTheGuiExe(command, tainted)) spawnsTheGuiExe = true
+  }
+
+  return {
+    spawnsTheGuiExe,
+    unparseableSpawnCall,
+    neutralised: NEUTRALISES_THE_VARIABLE.some((pattern) => pattern.test(code)),
+  }
+}
 
 function toPosix(absolute) {
   return path.relative(REPO_ROOT, absolute).split(path.sep).join('/')
@@ -139,16 +305,15 @@ async function scan() {
   for (const root of SCAN_ROOTS) files.push(...(await walk(path.join(REPO_ROOT, root))))
 
   const launchers = []
+  const unparseable = []
   for (const absolute of files.sort()) {
     const source = await readFile(absolute, 'utf8')
-    if (!SPAWNS_A_PROCESS.test(source)) continue
-    if (!NAMES_THE_GUI_EXE.some((pattern) => pattern.test(source))) continue
-    launchers.push({
-      file: toPosix(absolute),
-      neutralised: NEUTRALISES_THE_VARIABLE.some((pattern) => pattern.test(source)),
-    })
+    const verdict = classifySource(source)
+    if (verdict.unparseableSpawnCall) unparseable.push(toPosix(absolute))
+    if (!verdict.spawnsTheGuiExe) continue
+    launchers.push({ file: toPosix(absolute), neutralised: verdict.neutralised })
   }
-  return { scannedCount: files.length, launchers }
+  return { scannedCount: files.length, launchers, unparseable }
 }
 
 test('the scan actually reads this repo (a vacuous pass is not a pass)', async () => {
@@ -161,6 +326,20 @@ test('the scan actually reads this repo (a vacuous pass is not a pass)', async (
     launchers.length > 0,
     'found no file that launches the packaged GUI app. Either the harnesses moved out of ' +
       `${SCAN_ROOTS.join('/, ')}/ or the detection patterns drifted; both make this guard silently useless.`,
+  )
+})
+
+test('every spawn call site in the tree could actually be parsed', async () => {
+  // Fail-closed for the extractor. A call whose argument list this cannot read
+  // is a call whose command is unknown, and an unknown command must never be
+  // silently assumed harmless -- that is precisely how a launcher would slip
+  // past the precise detector that replaced the old co-occurrence one.
+  const { unparseable } = await scan()
+  assert.deepEqual(
+    unparseable,
+    [],
+    `the first argument of a spawn call could not be extracted in: ${unparseable.join(', ')}. ` +
+      'Those call sites are NOT being checked. Either simplify the call or extend firstArgumentText().',
   )
 })
 
@@ -208,4 +387,74 @@ test('every harness that launches the packaged app strips ELECTRON_RUN_AS_NODE',
       "or `env: guiEnvironment(process.env)` from shell/capability-layer.cjs (preferred -- do not " +
       'reimplement it from memory).',
   )
+})
+
+/* ---------- the classifier is proven against its own failure modes ---------- */
+//
+// Everything above measures the repo as it is today, so it goes green the
+// moment the tree happens to be clean -- including if the detector silently
+// stopped detecting. These fixtures pin the DISCRIMINATION itself: the shape
+// that must be caught, and the shape that must not be flagged.
+
+test('a harness that spawns the GUI exe without stripping the variable is caught', () => {
+  const verdict = classifySource(`
+    import { spawn } from 'node:child_process'
+    const APP_EXE = 'ToolsEnabled.exe'
+    const exe = path.join(directory, APP_EXE)
+    spawn(exe, ['--smoke'], { env: { ...process.env } })
+  `)
+  assert.equal(verdict.spawnsTheGuiExe, true,
+    'the detector no longer recognises a spawn whose command is bound from APP_EXE -- the guard is blind to the exact harness it exists to police')
+  assert.equal(verdict.neutralised, false,
+    'a harness that never mentions ELECTRON_RUN_AS_NODE was reported as neutralising it')
+})
+
+test('a harness that strips the variable is recognised as protected', () => {
+  const verdict = classifySource(`
+    const { spawn } = require('child_process')
+    const env = { ...process.env }
+    delete env.ELECTRON_RUN_AS_NODE
+    const exe = require('electron')
+    spawn(exe, [script], { env })
+  `)
+  assert.equal(verdict.spawnsTheGuiExe, true, 'require("electron") as a spawn command is a GUI launch and must still be detected')
+  assert.equal(verdict.neutralised, true, 'the accepted `delete env.ELECTRON_RUN_AS_NODE` idiom was not recognised, which would report a correct harness as an offender')
+})
+
+test('spawning plain Node in a file that merely writes a file named like the exe is NOT a launcher', () => {
+  // The measured false positive, kept as a fixture. tools/test/artifact-seal.test.mjs
+  // was reported as an unprotected launcher on the strength of these two lines
+  // co-occurring anywhere in the same file.
+  const verdict = classifySource(`
+    import { spawnSync } from 'node:child_process'
+    spawnSync(process.execPath, [TOOL, mode, directory], { encoding: 'utf8' })
+    writeFileSync(path.join(artifact, 'ToolsEnabled.exe'), 'binary\\n')
+  `)
+  assert.equal(verdict.spawnsTheGuiExe, false,
+    'a file that spawns process.execPath and only WRITES a file named ToolsEnabled.exe was classified as a GUI launcher again -- this is the co-occurrence bug returning, and it makes the guard red about a file with no hazard')
+})
+
+test('a comment describing the strip does not count as performing it', () => {
+  // The measured false negative. The patterns used to run against the whole
+  // file text, and this guard's own header documents the idiom in prose.
+  const verdict = classifySource(`
+    import { spawn } from 'node:child_process'
+    const APP_EXE = 'ToolsEnabled.exe'
+    // We delete env.ELECTRON_RUN_AS_NODE before launching, see the design note.
+    spawn(APP_EXE, ['--smoke'], { env: process.env })
+  `)
+  assert.equal(verdict.spawnsTheGuiExe, true, 'the fixture must be a launcher for this test to be about anything')
+  assert.equal(verdict.neutralised, false,
+    'a harness that only DESCRIBES the strip in a comment was accepted as protected -- prose about a protection is what a half-finished harness carries')
+})
+
+test('an unbalanced spawn call is reported rather than assumed harmless', () => {
+  // No top-level comma and no closing paren, so the command expression never
+  // terminates. `spawn(exe, [` would NOT qualify -- the comma ends the first
+  // argument and `exe` is read out fine, which is the extractor working.
+  const verdict = classifySource('const child = spawn(resolveExe(root, name)')
+  assert.equal(verdict.unparseableSpawnCall, true,
+    'a spawn call the extractor cannot read was silently skipped, so its command is unchecked and a launcher could hide there')
+  assert.equal(verdict.spawnsTheGuiExe, false,
+    'an unreadable call must not be GUESSED to be a launch either; it is reported by its own test, not folded into the offender list')
 })
