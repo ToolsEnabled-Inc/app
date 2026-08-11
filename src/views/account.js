@@ -116,6 +116,10 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
   async function refresh() {
     state = await loadAccountState()
     if (destroyed) return
+    /* Tell the settings store who is signed in now, so the appearance, the
+       settings page and the purchase selection follow the account rather than
+       the computer. Optional: absent in a plain browser, and a no-op there. */
+    try { if (globalThis.mcDurableStorage) globalThis.mcDurableStorage.onAccountChanged() } catch (error) { /* storage layer is optional */ }
     /* The mode follows the facts on the first read only. A computer with no
        account opens on "create"; one that has accounts opens on "sign in", so
        the common case is one field and a password. */

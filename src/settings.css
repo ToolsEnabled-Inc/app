@@ -26,6 +26,17 @@
   border-radius: var(--r-md);
 }
 
+/* A FLOATING NOTICE MUST NOT SIT ON TOP OF THE OPEN DRAWER.
+   The fleet-profile notice is position:fixed at z-index 190, above the drawer's
+   80, pinned to the same bottom-right corner as this "all settings" link. On
+   every route where the notice shows (home hides it; the settings route does
+   not) it painted over the link, so a person who opened the drawer there could
+   not press it -- measured by tools/account-isolation-leak-qa.mjs. The drawer is
+   a modal that takes focus while it is open, so the notice has nothing to add
+   until it closes; it is hidden for exactly that span rather than moved or
+   restyled. */
+body:has(#drawer.open) .fleet-profile-notice { display: none; }
+
 .settings-shell {
   width: 100%;
   max-width: var(--page-max);
