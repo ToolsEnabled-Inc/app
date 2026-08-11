@@ -30,7 +30,9 @@
  * silently stopped holding is worse than no proof.
  */
 import { spawn, execFile as execFileCallback } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -38,6 +40,12 @@ import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
+
+/* The record file name comes from the store itself rather than being spelled
+   again here. If it is ever renamed, the damaged-record scenario below fails
+   loudly with "no durable record to damage" instead of quietly looking for a
+   file that no longer exists and finding nothing to worry about. */
+const { RECORD_FILE } = createRequire(import.meta.url)('../shell/renderer-prefs.cjs')
 
 export const APP_EXE = 'ToolsEnabled.exe'
 const APP_ORIGIN_PATTERN = /^http:\/\/127\.0\.0\.1:(\d+)\//
@@ -484,6 +492,116 @@ async function freshInstallScenario(context) {
   }
 }
 
+/* SCENARIO FOUR -- THE SETTINGS FILE THE BUILD CANNOT READ.
+ *
+ * The first three scenarios all prove that a setting survives when everything
+ * works. This one is about the layer underneath them, and it is the same defect
+ * class one floor down: the port change made the settings unREACHABLE, and this
+ * makes them unREADABLE, and both used to end with the person's choices gone
+ * and nothing said about it.
+ *
+ * MEASURED ON THE STORE BEFORE THE FIX THIS SCENARIO GUARDS: a record holding
+ * mc.theme, mc.text, mc.live.fleet and a drained-origin history, made
+ * unparseable, was reported internally as damaged, read as zero settings, and
+ * the very next write returned {ok:true} having replaced the whole file with
+ * the single key just written. Nothing was left anywhere on disk. The store's
+ * own comment said this must not happen, and the two sibling stores in this
+ * repository (capability/src/lib/durable-memory-file.js and
+ * capability/src/lib/agent-org-store.js) both refuse the write; this one was
+ * copied from the first of those and the check did not come with the comment.
+ *
+ * THE ASSERTION IS ON BYTES, NOT ON A CODE PATH. A damaged file is planted with
+ * a known sha256, the packaged application is started on it and asked to change
+ * a setting, and the profile directory is then searched for those exact bytes.
+ * "The settings the application could not read are still on this disk" is the
+ * only property a person cares about, and it cannot be satisfied by a log line.
+ *
+ * It also requires the application to KEEP WORKING. Refusing every write
+ * forever would preserve the bytes and brick the settings, which is why the
+ * store sets the unreadable file aside instead of refusing outright -- and why
+ * this scenario fails if the change threw.
+ */
+async function damagedRecordScenario(context) {
+  const { executable, appDirectory, timeoutMs, log } = context
+  const profileDirectory = await mkdtemp(path.join(tmpdir(), 'te-prefs-damaged-'))
+  let first = null
+  let second = null
+  try {
+    first = await launchApp({ executable, appDirectory, profileDirectory, timeoutMs, log })
+    await first.session.evaluate(writeProbe(PROBE_SETTINGS))
+    const writtenBack = await first.session.evaluate(readProbe)
+    const writeFailures = compare(writtenBack, 'read back as')
+    if (writeFailures.length) {
+      return { name: 'a settings file the build cannot read', ok: false, reason: `the FIRST launch could not even store its own settings, so this run proves nothing:\n  ${writeFailures.join('\n  ')}` }
+    }
+    first.session.close()
+    await killTree(first.child)
+    first = null
+
+    const recordFile = path.join(profileDirectory, RECORD_FILE)
+    let stored
+    try {
+      stored = await readFile(recordFile)
+    } catch (error) {
+      return {
+        name: 'a settings file the build cannot read',
+        ok: false,
+        reason: `the packaged build stored no ${RECORD_FILE} in its userData directory (${error.code}), so there was no durable record to damage. `
+          + 'Either the durable store is not in this build or it does not live where this scenario looks; both make the other scenarios worth re-reading.',
+      }
+    }
+    /* The planted damage must be damage to something REAL. A file that never
+       held the probe settings would be "preserved" trivially and the scenario
+       would pass while proving nothing. */
+    const missing = PROBE_SETTINGS.filter((setting) => {
+      try { return JSON.parse(stored.toString('utf8')).values[setting.key] !== setting.value } catch { return true }
+    })
+    if (missing.length) {
+      return { name: 'a settings file the build cannot read', ok: false, reason: `the stored record does not hold ${missing.map((setting) => setting.key).join(', ')}, so damaging it would not put anything at risk and the scenario would pass vacuously.` }
+    }
+
+    /* A torn tail rather than a scrambled file, because that is what a real
+       one looks like: valid settings followed by bytes that stop it parsing. */
+    const damaged = Buffer.concat([stored, Buffer.from(' <- damaged tail planted by prefs-origin-proof\n', 'utf8')])
+    await writeFile(recordFile, damaged)
+    const damagedHash = createHash('sha256').update(damaged).digest('hex')
+    log(`[prefs-origin-proof] planted an unreadable ${RECORD_FILE} (sha256 ${damagedHash.slice(0, 12)})`)
+
+    second = await launchApp({ executable, appDirectory, profileDirectory, timeoutMs, log })
+    const changed = await second.session.evaluate(`(() => {
+      try { localStorage.setItem('mc.theme', 'white'); return 'saved' }
+      catch (error) { return 'THREW:' + String(error && error.message || error) }
+    })()`)
+    second.session.close()
+    await killTree(second.child)
+    second = null
+
+    const survivors = []
+    for (const name of await readdir(profileDirectory)) {
+      if (!name.startsWith('renderer-prefs')) continue
+      const bytes = await readFile(path.join(profileDirectory, name)).catch(() => null)
+      if (bytes && createHash('sha256').update(bytes).digest('hex') === damagedHash) survivors.push(name)
+    }
+
+    const failures = []
+    if (!survivors.length) {
+      failures.push(`the relaunch REPLACED the settings file it could not read: the planted record (sha256 ${damagedHash.slice(0, 12)}) is in no file under userData, so ${PROBE_SETTINGS.map((setting) => setting.key).join(', ')} are gone with it. This is the silent factory reset one layer below the port change.`)
+    }
+    if (changed !== 'saved') {
+      failures.push(`the application could not change a setting after the damaged record was set aside: ${JSON.stringify(changed)}. Preserving the bytes by refusing every write forever is not a fix.`)
+    }
+    const detail = `the unreadable record survived byte-identical as ${survivors.join(', ') || '(nowhere)'} and the app still saved a change`
+    if (failures.length) {
+      return { name: 'a settings file the build cannot read', ok: false, reason: failures.join('\n  ') }
+    }
+    return { name: 'a settings file the build cannot read', ok: true, detail }
+  } finally {
+    if (first) { first.session.close(); await killTree(first.child) }
+    if (second) { second.session.close(); await killTree(second.child) }
+    await rm(profileDirectory, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 /* SCENARIO THREE -- THE UPGRADE ITSELF, run against two different builds.
  *
  * The other two scenarios both write their settings through the FIXED build, so
@@ -589,6 +707,7 @@ async function legacyUpgradeScenario(context) {
 
 existingInstallScenario.scenarioName = 'existing install'
 freshInstallScenario.scenarioName = 'fresh install'
+damagedRecordScenario.scenarioName = 'a settings file the build cannot read'
 legacyUpgradeScenario.scenarioName = 'upgrade from the old build'
 
 export async function main(directory = 'release/win-unpacked', overrides = {}) {
@@ -617,6 +736,7 @@ export async function main(directory = 'release/win-unpacked', overrides = {}) {
   const results = []
   results.push(await run(existingInstallScenario))
   results.push(await run(freshInstallScenario))
+  results.push(await run(damagedRecordScenario))
   /* Only when a pre-fix build is pointed at. A missing one is announced, never
      skipped in silence -- an upgrade path that nobody measured must not read as
      an upgrade path that passed. */

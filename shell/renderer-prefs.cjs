@@ -60,6 +60,29 @@ const PERSIST_ATTEMPTS = 5
 const PERSIST_BACKOFF_MS = Object.freeze([1, 2, 4, 8])
 const RETRYABLE_WRITE_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST'])
 
+/* THE READ GETS THE RETRY THE WRITE ALREADY HAD.
+ *
+ * This file documented the Windows transient-handle problem and defended
+ * against it in one direction only. That asymmetry mattered far more than it
+ * looks: a dropped write loses ONE setting, while a dropped read at startup
+ * makes the whole record read as empty, which is the silent factory reset this
+ * store exists to end -- and it then let the next write flatten a file that was
+ * never actually damaged. Measured: one EBUSY on the startup read was enough,
+ * with a single attempt made before this.
+ *
+ * EEXIST is deliberately not in this set. It belongs to the write path's
+ * `openSync(temporary, 'wx')` and means nothing for a read; carrying it over
+ * would be widening a rule by copy-paste. ENOENT is not retried either -- a
+ * file that is genuinely absent is a first launch, not a transient. */
+const RETRYABLE_READ_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+/* How many damaged records may be set aside before this store stops trying.
+   Bounded so a file that is damaged on every launch cannot fill a disk with
+   copies of itself; reaching the bound refuses the write, which still does not
+   destroy anything. */
+const MAX_QUARANTINE_FILES = 8
+const QUARANTINE_PREFIX = 'renderer-prefs.damaged'
+
 /* A synchronous pause. The whole store is synchronous on purpose -- it stands
    in for localStorage, which is durable when the setter returns -- so the retry
    cannot hand control back to the event loop and let a second write interleave
@@ -124,12 +147,25 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
   let record = null
   let damaged = null
 
+  function readFileWithRetry() {
+    let lastError = null
+    for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt += 1) {
+      try {
+        return { text: fs.readFileSync(file, 'utf8'), error: null }
+      } catch (error) {
+        lastError = error
+        if (!RETRYABLE_READ_ERRORS.has(error && error.code)) break
+        if (attempt < PERSIST_ATTEMPTS - 1) pauseSync(PERSIST_BACKOFF_MS[attempt])
+      }
+    }
+    return { text: null, error: lastError }
+  }
+
   function load() {
     if (record) return record
-    let text
-    try {
-      text = fs.readFileSync(file, 'utf8')
-    } catch (error) {
+    const read = readFileWithRetry()
+    if (read.error) {
+      const error = read.error
       if (error && error.code === 'ENOENT') {
         record = emptyRecord()
         return record
@@ -143,7 +179,7 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
       damaged = `the settings file could not be read (${error && error.code ? error.code : 'unknown error'})`
       return record
     }
-    const parsed = parseRecord(text)
+    const parsed = parseRecord(read.text)
     record = parsed.record
     damaged = parsed.damaged
     return record
@@ -174,10 +210,95 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
     }
   }
 
+  /* A NAME NOTHING IS ALREADY USING, RESERVED BEFORE THE MOVE.
+     `wx` fails rather than clobbering, so a previous quarantine cannot be
+     overwritten by the next one. The reservation is then replaced by the
+     rename, which is why creating the empty file first is not a wasted step. */
+  function reserveQuarantineName() {
+    for (let index = 0; index < MAX_QUARANTINE_FILES; index += 1) {
+      const candidate = path.join(directory, index === 0
+        ? `${QUARANTINE_PREFIX}.json`
+        : `${QUARANTINE_PREFIX}-${index}.json`)
+      try {
+        fs.closeSync(fs.openSync(candidate, 'wx'))
+        return { path: candidate, error: null }
+      } catch (error) {
+        if (error && error.code === 'EEXIST') continue
+        return { path: null, error }
+      }
+    }
+    return { path: null, error: null }
+  }
+
+  /* WHAT A WRITE MUST NOT DO TO A RECORD IT COULD NOT READ.
+   *
+   * The comment in load() states that an unreadable file is not an empty one
+   * and that the next write must not flatten it. That was the stated
+   * invariant; it was not implemented, and the two sibling stores in this same
+   * repository DO implement it -- durable-memory-file.js refuses with
+   * DURABLE_MEMORY_DAMAGED at two sites and agent-org-store.js refuses with
+   * AGENT_ORG_STORE_DAMAGED. This store was copied from the first of those and
+   * the check did not come with the comment.
+   *
+   * MEASURED, on this file before this function existed: a settings file
+   * holding mc.theme/mc.text/mc.live.fleet plus a drained-origin history, made
+   * unparseable, was reported as `damaged`, read as zero values, and the very
+   * next set() returned {ok:true} having replaced the whole file with the one
+   * key just written. Nothing was recoverable anywhere on disk. That is the
+   * same silent factory reset the port-origin fix exists to end, one layer
+   * down, and it survived that fix.
+   *
+   * IT SETS ASIDE RATHER THAN REFUSING OUTRIGHT, which is the one place this
+   * deliberately differs from its two siblings, and the reason is a rescue path
+   * that already exists here and does not exist there: a damaged record leaves
+   * every origin undrained ON PURPOSE, so that the browser copy of a pre-fix
+   * install can still be adopted on this very launch. A flat refusal would
+   * close that rescue and would also leave a person permanently unable to
+   * change a setting. Moving the unreadable bytes aside keeps both properties:
+   * nothing is destroyed, and the application still works.
+   *
+   * A quarantine that cannot be taken REFUSES. That is the case where the file
+   * is held by something else, and it is exactly when destroying it would be
+   * worst -- the next launch, whose read now retries, is very likely to recover
+   * the record intact. */
+  function quarantineDamaged() {
+    const reserved = reserveQuarantineName()
+    if (!reserved.path) {
+      const detail = reserved.error && reserved.error.code
+        ? `a copy could not be set aside (${reserved.error.code})`
+        : `${MAX_QUARANTINE_FILES} damaged copies have already been set aside`
+      return failure('MC_PREFS_DAMAGED', `Refusing to overwrite settings that could not be read (${damaged}): ${detail}.`)
+    }
+    let lastError = null
+    for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt += 1) {
+      try {
+        fs.renameSync(file, reserved.path)
+        return { ok: true }
+      } catch (error) {
+        lastError = error
+        /* The record was damaged because the read failed, and the file has
+           since gone. There is nothing left to preserve and nothing to
+           destroy, so the write may proceed. */
+        if (error && error.code === 'ENOENT') return { ok: true }
+        if (!RETRYABLE_WRITE_ERRORS.has(error && error.code)) break
+        if (attempt < PERSIST_ATTEMPTS - 1) pauseSync(PERSIST_BACKOFF_MS[attempt])
+      }
+    }
+    try { fs.unlinkSync(reserved.path) } catch { /* the reservation is not worth a second failure */ }
+    return failure('MC_PREFS_DAMAGED', `Refusing to overwrite settings that could not be read (${damaged}): a copy could not be set aside (${lastError && lastError.code ? lastError.code : 'unknown error'}).`)
+  }
+
   function persist(next) {
     const text = `${JSON.stringify(next)}\n`
     if (Buffer.byteLength(text, 'utf8') > MAX_RECORD_BYTES) {
       return failure('MC_PREFS_TOO_LARGE', 'The settings file would exceed its size limit.')
+    }
+
+    /* Every mutator funnels through here, so the damaged-record rule is
+       enforced once rather than at four call sites that can drift apart. */
+    if (damaged) {
+      const preserved = quarantineDamaged()
+      if (!preserved.ok) return preserved
     }
 
     /* WINDOWS WILL REFUSE THIS RENAME AT RANDOM, and it is not a disk problem.
@@ -227,11 +348,18 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
       return load().drainedOrigins.includes(origin)
     },
 
+    /* THE `unchanged` SHORTCUTS BELOW ARE GUARDED ON `damaged`, ALL THREE.
+       "Nothing to do" is a claim about the file, and while the record is
+       damaged this store does not know what the file says -- values reads
+       empty, so `clear()` reported that it had emptied a record that was in
+       fact full, and `remove()` reported that a key was already gone while it
+       sat on disk. Reporting success from an absence we could not read is the
+       same mistake as flattening it, minus the data loss. */
     set(key, value) {
       const invalid = validateEntry(key, value)
       if (invalid) return failure('MC_PREFS_INVALID_ENTRY', invalid)
       const current = load()
-      if (current.values[key] === value) return { ok: true, unchanged: true }
+      if (!damaged && current.values[key] === value) return { ok: true, unchanged: true }
       if (!(key in current.values) && Object.keys(current.values).length >= MAX_KEYS) {
         return failure('MC_PREFS_TOO_MANY_KEYS', `The settings file already holds its limit of ${MAX_KEYS} keys.`)
       }
@@ -241,7 +369,7 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
     remove(key) {
       if (typeof key !== 'string') return failure('MC_PREFS_INVALID_ENTRY', 'a settings key must be a string')
       const current = load()
-      if (!(key in current.values)) return { ok: true, unchanged: true }
+      if (!damaged && !(key in current.values)) return { ok: true, unchanged: true }
       const values = { ...current.values }
       delete values[key]
       return persist({ ...current, values })
@@ -249,7 +377,7 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
 
     clear() {
       const current = load()
-      if (Object.keys(current.values).length === 0) return { ok: true, unchanged: true }
+      if (!damaged && Object.keys(current.values).length === 0) return { ok: true, unchanged: true }
       return persist({ ...current, values: {} })
     },
 
