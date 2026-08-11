@@ -38,8 +38,40 @@
   var bridge = window.mcPrefs
   if (!bridge || bridge.available !== true) return
 
-  var cache = new Map()
+  /* MIGRATION HAPPENS HERE, BEFORE THE GLOBAL IS REPLACED, AND IN THIS
+     DOCUMENT.
+     An install that predates this file has its settings in the browser
+     partition for this origin, and this is the last moment they are reachable:
+     `window.localStorage` is still the real one on the line below.
+
+     It is done here rather than in the preload because the preload runs
+     against the initial empty document, whose storage is NOT this origin's.
+     Measured on the packaged upgrade path before this moved: a legacy install
+     holding two real settings on 4601 was read as zero entries, and the origin
+     was then marked as migrated -- stranding them for good. So the entries are
+     read first, and the host is told to mark the origin ONLY once that read
+     has actually succeeded. A read that throws leaves the origin unmarked, and
+     a later launch tries again. */
   var initial = bridge.values || {}
+  if (bridge.drainRequired === true) {
+    var entries = null
+    try {
+      var native = window.localStorage
+      entries = []
+      for (var index = 0; index < native.length; index += 1) {
+        var storedKey = native.key(index)
+        if (typeof storedKey !== 'string') continue
+        var storedValue = native.getItem(storedKey)
+        if (typeof storedValue === 'string') entries.push([storedKey, storedValue])
+      }
+    } catch (error) { entries = null }
+    if (entries) {
+      var drained = bridge.drain(entries)
+      if (drained && drained.ok && drained.values) initial = drained.values
+    }
+  }
+
+  var cache = new Map()
   for (var name in initial) {
     if (Object.prototype.hasOwnProperty.call(initial, name)) cache.set(name, String(initial[name]))
   }

@@ -113,6 +113,33 @@ async function killTree(child) {
   while (child.exitCode === null && Date.now() < deadline) await sleep(100)
 }
 
+/* SHUT THE APPLICATION DOWN THE WAY A PERSON DOES.
+ *
+ * The two port-change scenarios force-kill on purpose, because that is what
+ * proves a write was durable when it returned. The UPGRADE scenario must not:
+ * it needs the OLD build's browser storage to actually be on disk, and Chromium
+ * commits localStorage to its LevelDB lazily. Force-killing the old build threw
+ * away the very settings the migration was then asked to rescue, and the run
+ * reported that as the product failing to migrate. It was the harness never
+ * creating the thing it was testing for.
+ *
+ * Falls back to killing the tree, because a scenario that hangs waiting for a
+ * graceful exit is worse than one that stops being graceful. */
+async function closeGracefully(app, timeoutMs = 20_000) {
+  if (!app || !app.child || app.child.exitCode !== null) return
+  try {
+    if (app.browserEndpoint) {
+      const browser = await DevToolsSession.open(app.browserEndpoint)
+      // Deliberately not awaited: this command destroys the connection it
+      // travels on, so its reply is not owed and waiting for one is a hang.
+      browser.send('Browser.close').catch(() => {})
+    }
+  } catch { /* fall through to the kill */ }
+  const deadline = Date.now() + timeoutMs
+  while (app.child.exitCode === null && Date.now() < deadline) await sleep(100)
+  if (app.child.exitCode === null) await killTree(app.child)
+}
+
 /* THE DEBUGGING PORT COMES FROM THIS CHILD'S OWN STDERR, NOT FROM THE PROFILE.
    Chromium also writes it to <profile>/DevToolsActivePort, and reading it there
    is how this file wasted two runs: the second launch reuses the same profile
@@ -180,6 +207,21 @@ class DevToolsSession {
       if (packet.error) entry.reject(new Error(packet.error.message || 'DevTools command failed'))
       else entry.resolve(packet.result)
     })
+    /* A CLOSED SOCKET MUST FAIL EVERY REQUEST STILL WAITING ON IT.
+       Without this, a command whose reply can never arrive -- Browser.close is
+       the obvious one, since it destroys the connection it was sent on --
+       leaves a promise that never settles. Nothing is then keeping the event
+       loop alive, so node EXITS WITH CODE 0 in the middle of the run: no
+       verdict, no error, and a clean exit status on a proof that never
+       finished. That is the worst possible failure for a gate. */
+    const abandon = () => {
+      for (const [id, entry] of this.pending) {
+        this.pending.delete(id)
+        entry.reject(new Error('the DevTools connection closed before this command answered'))
+      }
+    }
+    socket.addEventListener('close', abandon)
+    socket.addEventListener('error', abandon)
   }
 
   static async open(webSocketDebuggerUrl) {
@@ -285,7 +327,8 @@ async function launchApp({ executable, appDirectory, profileDirectory, timeoutMs
     const port = Number(new URL(target.url).port)
     await session.waitForDocument(origin, timeoutMs)
     log(`[prefs-origin-proof] launched pid=${child.pid} origin=${origin}`)
-    return { child, session, origin, port, output: () => `stdout:\n${stdout}\nstderr:\n${stderr}` }
+    const browserEndpoint = /DevTools listening on (ws:\/\/\S+)/.exec(`${stdout}\n${stderr}`)?.[1] || null
+    return { child, session, origin, port, browserEndpoint, output: () => `stdout:\n${stdout}\nstderr:\n${stderr}` }
   } catch (error) {
     await killTree(child)
     throw new Error(`${error.message}\nstdout:\n${stdout}\nstderr:\n${stderr}`)
@@ -441,15 +484,126 @@ async function freshInstallScenario(context) {
   }
 }
 
+/* SCENARIO THREE -- THE UPGRADE ITSELF, run against two different builds.
+ *
+ * The other two scenarios both write their settings through the FIXED build, so
+ * neither of them ever exercises the migration: they prove durability, not
+ * rescue. The customer who matters most here is the one who already has
+ * settings, chosen under the old build, sitting in a browser partition. This
+ * scenario writes them with the OLD executable and then starts the NEW one on
+ * the same profile.
+ *
+ * It reports which of two things happened rather than asserting one of them,
+ * because only one is a claim this fix can make:
+ *
+ *   SAME ORIGIN -- the new build bound the port the old one had. The browser
+ *     copy is reachable, must be drained, and every setting must survive. This
+ *     is the ordinary upgrade and it is a hard assertion.
+ *
+ *   MOVED ORIGIN -- something took the old port in between. The old partition
+ *     is not reachable from the new origin, so the settings are NOT rescued on
+ *     this launch. That is a real limitation and it is stated rather than
+ *     hidden: the origin stays undrained, so a later launch that lands back on
+ *     it still picks them up.
+ *
+ * Enable with MC_PREFS_LEGACY_BUILD=<path to the pre-fix win-unpacked>.
+ */
+async function legacyUpgradeScenario(context) {
+  const { executable, appDirectory, timeoutMs, log, legacyDirectory } = context
+  const legacyExecutable = path.join(legacyDirectory, APP_EXE)
+  const profileDirectory = await mkdtemp(path.join(tmpdir(), 'te-prefs-upgrade-'))
+  let legacy = null
+  let upgraded = null
+  try {
+    const launchLegacy = () => launchApp({
+      executable: legacyExecutable,
+      appDirectory: legacyDirectory,
+      profileDirectory,
+      timeoutMs,
+      log,
+    })
+
+    legacy = await launchLegacy()
+    await legacy.session.evaluate(writeProbe(PROBE_SETTINGS))
+    const writeFailures = compare(await legacy.session.evaluate(readProbe), 'the old build read back as')
+    if (writeFailures.length) {
+      return { name: 'upgrade from the old build', ok: false, reason: `the OLD build could not store its own settings, so nothing can be migrated from it:\n  ${writeFailures.join('\n  ')}` }
+    }
+    const legacyOrigin = legacy.origin
+    legacy.session.close()
+    await closeGracefully(legacy)
+    legacy = null
+
+    /* PROVE THE THING TO BE MIGRATED IS ACTUALLY ON DISK, by restarting the old
+       build and asking it. Chromium commits localStorage lazily, so "the page
+       read its own write back" says nothing about what survived the process.
+       Without this check the scenario reported the product failing to migrate
+       settings that the harness had already destroyed by force-killing the
+       build that wrote them. */
+    legacy = await launchLegacy()
+    const legacyRestartOrigin = legacy.origin
+    const persisted = compare(await legacy.session.evaluate(readProbe), 'the old build still sees')
+    legacy.session.close()
+    await closeGracefully(legacy)
+    legacy = null
+
+    if (legacyRestartOrigin !== legacyOrigin) {
+      return {
+        name: 'upgrade from the old build',
+        ok: true,
+        detail: `NOT EXERCISED: the old build moved from ${legacyOrigin} to ${legacyRestartOrigin} between its own launches, so the settings under test are not the ones the upgraded build would find.`,
+      }
+    }
+    if (persisted.length) {
+      return {
+        name: 'upgrade from the old build',
+        ok: true,
+        detail: `NOT EXERCISED: the old build did not have its own settings after its own restart, so there is nothing on disk for the upgrade to rescue:\n  ${persisted.join('\n  ')}`,
+      }
+    }
+
+    upgraded = await launchApp({ executable, appDirectory, profileDirectory, timeoutMs, log })
+    const observed = await upgraded.session.evaluate(readProbe)
+    const failures = compare(observed, 'the upgraded build sees')
+
+    if (upgraded.origin !== legacyOrigin) {
+      return {
+        name: 'upgrade from the old build',
+        ok: true,
+        detail: `NOT EXERCISED: the upgraded build bound ${upgraded.origin} while the old build had ${legacyOrigin}, so the old browser copy was not reachable from it. `
+          + `${failures.length ? 'The settings were not rescued on this launch, which is the stated limitation' : 'The settings were present anyway'}. `
+          + 'That origin stays undrained, so a later launch landing back on it still rescues them.',
+      }
+    }
+    const detail = `the upgraded build bound the same origin ${upgraded.origin} and drained it; painted theme ${JSON.stringify(observed.__paintedTheme)}`
+    if (failures.length) {
+      return { name: 'upgrade from the old build', ok: false, reason: `${detail}\n  ${failures.join('\n  ')}` }
+    }
+    return { name: 'upgrade from the old build', ok: true, detail }
+  } finally {
+    if (legacy) { legacy.session.close(); await killTree(legacy.child) }
+    if (upgraded) { upgraded.session.close(); await killTree(upgraded.child) }
+    await rm(profileDirectory, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 existingInstallScenario.scenarioName = 'existing install'
 freshInstallScenario.scenarioName = 'fresh install'
+legacyUpgradeScenario.scenarioName = 'upgrade from the old build'
 
 export async function main(directory = 'release/win-unpacked', overrides = {}) {
   const log = overrides.log || console.log
   const timeoutMs = overrides.timeoutMs || 60_000
   const appDirectory = path.resolve(directory)
   const executable = path.join(appDirectory, APP_EXE)
-  const context = { executable, appDirectory, timeoutMs, log }
+  const legacyBuild = overrides.legacyDirectory || process.env.MC_PREFS_LEGACY_BUILD || null
+  const context = {
+    executable,
+    appDirectory,
+    timeoutMs,
+    log,
+    legacyDirectory: legacyBuild ? path.resolve(legacyBuild) : null,
+  }
 
   /* A scenario that THREW is a failed scenario, not a reason to lose the other
      one's verdict. An earlier version let an EADDRINUSE while arranging the
@@ -463,6 +617,11 @@ export async function main(directory = 'release/win-unpacked', overrides = {}) {
   const results = []
   results.push(await run(existingInstallScenario))
   results.push(await run(freshInstallScenario))
+  /* Only when a pre-fix build is pointed at. A missing one is announced, never
+     skipped in silence -- an upgrade path that nobody measured must not read as
+     an upgrade path that passed. */
+  if (context.legacyDirectory) results.push(await run(legacyUpgradeScenario))
+  else log('[prefs-origin-proof] NOT RUN: upgrade from the old build. Set MC_PREFS_LEGACY_BUILD=<pre-fix win-unpacked> to measure the migration itself.')
 
   for (const result of results) {
     if (result.ok) log(`[prefs-origin-proof] PASS ${result.name}: ${result.detail}`)

@@ -235,6 +235,63 @@ test('non-string values in a hand-edited file are dropped, not surfaced', () => 
   assert.equal('mc.rogue' in snapshot.values, false)
 })
 
+/* WINDOWS REFUSES THIS REPLACE AT RANDOM. Filling the store to its key limit
+   through the real filesystem failed twice out of 512 with EPERM, because
+   something else on the machine held a momentary handle on a file created a
+   millisecond earlier. Without a retry the setting is silently not saved --
+   every caller in src/ wraps storage in try/catch and ignores it -- which is a
+   quieter version of the defect this store exists to end. */
+test('a transient EPERM on the replace is retried instead of losing the setting', () => {
+  const { directory } = freshStore()
+  let attempts = 0
+  const flaky = {
+    ...fs,
+    renameSync(from, to) {
+      attempts += 1
+      if (attempts <= 2) throw Object.assign(new Error('EPERM'), { code: 'EPERM' })
+      return fs.renameSync(from, to)
+    },
+  }
+  const prefs = createRendererPrefs({ directory, fs: flaky, path, randomUUID })
+
+  const result = prefs.set('mc.theme', 'black')
+
+  assert.equal(result.ok, true)
+  assert.equal(attempts, 3)
+  assert.equal(createRendererPrefs({ directory, fs, path, randomUUID }).snapshot().values['mc.theme'], 'black')
+})
+
+test('a replace that never succeeds is reported, not retried into looking fine', () => {
+  const { directory } = freshStore()
+  let attempts = 0
+  const broken = {
+    ...fs,
+    renameSync() { attempts += 1; throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) },
+  }
+  const prefs = createRendererPrefs({ directory, fs: broken, path, randomUUID })
+
+  const result = prefs.set('mc.theme', 'black')
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'MC_PREFS_WRITE_FAILED')
+  assert.ok(attempts > 1 && attempts <= 8, `expected a bounded number of attempts, saw ${attempts}`)
+})
+
+test('a failure that retrying cannot help is not retried', () => {
+  const { directory } = freshStore()
+  let attempts = 0
+  const full = {
+    ...fs,
+    openSync() { attempts += 1; throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }) },
+  }
+  const prefs = createRendererPrefs({ directory, fs: full, path, randomUUID })
+
+  const result = prefs.set('mc.theme', 'black')
+
+  assert.equal(result.ok, false)
+  assert.equal(attempts, 1, 'a full disk is not a transient lock; retrying it just delays the honest answer')
+})
+
 test('a write failure is reported rather than swallowed', () => {
   const { directory } = freshStore()
   const exploding = {

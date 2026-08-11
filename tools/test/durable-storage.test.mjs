@@ -15,17 +15,50 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const SCRIPT = path.join(REPO_ROOT, 'public', 'durable-storage.js')
 const SOURCE = fs.readFileSync(SCRIPT, 'utf8')
 
-function install({ values = {}, failWrites = false, available = true, bridge = undefined } = {}) {
+/* A stand-in for the browser store this origin already had, shaped like the
+   real Storage so the migration path exercises length/key/getItem the way the
+   shipped file does. `unreadable` reproduces a storage object that throws on
+   access, which is the case that must NOT mark the origin migrated. */
+function browserStore(entries, { unreadable = false } = {}) {
+  const map = new Map(Object.entries(entries))
+  return {
+    marker: 'the untouched browser store',
+    get length() {
+      if (unreadable) throw new Error('Access is denied for this document')
+      return map.size
+    },
+    key: (index) => Array.from(map.keys())[index] ?? null,
+    getItem: (name) => (map.has(name) ? map.get(name) : null),
+  }
+}
+
+function install({
+  values = {},
+  failWrites = false,
+  available = true,
+  bridge = undefined,
+  legacy = {},
+  legacyUnreadable = false,
+  drainRequired = false,
+  drainResult = undefined,
+} = {}) {
   const calls = []
   const store = new Map(Object.entries(values))
   const ok = { ok: true }
   const failure = { ok: false, error: { code: 'MC_PREFS_WRITE_FAILED', message: 'the disk is full' } }
-  const realLocalStorage = { marker: 'the untouched browser store' }
+  const realLocalStorage = browserStore(legacy, { unreadable: legacyUnreadable })
   const window = {
     localStorage: realLocalStorage,
     mcPrefs: bridge === undefined ? {
       available,
       values,
+      drainRequired,
+      drain(entries) {
+        calls.push(['drain', entries])
+        return drainResult !== undefined
+          ? drainResult
+          : { ok: true, values: { ...Object.fromEntries(entries), ...values } }
+      },
       write(key, value) {
         calls.push(['write', key, value])
         if (failWrites) return failure
@@ -159,6 +192,81 @@ test('the replacement cannot be silently overwritten by a stray assignment', () 
   // origin-scoped store would resurrect the defect with no sign of it.
   assert.throws(() => { 'use strict'; window.localStorage = { getItem: () => 'hijacked' } })
   assert.equal(window.localStorage.getItem('mc.theme'), 'black')
+})
+
+/* ---------- migrating an install that predates the durable store ----------
+ *
+ * These cover a defect that reached a packaged build and was caught only by
+ * running the real upgrade: the migration was performed in the PRELOAD, which
+ * executes against the initial empty document rather than the app origin. It
+ * read a legacy install's two real settings as zero entries and then told the
+ * host the origin had been migrated -- stranding them permanently. */
+
+test('the browser copy is handed over before the global is replaced', () => {
+  const { window, calls } = install({
+    drainRequired: true,
+    legacy: { 'mc.theme': 'black', 'mc.text': '1.12' },
+  })
+
+  /* Compared through JSON because the entries array is built inside the vm
+     realm, so its prototype is not this realm's Array and a strict deep
+     comparison rejects an identical structure. That is an artifact of how this
+     test runs the real file, not a difference the product would ever see. */
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], 'drain')
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(calls[0][1])),
+    [['mc.theme', 'black'], ['mc.text', '1.12']],
+  )
+  assert.equal(window.localStorage.getItem('mc.theme'), 'black')
+})
+
+test('a durable value already held wins over the legacy copy', () => {
+  const { window } = install({
+    drainRequired: true,
+    values: { 'mc.theme': 'tan' },
+    legacy: { 'mc.theme': 'black' },
+  })
+
+  assert.equal(window.localStorage.getItem('mc.theme'), 'tan')
+})
+
+test('nothing is migrated once this origin has already been drained', () => {
+  const { calls } = install({
+    drainRequired: false,
+    legacy: { 'mc.theme': 'black' },
+  })
+
+  assert.deepEqual(calls, [], 'a settled install must not re-read the browser store on every launch')
+})
+
+/* THE ONE THAT MATTERS. Marking an origin migrated on a read that did not
+   happen is worse than not migrating at all: it is irreversible, and the
+   settings are then invisible to every future launch. */
+test('a browser store that cannot be read does not report a migration', () => {
+  const { calls } = install({
+    drainRequired: true,
+    legacy: { 'mc.theme': 'black' },
+    legacyUnreadable: true,
+  })
+
+  assert.deepEqual(
+    calls,
+    [],
+    'The host marks an origin drained when drain() is called. Calling it after a failed read would '
+    + 'record settings as rescued that were never read, stranding them for good.',
+  )
+})
+
+test('a refused migration leaves the durable values the shell already had', () => {
+  const { window } = install({
+    drainRequired: true,
+    values: { 'mc.theme': 'tan' },
+    legacy: { 'mc.text': '1.12' },
+    drainResult: { ok: false, error: { code: 'MC_PREFS_WRITE_FAILED', message: 'the disk is full' } },
+  })
+
+  assert.equal(window.localStorage.getItem('mc.theme'), 'tan')
 })
 
 /* ---------- where the install has to sit in the document ----------

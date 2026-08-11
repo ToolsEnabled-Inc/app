@@ -53,6 +53,21 @@ const MAX_VALUE_LENGTH = 64 * 1024
 const MAX_RECORD_BYTES = 1024 * 1024
 const MAX_DRAINED_ORIGINS = 32
 
+/* See the note in persist(): a Windows replace can fail transiently because
+   another process is briefly holding the file. Four short waits totalling 15ms
+   in the worst case, which is under a rendered frame. */
+const PERSIST_ATTEMPTS = 5
+const PERSIST_BACKOFF_MS = Object.freeze([1, 2, 4, 8])
+const RETRYABLE_WRITE_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST'])
+
+/* A synchronous pause. The whole store is synchronous on purpose -- it stands
+   in for localStorage, which is durable when the setter returns -- so the retry
+   cannot hand control back to the event loop and let a second write interleave
+   with this one. */
+function pauseSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+}
+
 function failure(code, message) {
   return { ok: false, error: { code, message } }
 }
@@ -134,11 +149,7 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
     return record
   }
 
-  function persist(next) {
-    const text = `${JSON.stringify(next)}\n`
-    if (Buffer.byteLength(text, 'utf8') > MAX_RECORD_BYTES) {
-      return failure('MC_PREFS_TOO_LARGE', 'The settings file would exceed its size limit.')
-    }
+  function attemptPersist(text) {
     const temporary = path.join(directory, `.renderer-prefs-${pid}-${randomUUID()}.tmp`)
     let descriptor
     try {
@@ -152,17 +163,51 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
       fs.closeSync(descriptor)
       descriptor = undefined
       fs.renameSync(temporary, file)
+      return null
     } catch (error) {
-      return failure('MC_PREFS_WRITE_FAILED', `Settings could not be saved (${error && error.code ? error.code : 'unknown error'}).`)
+      return error
     } finally {
       if (descriptor !== undefined) {
         try { fs.closeSync(descriptor) } catch { /* closing a failed handle */ }
       }
       try { fs.unlinkSync(temporary) } catch { /* already renamed away */ }
     }
-    record = next
-    damaged = null
-    return { ok: true }
+  }
+
+  function persist(next) {
+    const text = `${JSON.stringify(next)}\n`
+    if (Buffer.byteLength(text, 'utf8') > MAX_RECORD_BYTES) {
+      return failure('MC_PREFS_TOO_LARGE', 'The settings file would exceed its size limit.')
+    }
+
+    /* WINDOWS WILL REFUSE THIS RENAME AT RANDOM, and it is not a disk problem.
+       Measured here rather than reasoned about: writing 512 settings in a row
+       through this function failed twice with EPERM. Something else on the
+       machine -- Defender and the search indexer are the usual pair -- holds a
+       transient handle on a file that was created a millisecond ago, and the
+       replace fails while everything about the request is valid.
+
+       Left alone, that is a quiet version of the defect this whole file exists
+       to end: the write fails, every call site in src/ already wraps storage in
+       try/catch and ignores it, and the person's setting is simply not there
+       next time. Retrying a handful of times with a short backoff is the
+       standard mitigation for this class, and the total wait is bounded well
+       under a frame so a settings click still feels instant.
+
+       Persistent failures still fail. A full disk or a read-only profile must
+       be reported, not retried into looking like success. */
+    let lastError = null
+    for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt += 1) {
+      lastError = attemptPersist(text)
+      if (lastError === null) {
+        record = next
+        damaged = null
+        return { ok: true }
+      }
+      if (!RETRYABLE_WRITE_ERRORS.has(lastError && lastError.code)) break
+      if (attempt < PERSIST_ATTEMPTS - 1) pauseSync(PERSIST_BACKOFF_MS[attempt])
+    }
+    return failure('MC_PREFS_WRITE_FAILED', `Settings could not be saved (${lastError && lastError.code ? lastError.code : 'unknown error'}).`)
   }
 
   return {
