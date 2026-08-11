@@ -53,6 +53,8 @@
     "ambiguous and tell the next reader the payload starts three programs."
   ],
   "hostModules": [
+    "src/lib/agent-org-store.js",
+    "src/lib/custom-role-store.js",
     "src/lib/setup/machine-record.js",
     "src/lib/setup/workspace.js",
     "src/lib/agent-engine/codex-process.js",

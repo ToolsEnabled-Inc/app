@@ -77,6 +77,29 @@ contextBridge.exposeInMainWorld('mcFleetProfile', Object.freeze({
   probe: profile => ipcRenderer.invoke('mc-fleet-profile:probe', profile),
 }))
 
+/* THE DECLARED ORGANISATION.
+ *
+ * Every one of these is an explicit invoke, including the read. There is no
+ * synchronous bootstrap here on purpose: the fleet profile has one because the
+ * renderer's module graph needs it before first paint, and the org does not --
+ * the agent page asks for it when it mounts, and a page that has not been
+ * opened should not be paying for a disk read at launch.
+ *
+ * Nothing here decides anything. Each call is forwarded to a main-process
+ * handler that checks the sender is this application's own main frame, and the
+ * rules about what a legal organisation is live in the payload. This file is a
+ * list of channel names. */
+contextBridge.exposeInMainWorld('mcOrg', Object.freeze({
+  read: () => ipcRenderer.invoke('mc-org:read'),
+  reparent: request => ipcRenderer.invoke('mc-org:reparent', request),
+  assignRole: request => ipcRenderer.invoke('mc-org:assign-role', request),
+  createRole: request => ipcRenderer.invoke('mc-org:create-role', request),
+  editRole: request => ipcRenderer.invoke('mc-org:edit-role', request),
+  resetRole: request => ipcRenderer.invoke('mc-org:reset-role', request),
+  reset: () => ipcRenderer.invoke('mc-org:reset'),
+  exportOrg: () => ipcRenderer.invoke('mc-org:export'),
+}))
+
 /* THE SETTINGS STORE, AND THE ONE-TIME RESCUE OF THE OLD BROWSER COPY.
  *
  * Read SYNCHRONOUSLY, and this one is not a preference among equals: the theme
@@ -87,33 +110,10 @@ contextBridge.exposeInMainWorld('mcFleetProfile', Object.freeze({
  * returns, and the packaged proof for this fix force-kills the process between
  * launches specifically so a store that only flushed at exit could not pass.
  *
- * THE DRAIN runs here rather than in the page because this world can still
- * reach the origin's real localStorage while the main world's has already been
- * replaced. It is attempted only while the shell reports this origin has never
- * been drained, so it costs nothing on every subsequent launch.
- *
- * If reading the browser copy throws, NOTHING is drained and the origin stays
- * unmarked, so a later launch retries. Marking an origin drained on a failed
- * read would throw away the person's settings while recording that they had
- * been rescued, which is the worst of the available outcomes. */
+ * THE DRAIN IS NOT PERFORMED HERE. It was, and that was a real defect with
+ * measured consequences -- see the note on `drain` below. This bridge only
+ * reports whether one is needed and forwards the entries the page reads. */
 const prefs = ipcRenderer.sendSync('mc-prefs:bootstrap')
-let prefsValues = prefs && prefs.ok ? prefs.values : {}
-if (prefs && prefs.ok && prefs.drainRequired) {
-  let legacy = null
-  try {
-    legacy = []
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index)
-      if (typeof key !== 'string') continue
-      const value = window.localStorage.getItem(key)
-      if (typeof value === 'string') legacy.push([key, value])
-    }
-  } catch { legacy = null }
-  if (legacy) {
-    const drained = ipcRenderer.sendSync('mc-prefs:drain', { entries: legacy })
-    if (drained && drained.ok && drained.values) prefsValues = drained.values
-  }
-}
 
 contextBridge.exposeInMainWorld('mcPrefs', Object.freeze({
   /* `available` is what public/durable-storage.js checks before replacing the
@@ -121,7 +121,24 @@ contextBridge.exposeInMainWorld('mcPrefs', Object.freeze({
      the app keeps the browser store, which is the pre-fix behaviour rather
      than an app with no working storage at all. */
   available: Boolean(prefs && prefs.ok),
-  values: Object.freeze({ ...prefsValues }),
+  values: Object.freeze(prefs && prefs.ok ? { ...prefs.values } : {}),
+  drainRequired: Boolean(prefs && prefs.ok && prefs.drainRequired),
+  /* THE DRAIN IS PERFORMED BY THE PAGE, NOT HERE, AND THAT IS THE WHOLE POINT.
+     This preload first ran the migration itself, reading window.localStorage
+     from its own isolated world. Measured on the packaged upgrade path: a
+     legacy install with two real settings on http://127.0.0.1:4601 was read as
+     ZERO entries, because a preload executes against the initial empty
+     document, whose storage is not the app origin's. The record written was
+     {"values":{},"drainedOrigins":["http://127.0.0.1:4601"]} -- the origin
+     marked as rescued while nothing had been rescued, which STRANDED those
+     settings permanently instead of losing them recoverably. A fix that
+     destroys settings is the defect wearing a different hat.
+
+     public/durable-storage.js runs as a classic script inside the real
+     document, where localStorage is the app origin's, and it calls this only
+     after it has successfully read that store. Nothing marks an origin
+     drained on a read that did not happen. */
+  drain: entries => ipcRenderer.sendSync('mc-prefs:drain', { entries }),
   write: (key, value) => ipcRenderer.sendSync('mc-prefs:write', { key, value }),
   remove: key => ipcRenderer.sendSync('mc-prefs:remove', { key }),
   clear: () => ipcRenderer.sendSync('mc-prefs:clear'),

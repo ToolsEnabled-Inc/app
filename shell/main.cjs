@@ -30,6 +30,7 @@ const {
   checkWorkspace,
   recordWorkspaces,
 } = require('./setup-record.cjs')
+const { createAgentOrgRecord } = require('./agent-org-record.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
 const { startupFailureDetail } = require('./startup-failure-message.cjs')
@@ -1339,6 +1340,73 @@ ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrap
 
 ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
   withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '')))
+
+/* ---------- the declared organisation ----------
+ *
+ * The agent page can move an agent under a different manager, give it a
+ * different role, and define roles of its own. All three used to be either
+ * missing or an in-memory edit the next projection load discarded.
+ *
+ * These carry the SAME sender check as everything above, and for the same
+ * reason: they change a record on disk that governs routing and claim
+ * eligibility. The check is not about secrecy -- there is nothing secret in an
+ * org chart -- it is that only this application's own main frame, at its own
+ * origin, may rewrite the organisation the rest of the product reads.
+ *
+ * The tier is NOT consulted here, and that is deliberate rather than an
+ * omission. A permission tier governs what an agent may do to this computer:
+ * which tools it holds, whether its sandbox may write, what workspace roots it
+ * has. Naming a manager or writing a role description is none of those things --
+ * it is a statement of intent that grants no authority, which the engine's own
+ * model says on the record it returns (`stateKind: 'declared'`,
+ * `grantsAuthority: false`). Gating org editing on tier would imply a guided
+ * installation is less entitled to describe its own fleet, while changing
+ * nothing about what that fleet may actually do.
+ *
+ * What a role CANNOT do is widen anything: src/lib/agent-org.js derives a custom
+ * role's authority from the default it is based on, and a custom role with no
+ * base cannot claim work at all. So a role is a subdivision of a tier's
+ * authority, never a route around it. */
+const agentOrgRecord = createAgentOrgRecord()
+
+ipcMain.handle('mc-org:read', (event) =>
+  withFleetProfileSender(event, () => agentOrgRecord.read()))
+
+ipcMain.handle('mc-org:reparent', (event, request) =>
+  withFleetProfileSender(event, () => agentOrgRecord.reparent({
+    agentId: String(request?.agentId ?? ''),
+    parentId: request?.parentId === null || request?.parentId === undefined ? null : String(request.parentId),
+    expectedRevision: request?.expectedRevision,
+  })))
+
+ipcMain.handle('mc-org:assign-role', (event, request) =>
+  withFleetProfileSender(event, () => agentOrgRecord.assignRole({
+    agentId: String(request?.agentId ?? ''),
+    role: String(request?.role ?? ''),
+    expectedRevision: request?.expectedRevision,
+  })))
+
+ipcMain.handle('mc-org:create-role', (event, request) =>
+  withFleetProfileSender(event, () => agentOrgRecord.createRole({
+    id: String(request?.id ?? ''),
+    baseDefaultRole: request?.baseDefaultRole ? String(request.baseDefaultRole) : null,
+    rules: request?.rules,
+  })))
+
+ipcMain.handle('mc-org:edit-role', (event, request) =>
+  withFleetProfileSender(event, () => agentOrgRecord.editRole({
+    id: String(request?.id ?? ''),
+    rules: request?.rules,
+  })))
+
+ipcMain.handle('mc-org:reset-role', (event, request) =>
+  withFleetProfileSender(event, () => agentOrgRecord.resetRole({ id: String(request?.id ?? '') })))
+
+ipcMain.handle('mc-org:reset', (event) =>
+  withFleetProfileSender(event, () => agentOrgRecord.resetOrg()))
+
+ipcMain.handle('mc-org:export', (event) =>
+  withFleetProfileSender(event, () => agentOrgRecord.exportOrg()))
 
 /* ---------- first run: the workspace ----------
  *

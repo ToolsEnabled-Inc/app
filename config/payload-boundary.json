@@ -118,20 +118,36 @@
     "$comment": [
       "PAID -- must never enter the public payload. These are not in it today. They are listed",
       "so that the day someone adds a require() that pulls them into the closure, the build",
-      "stops here instead of publishing the paid enforcement path."
+      "stops here instead of publishing the paid enforcement path.",
+      "",
+      "THE LAST THREE ARRIVED HERE FROM `pending` ON 2026-08-11, once they genuinely stopped",
+      "shipping -- not before. entitlement.js carries the commercial tier table and prices",
+      "(community/operator/team, seatMinimum, productIds); providers/license.js is the Ed25519",
+      "issuance and verification the paid tier is enforced with; license-store.js is its signed",
+      "revocation store. One require() in src/lib/system-status.js held all three in the payload.",
+      "",
+      "WHAT ACTUALLY REMOVED THEM, because the obvious fix does not work: tools/pack-capability-layer.mjs",
+      "is a TEXT scan over whole file bodies, not a runtime walk. Making that require lazy, or moving",
+      "it inside a function that is never called, or commenting it out, all stage these files",
+      "identically -- measured, not assumed. Only deleting the specifier text worked. doctor() now",
+      "asks src/lib/entitlement-report.js, which names no module at all, and the vendor side",
+      "registers the real reporter from src/lib/tool-packs/vendor-license-issuance.js.",
+      "",
+      "So a future edit that re-adds ANY mention of these paths inside require(...) in a staged file",
+      "-- including one in a comment -- puts them back in the payload and must fail here."
     ],
     "paths": [
       "src/lib/providers/hosted-relay-entitlement.js",
-      "src/lib/entitlement-fulfilment.js"
+      "src/lib/entitlement-fulfilment.js",
+      "src/lib/entitlement.js",
+      "src/lib/providers/license.js",
+      "src/lib/license-store.js"
     ],
     "prefixes": []
   },
   "pending": {
     "src/lib/aicalendar-root.js": "OWNER DECISION 2026-08-11: NOT PART OF THIS PRODUCT -- excluded once decoupled; ships today. PROPOSE EXCLUDE (other product). Resolves the filesystem path of the owner's separate AICalendar checkout; a Mission Control install has no such checkout.",
     "src/lib/providers/chrome-web-store.js": "OWNER DECISION 2026-08-11: NOT PART OF THIS PRODUCT -- excluded once decoupled; ships today. PROPOSE SPLIT (live identifier). Generic CWS upload/publish API client, but hardcodes AICALENDAR_STORE_ITEM_ID 'leodmhfokmdpdkbigklogdphlbkfahee' at line 15 and special-cases that one item. The generic half is publishable once the AICalendar branch is removed.",
-    "src/lib/entitlement.js": "OWNER DECISION 2026-08-11: PAID (ToolsEnabled Anywhere) -- still staged, so this entry moves out of pending only when the file genuinely stops shipping. PROPOSE PAID. Contains the actual commercial tier table and prices (community $0 / operator $19 / team $299, seatMinimum, productIds, hosted-relay grant). This is the business plan in source form.",
-    "src/lib/providers/license.js": "OWNER DECISION 2026-08-11: PAID (ToolsEnabled Anywhere) -- still staged, so this entry moves out of pending only when the file genuinely stops shipping. PROPOSE PAID. Ed25519 licence-key issuance, verification and revocation -- the mechanism a paid tier is enforced with.",
-    "src/lib/license-store.js": "OWNER DECISION 2026-08-11: PAID (ToolsEnabled Anywhere) -- still staged, so this entry moves out of pending only when the file genuinely stops shipping. PROPOSE PAID. Durable licence revocation store behind license.js.",
     "src/lib/providers/firebase.js": "OWNER DECISION 2026-08-11: NOT PART OF THIS PRODUCT -- excluded once decoupled; ships today. PROPOSE SPLIT (live identifier). Generic Firebase CLI wrapper plus a function hardcoding AICalendar's revenue Firebase project id 'aica-aed2a' (line 12). Generic half is publishable once that is removed."
   },
   "open": {
@@ -190,6 +206,7 @@
       "src/lib/agent-engine/engine-contract.js",
       "src/lib/agent-lane.js",
       "src/lib/agent-onboarding.js",
+      "src/lib/agent-org-store.js",
       "src/lib/agent-org.js",
       "src/lib/agent-presence.js",
       "src/lib/agent-roles.js",
@@ -220,11 +237,14 @@
       "src/lib/controller-tool-meter.js",
       "src/lib/coordinator-status-observation.js",
       "src/lib/credential-metadata.js",
+      "src/lib/custom-role-store.js",
       "src/lib/dependency-acceptance.js",
       "src/lib/desktop.js",
       "src/lib/discord-owner-commands.js",
       "src/lib/dispatch-permission-session.js",
+      "src/lib/durable-memory-file.js",
       "src/lib/egress-preflight.js",
+      "src/lib/entitlement-report.js",
       "src/lib/env-scrub.js",
       "src/lib/error-taxonomy.js",
       "src/lib/fleet-supervisor/queue.js",
@@ -268,6 +288,7 @@
       "src/lib/multi-account/launch.js",
       "src/lib/multi-account/registry.js",
       "src/lib/multi-account/switcher.js",
+      "src/lib/owner-authorization.js",
       "src/lib/owner-chat.js",
       "src/lib/owner-delivery.js",
       "src/lib/owner-directive-inbox.js",
