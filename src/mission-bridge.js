@@ -68,9 +68,55 @@ function validRuntimeDiscovery(discoveryOrigin, body) {
   return configured
 }
 
-export async function configuredBaseUrl() {
-  const params = new URLSearchParams(window.location.search)
-  if (params.has('bridge')) return normalizedBaseUrl(params.get('bridge'))
+// The shell is the only party that knows which local listener is legitimately
+// this app's own bridge. Ask it. A shell that cannot answer (a plain browser,
+// or a build with no such bridge) leaves the developer scan in place, where a
+// human has already opted in by other means.
+async function shellBridgeEndpoint() {
+  const ask = window.mcShell?.getBridgeEndpoint
+  if (typeof ask !== 'function') return { ok: false, source: 'none' }
+  try {
+    const endpoint = await ask()
+    return endpoint && typeof endpoint === 'object' ? endpoint : { ok: false, source: 'none' }
+  } catch {
+    return { ok: false, source: 'none' }
+  }
+}
+
+// Pin to the exact origin the shell says it started, and confirm the process
+// answering there is the one it started before trusting it. NO fallback to the
+// range scan on failure: falling back is precisely how the renderer would hand
+// this boot's proof to a squatter that raced onto a lower discovery port. The
+// shell's own layer holds its port exclusively, so a squatter cannot occupy it;
+// the pid check additionally fails closed if the shell's layer died and some
+// other process grabbed the port in between. Either way we refuse rather than
+// discover.
+async function pinnedOwnLayer(endpoint) {
+  const normalized = normalizedBaseUrl(endpoint.baseUrl)
+  if (!normalized.ok) {
+    return { ok: false, reason: 'the Mission Control shell reported a malformed own-layer origin', code: 'BRIDGE_OWN_LAYER_INVALID' }
+  }
+  try {
+    const response = await fetch(`${normalized.baseUrl}/v1/runtime`, {
+      method: 'GET', headers: { accept: 'application/json' }, cache: 'no-store',
+      signal: timeoutSignal(),
+    })
+    const body = await response.json().catch(() => null)
+    const configured = response.ok ? validRuntimeDiscovery(normalized.baseUrl, body) : null
+    if (configured && (!Number.isSafeInteger(endpoint.pid) || body.pid === endpoint.pid)) {
+      return configured
+    }
+  } catch {
+    // fall through to the fail-closed result; never scan
+  }
+  return {
+    ok: false,
+    reason: 'the Mission Control shell started a capability layer this renderer could not confirm; refusing to hand its bootstrap proof to any other local listener',
+    code: 'BRIDGE_OWN_LAYER_UNCONFIRMED',
+  }
+}
+
+async function scanWellKnownBridges() {
   for (const discoveryOrigin of WELL_KNOWN_BRIDGES) {
     try {
       const response = await fetch(`${discoveryOrigin}/v1/runtime`, {
@@ -91,6 +137,24 @@ export async function configuredBaseUrl() {
     reason: 'action bridge unavailable on the declared 127.0.0.1:4610-4619 range',
     code: 'BRIDGE_DISCOVERY_UNAVAILABLE',
   }
+}
+
+export async function configuredBaseUrl() {
+  const endpoint = await shellBridgeEndpoint()
+
+  // Supervised (customer) path: the shell started the layer and knows its exact
+  // origin. Pin to it, never scan, never honor ?bridge=. This is the path a
+  // double-clicked install takes, and the one a local squatter targets.
+  if (endpoint.ok && endpoint.source === 'supervised') {
+    return pinnedOwnLayer(endpoint)
+  }
+
+  // Developer path (MC_BRIDGE_PROOF_FILE) or non-shell context: the bridge was
+  // started outside this app by a human who opted in, so the ?bridge= override
+  // and the bounded range scan remain available to them.
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('bridge')) return normalizedBaseUrl(params.get('bridge'))
+  return scanWellKnownBridges()
 }
 
 async function bootstrap() {

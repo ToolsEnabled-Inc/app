@@ -970,6 +970,32 @@ function currentBridgeProof() {
 
 ipcMain.handle('mc-bridge-proof', () => currentBridgeProof())
 
+/* Which bridge is legitimately this app's own -- answered by the only party
+ * that can know: the shell that started it.
+ *
+ * The renderer used to find its bridge by scanning 127.0.0.1:4610-4619 and
+ * trusting the first structurally-valid /v1/runtime responder. That hands this
+ * boot's bootstrap proof to whatever local process squats a lower port and
+ * forges a well-formed runtime body; the squatter then replays the proof to the
+ * genuine layer for a bearer and full dispatch. The proof file is owner-ACL'd
+ * precisely so only the owner can read it, and discovery-by-guess gave it away.
+ *
+ * So the shell tells the renderer the exact origin of the layer it supervises,
+ * and the renderer pins to it instead of guessing. The developer path
+ * (MC_BRIDGE_PROOF_FILE) names a proof file but not a port -- the bridge was
+ * started outside this app -- so the shell cannot vouch for an origin there; it
+ * reports source 'env' and the renderer keeps scanning, which is the
+ * developer's explicit opt-in and not a customer's exposure. */
+function currentBridgeEndpoint() {
+  if (bridgeProof.ok) return { ok: true, source: 'env' }
+  if (capabilityLayerStatus.ok && typeof capabilityLayerStatus.baseUrl === 'string') {
+    return { ok: true, source: 'supervised', baseUrl: capabilityLayerStatus.baseUrl, pid: capabilityLayerStatus.pid }
+  }
+  return { ok: false, source: 'none', reason: capabilityLayerStatus.reason }
+}
+
+ipcMain.handle('mc-bridge-endpoint', () => currentBridgeEndpoint())
+
 function currentWorkAreas() {
   try {
     const primary = screen.getPrimaryDisplay().workArea

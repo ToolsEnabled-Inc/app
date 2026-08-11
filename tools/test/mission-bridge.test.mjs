@@ -106,3 +106,86 @@ test('an explicit bridge query remains first and bypasses well-known discovery',
   assert.deepEqual(await configuredBaseUrl(), { ok: true, baseUrl: 'http://127.0.0.1:4700' })
   assert.equal(fetches, 0)
 })
+
+// --- security: the renderer must not discover its bridge by trusting the first
+// structurally-valid /v1/runtime responder. A supervised shell names the exact
+// origin it started; the renderer pins to it and never scans, so a local
+// squatter on a lower port is never handed this boot's bootstrap proof. ---
+
+const supervised = (port, pid = 43210) => ({
+  location: { search: '' },
+  mcShell: {
+    getBridgeProof: async () => ({ ok: true, proof: SHELL_PROOF }),
+    getBridgeEndpoint: async () => ({ ok: true, source: 'supervised', baseUrl: `http://127.0.0.1:${port}`, pid }),
+  },
+})
+
+test('a supervised shell pins to its own layer and never scans a squatter on a lower port', async () => {
+  // The install's own layer sits on 4611; a squatter (or a benign foreign
+  // ToolsEnabled bridge) holds the lower 4610. The renderer must talk only to
+  // 4611 and must never fetch 4610 at all.
+  globalThis.window = supervised(4611)
+  const fetched = []
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    fetched.push(href)
+    if (href === 'http://127.0.0.1:4611/v1/runtime') return response(200, runtime(4611))
+    throw new Error(`must not fetch ${href}`)
+  }
+
+  assert.deepEqual(await configuredBaseUrl(), { ok: true, baseUrl: 'http://127.0.0.1:4611' })
+  assert.deepEqual(fetched, ['http://127.0.0.1:4611/v1/runtime'])
+  assert.equal(fetched.some(href => href.includes(':4610')), false)
+})
+
+test('a supervised shell ignores a ?bridge= override aimed at a squatter', async () => {
+  // The second vector: a malicious shortcut appends ?bridge=<squatter>. In the
+  // supervised path it must be ignored entirely -- the renderer only trusts the
+  // origin the shell itself started.
+  globalThis.window = supervised(4611)
+  globalThis.window.location.search = '?bridge=http%3A%2F%2F127.0.0.1%3A4650'
+  const fetched = []
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    fetched.push(href)
+    if (href === 'http://127.0.0.1:4611/v1/runtime') return response(200, runtime(4611))
+    throw new Error(`must not fetch ${href}`)
+  }
+
+  assert.deepEqual(await configuredBaseUrl(), { ok: true, baseUrl: 'http://127.0.0.1:4611' })
+  assert.equal(fetched.some(href => href.includes(':4650')), false)
+})
+
+test('a supervised layer whose live pid does not match fails closed without scanning', async () => {
+  // The shell started pid 43210 on 4611; something else now answers there with
+  // a different pid. Refuse rather than hand over the proof, and never fall back
+  // to the range scan.
+  globalThis.window = supervised(4611, 43210)
+  const fetched = []
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    fetched.push(href)
+    if (href === 'http://127.0.0.1:4611/v1/runtime') return response(200, runtime(4611, { pid: 99999 }))
+    throw new Error(`must not fetch ${href}`)
+  }
+
+  const configured = await configuredBaseUrl()
+  assert.equal(configured.ok, false)
+  assert.equal(configured.code, 'BRIDGE_OWN_LAYER_UNCONFIRMED')
+  assert.deepEqual(fetched, ['http://127.0.0.1:4611/v1/runtime'])
+})
+
+test('a supervised layer that does not answer fails closed without scanning', async () => {
+  globalThis.window = supervised(4611)
+  const fetched = []
+  globalThis.fetch = async (url) => {
+    fetched.push(String(url))
+    throw Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' })
+  }
+
+  const configured = await configuredBaseUrl()
+  assert.equal(configured.ok, false)
+  assert.equal(configured.code, 'BRIDGE_OWN_LAYER_UNCONFIRMED')
+  // Exactly one attempt -- its own layer -- and no scan of the well-known range.
+  assert.deepEqual(fetched, ['http://127.0.0.1:4611/v1/runtime'])
+})
