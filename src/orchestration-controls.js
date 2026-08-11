@@ -92,10 +92,22 @@ export function sandboxLevel(id) {
   return SANDBOX_LEVELS[id] || null
 }
 
-/* The run cap. Real: capMs is handed to the lane runner, which kills the
-   process tree when it elapses. The dispatch form has always sent a hardcoded
-   20 minutes; exposing it is turning a real constant into a real control, not
-   adding a new one. */
+/* The run cap. Real: capMs is handed to the lane runner, which kills the lane's
+   whole process tree when it elapses. The dispatch form has always sent a
+   hardcoded 20 minutes; exposing it is turning a real constant into a real
+   control, not adding a new one.
+
+   THIS SENTENCE WAS FALSE UNTIL 2026-08-11 AND IS RECORDED HERE SO IT CANNOT
+   GO FALSE QUIETLY AGAIN. The cap ran `child.kill()` -- SIGTERM to the DIRECT
+   child only -- so everything the lane's CLI started underneath it was
+   orphaned and kept running while the launch record said the lane had stopped.
+   The claim shipped on this page long before the behaviour did. It is now
+   `taskkill /PID <pid> /T /F`, the same mechanism the explicit terminate action
+   uses, at capability/src/lib/mission-bridge/agent-lane-dispatch.js.
+
+   The evidence address below is that kill site, NOT actions.js:662 where capMs
+   is merely handed over. A citation that points at the wrong file is worse than
+   none: the next reader checks it, sees a plausible line, and stops. */
 export const CAP_BOUNDS = Object.freeze({ minMs: 60_000, maxMs: 4 * 60 * 60_000, defaultMs: 20 * 60_000 })
 
 export function clampCapMs(value) {
@@ -136,8 +148,8 @@ export const UNSUPPORTED_CONTROLS = Object.freeze([
   Object.freeze({
     id: 'max-tokens',
     label: 'Max tokens',
-    reason: 'No spawn path passes a token limit. The run is bounded by the time cap above instead, which is real.',
-    evidence: 'capability/src/lib/mission-bridge/actions.js:662',
+    reason: 'No spawn path passes a token limit. The run is bounded by the time cap above instead, which is real: when it elapses the lane’s whole process tree is killed.',
+    evidence: 'capability/src/lib/mission-bridge/agent-lane-dispatch.js:282',
   }),
   Object.freeze({
     id: 'tool-allowlist',
