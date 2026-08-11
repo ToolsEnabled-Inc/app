@@ -221,3 +221,90 @@ export function screenMarkup({ state = null, mode = 'sign-in', busy = false, not
   }
   return formMarkup({ mode, busy, notice, state })
 }
+
+/* ---- the first-run step ----
+ *
+ * The same question, asked inside the walkthrough. It is HERE and not in
+ * src/views/setup.js for the reason the rest of this file exists: that file
+ * imports three stylesheets and touches the DOM, so nothing can render it in a
+ * test, and a plant proved the consequence -- the step could return an empty
+ * string, and the scope notice could be deleted outright, with the whole suite
+ * still green. That is the SHIPMENT-PLAN B14 disclosure disappearing from the
+ * screen where a first-time user creates an account.
+ *
+ * The step keeps its own shape rather than reusing formMarkup(): the walkthrough
+ * has a step counter, Back/Not-now/Skip actions and the `fleet-profile-fields`
+ * layout, and pretending the two screens are one would bend both. What they DO
+ * share is the copy, imported from the same constants, so the two can never
+ * disagree about what an account is.
+ *
+ * `actions` arrives as a rendered string. The walkthrough owns its own action
+ * bar and its own idea of which step comes next; this builder does not need to
+ * know, and taking it as a parameter is what keeps this file free of the
+ * walkthrough's state.
+ */
+export function setupAccountStepMarkup({
+  accountState = null,
+  mode = 'sign-in',
+  busy = false,
+  notice = null,
+  actions = '',
+} = {}) {
+  if (accountState === null) {
+    return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
+      <div class="fleet-profile-status is-quiet" role="status">
+        <strong>Reading this computer’s accounts…</strong>
+      </div>
+      ${actions}`
+  }
+  if (!accountState.available) {
+    return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
+      <div class="fleet-profile-status is-serious" role="alert">
+        <strong>This copy cannot hold an account</strong>
+        <span>${esc(accountState.reason || 'The application did not say why.')} Nothing on this computer has been changed, and the rest of setup still works. Your assistant’s records will say that nobody was signed in.</span>
+      </div>
+      ${actions}`
+  }
+  if (accountState.signedIn) {
+    return `<h1 class="setup-title">Signed in as ${esc(accountState.displayName)}</h1>
+      <div class="fleet-profile-status is-good" role="status">
+        <strong>From now on, the record of what your assistant does says who asked for it.</strong>
+        <span>You can sign out or change this later in Settings.</span>
+      </div>
+      ${actions}`
+  }
+
+  const creating = mode === 'create'
+  return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
+    <p class="setup-subtitle">${esc(ACCOUNT_QUESTION_SUB)}</p>
+    ${notice ? `<div class="fleet-profile-status is-serious" role="alert">
+      <strong>That did not work</strong>
+      <span>${esc(notice)}</span>
+    </div>` : ''}
+    <div class="settings-section-rows">
+      <article class="settings-row fleet-profile-block setup-question">
+        <div class="settings-copy">
+          <div class="settings-name" id="setup-account-name">Name</div>
+          <div class="settings-desc">${esc(creating
+            ? 'Letters, numbers, and . _ - between them. This is what your assistant’s records will name.'
+            : 'The name you chose when you made the account on this computer.')}</div>
+        </div>
+        <div class="fleet-profile-fields">
+          <input class="fleet-profile-input" type="text" data-setup-account-field="username" autocomplete="username" spellcheck="false" autocapitalize="off" aria-labelledby="setup-account-name" ${busy ? 'disabled' : ''}/>
+        </div>
+      </article>
+      <article class="settings-row fleet-profile-block setup-question">
+        <div class="settings-copy">
+          <div class="settings-name" id="setup-account-password">Password</div>
+          <div class="settings-desc">${esc(creating
+            ? `At least ${MIN_PASSWORD_LENGTH} characters. A few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager.`
+            : 'The password for that account.')}</div>
+        </div>
+        <div class="fleet-profile-fields">
+          <input class="fleet-profile-input" type="password" data-setup-account-field="password" autocomplete="${creating ? 'new-password' : 'current-password'}" aria-labelledby="setup-account-password" ${busy ? 'disabled' : ''}/>
+        </div>
+      </article>
+    </div>
+    ${scopeMarkup()}
+    ${actions}`
+}

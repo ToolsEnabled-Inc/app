@@ -19,7 +19,7 @@
 // The behavioural half lives in product-account.test.mjs, which runs for real.
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
@@ -40,6 +40,7 @@ import {
   formMarkup,
   scopeMarkup,
   screenMarkup,
+  setupAccountStepMarkup,
 } from '../../src/account-markup.js'
 import { MIN_PASSWORD_LENGTH as SHELL_MIN_PASSWORD_LENGTH } from '../../shell/product-account.cjs'
 
@@ -324,23 +325,54 @@ test('the settings surface no longer claims there is no account system', () => {
  * what the sentence claims. It claims the ACCOUNT does not, and that is what is
  * checked. */
 
-const ACCOUNT_SOURCES = Object.freeze({
-  'shell/product-account.cjs': stripComments(read('shell/product-account.cjs')),
-  'src/account-state.js': stripComments(read('src/account-state.js')),
-  'src/views/account.js': stripComments(VIEW),
-})
+/* THE FILE SET IS DISCOVERED, NOT LISTED, and this is the third time tonight
+ * that a hand-written list turned out to be the defect. The first version named
+ * three files. Then I extracted the markup into src/account-markup.js to make it
+ * testable -- a fix for a coverage hole -- and every form field moved OUT of the
+ * listed set. Planted afterwards: an email field, a network call and a provider
+ * key hint in the new module all survived, 0 of 5 killed. The guards stayed
+ * pointed at the file the code had left.
+ *
+ * Coverage that is written down does not follow the code. So the set is derived
+ * from the tree: everything under src/ and shell/ whose name contains "account",
+ * plus the view. A new account-*.js file is covered the moment it exists, and
+ * the floor below fails if discovery ever returns less than the tree holds. */
+function discoverAccountSources() {
+  const found = {}
+  for (const directory of ['src', 'shell', 'src/views']) {
+    const absolute = path.join(REPO_ROOT, directory)
+    for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+      if (!entry.isFile()) continue
+      if (!/account/i.test(entry.name)) continue
+      if (!/\.(js|cjs|mjs)$/.test(entry.name)) continue
+      const relative = `${directory}/${entry.name}`
+      found[relative] = stripComments(read(relative))
+    }
+  }
+  return found
+}
 
-/* Every file the user reads words from. The store is in here because its
-   refusal messages ARE user-facing copy -- "This computer could not protect
-   the password, so no account was created" is a sentence a person reads at
-   the moment their account is not created, and it makes a promise about what
-   was written. Leaving the store out was how two real promises sat
-   unregistered. */
+const ACCOUNT_SOURCES = discoverAccountSources()
+
+test('the account file set is discovered, and covers every account module in the tree', () => {
+  const names = Object.keys(ACCOUNT_SOURCES).sort()
+  /* Named explicitly so that a file DISAPPEARING from discovery is a failure
+     rather than a quietly smaller scan. Add to this list when you add a module;
+     the discovery above is what makes forgetting it impossible to miss. */
+  for (const required of ['src/account-state.js', 'src/account-markup.js', 'shell/product-account.cjs', 'src/views/account.js']) {
+    assert.ok(names.includes(required), `${required} is no longer being scanned by the account guards`)
+  }
+  assert.ok(names.length >= 4, `only ${names.length} account modules were discovered`)
+  for (const [name, text] of Object.entries(ACCOUNT_SOURCES)) {
+    assert.ok(text.length > 200, `${name} was discovered but read as ${text.length} characters`)
+  }
+})
 const SHIPPED_COPY = [
   read('src/account-state.js'),
   SETTINGS,
   VIEW,
   read('shell/product-account.cjs'),
+  read('src/account-markup.js'),
 ].join('\n')
 
 const REGISTERED_CLAIMS = Object.freeze([
@@ -543,15 +575,12 @@ const REPORTED_STATE = Object.freeze([
   ['This computer cannot remember the sign-in, so you will be asked again next time', 'same keystore report, said where the person just signed in.'],
   ['There is no account on this page to sign in to', 'reports the absent shell bridge.'],
   ['The account file on this computer contains an entry this version cannot read', 'reports a corrupt record; the refusal itself is pinned by the fail-closed tests.'],
+  ['This copy cannot hold an account', 'reports that this build has no capability payload or no readable store; the first-run step still lets the person continue, signed out.'],
   ['The password cannot be the same as the username', 'states a rule that IS enforced, and is pinned by the password-rules test.'],
 ])
 
 test('every absolute-shaped sentence in the account copy is classified', () => {
-  const sources = {
-    'src/account-state.js': read('src/account-state.js'),
-    'src/views/account.js': VIEW,
-    'shell/product-account.cjs': read('shell/product-account.cjs'),
-  }
+  const sources = ACCOUNT_SOURCES
   const unclassified = []
   let seen = 0
   for (const [name, source] of Object.entries(sources)) {
@@ -721,6 +750,64 @@ test('the view owns no markup of its own', () => {
      the container the view mounts into and carries no words. */
   assert.ok(code.includes('data-account-section'), 'the view no longer mounts a section to paint into')
 })
+test('the first-run sign-in step renders, in every state it can be in', () => {
+  const states = [
+    ['reading', { accountState: null }, /Reading this computer/],
+    ['unavailable', { accountState: { available: false, reason: 'no payload' } }, /cannot hold an account/],
+    ['signed in', { accountState: { available: true, signedIn: true, displayName: 'Josh P' } }, /says who asked for it/],
+    ['signed out', { accountState: { available: true, signedIn: false } }, /data-setup-account-field="password"/],
+  ]
+  for (const [name, input, expected] of states) {
+    const html = setupAccountStepMarkup({ ...input, actions: '<div class="setup-actions"></div>' })
+    assert.ok(html.length > 80, `${name}: the first-run step renders ${html.length} characters`)
+    assert.match(html, expected, `${name}: the first-run step does not render its own content`)
+  }
+})
+
+test('the first-run step shows the scope notice where the account is created', () => {
+  /* This is the SHIPMENT-PLAN B14 disclosure on the screen a first-time user
+     actually meets. A plant proved it could vanish silently while the whole
+     suite stayed green, which is why it is rendered and read here. */
+  const html = setupAccountStepMarkup({ accountState: { available: true, signedIn: false }, mode: 'create' })
+  for (const paragraph of ACCOUNT_SCOPE_NOTICE) {
+    assert.ok(html.includes(paragraph.slice(0, 60)), 'the first-run step drops one of the scope sentences')
+  }
+  assert.ok(html.includes(esc(ACCOUNT_SCOPE_LEAD)), 'the first-run notice lost its heading')
+  assert.match(html, /no password reset/, 'the first-run step no longer warns that there is no reset')
+})
+
+test('the first-run step and the settings screen say the same thing about the account', () => {
+  /* Two screens, one set of constants. If they ever drift, one of them is
+     telling somebody something the other contradicts. */
+  const step = setupAccountStepMarkup({ accountState: { available: true, signedIn: false }, mode: 'create' })
+  const screen = formMarkup({ mode: 'create', state: { available: true, signedIn: false } })
+  for (const paragraph of ACCOUNT_SCOPE_NOTICE) {
+    const fragment = paragraph.slice(0, 60)
+    assert.equal(step.includes(fragment), screen.includes(fragment),
+      'the walkthrough and the sign-in screen disagree about what this account is')
+  }
+})
+
+test('the walkthrough delegates its step to the tested builder, and the limit is stated', () => {
+  /* WHAT THIS CAN AND CANNOT PROVE, said plainly rather than implied.
+     src/views/setup.js imports three stylesheets and touches the DOM, so no
+     test can render it. This asserts only that the step DELEGATES; a defect
+     planted INSIDE that wrapper -- an early return with the delegation still
+     below it -- would survive, because dead code matches a text search.
+     Everything the builder renders is covered above; the wiring in setup.js is
+     covered only by the packaged run driving the real window. That is a weaker
+     guarantee and it is written down as one. */
+  const code = stripComments(read('src/views/setup.js'))
+  assert.ok(code.includes('setupAccountStepMarkup('), 'the walkthrough no longer paints through the tested builder')
+  /* Matches an INPUT ELEMENT, not the attribute name: the walkthrough still
+     reads its fields with querySelector('[data-setup-account-field=...]'), and
+     banning the selector would ban the event handler that makes the step work.
+     The first version of this line did exactly that. */
+  const inline = code.match(/<input[^>]*data-setup-account-field/g) || []
+  assert.deepEqual(inline, [],
+    `the walkthrough has grown ${inline.length} account field(s) of its own that no test can render`)
+})
+
 test('the sign-in screen is reachable as its own route', () => {
   assert.ok(ROUTER.includes("import { accountView }"), 'the view must be imported')
   assert.ok(ROUTER.includes("parts[0] === 'account'"), 'the route must parse')
