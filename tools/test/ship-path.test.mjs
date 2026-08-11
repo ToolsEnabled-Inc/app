@@ -22,6 +22,23 @@ const REQUIRED_STAGES = [
       'The dist ship path must build the renderer; otherwise packaging can reuse stale renderer output.',
   },
   {
+    // Added after the SHIPPED INSTALLER was measured missing a fix that was
+    // present in the checkout, and nothing could see the gap. This stage writes
+    // dist/build-info.json -- the only statement an artifact ever makes about
+    // which commit it came from -- and dist/** ships it inside app.asar. Measured
+    // 2026-08-11: that record was absent from all three app.asar files on the
+    // build machine, because `electron-builder` had been run directly and this
+    // stage simply never executed. Every downstream gate passed the result.
+    //
+    // It is enshrined HERE for the same reason the privacy scan below is: a stage
+    // that lives only in a package.json string can be dropped by anyone without a
+    // test noticing, which is exactly how a control ends up wired to nothing.
+    name: 'provenance',
+    pattern: /(?:^|\s)(?:node\s+)?\S*require-clean-tree\.mjs\s+dist(?=\s|$)/,
+    missing:
+      'The dist ship path must run require-clean-tree.mjs against dist; otherwise the installer carries no record of which commit it was built from, and a build produced off this chain becomes indistinguishable from a gated one.',
+  },
+  {
     name: 'package',
     pattern: /(?:^|\s)electron-builder(?=\s|$).*?--win\s+nsis(?=\s|$)/,
     missing:
@@ -33,6 +50,17 @@ const REQUIRED_STAGES = [
       /(?:^|\s)(?:node\s+)?\S*strip-build-diagnostics\.mjs\s+release(?=\s|$)/,
     missing:
       'The dist ship path must strip build diagnostics from release; otherwise builder-debug.yml can ship the owner\'s home-directory path.',
+  },
+  {
+    // The gate that READS the provenance stage's record back out of the packaged
+    // archive. Without it the record is written and never checked, which is how
+    // require-clean-tree's promise that dirty:true "ships inside the package,
+    // inspectable by anyone holding only the .exe" went unkept by every artifact
+    // ever built here. A record nobody reads is not a control.
+    name: 'manifest',
+    pattern: /(?:^|\s)(?:node\s+)?\S*check-asar-manifest\.mjs\s+release[\\/]win-unpacked(?=\s|$)/,
+    missing:
+      'The dist ship path must run check-asar-manifest.mjs against release/win-unpacked; otherwise nothing verifies that the archive contains the files the build declares, or that it can state which commit it came from.',
   },
   {
     // Added after the built app.asar -- the exact payload of the installer -- was
@@ -114,7 +142,7 @@ export function assertShipPath(distScript, verifyScript) {
 }
 
 const VALID_CHAIN =
-  'npm run verify && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked';
+  'npm run verify && npm run build && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked';
 const VALID_VERIFY = 'node tools/test-ratchet.mjs';
 
 test('the real package.json dist chain preserves the ship-path contract', () => {
@@ -122,8 +150,16 @@ test('the real package.json dist chain preserves the ship-path contract', () => 
 });
 
 test('rejects smoke-packaged before electron-builder', () => {
-  const badChain =
-    'npm run verify && npm run build && node tools/smoke-packaged.mjs release/win-unpacked && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-no-owner-data.mjs release/win-unpacked';
+  // Derived from VALID_CHAIN rather than hand-written. This case previously
+  // carried its own copy of the chain, which silently went stale the moment a
+  // stage was added: it then threw about the MISSING stage instead of the
+  // ordering it exists to prove, and still read as a pass because assert.throws
+  // was matching a pattern that no longer described why it threw.
+  const SMOKE = ' && node tools/smoke-packaged.mjs release/win-unpacked';
+  const badChain = VALID_CHAIN.replace(SMOKE, '').replace(
+    ' && electron-builder --win nsis',
+    `${SMOKE} && electron-builder --win nsis`,
+  );
 
   assert.throws(
     () => assertShipPath(badChain, VALID_VERIFY),
@@ -176,5 +212,48 @@ test('rejects smoke-packaged targeting the renderer dist directory', () => {
   assert.throws(
     () => assertShipPath(badChain, VALID_VERIFY),
     /targeting dist tests only the renderer/,
+  );
+});
+
+test('rejects a chain with the provenance record deleted', () => {
+  // The measured incident: the installed application did not contain that
+  // night's fix, and no one could tell, because the artifact could not say
+  // which commit it was. This stage is what makes it able to say.
+  const badChain = VALID_CHAIN.replace(
+    ' && node tools/require-clean-tree.mjs dist',
+    '',
+  );
+
+  assert.throws(
+    () => assertShipPath(badChain, VALID_VERIFY),
+    /carries no record of which commit it was built from/,
+  );
+});
+
+test('rejects a chain with the packaged archive gate deleted', () => {
+  const badChain = VALID_CHAIN.replace(
+    ' && node tools/check-asar-manifest.mjs release/win-unpacked',
+    '',
+  );
+
+  assert.throws(
+    () => assertShipPath(badChain, VALID_VERIFY),
+    /must run check-asar-manifest\.mjs against release[\\/]win-unpacked/,
+  );
+});
+
+test('rejects recording provenance before the renderer build that erases it', () => {
+  // Not a stylistic ordering rule. There is no vite.config in this repo, so
+  // `vite build` runs with emptyOutDir defaulted on and WIPES dist/. A
+  // build-info.json written before that step is deleted before electron-builder
+  // can pack it, and the chain then looks fully gated while shipping an artifact
+  // that still cannot state what it is -- the worst of both, since the terminal
+  // shows the gate passing.
+  const badChain =
+    'npm run verify && node tools/require-clean-tree.mjs dist && npm run build && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked';
+
+  assert.throws(
+    () => assertShipPath(badChain, VALID_VERIFY),
+    /build must run before provenance/,
   );
 });
