@@ -142,6 +142,22 @@ export function readAccountState(availability, current) {
     signedIn: true,
     username,
     displayName: boundedName(current.account.displayName) || username,
+    /* THE ID, and why it is here rather than derived from the username.
+     *
+     * The spawn ledger records `account:<id>`, so a screen showing a person
+     * their own runs has to compare against the id. The username cannot stand
+     * in for it: product-login-build's rule is that the id survives a
+     * display-name change and the username does not, so a view keyed on the
+     * username would silently re-attribute somebody's history the day they
+     * renamed themselves.
+     *
+     * Shape-checked, not merely copied. A malformed id is `null` rather than a
+     * string that would then be compared against ledger records and match
+     * nothing -- which would render as "none of these runs are yours" instead
+     * of as the failure it is. */
+    accountId: typeof current.account.id === 'string' && /^[0-9a-f]{32}$/.test(current.account.id)
+      ? current.account.id
+      : null,
     expiresAtMs: Number.isSafeInteger(current.session?.expiresAtMs) ? current.session.expiresAtMs : null,
   })
 }
@@ -200,6 +216,145 @@ export function readActionResult(value) {
        rather than letting the person discover it at the next launch. */
     persisted: value.persisted !== false,
   })
+}
+
+/* ---- WHAT BELONGS TO THE SIGNED-IN ACCOUNT ----
+ *
+ * Three separate questions, kept separate all the way to the screen because
+ * collapsing them is how a product tells a person something false about his own
+ * money:
+ *
+ *   1. Is a payment method ATTACHED to this account? A binding this product
+ *      wrote. It names a vault record; it is not the record.
+ *   2. Can this installation SEE that record in its own vault? A different
+ *      question with a different answer -- on this machine the card was entered
+ *      into the engine checkout's vault and the installed product resolves its
+ *      own under userData.
+ *   3. Could the vault be read AT ALL? If not, 1 and 2 are unknown, and unknown
+ *      is not "no".
+ *
+ * A single boolean can only answer one of the three, and whichever one it
+ * answers, the other two degrade to "no card on file" -- which is a sentence
+ * about the owner's money that the product would be making up.
+ */
+
+const NO_ACCOUNT_DATA = Object.freeze({
+  ok: false,
+  code: 'MC_ACCOUNT_DATA_UNAVAILABLE',
+  reason: 'This copy could not read what belongs to this account.',
+  settingCount: 0,
+  settingKeys: Object.freeze([]),
+  adopted: null,
+  paymentMethod: null,
+})
+
+function boundedKeyList(value) {
+  if (!Array.isArray(value)) return Object.freeze([])
+  const keys = []
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > 256) continue
+    keys.push(entry)
+    if (keys.length >= 512) break
+  }
+  return Object.freeze(keys)
+}
+
+/**
+ * Normalize the shell's account-data reply. Fails closed: an unrecognised shape
+ * is "could not read", never "nothing there".
+ */
+export function readAccountData(value) {
+  if (!isPlainObject(value) || value.ok !== true) {
+    return Object.freeze({
+      ...NO_ACCOUNT_DATA,
+      code: isPlainObject(value) && typeof value.code === 'string' ? value.code : NO_ACCOUNT_DATA.code,
+      reason: isPlainObject(value) && typeof value.reason === 'string' && value.reason ? value.reason : NO_ACCOUNT_DATA.reason,
+    })
+  }
+  const settingKeys = boundedKeyList(value.settingKeys)
+  return Object.freeze({
+    ok: true,
+    code: null,
+    reason: null,
+    settingCount: Number.isSafeInteger(value.settingCount) && value.settingCount >= 0 ? value.settingCount : settingKeys.length,
+    settingKeys,
+    adopted: isPlainObject(value.adopted) && Number.isSafeInteger(value.adopted.atMs)
+      ? Object.freeze({ atMs: value.adopted.atMs, count: Number.isSafeInteger(value.adopted.count) ? value.adopted.count : 0 })
+      : null,
+    /* The vault KEY NAME and when it was attached. There is no field here that
+       could carry a card value, and there must never be one: this object is
+       rendered into the page. */
+    paymentMethod: isPlainObject(value.paymentMethod) && typeof value.paymentMethod.vaultKey === 'string'
+      ? Object.freeze({
+        vaultKey: value.paymentMethod.vaultKey.slice(0, 120),
+        attachedAtMs: Number.isSafeInteger(value.paymentMethod.attachedAtMs) ? value.paymentMethod.attachedAtMs : null,
+      })
+      : null,
+  })
+}
+
+const NO_PAYMENT_PRESENCE = Object.freeze({
+  ok: false,
+  attached: false,
+  /* `null`, never `false`. See the three questions above. */
+  present: null,
+  checked: false,
+  code: 'MC_PAYMENT_PRESENCE_UNAVAILABLE',
+  detail: 'This copy could not check whether the attached record is in its vault, so whether a card is on file is unknown.',
+})
+
+/**
+ * Normalize the shell's payment-presence reply.
+ *
+ * `present` is TRUE only when the shell said so explicitly. Every other shape,
+ * including one this build does not recognise, resolves to unknown -- and
+ * `checked: false` is what the screen must say out loud.
+ */
+export function readPaymentPresence(value) {
+  if (!isPlainObject(value) || value.ok !== true) return NO_PAYMENT_PRESENCE
+  if (value.attached !== true) {
+    return Object.freeze({
+      ok: true,
+      attached: false,
+      present: false,
+      checked: true,
+      code: typeof value.code === 'string' ? value.code : 'ACCOUNT_PAYMENT_NOT_ATTACHED',
+      detail: null,
+    })
+  }
+  const checked = value.checked === true
+  return Object.freeze({
+    ok: true,
+    attached: true,
+    vaultKey: typeof value.vaultKey === 'string' ? value.vaultKey.slice(0, 120) : null,
+    attachedAtMs: Number.isSafeInteger(value.attachedAtMs) ? value.attachedAtMs : null,
+    /* Only an explicit `true` from a check that actually happened is true, and
+       only an explicit `false` from one is false. Anything else is null. */
+    present: checked && value.present === true ? true : checked && value.present === false ? false : null,
+    checked,
+    code: typeof value.code === 'string' ? value.code : 'MC_PAYMENT_PRESENCE_UNKNOWN',
+    detail: typeof value.detail === 'string' ? value.detail : null,
+  })
+}
+
+/**
+ * Ask the shell for everything that belongs to the signed-in account. Never
+ * throws; every failure resolves to a stated unknown.
+ */
+export async function loadAccountBelongings(scope = globalThis) {
+  const bridge = accountBridge(scope)
+  if (!bridge || typeof bridge.data !== 'function') {
+    return Object.freeze({ data: NO_ACCOUNT_DATA, payment: NO_PAYMENT_PRESENCE })
+  }
+  let data
+  try { data = readAccountData(await bridge.data()) } catch { data = NO_ACCOUNT_DATA }
+  let payment
+  try {
+    payment = typeof bridge.paymentPresence === 'function'
+      ? readPaymentPresence(await bridge.paymentPresence())
+      : NO_PAYMENT_PRESENCE
+  } catch { payment = NO_PAYMENT_PRESENCE }
+  return Object.freeze({ data, payment })
 }
 
 /**

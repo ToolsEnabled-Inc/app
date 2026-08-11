@@ -92,16 +92,63 @@ test('no signature or chain hash reaches the renderer', (t) => {
   assert.doesNotMatch(serialized, /previousHash/i)
   assert.equal(serialized.includes(receipt.eventHash), false)
 
-  /* `outcome` joined this list deliberately and is the ONLY field that has.
-     It exists because the reply could not otherwise distinguish a run that
-     worked from a run that refused, and the screen built on it told people
-     three failed starts "still check out". It is safe to render for a reason
-     this assertion does not have to take on trust -- see the test below, which
-     shows the writer refusing anything that is not a bare code. */
+  /* TWO fields have joined this list, and each one had to earn it.
+     `outcome` exists because the reply could not otherwise distinguish a run
+     that worked from a run that refused, and the screen built on it told people
+     three failed starts "still check out".
+     `principal` exists because the page could not otherwise tell WHICH of the
+     runs on this computer were the signed-in person's -- the ledger is one file
+     per device on purpose (splitting it would let an account delete its own
+     history and break everyone else's chain), so showing somebody their own
+     history is a filter, and a filter needs the field. Neither is safe on
+     trust: `outcome` is pinned by the writer-refusal test below, and
+     `principal` by the shape test after it. */
   for (const entry of recorder.history().entries) {
-    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'sequence'])
+    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'principal', 'sequence'])
   }
   assert.equal(recorder.history().entries[0].outcome, null, 'a start on its own has no outcome to report')
+})
+
+/* The principal is the one field on this reply that names a PERSON, so the
+ * shapes it may take are exactly two and everything else is "this record does
+ * not say". Narrow on purpose: a screen filters on this value to decide which
+ * runs are the signed-in person's, and a name rendered next to somebody's own
+ * history is an accusation. Anything that could write a line into the ledger
+ * must not be able to write itself a name.
+ */
+test('the principal on a record is one of two shapes, and anything else reads as unsaid', (t) => {
+  const directory = workspace(t)
+  const recorder = createSpawnRecorder({ safeStorage: keystore(), directory })
+  const accountPrincipal = `account:${'a1b2c3d4'.repeat(4)}`
+  recorder.record({ action: 'agent_session_start', sessionId: 'one', principal: accountPrincipal })
+  recorder.record({ action: 'agent_session_start', sessionId: 'two', principal: 'unauthenticated' })
+
+  const entries = recorder.history().entries
+  assert.equal(entries.find(entry => entry.sequence === 1).principal, accountPrincipal)
+  assert.equal(entries.find(entry => entry.sequence === 2).principal, 'unauthenticated')
+
+  /* Bytes off disk that the writer would never have produced. The ledger is
+     signed, but history() deliberately still returns records when the chain
+     does NOT verify, so an unverified line reaches the reader by design. */
+  const forged = [
+    'C:\\Users\\someone\\.codex',
+    'account:not-hex',
+    'account:',
+    'ACCOUNT:A1B2C3D4A1B2C3D4A1B2C3D4A1B2C3D4',
+    'Josh (the owner, definitely)',
+    `account:${'a'.repeat(31)}`,
+    `account:${'a'.repeat(33)}`,
+  ]
+  const ledger = readFileSync(recorder.ledgerPath, 'utf8').trim().split('\n')
+  const template = JSON.parse(ledger[0])
+  writeFileSync(recorder.ledgerPath, `${forged
+    .map((principal, index) => JSON.stringify({ ...template, sequence: index + 1, principal }))
+    .join('\n')}\n`)
+
+  for (const entry of recorder.history().entries) {
+    assert.equal(entry.principal, null, `a record carrying ${JSON.stringify(entry)} was rendered as a name`)
+  }
+  assert.doesNotMatch(JSON.stringify(recorder.history()), /someone|definitely/)
 })
 
 test('an outcome cannot carry anything but a bare code, so it is safe to render', (t) => {

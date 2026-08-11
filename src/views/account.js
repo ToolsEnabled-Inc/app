@@ -35,6 +35,7 @@ import {
   MIN_PASSWORD_LENGTH,
   accountBridge,
   loadAccountState,
+  loadAccountBelongings,
   readActionResult,
 } from '../account-state.js'
 
@@ -69,12 +70,49 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
      dead code still matches a text search. Builders that a test can CALL are
      the only thing that catches it. This view now owns state and events; it
      owns no HTML. */
-  const view = () => ({ state, mode, busy, notice })
+  /* WHAT IS HIS, read separately from WHO HE IS.
+   *
+   * Two reads rather than one because they fail differently and the screen has
+   * to say which failed. A damaged settings partition must not stop the page
+   * saying who is signed in, and a vault that cannot be read must not make the
+   * account look signed out. `null` here means "not asked yet", exactly like
+   * `state`; the markup renders unknown rather than empty for it. */
+  let data = null
+  let payment = null
+  let history = null
+
+  const view = () => ({ state, mode, busy, notice, data, payment, history })
 
   function paint() {
     if (destroyed) return
     section.innerHTML = screenMarkup(view())
   }
+
+  /* HOW MANY OF THIS COMPUTER'S RUNS ARE YOURS.
+   *
+   * Counted here, in the page, from the records the shell already returns,
+   * because the ledger is deliberately one file for the whole device (see
+   * shell/product-account.cjs's partition note) and what a person wants to see
+   * is their own slice of it. The principal is compared to `account:<id>` --
+   * the SAME string the main process writes into the record, produced there and
+   * never here, so the page cannot decide that a record is his.
+   *
+   * Never throws and never blocks the rest of the screen: a ledger this build
+   * cannot read leaves `history` null and the row simply does not appear. */
+  async function loadHistory() {
+    const agent = globalThis.mcAgent
+    if (!agent || typeof agent.history !== 'function' || !state?.signedIn) return null
+    let reply
+    try { reply = await agent.history({ limit: 200 }) } catch { return null }
+    if (!reply || reply.ok !== true || !Array.isArray(reply.entries)) return null
+    const accountId = state.accountId
+    if (typeof accountId !== 'string' || !accountId) return null
+    const wanted = `account:${accountId}`
+    const mine = reply.entries.filter(entry => entry && entry.principal === wanted).length
+    const total = Number.isSafeInteger(reply.total) ? reply.total : reply.entries.length
+    return { mine, total }
+  }
+
   async function refresh() {
     state = await loadAccountState()
     if (destroyed) return
@@ -83,6 +121,24 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
        the common case is one field and a password. */
     if (!state.signedIn && mode !== 'create' && state.available && state.accountCount === 0) mode = 'create'
     if (state.signedIn && mode !== 'change-password') mode = 'signed-in'
+    if (!state.signedIn) {
+      /* Cleared on sign-out. Leaving the previous account's counts on the
+         screen after somebody signs out is the partition failing in the one
+         place a person would actually notice it. */
+      data = null
+      payment = null
+      history = null
+      paint()
+      return
+    }
+    paint()
+    const belongings = await loadAccountBelongings()
+    if (destroyed) return
+    data = belongings.data
+    payment = belongings.payment
+    paint()
+    history = await loadHistory()
+    if (destroyed) return
     paint()
   }
 

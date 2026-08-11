@@ -678,3 +678,194 @@ test('the principal is always a bounded non-empty string the spawn record accept
   }
   assert.equal(UNAUTHENTICATED_PRINCIPAL, 'unauthenticated')
 })
+
+/* ------------------------- the account partition -------------------------
+ *
+ * THE FOURTH WAY THIS CAN BE QUIETLY WRONG, and until now the product had it:
+ * signing in changed a NAME on a record and nothing else. `accountId` appeared
+ * nowhere in the application outside shell/product-account.cjs, so every byte
+ * the product kept -- theme, first-run answers, write fences -- was one shared
+ * pile that the next person to sign in inherited. "Your data" was a sentence
+ * the product could not write.
+ *
+ * These tests are what stop the isolation claim being vacuous. Some of them
+ * would pass against a store that ignored the account entirely (a single shared
+ * file answers "settingCount: 1" to both accounts just fine), so the ones that
+ * matter are the CROSS-ACCOUNT ones: B writes, A reads, and A must not see it.
+ */
+
+test('two accounts on one computer do not see each other settings', async (t) => {
+  const directory = workspace(t)
+  const account = store(directory)
+  assert.equal((await account.createAccount({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal((await account.createAccount({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'black' }).ok, true)
+  assert.equal(account.getSetting('mc.theme').value, 'black')
+  const joshId = account.current().account.id
+
+  assert.equal((await account.signIn({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+  const guestId = account.current().account.id
+  assert.notEqual(guestId, joshId)
+  /* THE ASSERTION THE WHOLE PARTITION EXISTS FOR. */
+  assert.equal(account.getSetting('mc.theme').value, null,
+    'the second account can read the first account settings, so the partition does nothing')
+  assert.equal(account.accountDataForRenderer().settingCount, 0)
+
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'white' }).ok, true)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.getSetting('mc.theme').value, 'black',
+    'the second account overwrote the first account setting, so they share one file')
+})
+
+test('signed out, nothing can be read from or written to any account partition', async (t) => {
+  const directory = workspace(t)
+  const account = await withAccount(directory)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'black' }).ok, true)
+
+  account.signOut()
+  const read = account.accountDataForRenderer()
+  assert.equal(read.ok, false)
+  assert.equal(read.code, 'ACCOUNT_NOT_SIGNED_IN')
+  assert.equal(account.getSetting('mc.theme').ok, false)
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'white' }).ok, false)
+  assert.equal(account.attachPaymentMethod({ vaultKey: 'payment_card_default' }).ok, false)
+  /* And the write that was refused really did not happen. */
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.getSetting('mc.theme').value, 'black')
+})
+
+test('the first account on a used computer inherits its settings and the second does not', async (t) => {
+  const directory = workspace(t)
+  writeFileSync(join(directory, 'renderer-prefs.json'), JSON.stringify({
+    storageVersion: 1,
+    values: { 'mc.theme': 'black', 'mc.setup.profile': '{"status":"complete"}' },
+  }))
+  const account = store(directory)
+
+  const first = await account.createAccount({ username: 'josh', password: PASSWORD })
+  assert.equal(first.ok, true)
+  assert.equal(first.adoptedSettings, true, 'the settings already on this computer were thrown away')
+  assert.equal(first.adoptedSettingCount, 2)
+
+  const second = await account.createAccount({ username: 'guest', password: OTHER_PASSWORD })
+  assert.equal(second.ok, true)
+  assert.equal(second.adoptedSettings, false,
+    'a later account inherited settings that belong to whoever made the first one')
+
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.getSetting('mc.setup.profile').value, '{"status":"complete"}')
+  assert.equal(account.accountDataForRenderer().adopted.count, 2)
+
+  assert.equal((await account.signIn({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+  assert.equal(account.getSetting('mc.setup.profile').value, null)
+  assert.equal(account.accountDataForRenderer().adopted, null)
+
+  /* The device file is READ, never moved. Signing out must leave the product
+     exactly as it was for whoever has not made an account. */
+  const device = JSON.parse(readFileSync(join(directory, 'renderer-prefs.json'), 'utf8'))
+  assert.equal(device.values['mc.theme'], 'black')
+})
+
+test('a damaged partition is reported, never silently replaced with an empty one', async (t) => {
+  const directory = workspace(t)
+  const account = await withAccount(directory)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'black' }).ok, true)
+
+  const id = account.current().account.id
+  writeFileSync(account.accountDataPath(id), '{ not json')
+  const read = account.accountDataForRenderer()
+  assert.equal(read.ok, false)
+  assert.equal(read.code, 'ACCOUNT_DATA_CORRUPT')
+  /* And a write on top of a damaged file is refused rather than flattening it. */
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'white' }).ok, false)
+  assert.equal(readFileSync(account.accountDataPath(id), 'utf8'), '{ not json')
+})
+
+test('a partition file whose contents name another account is refused', async (t) => {
+  const directory = workspace(t)
+  const account = store(directory)
+  assert.equal((await account.createAccount({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal((await account.createAccount({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  const joshId = account.current().account.id
+  assert.equal((await account.signIn({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+  const guestId = account.current().account.id
+  /* Give the guest a partition file of their own first, so the directory
+     exists and the file being overwritten below is a real one. */
+  assert.equal(account.putSetting({ key: 'mc.theme', value: 'white' }).ok, true)
+
+  /* Somebody copies one account file over another one name. The file is named
+     by id; if its CONTENTS name a different account, answering with it would
+     show one person another person settings. */
+  writeFileSync(account.accountDataPath(guestId), JSON.stringify({
+    version: 1, accountId: joshId, settings: { 'mc.theme': 'black' }, paymentMethod: null, updatedAtMs: 1,
+  }))
+  const read = account.accountDataForRenderer()
+  assert.equal(read.ok, false)
+  assert.equal(read.code, 'ACCOUNT_DATA_CORRUPT')
+})
+
+/* --------------------- the payment method is a REFERENCE --------------------- */
+
+test('attaching a payment method writes a vault key name and nothing that could be a card', async (t) => {
+  const directory = workspace(t)
+  const account = await withAccount(directory)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+
+  const attached = account.attachPaymentMethod({ vaultKey: 'payment_card_default', vaultStore: 'C:\\somewhere\\vault\\secrets.json' })
+  assert.equal(attached.ok, true)
+  assert.equal(attached.vaultKey, 'payment_card_default')
+
+  const id = account.current().account.id
+  const raw = readFileSync(account.accountDataPath(id), 'utf8')
+  const stored = JSON.parse(raw)
+  /* The whole record, enumerated. A field that could hold a card must not
+     exist -- not empty, not null: absent. */
+  assert.deepEqual(Object.keys(stored.paymentMethod).sort(), ['attachedAtMs', 'note', 'vaultKey', 'vaultStore'])
+  assert.match(raw, /payment_card_default/)
+  /* Every STRING in the record, checked for a card shape. Deliberately not a
+     scan of the raw text: `attachedAtMs` is a thirteen-digit epoch, so a naive
+     digit-run assertion fails on a correct file -- and the person who hits that
+     deletes the assertion rather than narrowing it. */
+  for (const value of Object.values(stored.paymentMethod)) {
+    if (typeof value !== 'string') continue
+    assert.doesNotMatch(value.replace(/[ -]/g, ''), /\d{12,19}/,
+      'a payment-method field holds something shaped like a card number')
+  }
+
+  const view = account.accountDataForRenderer()
+  assert.equal(view.paymentMethod.vaultKey, 'payment_card_default')
+  assert.equal(account.detachPaymentMethod().ok, true)
+  assert.equal(account.accountDataForRenderer().paymentMethod, null)
+})
+
+test('only an allowlisted vault key may be attached, and never the identity record', async (t) => {
+  const directory = workspace(t)
+  const account = await withAccount(directory)
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+
+  for (const vaultKey of ['owner_legal_identity_v1', 'google_client_secret', '../../elsewhere', '', null, 42]) {
+    const result = account.attachPaymentMethod({ vaultKey })
+    assert.equal(result.ok, false, `${String(vaultKey)} was accepted as a payment method`)
+    assert.equal(result.code, 'ACCOUNT_PAYMENT_KEY_REFUSED')
+  }
+  assert.equal(account.accountDataForRenderer().paymentMethod, null)
+})
+
+test('a payment method does not survive into another account', async (t) => {
+  const directory = workspace(t)
+  const account = store(directory)
+  assert.equal((await account.createAccount({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal((await account.createAccount({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+
+  assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
+  assert.equal(account.attachPaymentMethod({ vaultKey: 'payment_card_default' }).ok, true)
+
+  assert.equal((await account.signIn({ username: 'guest', password: OTHER_PASSWORD })).ok, true)
+  assert.equal(account.accountDataForRenderer().paymentMethod, null,
+    'the second account is shown the first account payment method')
+})

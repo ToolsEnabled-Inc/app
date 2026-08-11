@@ -476,6 +476,90 @@ const REGISTERED_CLAIMS = Object.freeze([
         'changePassword no longer proves the current password before changing it')
     },
   },
+  {
+    claim: 'kept for you and not for whoever else uses this computer',
+    stillTrueBecause: 'the account partition is one file per account id under <userData>/accounts/, the id comes from the main-process session and never from the page, and no IPC channel in the shell accepts an account id as an argument. A second account therefore cannot be handed the first one\'s file, and a renderer cannot ask for one.',
+    pin() {
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      /* The file name IS the account id, so the id must be shape-checked
+         immediately before it is joined to a path. Without this, a record's own
+         field becomes a path traversal. */
+      const dataPath = store.slice(store.indexOf('function accountDataPath'))
+      assert.ok(/\^\[0-9a-f\]\{32\}\$/.test(dataPath.slice(0, 400)),
+        'accountDataPath no longer validates the account id before joining it to a path')
+      /* Every partition read and write starts from `current()`, which reads the
+         main-process session. A function that took an account id from its
+         caller would be one a page could aim. */
+      for (const name of ['function accountDataForRenderer', 'function getSetting', 'function putSetting', 'function attachPaymentMethod']) {
+        const slice = store.slice(store.indexOf(name), store.indexOf(name) + 300)
+        assert.ok(/const state = current\(\)/.test(slice),
+          `${name} no longer takes the account from the signed-in session, so a caller could choose whose data it reads`)
+      }
+      /* And the channel itself: the shell must not accept an account id from
+         the renderer on any account channel. */
+      const main = stripComments(MAIN)
+      const accountChannels = main.match(/ipcMain\.handle\('mc-account:[^)]*\)/g) || []
+      assert.ok(accountChannels.length >= 6, 'the account channels are no longer discoverable, so this guard is checking air')
+      for (const channel of accountChannels) {
+        assert.ok(!/accountId/i.test(channel),
+          `an mc-account channel now takes an account id from the page: ${channel.slice(0, 80)}`)
+      }
+    },
+  },
+  {
+    claim: 'no number, expiry or security code is shown here or anywhere else in this program',
+    stillTrueBecause: 'the only payment value any account module holds is a vault KEY NAME. No account module, and no account IPC channel, names a card number, expiry, CVC, PAN, last-four or token field -- there is nowhere for one to arrive from and nowhere to put it.',
+    pin() {
+      /* A field-name scan, not a value scan: a value cannot be searched for,
+         but the FIELD it would have to arrive in can. If none of these names
+         exists anywhere in the account surface, no branch can render one. */
+      /* FIELD NAMES, not English. The first draft of this list included the
+         bare word `expiry`, which matched the very sentence it is guarding --
+         "no number, expiry or security code is shown" -- and failed the suite
+         on its own copy. Every entry here is a shape a card field would be
+         NAMED, and none of them is a word that appears in prose. */
+      const cardDetail = /\b(?:cardNumber|card_number|cardnum|pan|cvc|cvv|securityCode|expiryMonth|expiryYear|expMonth|expYear|lastFour|last4|cardToken|paymentToken)\b/i
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!cardDetail.test(stripComments(source)),
+          `${name} now names a card-detail field, so "no number, expiry or security code is shown" is no longer true`)
+      }
+      const main = stripComments(MAIN)
+      const paymentChannels = (main.match(/ipcMain\.handle\('mc-account:payment[^;]*\}\)\)/g) || []).join('\n')
+      assert.ok(paymentChannels.length > 0, 'the payment channels are no longer discoverable, so this guard is checking air')
+      assert.ok(!cardDetail.test(paymentChannels),
+        'a payment channel now carries a card detail rather than only a vault key name')
+      /* The presence verb answers through an exit code with no stdout, so the
+         shell-side reader must not be capturing output either. */
+      const presence = stripComments(read('shell/vault-presence.cjs'))
+      assert.ok(/stdio: \['ignore', 'ignore', 'ignore'\]/.test(presence),
+        'the vault presence check now captures output from the vault program, which is where a value could appear')
+    },
+  },
+  {
+    claim: 'Nothing in this program can charge anything without one, and attaching one is not a payment',
+    stillTrueBecause: 'attachment writes a vault key name into a JSON file and nothing else. No account module imports or references a payment provider, a charge, a checkout session or a transaction, and the shell attach channel reaches exactly one function whose whole body is a file write.',
+    pin() {
+      const spend = /\b(?:stripe|paddle|chargeCard|createCharge|createPaymentIntent|captureP(?:ayment|urchase)|billing_checkout|checkout_create|transaction_create|refund)\b/i
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!spend.test(stripComments(source)),
+          `${name} can now reach a payment provider, so "attaching one is not a payment" is no longer true`)
+      }
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      const attach = store.slice(store.indexOf('function attachPaymentMethod'))
+      const body = attach.slice(0, attach.indexOf('\n  }\n') + 5)
+      assert.ok(!spend.test(body), 'attachPaymentMethod now reaches a payment path')
+      /* It must not read the vault either. Attachment names a record; reading
+         one is a different capability with a different review. */
+      assert.ok(!/getSecret|readSecret|decrypt|Unprotect/i.test(body),
+        'attachPaymentMethod now reads the vault record it is only supposed to name')
+      /* And the key it will accept is an allowlist, not a pattern -- so a page
+         cannot widen what counts as "a payment method". */
+      assert.ok(/PAYMENT_VAULT_KEYS\.includes\(vaultKey\)/.test(body),
+        'attachPaymentMethod no longer checks the vault key against the fixed allowlist')
+      assert.ok(!store.includes("PAYMENT_VAULT_KEYS = Object.freeze(['payment_card_default', 'owner_legal_identity_v1'"),
+        'the identity record is now attachable as a payment method')
+    },
+  },
 ])
 
 for (const entry of REGISTERED_CLAIMS) {
@@ -577,6 +661,9 @@ const REPORTED_STATE = Object.freeze([
   ['The account file on this computer contains an entry this version cannot read', 'reports a corrupt record; the refusal itself is pinned by the fail-closed tests.'],
   ['This copy cannot hold an account', 'reports that this build has no capability payload or no readable store; the first-run step still lets the person continue, signed out.'],
   ['The password cannot be the same as the username', 'states a rule that IS enforced, and is pinned by the password-rules test.'],
+  ['this installation’s own vault does not hold that record', 'reports a vault this copy just read and found the record absent from. It is a measurement, not a promise -- and it is the branch that exists so that state cannot render as "no card on file".'],
+  ['This copy could not check whether a card is attached', 'reports that the check itself failed. The sentence exists to refuse the false report; making it a promise would be promising that a read never fails.'],
+  ['there is no account whose data this would be', 'reports that nobody is signed in. It is the partition refusing to answer rather than answering with somebody else\'s data, which is the behaviour the isolation tests pin.'],
 ])
 
 test('every absolute-shaped sentence in the account copy is classified', () => {

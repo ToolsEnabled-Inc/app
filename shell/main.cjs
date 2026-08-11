@@ -16,6 +16,7 @@ const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
 const { readAgentConfinement } = require('./agent-confinement-read.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
+const { vaultRecordPresence: readVaultRecordPresence } = require('./vault-presence.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
@@ -1784,6 +1785,85 @@ ipcMain.handle('mc-account:change-password', (event, value) =>
     currentPassword: typeof value?.currentPassword === 'string' ? value.currentPassword : '',
     newPassword: typeof value?.newPassword === 'string' ? value.newPassword : '',
   })))
+
+/* ---------- what belongs to the signed-in account ----------
+ *
+ * The partition, reached from the page. Same sender check as every other
+ * account channel, and the same rule about direction: the page names a KEY, it
+ * never names an ACCOUNT. Which account's data this is comes from the session
+ * in the main process, exactly like the audit principal does, because a page
+ * that could choose whose settings it is reading is a page that can read
+ * anybody's.
+ *
+ * There is deliberately no channel that lists accounts or reads another
+ * account's partition. `shell/product-account.cjs` will not answer that
+ * question and nothing here asks it. */
+ipcMain.handle('mc-account:data', event =>
+  withFleetProfileSender(event, () => getAccountStore().accountDataForRenderer()))
+
+ipcMain.handle('mc-account:setting-get', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().getSetting(typeof value?.key === 'string' ? value.key : '')))
+
+ipcMain.handle('mc-account:setting-put', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().putSetting({
+    key: typeof value?.key === 'string' ? value.key : '',
+    /* `null` removes. Anything that is not a string and not null is refused by
+       the store rather than coerced -- a setting stored as "[object Object]" is
+       a setting nobody can read back. */
+    value: value?.value === null || value?.value === undefined ? null : value.value,
+  })))
+
+/* ATTACHMENT ONLY, and the vault key is the ONLY thing that crosses.
+ *
+ * This binds a vault record to the signed-in account as its payment method. It
+ * cannot read the record, cannot decrypt it, cannot validate a card and cannot
+ * reach a payment provider -- the store accepts a key name from a fixed
+ * allowlist and writes it down. Nothing here moves money and there is no code
+ * path from this channel to anything that does. */
+ipcMain.handle('mc-account:payment-attach', (event, value) =>
+  withFleetProfileSender(event, () => getAccountStore().attachPaymentMethod({
+    vaultKey: typeof value?.vaultKey === 'string' ? value.vaultKey : '',
+    vaultStore: path.join(CAPABILITY_STATE_ROOT, 'vault', 'secrets.json'),
+    note: typeof value?.note === 'string' ? value.note : null,
+  })))
+
+ipcMain.handle('mc-account:payment-detach', event =>
+  withFleetProfileSender(event, () => getAccountStore().detachPaymentMethod()))
+
+/* IS THE ATTACHED RECORD ACTUALLY IN THIS INSTALLATION'S VAULT.
+ *
+ * Separate from the attachment on purpose. The binding says which record is
+ * this person's card; this says whether the installation can currently see it.
+ * They can disagree, and on this machine they DO: the card was entered into the
+ * engine checkout's vault and this installation resolves its own under
+ * `<userData>/capability/vault/`. A screen with only a boolean turns that into
+ * "no card on file", which is false. See shell/vault-presence.cjs. */
+ipcMain.handle('mc-account:payment-presence', event =>
+  withFleetProfileSender(event, () => {
+    const state = getAccountStore().current()
+    if (!state.signedIn) {
+      return { ok: false, code: 'ACCOUNT_NOT_SIGNED_IN', reason: 'Nobody is signed in, so there is no payment method to check.' }
+    }
+    const data = getAccountStore().accountDataForRenderer()
+    if (data.ok !== true) return { ok: false, code: data.code, reason: data.reason }
+    if (!data.paymentMethod) {
+      return { ok: true, attached: false, present: false, checked: true, code: 'ACCOUNT_PAYMENT_NOT_ATTACHED' }
+    }
+    const presence = readVaultRecordPresence(data.paymentMethod.vaultKey, {
+      capabilityRoot: resolveCapabilityRoot(),
+      stateRoot: CAPABILITY_STATE_ROOT,
+    })
+    return {
+      ok: true,
+      attached: true,
+      vaultKey: data.paymentMethod.vaultKey,
+      attachedAtMs: data.paymentMethod.attachedAtMs,
+      present: presence.present,
+      checked: presence.readable,
+      code: presence.code,
+      detail: presence.detail,
+    }
+  }))
 
 /* Two ways to get the bootstrap proof, and the order matters.
  *

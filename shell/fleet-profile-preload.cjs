@@ -206,6 +206,18 @@ contextBridge.exposeInMainWorld('mcAccount', Object.freeze({
   signOut: () => ipcRenderer.invoke('mc-account:sign-out'),
   signOutEverywhere: () => ipcRenderer.invoke('mc-account:sign-out-everywhere'),
   changePassword: request => ipcRenderer.invoke('mc-account:change-password', request),
+  /* WHAT BELONGS TO WHOEVER IS SIGNED IN. Note what is NOT here: no method
+     takes an account id. Which account these read and write is decided in the
+     main process from the session, for the same reason the audit principal is
+     -- a page that could name the account could read anybody's settings. */
+  data: () => ipcRenderer.invoke('mc-account:data'),
+  getSetting: key => ipcRenderer.invoke('mc-account:setting-get', { key }),
+  putSetting: (key, value) => ipcRenderer.invoke('mc-account:setting-put', { key, value }),
+  /* Attachment names a vault KEY and never a value. There is no method here
+     that reads a vault record, and adding one would be a different review. */
+  attachPaymentMethod: request => ipcRenderer.invoke('mc-account:payment-attach', request),
+  detachPaymentMethod: () => ipcRenderer.invoke('mc-account:payment-detach'),
+  paymentPresence: () => ipcRenderer.invoke('mc-account:payment-presence'),
 }))
 
 function rgbToHex(rgb) {

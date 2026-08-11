@@ -67,6 +67,65 @@ const ACCOUNTS_FILE = 'product-accounts.json'
 const SESSION_FILE = 'product-session.enc'
 const STORE_VERSION = 1
 
+/* WHOSE DATA IS IT. The account partition, and where the line is drawn.
+ *
+ * Before this, every byte the product kept was PER DEVICE. renderer-prefs.json
+ * held one set of settings, the spawn ledger held one list of sessions, and a
+ * second person signing in on the same computer inherited the first person's
+ * theme, first-run answers and write fences. `accountId` appeared nowhere in
+ * the application outside this file, so "sign in" changed a name on a record
+ * and nothing else. This is the first thing that actually follows the account.
+ *
+ * WHAT IS PER ACCOUNT, AND WHAT IS DELIBERATELY NOT:
+ *
+ *   PER ACCOUNT, and now stored here, one file per account id:
+ *     - settings (theme, first-run profile, write fences, panel choices --
+ *       everything the renderer persists through localStorage). These are
+ *       preferences OF A PERSON.
+ *     - the payment method binding: which vault record is this person's card.
+ *       A card belongs to a person, not to a computer.
+ *
+ *   PER DEVICE, and deliberately left alone:
+ *     - shell-state.json (window bounds, chosen port, first-paint theme). It
+ *       must be readable BEFORE anyone signs in, because it decides what the
+ *       window looks like while the sign-in screen is being painted. An
+ *       account-scoped window position is a window that cannot be positioned.
+ *     - the vault itself. It is DPAPI-sealed to the Windows user; a second
+ *       product account on the same Windows login gains nothing from a second
+ *       vault, and would lose the OS protection by inventing its own.
+ *     - agent-spawn-records.jsonl. This one is the interesting refusal: it is a
+ *       hash-chained, signed, append-only ledger. Splitting it per account
+ *       would mean one account could delete its own history, and deleting any
+ *       account's file would break the chain for everyone else. It stays ONE
+ *       ledger, per device, and carries the account in each record's principal
+ *       -- so the ATTRIBUTION is per account and the STORAGE is not. A view
+ *       filters; it does not partition.
+ *
+ * SIGNED OUT IS NOT AN ACCOUNT. Every read and every write below refuses when
+ * nobody is signed in. There is no "default" partition that a signed-out window
+ * writes into, because the next person to sign in would inherit it. */
+const ACCOUNT_DATA_DIRECTORY = 'accounts'
+const DATA_VERSION = 1
+/* The device-level settings file this store ADOPTS from on first sign-in. It is
+   read, never written, by this file -- shell/renderer-prefs.cjs remains its only
+   writer, and the device copy is left exactly as it was. */
+const DEVICE_PREFS_FILE = 'renderer-prefs.json'
+
+/* Bounds mirror shell/renderer-prefs.cjs, because this holds the same values.
+   A partition that accepted more than the store it adopts from would be a way
+   to get an oversized value past that store's limits. */
+const MAX_SETTING_KEYS = 512
+const MAX_SETTING_KEY_LENGTH = 256
+const MAX_SETTING_VALUE_LENGTH = 64 * 1024
+const MAX_DATA_BYTES = 2 * 1024 * 1024
+
+/* The vault keys a payment method may name. An allowlist rather than a pattern:
+   this value is written from a renderer call, and the set of records that may
+   be called "this person's card" is small, known, and not something a page gets
+   to widen. `owner_legal_identity_v1` is deliberately absent -- an identity
+   document is not a payment method and must never be attached as one. */
+const PAYMENT_VAULT_KEYS = Object.freeze(['payment_card_default'])
+
 /* OWASP Password Storage Cheat Sheet's first-listed scrypt configuration
    (N=2^17, r=8, p=1). Memory is 128*N*r = 134 MB, which is the point: it is
    what makes a stolen verifier expensive to attack offline. `maxmem` must be
@@ -684,12 +743,29 @@ function createAccountStore({
       failedAttempts: 0,
       lockedUntilMs: 0,
     }
+    const isFirstAccountOnThisComputer = store.accounts.length === 0
     try {
       writeStore({ version: STORE_VERSION, accounts: [...store.accounts, account] })
     } catch {
       return refusal('ACCOUNT_STORE_WRITE_FAILED', 'The account could not be saved on this computer.')
     }
-    return Object.freeze({ ok: true, account: Object.freeze({ id: account.id, username: account.username, displayName: account.displayName }) })
+    /* AFTER the account exists, and only for the first one. See
+       `adoptDeviceSettings`: the settings already on this computer belong to
+       whoever has been using it, and at this moment that is the person creating
+       the first account. A failure to adopt is not a failure to create -- they
+       still have an account, it simply starts empty, which is what would have
+       happened anyway before this existed. */
+    const adoption = isFirstAccountOnThisComputer
+      ? adoptDeviceSettings(account.id)
+      : { adopted: false, count: 0 }
+    return Object.freeze({
+      ok: true,
+      account: Object.freeze({ id: account.id, username: account.username, displayName: account.displayName }),
+      /* Said out loud so the screen can tell the person what just became
+         theirs, rather than moving their settings silently. */
+      adoptedSettings: adoption.adopted,
+      adoptedSettingCount: adoption.count,
+    })
   }
 
   /* One message for "no such account" and for "wrong password", because two
@@ -866,6 +942,295 @@ function createAccountStore({
     return Object.freeze({ ok: true, signedOut: true })
   }
 
+  /* ------------------------- the account partition -------------------------
+   *
+   * One file per account id, under `<userData>/accounts/`. The id is the file
+   * name and it is validated 32-hex before it is ever joined to a path, in
+   * `validateAccount` on the way in and again in `accountDataPath` below --
+   * because a file name taken from a record is a path traversal waiting for the
+   * validation in front of it to be relaxed.
+   *
+   * NOT ENCRYPTED, AND THAT IS THE HONEST CHOICE. These are preferences and one
+   * vault KEY NAME. There is no password, no token and no card value here, so
+   * encrypting it would buy nothing except the appearance of protection -- and
+   * the session file next to it, which does hold something worth sealing, is
+   * sealed. The comment at the top of this file states the same limit about the
+   * account itself: this is a partition between the people who share a computer,
+   * not a defence against the Windows user they all sign in as. */
+
+  const dataDirectory = path.join(directory, ACCOUNT_DATA_DIRECTORY)
+
+  function accountDataPath(accountId) {
+    if (typeof accountId !== 'string' || !/^[0-9a-f]{32}$/.test(accountId)) {
+      throw new AccountError('ACCOUNT_DATA_BAD_ID', 'An account id is required to read account data')
+    }
+    return path.join(dataDirectory, `${accountId}.json`)
+  }
+
+  function emptyData(accountId) {
+    return {
+      version: DATA_VERSION,
+      accountId,
+      settings: {},
+      paymentMethod: null,
+      adopted: null,
+      updatedAtMs: 0,
+    }
+  }
+
+  function validSettingEntry(key, value) {
+    if (typeof key !== 'string' || key.length === 0 || key.length > MAX_SETTING_KEY_LENGTH) return false
+    if (typeof value !== 'string' || value.length > MAX_SETTING_VALUE_LENGTH) return false
+    return true
+  }
+
+  /* A payment method is a REFERENCE. There is no field here that could hold a
+     card number, an expiry, a CVC or a token, because the record itself never
+     leaves the vault -- this says WHICH vault record is this person's card and
+     WHEN it was attached, and nothing else. The store name is carried so the
+     screen can tell the truth when the installation's vault is not the vault the
+     record was entered into, which is a real state on this machine and reads as
+     "no card on file" to anything that only stores a boolean. */
+  function validPaymentMethod(value) {
+    if (!isPlainObject(value)) return null
+    if (!PAYMENT_VAULT_KEYS.includes(value.vaultKey)) return null
+    if (!Number.isSafeInteger(value.attachedAtMs) || value.attachedAtMs < 0) return null
+    const store = typeof value.vaultStore === 'string' && value.vaultStore.length <= 400 ? value.vaultStore : null
+    const note = typeof value.note === 'string' && value.note.length <= 400 ? value.note : null
+    return { vaultKey: value.vaultKey, attachedAtMs: value.attachedAtMs, vaultStore: store, note }
+  }
+
+  /**
+   * Read one account's partition. Never throws, and an unreadable file is NOT
+   * an empty one.
+   *
+   * The distinction is the same one the account file itself makes: silently
+   * substituting an empty record for a damaged one presents the person with a
+   * blank slate and lets the next write destroy what could not be read.
+   */
+  function readAccountData(accountId) {
+    let filePath
+    try {
+      filePath = accountDataPath(accountId)
+    } catch (error) {
+      return { ok: false, code: error.code, reason: error.message }
+    }
+    let raw
+    try {
+      raw = fs.readFileSync(filePath)
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return { ok: true, data: emptyData(accountId), fresh: true }
+      return { ok: false, code: 'ACCOUNT_DATA_UNREADABLE', reason: 'Your settings for this account could not be read on this computer.' }
+    }
+    if (raw.length > MAX_DATA_BYTES) {
+      return { ok: false, code: 'ACCOUNT_DATA_UNREADABLE', reason: 'The settings file for this account is larger than this product will read.' }
+    }
+    let parsed
+    try {
+      parsed = JSON.parse(raw.toString('utf8'))
+    } catch {
+      return { ok: false, code: 'ACCOUNT_DATA_CORRUPT', reason: 'The settings file for this account is not readable.' }
+    }
+    if (!isPlainObject(parsed) || parsed.version !== DATA_VERSION || parsed.accountId !== accountId) {
+      /* `parsed.accountId !== accountId` is the cross-account check, and it is
+         not decoration. The file is named by id; if its CONTENTS name a
+         different account it is either a copy somebody made or a rename, and
+         either way answering with it would show one person another person's
+         settings. */
+      return { ok: false, code: 'ACCOUNT_DATA_CORRUPT', reason: 'The settings file for this account belongs to a different account or a different version.' }
+    }
+    const settings = {}
+    if (isPlainObject(parsed.settings)) {
+      for (const [key, value] of Object.entries(parsed.settings)) {
+        if (Object.keys(settings).length >= MAX_SETTING_KEYS) break
+        if (validSettingEntry(key, value)) settings[key] = value
+      }
+    }
+    return {
+      ok: true,
+      data: {
+        version: DATA_VERSION,
+        accountId,
+        settings,
+        paymentMethod: validPaymentMethod(parsed.paymentMethod),
+        adopted: isPlainObject(parsed.adopted) && Number.isSafeInteger(parsed.adopted.atMs)
+          ? { atMs: parsed.adopted.atMs, from: typeof parsed.adopted.from === 'string' ? parsed.adopted.from.slice(0, 200) : null, count: Number.isSafeInteger(parsed.adopted.count) ? parsed.adopted.count : 0 }
+          : null,
+        updatedAtMs: Number.isSafeInteger(parsed.updatedAtMs) ? parsed.updatedAtMs : 0,
+      },
+    }
+  }
+
+  function writeAccountData(data) {
+    fs.mkdirSync(dataDirectory, { recursive: true })
+    writeFileDurable(accountDataPath(data.accountId), `${JSON.stringify(data, null, 2)}\n`)
+  }
+
+  /**
+   * THE FIRST ACCOUNT INHERITS THE COMPUTER'S SETTINGS. Every later one starts
+   * empty.
+   *
+   * The person who creates the first account on a computer that has been in use
+   * is the person whose theme, first-run answers and write fences are already
+   * on it -- they made them, before there was an account to record them under.
+   * Throwing that away at the moment they sign in would be the product
+   * punishing them for signing in.
+   *
+   * The SECOND account must not inherit it, and that is the whole reason this
+   * runs at creation time and only when the store was empty: at any later
+   * moment "the settings on this computer" are somebody else's.
+   *
+   * The device file is READ, never written and never removed. It stays the
+   * signed-out layer, and shell/renderer-prefs.cjs remains its only writer.
+   */
+  function adoptDeviceSettings(accountId) {
+    let raw
+    try {
+      raw = fs.readFileSync(path.join(directory, DEVICE_PREFS_FILE), 'utf8')
+    } catch {
+      return { adopted: false, count: 0 }
+    }
+    let parsed
+    try { parsed = JSON.parse(raw) } catch { return { adopted: false, count: 0 } }
+    if (!isPlainObject(parsed) || !isPlainObject(parsed.values)) return { adopted: false, count: 0 }
+    const settings = {}
+    for (const [key, value] of Object.entries(parsed.values)) {
+      if (Object.keys(settings).length >= MAX_SETTING_KEYS) break
+      if (validSettingEntry(key, value)) settings[key] = value
+    }
+    const count = Object.keys(settings).length
+    if (count === 0) return { adopted: false, count: 0 }
+    const data = emptyData(accountId)
+    data.settings = settings
+    data.adopted = { atMs: now(), from: DEVICE_PREFS_FILE, count }
+    data.updatedAtMs = now()
+    try {
+      writeAccountData(data)
+    } catch {
+      return { adopted: false, count: 0 }
+    }
+    return { adopted: true, count }
+  }
+
+  /** The signed-in account's partition, or a refusal naming why. */
+  function accountDataForRenderer() {
+    const state = current()
+    if (!state.signedIn) {
+      return Object.freeze({
+        ok: false,
+        code: 'ACCOUNT_NOT_SIGNED_IN',
+        reason: 'Nobody is signed in, so there is no account whose data this would be.',
+      })
+    }
+    const read = readAccountData(state.account.id)
+    if (!read.ok) return Object.freeze({ ok: false, code: read.code, reason: read.reason })
+    return Object.freeze({
+      ok: true,
+      accountId: state.account.id,
+      settingCount: Object.keys(read.data.settings).length,
+      settingKeys: Object.freeze(Object.keys(read.data.settings).sort()),
+      paymentMethod: read.data.paymentMethod ? Object.freeze({ ...read.data.paymentMethod }) : null,
+      adopted: read.data.adopted ? Object.freeze({ ...read.data.adopted }) : null,
+      updatedAtMs: read.data.updatedAtMs,
+    })
+  }
+
+  /** Read one setting for the signed-in account. */
+  function getSetting(key) {
+    const state = current()
+    if (!state.signedIn) return Object.freeze({ ok: false, code: 'ACCOUNT_NOT_SIGNED_IN', reason: 'Nobody is signed in.' })
+    if (typeof key !== 'string' || key.length === 0 || key.length > MAX_SETTING_KEY_LENGTH) {
+      return Object.freeze({ ok: false, code: 'ACCOUNT_DATA_BAD_KEY', reason: 'That is not a settings key.' })
+    }
+    const read = readAccountData(state.account.id)
+    if (!read.ok) return Object.freeze({ ok: false, code: read.code, reason: read.reason })
+    const value = Object.prototype.hasOwnProperty.call(read.data.settings, key) ? read.data.settings[key] : null
+    return Object.freeze({ ok: true, key, value })
+  }
+
+  /** Write, or with `value: null` remove, one setting for the signed-in account. */
+  function putSetting({ key, value } = {}) {
+    const state = current()
+    if (!state.signedIn) return refusal('ACCOUNT_NOT_SIGNED_IN', 'Sign in before changing settings that belong to an account.')
+    if (typeof key !== 'string' || key.length === 0 || key.length > MAX_SETTING_KEY_LENGTH) {
+      return refusal('ACCOUNT_DATA_BAD_KEY', 'That is not a settings key.')
+    }
+    const removing = value === null || value === undefined
+    if (!removing && !validSettingEntry(key, value)) {
+      return refusal('ACCOUNT_DATA_BAD_VALUE', `A setting must be text of at most ${MAX_SETTING_VALUE_LENGTH} characters.`)
+    }
+    const read = readAccountData(state.account.id)
+    /* A damaged partition is not overwritten. The person is told; the file that
+       could not be read is left for them to keep or discard. */
+    if (!read.ok) return refusal(read.code, read.reason)
+    const data = read.data
+    if (removing) {
+      delete data.settings[key]
+    } else {
+      if (!Object.prototype.hasOwnProperty.call(data.settings, key) && Object.keys(data.settings).length >= MAX_SETTING_KEYS) {
+        return refusal('ACCOUNT_DATA_FULL', `An account holds at most ${MAX_SETTING_KEYS} settings.`)
+      }
+      data.settings[key] = value
+    }
+    data.updatedAtMs = now()
+    try {
+      writeAccountData(data)
+    } catch {
+      return refusal('ACCOUNT_DATA_WRITE_FAILED', 'That setting could not be saved on this computer.')
+    }
+    return Object.freeze({ ok: true, key, removed: removing })
+  }
+
+  /**
+   * ATTACH a vault record to this account as its payment method.
+   *
+   * ATTACHMENT, AND ONLY ATTACHMENT. This writes a KEY NAME. It does not read
+   * the vault, does not decrypt anything, does not validate a card, does not
+   * contact a payment provider and cannot move money -- there is no code path
+   * from here to one. The record it names stays in the vault, sealed, and this
+   * file never sees a digit of it.
+   */
+  function attachPaymentMethod({ vaultKey, vaultStore, note } = {}) {
+    const state = current()
+    if (!state.signedIn) return refusal('ACCOUNT_NOT_SIGNED_IN', 'Sign in before attaching a payment method to an account.')
+    if (!PAYMENT_VAULT_KEYS.includes(vaultKey)) {
+      return refusal('ACCOUNT_PAYMENT_KEY_REFUSED', 'That is not a vault record this product will treat as a payment method.')
+    }
+    const read = readAccountData(state.account.id)
+    if (!read.ok) return refusal(read.code, read.reason)
+    const data = read.data
+    data.paymentMethod = {
+      vaultKey,
+      attachedAtMs: now(),
+      vaultStore: typeof vaultStore === 'string' && vaultStore.length <= 400 ? vaultStore : null,
+      note: typeof note === 'string' && note.length <= 400 ? note : null,
+    }
+    data.updatedAtMs = now()
+    try {
+      writeAccountData(data)
+    } catch {
+      return refusal('ACCOUNT_DATA_WRITE_FAILED', 'The payment method could not be attached on this computer.')
+    }
+    return Object.freeze({ ok: true, vaultKey, attachedAtMs: data.paymentMethod.attachedAtMs })
+  }
+
+  /** Remove the binding. The vault record itself is untouched. */
+  function detachPaymentMethod() {
+    const state = current()
+    if (!state.signedIn) return refusal('ACCOUNT_NOT_SIGNED_IN', 'Sign in before changing a payment method.')
+    const read = readAccountData(state.account.id)
+    if (!read.ok) return refusal(read.code, read.reason)
+    const data = read.data
+    data.paymentMethod = null
+    data.updatedAtMs = now()
+    try {
+      writeAccountData(data)
+    } catch {
+      return refusal('ACCOUNT_DATA_WRITE_FAILED', 'The payment method could not be removed on this computer.')
+    }
+    return Object.freeze({ ok: true })
+  }
+
   return Object.freeze({
     availability,
     current,
@@ -878,6 +1243,14 @@ function createAccountStore({
     changePassword,
     accountsPath,
     sessionPath,
+    dataDirectory,
+    accountDataPath,
+    readAccountData,
+    accountDataForRenderer,
+    getSetting,
+    putSetting,
+    attachPaymentMethod,
+    detachPaymentMethod,
   })
 }
 

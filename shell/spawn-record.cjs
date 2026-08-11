@@ -140,6 +140,24 @@ function readableOutcome(value) {
   }
 }
 
+/* The identity on a record, re-derived from the bytes rather than trusted.
+ *
+ * Only the two shapes the writer can produce are admitted: `account:` followed
+ * by an account id, or the stated word for "nobody was signed in". A record
+ * carrying anything else answers null -- "this record does not say" -- which is
+ * the same degradation an old record written before accounts existed gets, and
+ * is the only honest answer for a string this function does not recognise.
+ *
+ * WHY IT MATTERS THAT THIS IS NARROW. A screen filters on this value to decide
+ * which runs are the signed-in person's. If an arbitrary string came through,
+ * anything that could write a line into this file could write itself a name --
+ * and a name that renders next to somebody's own history is an accusation. */
+function readablePrincipal(value) {
+  if (typeof value !== 'string') return null
+  if (value === 'unauthenticated') return value
+  return /^account:[0-9a-f]{32}$/.test(value) ? value : null
+}
+
 function writeFileDurable(filePath, contents) {
   const handle = fs.openSync(filePath, 'w', 0o600)
   try {
@@ -595,6 +613,23 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
            here by design. Re-applying the writer's own constraint is what keeps
            the promise that this field cannot carry a path even then. */
         outcome: readableOutcome(parsed.outcome),
+        /* WHOSE RUN THIS WAS. Added so a screen can show a person their OWN
+           history instead of everybody's -- until this field crossed, the page
+           had the records and no way to tell which of them were the signed-in
+           account's, which made "your data" a sentence the product could not
+           write.
+
+           This LEDGER is deliberately not partitioned per account (see the
+           account-partition note in shell/product-account.cjs): it is one
+           hash-chained append-only file, and splitting it would let an account
+           delete its own history and break everyone else's chain. Attribution
+           is per account; storage is per device; the filtering is a VIEW.
+
+           Re-validated on the way out like every other field here, and bounded
+           to the two shapes the writer can produce -- `account:<32 hex>` or the
+           stated word. Anything else becomes null rather than being rendered,
+           because an identity string off disk is bytes, not a name. */
+        principal: readablePrincipal(parsed.principal),
       }))
     }
     entries.reverse() // newest first, which is the order a reader wants

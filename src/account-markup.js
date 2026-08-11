@@ -88,7 +88,121 @@ export function unavailableMarkup({ state = null } = {}) {
     </div>`
 }
 
-export function signedInMarkup({ state, busy = false, notice = null, now = Date.now() } = {}) {
+function dateText(atMs) {
+  if (!Number.isSafeInteger(atMs) || atMs <= 0) return ''
+  try {
+    return new Date(atMs).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
+/* WHAT IS YOURS ON THIS COMPUTER, said in the three sentences the product can
+ * actually stand behind.
+ *
+ * SETTINGS. A count and, when it happened, the fact that they were adopted from
+ * this computer when the account was made. That second sentence exists because
+ * a person who has been using this program for months and then creates an
+ * account needs to know that what was already here became THEIRS, rather than
+ * wondering whether it was thrown away or is still shared with whoever else
+ * signs in.
+ *
+ * HISTORY. Counted from the ledger's own records by principal. It says "of N on
+ * this computer" so the number is honest about being a slice: the ledger is one
+ * signed append-only file per device and is deliberately not partitioned, so
+ * some of the runs on this machine are not yours and the screen says so.
+ *
+ * THE CARD. Three states, never two. "On file", "attached but this
+ * installation's vault does not hold it", and "could not check" are different
+ * facts and the middle one is REAL on this machine. Collapsing any of them into
+ * "no card on file" would be the product making a claim about his money that it
+ * did not verify.
+ *
+ * NOTHING RENDERED HERE IS A CARD DETAIL. The only payment value in scope is the
+ * vault KEY NAME, and the only thing done with it is to say a record is on file
+ * -- there is no number, no expiry, no last-four and no token anywhere in this
+ * function or in the object it is given. */
+export function belongingsMarkup({ data = null, payment = null, history = null } = {}) {
+  const rows = []
+
+  if (data && data.ok === true) {
+    const adopted = data.adopted && data.adopted.count > 0
+      ? ` They were already on this computer when you made this account, and became yours on ${esc(dateText(data.adopted.atMs))}.`
+      : ''
+    rows.push(`<article class="settings-row" data-account-data-settings>
+      <div class="settings-copy">
+        <div class="settings-name">Your settings</div>
+        <div class="settings-desc">${data.settingCount === 0
+          ? 'Nothing recorded against this account yet. Choices you make — theme, first-run answers, what your assistant may do without asking — are kept for you and not for whoever else uses this computer.'
+          : `${esc(String(data.settingCount))} recorded against this account, kept for you and not for whoever else uses this computer.${adopted}`}</div>
+      </div>
+    </article>`)
+  } else {
+    rows.push(`<article class="settings-row" data-account-data-settings>
+      <div class="settings-copy">
+        <div class="settings-name">Your settings</div>
+        <div class="settings-desc">Could not be read on this computer, so this does not say how many there are. ${esc((data && data.reason) || '')}</div>
+      </div>
+    </article>`)
+  }
+
+  if (history && Number.isSafeInteger(history.mine)) {
+    rows.push(`<article class="settings-row" data-account-data-history>
+      <div class="settings-copy">
+        <div class="settings-name">Your history</div>
+        <div class="settings-desc">${history.mine === 0
+          ? `Nothing recorded against you yet. This computer has ${esc(String(history.total))} recorded run${history.total === 1 ? '' : 's'} in total; runs started from now on will say your name.`
+          : `${esc(String(history.mine))} of the ${esc(String(history.total))} run${history.total === 1 ? '' : 's'} recorded on this computer were started by you. The record is one signed file for the whole computer, so the rest were started by another sign-in or before anybody signed in — it is not split up, and no account can quietly remove its own.`}</div>
+      </div>
+    </article>`)
+  }
+
+  if (payment && payment.ok === true && payment.attached === true) {
+    if (payment.present === true) {
+      rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="on-file">
+        <div class="settings-copy">
+          <div class="settings-name">Your payment method</div>
+          <div class="settings-desc">A card is on file for this account. It is held encrypted by Windows in this installation’s own vault, under <code>${esc(payment.vaultKey)}</code>, and this screen has not read it — no number, expiry or security code is shown here or anywhere else in this program.</div>
+        </div>
+      </article>`)
+    } else if (payment.checked === true) {
+      /* THE MIDDLE STATE, and the reason this function has three branches. The
+         binding exists and this installation's vault does not hold the record.
+         "No card on file" would be false; so would "on file". */
+      rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="attached-not-here">
+        <div class="settings-copy">
+          <div class="settings-name">Your payment method</div>
+          <div class="settings-desc">A card is attached to this account under <code>${esc(payment.vaultKey)}</code>, but this installation’s own vault does not hold that record, so it cannot be used from here yet. This is not the same as having no card.</div>
+        </div>
+      </article>`)
+    } else {
+      rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="unknown">
+        <div class="settings-copy">
+          <div class="settings-name">Your payment method</div>
+          <div class="settings-desc">A card is attached to this account under <code>${esc(payment.vaultKey)}</code>. This computer could not read its vault just now, so whether the record is there is unknown — which is not the same as it being gone. ${esc(payment.detail || '')}</div>
+        </div>
+      </article>`)
+    }
+  } else if (payment && payment.ok === true) {
+    rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="none">
+      <div class="settings-copy">
+        <div class="settings-name">Your payment method</div>
+        <div class="settings-desc">No card is attached to this account. Nothing in this program can charge anything without one, and attaching one is not a payment.</div>
+      </div>
+    </article>`)
+  } else {
+    rows.push(`<article class="settings-row" data-account-data-payment data-payment-state="unknown">
+      <div class="settings-copy">
+        <div class="settings-name">Your payment method</div>
+        <div class="settings-desc">This copy could not check whether a card is attached, so it does not say. Unknown is not the same as none.</div>
+      </div>
+    </article>`)
+  }
+
+  return rows.join('')
+}
+
+export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null } = {}) {
   return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
     ${statusMarkup({ notice, state })}
     <div class="settings-section-rows">
@@ -98,6 +212,7 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
           <div class="settings-desc">${esc(state.username)} — an account on this computer only. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs, now))}</div>
         </div>
       </article>
+      ${belongingsMarkup({ data, payment, history })}
       <article class="settings-row">
         <div class="settings-copy">
           <div class="settings-name">Change password</div>
@@ -211,13 +326,13 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
  * dispatcher inside the view can only be checked by reading it, and reading is
  * what missed the last two defects. This one is called by the tests with each
  * state in turn. */
-export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now() } = {}) {
+export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null } = {}) {
   if (state === null) return loadingMarkup()
   if (!state.available) return unavailableMarkup({ state })
   if (state.signedIn) {
     return mode === 'change-password'
       ? changePasswordMarkup({ state, busy, notice })
-      : signedInMarkup({ state, busy, notice, now })
+      : signedInMarkup({ state, busy, notice, now, data, payment, history })
   }
   return formMarkup({ mode, busy, notice, state })
 }
