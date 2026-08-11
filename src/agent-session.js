@@ -10,11 +10,13 @@
  * styling and introduces no visual vocabulary of its own.
  */
 import { el } from './components.js'
-import { unavailableReason } from './agent-availability-copy.js'
+import { refusalCode, unavailableReason } from './agent-availability-copy.js'
 import { confinementNote } from './agent-confinement-copy.js'
-import { isWriteEnabled } from './write-flags.js'
+import { isWriteEnabled, setWriteEnabled } from './write-flags.js'
 import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
+import { publishLiveSession } from './agent-session-registry.js'
+import { autonomyChoice, readStoredProfile } from './setup-profile.js'
 
 /* WHAT THIS CONTROL SAYS ABOUT THE SESSION IT IS ABOUT TO START.
  *
@@ -73,13 +75,117 @@ function actionState(node, kind, text) {
    flush deterministically instead of waiting on a real animation frame. The
    shipped call passes nothing and gets requestAnimationFrame, so production
    behaviour is unchanged. */
-export function mountAgentSessionSurface(root, {
+export function mountAgentSessionSurface(root, options = {}) {
+  /* THE `live` FENCE IS ASKED FIRST AND ONCE, before either branch below, and
+     it is the only question whose answer is "render nothing at all". Everything
+     after it is about a real page. See the long note in mountSessionControls()
+     for the measurement that put it there. */
+  if (options.live !== true) return () => {}
+
+  /* THE SWITCHED-OFF PATH IS A DESTINATION, NOT AN ABSENCE.
+   *
+   * This used to be `if (!isWriteEnabled('agent-session')) return () => {}`, and
+   * that one line is the second half of the recommended-answer defect. The
+   * setup walkthrough recommended the answer that leaves this flag off, so the
+   * ordinary first-run install rendered NOTHING here -- no control, no reason,
+   * nothing naming the setting that removed it. A person who took the product's
+   * own advice arrived at an agent page with no way to start an agent and no
+   * way to find out why. Absence is unfalsifiable to the person looking at it:
+   * a missing Start and a broken build look exactly alike.
+   *
+   * So the off state renders, says which answer switched it off, and carries
+   * the switch. Turning it on is an explicit act by the person on their own
+   * machine -- the same act Settings offers, moved to the place where they
+   * discover they want it -- and nothing starts as a result of it: it reveals
+   * the Start control, which they then have to press.
+   *
+   * It is inside the `live` fence, so the demonstration page still renders no
+   * session surface of any kind and the example-page write fence is unchanged. */
+  let disposed = false
+  let release = null
+  const mount = () => {
+    release = isWriteEnabled('agent-session')
+      ? mountSessionControls(root, options, remount)
+      : mountSessionSwitchedOff(root, remount)
+  }
+  const remount = () => {
+    if (disposed) return
+    release?.()
+    release = null
+    mount()
+  }
+  mount()
+  return () => {
+    disposed = true
+    release?.()
+    release = null
+  }
+}
+
+/* WHAT THE PERSON IS LOOKING AT WHEN THERE IS NO START CONTROL.
+ *
+ * The same `.write-surface` markup as the real one, so it lands in the same
+ * place in the page with the same vocabulary; no new visual language, and no
+ * form, because there is nothing to submit. */
+function mountSessionSwitchedOff(root, remount) {
+  const surface = el(`<section class="write-surface agent-session-surface" data-session-off aria-label="Agent session">
+    <header><strong>Agent session</strong><span data-session-status role="status">off · this computer cannot start an assistant</span></header>
+    <div class="write-surface-grid">
+      <div class="write-form">
+        <span class="write-form-title">Running agents is switched off</span>
+        <output data-action-output role="status"></output>
+        <button type="button" data-session-enable>Turn on running agents</button>
+      </div>
+    </div>
+  </section>`)
+  const output = surface.querySelector('[data-action-output]')
+  actionState(output, 'note', switchedOffReason())
+  root.querySelector('.agent-strip')?.insertAdjacentElement('afterend', surface)
+
+  const enable = surface.querySelector('[data-session-enable]')
+  const onEnable = () => {
+    enable.disabled = true
+    setWriteEnabled('agent-session', true)
+    /* Re-mounts into the real surface in place. The person pressed a switch and
+       the control they were told about appears where the switch was, rather
+       than after a navigation they have to work out for themselves. */
+    remount()
+  }
+  enable.addEventListener('click', onEnable)
+
+  /* Nothing was published to the session registry and nothing needs clearing:
+     an off surface owns no session. */
+  return () => {
+    enable.removeEventListener('click', onEnable)
+    surface.remove()
+  }
+}
+
+/* WHICH ANSWER SWITCHED IT OFF, NAMED IN THE PERSON'S OWN WORDS.
+ *
+ * Read from the recorded setup profile rather than asserted, because there are
+ * two genuinely different ways to arrive here and telling them apart is the
+ * whole value of the sentence: the walkthrough's autonomy answer, or the
+ * Settings switch on a machine that never recorded a profile. Claiming setup
+ * did it to someone who turned it off themselves an hour ago would be the
+ * product misdescribing its own state, which is the failure this repair is
+ * about. */
+function switchedOffReason() {
+  let stored = null
+  try { stored = readStoredProfile() } catch { stored = null }
+  const chosen = stored ? autonomyChoice(stored.answers?.autonomy) : null
+  const because = chosen && chosen.consequence
+    ? `Setup recorded “${chosen.label}”, and that answer switches off starting an assistant.`
+    : 'Starting an assistant is switched off for this computer.'
+  return `${because} Nothing runs on this computer until you turn it on, and turning it on starts nothing by itself — it puts the Start control here, and you decide what to run. The same switch is in Settings → Write → Run an agent session.`
+}
+
+function mountSessionControls(root, {
   agentId,
-  live = false,
   bridge = globalThis.mcAgent,
   scheduleFrame = (fn) => globalThis.requestAnimationFrame(fn),
   cancelFrame = (handle) => globalThis.cancelAnimationFrame(handle),
-} = {}) {
+} = {}, remount = () => {}) {
   /* THE PAGE MUST SAY IT IS SHOWING REAL DATA BEFORE A REAL CONTROL APPEARS ON IT.
    *
    * This is the surface that starts an actual CLI child process on the user's
@@ -108,12 +214,13 @@ export function mountAgentSessionSurface(root, {
    * (src/views/agent.js, which only has a projection when the fetch returned
    * one) passes `live` explicitly.
    *
-   * The demonstration page loses nothing a person could legitimately use: this
-   * surface never read `agentId` at all, so the session it started was never
-   * the agent whose page it sat on. */
-  if (live !== true) return () => {}
-  if (!isWriteEnabled('agent-session')) return () => {}
-
+   * `agentId` IS NOW READ, and the sentence that used to end this note --
+   * "this surface never read `agentId` at all, so the session it started was
+   * never the agent whose page it sat on" -- described the second defect this
+   * file was carrying. An anonymous session is a session nothing can be mapped
+   * to, which is why Pause, Respawn and Terminate could only ever refuse. The
+   * association is recorded at the one moment it is certain: a person pressing
+   * Start on a named agent's page. See src/agent-session-registry.js. */
   const surface = el(`<section class="write-surface agent-session-surface" aria-label="Agent session">
     <header><strong>Agent session</strong><span data-session-status role="status">checking…</span></header>
     <div class="write-surface-grid">
@@ -172,12 +279,44 @@ export function mountAgentSessionSurface(root, {
   let sessionId = null
   let unsubscribe = null
   let starting = false
+  let stopping = false
   let ready = false
+  /* Is a TURN running, as distinct from a session being open. The Controls
+     panel's Pause is the only thing that needs the difference, and it needs it
+     badly: interrupt() over an idle session succeeds and stops nothing, which
+     is precisely the kind of control this product refuses to ship. */
+  let working = false
+  /* The prompt the current session was started with. Respawn is "the same work
+     in a new process", so it needs the text; nothing else reads it and it never
+     leaves this closure. */
+  let lastPrompt = ''
+  /* Assigned once, at the bottom of this mount, and published with every record
+     so the Controls panel acts through this surface rather than around it. */
+  let control = null
 
-  const setStarted = (live) => {
-    startButton.disabled = live || destroyed || !ready
-    prompt.disabled = live
-    stopButton.disabled = !live
+  const setStarted = (open) => {
+    startButton.disabled = open || destroyed || !ready
+    prompt.disabled = open
+    stopButton.disabled = !open
+  }
+
+  /* EVERY CHANGE OF STATE IS ANNOUNCED, from one place.
+     The Controls panel decides what it may do from this record, so a transition
+     that forgot to publish would leave a live control pointed at a session that
+     had ended. Publishing from a single helper called on every transition is
+     what makes "the control is enabled" and "the session is open" the same
+     fact rather than two facts that agree most of the time. */
+  const publish = () => {
+    if (destroyed || !sessionId) {
+      publishLiveSession(null)
+      return
+    }
+    publishLiveSession({
+      agentId,
+      sessionId,
+      phase: stopping ? 'stopping' : (starting ? 'starting' : (working ? 'working' : 'open')),
+      control,
+    })
   }
 
   /* Close is best-effort by design: the main process also closes every session
@@ -185,10 +324,15 @@ export function mountAgentSessionSurface(root, {
      past the window's life. */
   const closeSession = async () => {
     const id = sessionId
-    sessionId = null
     if (!id) return
+    stopping = true
+    publish()
+    sessionId = null
+    working = false
     try { await bridge.interrupt({ sessionId: id }) } catch { /* no active turn is the common, expected case */ }
     try { await bridge.close({ sessionId: id }) } catch { /* the owner-destroyed path closes it regardless */ }
+    stopping = false
+    publish()
   }
 
   if (!bridge || typeof bridge.availability !== 'function') {
@@ -197,7 +341,7 @@ export function mountAgentSessionSurface(root, {
        copy states that absence instead of leaving the pending sentence up
        forever -- or, worse, falling back to the claim this repair removed. */
     renderConfinement(null)
-    return () => { destroyed = true }
+    return () => { destroyed = true; surface.remove() }
   }
 
   /* Asked separately from availability, and allowed to fail separately. A copy
@@ -254,15 +398,19 @@ export function mountAgentSessionSurface(root, {
          beside a transcript that is still missing that turn's last frame of
          output. */
       appender.flushNow()
+      working = false
+      publish()
       actionState(status, turnStatus === 'completed' ? 'confirmed' : 'refused', `turn ${turnStatus} · session still open`)
     }
   })
 
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault()
-    if (starting || sessionId || !ready) return
-    const text = String(prompt.value || '').trim()
-    if (text.length === 0) return
+  /* ONE START PATH, used by the form and by Respawn.
+     Respawn is "this work again, in a new process". If it built its own start
+     call the two would drift, and the half that drifted would be the one nobody
+     watches -- so there is one, and Respawn passes the same text back into it. */
+  const startSession = async (text) => {
+    if (starting || sessionId || !ready || destroyed) return { ok: false, code: 'AGENT_SESSION_NOT_READY' }
+    if (typeof text !== 'string' || text.trim() === '') return { ok: false, code: 'AGENT_SESSION_NO_PROMPT' }
 
     starting = true
     setStarted(true)
@@ -278,28 +426,51 @@ export function mountAgentSessionSurface(root, {
       starting = false
       setStarted(false)
       actionState(status, 'refused', 'refused · no secure session id is available')
-      return
+      return { ok: false, code: 'AGENT_SESSION_NO_ID' }
     }
 
     try {
-      await bridge.start({ sessionId: id })
-      if (destroyed) { sessionId = id; await closeSession(); return }
       sessionId = id
+      publish()
+      await bridge.start({ sessionId: id })
+      if (destroyed) { await closeSession(); return { ok: false, code: 'AGENT_SESSION_VIEW_CLOSED' } }
+      lastPrompt = text
+      starting = false
+      working = true
+      publish()
       actionState(status, 'ready', 'running · session open')
       await bridge.send({ sessionId: id, text })
+      return { ok: true }
     } catch (error) {
       /* An error message from the host can name a path. Report its code and a
-         fixed sentence; never the message. */
-      const code = typeof error?.code === 'string' ? error.code : 'AGENT_SESSION_FAILED'
+         fixed sentence; never the message.
+
+         READ THROUGH refusalCode() RATHER THAN OFF THE PROPERTY, because the
+         property is gone by the time it gets here: Electron does not carry own
+         properties across an IPC rejection, so this line used to resolve to
+         AGENT_SESSION_FAILED for every refusal without exception -- which is
+         the bare string a customer was shown. refusalCode() prefers
+         `error.code` when it exists and otherwise recovers it from the message,
+         accepting only values that are already keys of the copy table, so no
+         text from the host can reach the DOM by that route. */
+      const code = refusalCode(error)
+      working = false
       if (sessionId) await closeSession()
       if (!destroyed) actionState(status, 'refused', `refused · ${unavailableReason(code)}`)
+      return { ok: false, code }
     } finally {
       starting = false
       if (!destroyed) setStarted(Boolean(sessionId))
+      publish()
     }
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault()
+    void startSession(String(prompt.value || '').trim())
   })
 
-  stopButton.addEventListener('click', async () => {
+  const stopSession = async () => {
     if (!sessionId) return
     stopButton.disabled = true
     actionState(status, 'pending', 'stopping…')
@@ -307,6 +478,52 @@ export function mountAgentSessionSurface(root, {
     if (destroyed) return
     setStarted(false)
     actionState(status, ready ? 'ready' : 'unavailable', 'stopped · session closed')
+  }
+  stopButton.addEventListener('click', () => { void stopSession() })
+
+  /* THE THREE STEERING ACTIONS, owned here because the session is owned here.
+     Each returns {ok, code} rather than throwing: the Controls panel renders a
+     refusal, and a rejected promise crossing a module boundary is how a control
+     ends up reporting success for something that did not happen. */
+  control = Object.freeze({
+    /* Stops the running TURN. The session stays open, so the transcript, the
+       Stop control and the record all stay exactly where they were. */
+    async pause() {
+      if (!sessionId || !working) return { ok: false, code: 'AGENT_TURN_NONE' }
+      const id = sessionId
+      try {
+        await bridge.interrupt({ sessionId: id })
+      } catch (error) {
+        return { ok: false, code: typeof error?.code === 'string' ? error.code : 'AGENT_SESSION_FAILED' }
+      }
+      if (destroyed || sessionId !== id) return { ok: true }
+      /* Set here rather than waited for. The host may or may not emit a turn
+         status for an interrupted turn, and a control whose effect is only
+         visible if an optional event arrives is a control that intermittently
+         appears to do nothing. The event handler sets the same flag the same
+         way if it does arrive. */
+      working = false
+      publish()
+      actionState(status, 'ready', 'stopped · turn interrupted · session still open')
+      return { ok: true }
+    },
+    async terminate() {
+      if (!sessionId) return { ok: false, code: 'AGENT_SESSION_UNKNOWN' }
+      await stopSession()
+      return { ok: true }
+    },
+    /* Close, then start the same work again in a new child process. The two
+       halves are reported separately: a respawn whose close succeeded and whose
+       start failed has ENDED the session, and saying "respawned" over that
+       would be the product describing a state it is not in. */
+    async respawn() {
+      if (!sessionId) return { ok: false, code: 'AGENT_SESSION_UNKNOWN' }
+      const text = lastPrompt
+      await stopSession()
+      if (destroyed) return { ok: false, code: 'AGENT_SESSION_VIEW_CLOSED' }
+      if (!text) return { ok: false, code: 'AGENT_SESSION_NO_PROMPT' }
+      return startSession(text)
+    },
   })
 
   return () => {
@@ -316,6 +533,11 @@ export function mountAgentSessionSurface(root, {
     appender.dispose()
     if (unsubscribe) unsubscribe()
     void closeSession()
+    /* The record goes with the surface. A stale record would leave the Controls
+       panel offering Terminate for a session whose owner has navigated away --
+       and closeSession() above is asynchronous, so waiting for it to publish
+       would leave a window in which exactly that is true. */
+    publishLiveSession(null)
     surface.remove()
   }
 }

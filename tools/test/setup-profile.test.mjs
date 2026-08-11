@@ -36,14 +36,18 @@ import {
   PROFILE_INTENT,
   PROFILE_SCHEMA_VERSION,
   PROFILE_STORAGE_KEY,
+  RECOMMENDED_ANSWERS,
   SAFE_ANSWERS,
   SCREENS_CHOICES,
+  START_CONTROL_FLAG,
   TIER_CEILINGS,
   answersForAutonomy,
   applyProfile,
+  autonomyStartsAgents,
   ceilingForTier,
   deriveProfile,
   intentField,
+  profileCanStartAnAgent,
   readStoredProfile,
   resumeStep,
   stepAfter,
@@ -175,15 +179,87 @@ test('skipping applies exactly the state of a machine that never ran setup', () 
   }
 })
 
-test('the preselected answer is the safe one, and it is the one marked Recommended', () => {
+/* THIS TEST USED TO ASSERT THE DEFECT, and the replacement is deliberate rather
+ * than an adjustment, so the next reader knows which way round it went.
+ *
+ * It said: "the preselected answer is the safe one, and it is the one marked
+ * Recommended", and it pinned AUTONOMY_CHOICES[0] -- `observe` -- as both. It
+ * was green for the whole life of the defect it was protecting. Taking the two
+ * Recommended answers produced an installation with NO CONTROL ANYWHERE that
+ * starts an agent, because `observe` requests no write-action flag and
+ * `agent-session` is one. The product's own guidance led a trusting reader into
+ * a dead end, and every "eight clicks to a running agent" measurement this
+ * project has was obtained by refusing the recommendation.
+ *
+ * The rule the old test was reaching for is kept and split into the two
+ * questions it had merged:
+ *   - SKIP still leaves the machine untouched. That is the test above, and it
+ *     is unchanged, because declining to choose may still switch nothing on.
+ *   - WHAT WE RECOMMEND must leave a working product. That is this test, and
+ *     it is stated as a property of the DERIVED settings at every permission
+ *     level -- not as a property of a label, which is what let a recommendation
+ *     and an unusable outcome coexist. */
+test('the recommended answer leaves a control that starts an agent, at every level', () => {
+  assert.ok(WRITE_IDS.includes(START_CONTROL_FLAG), 'the flag that decides whether an agent can be started has been renamed or removed')
+  for (const tier of ['guided', 'standard', 'unrestricted']) {
+    const recommended = derive(RECOMMENDED_ANSWERS, tier)
+    assert.equal(
+      profileCanStartAnAgent(recommended),
+      true,
+      `taking the recommended answers at ${tier} leaves no way to start an agent, which is the defect this test exists for`,
+    )
+  }
+  /* And the recommendation is the thing the screen preselects. Two constants
+     that are allowed to differ have to be checked against each other, or the
+     label and the default drift apart and the label is the one that lies. */
+  const recommended = AUTONOMY_CHOICES.filter(choice => choice.note === 'Recommended')
+  assert.equal(recommended.length, 1, 'exactly one autonomy answer may carry the Recommended note')
+  assert.equal(recommended[0].value, RECOMMENDED_ANSWERS.autonomy)
+  assert.equal(SCREENS_CHOICES[0].value, RECOMMENDED_ANSWERS.screens)
+  /* Recommending an acting answer is only defensible while it acts ONLY when a
+     person presses something. The moment it approves, closes or replies on its
+     own, the recommendation has to be re-argued rather than inherited. */
+  const flags = derive(RECOMMENDED_ANSWERS, 'unrestricted').writeFlags
+  for (const id of ['decision', 'queue', 'thread-reply']) {
+    assert.equal(flags[id], false, `the recommended answer switches on ${id}, which acts without the person pressing anything`)
+  }
+})
+
+/* The ORDER is still safest-first, which is what makes the three options read
+   as an axis; it is simply no longer the same thing as the recommendation. */
+test('the answers are listed least-acting first', () => {
   assert.equal(AUTONOMY_CHOICES[0].value, SAFE_ANSWERS.autonomy)
-  assert.equal(AUTONOMY_CHOICES[0].note, 'Recommended')
-  assert.equal(SCREENS_CHOICES[0].value, SAFE_ANSWERS.screens)
-  /* The safe option being first AND recommended is the same rule the permission
-     question follows, and it is what lets someone proceed by not deciding
-     without that being a decision to switch things on. */
   assert.deepEqual(derive({ autonomy: AUTONOMY_CHOICES[0].value }, 'unrestricted').writeFlags,
     Object.fromEntries(WRITE_IDS.map(id => [id, false])))
+  let previous = -1
+  for (const choice of AUTONOMY_CHOICES) {
+    const count = WRITE_IDS.filter(id => derive({ autonomy: choice.value }, 'unrestricted').writeFlags[id]).length
+    assert.ok(count > previous, `${choice.value} switches on no more than the answer before it, so the list is not an axis`)
+    previous = count
+  }
+})
+
+/* THE DEAD END IS ALLOWED TO EXIST; BEING SILENT ABOUT IT IS NOT.
+   `observe` is a legitimate answer -- someone who wants to read before running
+   anything is entitled to it -- so the repair is not to remove it but to make
+   its consequence visible where the choice is made. Pinned to the derivation,
+   so a fourth answer cannot be added that quietly leaves no start control. */
+test('an answer that leaves no way to start an agent says so at the point of choice', () => {
+  for (const choice of AUTONOMY_CHOICES) {
+    const starts = autonomyStartsAgents(choice.value)
+    assert.equal(
+      Boolean(choice.consequence),
+      !starts,
+      `"${choice.label}" ${starts ? 'starts agents but carries a consequence sentence' : 'leaves no way to start an agent and says nothing about it'}`,
+    )
+    if (starts) continue
+    assert.match(choice.consequence, /start an assistant|start an agent/i, 'the consequence must name what becomes impossible')
+    assert.match(choice.consequence, /Settings|turn(s)? it on|one click/i, 'the consequence must say where it is turned back on')
+  }
+  /* And the walkthrough must actually print it. A sentence in a frozen table
+     that no screen renders is the same as no sentence. */
+  assert.match(VIEW, /choice\.consequence/, 'the autonomy step must render the consequence of each option')
+  assert.match(VIEW, /data-setup-consequence/, 'the walkthrough must state the consequence of the CURRENT answer, not only the options')
 })
 
 test('the permission level is a ceiling no answer can raise', () => {
@@ -395,7 +471,11 @@ function renderedCopy(source) {
 function modelCopy() {
   const strings = []
   for (const choice of [...AUTONOMY_CHOICES, ...SCREENS_CHOICES]) {
-    strings.push(choice.label, choice.note, choice.detail)
+    /* `consequence` is walked for the same reason `detail` is, and it was the
+       first thing checked when it was added: a new copy field that no rule
+       reads is a sentence in front of a stranger that nothing is watching, and
+       the consequence sentences are the most absolute copy on the screen. */
+    strings.push(choice.label, choice.note, choice.detail, choice.consequence)
   }
   for (const field of PROFILE_INTENT) {
     strings.push(field.name, field.desc, ...Object.values(field.labels))
@@ -506,6 +586,21 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     match: /^Nothing yet — let me look around first$/,
     kind: 'not-a-promise',
     pinnedBy: 'the NAME of the answer a person is choosing, not an assertion about the product. The promise that answer carries is the detail beneath it, which is pinned separately above',
+  },
+  {
+    match: /With this answer, nothing here will start an agent/,
+    kind: 'pinned',
+    pinnedBy: 'rendered only when profileCanStartAnAgent() is false for the CURRENT answers with the tier ceiling applied, so the sentence and the state it describes are computed from one value; asserted by "the recommended answer leaves a control that starts an agent, at every level", which is the test that would go red if the two ever disagreed',
+  },
+  {
+    match: /Nothing on this computer will be able to start an assistant while this is the answer/,
+    kind: 'pinned',
+    pinnedBy: 'AUTONOMY_WRITE_FLAGS.observe is the empty array so the answer requests no start flag, and src/agent-session.js mounts no Start control without it; asserted by "an answer that leaves no way to start an agent says so at the point of choice", which pins this sentence to autonomyStartsAgents() rather than to the label',
+  },
+  {
+    match: /Nothing runs until you press start/,
+    kind: 'pinned',
+    pinnedBy: 'the recommended answer requests report-read, agent-session, dispatch and cloud-launch, and every one of those is a control a person presses; asserted by the recommended-answer test, which fails if decision, queue or thread-reply are ever switched on by it',
   },
 ])
 

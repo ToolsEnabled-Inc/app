@@ -63,32 +63,77 @@ export const PROFILE_STORAGE_KEY = 'mc.setup.profile'
 /* Question 2 of 3. One question, ten settings.
  *
  * The three options are an axis of how much of the product's action surface is
- * switched on, NOT three amounts of visible menu. `observe` is preselected and
- * carries the Recommended note for exactly the reason the tier question
- * preselects `guided`: the least confident reader must be able to proceed by not
- * deciding, and what they proceed into must be the safe end.
+ * switched on, NOT three amounts of visible menu. They are listed least-acting
+ * first, so the order itself reads as an axis.
  *
- * `observe` is a complete, working product: every screen reads, the report reader
- * is on, nothing acts. It is not a crippled state, and the review screen offers
- * the switch that turns the rest on rather than sending anyone to hunt for it. */
+ * THE RECOMMENDATION MOVED, AND THIS IS THE ACCOUNT OF WHY.
+ *
+ * `observe` was Recommended and preselected, on the same reasoning the tier
+ * question uses for `guided`: the least confident reader must be able to proceed
+ * by not deciding, and what they proceed into must be the safe end. The reasoning
+ * is right. Applied to THIS question it produced a product that appeared broken.
+ *
+ * MEASURED, on the packaged window from a sterile profile: taking the two
+ * Recommended answers -- `guided` at the tier question, `observe` here -- lands
+ * on an installation with NO CONTROL ANYWHERE THAT STARTS AN AGENT.
+ * `observe` requests no write flags at all, `agent-session` is one of them, and
+ * src/agent-session.js is what mounts Start. To reach a running agent the person
+ * had to REFUSE the recommendation. The product's own guidance led exactly the
+ * readers least equipped to diagnose it into a dead end, and every measurement
+ * this project has of "a new user reaches a running agent" was obtained by
+ * ignoring the advice the product prints.
+ *
+ * A cautious default is good practice. A default that makes the product look
+ * broken is not caution, and calling it Recommended is not honesty -- the label
+ * is a claim that this is the answer we would give a person who asked us, and
+ * "switch the product off" is not that answer.
+ *
+ * SO THE RECOMMENDATION IS `assisted`, and it is defensible on the safety axis
+ * rather than in spite of it. The axis this question actually measures is WHAT
+ * HAPPENS WITHOUT YOU. `assisted` acts only when a person presses a control:
+ * it approves nothing, closes no queue item, replies to nobody, and stops to ask
+ * whenever it reaches something it needs permission for. It is the least-privilege
+ * answer that is still a product. `observe` is not the safe end of the axis --
+ * it is off the axis, the product with its verbs removed.
+ *
+ * WHAT DID NOT MOVE, deliberately. SAFE_ANSWERS below still resolves to
+ * `observe`, so SKIPPING the walkthrough still leaves the machine byte-identical
+ * to one that never ran setup. Choosing is not the same act as declining to
+ * choose, and only the first of them may switch anything on. The difference is
+ * now visible in the code: RECOMMENDED_ANSWERS is what the walkthrough
+ * preselects, SAFE_ANSWERS is what skip applies, and they are allowed to differ.
+ *
+ * AND THE DEAD END IS NAMED WHERE THE CHOICE IS MADE. `observe` is a legitimate
+ * answer -- someone who wants to read before running anything is entitled to it
+ * -- so it keeps its place and gains `consequence`: the sentence that says, at
+ * the point of choice, that nothing will be startable until it is switched on,
+ * and where to switch it. An option whose effect is invisible until the person
+ * hunts for a control that was never rendered is the defect; the option itself
+ * is not. See src/agent-session.js for the other half of that repair, which
+ * gives the answer a destination instead of an absence. */
 export const AUTONOMY_CHOICES = Object.freeze([
   Object.freeze({
     value: 'observe',
     label: 'Nothing yet — let me look around first',
-    note: 'Recommended',
-    detail: 'Every screen still reads and reports, and nothing at all is switched on that acts: no assistant starts, nothing is approved, nothing is replied to. This is exactly what a computer that was never set up already does. You turn things on when you want them, at the end of this or later in Settings.',
+    note: '',
+    detail: 'Every screen still reads and reports, and nothing at all is switched on that acts: no assistant starts, nothing is approved, nothing is replied to. This is exactly what a computer that was never set up already does.',
+    /* Present on exactly the answers that leave no way to start an agent, and
+       pinned to that fact by the test suite rather than to this list. */
+    consequence: 'Nothing on this computer will be able to start an assistant while this is the answer — the agent page shows no Start control, because there is nothing switched on for it to start. The agent page says so and turns it on in one click when you want it, and Settings has the same switch.',
   }),
   Object.freeze({
     value: 'assisted',
     label: 'Act when I start it',
-    note: '',
-    detail: 'You start an assistant and it works; it stops and asks you whenever it needs permission for something. Approving, closing queue items, and replying stay off.',
+    note: 'Recommended',
+    detail: 'You start an assistant and it works; it stops and asks you whenever it needs permission for something. Nothing runs until you press start, and approving, closing queue items and replying stay off.',
+    consequence: '',
   }),
   Object.freeze({
     value: 'autonomous',
     label: 'Act on its own and tell me after',
     note: '',
     detail: 'Everything this permission level allows is switched on, including approving items and replying. When it needs permission it uses its own judgement instead of waiting for you.',
+    consequence: '',
   }),
 ])
 
@@ -110,6 +155,13 @@ export const SCREENS_CHOICES = Object.freeze([
   }),
 ])
 
+/* THE ID OF THE FLAG THAT DECIDES WHETHER THIS PRODUCT CAN BE MADE TO DO
+   ANYTHING. src/write-flags.js owns the flag; this names it once so the
+   question "does this answer leave a way to start an agent?" has a single
+   definition that the setup screens, the agent page and the test suite all
+   ask the same way. */
+export const START_CONTROL_FLAG = 'agent-session'
+
 export const AUTONOMY_VALUES = Object.freeze(AUTONOMY_CHOICES.map(choice => choice.value))
 export const SCREENS_VALUES = Object.freeze(SCREENS_CHOICES.map(choice => choice.value))
 
@@ -120,6 +172,27 @@ export const SCREENS_VALUES = Object.freeze(SCREENS_CHOICES.map(choice => choice
  * the record already names. */
 export const SAFE_ANSWERS = Object.freeze({
   autonomy: 'observe',
+  screens: 'live',
+})
+
+/* WHAT THE WALKTHROUGH PRESELECTS, which is a different question from the one
+ * SAFE_ANSWERS answers, and conflating the two is what produced the dead end
+ * described at AUTONOMY_CHOICES.
+ *
+ *   SAFE_ANSWERS       what a SKIP applies. Skipping is declining to choose, so
+ *                      it may switch nothing on, and the machine it leaves is
+ *                      byte-identical to one that never ran setup.
+ *   RECOMMENDED_ANSWERS what the walkthrough OFFERS, and what pressing Continue
+ *                      through it therefore chooses. Walking the questions is
+ *                      choosing, and what it lands on must be a working product.
+ *
+ * These were one constant, so the answer for a person who declined to answer was
+ * also the answer we recommended to a person who asked. It is asserted below and
+ * in tools/test/setup-profile.test.mjs that this one leaves a start control at
+ * every permission level -- that assertion is the regression test for the whole
+ * defect, and it is a statement about the DERIVED settings, not about a label. */
+export const RECOMMENDED_ANSWERS = Object.freeze({
+  autonomy: 'assisted',
   screens: 'live',
 })
 
@@ -142,10 +215,16 @@ export const SAFE_ANSWERS = Object.freeze({
  * impossible -- and it would break the property that makes skip provably safe:
  * that the state it produces is byte-for-byte the state of a machine that never
  * ran setup at all. The test suite asserts that equivalence directly. */
+/* `cloud-launch` arrived from the Codex Cloud lane, which added it to
+   src/write-flags.js. It is listed here for both acting answers because it is a
+   launch a PERSON presses -- the flag's own description says each launch still
+   asks for approval -- which is exactly what "Act when I start it" means. A flag
+   that exists and no answer names is caught by the test suite, which walks the
+   real flag list rather than this map. */
 const AUTONOMY_WRITE_FLAGS = Object.freeze({
   observe: Object.freeze([]),
-  assisted: Object.freeze(['report-read', 'agent-session', 'dispatch']),
-  autonomous: Object.freeze(['report-read', 'agent-session', 'dispatch', 'decision', 'queue', 'thread-reply']),
+  assisted: Object.freeze(['report-read', 'agent-session', 'dispatch', 'cloud-launch']),
+  autonomous: Object.freeze(['report-read', 'agent-session', 'dispatch', 'cloud-launch', 'decision', 'queue', 'thread-reply']),
 })
 
 /* The four settings other lanes are building enforcement for. Each axis is
@@ -241,7 +320,15 @@ const AUTONOMY_INTENT = Object.freeze({
  * (which only reads) and starting the one session (which is the product). The
  * three fleet-operation controls are above it as well: approving owner requests,
  * claiming and closing queue items, and replying into a coordinator thread are
- * not what an assistant confined to one folder does.
+ * not what an assistant confined to one folder does. Launching a Codex Cloud
+ * task is above it for the same reason the dispatch form is -- it starts work
+ * that is not the one confined assistant this level grants.
+ *
+ * WHAT EVERY LEVEL KEEPS IS `agent-session`, and that is load-bearing rather
+ * than incidental: it is the flag that decides whether a control exists anywhere
+ * that starts an agent, so a level that refused it would be a level at which the
+ * product cannot be made to do anything. `profileCanStartAnAgent` is asserted
+ * true for the recommended answers at all three levels.
  *
  * `standard` and `unrestricted` permit every flag; they still differ, in the
  * machine access the level itself grants and in the intent maxima below. */
@@ -251,11 +338,11 @@ export const TIER_CEILINGS = Object.freeze({
     intent: Object.freeze({ approvals: 'stop', attach: 'mirror', ideImport: 'none', failover: 'manual' }),
   }),
   standard: Object.freeze({
-    writeFlags: Object.freeze(['report-read', 'agent-session', 'dispatch', 'decision', 'queue', 'thread-reply']),
+    writeFlags: Object.freeze(['report-read', 'agent-session', 'dispatch', 'cloud-launch', 'decision', 'queue', 'thread-reply']),
     intent: Object.freeze({ approvals: 'judgement', attach: 'adopt', ideImport: 'ask', failover: 'auto' }),
   }),
   unrestricted: Object.freeze({
-    writeFlags: Object.freeze(['report-read', 'agent-session', 'dispatch', 'decision', 'queue', 'thread-reply']),
+    writeFlags: Object.freeze(['report-read', 'agent-session', 'dispatch', 'cloud-launch', 'decision', 'queue', 'thread-reply']),
     intent: Object.freeze({ approvals: 'judgement', attach: 'adopt', ideImport: 'all-detected', failover: 'auto' }),
   }),
 })
@@ -378,6 +465,33 @@ export function deriveProfile(answers, { tier, writeFlagIds = [], liveFlagIds = 
     refusedWriteFlags: refused,
     clampedIntent: intentClamped,
   }
+}
+
+/**
+ * Does this ANSWER ask for a way to start an agent?
+ *
+ * A question about the answer alone, before any ceiling: it is what the
+ * `consequence` sentences on AUTONOMY_CHOICES are pinned to, so a fourth
+ * autonomy option added later cannot ship without either requesting the start
+ * flag or saying out loud that it does not.
+ */
+export function autonomyStartsAgents(value) {
+  const requested = AUTONOMY_WRITE_FLAGS[value] || AUTONOMY_WRITE_FLAGS.observe
+  return requested.includes(START_CONTROL_FLAG)
+}
+
+/**
+ * Does this DERIVED profile leave a control that starts an agent?
+ *
+ * The same question asked of the outcome, ceiling included, which is the form
+ * that can actually be wrong: an answer may request the flag and a permission
+ * level may refuse it. Every tier permits it today -- `guided` grants one
+ * assistant in one folder and that assistant has to be startable -- and the
+ * test suite asserts that for the recommended answers at every level rather
+ * than trusting the table to stay that way.
+ */
+export function profileCanStartAnAgent(derived) {
+  return derived?.writeFlags?.[START_CONTROL_FLAG] === true
 }
 
 /**

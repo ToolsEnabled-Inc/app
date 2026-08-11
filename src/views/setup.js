@@ -77,18 +77,26 @@ import { WRITE_ACTION_FLAGS, setWriteEnabled } from '../write-flags.js'
 import {
   AUTONOMY_CHOICES,
   PROFILE_INTENT,
+  RECOMMENDED_ANSWERS,
   SAFE_ANSWERS,
   SCREENS_CHOICES,
   answersForAutonomy,
   applyProfile,
+  autonomyStartsAgents,
   deriveProfile,
   intentField,
+  profileCanStartAnAgent,
   readStoredProfile,
   resumeStep,
   stepAfter,
   stepBefore,
   writeStoredProfile,
 } from '../setup-profile.js'
+/* The remedy commands and the per-code sentences, taken from the module that
+   owns them rather than restated here. Setup, the home screen and the agent
+   page all tell a person how to get Codex working; three hand-written copies of
+   a command line is three chances to ship one that does not run. */
+import { CODEX_SETUP_COMMANDS, unavailableReason } from '../agent-availability-copy.js'
 
 import '../settings.css'
 import '../fleet-profile-settings.css'
@@ -124,7 +132,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let refusal = state.available ? null : { code: state.code, reason: state.reason }
 
   const stored = readStoredProfile()
-  let answers = stored ? stored.answers : { ...SAFE_ANSWERS, workspaceRoots: [] }
+  /* RECOMMENDED_ANSWERS, not SAFE_ANSWERS, and the two are different constants
+     for the reason set out at their definitions: this is what the walkthrough
+     OFFERS a person who is answering, and skip() below still applies the safe
+     ones to a person who is not. Preselecting the answer that switches nothing
+     on is how the recommended path came to end at a product with no control
+     that starts anything. */
+  let answers = stored ? stored.answers : { ...RECOMMENDED_ANSWERS, workspaceRoots: [] }
   let step = resumeStep(stored, { tierRecorded: state.configured, steps: STEPS })
   /* The workspace facts come from the shell, so until they arrive the step says
      it is loading rather than showing an empty folder list that looks like an
@@ -133,6 +147,23 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let workspace = null
   let workspaceBusy = false
   let workspaceRefusal = null
+
+  /* WHETHER AN AGENT CAN ACTUALLY RUN WHEN THIS FINISHES, which setup used not
+   * to ask at any point.
+   *
+   * Setup configured a permission level, a folder and an account, said "Finish
+   * setup", and handed the person a home screen reading "Not ready yet -- sign
+   * in to Codex on this computer". Nothing in the walkthrough had mentioned
+   * Codex, and nothing anywhere in the product said how to get it. A setup that
+   * completes successfully and lands on a blocker it never named is a setup that
+   * is not finished, whatever it says on the button.
+   *
+   * `null` means "not asked yet", the same convention the two states above use.
+   * It is READ ONLY -- setup does not install anything and does not gate Finish
+   * on the answer, because the recorded level, the folder and the account are all
+   * still worth saving on a machine where Codex is not installed yet. It tells
+   * the person what remains and lets them finish. */
+  let agentReadiness = null
 
   /* The sign-in step's own state. `null` means "not asked yet", which is
      distinct from a reply that came back unavailable -- painting an empty form
@@ -465,6 +496,32 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
   /* ---------- question 3: how much it does on its own ---------- */
 
+  /* THE CONSEQUENCE OF THE CURRENT ANSWER, STATED WHERE THE ANSWER IS MADE.
+   *
+   * The defect this repairs was not that `observe` exists -- someone who wants
+   * to read before running anything is entitled to that answer. It was that
+   * choosing it produced a product with no control anywhere that starts an
+   * agent, and said so NOWHERE: the person met an absence and had to work out
+   * that it was an answer they had given two screens earlier.
+   *
+   * It is driven by the DERIVED profile, not by the chosen label. The question
+   * is "after these answers, on this permission level, does a control that
+   * starts an agent exist?", and that has the ceiling already applied -- so if
+   * a level ever stopped permitting the start flag, this block would report it
+   * without anyone having to remember to write a second sentence. */
+  function consequenceMarkup(profile) {
+    if (profileCanStartAnAgent(profile)) return ''
+    const tierLabel = TIER_CHOICES.find(choice => choice.tier === recordedTier())?.label || recordedTier()
+    const sentence = autonomyStartsAgents(answers.autonomy)
+      ? `The “${tierLabel}” permission level does not allow a session to be started on this computer, so the agent page will show no Start control. Change the level to change that.`
+      : AUTONOMY_CHOICES.find(choice => choice.value === answers.autonomy)?.consequence
+        || 'No control that starts an agent will be shown until this is changed.'
+    return `<div class="fleet-profile-status is-warn" role="status" data-setup-consequence>
+      <strong>With this answer, nothing here will start an agent</strong>
+      <span>${esc(sentence)}</span>
+    </div>`
+  }
+
   function autonomyMarkup() {
     const profile = derived()
     const refused = profile.refusedWriteFlags
@@ -486,12 +543,14 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           <div class="settings-copy">
             <div class="settings-name">${esc(choice.label)}${choice.note ? ` — ${esc(choice.note)}` : ''}</div>
             <div class="settings-desc">${esc(choice.detail)}</div>
+            ${choice.consequence ? `<div class="settings-desc setup-consequence">${esc(choice.consequence)}</div>` : ''}
           </div>
         </article>`).join('')}
       </div>
+      ${consequenceMarkup(profile)}
       ${refused.length ? `<div class="fleet-profile-status is-warn" role="status">
         <strong>Your permission level does not allow all of that</strong>
-        <span>${esc(refused.join(', '))} stays off however this question is answered, because the “${esc(TIER_CHOICES.find(choice => choice.tier === recordedTier())?.label || recordedTier())}” level does not include it. Change the level to change that.</span>
+        <span>${esc(refused.join(', '))} ${refused.length > 1 ? 'stay' : 'stays'} off however this question is answered, because the “${esc(TIER_CHOICES.find(choice => choice.tier === recordedTier())?.label || recordedTier())}” level does not include ${refused.length > 1 ? 'them' : 'it'}. Change the level to change that.</span>
       </div>` : ''}
       ${actionsMarkup({ back: stepBefore(STEPS, 'autonomy'), next: stepAfter(STEPS, 'autonomy'), nextLabel: 'See what that sets' })}`
   }
@@ -517,6 +576,68 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     return `<div class="seg settings-seg" role="group" aria-label="${esc(label)}">
       ${options.map(option => `<button type="button" data-setup-set="${esc(target)}" data-setup-value="${esc(option.value)}" aria-pressed="${option.value === current ? 'true' : 'false'}" class="${option.value === current ? 'on' : ''}" ${busy ? 'disabled' : ''}>${esc(option.label)}</button>`).join('')}
     </div>`
+  }
+
+  /* THE STEP THE WALKTHROUGH USED TO LEAVE OUT ENTIRELY.
+   *
+   * Codex is the program that actually runs an agent, and setup never mentioned
+   * it: a person answered three questions, pressed Finish, and met a home screen
+   * saying "Not ready yet" about software they had never been told to install.
+   * The remedy existed nowhere in the product.
+   *
+   * IT NAMES THE COMMAND RATHER THAN THE CONCEPT. "Install the Codex CLI" is
+   * something a person then has to go and research; a line they can paste is
+   * something they can do. The winget form is given first because it needs no
+   * Node -- on a machine with nothing installed it is the only one of the two
+   * that works -- and both were run on a real machine before being written here.
+   *
+   * IT DOES NOT BLOCK FINISH, and that is deliberate rather than lax. The level,
+   * the folder and the account are all worth recording on a computer that does
+   * not have Codex yet, and a walkthrough that refuses to end until an unrelated
+   * program is installed is a worse first hour than one that says what is left.
+   * The state it reports is read, never written. */
+  function codexReadinessMarkup() {
+    const heading = 'Before an agent can run'
+    if (agentReadiness === null) {
+      return statusBlock('', heading, ['Checking whether Codex is installed and signed in on this computer.'])
+    }
+    if (agentReadiness.known !== true) {
+      return statusBlock('is-warn', heading, [
+        'This copy could not check whether Codex is installed here, so it will not tell you either way.',
+        `Codex is the program that runs an agent. If it is not installed, run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}".`,
+      ])
+    }
+    if (agentReadiness.ok === true) {
+      return statusBlock('', heading, [
+        'Codex is installed on this computer and signed in, so an agent can start when you finish here.',
+      ])
+    }
+    if (agentReadiness.code === 'AGENT_CODEX_CLI_NOT_INSTALLED') {
+      return statusBlock('is-warn', heading, [
+        'Codex is not installed on this computer. It is a separate free program from OpenAI, and it is the thing that actually runs an agent; ToolsEnabled drives it.',
+        `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.install}`,
+        `If you already have Node, this works too: ${CODEX_SETUP_COMMANDS.installWithNode}`,
+        `Then sign in to it: ${CODEX_SETUP_COMMANDS.signIn}`,
+        'You can finish setup first and do this afterwards. Everything you chose is still saved.',
+      ])
+    }
+    if (agentReadiness.code === 'AGENT_CONFINEMENT_SIGNED_OUT') {
+      return statusBlock('is-warn', heading, [
+        'Codex is installed on this computer, but nobody is signed in to it, and the permission level you chose builds each session from that sign-in.',
+        `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.signIn}`,
+        'You can finish setup first and do this afterwards. Everything you chose is still saved.',
+      ])
+    }
+    return statusBlock('is-warn', heading, [
+      `An agent cannot start on this computer yet: ${unavailableReason(agentReadiness.code)}.`,
+    ])
+  }
+
+  function statusBlock(modifier, heading, lines) {
+    return `<div class="fleet-profile-status ${esc(modifier)}" role="status">
+        <strong>${esc(heading)}</strong>
+        ${lines.map(line => `<span>${esc(line)}</span>`).join('')}
+      </div>`
   }
 
   function reviewMarkup() {
@@ -552,6 +673,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           segControl('screens', SCREENS_CHOICES.map(choice => ({ value: choice.value, label: choice.label })), answers.screens, 'What the screens show'),
         )}
       </div>
+
+      ${consequenceMarkup(profile)}
+
+      ${codexReadinessMarkup()}
 
       <h2 class="setup-subtitle">Switches this turned on</h2>
       <div class="settings-section-rows">
@@ -608,6 +733,11 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     writeStoredProfile({ status: 'in-progress', step, answers })
     paint()
     if ((step === 'workspace' || step === 'review') && workspace === null) loadWorkspace()
+    /* Re-asked every time the review step is REACHED, not cached for the life
+       of the view: the whole point of naming the commands is that somebody goes
+       and runs them, and stepping back and forward is the one gesture available
+       to a person who just did. */
+    if (step === 'review') loadAgentReadiness()
   }
 
   async function loadWorkspace() {
@@ -626,6 +756,28 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     workspace = result?.ok === false
       ? { available: false, reason: result.reason || 'The application did not say why.' }
       : result
+    paint()
+  }
+
+  /* Fails to an honest silence, never to a green tick. Every branch that cannot
+     get an answer leaves `agentReadiness` reporting `unknown`, and the review
+     step then says it could not check rather than implying it passed. */
+  async function loadAgentReadiness() {
+    if (!globalThis.mcAgent?.availability) {
+      agentReadiness = { known: false }
+      paint()
+      return
+    }
+    let reply
+    try {
+      reply = await globalThis.mcAgent.availability()
+    } catch {
+      reply = null
+    }
+    if (destroyed) return
+    agentReadiness = reply && typeof reply === 'object' && typeof reply.ok === 'boolean'
+      ? { known: true, ok: reply.ok === true, code: typeof reply.code === 'string' ? reply.code : '' }
+      : { known: false }
     paint()
   }
 
@@ -821,6 +973,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   section.addEventListener('click', onClick)
   paint()
   if (step === 'workspace' || step === 'review') loadWorkspace()
+  if (step === 'review') loadAgentReadiness()
   /* Read on mount rather than on arrival at the step, so the step paints its
      real state on the first frame instead of flashing "reading accounts". */
   loadAccount()

@@ -50,6 +50,7 @@ import {
   applyProfile,
   deriveProfile,
   intentField,
+  profileCanStartAnAgent,
   readStoredProfile,
   writeStoredProfile,
 } from './setup-profile.js'
@@ -191,7 +192,17 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
         ${workspaceRowMarkup()}
         ${rowMarkup(
           'Acting on its own',
-          `${AUTONOMY_CHOICES.find(choice => choice.value === answers.autonomy)?.detail || ''} Switched on now: ${WRITE_ACTION_FLAGS.filter(flag => profile.writeFlags[flag.id]).map(flag => flag.label).join(', ') || 'nothing that acts'}.`,
+          /* The consequence sentence rides here for the same reason it is on the
+             walkthrough: this row is where a person who met the absence arrives
+             to fix it, and "nothing that acts" does not tell them that the Start
+             control they went looking for is the thing this row removed. It is
+             gated on the DERIVED profile, so a level that refused the flag would
+             show it too. */
+          `${AUTONOMY_CHOICES.find(choice => choice.value === answers.autonomy)?.detail || ''} Switched on now: ${WRITE_ACTION_FLAGS.filter(flag => profile.writeFlags[flag.id]).map(flag => flag.label).join(', ') || 'nothing that acts'}.${
+            profileCanStartAnAgent(profile)
+              ? ''
+              : ` ${AUTONOMY_CHOICES.find(choice => choice.value === answers.autonomy)?.consequence || 'No control that starts an agent is shown until this is changed.'}`
+          }`,
           segMarkup('autonomy', AUTONOMY_CHOICES.map(choice => ({ value: choice.value, label: choice.label })), answers.autonomy, 'Acting on its own'),
           'autonomy',
         )}

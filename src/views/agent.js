@@ -18,6 +18,13 @@ import { createTerminateController } from '../mission-bridge.js'
 import { mountAgentWriteSurface } from '../write-surfaces.js'
 import { mountAgentSessionSurface } from '../agent-session.js'
 import { mountCloudTaskSurface } from '../cloud-tasks.js'
+import { liveSessionFor, onLiveSession } from '../agent-session-registry.js'
+import {
+  CONFIRMED_CONTROLS,
+  SESSION_CONTROL_IDS,
+  sessionControlAvailability,
+  sessionControlFace,
+} from '../agent-session-controls.js'
 import { fetchAgents } from '../live-status.js'
 import { readOrg } from '../org-controls.js'
 import { declaredAgentsData, THIS_COMPUTER_ID, THIS_COMPUTER_LABEL } from '../declared-fleet.js'
@@ -313,7 +320,22 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   const terminateLabel = terminateButton.querySelector('.ctl-label')
   const terminateNote = terminateButton.querySelector('.ctl-note')
   const terminateResult = root.querySelector('.ctl-result')
+  /* Declared above the bridge controller because the controller publishes its
+     first state during construction, and that first publish already has to know
+     whether this page's controls belong to a session. */
+  let sessionBusy = null
+  let confirmStep = null
+  let sessionOwnsControls = false
+  let sessionResult = ''
+  let destroyedView = false
   const renderTerminateState = (state) => {
+    /* ONE OWNER OF THIS BUTTON AT A TIME. While a session this app owns is
+       mapped to this agent, the bridge controller's state is still real and
+       still correct about the remote projection -- it simply must not paint. A
+       late publish from an in-flight bridge request writing over the session
+       controls is exactly how a screen comes to show one state and perform
+       another. */
+    if (sessionOwnsControls) return
     terminateButton.disabled = !state.enabled
     terminateButton.dataset.phase = state.phase
     terminateButton.classList.toggle('is-confirming', state.phase === 'confirm')
@@ -331,8 +353,168 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     controlTarget: live ? agent.controlTarget : null,
     onState: renderTerminateState,
   })
-  const onTerminateClick = () => { void terminateController.click() }
+  const onTerminateClick = () => {
+    if (sessionOwnsControls) return
+    void terminateController.click()
+  }
   terminateButton.addEventListener('click', onTerminateClick)
+
+  /* ---------- steering a session this app owns ----------
+   *
+   * THE DEFECT: Pause, Respawn and Terminate reported that no observed control
+   * target was mapped to this declared agent WHILE A SESSION WAS RUNNING, six
+   * inches above them on this same page. Starting and watching an agent worked;
+   * steering one did not. For a product whose selling point is orchestrating
+   * fleets, that is a core feature failing.
+   *
+   * THE TWO KINDS OF TARGET, which were never distinguished. `controlTarget` is
+   * a REMOTE observed run carried by the mission-bridge projection -- an agent
+   * id, a run id and a PID on some machine -- and it is null on every local
+   * install, so the bridge terminate above correctly refused. The session this
+   * app started is the other kind entirely: a child process this window owns,
+   * reachable through mcAgent with no bridge in the path. Neither half was
+   * wrong; nothing joined the second one to the agent whose page started it.
+   *
+   * ONE ARBITER, and it is here. When this app owns a session for this agent
+   * the three controls steer THAT, because it is the thing on this page that
+   * genuinely is running. Otherwise the bridge terminate keeps the Terminate
+   * button and its own refusals, byte for byte as before. Both are never live
+   * at once: two controllers writing one button is how a screen ends up showing
+   * one state and performing another. */
+  const controlButtons = {
+    pause: root.querySelector('[data-control="pause"]'),
+    respawn: root.querySelector('[data-control="respawn"]'),
+    terminate: terminateButton,
+  }
+  const renderSessionControl = (id, state, step) => {
+    const button = controlButtons[id]
+    const face = sessionControlFace(id, state, { step })
+    button.disabled = !state.enabled
+    button.dataset.phase = face.phase
+    button.classList.toggle('is-confirming', face.phase === 'confirm')
+    button.classList.toggle('is-pending', face.phase === 'pending')
+    button.classList.remove('is-success')
+    button.querySelector('.ctl-label').textContent = face.label
+    button.querySelector('.ctl-note').textContent = face.note
+    button.setAttribute('aria-label', `${face.label}. ${face.message}`)
+    return face
+  }
+
+  /* WHICH CONTROLLER OWNS THE PANEL WHEN NEITHER HAS ANYTHING RUNNING.
+   *
+   * MEASURED on the packaged window, and it is the reason this is not simply
+   * `availability.mapped`. With no session and no remote run, the bridge
+   * controller owned the result line and the only sentence a person saw was
+   * "Terminate unavailable: no observed control target is mapped to this
+   * declared agent" -- true, internal, and useless: it names a concept the
+   * product has never shown them and gives them nothing to do. On every local
+   * install `controlTarget` is null, so that was the sentence on the shipped
+   * screen.
+   *
+   * So the bridge keeps the panel only when it actually has a remote observed
+   * run to talk about. Otherwise the session controls hold it and say the thing
+   * a person can act on: start a session here, and these will steer it. Nothing
+   * is taken away -- when a projection does carry a control target, every
+   * bridge refusal is shown exactly as before. */
+  const bridgeHasTarget = () => Boolean(live && agent.controlTarget && typeof agent.controlTarget === 'object' && !Array.isArray(agent.controlTarget))
+
+  let resultSessionId = null
+  const renderSessionControls = () => {
+    const session = live ? liveSessionFor(agent.id) : null
+    /* The outcome of the last action survives the session it was about -- "Ended
+       the session" must not be wiped by the same repaint that observes the
+       session ending -- but it must not outlive the NEXT one. */
+    if (session && session.sessionId !== resultSessionId) {
+      sessionResult = ''
+      resultSessionId = null
+    }
+    const availability = sessionControlAvailability({ live, agentId: agent.id, session, busy: sessionBusy })
+    const owns = availability.mapped || !bridgeHasTarget()
+    /* HANDING THE TERMINATE BUTTON BACK is as important as taking it. A session
+       that ends must return the button to the bridge controller's own state,
+       not leave the last sentence this code wrote frozen on a control the
+       bridge controller believes it owns. */
+    if (sessionOwnsControls && !owns) {
+      sessionOwnsControls = false
+      confirmStep = null
+      sessionResult = ''
+      renderTerminateState(terminateController.getState())
+    }
+    if (!owns) {
+      for (const id of ['pause', 'respawn']) renderSessionControl(id, availability[id], 'idle')
+      /* The Terminate button and the result line stay with the bridge
+         controller, which here has a real remote run to report on. One owner,
+         so the two can never print disagreeing sentences. */
+      return
+    }
+    sessionOwnsControls = true
+    let message = availability.reason
+    for (const id of SESSION_CONTROL_IDS) {
+      const step = sessionBusy === id ? 'pending' : (confirmStep === id ? 'confirm' : 'idle')
+      const face = renderSessionControl(id, availability[id], step)
+      if (step !== 'idle') message = face.message
+    }
+    terminateResult.dataset.phase = sessionBusy ? 'pending' : 'ready'
+    terminateResult.textContent = sessionResult || message
+  }
+
+  const runSessionControl = async (id) => {
+    const session = live ? liveSessionFor(agent.id) : null
+    const availability = sessionControlAvailability({ live, agentId: agent.id, session, busy: sessionBusy })
+    if (!availability.mapped || !availability[id].enabled) return
+    /* Confirm once for the two that destroy a running child. The first press
+       posts nothing; that is the same contract the bridge terminate keeps, and
+       it is checked against the availability again after the confirmation so a
+       session that ended between the two presses cannot be acted on. */
+    if (CONFIRMED_CONTROLS.includes(id) && confirmStep !== id) {
+      confirmStep = id
+      sessionResult = ''
+      renderSessionControls()
+      return
+    }
+    confirmStep = null
+    sessionBusy = id
+    sessionResult = ''
+    renderSessionControls()
+    let result
+    try {
+      result = await session.control[id]()
+    } catch (error) {
+      result = { ok: false, code: typeof error?.code === 'string' ? error.code : 'AGENT_SESSION_FAILED' }
+    }
+    sessionBusy = null
+    if (destroyedView) return
+    sessionResult = result?.ok
+      ? { pause: 'Stopped the turn that was running. The session is still open.',
+          respawn: 'Ended that session and started a new one for this agent with the same prompt.',
+          terminate: 'Ended the session. The child process this app started is closed.' }[id]
+      : `${id} did not happen · ${result?.code || 'AGENT_SESSION_FAILED'}`
+    /* Read AFTER the action, not before it: respawn's answer is about the
+       session that now exists, and terminate's is about no session at all. */
+    resultSessionId = (live ? liveSessionFor(agent.id) : null)?.sessionId ?? null
+    renderSessionControls()
+  }
+
+  const sessionClickHandlers = new Map()
+  for (const id of SESSION_CONTROL_IDS) {
+    const handler = () => {
+      /* The bridge terminate keeps its own click while it owns the button. */
+      if (id === 'terminate' && !sessionOwnsControls) return
+      void runSessionControl(id)
+    }
+    sessionClickHandlers.set(id, handler)
+    controlButtons[id].addEventListener('click', handler)
+  }
+  /* Both surfaces that make a claim about the session are repainted from the one
+     event, so they cannot fall out of step with each other. The chat panel is
+     built further down this function; the listener only ever fires after the
+     mount has finished, and the synchronous first paint below is a direct call
+     that does not touch it. */
+  const unsubscribeSession = onLiveSession(() => {
+    renderSessionControls()
+    syncChatProvenance()
+  })
+  renderSessionControls()
   let runtimeRingMount = root.querySelector('.agent-ring-wrap')
 
   if (live) {
@@ -410,9 +592,30 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     roleKey: agent.role,
     seed: live ? 0 : 6,
     tall: true,
-    context: () => live ? 'local draft; no observed session is mapped to this agent' : agent.context,
+    /* TWO PANELS ON ONE SCREEN MUST NOT DISAGREE ABOUT WHETHER A SESSION EXISTS.
+       This said "no observed session is mapped to this agent" unconditionally,
+       which was true while nothing could be mapped. The moment the Controls
+       panel beside it began steering a mapped session, the same screen carried
+       both sentences at once -- and a reader resolves that contradiction
+       themselves, which is the defect however it resolves.
+       What does NOT change is the claim about this box: it is still a local
+       draft and typing in it still reaches nothing. A composer that quietly
+       started reaching a live session because a label was updated would be a
+       far worse repair than the contradiction. */
+    context: () => (live
+      ? (liveSessionFor(agent.id)
+        ? 'local draft; a session this app started is running for this agent, and this box does not send to it'
+        : 'local draft; no session started from this app is running for this agent')
+      : agent.context),
   })
-  if (live) chat.querySelector('.chat-head .s').textContent = `local draft · observed session ${sessionState}`
+  const chatProvenance = chat.querySelector('.chat-head .s')
+  const syncChatProvenance = () => {
+    if (!live) return
+    chatProvenance.textContent = liveSessionFor(agent.id)
+      ? 'local draft · a session is running; this box does not send to it'
+      : `local draft · observed session ${sessionState}`
+  }
+  syncChatProvenance()
   root.querySelector('.chat-panel').appendChild(chat)
 
   // Controls ring.
@@ -463,9 +666,12 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   return {
     el: root,
     destroy() {
+      destroyedView = true
       clearInterval(tick)
       terminateButton.removeEventListener('click', onTerminateClick)
       terminateController.destroy()
+      unsubscribeSession()
+      for (const [id, handler] of sessionClickHandlers) controlButtons[id].removeEventListener('click', handler)
       destroyWriteSurface()
       /* Closes any open session. Navigating away from the page must not leave
          a CLI child running with nothing on screen that can stop it. */

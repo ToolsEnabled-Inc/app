@@ -43,6 +43,19 @@
 
 .setup-choice[aria-current='true'] { border-left-color: var(--ink-3); }
 
+/* WHAT AN OPTION COSTS, PRINTED WITH THE OPTION.
+   The consequence line sits under the description of the choice it belongs to,
+   at the same size, in --s-warn rather than the reading grey. It is not an
+   error -- choosing to run nothing is a legitimate answer -- but a reader
+   skimming three descriptions that all look alike is exactly the reader who
+   ends up hunting for a control that was never rendered, so this one line is
+   allowed to break the scan. No new colour: --s-warn is the token this family
+   already uses for "a stated property you must weigh". */
+.setup-consequence {
+  margin-top: var(--s1);
+  color: var(--s-warn);
+}
+
 /* All three descriptions stay at full strength whichever is selected. 2.1
    requires them to be comparable -- a reader deciding between the levels is
    reading the two they have NOT picked. */
