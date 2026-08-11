@@ -101,8 +101,17 @@ test('the spawn surface states that no tier restricts a running session', () => 
   // (T5, unbuilt). A spawn control that omitted this would imply a limit the
   // product does not have.
   const surface = read('src/agent-session.js')
-  assert.match(surface, /No permission tier limits a session once it is running/)
+  assert.match(surface, /No permission tier limits a running session/)
   assert.match(surface, /UNRESTRICTED_NOTE/, 'the note must be rendered, not only defined')
+})
+
+test('the spawn surface states that the session is not recorded', () => {
+  // The sibling dispatch form refuses outright when the canonical audit writer
+  // is unavailable; this path writes no receipt at all. Until that asymmetry
+  // is closed, the surface must say so, and nothing may call a session here
+  // attributable to anyone -- there is no record to attribute.
+  const surface = read('src/agent-session.js')
+  assert.match(surface, /this session is not recorded in the audit ledger/)
 })
 
 test('the surface renders only recognised event text', () => {

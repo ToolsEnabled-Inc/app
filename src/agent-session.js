@@ -21,7 +21,16 @@ import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
    does not confine a child process once that process is running, and this
    path performs no tier check at all. A control that implied otherwise would
    be the UI telling a lie about its own blast radius. */
-const UNRESTRICTED_NOTE = 'Runs with your full local access. No permission tier limits a session once it is running.'
+/* Two facts, both currently true, both of which the operator has to know
+   before pressing Start:
+
+   1. No tier confines a running session (above).
+   2. The session is NOT recorded. Starting an agent here writes no durable
+      audit receipt, unlike the audited dispatch form directly above it, which
+      refuses outright when the canonical writer is unavailable. Until a spawn
+      receipt exists, nothing here may be described as attributable to whoever
+      is using the app -- there is no record to attribute. */
+const UNRESTRICTED_NOTE = 'Runs with your full local access. No permission tier limits a running session, and this session is not recorded in the audit ledger.'
 
 /* Bounded copy for the codes availability can return. An unknown code is
    shown verbatim -- codes are short, fixed identifiers, never paths. */
