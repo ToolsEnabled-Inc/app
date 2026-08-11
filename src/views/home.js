@@ -10,12 +10,12 @@
 // of a thing that person never had -- a clock reading four dashes, "SOURCE
 // UNAVAILABLE", "coordinator thread unavailable", and "No local agent fleet
 // host detected on this machine" printed twice -- directly above a banner
-// saying "Mission Control already works on this one computer". Those last two
+// saying "ToolsEnabled already works on this one computer". Those last two
 // cannot both be acted on. It was the product's first impression.
 //
 // The premise was wrong, not the implementation. There IS something real to
 // show on one computer with nothing connected: the agents that have run on it.
-// Starting an agent from inside Mission Control works now, and every start is
+// Starting an agent from inside ToolsEnabled works now, and every start is
 // written to this app's own signed record before the process exists. So home
 // reads that record, and a machine with no fleet gets its own history rather
 // than a fleet-shaped hole.
@@ -49,6 +49,17 @@ import {
   readLocalSessions,
   whenWords,
 } from '../local-activity.js'
+/* The two controls on the settings page that decide what this box contains:
+   which agents' context appears in it, and whether agent runs appear too, not
+   at all, or on their own. The view reads them and re-reads them on the event,
+   exactly as it does the live-source flags above. */
+import {
+  CHATBOX_FEED_EVENT,
+  agentIdsFromTurns,
+  filterTurns,
+  readAgentSelection,
+  readRunsMode,
+} from '../chatbox-feed.js'
 import '../home.css'
 
 /* The fleet health snapshot changes when a sweep runs, which is minutes apart.
@@ -135,6 +146,15 @@ export function homeView() {
 
   const feed = root.querySelector('.home-feed')
   const logEl = root.querySelector('.session-log')
+  /* THE BOX HAS TWO HALVES NOW, so the log has a slot for each rather than one
+     body that every renderer wipes. The runs half and the conversation half are
+     independently switchable, and they update at different rates: a rebuild of
+     the whole log on every arriving message would fight the scroll pin and
+     re-animate lines a person is in the middle of reading. */
+  const noticeSlot = el('<div class="log-notices"></div>')
+  const runsSlot = el('<div class="log-runs"></div>')
+  const turnsSlot = el('<div class="log-turns"></div>')
+  logEl.append(noticeSlot, runsSlot, turnsSlot)
   const panelTitle = root.querySelector('[data-panel-title]')
   const panelBadge = root.querySelector('[data-panel-badge]')
   const panelFoot = root.querySelector('[data-panel-foot]')
@@ -255,7 +275,35 @@ export function homeView() {
     sessions: readLocalSessions(undefined),
     engine: readAgentEngine(undefined),
     approvals: null,
+    /* What the person chose on the settings page, plus who is actually talking
+       in whatever conversation this screen has. The decision needs both: the
+       first says which agents may appear, the second is what it is filtering,
+       and only their combination can tell "nobody is talking" apart from
+       "everybody talking is switched off". */
+    chatbox: {
+      runsMode: readRunsMode(),
+      selection: readAgentSelection(),
+      agentsInSource: [],
+    },
     nowMs: Date.now(),
+  }
+
+  /* The conversation, held rather than painted straight into the log, so that
+     changing the agent selection re-filters what is already here instead of
+     needing the source read again. */
+  let contextTurns = []
+
+  function noteContext(turns) {
+    contextTurns = Array.isArray(turns) ? turns : []
+    state.chatbox = { ...state.chatbox, agentsInSource: agentIdsFromTurns(contextTurns) }
+  }
+
+  function readChatboxSettings() {
+    state.chatbox = {
+      ...state.chatbox,
+      runsMode: readRunsMode(),
+      selection: readAgentSelection(),
+    }
   }
 
   const timers = []
@@ -364,38 +412,37 @@ export function homeView() {
      lines a person is reading.
      ------------------------------------------------------------------ */
   function renderPanel(view) {
-    const kind = view.panel.kind
-    if (kind === 'runs') {
-      renderRuns(view)
-      renderedPanelKind = 'runs'
-      return
-    }
-    if (renderedPanelKind === kind) return
-    renderedPanelKind = kind
-    logEl.replaceChildren()
-    if (kind === 'sample') {
-      if (SESSION.length) SESSION.forEach(turn => addTurn(turn.who, turn.text))
-      else showNotice(COPY.sampleEmpty.title, COPY.sampleEmpty.body)
-      if (ARRIVALS.length) scheduleArrival(true)
-    } else {
-      showNotice(COPY.conversationLoading.title, COPY.conversationLoading.body, true)
-      void loadCoordinatorThread()
-    }
-    pinAfterMount()
+    renderNotices(view)
+    renderRuns(view)
+    renderContext(view)
   }
 
+  /* ---- the notices, which belong to the box rather than to either half ---- */
+  let noticeSignature = null
+  function renderNotices(view) {
+    const notices = [view.panel.contextEmpty, view.panel.empty].filter(Boolean)
+    const signature = notices.map(notice => notice.title).join('/')
+    if (noticeSignature === signature) return
+    noticeSignature = signature
+    noticeSlot.replaceChildren()
+    for (const notice of notices) showNotice(notice.title, notice.body, false, notice.action)
+  }
+
+  /* ---- the runs half ---- */
   let runsSignature = null
   function renderRuns(view) {
-    const signature = `${view.panel.empty ? view.panel.empty.title : ''}|${state.sessions.runs.map(r => r.sequence).join(',')}`
+    /* An empty runs half that is standing beside a conversation says so in the
+       notice slot, not by replacing the list; an empty runs half on its own IS
+       the box, and the notice is the whole of it. Either way the list itself is
+       what this renders. */
+    const listed = view.panel.runs && !view.panel.empty ? state.sessions.runs : []
+    const signature = `${view.panel.runs}|${listed.map(run => run.sequence).join(',')}`
     if (runsSignature === signature) return
     runsSignature = signature
-    logEl.replaceChildren()
-    if (view.panel.empty) {
-      showNotice(view.panel.empty.title, view.panel.empty.body, false, view.panel.empty.action)
-      return
-    }
+    runsSlot.replaceChildren()
+    if (!listed.length) return
     const list = el('<ol class="home-runs"></ol>')
-    for (const run of state.sessions.runs) {
+    for (const run of listed) {
       /* The run's own number, not a decorative index. It is the position in
          this computer's record, so it stays the same on every later visit and
          still means something after the list is truncated to its newest twenty.
@@ -407,18 +454,75 @@ export function homeView() {
       row.querySelector('.run-when').textContent = whenWords(state.nowMs - run.atMs) || COPY.runWhenUnknown
       list.appendChild(row)
     }
-    logEl.appendChild(list)
-    pinned = false            // a list reads from the top; a transcript reads from the bottom
-    logEl.scrollTop = 0
+    runsSlot.appendChild(list)
   }
 
-  function showNotice(title, body, loading = false, action = null) {
-    logEl.replaceChildren(el(
+  /* ---- the conversation half ----
+     `contextNotice` is what the SOURCE has to say for itself while it loads,
+     fails, or turns out to be empty. Deliberately not part of the decision:
+     those states depend on the moment rather than on what is true of the
+     machine, which is why this copy has always lived in the view. */
+  let contextNotice = null
+  function renderContext(view) {
+    const kind = view.panel.kind
+    if (renderedPanelKind !== kind) {
+      renderedPanelKind = kind
+      turnsSignature = null
+      contextNotice = null
+      if (kind === 'sample') {
+        noteContext(SESSION)
+        if (!SESSION.length) contextNotice = COPY.sampleEmpty
+        if (ARRIVALS.length) scheduleArrival(true)
+      } else if (kind === 'conversation') {
+        noteContext([])
+        contextNotice = { ...COPY.conversationLoading, loading: true }
+        void loadCoordinatorThread()
+      } else {
+        noteContext([])
+      }
+    }
+    paintTurns(kind)
+    pinAfterMount()
+  }
+
+  /* Repainted from the held conversation whenever the agent selection moves, so
+     the setting takes effect on what is already on the screen rather than only
+     on whatever arrives next. */
+  let turnsSignature = null
+  function paintTurns(kind) {
+    const shown = kind === 'none' ? [] : filterTurns(contextTurns, state.chatbox.selection)
+    const signature = [kind, contextNotice ? contextNotice.title : '', ...shown.map(turn => turn.id || turn.text)].join()
+    if (turnsSignature === signature) return
+    turnsSignature = signature
+    const wasAt = logEl.scrollTop
+    turnsSlot.replaceChildren()
+    if (kind !== 'none' && !shown.length && contextNotice) {
+      turnsSlot.appendChild(noticeNode(contextNotice.title, contextNotice.body, contextNotice.loading === true, null))
+    }
+    for (const turn of shown) {
+      addTurn(turn.who || turn.sender, turn.text, turn.fresh === true)
+      if (turn.fresh) delete turn.fresh
+    }
+    if (kind === 'none') {
+      /* A list reads from the top; a transcript reads from the bottom. */
+      pinned = false
+      logEl.scrollTop = 0
+      return
+    }
+    if (!pinned) logEl.scrollTop = wasAt
+  }
+
+  function noticeNode(title, body, loading = false, action = null) {
+    return el(
       `<div class="projection-state${loading ? ' is-loading' : ''}" role="status">`
       + `<strong>${escText(title)}</strong><span>${escText(body)}</span>`
       + (action ? `<a class="home-next" href="${escText(action.href)}">${escText(action.label)}</a>` : '')
       + '</div>',
-    ))
+    )
+  }
+
+  function showNotice(title, body, loading = false, action = null) {
+    noticeSlot.appendChild(noticeNode(title, body, loading, action))
     pinned = true
   }
 
@@ -427,8 +531,17 @@ export function homeView() {
     const dot = meta.hue ? `<i class="turn-dot" style="background:${meta.hue}"></i>` : ''
     const label = meta.label ? `<span class="turn-who">${dot}${escText(meta.label)}</span>` : ''
     const node = el(`<div class="turn ${meta.cls}${fresh ? ' fresh' : ''}">${label}<div class="turn-text">${escText(text)}</div></div>`)
-    logEl.appendChild(node)
+    turnsSlot.appendChild(node)
     return node
+  }
+
+  /* One arriving line, added to the held conversation and then painted through
+     the same filter as everything else: an agent the person switched off does
+     not get to appear merely because it spoke recently. */
+  function receiveTurn(who, text) {
+    noteContext([...contextTurns, { who, text, fresh: true }])
+    contextNotice = null
+    apply()
   }
 
   /* ------------------------------------------------------------------
@@ -518,7 +631,7 @@ export function homeView() {
         writeStateEl.textContent = COPY.replyRefused
       } else {
         inputEl.value = ''
-        addTurn(result.receipt.actor || composerTarget, v, true)
+        receiveTurn(result.receipt.actor || composerTarget, v)
         pulseBraces()
         writeStateEl.dataset.state = 'confirmed'
         writeStateEl.textContent = COPY.replySent
@@ -530,14 +643,14 @@ export function homeView() {
     }
 
     inputEl.value = ''
-    addTurn('owner', v, true)
+    receiveTurn('owner', v)
     /* Sometimes the tool line the coordinator ran to answer arrives first —
        that beat is what makes the reply read as work done, not text served. */
     const withAct = REPLY_ACTS.length > 0 && Math.random() < 0.35
     const replyAt = 1100 + Math.random() * 1100
-    if (withAct) timers.push(setTimeout(() => addTurn('act', drawReplyAct(), true), replyAt - 550))
+    if (withAct) timers.push(setTimeout(() => receiveTurn('act', drawReplyAct()), replyAt - 550))
     timers.push(setTimeout(() => {
-      addTurn(composerTarget, REPLIES.length ? drawReply() : COPY.sampleNoReply, true)
+      receiveTurn(composerTarget, REPLIES.length ? drawReply() : COPY.sampleNoReply)
       pulseBraces()
     }, replyAt + (withAct ? 500 : 0)))
   }
@@ -548,7 +661,7 @@ export function homeView() {
     const t = setTimeout(() => {
       if (destroyed || renderedPanelKind !== 'sample') return
       const turn = drawArrival()
-      addTurn(turn.who, turn.text, true)
+      receiveTurn(turn.who, turn.text)
       pulseBraces()
       scheduleArrival()
     }, first ? 10_000 + Math.random() * 12_000 : 24_000 + Math.random() * 24_000)
@@ -562,17 +675,23 @@ export function homeView() {
     const result = await fetchCoordinator()
     if (destroyed || renderedPanelKind !== 'conversation') return
     if (!result.ok) {
-      showNotice(COPY.conversationUnreachable.title, COPY.conversationUnreachable.body)
+      contextNotice = COPY.conversationUnreachable
+      apply()
       return
     }
     const thread = result.data.data.thread
     if (!thread.ok || !thread.value.length) {
-      showNotice(COPY.conversationEmpty.title, COPY.conversationEmpty.body)
+      contextNotice = COPY.conversationEmpty
+      apply()
       return
     }
-    logEl.replaceChildren()
-    for (const message of thread.value) addTurn(message.sender, message.text)
+    /* Held rather than painted: the agent selection is applied to it on the way
+       to the screen, and re-applied whenever that selection moves, without this
+       source being read again. */
+    contextNotice = null
+    noteContext(thread.value)
     pinned = true
+    apply()
     pinAfterMount()
   }
 
@@ -669,6 +788,16 @@ export function homeView() {
      while one is being started, and its next mount reads the record fresh.
      Nothing can be missed by not asking on focus. */
 
+  /* The two settings are changed on another screen, and this one is left
+     mounted behind it, so the box has to re-read them when they move rather
+     than only at mount. Same mechanism the live-source flags use. */
+  const onChatboxSettings = () => {
+    if (destroyed) return
+    readChatboxSettings()
+    apply()
+  }
+  window.addEventListener(CHATBOX_FEED_EVENT, onChatboxSettings)
+
   void loadEngine()
   void loadSessions(true)
   void loadApprovals()
@@ -690,6 +819,7 @@ export function homeView() {
       anchorMo.disconnect()
       cancelAnimationFrame(firstPinFrame)
       cancelAnimationFrame(settledPinFrame)
+      window.removeEventListener(CHATBOX_FEED_EVENT, onChatboxSettings)
       document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     },
   }

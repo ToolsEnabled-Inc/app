@@ -6,7 +6,7 @@
  * build: the home screen told one person, in one viewport, both of these.
  *
  *     "No local agent fleet host detected on this machine."   (twice)
- *     "Mission Control already works on this one computer."
+ *     "ToolsEnabled already works on this one computer."
  *
  * Nobody wrote that pair. It assembled itself, because five independent pieces
  * of the screen each answered a different question from a different source and
@@ -29,6 +29,11 @@
  * for a value that is simply absent. Where there is no reading, the screen
  * omits the line rather than printing a placeholder for it.
  */
+
+import {
+  DEFAULT_RUNS_MODE,
+  planChatbox,
+} from './chatbox-feed.js'
 
 /* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
  *
@@ -59,7 +64,7 @@ export const COPY = Object.freeze({
   }),
   conversationUnreachable: Object.freeze({
     title: 'This conversation is on another computer',
-    body: 'Mission Control could not reach the computer that holds it.',
+    body: 'ToolsEnabled could not reach the computer that holds it.',
   }),
   conversationEmpty: Object.freeze({
     title: 'Nothing has been said yet',
@@ -72,6 +77,22 @@ export const COPY = Object.freeze({
   sampleNoReply: 'This example has no reply written for that.',
   runLabel: (sequence) => `Agent run ${sequence}`,
   runWhenUnknown: 'at a time this record does not give',
+  /* The two settings the owner asked for, in the words the box uses when they
+     leave it holding something back. Each one names the setting that caused it
+     and offers the way to it, because a box that is empty for a reason the
+     person cannot see is the failure this whole feature could most easily
+     become. */
+  chatboxNothingChosen: Object.freeze({
+    title: 'This box is set to show nothing',
+    body: 'Agent runs are switched off for it and there is no conversation on this computer to put here instead.',
+    action: Object.freeze({ label: 'Choose what appears in it', href: '#/settings' }),
+  }),
+  chatboxNoAgentsChosen: Object.freeze({
+    title: 'None of the agents talking are ones you picked',
+    body: 'Somebody is saying something on this computer, and every one of them is switched off for this box.',
+    action: Object.freeze({ label: 'Pick which agents appear', href: '#/settings' }),
+  }),
+  chatboxAgentsHeld: (count) => `${count} ${String(count) === '1' ? 'agent is' : 'agents are'} being kept out of this box by your own choice.`,
   composerSample: (target) => `Try writing to ${target}`,
   composerLive: (target) => `Message ${target}`,
   replyChecking: 'Checking whether replies can be sent',
@@ -176,15 +197,15 @@ export const ENGINE_REASON = Object.freeze({
      is wrong. */
   AGENT_CONFINEMENT_SIGNED_OUT: 'Sign in to Codex on this computer: the permission level recorded here builds each agent session from that sign-in',
   AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'This copy did not ship the protection that keeps an agent session off your billed API account, so it will not start one',
-  AGENT_HOST_INVALID_CWD: 'Mission Control cannot use its own workspace folder, so an agent has nowhere to run',
-  AGENT_HOST_INVALID_ARGUMENT: 'Mission Control could not check whether an agent can run here',
-  AGENT_HOST_CLOSED: 'Mission Control is shutting down',
+  AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent has nowhere to run',
+  AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not check whether an agent can run here',
+  AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down',
   SPAWN_RECORD_NO_KEYSTORE: 'This copy cannot reach the Windows keystore that protects the record of what runs here, so it will not start an agent',
-  SPAWN_RECORD_NO_DIRECTORY: 'Mission Control has nowhere to keep its record of what runs here, so it will not start an agent',
-  SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let Mission Control protect its record of what runs here, so it will not start an agent',
-  SPAWN_RECORD_KEY_UNREADABLE: 'The record of what has run here cannot be opened, so Mission Control will not add to it',
-  SPAWN_RECORD_LEDGER_CORRUPT: 'The record of what has run here does not read back as a record, so Mission Control will not add to it',
-  SPAWN_RECORD_UNAVAILABLE: 'The record of what runs here cannot be opened, so Mission Control will not start an agent',
+  SPAWN_RECORD_NO_DIRECTORY: 'ToolsEnabled has nowhere to keep its record of what runs here, so it will not start an agent',
+  SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let ToolsEnabled protect its record of what runs here, so it will not start an agent',
+  SPAWN_RECORD_KEY_UNREADABLE: 'The record of what has run here cannot be opened, so ToolsEnabled will not add to it',
+  SPAWN_RECORD_LEDGER_CORRUPT: 'The record of what has run here does not read back as a record, so ToolsEnabled will not add to it',
+  SPAWN_RECORD_UNAVAILABLE: 'The record of what runs here cannot be opened, so ToolsEnabled will not start an agent',
   MC_AGENT_INVALID_PAYLOAD: 'This copy is not set up to run agents yet',
 })
 
@@ -228,6 +249,7 @@ const countOf = (n, one, many) => `${n} ${n === 1 ? one : many}`
  * @param {object} input.sessions          from readLocalSessions
  * @param {object} input.engine            from readAgentEngine
  * @param {object|null} input.approvals    {readable, count}
+ * @param {object} input.chatbox           {runsMode, selection, agentsInSource}
  * @param {number} input.nowMs
  *
  * @returns a description, never a rendering. `clock` is null whenever there is
@@ -244,6 +266,7 @@ export function describeHome(input) {
     sessions = readLocalSessions(null),
     engine = readAgentEngine(null),
     approvals = null,
+    chatbox = null,
     nowMs = Date.now(),
   } = input || {}
 
@@ -270,8 +293,8 @@ export function describeHome(input) {
     caption = 'Example fleet'
     headline = 'Everything on this screen is an example, not your data'
   } else if (mode === HOME_MODES.NO_HOST) {
-    caption = 'Mission Control'
-    headline = 'Open Mission Control on your computer to see what has run there'
+    caption = 'ToolsEnabled'
+    headline = 'Open ToolsEnabled on your computer to see what has run there'
   } else if (!sessions.readable) {
     caption = 'This computer'
     headline = 'The record of what has run here could not be read'
@@ -339,7 +362,7 @@ export function describeHome(input) {
     }
   }
 
-  const panel = Object.freeze(describePanel(mode, sessions, engine))
+  const panel = Object.freeze(describePanel(mode, sessions, engine, chatbox))
 
   return Object.freeze({
     mode,
@@ -349,8 +372,11 @@ export function describeHome(input) {
     facts: Object.freeze(facts.map(Object.freeze)),
     panel,
     /* An input a person can type into but that accepts nothing is worse than no
-       input at all, so the composer exists only where it does something. */
-    composer: mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET,
+       input at all, so the composer exists only where it does something. A
+       conversation the person has switched OFF for this box is one of the
+       places it does nothing: the reply would be accepted, recorded, and never
+       appear. */
+    composer: (mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET) && panel.context,
     /* Every sentence this screen will print, flattened. The test walks this. */
     statements: Object.freeze([headline, ...facts.map(fact => fact.text), ...panelStatements(panel)].filter(Boolean)),
   })
@@ -380,49 +406,80 @@ function fleetHeadline(health) {
    The panel between the braces.
    --------------------------------------------------------------- */
 
-function describePanel(mode, sessions, engine) {
-  if (mode === HOME_MODES.SAMPLE) {
-    return { kind: 'sample', title: 'Example conversation', badge: 'Example, not your data', empty: null, footer: null }
+/* TWO HALVES, NOT ONE OF THREE KINDS.
+ *
+ * This function used to answer "which single thing is in the box" from the
+ * state of the machine alone: a demonstration, a conversation, or a list of
+ * runs, never two at once. The owner asked for the two to be independently
+ * controlled -- which agents' context appears, and whether runs appear too, not
+ * at all, or on their own -- so the box now has a context half and a runs half
+ * and this decides each one separately.
+ *
+ * WHAT THE MACHINE STILL DECIDES, and what it no longer decides. The machine
+ * decides what is AVAILABLE: only the demonstration and a reachable coordinator
+ * have a conversation to show, and only a computer has a record of runs (the
+ * demonstration is a labelled example, and mixing this computer's real run
+ * record into a box badged as an example would make half of it true). The
+ * settings decide, out of what is available, what a person actually sees.
+ */
+function describePanel(mode, sessions, engine, chatbox) {
+  const contextAvailable = mode === HOME_MODES.SAMPLE || mode === HOME_MODES.FLEET
+  const runsAvailable = mode !== HOME_MODES.SAMPLE
+  const plan = planChatbox({
+    contextAvailable,
+    runsAvailable,
+    runsMode: chatbox?.runsMode ?? DEFAULT_RUNS_MODE,
+    selection: chatbox?.selection ?? null,
+    agentsInSource: chatbox?.agentsInSource ?? [],
+  })
+
+  const panel = {
+    /* Which conversation the renderer should load, or none. NOT "what is in the
+       box": `runs` is its own flag now, because both can be true. */
+    kind: plan.showContext ? (mode === HOME_MODES.SAMPLE ? 'sample' : 'conversation') : 'none',
+    context: plan.showContext,
+    runs: plan.showRuns,
+    title: panelTitle(mode, plan),
+    /* A demonstration is badged whatever it is showing, and real data never is.
+       The badge follows the MODE and not the contents, so no combination of
+       these two settings can produce an example that is not labelled. */
+    badge: mode === HOME_MODES.SAMPLE ? 'Example, not your data' : null,
+    empty: null,
+    contextEmpty: null,
+    footer: null,
+    hiddenAgents: plan.hiddenAgents,
   }
-  if (mode === HOME_MODES.FLEET) {
-    return { kind: 'conversation', title: 'Your coordinator', badge: null, empty: null, footer: null }
+
+  /* Nothing at all was chosen. Said plainly, with the way back to the choice,
+     rather than quietly putting one of the halves back. */
+  if (!plan.showContext && !plan.showRuns) {
+    panel.empty = { ...COPY.chatboxNothingChosen, action: { ...COPY.chatboxNothingChosen.action } }
+    return panel
   }
-  if (mode === HOME_MODES.NO_HOST) {
-    return {
-      kind: 'runs',
-      title: 'Activity on this computer',
-      badge: null,
-      empty: {
+
+  if (plan.showContext && plan.filteredToNothing) {
+    panel.contextEmpty = { ...COPY.chatboxNoAgentsChosen, action: { ...COPY.chatboxNoAgentsChosen.action } }
+  }
+
+  if (plan.showRuns) {
+    if (mode === HOME_MODES.NO_HOST) {
+      panel.empty = {
         title: 'Nothing to show in a browser',
-        body: 'Mission Control shows the agents that have run on a computer. Open the installed app to see them.',
-      },
-      footer: null,
-    }
-  }
-  /* FLEET_UNREACHABLE, LOCAL and LOCAL_IDLE all show the same thing: what has
-     run on THIS computer. A fleet that is not answering does not stop the
-     machine in front of the person from having a history. */
-  if (!sessions.readable) {
-    return {
-      kind: 'runs',
-      title: 'Activity on this computer',
-      badge: null,
-      empty: {
+        body: 'ToolsEnabled shows the agents that have run on a computer. Open the installed app to see them.',
+      }
+    } else if (!sessions.readable) {
+      /* FLEET_UNREACHABLE, LOCAL and LOCAL_IDLE all show the same thing: what
+         has run on THIS computer. A fleet that is not answering does not stop
+         the machine in front of the person from having a history. */
+      panel.empty = {
         title: 'The record could not be read',
-        body: 'Mission Control keeps a record of every agent it starts here, and this copy could not open it. Nothing has been lost; new runs are still recorded.',
-      },
-      footer: null,
-    }
-  }
-  if (sessions.runs.length === 0) {
-    return {
-      kind: 'runs',
-      title: 'Activity on this computer',
-      badge: null,
-      empty: {
+        body: 'ToolsEnabled keeps a record of every agent it starts here, and this copy could not open it. Nothing has been lost; new runs are still recorded.',
+      }
+    } else if (sessions.runs.length === 0) {
+      panel.empty = {
         title: 'No agents have run here yet',
         body: engine.ready
-          ? 'When you start an agent, every run shows up here. Mission Control writes each one down on this computer before it starts.'
+          ? 'When you start an agent, every run shows up here. ToolsEnabled writes each one down on this computer before it starts.'
           : 'When this copy can run agents, every run will show up here.',
         /* The one next step, and only when it is genuinely the next step.
            Running an agent from this window is a control a person switches on
@@ -434,17 +491,29 @@ function describePanel(mode, sessions, engine) {
         action: engine.ready && !engine.sessionsEnabled
           ? { label: 'Turn on agent sessions in Settings', href: '#/settings' }
           : null,
-      },
-      footer: null,
+      }
+    } else {
+      panel.footer = recordFooter(sessions)
     }
   }
-  return {
-    kind: 'runs',
-    title: 'Activity on this computer',
-    badge: null,
-    empty: null,
-    footer: recordFooter(sessions),
+
+  /* An empty runs half is not an empty BOX when a conversation is beside it,
+     and the renderer needs to know which of the two it is. */
+  if (panel.empty && plan.showContext && !plan.filteredToNothing) {
+    panel.runsEmptyBesideContext = true
   }
+
+  if (plan.hiddenAgents > 0) {
+    const held = COPY.chatboxAgentsHeld(plan.hiddenAgents)
+    panel.footer = panel.footer ? `${panel.footer} ${held}` : held
+  }
+  return panel
+}
+
+function panelTitle(mode, plan) {
+  if (plan.showContext && plan.showRuns) return 'Your coordinator, and what has run here'
+  if (plan.showContext) return mode === HOME_MODES.SAMPLE ? 'Example conversation' : 'Your coordinator'
+  return 'Activity on this computer'
 }
 
 /* What the record is worth, said exactly and not one word further. It is signed
@@ -461,9 +530,10 @@ function recordFooter(sessions) {
 function panelStatements(panel) {
   const out = [panel.title]
   if (panel.badge) out.push(panel.badge)
-  if (panel.empty) {
-    out.push(panel.empty.title, panel.empty.body)
-    if (panel.empty.action) out.push(panel.empty.action.label)
+  for (const notice of [panel.empty, panel.contextEmpty]) {
+    if (!notice) continue
+    out.push(notice.title, notice.body)
+    if (notice.action) out.push(notice.action.label)
   }
   if (panel.footer) out.push(panel.footer)
   return out

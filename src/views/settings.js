@@ -20,11 +20,22 @@ import {
   SETUP_PROFILE_SETTING_COUNT,
   createSetupProfileSettings,
 } from '../setup-profile-settings.js'
+/* The first section on this page, and first because the box it governs is the
+   first thing in the product: which agents' context appears in the chat box on
+   the home screen, and whether agent runs appear there too, not at all, or on
+   their own. */
+import {
+  CHATBOX_SECTION,
+  CHATBOX_SETTING_COUNT,
+  createChatboxSettings,
+} from '../chatbox-settings.js'
 import '../settings.css'
+import '../chatbox-settings.css'
 import '../fleet-profile-settings.css'
 import '../setup.css'
 
 const SECTIONS = [
+  CHATBOX_SECTION,
   'System',
   'Setup',
   'Appearance',
@@ -349,6 +360,7 @@ function setTierFocusable(tier, open) {
 export function settingsView() {
   const profileController = createFleetProfileSettings()
   const setupController = createSetupProfileSettings()
+  const chatboxController = createChatboxSettings()
   const root = el(`<main class="view-pad settings-page">
     <div class="settings-shell">
       <header class="settings-header m-head">
@@ -412,10 +424,11 @@ export function settingsView() {
     syncArchiveControl()
     profileController.afterRender(root)
     setupController.afterRender(root)
+    chatboxController.afterRender(root)
   }
 
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT} settings · ${shown} shown · search reaches all depths`
+    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT} settings · ${shown} shown · search reaches all depths`
   }
 
   function syncRail() {
@@ -428,6 +441,7 @@ export function settingsView() {
   }
 
   function sectionNodeMarkup(section) {
+    if (section === CHATBOX_SECTION) return chatboxController.markup()
     if (section === 'System') return profileController.markup()
     if (section === 'Setup') return setupController.markup()
     return sectionMarkup(section, levels.get(section))
@@ -435,7 +449,7 @@ export function settingsView() {
 
   function renderSectioned() {
     sectionsNode.innerHTML = SECTIONS.map(sectionNodeMarkup).join('')
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT
+    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT
       + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     // `inert` is the primary guard; the explicit tabindex pass keeps closed
     // tiers unreachable in older engines while preserving the CSS reveal.
@@ -450,16 +464,19 @@ export function settingsView() {
     const matches = SETTINGS.filter(setting => `${setting.name} ${setting.desc} ${setting.section}`.toLowerCase().includes(normalized))
     const profileMatches = profileController.matches(normalized)
     const setupMatches = setupController.matches(normalized)
+    const chatboxMatches = chatboxController.matches(normalized)
     sectionsNode.innerHTML = `<section class="settings-results">
       <h2 class="settings-section-title">Results</h2>
+      ${chatboxMatches ? chatboxController.markup({ searchResult: true }) : ''}
       ${profileMatches ? profileController.markup({ searchResult: true }) : ''}
       ${setupMatches ? setupController.markup({ searchResult: true }) : ''}
       ${matches.map(setting => rowMarkup(setting, true)).join('')}
-      ${profileMatches || setupMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
+      ${profileMatches || setupMatches || chatboxMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
     </section>`
     shown = matches.length
       + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
       + (setupMatches ? SETUP_PROFILE_SETTING_COUNT : 0)
+      + (chatboxMatches ? CHATBOX_SETTING_COUNT : 0)
     wireControls()
     updateFooter()
   }
@@ -547,7 +564,8 @@ export function settingsView() {
       button.setAttribute('aria-expanded', open ? 'true' : 'false')
       button.innerHTML = revealInner(prefix, count, open)
     }
-    shown = FLEET_PROFILE_SETTING_COUNT + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT
+      + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     updateFooter()
   }
 
@@ -658,6 +676,14 @@ export function settingsView() {
   for (const [node, type, listener] of drawerBindings) node.addEventListener(type, listener)
 
   profileController.bind(root)
+  /* MEASURED, NOT ASSUMED: neither of these two was bound. `createSetupProfileSettings`
+     builds its own click handler and only `bind` attaches it, so every control
+     in Settings -> Setup -- the permission level, the working folder, the four
+     recorded intents -- rendered, looked live, and did nothing when clicked.
+     The seg indicator moved because attachSeg() runs over every `.settings-seg`
+     on the page, which is exactly what made it look like it had worked. */
+  setupController.bind(root)
+  chatboxController.bind(root)
   renderSectioned()
 
   return {
@@ -666,6 +692,8 @@ export function settingsView() {
       cleanupControls()
       archiveController.destroy()
       profileController.destroy()
+      setupController.destroy()
+      chatboxController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       for (const [node, type, listener] of drawerBindings) node.removeEventListener(type, listener)
     },
