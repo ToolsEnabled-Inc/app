@@ -1971,6 +1971,16 @@ ipcMain.handle('mc-account:google-sign-in', event =>
     }
     const attempt = createGoogleSignIn({
       clientId: config.clientId,
+      /* REQUIRED BY GOOGLE FOR A DESKTOP CLIENT, and measured rather than
+         assumed: a PKCE-S256 exchange sent without this gets HTTP 400
+         invalid_request "client_secret is missing." Google's secret-free
+         exemption covers Android, iOS and Chrome clients only, and PKCE does
+         not substitute for it. Omitting this line ships a build that reaches
+         Google, signs the customer in, and then fails on the very last step,
+         every single time. It goes in the token POST body only -- never the
+         URL, never a log, never a refusal message -- and PKCE is unchanged and
+         still always sent, which is what actually protects the exchange. */
+      clientSecret: config.clientSecret,
       /* THE SYSTEM BROWSER, NOT A WINDOW THIS PROGRAM CAN SEE INTO. The URL is
          built in shell/google-signin.cjs from constants and freshly generated
          random values; nothing from the renderer reaches it. */

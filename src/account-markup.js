@@ -628,6 +628,15 @@ export function setupAccountStepMarkup({
           <input class="fleet-profile-input" type="text" data-setup-account-field="username" autocomplete="username" spellcheck="false" autocapitalize="off" aria-labelledby="setup-account-name" ${busy ? 'disabled' : ''}/>
         </div>
       </article>
+      ${creating ? `<article class="settings-row fleet-profile-block setup-question">
+        <div class="settings-copy">
+          <div class="settings-name" id="setup-account-shown-as">Shown as</div>
+          <div class="settings-desc">Optional. This is what the program calls you and what goes on the record of what your assistant does. Leave it blank and it uses the name above until you say otherwise. You can change it whenever you like afterwards, in Settings under &ldquo;Your account&rdquo; &mdash; nothing you choose here is permanent.</div>
+        </div>
+        <div class="fleet-profile-fields">
+          <input class="fleet-profile-input" type="text" data-setup-account-field="displayName" autocomplete="nickname" aria-labelledby="setup-account-shown-as" ${busy ? 'disabled' : ''}/>
+        </div>
+      </article>` : ''}
       <article class="settings-row fleet-profile-block setup-question">
         <div class="settings-copy">
           <div class="settings-name" id="setup-account-password">Password</div>

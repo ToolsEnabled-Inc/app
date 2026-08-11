@@ -9,12 +9,19 @@
  *
  * WHAT IT SIGNS IN AGAINST, AND WHY THAT IS SAID EVERYWHERE.
  *
- * There is no Google OAuth client id for this product yet -- creating it is the
- * owner's step, in the Google Cloud Console, and it is written up in
- * docs/GOOGLE-SIGN-IN-SETUP.md. Until he does that, a real round trip to Google
- * is impossible for anyone, including this harness. So this runs against a LOCAL
+ * There is no Google OAuth client registered to this PRODUCT yet -- creating it
+ * is written up in docs/GOOGLE-SIGN-IN-SETUP.md. So this runs against a LOCAL
  * identity provider started by this file: its own RSA key pair, its own JWKS,
  * its own authorization and token endpoints, all on 127.0.0.1.
+ *
+ * THIS FILE USED TO SAY a real round trip was "impossible for anyone, including
+ * this harness", until the owner's client existed. That was false, and it cost a
+ * lane the finding underneath it: the machine already held a Desktop-app client,
+ * and tools/google-signin-live-qa.mjs completed a genuine Google sign-in in the
+ * packaged build with it on 2026-08-11. Keep the two files apart -- this one
+ * proves the refusals and the shape of the flow cheaply and offline, that one
+ * proves Google accepts it -- but do not let this file claim the other cannot
+ * exist.
  *
  * That substitution is DECLARED, not hidden. The product refuses to use a
  * non-Google endpoint unless the configuration says `iUnderstandThisIsNotGoogle`

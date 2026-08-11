@@ -563,6 +563,49 @@ const REGISTERED_CLAIMS = Object.freeze([
     },
   },
   {
+    /* THE PROMISE THE FIRST-RUN WALKTHROUGH MAKES, added when the "Shown as"
+       field landed there. It is the strongest promise on that screen and it is
+       made at the worst moment to break one: a person is ninety seconds into
+       the product, deciding whether to type a name at all. The walkthrough used
+       to pass a hardcoded empty display name, so the USERNAME became the
+       permanent label on every record of their work -- the exact defect this
+       sentence now promises does not exist. If the rename path ever goes, this
+       sentence becomes a lie told to first-time users, so it is pinned to the
+       thing that makes it true rather than to its own wording. */
+    claim: 'nothing you choose here is permanent',
+    stillTrueBecause: 'the walkthrough now passes the typed name (src/views/setup.js hands `displayName` to account.create instead of the empty string it used to hardcode), and changeDisplayName in shell/product-account.cjs is what lets it be changed afterwards -- which is the same mechanism the rename promise above is pinned to.',
+    pin() {
+      /* READ FROM DISK, NOT FROM ACCOUNT_SOURCES. discoverAccountSources only
+         collects files whose NAME matches /account/, so src/views/setup.js is
+         not in it -- and the first version of this pin did
+         `ACCOUNT_SOURCES['src/views/setup.js'] || ''`, which made the
+         hardcoded-empty-name check pass vacuously against an empty string. That
+         is the absence-read-as-consent defect this suite exists to catch,
+         committed inside a guard written to catch it. Read the file, and fail
+         loudly if it is not there. */
+      const setupPath = path.join(REPO_ROOT, 'src', 'views', 'setup.js')
+      let setupRaw
+      try {
+        setupRaw = readFileSync(setupPath, 'utf8')
+      } catch (error) {
+        assert.fail(`src/views/setup.js could not be read (${error.code}), so this promise cannot be checked -- absent is not proof`)
+      }
+      assert.ok(setupRaw.length > 200,
+        `src/views/setup.js read as ${setupRaw.length} characters, which is not the walkthrough`)
+      const setup = stripComments(setupRaw)
+      assert.ok(!/displayName:\s*''/.test(setup),
+        'the walkthrough hardcodes an empty display name again, so the username becomes the permanent label and this promise is false')
+      assert.ok(/account\.create\(\{[^)]*displayName[^)]*\)/.test(setup),
+        'the walkthrough no longer passes a display name to create, so what the person typed is discarded')
+      const markup = ACCOUNT_SOURCES['src/account-markup.js'] || ''
+      assert.ok(markup.includes('data-setup-account-field="displayName"'),
+        'the "Shown as" field is gone from the walkthrough, so the sentence promises about a field that no longer exists')
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      assert.ok(store.includes('function changeDisplayName'),
+        'the rename path is gone, so "nothing you choose here is permanent" is no longer true')
+    },
+  },
+  {
     /* THE PROMISE THE RENAME SCREEN MAKES, and the one a person actually acts
        on: they will only press Save if renaming themselves is safe for what
        they already did. */

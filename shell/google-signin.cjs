@@ -27,11 +27,19 @@
  * browser, which has the person's existing session, their password manager, and
  * their second factor, and which this process cannot see into.
  *
- * A SHIPPED DESKTOP BINARY CANNOT HOLD A SECRET, so there is no client secret
- * anywhere in this file or in the artifact. Anything shipped inside an
- * application a customer can download is public, whatever it is called. Google's
- * "Desktop app" client type is designed for this and issues no usable secret;
- * the proof of possession is PKCE instead:
+ * A SHIPPED DESKTOP BINARY CANNOT HOLD A SECRET. That is still true, and it is
+ * why PKCE below is what actually protects this flow. What is NOT true -- an
+ * earlier version of this file asserted it, and Google's servers refute it -- is
+ * that a Desktop-app client "issues no usable secret" and can therefore be left
+ * out of the exchange. Google answers a secret-free exchange for a Desktop-app
+ * client with `HTTP 400 invalid_request: client_secret is missing.`, measured
+ * against this product's own client on 2026-08-11, with a correct S256 verifier
+ * present. Google's client_secret exemption covers Android, iOS and Chrome
+ * clients only. So the secret is SENT when the configuration carries one, and
+ * Google's own guidance for installed apps is the reason that is not a leak:
+ * "the client secret is obviously not treated as a secret" -- it is a second
+ * public name for the application, not a capability. It authenticates nothing on
+ * its own; PKCE is what proves possession:
  *
  *   - a random `code_verifier` is generated here, per sign-in, and never leaves
  *     this process;
@@ -139,6 +147,11 @@ function completionPage(title, message) {
  */
 function createGoogleSignIn({
   clientId,
+  /* Optional, and only ever reaches Google's token endpoint in a POST body over
+     TLS -- never the authorization URL, never a log line, never a return value.
+     Absent is a supported state: a client type that needs none (Android, iOS,
+     Chrome) and the local test provider both run without one. */
+  clientSecret = '',
   openExternal,
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
@@ -432,10 +445,16 @@ function createGoogleSignIn({
       redirect_uri: redirectUri,
       client_id: clientId,
       code_verifier: codeVerifier,
-      /* NO client_secret. There is none to send: a Desktop-app client is a
-         public client, and anything shipped in the artifact is public too. PKCE
-         above is what replaces it. */
     })
+    /* THE SECRET GOES HERE AND NOWHERE ELSE. Only into this POST body, only when
+       the configuration carried one, and only after PKCE has already been
+       committed to above -- the two are not alternatives and this never sends
+       the secret in place of the verifier. A Desktop-app client that omits it
+       gets `invalid_request: client_secret is missing.` from Google and nobody
+       signs in; that is the failure this line exists to remove. */
+    if (typeof clientSecret === 'string' && clientSecret.length > 0) {
+      body.set('client_secret', clientSecret)
+    }
     let response
     try {
       response = await fetchImpl(tokenEndpoint, {

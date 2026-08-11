@@ -1,17 +1,52 @@
-# Sign in with Google — the one step only you can do
+# Sign in with Google — registering the client this product signs in with
 
-Everything else is built and tested. What is missing is a Google OAuth **client
-id** for this product, and creating one means clicking through the Google Cloud
-Console signed in as you. Nobody else can do that step, so this is it, written
-out so it takes about ten minutes and no decisions.
+> **This is already done — you do not have to do it.** On 2026-08-11 the client
+> below was registered and the packaged build completed a real Google sign-in
+> with it, end to end, session surviving a restart
+> (`node tools/google-signin-live-qa.mjs`, 21/21).
+>
+> - project **ToolsEnabled** (`toolsenabled`), no billing
+> - OAuth client **ToolsEnabled desktop sign-in**, type **Desktop app**
+> - id `840383906222-t0jlnp7lmr4377l0ego13oct9murtl5s.apps.googleusercontent.com`
+> - secret in the vault as `product_google_signin_client_secret`
+>
+> It was created under `jpinckard95@gmail.com`. The rest of this document is the
+> procedure that was followed — keep it for making another client, moving it to a
+> different Google account, or understanding why each choice is what it is.
 
-When you finish you will have one string that looks like this:
+The flow is built and **tested against Google's own servers**, not against a
+stand-in. What this document describes is registering a Google OAuth client
+**to this product**, which means clicking through the Google Cloud Console. It
+takes about ten minutes and no decisions.
+
+When you finish you will have **two** strings — a client id, which looks like
 
     123456789012-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6.apps.googleusercontent.com
 
-That string is **public**. It travels in the address bar of every sign-in, it
-ships inside the installer, and Google's own documentation says so. You are not
-handling a secret at any point in this document.
+and a client secret, which looks like `GOCSPX-…`.
+
+**An earlier version of this document said to copy the id and ignore the
+secret. That was wrong, and it was measured wrong.** Google refuses a Desktop-app
+token exchange that arrives without the secret:
+
+    HTTP 400  {"error":"invalid_request","error_description":"client_secret is missing."}
+
+with a correct PKCE S256 verifier present. A build configured with the id alone
+opens the browser, signs the person in at Google, and then fails on the last
+step — every time, for everybody. Both strings are needed.
+
+**Neither string is a password, and the second one is not really a secret.**
+Google's own words for installed applications: *"the client secret is obviously
+not treated as a secret."* It is a second public name for the application. It
+grants nothing on its own — PKCE, generated fresh per sign-in and never leaving
+the customer's computer, is what proves an exchange is genuine. This is what
+every desktop program that signs in with Google does, `gcloud` included.
+
+**What that does mean:** the client you make here must be **for this product and
+for sign-in only**. Never reuse the `google_client_id` in the vault — that one
+holds Drive, Gmail and Calendar grants for the owner's own accounts, and
+publishing its identifiers inside an installer would hand every customer the
+application identity those grants were issued to.
 
 ---
 
@@ -35,11 +70,12 @@ token, no refresh token.** The product never calls a Google API on anybody's
 behalf, so there is nothing for a stored token to do except be stolen. Once
 Google has said who somebody is, the product mints its own local session.
 
-**A shipped program cannot keep a secret.** Anything inside a download is
-readable by whoever downloads it. That is why this uses PKCE and a "Desktop app"
-client, which Google designed for exactly this case. If a `clientSecret` ever
-appears in the configuration file, the product **refuses to start the sign-in**
-and says so rather than shipping it.
+**A shipped program cannot keep a secret**, which is why PKCE — not the client
+secret — is what actually protects this flow. A fresh random verifier is made
+for every sign-in, never leaves the customer's computer, and only its SHA-256
+goes to Google in the browser URL. An authorization code stolen on the way back
+is useless without it. The client secret rides along because Google's Desktop-app
+clients require it, and it is public in every desktop application that has one.
 
 ---
 
@@ -96,28 +132,30 @@ app**. With only these three non-sensitive scopes, publishing does **not**
 require Google's verification review — the app moves to "In production" and the
 7-day expiry goes away. That is the whole reason the scope list is what it is.
 
-## Step 3 — create the client id
+## Step 3 — create the client
 
 Menu → **APIs & Services** → **Credentials**.
 
 1. **Create credentials** → **OAuth client ID**.
 2. **Application type: Desktop app.**
-   - Not "Web application". A Desktop app client is a *public* client: it is
-     issued no usable secret, and Google accepts the loopback redirect
-     (`http://127.0.0.1:<port>/…`) that this product listens on. A Web
-     application client would demand a fixed redirect URI and a secret, and this
-     product has neither.
+   - Not "Web application". This is the choice that makes the whole flow
+     possible, and it has been **verified against Google directly**: with a
+     Desktop-app client, Google accepts an arbitrary loopback redirect
+     (`http://127.0.0.1:<any port>/…`) and sends the browser straight on to
+     sign-in. The same request with an off-machine redirect is refused
+     `redirect_uri_mismatch`, which is what a Web application client would do to
+     every loopback port too. A Web application client demands a fixed,
+     pre-registered redirect URI, and a desktop program cannot have one.
    - You do **not** enter a redirect URI. Google allows any loopback port for
      this client type, which is what lets each sign-in take a fresh one.
 3. **Name:** `ToolsEnabled desktop` (internal only).
 4. Press **Create**.
-5. A dialog shows the **Client ID** and a **Client secret**. **Copy the Client
-   ID only.** Ignore the secret entirely — do not put it in the configuration
-   file, do not paste it into a chat, and do not store it anywhere in this
-   repository. For a Desktop app client it proves nothing, and the product
-   refuses a configuration that contains one.
+5. A dialog shows the **Client ID** and a **Client secret**. **Copy both.** The
+   secret is required — see the top of this document for why, and for why it is
+   not the kind of secret that needs protecting. It still does not belong in a
+   chat message or a screenshot.
 
-## Step 4 — give the client id to the product
+## Step 4 — give the client to the product
 
 Two ways. Either is fine.
 
@@ -125,16 +163,18 @@ Two ways. Either is fine.
 
     %APPDATA%\ToolsEnabled\google-signin.json
 
-with exactly this in it, your client id substituted:
+with exactly this in it, your two strings substituted:
 
 ```json
 {
-  "clientId": "PASTE-YOUR-CLIENT-ID-HERE.apps.googleusercontent.com"
+  "clientId": "PASTE-YOUR-CLIENT-ID-HERE.apps.googleusercontent.com",
+  "clientSecret": "PASTE-YOUR-CLIENT-SECRET-HERE"
 }
 ```
 
 Restart ToolsEnabled. The sign-in screen changes from "Sign in with Google — not
-available on this copy" to a working button.
+available on this copy" to a working button. This is the exact path the live
+test exercises, so it is known to work end to end.
 
 **B. Every copy you ship — goes in the installer.** Create the same file at
 `config/google-signin.json` in the app tree
@@ -158,8 +198,9 @@ signed out either way:
 | What the screen says | What it means | What to do |
 | --- | --- | --- |
 | *not available on this copy … has not been given a Google sign-in application id* | Step 4 has not been done, or the file is not where the product looks | check the path and the spelling of `clientId` |
-| *is not in the form Google issues* | the string does not end in `.apps.googleusercontent.com` | you copied the secret or a partial value |
-| *contains a "clientSecret"* | a secret is in the file | delete that line; it is refused deliberately |
+| *is not in the form Google issues* | the string does not end in `.apps.googleusercontent.com` | you pasted the secret into `clientId`, or only part of the id |
+| *Google did not complete the sign-in (invalid_request)* | the client secret is missing from the file, and Google's Desktop-app clients require it | add `clientSecret` to the same file the `clientId` is in — it must be the secret for **that** client |
+| *Google did not complete the sign-in (invalid_client)* | the id and the secret are not from the same client | copy both again from the same client's dialog |
 | *could not reach Google* | no network | use an account on this computer instead |
 | *Google did not complete the sign-in (access_denied)* | you pressed Cancel, or your address is not a listed test user | add yourself under Test users, or publish the app |
 | *did not carry a valid Google signature* | the reply was not really Google's | do not retry blindly; something is intercepting the connection |
@@ -190,11 +231,27 @@ signed out either way:
 | the screen | `src/account-markup.js`, `src/views/account.js` |
 | refusals, forgeries and replays | `tools/test/google-signin.test.mjs` |
 | the account rules | `tools/test/google-account.test.mjs` |
-| the packaged product, driven end to end | `tools/google-signin-packaged-qa.mjs` |
+| the packaged product, driven against a **local** provider | `tools/google-signin-packaged-qa.mjs` |
+| the packaged product, driven against **Google itself** | `tools/google-signin-live-qa.mjs` |
 
-**The engine's `src/lib/google-oauth.js` is a different thing and must not be
-reused here.** That is the capability layer: a confidential-client refresh-token
-flow that lets the owner's own agents call Google APIs as him, with
+**The engine's `src/lib/google-oauth.js` is a different thing, and its client
+must not be shipped here.** That is the capability layer: a refresh-token flow
+that lets the owner's own agents call Google APIs as him, with
 `google_client_id` / `google_client_secret` / `google_refresh_token__<alias>` in
-the vault. It assumes a client secret exists and is safe to hold, which is true
-on his machine and false in a shipped binary.
+the vault, holding Drive, Gmail and Calendar grants.
+
+The distinction is **not** that one holds a secret and the other cannot — both
+send one, because Google requires it. The distinction is *whose grants hang off
+the client*. Publishing the vault client's identifiers inside an installer would
+put the application identity that holds the owner's Drive and Gmail access into
+every customer's hands. Register a separate Desktop-app client for sign-in, with
+the three identity scopes and nothing else.
+
+**What has been proven, and when.** On 2026-08-11 the vault's Desktop-app client
+was used to drive the packaged build through a complete, genuine Google sign-in:
+Google's authorization server, Google's token endpoint, Google's JWKS, a real
+account, a real verified email on screen, and a session that survived a restart —
+21 checks, no simulation but the hand that clicked. That run establishes that the
+flow, the code and this document's procedure are correct. It does **not**
+establish that the shipping client exists: it borrowed the vault's client, which
+is exactly the one the paragraph above says never to ship.

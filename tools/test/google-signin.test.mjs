@@ -299,23 +299,45 @@ test('addresses are normalized the same way the account store normalizes them', 
 
 /* ------------------------------ configuration ------------------------------ */
 
-test('the shipped client id is checked for shape, and a client SECRET is refused outright', async () => {
+test('the shipped client id is checked for shape, and a Desktop client SECRET is carried, never echoed', async () => {
   assert.ok(CLIENT_ID_PATTERN.test(CLIENT_ID))
   for (const bad of ['', 'not-an-id', 'abc.apps.googleusercontent.com', `${CLIENT_ID}.evil.test`]) {
     assert.equal(CLIENT_ID_PATTERN.test(bad), false, `${bad} passed as a client id`)
   }
-  /* A shipped desktop binary cannot keep a secret, so a configuration carrying
-     one is either wrong or about to be published inside an installer. It is
-     NAMED, not ignored -- and the value is never read. */
+  /* THIS TEST USED TO ASSERT THE OPPOSITE, and it was asserting a false premise.
+     Google refuses a Desktop-app code exchange that carries no client_secret --
+     `HTTP 400 invalid_request: client_secret is missing.`, measured against the
+     real client on 2026-08-11 with a correct S256 verifier present. A config
+     that refuses the secret cannot complete one real sign-in. Google's own
+     position for installed apps is that this value "is obviously not treated as
+     a secret". So it is READ -- and must never be echoed anywhere. */
   const { writeFileSync, mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const path = await import('node:path')
   const dir = mkdtempSync(path.join(tmpdir(), 'gsc-'))
   const file = path.join(dir, 'google-signin.json')
-  writeFileSync(file, JSON.stringify({ clientId: CLIENT_ID, clientSecret: 'GOCSPX-would-be-published' }))
+  const SECRET = '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e'
+
+  writeFileSync(file, JSON.stringify({ clientId: CLIENT_ID, clientSecret: SECRET }))
+  const read = readConfigFile(file)
+  assert.equal(read.ok, true, 'a Desktop-app client secret was refused')
+  assert.equal(read.clientId, CLIENT_ID)
+  assert.equal(read.clientSecret, SECRET, 'the client secret did not survive the read')
+
+  /* Google's own downloaded client_secret.json spells it `client_secret`. */
+  writeFileSync(file, JSON.stringify({ clientId: CLIENT_ID, client_secret: SECRET }))
+  assert.equal(readConfigFile(file).clientSecret, SECRET, 'Google\'s own spelling was not read')
+
+  /* Absent stays absent -- the client types that need none must not acquire one. */
+  writeFileSync(file, JSON.stringify({ clientId: CLIENT_ID }))
+  assert.equal(readConfigFile(file).clientSecret, '', 'a secret appeared where none was configured')
+
+  /* A malformed one is REFUSED WITHOUT QUOTING ITSELF. A secret pasted with a
+     newline in it fails at Google with an error nobody can read backwards. */
+  writeFileSync(file, JSON.stringify({ clientId: CLIENT_ID, clientSecret: `${SECRET}\n GOCSPX-second` }))
   const refused = readConfigFile(file)
   assert.equal(refused.ok, false)
-  assert.equal(refused.code, 'GOOGLE_SIGNIN_CLIENT_SECRET_REFUSED')
+  assert.equal(refused.code, 'GOOGLE_SIGNIN_CLIENT_SECRET_INVALID')
   assert.ok(!/GOCSPX/.test(JSON.stringify(refused)), 'the refusal echoed the secret it refused')
 })
 
@@ -384,6 +406,47 @@ test('the scopes are identity only, and the endpoints are Google', () => {
   assert.equal(AUTHORIZATION_ENDPOINT, 'https://accounts.google.com/o/oauth2/v2/auth')
   assert.equal(TOKEN_ENDPOINT, 'https://oauth2.googleapis.com/token')
   assert.equal(LOOPBACK_HOST, '127.0.0.1')
+})
+
+test('a configured client secret reaches the TOKEN endpoint only, and never the browser', async () => {
+  /* WHY THIS IS HERE. Google refuses a Desktop-app exchange without it --
+     `invalid_request: client_secret is missing.` -- so it has to be sent. The
+     thing that must never happen is it being sent anywhere ELSE: the
+     authorization URL goes to the person's browser, into their history, and
+     across whatever proxy they are behind. */
+  const SECRET = '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y'
+  let opened = null
+  let exchangeBody = null
+  const attempt = createGoogleSignIn({
+    clientId: CLIENT_ID,
+    clientSecret: SECRET,
+    openExternal: async url => { opened = url },
+    fetchImpl: async (target, init) => {
+      if (target === TOKEN_ENDPOINT) { exchangeBody = new URLSearchParams(init.body) }
+      return { ok: false, text: async () => JSON.stringify({ error: 'invalid_grant' }) }
+    },
+    timeoutMs: 4000,
+  })
+
+  const running = attempt.run()
+  while (!opened) await new Promise(resolve => setTimeout(resolve, 5))
+  const url = new URL(opened)
+  assert.ok(!opened.includes(SECRET), 'the client secret reached the browser')
+  assert.ok(!/client_secret/i.test(opened), 'a client secret parameter reached the authorization URL')
+
+  const redirect = new URL(url.searchParams.get('redirect_uri'))
+  await new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:${redirect.port}${REDIRECT_PATH}?code=abc&state=${encodeURIComponent(url.searchParams.get('state'))}`,
+      response => { response.resume(); response.on('end', resolve) }).on('error', reject)
+  })
+  const outcome = await running
+
+  assert.equal(exchangeBody?.get('client_secret'), SECRET, 'the exchange did not carry the configured client secret')
+  /* PKCE IS NOT REPLACED BY IT. The two travel together or the flow is weaker
+     than it was before this line existed. */
+  assert.ok((exchangeBody?.get('code_verifier') || '').length >= 43, 'the exchange dropped PKCE once a secret was configured')
+  assert.equal(outcome.ok, false)
+  assert.ok(!JSON.stringify(outcome).includes(SECRET), 'a refusal echoed the client secret')
 })
 
 test('the authorization request carries PKCE, a state, a nonce, and NO client secret', async () => {
@@ -593,10 +656,11 @@ test('the whole flow, end to end, against a signed token — the accepting case'
     fetchImpl: async (target, init) => {
       if (target === TOKEN_ENDPOINT) {
         const body = new URLSearchParams(init.body)
-        /* PKCE, checked from the provider's side: the verifier must arrive, and
-           there must be no client secret. */
+        /* PKCE, checked from the provider's side: the verifier must arrive. No
+           client secret was configured for this attempt, so none may be
+           invented -- absence stays absence. */
         assert.ok((body.get('code_verifier') || '').length >= 43, 'the exchange carried no PKCE verifier')
-        assert.equal(body.get('client_secret'), null, 'the exchange carried a client secret')
+        assert.equal(body.get('client_secret'), null, 'the exchange carried a client secret nobody configured')
         assert.equal(body.get('grant_type'), 'authorization_code')
         return {
           ok: true,

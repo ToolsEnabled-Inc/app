@@ -8,12 +8,39 @@
  * every proxy sees it. Shipping it inside the artifact is correct and is what
  * Google's Desktop-app client type expects.
  *
- * A CLIENT SECRET IS NOT, AND THIS FILE REFUSES ONE. There is no way to keep a
- * secret inside a program a customer downloads -- "obfuscated" is not "secret" --
- * so a configuration that carries one is either a confidential-client
- * configuration used in the wrong place or a real secret about to be published
- * in an installer. Both are refused loudly rather than ignored, because ignoring
- * it is how the secret ends up shipped anyway.
+ * THE CLIENT SECRET. THIS FILE USED TO REFUSE ONE, AND THAT WAS MEASURED WRONG.
+ *
+ * The refusal rested on a factual claim -- that Google's Desktop-app client type
+ * "issues no usable secret" and that PKCE replaces it. Google's own servers say
+ * otherwise. Asked to exchange an authorization code for a Desktop-app client,
+ * with a correct PKCE S256 verifier and no secret, Google answers:
+ *
+ *     HTTP 400  {"error":"invalid_request",
+ *                "error_description":"client_secret is missing."}
+ *
+ * measured against this product's real client on 2026-08-11. Google documents
+ * the same thing: the client_secret exemption in "OAuth 2.0 for iOS & Desktop
+ * Apps" names Android, iOS and Chrome clients only, and Desktop is not among
+ * them. PKCE is required and is not a substitute. A build that refuses to carry
+ * a secret therefore cannot complete a single real sign-in -- the refusal did
+ * not protect anybody, it just moved the failure to the last step of the flow,
+ * where a customer meets it instead of a reviewer.
+ *
+ * SO WHAT IS THIS "SECRET", REALLY. Google's own answer, for installed apps:
+ * "the client secret is obviously not treated as a secret". It is a second
+ * public identifier for the application, and it is shipped inside every desktop
+ * program that signs in with Google -- gcloud and rclone are the obvious ones.
+ * It grants nothing on its own: it names the application, and PKCE proves the
+ * exchange comes from the process that started the sign-in.
+ *
+ * WHAT THAT DOES NOT LICENCE. It is still per-application. A shipped product
+ * must carry a client registered FOR IT and for identity scopes only -- never a
+ * client that also holds a person's Drive, Gmail or Calendar grants, because
+ * publishing that client's identifiers hands every customer the application
+ * identity that those grants were issued to. See docs/GOOGLE-SIGN-IN-SETUP.md.
+ *
+ * It is never printed, never logged, never returned to a renderer, and never put
+ * in a refusal message -- only the fact of its presence is reportable.
  *
  * THE ABSENCE CASE IS THE IMPORTANT ONE, and it is the state this machine is in
  * until the owner registers the client. NO CLIENT ID MUST NOT MEAN "sign in
@@ -35,6 +62,7 @@ const path = require('node:path')
 
 const CONFIG_FILENAME = 'google-signin.json'
 const ENVIRONMENT_KEY = 'TOOLSENABLED_GOOGLE_CLIENT_ID'
+const ENVIRONMENT_SECRET_KEY = 'TOOLSENABLED_GOOGLE_CLIENT_SECRET'
 const MAX_CONFIG_BYTES = 16 * 1024
 
 /* Google's own format for a client id: a project number, a dash, an opaque
@@ -43,8 +71,36 @@ const MAX_CONFIG_BYTES = 16 * 1024
    Google error page with no explanation on our side. */
 const CLIENT_ID_PATTERN = /^[0-9]{1,30}-[0-9a-z]{1,80}\.apps\.googleusercontent\.com$/
 
-/* Names that mean somebody put a confidential-client credential here. */
+/* The spellings a Desktop-app client secret arrives under. Google's own
+   downloaded client_secret.json calls it `client_secret`; this file's own
+   settings call it `clientSecret`, to match `clientId`. Both are read; `secret`
+   is accepted too because it is what a person types. Only the FIRST one present
+   is used, in this order, so a file carrying two never silently picks one. */
 const SECRET_KEYS = Object.freeze(['clientSecret', 'client_secret', 'secret'])
+
+/* Long enough for every secret format Google has issued (the current ones are
+   `GOCSPX-` plus 28 characters); short enough that a file cannot smuggle a
+   payload through this field. Whitespace is refused because a secret pasted with
+   a stray newline fails at Google with an error nobody can read backwards. */
+const MAX_CLIENT_SECRET_LENGTH = 256
+
+function readClientSecret(source) {
+  for (const key of SECRET_KEYS) {
+    const raw = source[key]
+    if (raw === undefined || raw === null) continue
+    if (typeof raw !== 'string') {
+      return refusal('GOOGLE_SIGNIN_CLIENT_SECRET_INVALID', `The Google sign-in setting "${key}" is not text, so Google sign-in was not offered.`)
+    }
+    const value = raw.trim()
+    if (!value) continue
+    /* THE VALUE IS NEVER IN THE MESSAGE. Only the key name, which is not one. */
+    if (value.length > MAX_CLIENT_SECRET_LENGTH || /\s/.test(value)) {
+      return refusal('GOOGLE_SIGNIN_CLIENT_SECRET_INVALID', `The Google sign-in setting "${key}" is not in the form Google issues, so Google sign-in was not offered.`)
+    }
+    return { ok: true, clientSecret: value }
+  }
+  return { ok: true, clientSecret: '' }
+}
 
 function refusal(code, reason) {
   return Object.freeze({ ok: false, code, reason })
@@ -130,18 +186,6 @@ function readConfigFile(filePath) {
   if (!isPlainObject(parsed)) {
     return refusal('GOOGLE_SIGNIN_CONFIG_INVALID', 'The Google sign-in settings on this computer are not in a form this program understands, so Google sign-in was not offered.')
   }
-  for (const key of SECRET_KEYS) {
-    if (parsed[key] !== undefined) {
-      /* NAMED, NOT IGNORED. See the header: a shipped desktop application cannot
-         keep a secret, so a secret in this file is either wrong or about to be
-         published. The value is never read, never echoed and never logged --
-         only the fact that the field is there. */
-      return refusal(
-        'GOOGLE_SIGNIN_CLIENT_SECRET_REFUSED',
-        `The Google sign-in settings contain a "${key}". A program people download cannot keep a secret, so this one is refused rather than shipped: remove that field and use a Desktop-app client id on its own.`,
-      )
-    }
-  }
   const clientId = typeof parsed.clientId === 'string' ? parsed.clientId.trim() : ''
   if (!clientId) return { ok: true, absent: true }
   if (!CLIENT_ID_PATTERN.test(clientId)) {
@@ -150,9 +194,21 @@ function readConfigFile(filePath) {
       'The Google sign-in application id on this computer is not in the form Google issues, so Google sign-in was not offered. It should end in .apps.googleusercontent.com.',
     )
   }
+  /* THE SECRET COMES FROM THE SAME FILE AS THE ID IT BELONGS TO, always. An id
+     from one source paired with a secret from another is a pairing nobody chose,
+     and Google answers it with `invalid_client` -- a failure whose cause is
+     invisible from either file on its own. */
+  const secret = readClientSecret(parsed)
+  if (secret.ok !== true) return secret
   const provider = readTestProvider(parsed.testProvider)
   if (provider.ok !== true) return provider
-  return { ok: true, absent: false, clientId, testProvider: provider.testProvider }
+  return {
+    ok: true,
+    absent: false,
+    clientId,
+    clientSecret: secret.clientSecret,
+    testProvider: provider.testProvider,
+  }
 }
 
 /**
@@ -175,7 +231,19 @@ function resolveGoogleSignInConfig({
         `The ${ENVIRONMENT_KEY} setting on this computer is not a Google application id, so Google sign-in was not offered.`,
       )
     }
-    return Object.freeze({ ok: true, clientId: fromEnvironment, source: 'environment', testProvider: null })
+    /* Same source, same pair: an id named on the environment takes its secret
+       from the environment or from nowhere. */
+    const environmentSecret = readClientSecret({ clientSecret: env?.[ENVIRONMENT_SECRET_KEY] })
+    if (environmentSecret.ok !== true) {
+      return refusal('GOOGLE_SIGNIN_CLIENT_SECRET_INVALID', `The ${ENVIRONMENT_SECRET_KEY} setting on this computer is not in the form Google issues, so Google sign-in was not offered.`)
+    }
+    return Object.freeze({
+      ok: true,
+      clientId: fromEnvironment,
+      clientSecret: environmentSecret.clientSecret,
+      source: 'environment',
+      testProvider: null,
+    })
   }
 
   const candidates = []
@@ -192,6 +260,7 @@ function resolveGoogleSignInConfig({
     return Object.freeze({
       ok: true,
       clientId: read.clientId,
+      clientSecret: read.clientSecret || '',
       source: candidate.source,
       testProvider: read.testProvider || null,
     })
@@ -210,6 +279,8 @@ module.exports = {
   readTestProvider,
   CONFIG_FILENAME,
   ENVIRONMENT_KEY,
+  ENVIRONMENT_SECRET_KEY,
   CLIENT_ID_PATTERN,
   SECRET_KEYS,
+  MAX_CLIENT_SECRET_LENGTH,
 }
