@@ -71,6 +71,7 @@ import {
   ACCOUNT_SCOPE_NOTICE,
   MIN_PASSWORD_LENGTH,
   accountStep,
+  loadGoogleAvailability,
 } from '../account-state.js'
 import { LIVE_VIEW_FLAGS, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, setWriteEnabled } from '../write-flags.js'
@@ -175,6 +176,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let accountNotice = null
   let accountMode = 'sign-in'
   let accountPicked = false
+  /* Whether this copy can sign in with Google. `null` is "not asked yet",
+     which the step renders differently from "not available" -- see
+     googleOptionMarkup(). */
+  let accountGoogle = null
 
   const root = el(`<main class="view-pad setup-page">
     <div class="settings-shell setup-shell">
@@ -360,6 +365,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     }
     return setupAccountStepMarkup({
       accountState,
+      google: accountGoogle,
       mode: accountMode,
       busy: accountBusy,
       notice: accountNotice,
@@ -382,6 +388,42 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     if (!accountPicked && accountState.available && accountState.accountCount === 0) accountMode = 'create'
     accountPicked = true
     if (step === 'account') paint()
+    /* Asked AFTER the step can paint, so the walkthrough never waits on it.
+       Only while signed out: a person who is already signed in is not being
+       offered a way to sign in. */
+    if (accountState.signedIn) return
+    accountGoogle = await loadGoogleAvailability()
+    if (destroyed) return
+    if (step === 'account') paint()
+  }
+
+  /* SIGN IN WITH GOOGLE, inside the walkthrough.
+   *
+   * The same call the account screen makes, and the same rule: nothing is sent
+   * from this page, and every failure lands SIGNED OUT with the shell's own
+   * sentence. It does not advance the walkthrough on a failure and it does not
+   * fall back to the password form on the person's behalf -- the form is
+   * already on screen underneath, for them to choose. */
+  async function startGoogleSignIn() {
+    if (accountBusy) return
+    accountBusy = true
+    accountNotice = null
+    paint()
+    let result
+    try { result = await account.googleSignIn() } catch { result = { ok: false, reason: 'The application did not answer.' } }
+    if (destroyed) return
+    accountBusy = false
+    if (!result || result.ok !== true) {
+      accountNotice = (result && result.reason) || 'The Google sign-in did not complete, so nobody was signed in.'
+      await loadAccount()
+      if (destroyed) return
+      paint()
+      return
+    }
+    accountNotice = null
+    await loadAccount()
+    if (destroyed) return
+    paint()
   }
 
   /**
@@ -397,8 +439,14 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     if (accountBusy) return
     const usernameField = section.querySelector('[data-setup-account-field="username"]')
     const passwordField = section.querySelector('[data-setup-account-field="password"]')
+    /* Only rendered on the create form, so it is absent on sign-in -- and absent
+       there is not an empty answer, it is no question asked. Either way what is
+       handed to the shell is a string, and the shell is the one place that
+       decides what an empty one means. */
+    const displayNameField = section.querySelector('[data-setup-account-field="displayName"]')
     const username = usernameField ? usernameField.value : ''
     const password = passwordField ? passwordField.value : ''
+    const displayName = displayNameField ? displayNameField.value : ''
 
     accountBusy = true
     accountNotice = null
@@ -406,7 +454,12 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
     let result
     if (kind === 'create') {
-      result = await account.create({ username, displayName: '', password })
+      /* The name the person typed, not a hardcoded empty string. Passing '' made
+         the username the permanent label on their records: the walkthrough never
+         asked, and nothing anywhere could change it afterwards. The field above
+         asks; changeDisplayName in shell/product-account.cjs is what makes it
+         changeable later, and the field's own copy promises exactly that. */
+      result = await account.create({ username, displayName, password })
       /* Created and then signed in, as one action from the person's point of
          view. Making them retype the password they just chose, inside their own
          first run, is friction that buys nothing. */
@@ -947,6 +1000,12 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
     const remove = event.target.closest('[data-setup-remove-root]')
     if (remove) { removeRoot(Number(remove.dataset.setupRemoveRoot)); return }
+
+    if (event.target.closest('[data-google-signin-start]')) { startGoogleSignIn(); return }
+    if (event.target.closest('[data-google-signin-cancel]')) {
+      try { account.googleCancel() } catch { /* the attempt has already finished */ }
+      return
+    }
 
     const accountSubmit = event.target.closest('[data-setup-account-submit]')
     if (accountSubmit) { submitAccount(accountSubmit.dataset.setupAccountSubmit); return }
