@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import test from 'node:test'
+
+import { engineAvailability } from '../../shell/agent-host.cjs'
+import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-events.js'
+
+// The interface can start an agent only if three things hold at once: the
+// renderer can reach the agent channels, the surface can tell whether an
+// engine exists BEFORE it offers a control, and nothing on that path can put
+// a filesystem path on screen. Each test below pins exactly one of those.
+
+const ROOT = resolve(import.meta.dirname, '..', '..')
+const read = (path) => readFileSync(resolve(ROOT, path), 'utf8')
+
+test('availability reports a bounded code and never a path', () => {
+  // The unconfigured answer is the one that ships. It must stay {ok, code}:
+  // the resolver's real message lists every path it tried, and rendering that
+  // is how a private checkout path reached the DOM before.
+  const previous = process.env.MISSION_CONTROL_ENGINE
+  delete process.env.MISSION_CONTROL_ENGINE
+  try {
+    const result = engineAvailability()
+    assert.equal(result.ok, false)
+    assert.equal(result.code, 'AGENT_ENGINE_UNAVAILABLE')
+    assert.deepEqual(Object.keys(result).sort(), ['code', 'ok'])
+    for (const value of Object.values(result)) {
+      assert.doesNotMatch(String(value), /[\\/]/, 'no availability field may contain a path separator')
+    }
+  } finally {
+    if (previous === undefined) delete process.env.MISSION_CONTROL_ENGINE
+    else process.env.MISSION_CONTROL_ENGINE = previous
+  }
+})
+
+test('availability resolves a real configured engine', () => {
+  // Proves the probe answers ok for an engine that genuinely exports the
+  // contract, rather than only ever failing closed.
+  const previous = process.env.MISSION_CONTROL_ENGINE
+  try {
+    // A directory, not a file: the resolver appends codex-process.js to any
+    // path that does not already end in .js, so the fixture mirrors the real
+    // engine's layout rather than working around the resolver.
+    const result = engineAvailability({ enginePath: resolve(ROOT, 'tools/test/fixtures/agent-engine') })
+    assert.equal(result.ok, true)
+    assert.equal(result.code, 'AGENT_ENGINE_READY')
+  } finally {
+    if (previous === undefined) delete process.env.MISSION_CONTROL_ENGINE
+    else process.env.MISSION_CONTROL_ENGINE = previous
+  }
+})
+
+test('the renderer has a bounded, deliberate bridge to the agent channels', () => {
+  // The inverse of the old gate. The exposure is required now -- without it
+  // no agent can be started from the interface at all -- but it stays a
+  // fixed, named surface, and ipcRenderer itself is never handed over.
+  const preload = read('shell/preload.cjs')
+  assert.match(preload, /exposeInMainWorld\('mcAgent'/, 'preload must expose the agent bridge')
+  for (const call of ['availability', 'start', 'send', 'interrupt', 'close', 'onEvent']) {
+    assert.match(preload, new RegExp(`\\b${call}:`), `preload must expose ${call}`)
+  }
+  assert.doesNotMatch(
+    preload,
+    /exposeInMainWorld\([^)]*ipcRenderer\s*\)/,
+    'preload must never hand ipcRenderer itself to the renderer',
+  )
+})
+
+test('the engine resolver carries no hardcoded sibling-repo default', () => {
+  // Unchanged from the original gate: this clause of BLOCKER 2 is permanent.
+  const agentHost = read('shell/agent-host.cjs')
+  assert.doesNotMatch(agentHost, /sibling default/, 'the resolver must not carry a filesystem-guess candidate')
+  assert.match(agentHost, /MISSION_CONTROL_ENGINE/, 'the engine path must come from configuration')
+})
+
+test('the spawn surface states that no tier restricts a running session', () => {
+  // The permission tier is recorded but not enforced against a running child
+  // (T5, unbuilt). A spawn control that omitted this would imply a limit the
+  // product does not have.
+  const surface = read('src/agent-session.js')
+  assert.match(surface, /No permission tier limits a session once it is running/)
+  assert.match(surface, /UNRESTRICTED_NOTE/, 'the note must be rendered, not only defined')
+})
+
+test('the surface renders only recognised event text', () => {
+  const id = 'session-a'
+  assert.equal(sessionEventText({ sessionId: id, event: { type: 'assistant_text_delta', text: 'hi' } }, id), 'hi')
+  // A different session's packet must never reach this surface's transcript.
+  assert.equal(sessionEventText({ sessionId: 'other', event: { type: 'assistant_text_delta', text: 'leak' } }, id), null)
+  // An unrecognised event is ignored rather than rendered.
+  assert.equal(sessionEventText({ sessionId: id, event: { type: 'tool_call', text: 'x' } }, id), null)
+  assert.equal(sessionEventText(null, id), null)
+  assert.equal(sessionTurnStatus({ sessionId: id, event: { type: 'turn_completed', status: 'completed' } }, id), 'completed')
+  assert.equal(sessionTurnStatus({ sessionId: 'other', event: { type: 'turn_completed', status: 'x' } }, id), null)
+})
+
+test('the agent page mounts the session surface and closes it on destroy', () => {
+  const view = read('src/views/agent.js')
+  assert.match(view, /mountAgentSessionSurface\(root/, 'the agent page must mount the session surface')
+  assert.match(view, /destroyAgentSession\(\)/, 'navigating away must close any open session')
+})

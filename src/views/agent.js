@@ -9,6 +9,7 @@ import { readLayout } from '../layout-pref.js'
 import { isLiveView } from '../live-flags.js'
 import { createTerminateController } from '../mission-bridge.js'
 import { mountAgentWriteSurface } from '../write-surfaces.js'
+import { mountAgentSessionSurface } from '../agent-session.js'
 import { fetchAgents } from '../live-status.js'
 import { rangeFill } from './computers.js'
 import '../agent.css'
@@ -623,6 +624,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     </div>
   `)
   const destroyWriteSurface = mountAgentWriteSurface(root, { agentId })
+  const destroyAgentSession = mountAgentSessionSurface(root, { agentId })
   const terminateButton = root.querySelector('[data-control="terminate"]')
   const terminateLabel = terminateButton.querySelector('.ctl-label')
   const terminateNote = terminateButton.querySelector('.ctl-note')
@@ -1335,6 +1337,9 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
       terminateButton.removeEventListener('click', onTerminateClick)
       terminateController.destroy()
       destroyWriteSurface()
+      /* Closes any open session. Navigating away from the page must not leave
+         a CLI child running with nothing on screen that can stop it. */
+      destroyAgentSession()
       cancelAnimationFrame(raf)
       rimObserver.disconnect()
       ctlResize.disconnect()

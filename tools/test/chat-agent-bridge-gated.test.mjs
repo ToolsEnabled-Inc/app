@@ -42,10 +42,43 @@ test('the chat route is not registered in the hash router', () => {
   assert.doesNotMatch(main, /case 'chat':/, 'the view switch must not carry a chat case')
 })
 
-test('the renderer has no exposed bridge to the agent IPC channels', () => {
+// SUPERSEDED CLAUSE (agents-from-ui lane). This suite previously asserted that
+// the renderer had NO bridge to the agent IPC channels at all. That assertion
+// was right for as long as the engine behind those channels shipped nowhere:
+// an exposure whose only possible outcome is failure is worse than no
+// exposure. It is wrong as a permanent rule, because it is also the reason no
+// agent can be started from the interface -- which is now a requirement, not a
+// nice-to-have.
+//
+// The header above anticipated exactly this and set the condition for
+// reversing it: "a deliberate, reviewed decision to wire up a WORKING engine
+// path." That condition is met, and narrowly:
+//   - The engine is resolved from configuration (MISSION_CONTROL_ENGINE), never
+//     a filesystem guess. Unconfigured still fails closed.
+//   - The surface probes availability BEFORE offering a control, so a build
+//     with no engine renders a stated-unavailable surface, not a dead button.
+//   - Nothing on the path can carry a path to the DOM.
+// Measured working end to end on 2026-08-10: the real engine spawned a Codex
+// child, streamed deltas, and completed a turn, exit 0.
+//
+// The invariants that replace this assertion live in
+// tools/test/agent-session-surface.test.mjs. The other two clauses of this
+// suite are untouched and still permanent.
+test('the renderer bridge to the agent IPC channels stays bounded', () => {
   const preload = read('shell/preload.cjs')
-  assert.doesNotMatch(preload, /mcAgent/, 'preload.cjs must not expose an agent global on window')
-  assert.doesNotMatch(preload, /mc-agent:/, 'preload.cjs must not wire any mc-agent IPC channel to the renderer')
+  // Not "no bridge" -- a bridge that cannot hand over raw IPC. The renderer
+  // gets named calls only, so the reachable surface stays exactly the set
+  // main.cjs validates.
+  assert.doesNotMatch(
+    preload,
+    /exposeInMainWorld\([^)]*\bipcRenderer\b\s*\)/,
+    'preload.cjs must never expose ipcRenderer itself to the renderer',
+  )
+  assert.doesNotMatch(
+    preload,
+    /mc-agent:(?!event\b)[a-z]*['"]\s*[,)]?\s*$/m,
+    'agent channels must be reached through named preload calls, not assembled in the renderer',
+  )
 })
 
 test('the agent engine resolver carries no hardcoded sibling-repo default', () => {

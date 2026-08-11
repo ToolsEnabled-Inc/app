@@ -6,6 +6,7 @@ export const WRITE_ACTION_FLAGS = Object.freeze([
   Object.freeze({ id: 'queue', label: 'Claim or close queue', description: 'Show strict BUILD-QUEUE claim and close controls.' }),
   Object.freeze({ id: 'thread-reply', label: 'Coordinator replies', description: 'Enable the durable coordinator-thread composer.' }),
   Object.freeze({ id: 'report-read', label: 'Read agent reports', description: 'Show the bounded report reader on agent drill-in.' }),
+  Object.freeze({ id: 'agent-session', label: 'Run an agent session', description: 'Start, watch, and stop a live agent session from the agent page.' }),
 ])
 
 const IDS = new Set(WRITE_ACTION_FLAGS.map(flag => flag.id))

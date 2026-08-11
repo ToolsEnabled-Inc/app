@@ -13,6 +13,10 @@ const EXPECTED_IDS = [
   'queue',
   'thread-reply',
   'report-read',
+  // Starting a real agent session from the agent page. Listed here for the
+  // same reason as the rest: this suite is what forces a new write action to
+  // be a deliberate decision, and it pins that the shipped default is off.
+  'agent-session',
 ]
 
 class MemoryStorage {
