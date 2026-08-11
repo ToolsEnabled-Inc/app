@@ -268,6 +268,87 @@ async function run() {
   await webContents.executeJavaScript(`document.querySelector('.static-tree-chip.as-chat .chat-close')?.click()`)
   await waitFor(webContents, `!document.querySelector('.static-tree-chip.as-chat')`)
 
+  /* SINGLE CLICK OPENS THE RAIL — with real pointer input, not a synthetic
+     .click(). This is the check the owner's request actually turns on: the
+     chatbox and the controls were already built, and the only gesture that
+     opened them was a double click nobody discovers. A dispatched MouseEvent
+     would not prove it, because the click path runs through a 260ms timer that
+     the real dblclick cancels; only driving the OS-level buttons exercises the
+     same race a person does. */
+  const singleClickTarget = await webContents.executeJavaScript(`(() => {
+    const record = [...window.__mcGraph.nodes.values()].find(item => !item.el.hidden && !item.el.classList.contains('focusable'));
+    const rect = record.el.getBoundingClientRect();
+    return { id: record.id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(singleClickTarget.x), y: Math.round(singleClickTarget.y) })
+  await delay(40)
+  webContents.sendInputEvent({ type: 'mouseDown', x: Math.round(singleClickTarget.x), y: Math.round(singleClickTarget.y), button: 'left', clickCount: 1 })
+  webContents.sendInputEvent({ type: 'mouseUp', x: Math.round(singleClickTarget.x), y: Math.round(singleClickTarget.y), button: 'left', clickCount: 1 })
+  await waitFor(webContents, `document.querySelector('.ctl-page.is-active .board-chat-box')`, 3000)
+  const singleClick = await webContents.executeJavaScript(`(() => {
+    const page = document.querySelector('.ctl-page.is-active');
+    const chat = page?.querySelector('.board-chat-box');
+    return {
+      railOpen: Boolean(page),
+      chatPresent: Boolean(chat),
+      chatChannel: chat?.dataset?.chatChannel || null,
+      chatVisible: chat ? getComputedStyle(chat).display !== 'none' && chat.getBoundingClientRect().height > 20 : false,
+      namesTheAgent: page?.querySelector('.board-head .an')?.textContent?.trim() || null,
+    };
+  })()`)
+  check('a single click opens the rail', singleClick.railOpen, JSON.stringify(singleClick))
+  check('the rail a single click opens contains a chatbox', singleClick.chatPresent && singleClick.chatVisible, JSON.stringify(singleClick))
+  check('the chatbox declares which channel it is on', Boolean(singleClick.chatChannel), JSON.stringify(singleClick))
+  check('the rail names the clicked agent', Boolean(singleClick.namesTheAgent), JSON.stringify(singleClick))
+
+  /* THE CONTROLS MUST NOT LIE. The three sliders that used to sit here —
+     "Context budget", "Wake interval", "Autonomy" — moved, reported a value,
+     and changed nothing. Their absence is asserted, and so is the presence of
+     the replacement: a tier whose REAL argv fragment is printed, and a list of
+     the knobs that do not exist with a reason for each. */
+  const controls = await webContents.executeJavaScript(`(() => {
+    const page = document.querySelector('.ctl-page.is-active');
+    const box = page?.querySelector('.board-ctl-box');
+    const argv = box?.querySelector('[data-launch="argv"]')?.textContent?.trim() || '';
+    const tier = box?.querySelector('[data-launch="tier"]');
+    return {
+      inertSliders: page ? page.querySelectorAll('.ctl-row[data-t]').length : -1,
+      sliderLabels: [...(page?.querySelectorAll('.cl') || [])].map(node => node.textContent.trim()),
+      tierOptions: tier ? [...tier.options].map(option => option.value) : [],
+      argv,
+      capPresent: Boolean(box?.querySelector('[data-launch="cap"]')),
+      unsupported: [...(box?.querySelectorAll('.ctl-unsupported-row b') || [])].map(node => node.textContent.trim()),
+      unsupportedCited: [...(box?.querySelectorAll('.ctl-unsupported-row code') || [])].every(node => /:\\d+$/.test(node.textContent.trim())),
+    };
+  })()`)
+  check('no inert tuning slider survives on page 2', controls.inertSliders === 0
+    && !controls.sliderLabels.includes('Context budget')
+    && !controls.sliderLabels.includes('Wake interval')
+    && !controls.sliderLabels.includes('Autonomy'), JSON.stringify(controls))
+  check('the tier control offers the engine tiers and prints their real argv',
+    controls.tierOptions.includes('sol') && controls.tierOptions.length === 6
+    && /--model \S+/.test(controls.argv), JSON.stringify(controls))
+  check('the run cap is a control, not a constant', controls.capPresent, JSON.stringify(controls))
+  check('temperature and top-p are named as unavailable, each with a citation',
+    controls.unsupported.includes('Temperature') && controls.unsupported.includes('Top-p')
+    && controls.unsupportedCited, JSON.stringify(controls))
+
+  /* A dead button must say it is dead. Pause/Resume/Respawn have no bridge
+     action behind them; they used to move an `armed` class between each other
+     and look alive. */
+  const deadButtons = await webContents.executeJavaScript(`(() => {
+    const buttons = [...document.querySelectorAll('.ctl-page.is-active .board-actions .ctl-btn[data-a]')];
+    return buttons.filter(button => button.dataset.a !== 'open').map(button => ({
+      id: button.dataset.a, disabled: button.disabled, reason: (button.getAttribute('aria-label') || '').length,
+    }));
+  })()`)
+  check('every action with nothing behind it is disabled and says why',
+    deadButtons.length > 0 && deadButtons.every(button => button.disabled && button.reason > 20),
+    JSON.stringify(deadButtons))
+
+  await webContents.executeJavaScript(`document.querySelector('.ctl-page .rail-back').click()`)
+  await waitFor(webContents, `document.querySelector('.stats-page.is-active')`)
+
   // Double-click contract and board order.
   await webContents.executeJavaScript(`document.querySelector('.static-tree-node').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))`)
   await waitFor(webContents, `document.querySelector('.ctl-page.is-active .board-chat-box .chat')`)

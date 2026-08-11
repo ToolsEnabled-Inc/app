@@ -1,0 +1,135 @@
+/* THE NODE CHATBOX — the right-hand rail's chat, opened by clicking a node.
+ *
+ * Owner, verbatim: "On the right when you click a node there should be a
+ * chatbox along with the other buttons."
+ *
+ * Two things had to be true before this could be honest.
+ *
+ * 1. IT HAD TO BE REACHABLE. The rail already existed and already held a chat,
+ *    but the only gesture that opened it was a DOUBLE click on a node
+ *    (src/tree-graph.js), and a single click merely drew a selection ring.
+ *    A chatbox nobody can find is the same as no chatbox, so the single click
+ *    now opens the rail. The double click still works and is now a duplicate
+ *    rather than the secret.
+ *
+ * 2. IT MUST NOT PRETEND TO REACH A PROCESS THAT CANNOT HEAR IT. This is the
+ *    part that would otherwise have become the next "we can control
+ *    temperature". A dispatched agent lane receives its entire prompt on stdin
+ *    at spawn and the pipe is closed immediately afterwards; there is no
+ *    second write. The supervisor mailbox is not a chat either — it is drained
+ *    when a lane NEXT starts. So for most nodes on this page there is no live
+ *    channel at all, and a composer would be a text box that silently discards
+ *    what a person typed. The composer therefore appears only for an agent
+ *    this app is itself running through mcAgent, and every other state says
+ *    plainly why it cannot send.
+ *
+ * WHICH AGENTS AND RUNS APPEAR IS NOT THIS FILE'S DECISION. src/chatbox-feed.js
+ * owns the person's two settings — which agents' context is shown, and whether
+ * runs appear (three states: with, hidden, only). This module calls
+ * planChatbox() and renders what it is told, so the settings page and this rail
+ * cannot disagree about what should be on screen.
+ */
+
+import {
+  CHATBOX_FEED_EVENT,
+  planChatbox,
+  filterTurns,
+  readRunsMode,
+  readAgentSelection,
+} from './chatbox-feed.js'
+import { resolveChatChannel } from './orchestration-controls.js'
+
+const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+const text = value => (typeof value === 'string' ? value : '')
+
+/**
+ * Everything the rail needs to draw, decided in one pure place.
+ *
+ * Separated from the DOM deliberately: the states that matter here are the
+ * empty ones, and an empty state is exactly what a screenshot test is worst at
+ * catching and a unit test is best at.
+ *
+ * @returns {{
+ *   channel: {kind: string, canSend: boolean, reason: string|null},
+ *   showContext: boolean, showRuns: boolean,
+ *   turns: object[], runs: object[],
+ *   hiddenAgents: number, filteredToNothing: boolean,
+ *   emptyReason: string|null, composerReason: string|null
+ * }}
+ */
+export function planNodeChatbox({
+  agent = null,
+  live = false,
+  sessionAvailable = false,
+  sessionAgentId = null,
+  turns = [],
+  runs = [],
+} = {}) {
+  const agentId = text(agent?.id) || null
+  const channel = resolveChatChannel({ live, sessionAvailable, sessionAgentId, agentId })
+
+  const allTurns = (Array.isArray(turns) ? turns : []).filter(isRecord)
+  const allRuns = (Array.isArray(runs) ? runs : []).filter(isRecord)
+  const selection = readAgentSelection()
+  const plan = planChatbox({
+    contextAvailable: allTurns.length > 0,
+    runsAvailable: allRuns.length > 0,
+    runsMode: readRunsMode(),
+    selection,
+    agentsInSource: allTurns.map(turn => text(turn.who) || text(turn.sender)).filter(Boolean),
+  })
+
+  const shownTurns = plan.showContext ? filterTurns(allTurns, selection) : []
+  const shownRuns = plan.showRuns ? allRuns : []
+
+  /* The four ways this box can be empty are four different facts, and the
+     screen must never report one as another. "You filtered everyone out" is
+     recoverable by the person; "this agent has never said anything" is not. */
+  let emptyReason = null
+  if (!shownTurns.length && !shownRuns.length) {
+    if (plan.filteredToNothing) emptyReason = 'Every agent in this conversation is hidden by your chat settings.'
+    else if (plan.runsMode === 'only' && !allRuns.length) emptyReason = 'No runs recorded on this computer yet, and your chat settings show runs only.'
+    else if (plan.runsMode === 'hidden' && !allTurns.length) emptyReason = 'Nothing said yet, and your chat settings hide runs.'
+    else emptyReason = 'Nothing said yet.'
+  }
+
+  return Object.freeze({
+    channel,
+    showContext: plan.showContext,
+    showRuns: plan.showRuns,
+    turns: Object.freeze(shownTurns),
+    runs: Object.freeze(shownRuns),
+    hiddenAgents: plan.hiddenAgents,
+    filteredToNothing: plan.filteredToNothing,
+    emptyReason,
+    composerReason: channel.canSend ? null : channel.reason,
+  })
+}
+
+/**
+ * The sentence under the chat title. It names the channel, because "who am I
+ * actually talking to" is the one question this box must always answer.
+ */
+export function channelCaption(channel, roleLabel = '') {
+  const prefix = roleLabel ? `${roleLabel} · ` : ''
+  if (!isRecord(channel)) return `${prefix}no channel`
+  if (channel.kind === 'session') return `${prefix}live session · this reaches the running agent`
+  if (channel.kind === 'simulated') return `${prefix}simulated fleet · replies are written by this app`
+  return `${prefix}no live channel`
+}
+
+/**
+ * Subscribe to the person's chat settings changing. Returns an unsubscribe.
+ * The rail re-plans rather than re-reading storage in a render path, so a
+ * setting changed in another window lands here too.
+ */
+export function onChatboxSettingsChanged(handler) {
+  if (typeof handler !== 'function') return () => {}
+  const listener = () => handler()
+  globalThis.window?.addEventListener?.(CHATBOX_FEED_EVENT, listener)
+  globalThis.window?.addEventListener?.('storage', listener)
+  return () => {
+    globalThis.window?.removeEventListener?.(CHATBOX_FEED_EVENT, listener)
+    globalThis.window?.removeEventListener?.('storage', listener)
+  }
+}

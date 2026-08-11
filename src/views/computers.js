@@ -9,6 +9,18 @@ import { StaticTreeGraph } from '../tree-graph.js'
 import { withAlpha } from '../echarts-theme.js'
 import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
 import { fetchFleet } from '../live-status.js'
+import {
+  LAUNCH_TIERS, launchTier, tierArgvFragment, UNSUPPORTED_CONTROLS,
+  CAP_BOUNDS, clampCapMs, capMinutes, sandboxLevel,
+} from '../orchestration-controls.js'
+import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../node-chatbox.js'
+/* COPY and readLocalSessions are borrowed rather than rewritten: the home
+   screen already says these sentences, and a second wording for "some agents
+   are hidden" would let page 1 and page 2 describe the same setting
+   differently. src/local-activity.js is the shared owner of both. */
+import { COPY, readLocalSessions } from '../local-activity.js'
+import { isWriteEnabled } from '../write-flags.js'
+import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 import '../board.css'
 import '../tree-graph.css'
 
@@ -24,11 +36,24 @@ const BAR_C = 'var(--m-load, var(--ink-2))'
 const ROLE_LOAD = { coordinator: 68, helper: 57, shadow: 41, manager: 52, default: 34, spawned: 22 }
 const CHART_N = 24
 const CHART_SPAN_MIN = 30
-const TUNING = {
-  ctx: (value) => `${Math.round(40 + value * 1.6)}k`,
-  wake: (value) => `${Math.max(1, Math.round(value * 0.6))}m`,
-  auto: (value) => value < 34 ? 'low' : value < 67 ? 'med' : 'high',
-}
+
+/* WHAT USED TO BE HERE, AND WHY IT IS GONE.
+ *
+ * Three sliders — "Context budget", "Wake interval", "Autonomy" — and four
+ * buttons — Pause, Resume, Respawn, Terminate. Every one of them was inert.
+ * The sliders' entire click handler wrote a formatted string into the <span>
+ * beside them; the buttons' entire click handler moved an `armed` CSS class
+ * from one button to the next. Nothing was stored, nothing was sent, and the
+ * page reported no failure because nothing had been attempted.
+ *
+ * The owner named this class of defect exactly: "dont lie like we cant control
+ * temperature". A control that moves and reports success while changing
+ * nothing is worse than a missing control, because a missing control can be
+ * asked for and a lying one is believed.
+ *
+ * They are replaced by src/orchestration-controls.js, where every knob carries
+ * the file:line that proves it reaches the child process, and the knobs that
+ * do not exist are NAMED as not existing rather than quietly left out. */
 
 const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -320,6 +345,13 @@ export function computersView({ initialComputer = null, navigate }) {
   let fetchVersion = 0
   const unsubs = []
   let sourceUnsubs = []
+  /* The runs half of the chatbox. Read once per view from the same spawn
+     record the home screen reads, never per node click, and left as an empty
+     list when this copy has no computer to ask — readLocalSessions() already
+     distinguishes "no runs" from "could not read" from "nobody to ask", so
+     this view does not get to invent a fourth answer. */
+  let railRuns = []
+  let railChatUnsub = null
 
   const root = el(`
     <div class="computers">
@@ -359,6 +391,11 @@ export function computersView({ initialComputer = null, navigate }) {
     boardRing = null
     boardChart?.destroy()
     boardChart = null
+    /* The rail's chat re-plans on a window event. Every node click builds a new
+       one, so the previous node's listener has to go with the previous panel or
+       a session spent clicking around the tree leaves one attached per click. */
+    railChatUnsub?.()
+    railChatUnsub = null
   }
 
   function activateRail(page) {
@@ -563,13 +600,228 @@ export function computersView({ initialComputer = null, navigate }) {
     activateRail(statsPage)
   }
 
-  function rangeFill(input) {
-    const set = () => {
-      const percent = ((input.value - input.min) / (input.max - input.min)) * 100
-      input.style.setProperty('--fill', `${percent}%`)
+  /* The three lifecycle buttons this page cannot perform, rendered as disabled
+     with the reason on each one. They are kept rather than deleted because the
+     owner asked for the buttons, and because a person who remembers a Pause
+     button and now finds nothing will assume the page is broken. Saying "there
+     is no bridge action for this" is the honest version of showing a button
+     that quietly rearranges a CSS class. This is the same posture the agent
+     drill-in already ships (src/views/agent.js). */
+  const DEAD_ACTIONS = Object.freeze([
+    Object.freeze({ id: 'pause', label: 'Pause', why: 'Pause unavailable: the audited bridge has no pause action, and a running lane cannot be suspended.' }),
+    Object.freeze({ id: 'resume', label: 'Resume', why: 'Resume unavailable: nothing can be paused, so nothing can be resumed.' }),
+    Object.freeze({ id: 'respawn', label: 'Respawn', why: 'Respawn unavailable from this page: respawn is performed by the supervisor sweep from a persisted checkpoint, not by a click here.' }),
+  ])
+
+  function deadActionButtons() {
+    return DEAD_ACTIONS.map(action => `<button class="ctl-btn" type="button" disabled data-a="${action.id}" title="${escapeMarkup(action.why)}" aria-label="${escapeMarkup(action.why)}">${escapeMarkup(action.label)}</button>`).join('')
+  }
+
+  /* One bridge preparation per view, not one per node click. bridgeStatus()
+     parses every root's queue and writes durable audit receipts (~12s measured,
+     see src/write-surfaces.js), so calling it from a click handler that fires
+     every time somebody selects a node would turn a cheap gesture into a
+     repeated expensive one. */
+  let bridgePrep = null
+  function prepareBridgeOnce() {
+    if (!bridgePrep) {
+      bridgePrep = (async () => {
+        const reach = await bridgeReachable()
+        if (!reach.ok) return reach
+        return bridgeStatus()
+      })().catch(error => ({ ok: false, reason: error?.message || 'action bridge unreachable' }))
     }
-    input.addEventListener('input', set)
-    set()
+    return bridgePrep
+  }
+
+  const launchKey = () => `mc.page2.launch.${computer?.id || 'unknown'}`
+  function readLaunchSettings() {
+    let stored = null
+    try { stored = JSON.parse(localStorage.getItem(launchKey()) || 'null') } catch { stored = null }
+    const tierId = launchTier(stored?.tier) ? stored.tier : LAUNCH_TIERS[0].id
+    return { tier: tierId, capMs: clampCapMs(stored?.capMs ?? CAP_BOUNDS.defaultMs) }
+  }
+  function writeLaunchSettings(next) {
+    try { localStorage.setItem(launchKey(), JSON.stringify(next)) } catch { /* session-only is still a real change */ }
+  }
+
+  /**
+   * The control panel that replaced "Tuning".
+   *
+   * Every row here is either a knob that provably reaches the child process, or
+   * a knob that does not exist and says so. There is deliberately no third
+   * category. The argv line is not decoration: it is the actual fragment
+   * capability/src/lib/mission-bridge/actions.js builds for the selected tier,
+   * so a person can read what their choice does instead of trusting a label.
+   */
+  function launchControlsBox(agent) {
+    const settings = readLaunchSettings()
+    const dispatchEnabled = isWriteEnabled('dispatch')
+    const box = el(`
+      <div class="board-box board-ctl-box">
+        <div class="board-box-h"><span class="bh-t">Launch controls</span></div>
+        <div class="board-cap">what a lane started under this agent would run with</div>
+        <label class="ctl-field"><span class="cl">Engine &amp; effort</span>
+          <select class="ctl-select" data-launch="tier" aria-label="Launch tier">
+            ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.id)}"${tier.id === settings.tier ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider)}${tier.effort ? ` · ${escapeMarkup(tier.effort)}` : ''}</option>`).join('')}
+          </select>
+        </label>
+        <div class="ctl-argv" data-launch="argv"></div>
+        <label class="ctl-field"><span class="cl">Time cap</span>
+          <input class="ctl-num" type="number" data-launch="cap" min="${capMinutes(CAP_BOUNDS.minMs)}" max="${capMinutes(CAP_BOUNDS.maxMs)}" step="1" value="${capMinutes(settings.capMs)}" aria-label="Run time cap in minutes"/>
+          <span class="cv">min</span>
+        </label>
+        <div class="rail-sub" data-launch="cap-note">The lane's process tree is killed when this elapses.</div>
+        <div class="ctl-field"><span class="cl">Sandbox</span><span class="cv" data-launch="sandbox">reading this computer's permission level…</span></div>
+        <div class="rail-sub" data-launch="sandbox-note"></div>
+        <div class="ctl-unsupported">
+          <div class="cl">Not controllable, and why</div>
+          ${UNSUPPORTED_CONTROLS.map(item => `<div class="ctl-unsupported-row"><b>${escapeMarkup(item.label)}</b><span>${escapeMarkup(item.reason)}</span><code>${escapeMarkup(item.evidence)}</code></div>`).join('')}
+        </div>
+        <div class="ctl-dispatch">
+          <button class="ctl-btn" type="button" data-launch="dispatch"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Start an audited lane nested under this agent' : 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'}">Dispatch a lane under ${escapeMarkup(agent.name)}</button>
+          <output class="ctl-out" data-launch="out" role="status">${dispatchEnabled ? '' : 'dispatch is off in Settings'}</output>
+        </div>
+      </div>`)
+
+    const tierSelect = box.querySelector('[data-launch="tier"]')
+    const capInput = box.querySelector('[data-launch="cap"]')
+    const argvLine = box.querySelector('[data-launch="argv"]')
+    const output = box.querySelector('[data-launch="out"]')
+
+    const paintArgv = () => {
+      const fragment = tierArgvFragment(tierSelect.value) || []
+      argvLine.textContent = fragment.join(' ')
+    }
+    const persist = () => {
+      writeLaunchSettings({ tier: tierSelect.value, capMs: clampCapMs(Number(capInput.value) * 60_000) })
+    }
+    tierSelect.addEventListener('change', () => { paintArgv(); persist() })
+    capInput.addEventListener('change', () => {
+      capInput.value = String(capMinutes(clampCapMs(Number(capInput.value) * 60_000)))
+      persist()
+    })
+    paintArgv()
+
+    /* The sandbox is REPORTED, not chosen. Dispatch derives it from the
+       machine's recorded install permission level and has no field for an
+       explicit one, so a dropdown here would be a control the call cannot
+       carry. What it can honestly do is tell the person which level they are
+       on and what that level refuses. */
+    void (async () => {
+      const raw = await globalThis.mcAgent?.confinement?.().catch(() => null)
+      if (!box.isConnected) return
+      const level = sandboxLevel(raw?.level)
+      const target = box.querySelector('[data-launch="sandbox"]')
+      const note = box.querySelector('[data-launch="sandbox-note"]')
+      if (!level) {
+        target.textContent = 'not resolved'
+        note.textContent = 'This copy could not read the computer’s permission level, so the sandbox a lane would run under is unknown.'
+        return
+      }
+      target.textContent = `${raw.level} · ${level.codex}`
+      note.textContent = level.summary
+    })()
+
+    const dispatchButton = box.querySelector('[data-launch="dispatch"]')
+    if (dispatchEnabled) {
+      dispatchButton.addEventListener('click', async () => {
+        dispatchButton.disabled = true
+        output.textContent = 'checking audited bridge…'
+        const status = await prepareBridgeOnce()
+        if (!box.isConnected) return
+        const rootId = Array.isArray(status?.roots) ? status.roots[0] : null
+        if (!status?.ok || !rootId) {
+          output.textContent = `unavailable · ${status?.reason || 'no declared worktree root'}`
+          dispatchButton.disabled = false
+          return
+        }
+        output.textContent = 'dispatching…'
+        const result = await postBridgeAction('dispatch', {
+          rootId,
+          tier: tierSelect.value,
+          objectiveRef: `page2-${String(agent.id).replace(/[^a-z0-9_-]/gi, '-').slice(0, 60)}`,
+          brief: `Lane requested from the fleet page, nested under ${agent.name}.`,
+          cap: { kind: 'turns', value: 8, capMs: clampCapMs(Number(capInput.value) * 60_000) },
+        })
+        if (!box.isConnected) return
+        dispatchButton.disabled = false
+        output.textContent = result.ok
+          ? `started · ${result.receipt.launchId}`
+          : `refused · ${result.code || 'BRIDGE_REFUSED'} · ${result.reason}`
+      })
+    }
+    return box
+  }
+
+  /**
+   * The chatbox the owner asked for, in the rail, for the clicked node.
+   *
+   * What appears is decided by src/node-chatbox.js, which in turn defers to the
+   * person's own chat settings (which agents, and whether runs appear) rather
+   * than inventing a second filter that could disagree with the settings page.
+   */
+  function mountRailChat(agent, role) {
+    const host = controlsPage.querySelector('.board-chat-box')
+    if (!host) return
+    const render = () => {
+      if (!host.isConnected) return
+      const plan = planNodeChatbox({
+        agent,
+        live: liveMode,
+        sessionAvailable: false,
+        sessionAgentId: null,
+        turns: liveMode ? [] : [{ who: agent.id }],
+        runs: railRuns,
+      })
+      host.innerHTML = ''
+      host.dataset.chatChannel = plan.channel.kind
+      if (plan.channel.kind === 'simulated' && plan.showContext) {
+        host.appendChild(buildChat({
+          title: agent.name,
+          subtitle: channelCaption(plan.channel, role.label),
+          roleKey: agent.role,
+          seed: 6,
+        }))
+      } else {
+        host.appendChild(el(`
+          <div class="chat chat-readonly">
+            <div class="chat-head"><span class="role-dot" style="background:${role.hex}"></span><div><div class="t">${escapeMarkup(agent.name)}</div><div class="s">${escapeMarkup(channelCaption(plan.channel, role.label))}</div></div></div>
+            <div class="chat-log"></div>
+            <div class="chat-nosend">${escapeMarkup(plan.composerReason || 'No channel to this agent.')}</div>
+          </div>`))
+      }
+      const log = host.querySelector('.chat-log')
+      if (plan.showRuns && plan.runs.length && log) {
+        const runs = el('<div class="chat-runs"><div class="chat-runs-h">Runs on this computer</div></div>')
+        for (const run of plan.runs.slice(-6)) {
+          runs.appendChild(el(`<div class="chat-run"><b>#${escapeMarkup(String(run.sequence))}</b><span>${escapeMarkup(new Date(run.atMs).toLocaleString())}</span></div>`))
+        }
+        log.appendChild(runs)
+      }
+      /* "Everyone here is switched off" is not "nobody is talking", and the
+         box must not draw one as the other. The wording and the way out are
+         the home screen's own, so both screens describe this one setting
+         identically. */
+      if (plan.filteredToNothing && log) {
+        const chosen = COPY.chatboxNoAgentsChosen
+        log.appendChild(el(`<div class="chat-empty"><b>${escapeMarkup(chosen.title)}</b><span>${escapeMarkup(chosen.body)}</span><a href="${escapeMarkup(chosen.action.href)}">${escapeMarkup(chosen.action.label)}</a></div>`))
+      } else if (plan.emptyReason && !plan.turns.length && !plan.runs.length && log && !log.childElementCount) {
+        log.appendChild(el(`<div class="chat-empty"><span>${escapeMarkup(plan.emptyReason)}</span></div>`))
+      }
+      if (plan.hiddenAgents > 0) {
+        host.appendChild(el(`<div class="chat-hidden-note">${escapeMarkup(COPY.chatboxAgentsHeld(plan.hiddenAgents))}</div>`))
+      }
+    }
+    host.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && event.target.closest?.('.chat-input')) {
+        event.stopPropagation()
+        event.target.blur()
+      }
+    })
+    render()
+    railChatUnsub?.()
+    railChatUnsub = onChatboxSettingsChanged(render)
   }
 
   function showControls(agent) {
@@ -591,12 +843,7 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>
         <div class="board-box board-chat-box"></div>
         <div class="board-chart-slot"></div>
-        <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">Tuning</span></div>
-          <div class="ctl-row" data-t="ctx"><span class="cl">Context budget</span><input type="range" min="0" max="100" value="62"/><span class="cv"></span></div>
-          <div class="ctl-row" data-t="wake"><span class="cl">Wake interval</span><input type="range" min="0" max="100" value="35"/><span class="cv"></span></div>
-          <div class="ctl-row" data-t="auto"><span class="cl">Autonomy</span><input type="range" min="0" max="100" value="80"/><span class="cv"></span></div>
-        </div>
+        <div class="board-box board-ctl-box"></div>
         <div class="board-box board-legend-box">
           <div class="board-box-h"><span class="bh-t">Legend</span></div>
           <div class="legend board-legend">
@@ -607,27 +854,13 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>
       <div class="board-actions">
         <div class="ctl-grid">
-          <button class="ctl-btn armed" data-a="pause">Pause</button>
-          <button class="ctl-btn" data-a="resume">Resume</button>
-          <button class="ctl-btn" data-a="respawn">Respawn</button>
-          <button class="ctl-btn danger" data-a="terminate">Terminate</button>
+          ${deadActionButtons()}
         </div>
         <button class="ctl-btn" data-a="open">Open full view</button>
       </div>`
 
-    const chatBox = controlsPage.querySelector('.board-chat-box')
-    chatBox.appendChild(buildChat({
-      title: agent.name,
-      subtitle: `${role.label} · direct line`,
-      roleKey: agent.role,
-      seed: 6,
-    }))
-    chatBox.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && event.target.closest?.('.chat-input')) {
-        event.stopPropagation()
-        event.target.blur()
-      }
-    })
+    mountRailChat(agent, role)
+    controlsPage.querySelector('.board-ctl-box').replaceWith(launchControlsBox(agent))
 
     const ringSize = Math.max(180, Math.min(214, (railElement.clientWidth || 320) - 130))
     boardRing = uptimeRing({
@@ -652,20 +885,6 @@ export function computersView({ initialComputer = null, navigate }) {
       setViewMorph({ kind: 'zoom', x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
       navigate(`#/agent/${computer.id}/${agent.id}`)
     })
-    controlsPage.querySelectorAll('.ctl-btn[data-a]:not([data-a="open"])').forEach(button => {
-      button.addEventListener('click', () => {
-        controlsPage.querySelectorAll('.ctl-btn.armed').forEach(item => item.classList.remove('armed'))
-        button.classList.add('armed')
-      })
-    })
-    controlsPage.querySelectorAll('input[type="range"]').forEach(rangeFill)
-    controlsPage.querySelectorAll('.ctl-row[data-t]').forEach(row => {
-      const input = row.querySelector('input')
-      const value = row.querySelector('.cv')
-      const update = () => { value.textContent = TUNING[row.dataset.t](+input.value) }
-      input.addEventListener('input', update)
-      update()
-    })
     activateRail(controlsPage)
   }
 
@@ -679,11 +898,16 @@ export function computersView({ initialComputer = null, navigate }) {
     const taskSummary = Number.isFinite(agent.tasksDone)
       ? `${agent.tasksDone} tasks${Number.isFinite(agent.failRate) ? ` · ${agent.failRate}% fail` : ''}`
       : null
-    const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task telemetry' : null, 'chat', 'tuning', 'activity'].filter(Boolean)
+    /* `chat` and `tuning` have left this list. They were correct while the rail
+       had neither; now the rail has a chatbox that states its own channel, and
+       a control box whose knobs are real. Leaving them here would have the
+       panel report two things missing while they sit above it. */
+    const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task telemetry' : null, 'activity'].filter(Boolean)
     controlsPage.innerHTML = `
       <div class="rail-title"><button class="rail-back" type="button">‹ Fleet projection</button><span class="spacer"></span>Declared node</div>
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div></div>
+        <div class="board-box board-chat-box"></div>
         <div class="board-box board-ctl-box projection-state">
           <div class="board-box-h"><span class="bh-t">Projection register</span></div>
           <div class="rail-sub">ID · ${escapeMarkup(agent.id)}</div>
@@ -694,11 +918,25 @@ export function computersView({ initialComputer = null, navigate }) {
           ${taskSummary === null ? '' : `<div class="rail-sub">${escapeMarkup(taskSummary)}</div>`}
           <div class="projection-unavailable">${escapeMarkup(missing.join(', '))} unavailable · ${escapeMarkup(agent.projectionUnavailableReason)}</div>
         </div>
+        <div class="board-launch-slot"></div>
       </div>
-      <div class="board-actions"><button class="ctl-btn" data-a="open">Open full view</button></div>`
+      <div class="board-actions">
+        <div class="ctl-grid">${deadActionButtons()}</div>
+        <button class="ctl-btn" data-a="open">Open full view</button>
+      </div>`
+    mountRailChat(agent, role)
+    controlsPage.querySelector('.board-launch-slot').replaceWith(launchControlsBox(agent))
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     activateRail(controlsPage)
+  }
+
+  function loadRailRuns() {
+    void (async () => {
+      const raw = await globalThis.mcAgent?.history?.({}).catch(() => null)
+      if (destroyed) return
+      railRuns = readLocalSessions(raw ?? undefined).runs
+    })()
   }
 
   function clearSourceUnsubs() {
@@ -780,6 +1018,7 @@ export function computersView({ initialComputer = null, navigate }) {
   window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlag)
   unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
 
+  loadRailRuns()
   if (liveMode) loadProjection()
   else mountSimulation()
 

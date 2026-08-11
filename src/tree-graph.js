@@ -754,12 +754,23 @@ export class StaticTreeGraph {
     this.onDensity?.(densityRequiresDrill)
   }
 
+  /* ONE CLICK OPENS THE PANEL.
+     The rail — the agent's chat, its runtime, and its controls — used to be
+     reachable only by DOUBLE clicking a node. A single click drew a selection
+     ring and did nothing else, so the owner asking for "a chatbox on the right
+     when you click a node" was asking for something that was already built and
+     had no discoverable way in. Three fully-built surfaces on this project have
+     shipped with nothing routing to them; this was a fourth.
+     The double click still opens the rail (src/tree-graph.js _wireNode) and is
+     now simply a duplicate of the single click rather than the only way.
+     A dense-mode `focusable` node ALSO re-roots, because drilling is what that
+     node is for — but it opens the rail too, so the rule a person learns is
+     uniform: clicking any node shows that node on the right. */
   handleClick(record) {
-    if (record.el.classList.contains('focusable')) {
-      this.setRoot(record.id)
-      return
-    }
-    this.select(record.id)
+    const drills = record.el.classList.contains('focusable')
+    if (drills) this.setRoot(record.id)
+    else this.select(record.id)
+    this.onOpenControls?.(record.agent)
   }
 
   select(id) {

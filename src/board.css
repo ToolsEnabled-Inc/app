@@ -405,3 +405,136 @@
 .board-meta .sev-good { color: var(--s-good-text, var(--s-good)); font-style: normal; }
 .board-meta .sev-warn { color: var(--s-warn-text, var(--s-warn)); font-style: normal; }
 .board-meta .sev-serious { color: var(--s-serious-text, var(--s-serious)); font-style: normal; }
+
+/* ------------------------------------------------------------
+   13 · Launch controls, and the chatbox's honest states
+
+   These replace the three "Tuning" sliders. Those sliders were inert — the
+   whole click handler wrote a formatted string into the span beside them —
+   and the owner named that class of defect directly: "dont lie like we cant
+   control temperature". So this section styles two new kinds of thing that
+   the rail never had to draw before:
+
+     · a control whose real effect is printed under it (.ctl-argv), because a
+       knob that shows the actual flags it produces cannot drift from what it
+       claims to do; and
+     · a NAMED ABSENCE (.ctl-unsupported), which is the part that has no
+       precedent on this page. It is deliberately styled as quiet prose rather
+       than as a disabled control: a greyed-out temperature slider still looks
+       like a temperature slider that might come back, and there is no such
+       flag on either engine to come back to.
+
+   No new colour, radius, or font enters here. Everything below is the rail's
+   existing token vocabulary so the box reads as part of the same panel.
+   ------------------------------------------------------------ */
+.board-page .ctl-field {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.board-page .ctl-field .cl { flex: none; }
+.board-page .ctl-field .cv {
+  color: var(--ink-2);
+  font-family: var(--font-mono); font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.board-page .ctl-select,
+.board-page .ctl-num {
+  flex: 1 1 auto; min-width: 0;
+  margin-left: auto;
+  padding: 5px 8px;
+  border-radius: var(--board-r);
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--ink);
+  font: inherit; font-size: 12.5px;
+}
+.board-page .ctl-num { flex: 0 0 5.5ch; text-align: right; font-variant-numeric: tabular-nums; }
+.board-page .ctl-select:focus-visible,
+.board-page .ctl-num:focus-visible { border-color: var(--role); outline: none; }
+
+/* The literal argv fragment the selected tier produces. Monospace because it
+   is a command line and will be compared against one, and wrapped rather than
+   clipped because a truncated flag list is how a reader concludes the wrong
+   flags are being sent. */
+.board-page .ctl-argv {
+  margin: 2px 0 8px;
+  padding: 6px 8px;
+  border-radius: var(--board-r);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-family: var(--font-mono); font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.board-page .ctl-unsupported {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.board-page .ctl-unsupported > .cl {
+  display: block; margin-bottom: 8px;
+  font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 650;
+}
+.board-page .ctl-unsupported-row {
+  display: grid; gap: 2px;
+  margin-bottom: 10px;
+  font-size: 12.5px; line-height: 1.45;
+}
+.board-page .ctl-unsupported-row b { color: var(--ink); font-weight: 650; }
+.board-page .ctl-unsupported-row span { color: var(--ink-2); }
+.board-page .ctl-unsupported-row code {
+  color: var(--ink-2); opacity: 0.8;
+  font-family: var(--font-mono); font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.board-page .ctl-dispatch { margin-top: 12px; display: grid; gap: 6px; }
+.board-page .ctl-out {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* A disabled control on this page is not a control that is loading. It is a
+   control naming something the system cannot do, and its title/aria-label
+   carries the reason, so it stays legible rather than fading toward invisible. */
+.board-page .ctl-btn:disabled {
+  cursor: not-allowed; opacity: 0.55;
+  border-color: var(--line);
+}
+.board-page .ctl-btn:disabled:hover { border-color: var(--line); }
+
+/* ---- the chatbox's non-sending states -------------------------------- */
+
+/* There is no composer here, and this line is why. It is inside the chat
+   frame rather than replacing it, because the log above it is still real. */
+.board-page .chat-nosend {
+  padding: 9px 11px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.45;
+}
+.board-page .chat-empty {
+  display: grid; gap: 4px;
+  padding: 12px 4px;
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.45;
+}
+.board-page .chat-empty b { color: var(--ink); font-weight: 650; }
+.board-page .chat-empty a { color: var(--role); }
+.board-page .chat-hidden-note {
+  margin-top: 8px;
+  color: var(--ink-2); font-size: 12.5px;
+}
+.board-page .chat-runs { margin-top: 10px; }
+.board-page .chat-runs-h {
+  margin-bottom: 6px;
+  font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 650;
+}
+.board-page .chat-run {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 3px 0;
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+.board-page .chat-run b { color: var(--ink); font-weight: 600; }
