@@ -310,7 +310,9 @@ async function openApp(executable, scratch, label, scenario) {
   const child = spawn(executable, [
     `--user-data-dir=${userData}`,
     '--remote-debugging-port=0',
-  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'] })
+    /* windowsHide kills the console flash only; the BrowserWindow is hidden by
+       MC_SMOKE_HEADLESS=1 in the inherited environment (shell/window-options.cjs). */
+  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   const noise = []
   for (const stream of [child.stdout, child.stderr]) {
     stream.setEncoding('utf8')
@@ -325,7 +327,7 @@ async function openApp(executable, scratch, label, scenario) {
        renderer children survive it and accumulate across runs. */
     try { child.kill() } catch { /* already gone */ }
     if (child.pid) {
-      try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* nothing left */ }
+      try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }) } catch { /* nothing left */ }
     }
     await delay(400)
   }

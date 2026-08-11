@@ -257,7 +257,9 @@ async function drive(executable, scratch) {
   const launch = () => spawn(executable, [
     `--user-data-dir=${path.join(profile, 'userdata')}`,
     `--remote-debugging-port=${port}`,
-  ], { env: environment, stdio: 'ignore' })
+    /* windowsHide kills the console flash only; the BrowserWindow is hidden by
+       MC_SMOKE_HEADLESS=1 in the inherited environment (shell/window-options.cjs). */
+  ], { env: environment, stdio: 'ignore', windowsHide: true })
 
   /* CLOSE IT THE WAY A PERSON DOES, and only then force it.
    *
@@ -281,7 +283,7 @@ async function drive(executable, scratch) {
     try {
       execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
         `Get-CimInstance Win32_Process -Filter "Name='${path.basename(executable)}'" | Where-Object { $_.ExecutablePath -like '${path.join(scratch, 'app').replace(/\\/g, '\\\\')}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
-      ], { stdio: 'ignore' })
+      ], { stdio: 'ignore', windowsHide: true })
     } catch { /* nothing of ours left to stop */ }
     try { child.kill() } catch { /* already gone */ }
     for (let attempt = 0; attempt < 24; attempt += 1) {
@@ -481,13 +483,25 @@ async function drive(executable, scratch) {
       await delay(250)
     }
     const reopenedOrigin = await evaluate2('location.origin')
-    /* Named separately, because these are two different failures and reporting
-       the second as the first is how a lane spends an afternoon on the wrong
-       defect. If this one fails, nothing about this box is broken: the whole
-       product has just lost every stored setting because it came up on a
-       different address. */
-    check('the relaunched window came back at the same address, which is what every stored setting is keyed to',
-      reopenedOrigin === origin, `${origin} then ${reopenedOrigin}`)
+    /* THE ADDRESS IS DIAGNOSTIC DETAIL, NOT A CHECK. It used to be asserted --
+       "the relaunched window came back at the same address, which is what every
+       stored setting is keyed to" -- and that assertion has been RETIRED
+       because the contract it names is retired. Settings are no longer keyed to
+       the origin: dist/durable-storage.js carries them across a port change and
+       tools/prefs-origin-proof.mjs is the gate that proves it, by launching the
+       packaged application twice with the first port deliberately held.
+       Measured on this tree on 2026-08-11: the relaunch landed on 4602 instead
+       of 4601 because a concurrent lane held the port, that assertion went red,
+       and "the choice survives a relaunch" -- the check that is actually about
+       this box -- PASSED in the same run. An instrument asserting a retired
+       contract manufactures a kill, and this one manufactured it out of nothing
+       worse than another process being alive at the same time. So the address
+       is still printed, and still attached to the surviving-setting check as
+       the first thing that tells you which failure you are looking at. */
+    if (reopenedOrigin !== origin) {
+      console.log(`  note  the relaunch moved address: ${origin} then ${reopenedOrigin} ` +
+        '(expected when another process holds the port; the next check is what decides whether that mattered)')
+    }
     const survived = await evaluate2('localStorage.getItem("mc.chat.agents")')
     /* The address is part of the evidence. What a browser keeps is keyed by
        ORIGIN, and this application serves itself from a port it picks at

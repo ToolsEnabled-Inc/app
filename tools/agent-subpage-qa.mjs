@@ -494,7 +494,11 @@ async function drive(executable, scratch, tier) {
   const child = spawn(executable, [
     `--user-data-dir=${path.join(profile, 'userdata')}`,
     `--remote-debugging-port=${port}`,
-  ], { env: environment, stdio: 'ignore' })
+    /* windowsHide suppresses the CONSOLE window this spawn would otherwise
+       flash on the owner's desktop. It has no effect on the BrowserWindow --
+       that is what MC_SMOKE_HEADLESS=1 in the inherited environment does (see
+       shell/window-options.cjs), which tools/packaged-qa-suite.mjs sets. */
+  ], { env: environment, stdio: 'ignore', windowsHide: true })
 
   const session = createSession(port, child)
   const shots = []
@@ -747,7 +751,7 @@ async function drive(executable, scratch, tier) {
     try {
       execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
         `Get-CimInstance Win32_Process -Filter "Name='ToolsEnabled.exe'" | Where-Object { $_.ExecutablePath -like '${path.join(scratch, 'app').replace(/\\/g, '\\\\')}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
-      ], { stdio: 'ignore' })
+      ], { stdio: 'ignore', windowsHide: true })
     } catch { /* nothing of ours left to stop */ }
     try { child.kill() } catch { /* already gone */ }
     for (let attempt = 0; attempt < 20; attempt += 1) {

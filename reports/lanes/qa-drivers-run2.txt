@@ -1,0 +1,88 @@
+﻿packaged QA drivers discovered: 15
+  agent-subpage-qa                     node     1200s  
+  chatbox-settings-qa                  node      900s  
+  checkout-privacy-packaged-qa         node      600s  
+  cloud-launch-packaged-qa             node     1500s  COSTLY (spends provider budget)
+  example-page-write-fence-qa          node      600s  
+  first-run-contract-qa                node     1200s  
+  home-screen-qa                       node      240s  
+  loop-packaged-qa                     node      900s  
+  owner-popup-qa                       electron  300s  
+  page2-qa                             electron  300s  
+  recommended-path-packaged-qa         node      900s  
+  setup-deadend-recommended-qa         node      900s  UNREGISTERED (running on defaults)
+  setup-walkthrough-qa                 node      900s  
+  stranger-onboarding-qa               node     1200s  
+  team-panel-packaged-qa               node      600s  
+
+held back (pass --include-costly to run): cloud-launch-packaged-qa
+
+---- agent-subpage-qa ----
+FAIL  agent-subpage-qa  exit=1  59.0s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\agent-subpage-qa.log
+        - 1920x1080: the tools sentence states a measured number |   - 1920x1080: the record clause survives |  | agent subpage: FAIL
+
+---- chatbox-settings-qa ----
+PASS  chatbox-settings-qa  exit=0  21.1s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\chatbox-settings-qa.log
+
+---- checkout-privacy-packaged-qa ----
+PASS  checkout-privacy-packaged-qa  exit=0  28.1s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\checkout-privacy-packaged-qa.log
+
+---- example-page-write-fence-qa ----
+PASS  example-page-write-fence-qa  exit=0  24.9s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\example-page-write-fence-qa.log
+
+---- first-run-contract-qa ----
+PASS  first-run-contract-qa  exit=0  81.0s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\first-run-contract-qa.log
+
+---- home-screen-qa ----
+PASS  home-screen-qa  exit=0  4.3s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\home-screen-qa.log
+
+---- loop-packaged-qa ----
+FAIL  loop-packaged-qa  exit=1  13.6s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\loop-packaged-qa.log
+        FAILED: the panel states that each run kills its own process tree  |   FAILED: the panel admits the loop does not survive a restart  |   FAILED: the run count cannot be set past the engine cap  |   FAILED: the harness ran to completion Cannot read properties of undefined (reading 'goDisabled')
+
+---- owner-popup-qa ----
+FAIL  owner-popup-qa  exit=1  9.6s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\owner-popup-qa.log
+      Error: Timed out waiting for document.querySelectorAll('.owner-popup-item').length === 3 |     at waitFor (C:\Users\joshp\Desktop\wt-capability\tools\owner-popup-qa.cjs:176:9) |     at async run (C:\Users\joshp\Desktop\wt-capability\tools\owner-popup-qa.cjs:261:5)
+
+---- page2-qa ----
+FAIL  page2-qa  exit=1  6.7s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\page2-qa.log
+          "pass": false, |     "detail": "{\"inertSliders\":0,\"sliderLabels\":[],\"tierOptions\":[],\"argv\":\"\",\"capPresent\":false,\"unsupported\":[],\"unsupportedCited\":true}" |   } | ]
+
+---- recommended-path-packaged-qa ----
+PASS  recommended-path-packaged-qa  exit=0  37.5s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\recommended-path-packaged-qa.log
+
+---- setup-deadend-recommended-qa ----
+PASS  setup-deadend-recommended-qa  exit=0  26.3s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\setup-deadend-recommended-qa.log
+
+---- setup-walkthrough-qa ----
+FAIL  setup-walkthrough-qa  exit=1  30.3s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\setup-walkthrough-qa.log
+          at async drive (file:///C:/Users/joshp/Desktop/wt-capability/tools/setup-walkthrough-qa.mjs:272:7)
+ |     at async file:///C:/Users/joshp/Desktop/wt-capability/tools/setup-walkthrough-qa.mjs:336:11
+ | 
+ | Node.js v22.19.0
+
+---- stranger-onboarding-qa ----
+PASS  stranger-onboarding-qa  exit=0  29.8s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\stranger-onboarding-qa.log
+
+---- team-panel-packaged-qa ----
+FAIL  team-panel-packaged-qa  exit=1  13.3s  log=C:\Users\joshp\Desktop\wt-capability\artifacts\packaged-qa\team-panel-packaged-qa.log
+        FAIL each member shows the declared agent it becomes |   FAIL with nothing selected the team cannot be dispatched, and says why | TypeError: Cannot read properties of undefined (reading 'disabled') |     at main (file:///C:/Users/joshp/Desktop/wt-capability/tools/team-panel-packaged-qa.mjs:287:89)
+
+================ packaged QA drivers ================
+FAIL     agent-subpage-qa                     59.0s
+PASS     chatbox-settings-qa                  21.1s
+PASS     checkout-privacy-packaged-qa         28.1s
+PASS     example-page-write-fence-qa          24.9s
+PASS     first-run-contract-qa                81.0s
+PASS     home-screen-qa                       4.3s
+FAIL     loop-packaged-qa                     13.6s
+FAIL     owner-popup-qa                       9.6s
+FAIL     page2-qa                             6.7s
+PASS     recommended-path-packaged-qa         37.5s
+PASS     setup-deadend-recommended-qa         26.3s
+FAIL     setup-walkthrough-qa                 30.3s
+PASS     stranger-onboarding-qa               29.8s
+FAIL     team-panel-packaged-qa               13.3s
+HELD     cloud-launch-packaged-qa             costly, not run
+
+8/14 drivers passed, 1 held back

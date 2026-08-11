@@ -173,7 +173,11 @@ async function main() {
   delete environment.ELECTRON_NO_ATTACH_CONSOLE
 
   const child = spawn(exe, [`--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`], {
-    env: environment, stdio: 'ignore', windowsHide: false,
+    /* windowsHide suppresses the CONSOLE window only; the BrowserWindow is
+       hidden by MC_SMOKE_HEADLESS=1 in the inherited environment (see
+       shell/window-options.cjs), which tools/packaged-qa-suite.mjs sets. It was
+       `false` here, so every automated run flashed a console on the desktop. */
+    env: environment, stdio: 'ignore', windowsHide: true,
   })
 
   let home = null

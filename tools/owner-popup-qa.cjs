@@ -3,8 +3,27 @@
    public-prompt fixture. No credential field or value enters this harness.
 
    Usage:
-     electron tools/owner-popup-qa.cjs --theme <canonical-theme.json>
+     electron tools/owner-popup-qa.cjs [--theme <canonical-theme.json>]
        [--out <screenshot-directory>] [--theme-name tan]
+
+   WHY --theme IS NOW OPTIONAL, AND WHAT REPLACED IT.
+
+   It was mandatory and pointed at a file that does not exist anywhere in this
+   repository, so this harness could not be invoked by any automated path at
+   all: every run died on `--theme must point to the canonical owner-popup theme
+   JSON`. Measured, not argued -- `electron tools/owner-popup-qa.cjs` with no
+   arguments exited non-zero on that line before this change.
+
+   The manifest is NOT invented here. It is read from the capability layer this
+   product ships, capability/src/lib/owner-prompt-theme.js -- the same module the
+   engine serves to the real popup -- so the harness asserts against the shipped
+   palette rather than against a fixture that could drift away from it. An
+   explicit --theme still wins, for pinning an older manifest.
+
+   ABSENCE IS STILL FAIL-CLOSED. If neither a --theme file nor that module is
+   present or well-formed, this throws. It never falls back to a made-up palette:
+   a harness that invents its own colours would go green over a product whose
+   theme had gone missing, which is the failure this file exists to catch.
 */
 
 const { app, BrowserWindow } = require('electron')
@@ -157,11 +176,39 @@ async function waitFor(webContents, expression, timeoutMs = 8_000) {
   throw new Error(`Timed out waiting for ${expression}`)
 }
 
+/* The shipped manifest, read from the capability layer rather than restated.
+ *
+ * Every failure below is LOUD. `require` of a missing module throws, a module
+ * that no longer exports themeManifest throws here, and a manifest that is not
+ * a plain object with the three named themes throws here. None of them degrade
+ * into a default: an empty or partial manifest that this function let through
+ * would paint the popup with `undefined` and every colour assertion downstream
+ * would compare undefined against undefined and pass.
+ */
+function shippedThemeManifest() {
+  const modulePath = path.join(ROOT, 'capability', 'src', 'lib', 'owner-prompt-theme.js')
+  if (!fs.existsSync(modulePath)) {
+    throw new Error(`no --theme given and the shipped manifest is not in this tree at ${modulePath}`)
+  }
+  // eslint-disable-next-line global-require
+  const shipped = require(modulePath)
+  if (!shipped || typeof shipped.themeManifest !== 'function') {
+    throw new Error(`${modulePath} no longer exports themeManifest()`)
+  }
+  const manifest = shipped.themeManifest()
+  const named = manifest && manifest.themes
+  const missing = ['white', 'tan', 'black'].filter(name => !named || !named[name])
+  if (!manifest || typeof manifest !== 'object' || missing.length > 0) {
+    throw new Error(`the shipped manifest is unusable (missing themes: ${missing.join(', ') || 'all'})`)
+  }
+  return { manifest, source: modulePath }
+}
+
 async function run() {
   const themePathArgument = arg('theme')
-  if (!themePathArgument) throw new Error('--theme must point to the canonical owner-popup theme JSON')
-  const themePath = path.resolve(themePathArgument)
-  const theme = JSON.parse(fs.readFileSync(themePath, 'utf8'))
+  const derived = themePathArgument ? null : shippedThemeManifest()
+  const themePath = themePathArgument ? path.resolve(themePathArgument) : derived.source
+  const theme = themePathArgument ? JSON.parse(fs.readFileSync(themePath, 'utf8')) : derived.manifest
   const selectedTheme = arg('theme-name', theme.defaultTheme)
   if (!['white', 'tan', 'black'].includes(selectedTheme)) throw new Error('--theme-name must be white, tan, or black')
   const outputDir = path.resolve(arg('out', path.join(ROOT, 'artifacts', 'owner-popup')))
@@ -187,7 +234,13 @@ async function run() {
   const browser = new BrowserWindow({
     width: 1440,
     height: 960,
-    show: true,
+    /* Created hidden and then shown INACTIVE, for the reason tools/page2-shoot.cjs
+       records: a window that is never shown never composites, so anything that
+       fades in stays at opacity 0 and the screenshot this harness writes comes
+       back blank -- a harness passing on a page the owner sees differently. It
+       was `show: true`, which stole focus from whatever the owner was doing
+       every time this ran. showInactive() paints without taking the foreground. */
+    show: false,
     useContentSize: true,
     backgroundColor: theme.themes[selectedTheme].bg,
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
@@ -203,7 +256,7 @@ async function run() {
     await browser.webContents.executeJavaScript(`localStorage.setItem('mc.theme', ${JSON.stringify(selectedTheme)})`)
     fixture.state.enabled = true
     await browser.reload()
-    browser.show()
+    browser.showInactive()
     browser.focus()
     await waitFor(browser.webContents, `document.querySelectorAll('.owner-popup-item').length === 3`)
     await waitFor(browser.webContents, `document.querySelector('.owner-popup-primary:not([disabled])')`)

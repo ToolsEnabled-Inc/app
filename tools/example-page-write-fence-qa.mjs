@@ -326,7 +326,9 @@ async function drive(executable, scratch, { live }) {
   const child = spawn(executable, [
     `--user-data-dir=${path.join(profile, 'userdata')}`,
     `--remote-debugging-port=${port}`,
-  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'] })
+    /* windowsHide kills the console flash only; the BrowserWindow is hidden by
+       MC_SMOKE_HEADLESS=1 in the inherited environment (shell/window-options.cjs). */
+  ], { env: environment, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   child.stdout.on('data', chunk => startupLog.push(String(chunk)))
   child.stderr.on('data', chunk => startupLog.push(String(chunk)))
 

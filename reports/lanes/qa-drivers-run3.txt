@@ -1,0 +1,84 @@
+﻿packaged QA drivers discovered: 15
+  agent-subpage-qa                     node     1200s  
+  chatbox-settings-qa                  node      900s  
+  checkout-privacy-packaged-qa         node      600s  
+  cloud-launch-packaged-qa             node     1500s  COSTLY (spends provider budget)
+  example-page-write-fence-qa          node      600s  
+  first-run-contract-qa                node     1200s  
+  home-screen-qa                       node      240s  
+  loop-packaged-qa                     node      900s  
+  owner-popup-qa                       electron  300s  
+  page2-qa                             electron  300s  
+  recommended-path-packaged-qa         node      900s  
+  setup-deadend-recommended-qa         node      900s  UNREGISTERED (running on defaults)
+  setup-walkthrough-qa                 node      900s  
+  stranger-onboarding-qa               node     1200s  
+  team-panel-packaged-qa               node      600s  
+
+held back (pass --include-costly to run): cloud-launch-packaged-qa
+
+---- agent-subpage-qa ----
+FAIL  agent-subpage-qa  exit=1  53.2s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\agent-subpage-qa.log
+        - 1920x1080: the tools sentence states a measured number |   - 1920x1080: the record clause survives |  | agent subpage: FAIL
+
+---- chatbox-settings-qa ----
+PASS  chatbox-settings-qa  exit=0  18.3s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\chatbox-settings-qa.log
+
+---- checkout-privacy-packaged-qa ----
+PASS  checkout-privacy-packaged-qa  exit=0  24.4s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\checkout-privacy-packaged-qa.log
+
+---- example-page-write-fence-qa ----
+PASS  example-page-write-fence-qa  exit=0  23.7s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\example-page-write-fence-qa.log
+
+---- first-run-contract-qa ----
+PASS  first-run-contract-qa  exit=0  77.1s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\first-run-contract-qa.log
+
+---- home-screen-qa ----
+PASS  home-screen-qa  exit=0  4.4s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\home-screen-qa.log
+
+---- loop-packaged-qa ----
+FAIL  loop-packaged-qa  exit=1  13.4s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\loop-packaged-qa.log
+        FAILED: the panel states that each run kills its own process tree  |   FAILED: the panel admits the loop does not survive a restart  |   FAILED: the run count cannot be set past the engine cap  |   FAILED: the harness ran to completion Cannot read properties of undefined (reading 'goDisabled')
+
+---- owner-popup-qa ----
+FAIL  owner-popup-qa  exit=1  20.2s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\owner-popup-qa.log
+      Error: Timed out waiting for document.querySelectorAll('.owner-popup-item').length === 3 |     at waitFor (C:\Users\joshp\Desktop\wt-capability\tools\owner-popup-qa.cjs:176:9) |     at async run (C:\Users\joshp\Desktop\wt-capability\tools\owner-popup-qa.cjs:261:5)
+
+---- page2-qa ----
+FAIL  page2-qa  exit=1  3.9s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\page2-qa.log
+          "pass": false, |     "detail": "1" |   } | ]
+
+---- recommended-path-packaged-qa ----
+PASS  recommended-path-packaged-qa  exit=0  33.8s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\recommended-path-packaged-qa.log
+
+---- setup-deadend-recommended-qa ----
+PASS  setup-deadend-recommended-qa  exit=0  18.8s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\setup-deadend-recommended-qa.log
+
+---- setup-walkthrough-qa ----
+PASS  setup-walkthrough-qa  exit=0  21.6s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\setup-walkthrough-qa.log
+
+---- stranger-onboarding-qa ----
+PASS  stranger-onboarding-qa  exit=0  28.2s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\stranger-onboarding-qa.log
+
+---- team-panel-packaged-qa ----
+FAIL  team-panel-packaged-qa  exit=1  12.4s  log=C:\Users\joshp\AppData\Local\Temp\qa-drivers-final\team-panel-packaged-qa.log
+        FAIL each member shows the declared agent it becomes |   FAIL with nothing selected the team cannot be dispatched, and says why | TypeError: Cannot read properties of undefined (reading 'disabled') |     at main (file:///C:/Users/joshp/Desktop/wt-capability/tools/team-panel-packaged-qa.mjs:287:89)
+
+================ packaged QA drivers ================
+FAIL     agent-subpage-qa                     53.2s
+PASS     chatbox-settings-qa                  18.3s
+PASS     checkout-privacy-packaged-qa         24.4s
+PASS     example-page-write-fence-qa          23.7s
+PASS     first-run-contract-qa                77.1s
+PASS     home-screen-qa                       4.4s
+FAIL     loop-packaged-qa                     13.4s
+FAIL     owner-popup-qa                       20.2s
+FAIL     page2-qa                             3.9s
+PASS     recommended-path-packaged-qa         33.8s
+PASS     setup-deadend-recommended-qa         18.8s
+PASS     setup-walkthrough-qa                 21.6s
+PASS     stranger-onboarding-qa               28.2s
+FAIL     team-panel-packaged-qa               12.4s
+HELD     cloud-launch-packaged-qa             costly, not run
+
+9/14 drivers passed, 1 held back
