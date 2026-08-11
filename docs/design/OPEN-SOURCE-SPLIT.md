@@ -156,19 +156,35 @@ automating a third party on a user's behalf: release/ops tooling for the owner's
 product, hardwired to that product's specific Store listing, Firebase project and revenue
 backend. It is currently redistributed inside ToolsEnabled's installer.
 
-**Two live third-party identifiers ship in plaintext today.** Verified present in both the
-staged payload and `release/win-unpacked`:
+**These are NOT a third party's identifiers, and calling them that gets the harm
+backwards.** AICalendar is the owner's *own* separate product — `src/lib/aicalendar-root.js`
+says so in its own header. Nothing here is somebody else's property being disclosed. The
+harm is (a) cross-linkage between two of the owner's products in a repository published
+under his name, and (b) for the Firebase/GCP project specifically, pointing the public at
+infrastructure with live payment handling behind it, which makes it an abuse target. An
+earlier revision of this section called them "third-party identifiers" and very nearly put
+that error into a gating document; the two framings imply different remedies and different
+severities, so the distinction is worth the paragraph.
 
-| Identifier | Path | Line |
+**They are also not the same severity as each other.** A Chrome Web Store item id is public
+by construction — it is in the store URL of any published extension. A live project id with
+billing behind it is not. Do not put them on one line.
+
+**Neither value appears in this document.** Writing an identifier down in order to explain
+why it must not be published would publish it; the table below names the constants and the
+places they used to sit.
+
+**STATUS 2026-08-11 — both are out of the payload** (lane `opus5-ultracode-provider-trio`),
+verified by scanning the staged bytes rather than by reasoning about require() edges:
+
+| Constant | Where it used to sit | How it was resolved |
 | --- | --- | --- |
-| `leodmhfokmdpdkbigklogdphlbkfahee` (AICalendar's Chrome Web Store item) | `capability/src/lib/providers/aicalendar-release.js` | 31 |
-| same | `capability/src/lib/providers/chrome-web-store.js` | 15 |
-| `aica-aed2a` (AICalendar's revenue Firebase/GCP project) | `capability/src/lib/providers/firebase.js` | 12 |
-| same | `capability/config/toolsenabled.policy.json` | 55 |
+| `AICALENDAR_STORE_ITEM_ID` | `src/lib/providers/chrome-web-store.js` (~15), `aicalendar-release.js` (31) | Became configuration, single-sourced from `aicalendar-root` with no default. **Not deleted:** an upload fence, an audit-target redaction and an audit-details gate all compare against it, and deleting the constant would have removed a security control and de-redacted an audit target. All three are mutation-tested. |
+| `AICALENDAR_REVENUE_FIREBASE_PROJECT_ID` | `src/lib/providers/firebase.js` (~12) | Constant and the one tool reaching it moved to `providers/aicalendar-revenue-firebase.js`, required only from `src/lib/tool-packs/`, which no installer entrypoint loads. |
+| same | `config/toolsenabled.policy.json` (55) | Handled earlier and separately, by sanitizing through `capability-defaults/`. |
 
-Both are real, live, publicly resolvable, and tie the installer directly to the owner's
-other product. Neither is caught by `check-no-owner-data.mjs`, because neither is owner
-*identity* data — which is precisely why a second, differently-shaped gate was needed.
+Neither was caught by `check-no-owner-data.mjs`, because neither is owner *identity* data —
+which is precisely why a second, differently-shaped gate was needed.
 
 **The sharpest item in this group:**
 `src/lib/providers/aicalendar-publisher-identity-evidence.js` stages and OCRs the **owner's
@@ -248,7 +264,8 @@ a decision worth making consciously rather than by default:
   `powershell`, `sc`) with `shell: false` and fixed argv. The local allowlist file does not
   ship. Publishing discloses the *design* of the elevation channel.
 - **`config/toolsenabled.policy.json` and `config/model-floor.json`** — both are required at
-  runtime and both carry non-public material: the live GCP project id `aica-aed2a`, the
+  runtime and both carry non-public material: the live GCP project id (the value named by
+  `AICALENDAR_REVENUE_FIREBASE_PROJECT_ID`; see §2.1 — it is not written out here), the
   owner's daily spend cap, paid-plan API quota pools, and — in `model-floor.json` — verbatim
   owner directives and a dated internal incident narrative.
   **PROPOSE: sanitize in place before public release** rather than exclude; the runtime
