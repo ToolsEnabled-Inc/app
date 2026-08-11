@@ -97,6 +97,30 @@ function money(cents, currency) {
   return formatExactAmount(cents, currency)
 }
 
+/**
+ * A one-word status marker for the collapsed row.
+ *
+ * WHY THE ROW COLLAPSED AT ALL. Measured on the owner's real 37-item list in
+ * the packaged window: the shop step was 16,106px tall in a 782px viewport --
+ * twenty and a half screens, a median row of 401px, a tallest row of 676px. He
+ * asked to "pick and choose" from "the whole list" and to have it "clean and
+ * easy"; a page where one item fills the screen is a document with checkboxes
+ * on it, not a shop. Every word of his own reasoning is still here and none of
+ * it was cut -- it moved behind a per-row disclosure, and the disclosure is
+ * open the moment a choice needs it.
+ *
+ * A CHIP IS NOT A SUBSTITUTE FOR THE REASON. A blocked line keeps its full
+ * band, and gets it whether he asks for it or not: choosing a blocked line
+ * opens that row's details, so the sentence explaining why it cannot be bought
+ * arrives at the instant of choosing rather than sitting 400px below a fold he
+ * would have to go looking for.
+ */
+function chip(tone, label) {
+  const element = node('span', 'checkout-chip', label)
+  element.dataset.tone = tone
+  return element
+}
+
 export function checkoutView({ navigate = (hash) => { location.hash = hash } } = {}) {
   const root = el(`
     <main class="view-pad checkout-page">
@@ -105,6 +129,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
           <h1 class="checkout-title">Checkout</h1>
           <p class="checkout-lede"></p>
           <p class="checkout-provenance" data-provenance></p>
+          <p class="checkout-provenance is-quiet" data-cap-source></p>
         </header>
         <div data-stage></div>
       </div>
@@ -117,6 +142,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     document.createTextNode(' It records what you decided, and says so before you decide it.'),
   )
   const provenanceLine = root.querySelector('[data-provenance]')
+  const capLine = root.querySelector('[data-cap-source]')
   const stage = root.querySelector('[data-stage]')
 
   let destroyed = false
@@ -126,9 +152,11 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
   // per-item live handles, so a toggle repaints three nodes instead of
   // rebuilding the list under the owner's cursor and losing his scroll
   const itemViews = new Map()
+  const groupViews = new Map()
   let shopSection = null
   let summaryNodes = null
   let noticesHost = null
+  let queueHost = null
   let barNodes = null
 
   function setUnavailable(title, reason) {
@@ -156,13 +184,20 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       column.append(node('div', 'checkout-price-cadence', CADENCE_LABEL[item.cadence]))
     }
 
+    // The RANGE is price information and stays on the row; the paragraph
+    // explaining where the range came from is reasoning and folds away with the
+    // rest of the reasoning. Left inline, the basis on one unpriced line ran to
+    // eight lines of type and made that row three times the height of the
+    // priced ones around it -- the tallest row on the page was an item he
+    // cannot even choose.
+    let estimateBasis = null
     if (item.estimate) {
       const estimate = node('div', 'checkout-price-estimate')
       estimate.append(
         node('div', '', `Estimated ${money(item.estimate.lowCents, item.currency)} to ${money(item.estimate.highCents, item.currency)} — not a quote.`),
-        node('div', '', item.estimate.basis),
       )
       column.append(estimate)
+      estimateBasis = node('p', 'checkout-item-note', `Where that estimate comes from: ${item.estimate.basis}`)
     }
 
     // The callout the owner asked for by name: vendors advertise a cheap first
@@ -180,7 +215,10 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
         document.createTextNode(' every year after.'),
       )
       column.append(renewal)
-    } else if (item.cadence === 'monthly' && item.firstYearCents !== null) {
+    } else if (item.cadence === 'monthly' && item.firstYearCents !== null && item.firstYearCents > 0) {
+      // Zero times twelve is still zero, and a boxed warning that a free thing
+      // costs nothing over a year is a warning he learns to skip past on the
+      // rows where it says something.
       const yearly = node('div', 'checkout-price-renewal')
       yearly.append(
         document.createTextNode('Billed monthly — '),
@@ -190,16 +228,22 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       column.append(yearly)
     }
 
+    // AN UNCHECKED PRICE STAYS ON THE COLLAPSED ROW; A CHECKED ONE FOLDS AWAY.
+    // Both facts are still on the page, but only one of them is a warning, and
+    // a shop where every line carries a reassuring green sentence is a shop
+    // where nobody reads the sentence that says the number might be wrong.
+    let verifiedNote = null
     if (item.firstYearCents !== null) {
       const verify = node('div', 'checkout-price-verify')
       verify.dataset.verified = String(item.priceVerified)
       verify.textContent = item.priceVerified
         ? `Price checked ${item.priceVerifiedDate}`
         : 'Price not checked against the vendor yet'
-      column.append(verify)
+      if (item.priceVerified) verifiedNote = verify
+      else column.append(verify)
     }
 
-    return column
+    return { column, verifiedNote, estimateBasis }
   }
 
   /* ---------- one item row ---------- */
@@ -243,7 +287,29 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       title.append(tag)
     }
     main.append(title)
-    main.append(node('p', 'checkout-item-what', item.whatItIs))
+
+    const overCap = item.category !== 'do-not-buy'
+      && catalog.spendPolicy.dailyLimitCents !== null
+      && item.firstYearCents !== null
+      && item.firstYearCents > catalog.spendPolicy.dailyLimitCents
+
+    const chips = node('div', 'checkout-chips')
+    if (item.blocking.length > 0) chips.append(chip('blocked', 'Cannot buy yet'))
+    if (item.cautions.length > 0) chips.append(chip('warn', item.cautions.length === 1 ? 'Check first' : `${item.cautions.length} to check first`))
+    if (item.warning) chips.append(chip('warn', 'Watch out'))
+    if (overCap) chips.append(chip('warn', 'Over the spend cap'))
+    if (!item.selectable) chips.append(chip('quiet', item.category === 'do-not-buy' ? 'Ruled out' : 'No quote yet'))
+    if (chips.childElementCount > 0) title.append(chips)
+
+    // The one-line pitch. The full sentence is still in the details below; this
+    // is the line that has to let him tell one shelf item from the next while
+    // scrolling, so it is clamped by the stylesheet rather than trimmed here --
+    // trimming in JavaScript would put an ellipsis into the accessible name too.
+    main.append(node('p', 'checkout-item-summary', item.whatItIs))
+
+    const details = node('div', 'checkout-item-details')
+    details.hidden = true
+    details.append(node('p', 'checkout-item-what', item.whatItIs))
 
     const reasons = node('dl', 'checkout-reasons')
     const addReason = (kind, term, description) => {
@@ -254,7 +320,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     }
     addReason('breaks', 'Without it', item.whatBreaksWithout)
     addReason('wanted', 'Why you wanted it', item.whyHeWantedIt)
-    main.append(reasons)
+    details.append(reasons)
 
     const bands = node('div', 'checkout-item-bands')
     for (const blocker of item.blocking) {
@@ -274,27 +340,62 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     // clears and he tries to buy it. Only the do-not-buy group is exempt,
     // because arguing about the spend cap on something he should not buy at
     // all is noise on top of a settled answer.
-    if (item.category !== 'do-not-buy' && catalog.spendPolicy.dailyLimitCents !== null
-        && item.firstYearCents !== null
-        && item.firstYearCents > catalog.spendPolicy.dailyLimitCents) {
+    if (overCap) {
       bands.append(band('warn', 'Over the spend cap', [
         `This one line is ${money(item.firstYearCents, item.currency)}, above the ${money(catalog.spendPolicy.dailyLimitCents, item.currency)} daily spend cap this installation is configured with.`,
         'If it were put through the spend ledger today it would be refused on its own while the cheaper lines in the same batch were recorded — so it would look like a partial success rather than a failure. You can still choose it here; this is a warning about what would happen next, not a block.',
         `Cap read from ${catalog.spendPolicy.source}.`,
       ]))
     }
-    if (bands.childElementCount > 0) main.append(bands)
+    if (bands.childElementCount > 0) details.append(bands)
 
-    if (item.notes) main.append(node('p', 'checkout-item-note', item.notes))
+    if (item.notes) details.append(node('p', 'checkout-item-note', item.notes))
     if (item.sourceUrl) {
       // Printed, never linked: this screen has no business opening a browser,
       // and a clickable vendor link on a checkout is precisely the affordance
       // that makes people think the page can buy something.
-      main.append(node('p', 'checkout-item-source', `Source: ${item.sourceUrl}`))
+      details.append(node('p', 'checkout-item-source', `Source: ${item.sourceUrl}`))
     }
+
+    const { column, verifiedNote, estimateBasis } = priceColumn(item)
+    if (estimateBasis) details.append(estimateBasis)
+    if (verifiedNote) details.append(verifiedNote)
+
+    // The disclosure. It names what is behind it -- "Details" alone would not
+    // tell him that his own words for wanting this are down there -- and it
+    // says how many warnings are folded away, because a fold that hides a
+    // caution without counting it is the absence this screen exists to refuse.
+    const disclose = node('button', 'checkout-disclose')
+    disclose.type = 'button'
+    disclose.setAttribute('aria-expanded', 'false')
+    const foldedWarnings = bands.childElementCount
+    const discloseLabel = (open) => (open
+      ? 'Hide why'
+      : foldedWarnings > 0
+        ? `Why, and ${foldedWarnings} thing${foldedWarnings === 1 ? '' : 's'} to read first`
+        : 'Why you wanted it')
+    disclose.textContent = discloseLabel(false)
+    disclose.setAttribute('aria-label', `${discloseLabel(false)} — ${item.name}`)
+    main.append(disclose)
+    main.append(details)
     row.append(main)
 
-    const column = priceColumn(item)
+    const setExpanded = (open) => {
+      details.hidden = !open
+      row.dataset.expanded = String(open)
+      disclose.setAttribute('aria-expanded', String(open))
+      disclose.textContent = discloseLabel(open)
+      disclose.setAttribute('aria-label', `${discloseLabel(open)} — ${item.name}`)
+    }
+    setExpanded(false)
+    disclose.addEventListener('click', () => {
+      const open = details.hidden
+      setExpanded(open)
+      // Once he has taken a look, an automatic re-open on the next repaint
+      // would fight him for control of his own row.
+      if (!open) row.dataset.autoExpanded = 'false'
+    })
+
     let quantityOutput = null
     if (item.selectable && item.quantityMax > 1) {
       const stepper = node('div', 'checkout-qty')
@@ -311,9 +412,9 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       more.addEventListener('click', () => store.setQuantity(item.id, store.quantityOf(item.id) + 1))
       stepper.append(less, quantityOutput, more)
       column.append(stepper)
-      itemViews.set(item.id, { row, pick, quantityOutput, less, more, item })
+      itemViews.set(item.id, { row, pick, quantityOutput, less, more, item, setExpanded })
     } else {
-      itemViews.set(item.id, { row, pick, quantityOutput: null, less: null, more: null, item })
+      itemViews.set(item.id, { row, pick, quantityOutput: null, less: null, more: null, item, setExpanded })
     }
     row.append(column)
 
@@ -347,6 +448,19 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     noticesHost.setAttribute('aria-live', 'polite')
     section.append(noticesHost)
 
+    // WHAT IS ALREADY WAITING ON HIS DECISION, ABOVE THE SHELVES.
+    //
+    // It used to appear only on the review step, which he reaches by picking
+    // something first. So the money actually queued against his name -- the
+    // carts an assistant put there -- was behind a choice he had not made yet,
+    // on the one screen he asked for by name to be where the purchase list
+    // lives. It is now the first thing under the totals, with every line and
+    // every amount, and it still does not decide anything here.
+    queueHost = node('section', 'checkout-queue')
+    queueHost.setAttribute('aria-label', 'Purchase requests waiting for your decision')
+    section.append(queueHost)
+    void paintApprovalsQueue(queueHost, { detailed: true })
+
     for (const category of catalog.categories) {
       const items = itemsInCategory(catalog, category.id)
       if (items.length === 0) continue
@@ -369,18 +483,49 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
         choosable === items.length
           ? `${items.length} item${items.length === 1 ? '' : 's'}`
           : `${choosable} of ${items.length} can be chosen`))
+      // The shelf's own running total. Three numbers at the top of the page
+      // answer "what is this costing me"; this answers "and which shelf is it
+      // coming from", which is the question a person actually asks while
+      // trimming a list back.
+      const shelfTally = node('span', 'checkout-group-tally', '')
+      shelfTally.hidden = true
+      side.append(shelfTally)
       if (recommended.length > 0) {
         const action = node('button', 'checkout-btn', `Select recommended (${recommended.length})`)
         action.type = 'button'
         action.addEventListener('click', () => store.selectRecommendedIn(category.id))
         side.append(action)
       }
-      head.append(side)
-      group.append(head)
 
       const list = node('ul', 'checkout-items')
       for (const item of items) list.append(itemRow(item))
+
+      // THE DO-NOT-BUY SHELF STARTS FOLDED, AND SAYS SO IN ITS OWN BUTTON.
+      // Ten of the thirty-seven lines are there to argue AGAINST a purchase; a
+      // shop that opens with a quarter of its floor space given to things he
+      // must not buy buries the eight lines that actually gate shipping. The
+      // count is on the control, so folded is never the same as gone.
+      if (category.id === 'do-not-buy') {
+        group.dataset.collapsed = 'true'
+        list.hidden = true
+        const toggle = node('button', 'checkout-btn', `Show the ${items.length} ruled out`)
+        toggle.type = 'button'
+        toggle.dataset.quiet = 'true'
+        toggle.setAttribute('aria-expanded', 'false')
+        toggle.addEventListener('click', () => {
+          const open = list.hidden
+          list.hidden = !open
+          group.dataset.collapsed = String(!open)
+          toggle.setAttribute('aria-expanded', String(open))
+          toggle.textContent = open ? 'Hide the ruled out' : `Show the ${items.length} ruled out`
+        })
+        side.append(toggle)
+      }
+
+      head.append(side)
+      group.append(head)
       group.append(list)
+      groupViews.set(category.id, { tally: shelfTally, ids: items.map(entry => entry.id) })
       section.append(group)
     }
 
@@ -433,12 +578,33 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
       const selected = state.lines.some(line => line.id === id)
       view.row.dataset.selected = String(selected)
       view.pick.setAttribute('aria-checked', String(selected))
+      // CHOOSING A BLOCKED LINE OPENS ITS REASON, ONCE.
+      //
+      // The row is folded so that thirty-seven lines fit on a screen he can
+      // read. A line that cannot safely be bought must not be folded at the
+      // moment he picks it, so picking one unfolds it -- and `autoExpanded`
+      // makes that happen exactly once, because a fold he deliberately closed
+      // that springs open again on every repaint is a page arguing with him.
+      if (selected && view.item.blocked && view.row.dataset.autoExpanded === undefined) {
+        view.row.dataset.autoExpanded = 'true'
+        view.setExpanded(true)
+      }
+      if (!selected) delete view.row.dataset.autoExpanded
       if (view.quantityOutput) {
         const quantity = state.lines.find(line => line.id === id)?.quantity || 0
         view.quantityOutput.textContent = String(quantity)
         view.less.disabled = quantity <= 1
         view.more.disabled = quantity >= view.item.quantityMax
       }
+    }
+
+    for (const [, group] of groupViews) {
+      const chosen = state.lines.filter(line => group.ids.includes(line.id))
+      const cash = chosen.reduce((sum, line) => sum + line.cashTodayCents, 0)
+      group.tally.hidden = chosen.length === 0
+      group.tally.textContent = chosen.length === 0
+        ? ''
+        : `${chosen.length} chosen · ${money(cash, currency)} today`
     }
 
     barNodes.barCash.textContent = money(state.cashTodayCents, currency)
@@ -586,9 +752,9 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     ]))
     section.append(truth)
 
-    const queueHost = node('div', '')
-    section.append(queueHost)
-    void paintApprovalsQueue(queueHost)
+    const reviewQueueHost = node('div', '')
+    section.append(reviewQueueHost)
+    void paintApprovalsQueue(reviewQueueHost, { detailed: false })
 
     // WHO IS CONFIRMING. The button starts disabled and stays disabled unless a
     // real signed-in account answers, because the owner's condition is that a
@@ -687,7 +853,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
    * screen reports the queue truthfully and sends him to the surface that
    * genuinely decides it.
    */
-  async function paintApprovalsQueue(host) {
+  async function paintApprovalsQueue(host, { detailed = false } = {}) {
     let raw
     try { raw = await ownerPromptSnapshot() }
     catch { raw = null }
@@ -696,7 +862,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     if (raw?.ok !== true) {
       host.replaceChildren(band('note', 'Approvals queue', [
         'The approvals service is not reachable from this build, so nothing here was sent anywhere and nothing could have been.',
-        'That does not affect what confirming below does: your decision is recorded on this computer either way.',
+        'Nothing is being claimed about what is or is not waiting for you — this screen could not ask.',
       ]))
       return
     }
@@ -710,8 +876,15 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     }
     const carts = snapshot.prompts.filter(prompt => prompt.kind === 'purchase_batch')
     if (carts.length === 0) {
+      // NOT "nothing is pending your approval anywhere else". This copy asked
+      // the approvals queue THIS INSTALLATION runs and got an empty answer;
+      // that is a fact about one queue, and a screen about money must not
+      // upgrade it into an all-clear covering every queue on the machine. An
+      // empty read reported as a global all-clear is exactly the shape of
+      // absence-read-as-consent this product keeps having to unlearn.
       host.replaceChildren(band('good', 'Approvals queue', [
-        'The approvals queue is reachable and has no purchase request waiting in it. Nothing is pending your approval anywhere else.',
+        'The approvals queue this copy of ToolsEnabled runs is reachable and has no purchase request waiting in it.',
+        'That is what this installation can see. It is not a statement about a queue somewhere else.',
       ]))
       return
     }
@@ -719,16 +892,84 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     const total = sameCurrency
       ? money(carts.reduce((sum, cart) => sum + cart.totalCents, 0), carts[0].currency)
       : `${carts.length} requests`
-    const notice = band('warn', 'Waiting in Approvals', [
-      `There ${carts.length === 1 ? 'is' : 'are'} ${carts.length} purchase request${carts.length === 1 ? '' : 's'} waiting for your decision in Approvals, totalling ${total}.`,
-      'That is a separate, audited queue and this screen does not decide it. Confirming here records your shopping decision; it does not approve or deny those lines.',
+    const notice = band('warn', 'Waiting for you', [
+      `There ${carts.length === 1 ? 'is' : 'are'} ${carts.length} purchase request${carts.length === 1 ? '' : 's'} waiting for your decision, totalling ${total}.`,
+      'Every line is listed below at its exact amount. Approving or denying them happens in Approvals, which is the audited queue — this screen shows you what is in it and decides none of it.',
     ])
-    const go = node('button', 'checkout-btn', 'Open Approvals')
+    const go = node('button', 'checkout-btn', `Decide ${carts.length === 1 ? 'it' : 'them'} in Approvals`)
     go.type = 'button'
+    go.dataset.primary = 'true'
     go.addEventListener('click', () => navigate('#/approvals'))
     const holder = node('div', 'checkout-step-actions')
     holder.append(go)
-    host.replaceChildren(notice, holder)
+
+    if (!detailed) {
+      host.replaceChildren(notice, holder)
+      return
+    }
+
+    // THE WHOLE CART, LINE BY LINE, AT ITS EXACT AMOUNT.
+    //
+    // He asked for the whole list where he could see every option and its
+    // price. A count and a grand total is a summary of somebody else's cart;
+    // these are the lines themselves, with the merchant and the reason each
+    // one was put there, so that the screen he opens is the screen the
+    // decision is actually about.
+    const carts_ = carts.map(cart => {
+      const panel = node('article', 'checkout-cart')
+      // Folded, exactly like a shelf row, and for the same measured reason: the
+      // note on the live cart runs to fourteen lines and each of its sixteen
+      // line items carries a five-line justification. Every word is here and
+      // one control opens all of it at once; none of it is summarised, because
+      // summarising somebody else's reason for spending your money is the
+      // thing this panel exists to stop happening.
+      panel.dataset.verbose = 'false'
+      const head = node('header', 'checkout-cart-head')
+      head.append(node('h3', 'checkout-cart-title', cart.title))
+      head.append(node('span', 'checkout-cart-total', money(cart.totalCents, cart.currency)))
+      panel.append(head)
+      panel.append(node('p', 'checkout-cart-message', cart.message))
+      const verbose = node('button', 'checkout-disclose', 'Show every word of this request')
+      verbose.type = 'button'
+      verbose.setAttribute('aria-expanded', 'false')
+      verbose.addEventListener('click', () => {
+        const open = panel.dataset.verbose !== 'true'
+        panel.dataset.verbose = String(open)
+        verbose.setAttribute('aria-expanded', String(open))
+        verbose.textContent = open ? 'Shorten this request' : 'Show every word of this request'
+      })
+      panel.append(verbose)
+
+      const columns = node('div', 'checkout-lines-head')
+      columns.append(node('span', '', 'Line'), node('span', '', 'Amount'), node('span', '', ''))
+      panel.append(columns)
+
+      const list = node('ul', 'checkout-lines')
+      for (const line of cart.items) {
+        const entry = node('li', 'checkout-line')
+        const left = node('div', '')
+        left.append(node('div', 'checkout-line-name', line.description))
+        left.append(node('div', 'checkout-line-sub', `${line.merchant} · ${line.purpose}`))
+        entry.append(left)
+        entry.append(node('div', 'checkout-line-amount', money(line.amountCents, line.currency)))
+        entry.append(node('div', 'checkout-line-annual', ''))
+        list.append(entry)
+      }
+      panel.append(list)
+
+      const totals = node('div', 'checkout-totals')
+      totals.append(node('div', 'checkout-totals-label', `${cart.items.length} line${cart.items.length === 1 ? '' : 's'}`))
+      totals.append(node('div', 'checkout-line-amount', money(cart.totalCents, cart.currency)))
+      totals.append(node('div', 'checkout-line-annual', ''))
+      panel.append(totals)
+      // Undecided is the state it is in, and the deadline is part of the
+      // decision: a request that lapses is denied, not shelved.
+      const expires = new Date(cart.expiresAt)
+      panel.append(node('p', 'checkout-cart-foot',
+        `Undecided. If you decide nothing, this is denied${Number.isFinite(expires.getTime()) ? ` after ${expires.toLocaleString()}` : ''}.`))
+      return panel
+    })
+    host.replaceChildren(notice, ...carts_, holder)
   }
 
   /* ---------- the confirmed step ---------- */
@@ -807,6 +1048,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     if (step === 'shop') {
       if (!shopSection) {
         itemViews.clear()
+        groupViews.clear()
         shopSection = buildShop()
       }
       stage.replaceChildren(shopSection)
@@ -839,10 +1081,43 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     }
     if (destroyed) return
     catalog = loaded
+    // A LIST THAT EXISTS AND HAS NOTHING IN IT IS STILL AN EMPTY SHOP.
+    //
+    // src/checkout-visibility.js keeps the route and the ring stop off when no
+    // list is served, so that a copy with no list has no checkout. Measured
+    // against a catalogue whose `items` array was empty, that guarantee ended
+    // one layer short: the probe saw a JSON list, opened the door, and the
+    // screen rendered three $0.00 figures, no shelves, and no explanation --
+    // the exact empty shop the probe exists to prevent, reached by serving a
+    // list rather than by serving none.
+    //
+    // The probe is not the place to fix it: making the router parse and count a
+    // catalogue would put schema knowledge into navigation and read the file
+    // twice at boot. This is the layer that already knows what a valid list
+    // contains, so this is the layer that refuses.
+    if (catalog.items.length === 0) {
+      provenanceLine.textContent = ''
+      capLine.textContent = ''
+      setUnavailable(
+        'This purchase list has nothing in it',
+        'The list installed on this computer is readable, and it contains no items. Nothing is being shown rather than an empty shop that looks like a screen which failed to load.',
+      )
+      return
+    }
     const generated = new Date(catalog.generatedAt)
+    const choosable = catalog.items.filter(item => item.selectable).length
+    // TWO LINES, BECAUSE THEY ANSWER TWO DIFFERENT QUESTIONS. The first is what
+    // shop this is and how much of it he can act on -- the count of choosable
+    // lines is on it because "37 items" over a list where 14 are unpriced or
+    // ruled out reads as a broken screen. The second is where the spend cap
+    // came from, which is a machine fact in a machine's own words; it stays
+    // verbatim, because a paraphrased provenance is no provenance, but it stops
+    // being the loudest thing under the title of a shop.
     provenanceLine.textContent =
-      `${catalog.items.length} items · list prepared ${Number.isFinite(generated.getTime()) ? generated.toLocaleDateString() : catalog.generatedAt}`
-      + ` · spend cap ${catalog.spendPolicy.dailyLimitCents === null ? 'not readable' : money(catalog.spendPolicy.dailyLimitCents, catalog.currency)} per day from ${catalog.spendPolicy.source}`
+      `${catalog.items.length} items · ${choosable} you can choose · list prepared ${Number.isFinite(generated.getTime()) ? generated.toLocaleDateString() : catalog.generatedAt}`
+    capLine.textContent = catalog.spendPolicy.dailyLimitCents === null
+      ? `Daily spend cap: not readable from ${catalog.spendPolicy.source}`
+      : `Daily spend cap ${money(catalog.spendPolicy.dailyLimitCents, catalog.currency)}, read from ${catalog.spendPolicy.source}`
     store = createSelectionStore({
       catalog,
       storage: safeStorage(typeof localStorage === 'undefined' ? null : localStorage),
@@ -859,6 +1134,7 @@ export function checkoutView({ navigate = (hash) => { location.hash = hash } } =
     destroy() {
       destroyed = true
       itemViews.clear()
+      groupViews.clear()
     },
   }
 }
