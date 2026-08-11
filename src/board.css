@@ -109,7 +109,14 @@
 /* ------------------------------------------------------------
    3 · the square boxes — the board's internal geometry
    ------------------------------------------------------------ */
-.board-page .board-box {
+/* The `.computers .stats-page` half of every pair below is the FLEET rail. The
+   organisation panels (section 14) live on both rails — the role of one agent
+   belongs beside that agent, and the role library belongs beside the fleet —
+   and a panel that changed shape depending on which rail it was standing in
+   would read as two different panels. The selectors are widened rather than the
+   declarations copied, because a copy is what drifts. */
+.board-page .board-box,
+.computers .stats-page .board-box {
   position: relative;
   margin-top: 14px;
   padding: 12px 13px 14px;
@@ -126,7 +133,8 @@
     0 1px 2px rgba(var(--shadow-rgb), calc(0.035 * var(--shadow-k)));
 }
 
-.board-page .board-box-h {
+.board-page .board-box-h,
+.computers .stats-page .board-box-h {
   display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--ink-2); font-weight: 650;
@@ -142,7 +150,8 @@
   width: 9px; height: 9px; border-radius: 1px; flex: none;
   background: var(--role);
 }
-.board-page .board-cap {
+.board-page .board-cap,
+.computers .stats-page .board-cap {
   margin: 5px 0 10px;
   font-size: 12.5px; color: var(--ink-2);
 }
@@ -174,12 +183,14 @@
    5 · Agent Controls — square box, square buttons
    ------------------------------------------------------------ */
 .board-page .ctl-grid { gap: 7px; }
-.board-page .ctl-btn {
+.board-page .ctl-btn,
+.computers .stats-page .ctl-btn {
   position: relative; overflow: hidden;
   border-radius: var(--board-r);
   border-color: var(--line-2);          /* the sketch's boxes have a drawn edge */
 }
-.board-page .ctl-btn:hover { border-color: color-mix(in oklab, var(--role) 32%, white); }
+.board-page .ctl-btn:hover,
+.computers .stats-page .ctl-btn:hover { border-color: color-mix(in oklab, var(--role) 32%, white); }
 /* armed reads as the agent's own colour, but stays ink-on-tint so the label
    never loses contrast on the lighter role hues */
 .board-page .ctl-btn.armed {
@@ -439,7 +450,8 @@
   font-variant-numeric: tabular-nums;
 }
 .board-page .ctl-select,
-.board-page .ctl-num {
+.board-page .ctl-num,
+.computers .stats-page .ctl-select {
   flex: 1 1 auto; min-width: 0;
   margin-left: auto;
   padding: 5px 8px;
@@ -451,7 +463,8 @@
 }
 .board-page .ctl-num { flex: 0 0 5.5ch; text-align: right; font-variant-numeric: tabular-nums; }
 .board-page .ctl-select:focus-visible,
-.board-page .ctl-num:focus-visible { border-color: var(--role); outline: none; }
+.board-page .ctl-num:focus-visible,
+.computers .stats-page .ctl-select:focus-visible { border-color: var(--role); outline: none; }
 
 /* The literal argv fragment the selected tier produces. Monospace because it
    is a command line and will be compared against one, and wrapped rather than
@@ -520,8 +533,10 @@
    be readable when the status colour is the only thing distinguishing rows. */
 .board-page .team-row[data-phase="refused"] b { color: var(--danger, var(--ink)); }
 
-.board-page .ctl-dispatch { margin-top: 12px; display: grid; gap: 6px; }
-.board-page .ctl-out {
+.board-page .ctl-dispatch,
+.computers .stats-page .ctl-dispatch { margin-top: 12px; display: grid; gap: 6px; }
+.board-page .ctl-out,
+.computers .stats-page .ctl-out {
   font-family: var(--font-mono); font-size: 12px;
   color: var(--ink-2);
   overflow-wrap: anywhere;
@@ -530,11 +545,13 @@
 /* A disabled control on this page is not a control that is loading. It is a
    control naming something the system cannot do, and its title/aria-label
    carries the reason, so it stays legible rather than fading toward invisible. */
-.board-page .ctl-btn:disabled {
+.board-page .ctl-btn:disabled,
+.computers .stats-page .ctl-btn:disabled {
   cursor: not-allowed; opacity: 0.55;
   border-color: var(--line);
 }
-.board-page .ctl-btn:disabled:hover { border-color: var(--line); }
+.board-page .ctl-btn:disabled:hover,
+.computers .stats-page .ctl-btn:disabled:hover { border-color: var(--line); }
 
 /* ---- the chatbox's non-sending states -------------------------------- */
 
@@ -569,3 +586,143 @@
   color: var(--ink-2); font-variant-numeric: tabular-nums;
 }
 .board-page .chat-run b { color: var(--ink); font-weight: 600; }
+
+/* ------------------------------------------------------------
+   14 · The declared organisation — hierarchy, roles, and role wording
+
+   Three surfaces, all of which WRITE: the drag's report line under the graph
+   tools, the selected agent's role menu, and the role library. They introduce
+   no new colour, radius or face; everything below is the rail's existing token
+   vocabulary, for the same reason section 13 gives.
+
+   The two things this section has to draw that nothing else on the page does:
+
+     · A CLAIM PILL. `enforced.mayClaimWork` is the difference between a role
+       that is DESCRIBED as read-only and a role that IS read-only, and the
+       menu that offers a role is the moment its description becomes a promise.
+       The pill is therefore not a badge for the interesting roles — it is
+       present on every role, in both states, so its absence can never be read
+       as "unknown".
+     · A REFUSAL that stays. .org-status[data-state="refuse"] holds until the
+       next attempt, because it is reporting that what is on screen has just
+       been put back; a message that faded would leave the correction
+       unexplained.
+
+   The FLEET rail is not a .board-page and does not inherit its two tokens, so
+   they are declared for it here. The rest of the box chrome is reached by the
+   widened selectors in sections 3, 5 and 13 above rather than restated.
+   ------------------------------------------------------------ */
+.computers .stats-page {
+  --board-r: 3px;
+  --role: var(--rc, var(--c-coordinator));
+}
+/* Sibling of .computers .board-page .board-box in tree-graph.css: inside this
+   page the boxes are flat sheet, not the glassy gradient the rail ships. */
+.computers .stats-page .board-box { background: var(--sheet); box-shadow: none; }
+.computers .stats-page .rail-org-only { margin-top: 12px; }
+
+/* ---- the drag's report line ------------------------------------------ */
+.computers .org-status {
+  position: absolute; left: 16px; right: 16px; bottom: 12px;
+  z-index: 4;
+  padding: 7px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--line-2);
+  background: var(--sheet);
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.45;
+}
+.computers .org-status[data-state="ok"] { color: var(--s-good-text, var(--s-good)); }
+.computers .org-status[data-state="refuse"] {
+  color: var(--s-serious-text, var(--s-serious));
+  border-color: color-mix(in oklab, var(--s-serious) 34%, var(--line-2));
+}
+
+/* ---- notices about the org itself ------------------------------------ */
+.computers .rail-page .org-notice {
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--s-warn, var(--ink-3));
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.45;
+}
+.computers .rail-page .org-notice[data-notice="damaged"] {
+  border-left-color: var(--s-serious, var(--ink-2));
+}
+
+/* ---- what a role is enforced to mean --------------------------------- */
+.computers .rail-page .role-facts { margin: 4px 0 2px; }
+.computers .rail-page .role-enforced {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 8px;
+}
+.computers .rail-page .role-claim {
+  padding: 2px 7px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--ink-2); white-space: nowrap;
+}
+.computers .rail-page .role-claim[data-claim="no"] {
+  color: var(--s-serious-text, var(--s-serious));
+  border-color: color-mix(in oklab, var(--s-serious) 30%, var(--line-2));
+}
+.computers .rail-page .role-claim[data-claim="yes"] {
+  color: var(--s-good-text, var(--s-good));
+  border-color: color-mix(in oklab, var(--s-good) 30%, var(--line-2));
+}
+.computers .rail-page .role-rule {
+  display: grid; gap: 1px;
+  margin-bottom: 8px;
+  font-size: 12.5px; line-height: 1.45;
+}
+.computers .rail-page .role-rule b { color: var(--ink); font-weight: 650; }
+.computers .rail-page .role-rule span { color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* ---- the library list ------------------------------------------------- */
+.computers .rail-page .role-item {
+  border-top: 1px solid var(--line);
+  padding: 2px 0;
+}
+.computers .rail-page .role-item:first-child { border-top: none; }
+.computers .rail-page .role-item > summary {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 7px 0;
+  cursor: pointer;
+  font-size: 12.5px; color: var(--ink-2);
+}
+.computers .rail-page .role-item > summary b {
+  color: var(--ink); font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.computers .rail-page .role-item > summary .role-kind {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3);
+}
+.computers .rail-page .role-body { padding: 2px 0 12px; }
+.computers .rail-page .role-field {
+  display: grid; gap: 4px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.computers .rail-page .role-field .cl { color: var(--ink-2); font-weight: 650; }
+.computers .rail-page .role-text,
+.computers .rail-page .role-input {
+  width: 100%; box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--ink);
+  font: inherit; font-size: 12.5px; line-height: 1.45;
+  resize: vertical;
+}
+.computers .rail-page .role-text:focus-visible,
+.computers .rail-page .role-input:focus-visible { border-color: var(--role); outline: none; }
+.computers .rail-page .role-text:disabled,
+.computers .rail-page .role-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.computers .rail-page .role-actions {
+  display: flex; flex-wrap: wrap; gap: 7px;
+  margin-top: 8px;
+}
+.computers .rail-page .role-actions .ctl-btn { flex: 1 1 auto; }
