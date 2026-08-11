@@ -110,7 +110,14 @@ export function planNodeChatbox({
      recoverable by the person; "this agent has never said anything" is not. */
   let emptyReason = null
   if (!shownTurns.length && !shownRuns.length) {
-    if (plan.filteredToNothing) emptyReason = 'Every agent in this conversation is hidden by your chat settings.'
+    /* `filteredToNothing` IS A FACT ABOUT THE SELECTION, NOT ABOUT THIS BOX.
+       It stays true when the conversation half is switched off entirely — in
+       "show only runs" nothing is filtered out, the whole half is gone — so
+       testing it first let it win over the runs-only branch and report the
+       wrong cause. It is only actionable while the context half is on screen,
+       so it is gated at the point of use. Found by the author of
+       src/chatbox-feed.js; their own describePanel() gates it the same way. */
+    if (plan.showContext && plan.filteredToNothing) emptyReason = 'Every agent in this conversation is hidden by your chat settings.'
     else if (plan.runsMode === 'only' && !allRuns.length) emptyReason = 'No runs recorded on this computer yet, and your chat settings show runs only.'
     else if (plan.runsMode === 'hidden' && !allTurns.length) emptyReason = 'Nothing said yet, and your chat settings hide runs.'
     else emptyReason = 'Nothing said yet.'
@@ -126,6 +133,19 @@ export function planNodeChatbox({
     filteredToNothing: plan.filteredToNothing,
     emptyReason,
     composerReason: channel.canSend ? null : channel.reason,
+    /* "THERE IS NO CHANNEL" AND "YOU ASKED NOT TO SEE IT" ARE DIFFERENT FACTS.
+       The rail draws its read-only frame whenever the conversation is not on
+       screen, and that frame used to fall back to "No channel to this agent."
+       — which is a lie on a simulated node in "show only runs", where the
+       channel is fine and the person simply asked for runs. Found while fixing
+       the gating above: same root, one layer over. Non-null only when a usable
+       channel exists and the mode is what is hiding the conversation. */
+    contextHiddenReason: !plan.showContext && channel.canSend
+      ? 'Your chat settings show runs only, so this conversation is hidden here.'
+      : null,
+    /* Only meaningful while the context half is on screen, for the same reason
+       filteredToNothing is. */
+    heldAgents: plan.showContext ? plan.hiddenAgents : 0,
   })
 }
 

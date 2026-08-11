@@ -170,6 +170,58 @@ test('"runs hidden" with nothing said says that, rather than blaming the runs', 
   assert.match(plan.emptyReason, /hide runs/)
 })
 
+/* ---------------------------------------------------------------
+   a fact about the SELECTION must not be reported as a fact about the BOX
+
+   The exact combination below was measured against src/chatbox-feed.js by the
+   lane that owns it: simulated fleet, "show only runs", and this node's own
+   agent unticked. showContext false, showRuns true, filteredToNothing TRUE.
+   Ungated, the box appended "None of the agents talking are ones you picked"
+   to a panel that was deliberately not showing a conversation — a complaint
+   about the context filter on a box with no context half — and swallowed the
+   runs-only sentence underneath it.
+   --------------------------------------------------------------- */
+
+test('runs-only with everyone unticked does not blame the context filter', () => {
+  store.set('mc.chat.runs', 'only')
+  store.set('mc.chat.agents', JSON.stringify(['someone-else']))
+  const plan = planNodeChatbox({
+    agent: AGENT, live: false, turns: [{ who: 'luna-02' }], runs: [], runsSupported: true,
+  })
+  assert.equal(plan.showContext, false)
+  assert.equal(plan.filteredToNothing, true, 'the underlying selection fact should still be true')
+  assert.match(plan.emptyReason, /show runs only/,
+    'the box reported the context filter as the cause while showing no context')
+  assert.doesNotMatch(plan.emptyReason, /hidden by your chat settings/)
+})
+
+test('no agents are "held out by your choice" when the whole half is switched off', () => {
+  store.set('mc.chat.runs', 'only')
+  store.set('mc.chat.agents', JSON.stringify(['terra-01']))
+  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: TURNS, runs: RUNS, runsSupported: true })
+  assert.equal(plan.hiddenAgents, 1, 'the raw selection fact is unchanged')
+  assert.equal(plan.heldAgents, 0, 'the box blamed the agent filter while showing no conversation')
+})
+
+test('a hidden conversation is not reported as a missing channel', () => {
+  /* The read-only frame fell back to "No channel to this agent." whenever the
+     conversation was not on screen — a lie on a simulated node in runs-only,
+     where the channel is fine and the person asked for runs. */
+  store.set('mc.chat.runs', 'only')
+  const plan = planNodeChatbox({ agent: AGENT, live: false, turns: TURNS, runs: RUNS, runsSupported: true })
+  assert.equal(plan.channel.canSend, true)
+  assert.equal(plan.composerReason, null)
+  assert.match(plan.contextHiddenReason, /show runs only/)
+})
+
+test('a genuinely absent channel still says so, and claims no setting caused it', () => {
+  const plan = planNodeChatbox({ agent: AGENT, live: true, turns: [], runs: [] })
+  assert.equal(plan.channel.kind, 'none')
+  assert.ok(plan.composerReason, 'a node with no channel must still say so')
+  assert.equal(plan.contextHiddenReason, null,
+    'a missing channel was blamed on a chat setting')
+})
+
 test('the four empty reasons are four distinct sentences', () => {
   const reasons = new Set()
   store.clear(); reasons.add(planNodeChatbox({ agent: AGENT, turns: [], runs: [] }).emptyReason)
