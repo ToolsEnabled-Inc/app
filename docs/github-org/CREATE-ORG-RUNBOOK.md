@@ -98,38 +98,41 @@ node tools/check-payload-boundary.mjs capability
   Payload boundary: clean. Nothing paid, excluded or unclassified is present.
 ```
 
-### Run it immediately before publishing, not once
+**The publication condition is `pending = 0`, read from the `Classified:` line — not exit
+0, and not the last line of the output.** A `pending` file is one whose fate has been
+decided but which *still ships today*; the guard deliberately does not fail on those.
 
-**A boundary reading has a shelf life, and this document is not a substitute for one.**
-The `open` count is written as `<n>` above on purpose: it moved while this page was being
-written.
+**And a green reading expires.** Re-run the gate against the payload you are actually
+about to ship. The full reasoning for both — why the guard does not fail on `pending`, and
+why any lane's commit can turn a green reading red without anyone touching the boundary
+file — is stated at the source, in the header of `config/payload-boundary.json`. **Read it
+there, not here.** That is deliberate: this page used to restate the condition, the
+restatement went stale the moment the underlying work moved, and a second copy that drifts
+is how "exit 1 means excluded files" became a hazard in the first place. One statement, in
+the file the gate reads.
 
-The payload is derived from a `require()` closure, not from a list. So *any* lane's commit
-can pull a new file into it without anyone touching `config/payload-boundary.json`, and an
-unclassified file fails the gate by design. That is exactly what happened on 2026-08-11: a
-re-stage pulled in a new engine module, the gate went from exit 0 to **exit 1** with the
-boundary file untouched, and it took a classification commit to go green again.
+What this page adds, and what is not in that file, is what the remaining `pending` files
+actually cost you and in which order to touch them.
 
-So a green reading proves the payload was clean **at the moment it was taken** and nothing
-more. Re-run the gate against the payload you are actually about to ship, and read
-`pending` in that run. A condition that was true when it was written and quietly stopped
-being true is the precise defect the "exit 1 means excluded files" line above had; do not
-reintroduce it one level up.
+### Provenance for the publication record
 
-`config/payload-boundary.json` separates what is **decided** from what is **decoupled**,
-and only the second one is what "clean" is about:
+An exit code names a moment; a hash names the bytes. The staged payload is
+byte-reproducible — two consecutive stages produced an identical digest — so record
+`payloadSha256` from `capability/PAYLOAD.json` alongside the gate result.
 
-- **`excluded` / `paid`** — the packer measurably no longer stages it. The gate fails if
-  one reappears. This is the guarantee.
-- **`pending`** — a decision has been recorded, but the file **still ships today**. The
-  gate prints these and calls them "not a failure", because its job is to stop
-  *classified* material from reaching the payload, not to chase down items still being
-  decoupled.
+One gotcha before someone reports a drift that is not there: **`PAYLOAD.json`'s
+`fileCount` is one lower than the number of files on disk, and that is correct.** The
+packer computes the count and digest over the staged set and *then* writes `PAYLOAD.json`
+into the same directory, so the record does not count itself. Verified in
+`tools/pack-capability-layer.mjs` — `fileCount: all.length` is evaluated before the
+`writeFileSync`. Comparing that number against `ls` or against the gate's `Files seen`
+will always look off by one. This repository has already had one near-miss from reading
+meaning into a file-count coincidence; do not spend a launch night on this one.
 
-So a `pending` file is in the installer right now, and the verdict line does not cover it.
-Six files are in that state:
+### The six files still shipping
 
-These are not one problem. They are two, and they are not equally urgent.
+These are not one problem. They are two, and they are not equally urgent. This list is a
+snapshot — the gate's own `pending` output is authoritative.
 
 **Group A — the commercial model, in source form.** Publishing these discloses more of the
 business than intended. Nothing operational breaks by publishing them; nothing is at risk
