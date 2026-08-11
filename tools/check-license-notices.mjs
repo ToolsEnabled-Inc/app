@@ -45,6 +45,17 @@ function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex');
 }
 
+// Hash the TEXT, not the line-ending convention. This repository is checked out
+// with core.autocrlf=true and carries no .gitattributes, so a fresh clone gets a
+// CRLF LICENSE whose raw digest differs from the canonical LF one while the
+// licence itself is untouched. Hashing raw bytes would fail the build on a
+// correct file, and a gate that cries wolf on a fresh clone is a gate somebody
+// deletes. Normalising costs nothing: a changed WORD still changes the digest,
+// which is the tampering this actually guards against.
+function sha256Text(path) {
+  return sha256(Buffer.from(readFileSync(path, 'utf8').replace(/\r\n/g, '\n'), 'utf8'));
+}
+
 function readPkg(dir) {
   try {
     return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
@@ -106,7 +117,7 @@ for (const doc of REQUIRED_DOCS) {
 }
 
 if (existsSync(join(REPO, 'LICENSE'))) {
-  const got = sha256(readFileSync(join(REPO, 'LICENSE')));
+  const got = sha256Text(join(REPO, 'LICENSE'));
   if (got !== AGPL_SHA256) {
     fail(
       'LICENSE is not the unmodified GNU AGPLv3.\n' +
@@ -187,9 +198,7 @@ if (packagedRoot) {
         );
         continue;
       }
-      const a = readFileSync(join(REPO, doc));
-      const b = readFileSync(shipped);
-      if (sha256(a) !== sha256(b)) {
+      if (sha256Text(join(REPO, doc)) !== sha256Text(shipped)) {
         fail(`resources/${doc} does not match the repository copy of ${doc}`);
       }
     }

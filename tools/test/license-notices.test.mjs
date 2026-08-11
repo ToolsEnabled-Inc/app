@@ -63,7 +63,11 @@ test('LICENSE is the unmodified GNU AGPLv3', () => {
   // Verified on 2026-08-11 byte-for-byte against
   // https://www.gnu.org/licenses/agpl-3.0.txt (34523 bytes, LF).
   const AGPL = '0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0';
-  const got = createHash('sha256').update(readFileSync(join(REPO, 'LICENSE'))).digest('hex');
+  // Normalised, matching the gate: core.autocrlf=true with no .gitattributes
+  // means a fresh clone has a CRLF LICENSE whose raw digest differs while the
+  // licence text is identical.
+  const text = readFileSync(join(REPO, 'LICENSE'), 'utf8').replace(/\r\n/g, '\n');
+  const got = createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
   assert.equal(got, AGPL, 'the AGPL must ship verbatim; put custom wording in NOTICE');
 });
 
