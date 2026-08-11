@@ -102,6 +102,27 @@ node tools/check-payload-boundary.mjs capability
 0, and not the last line of the output.** A `pending` file is one whose fate has been
 decided but which *still ships today*; the guard deliberately does not fail on those.
 
+**`pending = 0` is necessary and not sufficient. The stage must also be current.** The
+boundary gate judges the *staged* payload, so it can pass on bytes that no longer match
+the source those bytes came from — and then the thing reviewed and the thing shipped are
+two different programs. That is a third gate, and it is red right now:
+
+```
+node tools/check-payload-current.mjs capability
+  REFUSING: the staged payload does not match the code it came from.
+    src/lib/providers/license.js   (vs source)          exit 1
+```
+
+Measured 2026-08-11: the staged copy of that file is missing roughly 47 lines the source
+has, including the block that pins which key is allowed to vouch for a licence. So the
+staged bytes are not merely older — they are missing a hardening the source has. Re-stage
+with `npm run pack:capability` and re-run **all three** gates before publishing anything
+cut from this directory.
+
+Worth noting how this was found, because it is the same lesson twice: a lane closed out
+reporting "all three payload gates exit 0", and that was true when measured. It was false
+within the hour. Do not inherit a gate result from a report, including this one.
+
 **And a green reading expires.** Re-run the gate against the payload you are actually
 about to ship. The full reasoning for both — why the guard does not fail on `pending`, and
 why any lane's commit can turn a green reading red without anyone touching the boundary
