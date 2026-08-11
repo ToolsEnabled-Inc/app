@@ -12,6 +12,17 @@
        favicon gets the plate and the in-window mark does not). Do not hand-edit
        brand-icon.svg; tools/test/brand-mark.test.mjs will fail if it drifts. -->
   <link rel="icon" href="/brand-icon.svg" />
+  <!-- Settings storage, installed before anything reads a setting.
+       This is a CLASSIC script on purpose: it blocks and runs in document
+       order, so it is in place before the theme read directly below and long
+       before any module evaluates. It replaces localStorage with the shell's
+       durable settings file, because browser storage is keyed to the origin
+       and this application's origin is http://127.0.0.1:<port> with the port
+       chosen by a scan -- so a relaunch on a different port used to empty
+       every setting a person had chosen, silently. In a plain browser
+       (vite dev/preview) there is no shell and the file does nothing.
+       See public/durable-storage.js. -->
+  <script src="/durable-storage.js"></script>
   <!-- theme before first paint: /src/main.js is a module (deferred), so
        reading the stored theme there alone flashed the white page at every
        tan/black user. Same key and same guarded read as main.js. -->

@@ -81,10 +81,31 @@ async function listenOnFirstFreePort(server, ports = SHELL_PORTS, host = SHELL_H
   throw error
 }
 
+/* TRY THE PORT THIS INSTALL USED LAST, FIRST.
+ *
+ * The scan order alone made the application's origin an accident of whatever
+ * else happened to be listening at launch, and the origin is what browser
+ * storage is keyed to -- so a person's settings moved when the port did. The
+ * durable settings file (shell/renderer-prefs.cjs) is what makes that
+ * survivable; this is what makes it rare, by asking for the same port again
+ * before taking a new one.
+ *
+ * A remembered port OUTSIDE the declared range is ignored rather than honoured.
+ * The range is a stated contract -- shell/startup-failure-message.cjs tells a
+ * person which ports were tried when none is free -- and a stale record must
+ * not be able to make the shell bind somewhere that message does not cover.
+ */
+function preferredPortFirst(ports, preferred) {
+  if (!Number.isInteger(preferred)) return ports
+  if (!ports.includes(preferred)) return ports
+  return Object.freeze([preferred, ...ports.filter((port) => port !== preferred)])
+}
+
 module.exports = {
   SHELL_HOST,
   SHELL_PORT_MIN,
   SHELL_PORT_MAX,
   SHELL_PORTS,
   listenOnFirstFreePort,
+  preferredPortFirst,
 }

@@ -77,6 +77,56 @@ contextBridge.exposeInMainWorld('mcFleetProfile', Object.freeze({
   probe: profile => ipcRenderer.invoke('mc-fleet-profile:probe', profile),
 }))
 
+/* THE SETTINGS STORE, AND THE ONE-TIME RESCUE OF THE OLD BROWSER COPY.
+ *
+ * Read SYNCHRONOUSLY, and this one is not a preference among equals: the theme
+ * is read by an inline script in index.html before first paint, so an async
+ * bridge would paint the wrong theme at every launch and correct itself
+ * visibly. Writes are synchronous too, which is a deliberate match for the API
+ * being replaced -- localStorage.setItem is synchronous and durable when it
+ * returns, and the packaged proof for this fix force-kills the process between
+ * launches specifically so a store that only flushed at exit could not pass.
+ *
+ * THE DRAIN runs here rather than in the page because this world can still
+ * reach the origin's real localStorage while the main world's has already been
+ * replaced. It is attempted only while the shell reports this origin has never
+ * been drained, so it costs nothing on every subsequent launch.
+ *
+ * If reading the browser copy throws, NOTHING is drained and the origin stays
+ * unmarked, so a later launch retries. Marking an origin drained on a failed
+ * read would throw away the person's settings while recording that they had
+ * been rescued, which is the worst of the available outcomes. */
+const prefs = ipcRenderer.sendSync('mc-prefs:bootstrap')
+let prefsValues = prefs && prefs.ok ? prefs.values : {}
+if (prefs && prefs.ok && prefs.drainRequired) {
+  let legacy = null
+  try {
+    legacy = []
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index)
+      if (typeof key !== 'string') continue
+      const value = window.localStorage.getItem(key)
+      if (typeof value === 'string') legacy.push([key, value])
+    }
+  } catch { legacy = null }
+  if (legacy) {
+    const drained = ipcRenderer.sendSync('mc-prefs:drain', { entries: legacy })
+    if (drained && drained.ok && drained.values) prefsValues = drained.values
+  }
+}
+
+contextBridge.exposeInMainWorld('mcPrefs', Object.freeze({
+  /* `available` is what public/durable-storage.js checks before replacing the
+     global. A shell that could not open its settings file reports false and
+     the app keeps the browser store, which is the pre-fix behaviour rather
+     than an app with no working storage at all. */
+  available: Boolean(prefs && prefs.ok),
+  values: Object.freeze({ ...prefsValues }),
+  write: (key, value) => ipcRenderer.sendSync('mc-prefs:write', { key, value }),
+  remove: key => ipcRenderer.sendSync('mc-prefs:remove', { key }),
+  clear: () => ipcRenderer.sendSync('mc-prefs:clear'),
+}))
+
 /* The permission level. Read synchronously for the same reason the fleet
    profile is: src/main.js decides whether this launch shows the setup question
    or the fleet, and it decides that before the first paint. Setting the level

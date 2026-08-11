@@ -46,7 +46,9 @@ const {
   SHELL_PORT_MAX,
   SHELL_PORTS,
   listenOnFirstFreePort,
+  preferredPortFirst,
 } = require('./port-scan.cjs')
+const { createRendererPrefs } = require('./renderer-prefs.cjs')
 
 const fatalStartup = createFatalStartupHandler({
   app,
@@ -79,6 +81,16 @@ const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
    for the same reason, and the constant is shared so the two cannot drift into
    disagreeing about where the user's work lives. */
 const WORKSPACE_ROOT = path.join(app.getPath('userData'), 'workspace')
+
+/* The renderer's settings, kept where no port can partition them. See
+   shell/renderer-prefs.cjs for what was wrong and why this is one file rather
+   than a second copy of anything. */
+const rendererPrefs = createRendererPrefs({
+  directory: app.getPath('userData'),
+  fs,
+  path,
+  randomUUID,
+})
 
 fs.mkdirSync(CRASH_DUMP_DIR, { recursive: true })
 app.setPath('crashDumps', CRASH_DUMP_DIR)
@@ -553,6 +565,16 @@ function writeState(patch) {
   try {
     fs.writeFileSync(STATE_FILE(), JSON.stringify({ ...readState(), ...patch }))
   } catch { /* state is comfort, not correctness */ }
+}
+
+/* The theme the first frame should be painted in. `mc.theme` is the key the
+   renderer itself reads, so seeding from it is reading the same answer the
+   page is about to reach rather than a parallel record of it. shell-state's
+   copy remains the fallback for an install whose settings file has not been
+   written yet. */
+function bootTheme(shellState) {
+  const stored = rendererPrefs.snapshot().values['mc.theme']
+  return typeof stored === 'string' && stored ? stored : shellState.theme
 }
 
 function fleetFailure(code, message) {
@@ -1106,7 +1128,17 @@ function serveDist() {
         res.end(data)
       })
     })
-    listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST).then(() => {
+    /* PREFER THE PORT THIS INSTALL USED LAST, then scan as before.
+       The durable settings file already means a moved port cannot lose
+       anything, so this is not what makes the fix correct -- it is what keeps
+       the origin STABLE in the ordinary case, which matters for two reasons:
+       a stable origin is one the browser copy can still be rescued from, and
+       every other origin-scoped browser behaviour (permissions, IndexedDB, and
+       anything a later feature reaches for) stops silently resetting too.
+       An occupied preferred port is not an error; the scan continues. */
+    const ports = preferredPortFirst(SHELL_PORTS, readState().port)
+    listenOnFirstFreePort(server, ports, SHELL_HOST).then((port) => {
+      writeState({ port })
       server.on('error', (error) => fatalStartup(error, 'Shell server failure'))
       resolve(server)
     }, reject)
@@ -1204,6 +1236,62 @@ ipcMain.handle('mc-fleet-profile:choose-directory', event => withFleetProfileSen
 
 ipcMain.handle('mc-fleet-profile:probe', (event, profile) =>
   withFleetProfileSender(event, () => probeFleetProfile(profile)))
+
+/* ---------- the renderer's settings ----------
+ *
+ * SYNCHRONOUS, ALL OF THEM, because these channels are what `localStorage`
+ * means in this application now (public/durable-storage.js) and the API they
+ * stand in for is synchronous. A person's theme is read before first paint and
+ * their setting is durable when the setter returns; both of those stop being
+ * true the moment any of this becomes a promise.
+ *
+ * The sender check is trustedFleetProfileSender for the reason given where it
+ * is defined: it is the shell's generic "our own main frame, at our own origin"
+ * test, and reusing it keeps ONE definition of a trusted sender rather than two
+ * that drift. Nothing secret is stored here -- no password, no token, no
+ * account principal -- so this gate is about keeping a stray frame from
+ * rewriting somebody's settings, not about protecting a credential. */
+function prefsRefusal(what) {
+  return { ok: false, error: { code: 'MC_PREFS_SENDER_REFUSED', message: `Settings ${what} did not come from the application main frame.` } }
+}
+
+ipcMain.on('mc-prefs:bootstrap', (event) => {
+  if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('bootstrap'); return }
+  const snapshot = rendererPrefs.snapshot()
+  event.returnValue = {
+    ok: true,
+    values: snapshot.values,
+    /* The renderer is asked to hand over its browser copy only while THIS
+       origin has never been drained. After a port change the new origin is
+       undrained and empty, so the drain is a no-op -- and the settings the
+       person is still using come from the durable file, not from it. If a
+       later launch lands back on the old port, that origin is still undrained
+       and its copy is finally rescued. */
+    drainRequired: !snapshot.drainedOrigins.includes(shellOrigin),
+  }
+})
+
+ipcMain.on('mc-prefs:drain', (event, request) => {
+  if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('migration'); return }
+  const drained = rendererPrefs.drain(shellOrigin, request && request.entries)
+  if (!drained.ok) { event.returnValue = drained; return }
+  event.returnValue = { ok: true, migrated: drained.migrated, values: rendererPrefs.snapshot().values }
+})
+
+ipcMain.on('mc-prefs:write', (event, request) => {
+  if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('save'); return }
+  event.returnValue = rendererPrefs.set(request && request.key, request && request.value)
+})
+
+ipcMain.on('mc-prefs:remove', (event, request) => {
+  if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('removal'); return }
+  event.returnValue = rendererPrefs.remove(request && request.key)
+})
+
+ipcMain.on('mc-prefs:clear', (event) => {
+  if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('reset'); return }
+  event.returnValue = rendererPrefs.clear()
+})
 
 /* ---------- first run: the permission level ----------
  *
@@ -1454,7 +1542,18 @@ async function startSupervisedCapabilityLayer() {
 }
 
 async function createWindow() {
-  const state = restoredWindowState(readState(), currentWorkAreas())
+  /* THE BOOT THEME COMES FROM THE SETTINGS FILE, NOT FROM shell-state.json.
+     Both files carry a theme, and before the settings file existed they could
+     disagree in a way a person actually saw: shell-state.json remembered black
+     from the last launch, so the native window and caption buttons were seeded
+     black, while the renderer -- whose only copy was in the browser partition
+     the port change had just emptied -- painted white. The page and the frame
+     around it were two different themes and neither was wrong about what it
+     knew. The settings file is now the source and shell-state's copy is a
+     cache of what was last painted, so the two cannot diverge across a
+     relaunch. */
+  const shellState = readState()
+  const state = restoredWindowState({ ...shellState, theme: bootTheme(shellState) }, currentWorkAreas())
   const seed = THEME_SEED[state.theme] || THEME_SEED.white
   const server = await serveDist()
   const port = server.address().port

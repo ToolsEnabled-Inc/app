@@ -1,0 +1,249 @@
+/* public/durable-storage.js replaces what `localStorage` MEANS in this
+   application, so it is load-bearing for every setting the product has. These
+   tests evaluate the real shipped file -- not a copy of its logic -- in a
+   controlled scope, and then assert the one invariant the design depends on:
+   that nothing in src/ reaches a stored value by named property access, which
+   the replacement deliberately does not provide. */
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import fs from 'node:fs'
+import path from 'node:path'
+import vm from 'node:vm'
+import { fileURLToPath } from 'node:url'
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const SCRIPT = path.join(REPO_ROOT, 'public', 'durable-storage.js')
+const SOURCE = fs.readFileSync(SCRIPT, 'utf8')
+
+function install({ values = {}, failWrites = false, available = true, bridge = undefined } = {}) {
+  const calls = []
+  const store = new Map(Object.entries(values))
+  const ok = { ok: true }
+  const failure = { ok: false, error: { code: 'MC_PREFS_WRITE_FAILED', message: 'the disk is full' } }
+  const realLocalStorage = { marker: 'the untouched browser store' }
+  const window = {
+    localStorage: realLocalStorage,
+    mcPrefs: bridge === undefined ? {
+      available,
+      values,
+      write(key, value) {
+        calls.push(['write', key, value])
+        if (failWrites) return failure
+        store.set(key, value)
+        return ok
+      },
+      remove(key) {
+        calls.push(['remove', key])
+        if (failWrites) return failure
+        store.delete(key)
+        return ok
+      },
+      clear() {
+        calls.push(['clear'])
+        if (failWrites) return failure
+        store.clear()
+        return ok
+      },
+    } : bridge,
+  }
+  vm.runInNewContext(SOURCE, { window })
+  return { window, calls, store, realLocalStorage }
+}
+
+test('a seeded setting is readable through the replaced store', () => {
+  const { window } = install({ values: { 'mc.theme': 'black' } })
+
+  assert.equal(window.localStorage.getItem('mc.theme'), 'black')
+})
+
+test('an unset key reads as null, exactly as the platform does', () => {
+  const { window } = install()
+
+  assert.equal(window.localStorage.getItem('mc.nothing'), null)
+})
+
+test('setItem reaches the host and is readable back without a round trip', () => {
+  const { window, calls } = install()
+
+  window.localStorage.setItem('mc.text', '1.12')
+
+  assert.deepEqual(calls, [['write', 'mc.text', '1.12']])
+  assert.equal(window.localStorage.getItem('mc.text'), '1.12')
+})
+
+test('keys and values are coerced to strings, as Storage does', () => {
+  const { window, calls } = install()
+
+  window.localStorage.setItem('mc.count', 7)
+
+  assert.deepEqual(calls, [['write', 'mc.count', '7']])
+  assert.equal(window.localStorage.getItem('mc.count'), '7')
+})
+
+test('removeItem clears the value locally and on the host', () => {
+  const { window, calls } = install({ values: { 'mc.theme': 'black' } })
+
+  window.localStorage.removeItem('mc.theme')
+
+  assert.deepEqual(calls, [['remove', 'mc.theme']])
+  assert.equal(window.localStorage.getItem('mc.theme'), null)
+})
+
+test('clear empties the store', () => {
+  const { window } = install({ values: { 'mc.theme': 'black', 'mc.text': '1.12' } })
+
+  window.localStorage.clear()
+
+  assert.equal(window.localStorage.length, 0)
+  assert.equal(window.localStorage.getItem('mc.theme'), null)
+})
+
+test('length and key() track the live contents', () => {
+  const { window } = install({ values: { 'mc.theme': 'black' } })
+
+  assert.equal(window.localStorage.length, 1)
+  assert.equal(window.localStorage.key(0), 'mc.theme')
+  assert.equal(window.localStorage.key(1), null)
+
+  window.localStorage.setItem('mc.text', '1.12')
+
+  assert.equal(window.localStorage.length, 2)
+})
+
+/* THE FAILURE PATH IS THE ONE THAT MATTERS. A write that silently does nothing
+   puts the product straight back into the defect: the person changes a
+   setting, nothing complains, and it is not there next time. */
+test('a failed write throws instead of pretending it saved', () => {
+  const { window } = install({ failWrites: true })
+
+  assert.throws(
+    () => window.localStorage.setItem('mc.theme', 'black'),
+    /Could not save setting "mc\.theme".*disk is full/,
+  )
+})
+
+test('a value is not cached locally when the host refused it', () => {
+  const { window } = install({ failWrites: true })
+
+  try { window.localStorage.setItem('mc.theme', 'black') } catch { /* asserted above */ }
+
+  assert.equal(window.localStorage.getItem('mc.theme'), null)
+})
+
+test('a failed removal throws rather than reporting a deletion that did not happen', () => {
+  const { window } = install({ values: { 'mc.theme': 'black' }, failWrites: true })
+
+  assert.throws(() => window.localStorage.removeItem('mc.theme'), /Could not remove setting/)
+  assert.equal(window.localStorage.getItem('mc.theme'), 'black')
+})
+
+/* IN A PLAIN BROWSER THIS FILE MUST DO NOTHING. Under vite dev or preview
+   there is no shell to be durable against, and replacing the store with one
+   backed by a bridge that is not there would break the app rather than fix it. */
+test('without the shell bridge the real browser store is left untouched', () => {
+  const { window, realLocalStorage } = install({ bridge: null })
+
+  assert.equal(window.localStorage, realLocalStorage)
+})
+
+test('a shell that reports its settings file unavailable leaves the browser store alone', () => {
+  const { window, realLocalStorage } = install({ available: false })
+
+  assert.equal(window.localStorage, realLocalStorage)
+})
+
+test('the replacement cannot be silently overwritten by a stray assignment', () => {
+  const { window } = install({ values: { 'mc.theme': 'black' } })
+
+  // Non-writable on purpose: an assignment that quietly restored the
+  // origin-scoped store would resurrect the defect with no sign of it.
+  assert.throws(() => { 'use strict'; window.localStorage = { getItem: () => 'hijacked' } })
+  assert.equal(window.localStorage.getItem('mc.theme'), 'black')
+})
+
+/* ---------- the invariant the design rests on ---------- */
+
+function sourceFiles(directory) {
+  const found = []
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name)
+    if (entry.isDirectory()) found.push(...sourceFiles(full))
+    else if (entry.name.endsWith('.js')) found.push(full)
+  }
+  return found
+}
+
+/* COMMENTS AND STRINGS ARE NOT CODE, and this scan is worthless until it knows
+   the difference. The first version of this test failed on
+   src/checkout-principal.js, whose comment reads "...could write a different
+   name into localStorage. The gate below is a real guard...". It reported
+   `localStorage.The` as a violation. That is the instrument inventing a
+   finding, and it is the same class of mistake as every source-text assertion
+   that cannot see what it is looking at.
+
+   A `/` is treated as starting a comment only when the next character is `/` or
+   `*`. A regular expression literal containing `//` would therefore truncate
+   its line; that costs a false negative on one line, never a false alarm, and
+   no such literal exists in src/ today. */
+function codeOnly(text) {
+  let out = ''
+  let index = 0
+  while (index < text.length) {
+    const char = text[index]
+    const next = text[index + 1]
+    if (char === '/' && next === '/') {
+      while (index < text.length && text[index] !== '\n') index += 1
+      continue
+    }
+    if (char === '/' && next === '*') {
+      index += 2
+      while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index += 1
+      index += 2
+      continue
+    }
+    if (char === "'" || char === '"' || char === '`') {
+      index += 1
+      while (index < text.length && text[index] !== char) {
+        if (text[index] === '\\') index += 1
+        index += 1
+      }
+      index += 1
+      continue
+    }
+    out += char
+    index += 1
+  }
+  return out
+}
+
+test('the source scanner reads code and ignores prose', () => {
+  // Measured against the exact comment that produced a false finding.
+  const stripped = codeOnly('// write a name into localStorage. The gate below\nlocalStorage.getItem("k")')
+
+  assert.equal(stripped.includes('localStorage.The'), false)
+  assert.equal(stripped.includes('localStorage.getItem'), true)
+})
+
+test('nothing in src/ reaches a setting by named property access', () => {
+  const permitted = new Set(['getItem', 'setItem', 'removeItem', 'clear', 'key', 'length'])
+  const offenders = []
+
+  for (const file of sourceFiles(path.join(REPO_ROOT, 'src'))) {
+    const text = codeOnly(fs.readFileSync(file, 'utf8'))
+    for (const match of text.matchAll(/localStorage\s*(?:\?\.)?\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[)/g)) {
+      const property = match[1]
+      // A bracket access has no captured name and is equally unsupported.
+      if (property === undefined || !permitted.has(property)) {
+        offenders.push(`${path.relative(REPO_ROOT, file)}: localStorage${property ? '.' + property : '[...]'}`)
+      }
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'public/durable-storage.js provides the Storage METHODS only. A module reading a setting as a '
+    + 'property would silently get undefined against the durable store while still working in a '
+    + 'plain browser, which is the hardest possible version of this bug to see. Use getItem.',
+  )
+})
