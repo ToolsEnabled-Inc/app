@@ -15,6 +15,7 @@ import { metricsView } from './views/metrics.js'
 import { researchView } from './views/research.js'
 import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
+import { approvalsView } from './views/approvals.js'
 import { settingsView } from './views/settings.js'
 import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
@@ -28,7 +29,11 @@ const crumb = document.getElementById('crumb')   // removed from the markup; kep
 const navEl = document.getElementById('tb-nav')   // ditto — the strip is arrows + settings only
 
 let current = null           // { el(wrapper), view, route }
-const ORDER = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger']
+// The arrows are the only navigation, so this ring IS the site map. Approvals
+// sits next to the ledger because it is the same kind of thing — a register of
+// owner requests — and because putting it last keeps home's neighbours stable
+// for anyone who navigates by muscle memory.
+const ORDER = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals']
 
 function parse() {
   const h = location.hash || '#/'
@@ -39,6 +44,7 @@ function parse() {
   if (parts[0] === 'research') return { name: 'research' }
   if (parts[0] === 'comms') return { name: 'comms' }
   if (parts[0] === 'ledger') return { name: 'ledger' }
+  if (parts[0] === 'approvals') return { name: 'approvals' }
   if (parts[0] === 'settings') return { name: 'settings' }
   return { name: 'home' }
 }
@@ -52,6 +58,7 @@ function makeView(route) {
     case 'research': return researchView()
     case 'comms': return commsView()
     case 'ledger': return ledgerView()
+    case 'approvals': return approvalsView()
     case 'settings': return settingsView()
     default: return homeView()
   }

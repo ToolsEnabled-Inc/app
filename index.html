@@ -99,6 +99,13 @@
     <a class="drawer-all" href="#/settings">all settings →</a>
   </aside>
 
+  <!-- Public owner decisions live in the product surface, at #/approvals -- a
+       screen the owner goes to, not a modal that arrives at him. There is no
+       always-mounted popup root here on purpose: mounting one is what made
+       every queued request interrupt whatever he was doing. Credential entry
+       never mounts here either; it stays in the isolated native credential
+       host. -->
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

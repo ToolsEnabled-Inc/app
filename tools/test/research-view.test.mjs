@@ -45,7 +45,12 @@ test('research is an independent ring route backed by the research projection', 
   const main = read('src/main.js')
   const liveStatus = read('src/live-status.js')
 
-  assert.match(main, /const ORDER = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger'\]/)
+  // The ring is pinned exactly, not loosely matched, so that adding or moving a
+  // route is a visible, reviewed change rather than a silent one. 'approvals'
+  // joined it when the owner replaced the interrupting prompt popup with a
+  // screen he navigates to; the arrows are the only navigation, so a route
+  // absent from ORDER is a route nobody can reach.
+  assert.match(main, /const ORDER = \['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals'\]/)
   assert.match(main, /if \(parts\[0\] === 'research'\) return \{ name: 'research' \}/)
   assert.match(main, /case 'research': return researchView\(\)/)
   assert.match(main, /case 'research': return `\$\{base\} \/ research`/)

@@ -1,0 +1,296 @@
+/* Real-Electron owner-popup QA. It serves the production build, supplies the
+   desktop bootstrap proof through an os.tmpdir() preload, and drives a local
+   public-prompt fixture. No credential field or value enters this harness.
+
+   Usage:
+     electron tools/owner-popup-qa.cjs --theme <canonical-theme.json>
+       [--out <screenshot-directory>] [--theme-name tan]
+*/
+
+const { app, BrowserWindow } = require('electron')
+const fs = require('fs')
+const http = require('http')
+const os = require('os')
+const path = require('path')
+
+const ROOT = path.join(__dirname, '..')
+const DIST = path.join(ROOT, 'dist')
+const PROOF = 'owner-popup-qa-bootstrap-proof'.padEnd(43, '0')
+const TOKEN = 'owner-popup-qa-bearer'
+
+function arg(name, fallback = '') {
+  const hit = process.argv.find(value => value.startsWith(`--${name}=`))
+  if (hit) return hit.slice(name.length + 3)
+  const index = process.argv.indexOf(`--${name}`)
+  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback
+}
+
+function serveDist() {
+  const mime = {
+    '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+    '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.woff': 'font/woff',
+  }
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((request, response) => {
+      const pathname = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname)
+      const requested = path.resolve(DIST, `.${pathname === '/' ? '/index.html' : pathname}`)
+      if (!requested.startsWith(DIST)) { response.writeHead(403); response.end(); return }
+      fs.readFile(requested, (error, data) => {
+        if (!error) {
+          response.writeHead(200, { 'content-type': mime[path.extname(requested)] || 'application/octet-stream' })
+          response.end(data)
+          return
+        }
+        fs.readFile(path.join(DIST, 'index.html'), (fallbackError, html) => {
+          if (fallbackError) { response.writeHead(404); response.end(); return }
+          response.writeHead(200, { 'content-type': 'text/html' })
+          response.end(html)
+        })
+      })
+    })
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+}
+
+function publicPrompt(now = Date.now()) {
+  return {
+    id: 'owner-popup-qa-shopping-list',
+    kind: 'purchase_batch',
+    title: 'Review this shopping list',
+    message: 'Approve only the exact lines you want purchased.',
+    createdAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + 15 * 60 * 1000).toISOString(),
+    state: 'pending',
+    defaultDecision: 'deny',
+    items: [
+      { id: 'line-license', description: 'Developer tool license', amountCents: 973, currency: 'USD', merchant: 'Example Tools', purpose: 'Build verification' },
+      { id: 'line-dataset', description: 'Test dataset', amountCents: 425, currency: 'USD', merchant: 'Example Data', purpose: 'Regression coverage' },
+      { id: 'line-hosting', description: 'Preview hosting', amountCents: 1200, currency: 'USD', merchant: 'Example Hosting', purpose: 'Owner review environment' },
+    ],
+    totalCents: 2598,
+    currency: 'USD',
+  }
+}
+
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    request.on('data', chunk => chunks.push(chunk))
+    request.on('end', () => {
+      try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null) }
+      catch (error) { reject(error) }
+    })
+    request.on('error', reject)
+  })
+}
+
+function serveFixture(theme) {
+  const state = { enabled: false, prompt: publicPrompt(), presentations: [], presentationReceipts: [], decisions: [], decisionReceipts: [] }
+  const serverPromise = new Promise((resolve, reject) => {
+    const server = http.createServer(async (request, response) => {
+      const origin = request.headers.origin || '*'
+      const headers = {
+        'access-control-allow-origin': origin,
+        'access-control-allow-headers': 'authorization,content-type',
+        'access-control-allow-methods': 'GET,POST,OPTIONS',
+        'content-type': 'application/json',
+      }
+      if (request.method === 'OPTIONS') { response.writeHead(204, headers); response.end(); return }
+      const url = new URL(request.url, 'http://127.0.0.1')
+      const reply = (status, body) => { response.writeHead(status, headers); response.end(JSON.stringify(body)) }
+      if (request.method === 'GET' && url.pathname === '/v1/bootstrap' && url.searchParams.get('proof') === PROOF) {
+        reply(200, { ok: true, token: TOKEN })
+        return
+      }
+      if (request.headers.authorization !== `Bearer ${TOKEN}`) { reply(401, { ok: false, error: { code: 'UNAUTHORIZED', message: 'unauthorized' } }); return }
+      if (request.method === 'GET' && url.pathname === '/v1/owner-prompts') {
+        reply(200, {
+          ok: true, schemaVersion: 1, generatedAt: new Date().toISOString(), theme,
+          prompts: state.enabled && state.decisions.length === 0 ? [state.prompt] : [],
+        })
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/actions/owner-prompt-presented') {
+        const body = await readJsonBody(request)
+        state.presentations.push(body)
+        state.prompt.state = 'presented'
+        const receipt = { promptId: body.promptId, state: 'presented', presentedAt: new Date().toISOString() }
+        state.presentationReceipts.push(receipt)
+        reply(200, { ok: true, receipt })
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/actions/owner-prompt-decision') {
+        const body = await readJsonBody(request)
+        state.decisions.push(body)
+        const supplied = new Map(body.itemDecisions.map(entry => [entry.itemId, entry.decision]))
+        const receipt = {
+          promptId: body.promptId,
+          state: 'decided',
+          resolvedAt: new Date().toISOString(),
+          decision: 'submit',
+          timedOut: false,
+          itemDecisions: state.prompt.items.map(item => ({
+            itemId: item.id,
+            decision: supplied.get(item.id) || 'deny',
+            defaulted: !supplied.has(item.id),
+          })),
+        }
+        state.decisionReceipts.push(receipt)
+        reply(200, { ok: true, receipt })
+        return
+      }
+      reply(404, { ok: false, error: { code: 'NOT_FOUND', message: 'not found' } })
+    })
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+  return { state, serverPromise }
+}
+
+async function waitFor(webContents, expression, timeoutMs = 8_000) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await webContents.executeJavaScript(`Boolean(${expression})`)) return
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  throw new Error(`Timed out waiting for ${expression}`)
+}
+
+async function run() {
+  const themePathArgument = arg('theme')
+  if (!themePathArgument) throw new Error('--theme must point to the canonical owner-popup theme JSON')
+  const themePath = path.resolve(themePathArgument)
+  const theme = JSON.parse(fs.readFileSync(themePath, 'utf8'))
+  const selectedTheme = arg('theme-name', theme.defaultTheme)
+  if (!['white', 'tan', 'black'].includes(selectedTheme)) throw new Error('--theme-name must be white, tan, or black')
+  const outputDir = path.resolve(arg('out', path.join(ROOT, 'artifacts', 'owner-popup')))
+  fs.mkdirSync(outputDir, { recursive: true })
+
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-owner-popup-qa-'))
+  const preload = path.join(temporary, 'preload.cjs')
+  fs.writeFileSync(preload, `const { contextBridge } = require('electron');\ncontextBridge.exposeInMainWorld('mcShell', { getBridgeProof: async () => ({ ok: true, proof: ${JSON.stringify(PROOF)} }) });\n`, 'utf8')
+  app.setPath('userData', path.join(temporary, 'profile'))
+  app.commandLine.appendSwitch('disable-gpu')
+  app.once('quit', () => {
+    const resolvedTemporary = path.resolve(temporary)
+    if (!resolvedTemporary.startsWith(path.resolve(os.tmpdir()) + path.sep)) return
+    try { fs.rmSync(resolvedTemporary, { recursive: true, force: true, maxRetries: 4, retryDelay: 75 }) }
+    catch { /* the OS will reclaim an isolated temp harness directory */ }
+  })
+
+  const distServer = await serveDist()
+  const fixture = serveFixture(theme)
+  const bridgeServer = await fixture.serverPromise
+  const distOrigin = `http://127.0.0.1:${distServer.address().port}`
+  const bridgeOrigin = `http://127.0.0.1:${bridgeServer.address().port}`
+  const browser = new BrowserWindow({
+    width: 1440,
+    height: 960,
+    show: true,
+    useContentSize: true,
+    backgroundColor: theme.themes[selectedTheme].bg,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
+  })
+  const errors = []
+  browser.webContents.on('console-message', event => {
+    if (event?.level === 'error') errors.push(String(event.message || 'unknown renderer error'))
+  })
+
+  try {
+    const url = `${distOrigin}/?bridge=${encodeURIComponent(bridgeOrigin)}`
+    await browser.loadURL(url)
+    await browser.webContents.executeJavaScript(`localStorage.setItem('mc.theme', ${JSON.stringify(selectedTheme)})`)
+    fixture.state.enabled = true
+    await browser.reload()
+    browser.show()
+    browser.focus()
+    await waitFor(browser.webContents, `document.querySelectorAll('.owner-popup-item').length === 3`)
+    await waitFor(browser.webContents, `document.querySelector('.owner-popup-primary:not([disabled])')`)
+    await browser.webContents.executeJavaScript(`document.fonts.ready.then(() => true)`)
+
+    await browser.webContents.executeJavaScript(`(() => {
+      const rows = [...document.querySelectorAll('.owner-popup-item')];
+      rows[0].querySelector('.owner-popup-deny').click();
+      rows[2].querySelector('.owner-popup-approve').click();
+    })()`)
+    await waitFor(browser.webContents, `document.querySelectorAll('.owner-popup-item[data-decision="denied"]').length === 1 && document.querySelectorAll('.owner-popup-item[data-decision="undecided"]').length === 1`)
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    const observation = await browser.webContents.executeJavaScript(`(() => {
+      const root = document.getElementById('owner-popup-root');
+      const dialog = document.querySelector('.owner-popup-dialog');
+      const submit = dialog.querySelector('.owner-popup-primary');
+      const submitStyle = getComputedStyle(submit);
+      const rgb = value => (value.match(/[0-9.]+/g) || []).slice(0, 3).map(Number);
+      const luminance = value => {
+        const channels = rgb(value).map(channel => channel / 255).map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+      };
+      const foregroundLuminance = luminance(submitStyle.color);
+      const backgroundLuminance = luminance(submitStyle.backgroundColor);
+      const submitContrast = (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+      return {
+        title: dialog.querySelector('h2').textContent,
+        amounts: [...dialog.querySelectorAll('.owner-popup-item-amount')].map(node => node.textContent),
+        total: dialog.querySelector('.owner-popup-total strong').textContent,
+        decisions: [...dialog.querySelectorAll('.owner-popup-item')].map(node => node.dataset.decision),
+        defaultRule: dialog.querySelector('.owner-popup-default-rule').textContent.replace(/\\s+/g, ' ').trim(),
+        status: dialog.querySelector('.owner-popup-status').textContent,
+        focusedInside: dialog.contains(document.activeElement),
+        theme: root.dataset.ownerTheme,
+        manifestAccent: root.style.getPropertyValue('--op-accent').trim(),
+        manifestOnAccent: root.style.getPropertyValue('--op-on-accent').trim(),
+        submitLabel: submit.textContent,
+        submitColor: submitStyle.color,
+        submitBackground: submitStyle.backgroundColor,
+        submitContrast: Number(submitContrast.toFixed(2)),
+      };
+    })()`)
+    if (observation.submitLabel !== 'Submit decisions' || observation.submitContrast < 4.5) {
+      throw new Error(`submit label is not visibly rendered at text contrast: ${JSON.stringify(observation)}`)
+    }
+    const screenshotPath = path.join(outputDir, `shopping-list-${selectedTheme}.png`)
+    fs.writeFileSync(screenshotPath, (await browser.webContents.capturePage()).toPNG())
+
+    await browser.webContents.executeJavaScript(`document.querySelector('.owner-popup-primary').click()`)
+    const decisionDeadline = Date.now() + 5_000
+    while (fixture.state.decisions.length === 0 && Date.now() < decisionDeadline) await new Promise(resolve => setTimeout(resolve, 25))
+    if (fixture.state.decisions.length !== 1) throw new Error('the sample decision was not delivered')
+    await waitFor(browser.webContents, `!document.querySelector('.owner-popup-dialog')`)
+
+    const submitted = fixture.state.decisions[0]
+    const explicit = new Map(submitted.itemDecisions.map(entry => [entry.itemId, entry.decision]))
+    const outcomes = fixture.state.decisionReceipts[0].itemDecisions.map(item => ({
+      itemId: item.itemId,
+      submitted: explicit.get(item.itemId) || 'undecided',
+      effective: item.decision === 'approve' ? 'approved' : 'denied',
+      defaulted: item.defaulted,
+      action: item.decision === 'approve' ? 'eligible' : 'refused',
+    }))
+    process.stdout.write(`${JSON.stringify({
+      ok: errors.length === 0,
+      screenshotPath,
+      canonicalThemePath: themePath,
+      presentationRequest: fixture.state.presentations[0],
+      presentationReceipt: fixture.state.presentationReceipts[0],
+      observation,
+      decisionRequest: submitted,
+      decisionReceipt: fixture.state.decisionReceipts[0],
+      outcomes,
+      rendererErrors: errors,
+    }, null, 2)}\n`)
+    if (errors.length) throw new Error(`renderer errors: ${errors.join(' | ')}`)
+  } finally {
+    if (!browser.isDestroyed()) browser.destroy()
+    await Promise.all([
+      new Promise(resolve => distServer.close(resolve)),
+      new Promise(resolve => bridgeServer.close(resolve)),
+    ])
+  }
+}
+
+app.whenReady().then(run).then(() => app.quit()).catch(error => {
+  process.stderr.write(`${error.stack || error.message}\n`)
+  app.exit(1)
+})

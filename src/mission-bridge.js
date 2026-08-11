@@ -6,6 +6,8 @@ const ACTION_ROUTES = Object.freeze({
   decision: '/v1/actions/decision',
   terminate: '/v1/actions/terminate',
   'ledger-archive': '/v1/actions/ledger-archive',
+  'owner-prompt-presented': '/v1/actions/owner-prompt-presented',
+  'owner-prompt-decision': '/v1/actions/owner-prompt-decision',
 })
 
 let bootstrapPromise = null
@@ -177,6 +179,24 @@ async function request(pathname, { method = 'GET', body = null, timeoutMs = REQU
 
 export function bridgeStatus() {
   return request('/v1/status', { timeoutMs: STATUS_TIMEOUT_MS })
+}
+
+/**
+ * Read-only, public owner prompts. Secret-entry prompts are deliberately not
+ * part of this renderer contract; those remain in the isolated native host.
+ */
+export function ownerPromptSnapshot() {
+  return request('/v1/owner-prompts')
+}
+
+/** Mark a prompt presented only after the renderer has measured all evidence. */
+export function markOwnerPromptPresented(promptId, evidence) {
+  return postBridgeAction('owner-prompt-presented', { promptId, evidence })
+}
+
+/** Send an explicit public decision. Missing purchase lines remain omitted. */
+export function decideOwnerPrompt(body) {
+  return postBridgeAction('owner-prompt-decision', body)
 }
 
 /**

@@ -28,6 +28,7 @@
 
 import { el, uptimeRing } from '../components.js'
 import { fetchStatus, fetchCoordinator, ageMs, fmtAge } from '../live-status.js'
+import { ownerPromptSnapshot } from '../mission-bridge.js'
 import { isLiveView } from '../live-flags.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
@@ -35,6 +36,10 @@ import { FLEET } from '../fleet-profile.js'
 import '../home.css'
 
 const POLL_MS = 45_000
+// The approvals queue changes only when an agent enqueues a request or the
+// owner decides one, so this asks far less often than it could. It is a count,
+// not a live feed.
+const APPROVALS_POLL_MS = 20_000
 const DASH = '—' // em dash — used for "no reading", never "0"
 
 /* ============================================================
@@ -138,6 +143,42 @@ export function homeView() {
   const loadLabel = loadRow.querySelector('.lt')
   const loadVal = loadRow.querySelector('.lv')
   ring.el.querySelector('.uring-inner').appendChild(loadRow)
+
+  /* How the owner finds out anything is waiting for him.
+     Deliberately the whole signal: no badge, no dot, no toast, no sound, no
+     focus steal. He replaced the interrupting popup with a screen he visits on
+     his own time, and this readout is what makes visiting it something he
+     never has to REMEMBER to do -- home is where every launch lands, and this
+     row is already the shape home uses to state a number.
+     It shows a dash, never a zero, whenever the queue could not be read: "0
+     waiting" when eight decisions are actually queued and the bridge is simply
+     down would be the one wrong thing this row could say. */
+  const approvalsRow = el(`<div class="home-load home-approvals"><i></i><span class="lt">approvals waiting</span><span class="lv">—</span></div>`)
+  const approvalsLabel = approvalsRow.querySelector('.lt')
+  const approvalsVal = approvalsRow.querySelector('.lv')
+  ring.el.querySelector('.uring-inner').appendChild(approvalsRow)
+
+  // Its own stop flag rather than the view's `destroyed`, which is declared
+  // further down: this block runs before that declaration is reached, and
+  // leaning on the temporal dead zone resolving in our favour is not a thing
+  // to leave for the next person to discover.
+  let approvalsStopped = false
+  async function loadApprovals() {
+    let raw
+    try { raw = await ownerPromptSnapshot() }
+    catch { raw = null }
+    if (approvalsStopped) return
+    if (raw?.ok !== true || !Array.isArray(raw.prompts)) {
+      approvalsVal.textContent = '—'
+      approvalsLabel.textContent = 'approvals unavailable'
+      return
+    }
+    const count = raw.prompts.length
+    approvalsVal.textContent = String(count)
+    approvalsLabel.textContent = count === 1 ? 'approval waiting' : 'approvals waiting'
+  }
+  void loadApprovals()
+  const approvalsTimer = setInterval(() => { void loadApprovals() }, APPROVALS_POLL_MS)
 
   /* ---- fixed-width crossfading digits (same mechanism as the rest of the
      app used for its clock) — the epoch they read is real once loaded, and
@@ -482,6 +523,8 @@ export function homeView() {
       destroyed = true
       cancelAnimationFrame(raf)
       clearInterval(pollTimer)
+      approvalsStopped = true
+      clearInterval(approvalsTimer)
       timers.forEach(clearTimeout)
       anchorRo.disconnect()
       anchorMo.disconnect()
