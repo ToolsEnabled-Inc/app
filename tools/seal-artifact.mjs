@@ -228,7 +228,7 @@ async function verify(artifactDirectory) {
 
   if (contamination.length) {
     console.error(
-      `\n${contamination.length} of these are RUNTIME STATE, which means the packaged application wrote its own\n` +
+      `\n${contamination.length === 1 ? 'One of these is' : `${contamination.length} of these are`} RUNTIME STATE, which means the packaged application wrote its own\n` +
         'state into its installation directory. That is the defect src/lib/runtime-state-root.js exists to\n' +
         'prevent: a payload carrying PAYLOAD.json must resolve state/, logs/, vault/, captures/, profiles/\n' +
         'and reports/ to a per-user root. Check whether a new write path bypassed statePath(), or whether\n' +
