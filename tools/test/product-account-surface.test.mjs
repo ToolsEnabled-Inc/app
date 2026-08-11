@@ -323,7 +323,18 @@ const ACCOUNT_SOURCES = Object.freeze({
   'src/views/account.js': stripComments(VIEW),
 })
 
-const SHIPPED_COPY = `${read('src/account-state.js')}\n${SETTINGS}`
+/* Every file the user reads words from. The store is in here because its
+   refusal messages ARE user-facing copy -- "This computer could not protect
+   the password, so no account was created" is a sentence a person reads at
+   the moment their account is not created, and it makes a promise about what
+   was written. Leaving the store out was how two real promises sat
+   unregistered. */
+const SHIPPED_COPY = [
+  read('src/account-state.js'),
+  SETTINGS,
+  VIEW,
+  read('shell/product-account.cjs'),
+].join('\n')
 
 const REGISTERED_CLAIMS = Object.freeze([
   {
@@ -395,6 +406,37 @@ const REGISTERED_CLAIMS = Object.freeze([
         'the store now mentions a provider, so "this one never asks for them" needs re-checking')
     },
   },
+  {
+    claim: 'so no account was created',
+    stillTrueBecause: 'every refusal in createAccount returns before the single writeStore call, so a refused creation leaves the account file byte-identical. Verified behaviourally for every reachable refusal, and by call order for the one that needs a failing keystore to reach.',
+    pin() {
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      const create = store.slice(store.indexOf('async function createAccount'), store.indexOf('const BAD_CREDENTIALS'))
+      assert.equal((create.match(/writeStore\(/g) || []).length, 1, 'createAccount writes more than once, so a refusal could leave a partial account')
+      assert.ok(create.indexOf("ACCOUNT_HASH_FAILED") < create.indexOf('writeStore('),
+        'the hash-failure refusal now comes after the write, so "no account was created" would be false')
+    },
+  },
+  {
+    claim: 'so nothing was changed',
+    stillTrueBecause: 'changePassword returns on every refusal before its single writeStore call, so a refused change leaves the old verifier and the old epoch intact. The behavioural half is proved in product-account.test.mjs: after a refused change the old password still works and the session is untouched.',
+    pin() {
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      const change = store.slice(store.indexOf('async function changePassword'))
+      assert.equal((change.match(/writeStore\(/g) || []).length, 1, 'changePassword writes more than once, so a refusal could leave a partial change')
+      assert.ok(change.indexOf("ACCOUNT_HASH_FAILED") < change.indexOf('writeStore('),
+        'the hash-failure refusal now comes after the write, so "nothing was changed" would be false')
+      /* THIS ASSERTION WAS VACUOUS AND MUTATION TESTING CAUGHT IT.
+         It used to be `change.includes('currentPassword')`, which stays true
+         when the actual proof is deleted -- the name survives in the
+         signature and the type check. Planting `|| false` in place of the
+         verify call left it green; only the behavioural suite noticed. An
+         assertion that cannot fail is worse than none, because it is counted
+         as coverage. This one matches the awaited call itself. */
+      assert.ok(/await verifyPassword\(currentPassword/.test(change),
+        'changePassword no longer proves the current password before changing it')
+    },
+  },
 ])
 
 for (const entry of REGISTERED_CLAIMS) {
@@ -406,17 +448,126 @@ for (const entry of REGISTERED_CLAIMS) {
   })
 }
 
-/* The registry itself must not silently stop covering the copy. */
-test('every absolute-shaped promise in the account copy is registered', () => {
-  const sentences = [...ACCOUNT_SCOPE_NOTICE, ...SETTINGS.match(/<div class="settings-desc">[^<]*<\/div>/g) || []]
-    .join(' ')
-  const absolutes = ['Nothing is sent anywhere', 'no email address is asked for', 'there is also no password reset',
-    'It is not a login to Claude, ChatGPT or Google', 'this one never asks for them']
-  for (const claim of absolutes) {
-    assert.ok(REGISTERED_CLAIMS.some(entry => entry.claim === claim),
-      `"${claim}" is an absolute promise the product makes and nothing registers it`)
+/* ---- the guard against self-selected coverage ----
+ *
+ * The first version of this file asserted that five NAMED sentences were
+ * registered. That is a hand-written list standing in for the copy, and this
+ * repo has already been bitten by exactly that: tools/check-suites-discovered.mjs
+ * exists because a hand-written list of 11 test files stood in for a glob over
+ * 26, and its comment states the rule -- self-selected coverage cannot fail.
+ * My list could not fail either. Measured against the real sources it covered
+ * 3 of 13 absolute-shaped sentences.
+ *
+ * So the sentences are DERIVED from the shipped sources now, and every one must
+ * be classified. Two kinds, because collapsing them would be its own lie:
+ *
+ *   PINNED    - a promise about what this product does or does not do. Needs a
+ *               mechanical fact that keeps it true.
+ *   REPORTED  - a description of what just happened or what this build cannot
+ *               do. "This computer cannot remember a sign-in" is a report about
+ *               a keystore, not a promise we could break by writing code.
+ *
+ * A sentence in neither list fails the suite. Adding copy therefore costs a
+ * classification, which is the two-minute speed bump, and the alternative --
+ * loosening the pattern until nothing matches -- is the failure mode both lanes
+ * hit tonight from opposite directions.
+ */
+
+function proseLiterals(source) {
+  const code = stripComments(source)
+  const found = new Set()
+  /* Built with RegExp() rather than written as literals: these patterns need a
+     backslash class and a newline class, and every attempt to author them
+     inline went through a shell heredoc that ate the escapes and produced a
+     regex spanning two lines. Constructing them from strings is escaping I can
+     read. The third is a plain literal because it needs neither. */
+  const SINGLE_QUOTED = new RegExp("'([^'\\\\\\n]{25,})'", 'g')
+  const DOUBLE_QUOTED = new RegExp('"([^"\\\\\\n]{25,})"', 'g')
+  const BETWEEN_TAGS = />([^<>{}`$]{25,})</g
+  for (const pattern of [SINGLE_QUOTED, DOUBLE_QUOTED, BETWEEN_TAGS]) {
+    for (const match of code.matchAll(pattern)) {
+      const text = (match[1] || '').trim()
+      if (text && /\s/.test(text) && /[a-z]/i.test(text)) found.add(text)
+    }
   }
-  assert.ok(sentences.length > 0, 'the copy scan found nothing, which means this guard is checking air')
+  return [...found]
+}
+
+/* A word list and `includes`, deliberately, instead of a regex.
+ *
+ * The regex version of this line silently became a LITERAL BACKSPACE
+ * CHARACTER where a word-boundary escape was meant -- authored through a
+ * shell heredoc that ate the backslash. It compiled, it ran, and it matched
+ * nothing, so the guard reported ZERO absolute sentences in copy that has
+ * thirteen. The "checking air" assertion below is the only reason that was
+ * caught instead of shipping as a green test over nothing, which is the exact
+ * defect this file exists to prevent.
+ *
+ * A list needs no escapes, so it cannot be corrupted that way. It over-matches
+ * slightly ("none" inside "nonetheless"), and that is the safe direction: an
+ * over-match costs somebody a classification, an under-match costs a promise
+ * nobody is watching. */
+const ABSOLUTE_WORDS = Object.freeze([
+  'never', 'nothing', 'nowhere', 'no server', 'no email', 'no account', 'anywhere',
+  'cannot', 'no password reset', 'no licence check', 'no subscription', 'not a login',
+  'none', 'no one',
+])
+
+const isAbsoluteShaped = (sentence) => {
+  const lower = sentence.toLowerCase()
+  return ABSOLUTE_WORDS.some(word => lower.includes(word))
+}
+
+test('the absolute-shape detector detects, and is not silently inert', () => {
+  /* Pinned because the detector it replaces was inert and looked correct. */
+  assert.equal(isAbsoluteShaped('Nothing is sent anywhere'), true)
+  assert.equal(isAbsoluteShaped('this one never asks for them'), true)
+  assert.equal(isAbsoluteShaped('It is not a login to Claude'), true)
+  assert.equal(isAbsoluteShaped('This computer cannot remember a sign-in.'), true)
+  assert.equal(isAbsoluteShaped('Sign in, sign out, or change your password.'), false)
+  assert.equal(isAbsoluteShaped('Choose a folder for your assistant.'), false)
+})
+
+/* Reports, not promises. Each says why it is one. */
+const REPORTED_STATE = Object.freeze([
+  ['This page is running in a browser rather than the installed application', 'reports where the page is running; there is genuinely no shell to hold an account.'],
+  ['This copy cannot read its accounts', 'reports a damaged account file. It is the fail-closed message, not a promise.'],
+  ['This computer cannot remember a sign-in', 'reports that the OS keystore is unavailable. A fact about Windows, not about our code.'],
+  ['This computer cannot remember the sign-in, so you will be asked again next time', 'same keystore report, said where the person just signed in.'],
+  ['There is no account on this page to sign in to', 'reports the absent shell bridge.'],
+  ['The account file on this computer contains an entry this version cannot read', 'reports a corrupt record; the refusal itself is pinned by the fail-closed tests.'],
+  ['The password cannot be the same as the username', 'states a rule that IS enforced, and is pinned by the password-rules test.'],
+])
+
+test('every absolute-shaped sentence in the account copy is classified', () => {
+  const sources = {
+    'src/account-state.js': read('src/account-state.js'),
+    'src/views/account.js': VIEW,
+    'shell/product-account.cjs': read('shell/product-account.cjs'),
+  }
+  const unclassified = []
+  let seen = 0
+  for (const [name, source] of Object.entries(sources)) {
+    for (const sentence of proseLiterals(source)) {
+      if (!isAbsoluteShaped(sentence)) continue
+      seen += 1
+      const pinned = REGISTERED_CLAIMS.some(entry => sentence.includes(entry.claim))
+      const reported = REPORTED_STATE.some(([text]) => sentence.includes(text))
+      if (!pinned && !reported) unclassified.push(`${name}: ${sentence.slice(0, 120)}`)
+    }
+  }
+  /* A guard that finds nothing is checking air -- the rule
+     tools/check-no-owner-data.mjs applies to itself. */
+  assert.ok(seen >= 10, `only ${seen} absolute-shaped sentences were found; the scanner has stopped seeing the copy`)
+  assert.deepEqual(unclassified, [],
+    'these sentences make absolute-shaped statements and are neither pinned as promises nor classified as reports')
+})
+
+test('the shared settings row is classified too', () => {
+  const row = SETTINGS.match(/<div class="settings-desc">[^<]*account lives on this computer[^<]*<\/div>/)
+  assert.ok(row, 'the account settings row is gone or reworded; re-register its promises')
+  assert.ok(REGISTERED_CLAIMS.some(entry => row[0].includes(entry.claim)),
+    'the account settings row makes an absolute promise that nothing pins')
 })
 
 /* ------------------------------- the wiring ------------------------------- */
