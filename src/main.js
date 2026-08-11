@@ -21,7 +21,7 @@ import { setupView } from './views/setup.js'
 import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
-import { SETUP_RESOLUTION, firstRunPending } from './setup-state.js'
+import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
 import './morphs.css'
@@ -130,15 +130,14 @@ const motionReduced = () =>
  * come back, and revisiting this screen later to CHANGE a level is not a trap.
  */
 function syncFirstRunChrome() {
-  const pending = firstRunPending(SETUP_RESOLUTION)
-  document.body.classList.toggle('first-run', pending)
-  return pending
+  document.body.classList.toggle('first-run', firstRunPending(SETUP_RESOLUTION))
 }
 
 function render() {
   const route = parse()
 
-  if (syncFirstRunChrome() && route.name !== 'setup') {
+  syncFirstRunChrome()
+  if (shouldOpenSetup(SETUP_RESOLUTION, route.name)) {
     // the hashchange this fires re-enters render() with the setup route
     location.hash = '#/setup'
     return

@@ -33,6 +33,7 @@ import {
   TIER_LIMIT_NOTICE,
   firstRunPending,
   readSetupState,
+  shouldOpenSetup,
 } from '../../src/setup-state.js'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -107,10 +108,36 @@ test('configured is not believed without a tier this build knows', () => {
   assert.equal(firstRunPending(state), true)
 })
 
+/* The gate's DECISION, run for real. src/main.js cannot be imported without a
+   DOM, so an inline condition there could only ever be checked by matching
+   source text -- and a source match cannot tell `if (pending)` from
+   `if (false && pending)`. That exact plant was tried against an earlier
+   version of this suite and passed, which is why the decision is a function. */
+test('the gate sends a fresh machine to the question and nobody else', () => {
+  const fresh = readSetupState({ mcSetup: { chooseTier() {}, bootstrap: { ok: true, available: true, configured: false, tier: null } } })
+  assert.equal(shouldOpenSetup(fresh, 'home'), true)
+  assert.equal(shouldOpenSetup(fresh, 'metrics'), true)
+  // already there: redirecting again would be an infinite hashchange loop
+  assert.equal(shouldOpenSetup(fresh, 'setup'), false)
+
+  const done = readSetupState({ mcSetup: { chooseTier() {}, bootstrap: { ok: true, available: true, configured: true, tier: 'guided' } } })
+  assert.equal(shouldOpenSetup(done, 'home'), false)
+  assert.equal(shouldOpenSetup(done, 'setup'), false)
+
+  // fails open: a copy that cannot record a level must not be trapped
+  assert.equal(shouldOpenSetup(readSetupState({}), 'home'), false)
+})
+
 test('the router mounts the setup route and gates on it', () => {
   assert.match(ROUTER, /parts\[0\] === 'setup'/, 'src/main.js parses no #/setup route')
   assert.match(ROUTER, /case 'setup': return setupView/, 'src/main.js never mounts the setup view')
-  assert.match(ROUTER, /firstRunPending\(SETUP_RESOLUTION\)/, 'src/main.js never consults the first-run gate')
+  /* Deliberately exact. A looser match on the call alone still passes when the
+     condition is negated or short-circuited -- measured, not assumed. */
+  assert.match(
+    ROUTER,
+    /\n {2}if \(shouldOpenSetup\(SETUP_RESOLUTION, route\.name\)\) \{/,
+    'src/main.js does not gate render() on shouldOpenSetup exactly; a short-circuited or negated guard is not a gate',
+  )
   assert.match(ROUTER, /location\.hash = '#\/setup'/, 'src/main.js never redirects a first launch to the question')
 })
 

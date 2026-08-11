@@ -133,6 +133,20 @@ export function firstRunPending(state) {
   return Boolean(state && state.available && !state.configured)
 }
 
+/**
+ * Should the router send this navigation to the question?
+ *
+ * The decision lives here, as a pure function of state and route name, rather
+ * than as a condition inside render(). That is not tidiness: src/main.js cannot
+ * be executed without a DOM, so a guard written inline there can only be tested
+ * by matching source text -- and a source match cannot tell `if (pending)` from
+ * `if (false && pending)`. Both were tried; the second slipped through and the
+ * gate silently stopped existing. As a function it is exercised for real.
+ */
+export function shouldOpenSetup(state, routeName) {
+  return firstRunPending(state) && routeName !== 'setup'
+}
+
 /* The live copy, resolved once while the module graph evaluates -- the same
    moment the shell's synchronous bootstrap is available, and before the router
    paints. `noteTierRecorded` keeps it current after a save, because the
