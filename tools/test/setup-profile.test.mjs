@@ -260,6 +260,26 @@ test('every setting the questions produce is reachable in Settings afterwards', 
   assert.match(SETTINGS_VIEW, /createSetupProfileSettings/, 'Settings no longer mounts the setup profile section')
   assert.match(SETTINGS_VIEW, /'Setup',/, 'Settings has no Setup category in its rail')
 
+  /* IMPORTED IS NOT RENDERED, and the two assertions above cannot tell the
+     difference. Replacing the Setup branch's body with '' left every one of
+     them true and the whole section gone -- the unreachable-step defect again,
+     in a different file, found by planting it rather than by reading. So the
+     dispatcher's own branch is asserted, and the rail entry is asserted to
+     reach it: a category with no branch renders an empty section, which is the
+     silent half of the same bug. */
+  const dispatcher = SETTINGS_VIEW.slice(
+    SETTINGS_VIEW.indexOf('function sectionNodeMarkup('),
+    SETTINGS_VIEW.indexOf('function renderSectioned('),
+  )
+  assert.ok(dispatcher.length > 0, 'src/views/settings.js no longer dispatches sections through one function')
+  assert.match(
+    dispatcher, /section === 'Setup'\) return setupController\.markup\(\)/,
+    'the Setup category exists in the rail but its section renders nothing',
+  )
+  for (const category of ["'System'", "'Setup'"]) {
+    assert.ok(dispatcher.includes(category), `${category} is a category with no branch in the dispatcher`)
+  }
+
   const SECTION = read('src/setup-profile-settings.js')
   assert.match(SECTION, /chooseTier/, 'the permission level is not changeable in Settings, so "you can change it later in Settings" is still untrue')
   assert.match(SECTION, /recordWorkspaces/, 'the working folder is not changeable in Settings')
@@ -377,9 +397,19 @@ test('no sentence this lane shows names a mechanism', () => {
   /* A stranger reads this screen before they have any idea what the program is
      made of. An internal identifier here is not jargon-as-style, it is a leak. */
   const mechanism = /\b(localStorage|sessionStorage|IPC|ipcRenderer|preload|renderer|asar|machine\.json|workspaceRoots|mc\.write|mc\.live|mc\.set|JSON|schema|payload|boolean|null|undefined|serialise|serialize|git|repository|commit)\b/i
+  /* COUNTED, because a loop that iterates nothing passes.
+     Asserting on `copy` and then looping over something else is the shape that
+     lets a guard go inert while reporting success -- the same rule
+     tools/check-no-owner-data.mjs applies to itself ("scanned 0 files" is an
+     error there, not a pass). A planted `for (const sentence of [])` kept this
+     test green until this counter existed. */
+  let checked = 0
   for (const sentence of copy) {
+    checked += 1
     assert.doesNotMatch(sentence, mechanism, `a user-facing sentence names a mechanism: "${sentence}"`)
   }
+  assert.equal(checked, copy.length, 'the loop did not examine every sentence that was collected')
+  assert.ok(checked >= 60, `only ${checked} sentences were examined; this guard is checking air`)
 })
 
 /* THE CLASS THAT ACTUALLY BIT, TWICE, so it gets the strictest rule.
@@ -453,6 +483,17 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
 test('every absolute claim on screen is registered with the reason it is true', () => {
   const absolute = /\b(never|nothing|no one|anywhere|always|none)\b/i
   const claims = everySentenceThisLaneShows().filter(sentence => absolute.test(sentence))
+  /* THE DETECTOR MUST FIND SOMETHING. A sibling lane shipped this exact rule
+     with a word-boundary escape that a heredoc had eaten into a literal
+     backspace: it compiled, it ran, it matched nothing, and it reported zero
+     absolute sentences in copy that had thirteen. A green test over an empty
+     scan, committed inside the fix for green tests over empty scans. The
+     registry is the floor -- every pinned sentence is one the detector is known
+     to be able to find, so finding fewer than that means the pattern died. */
+  assert.ok(
+    claims.length >= PINNED_ABSOLUTE_CLAIMS.length,
+    `the detector found ${claims.length} absolute sentences but ${PINNED_ABSOLUTE_CLAIMS.length} are registered; the pattern has gone inert and this guard is checking air`,
+  )
   for (const claim of claims) {
     const pin = PINNED_ABSOLUTE_CLAIMS.find(entry => entry.match.test(claim))
     assert.ok(
