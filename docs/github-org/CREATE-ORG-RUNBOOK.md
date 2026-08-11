@@ -85,17 +85,46 @@ Signed in as the owner's GitHub account.
 
 **Do not create, transfer or make public any product repository.**
 
-Publication is gated on the `payload-decoupling` lane finishing the removal of another
-product's automation from the capability payload. As of this writing the passport-MRZ
-module and the cloud-account-pinned provider routes are out, and that third item is still
-in progress. The gate is mechanical, not a memory:
+The three items publication was originally gated on are **done**, verified in the staged
+payload: the passport-MRZ module, the cloud-account-pinned provider routes, and the other
+product's release automation are all gone. The boundary gate now exits 0.
+
+**Exit 0 does not mean "safe to publish", and this is the trap.** Read what the gate
+actually asserts:
 
 ```
-node tools/check-payload-boundary.mjs release/win-unpacked/resources/capability
+node tools/check-payload-boundary.mjs capability
+  Classified: open=233 pending=6 paid=0 excluded=0 unclassified=0
+  Payload boundary: clean. Nothing paid, excluded or unclassified is present.
 ```
 
-Exit 1 means the payload still carries files classified `excluded`. Publishing anything
-while that is true publishes them, because the installer *is* a source distribution.
+`config/payload-boundary.json` separates what is **decided** from what is **decoupled**,
+and only the second one is what "clean" is about:
+
+- **`excluded` / `paid`** — the packer measurably no longer stages it. The gate fails if
+  one reappears. This is the guarantee.
+- **`pending`** — a decision has been recorded, but the file **still ships today**. The
+  gate prints these and calls them "not a failure", because its job is to stop
+  *classified* material from reaching the payload, not to chase down items still being
+  decoupled.
+
+So a `pending` file is in the installer right now, and the verdict line does not cover it.
+Six files are in that state:
+
+| Still shipping | Why it matters |
+| --- | --- |
+| `src/lib/entitlement.js` | The actual commercial tier table and prices — the business plan in source form |
+| `src/lib/providers/license.js` | Licence-key issuance and verification |
+| `src/lib/license-store.js` | The revocation store behind it |
+| `src/lib/providers/chrome-web-store.js` | Generic client carrying a hardcoded other-product listing id |
+| `src/lib/providers/firebase.js` | Generic client carrying a hardcoded other-product GCP project id |
+| `src/lib/aicalendar-root.js` | Resolves a checkout path for a separate product |
+
+**The condition for making a product repository public is `pending=0`,** not `exit 0`.
+Publishing while any of those six are staged publishes them, because the installer *is* a
+source distribution — 200-plus plain `.js` files next to a trivially extractable
+`app.asar`. Whoever publishes must re-run the gate and read the `pending` count, not the
+last line.
 
 Note also that untracking a file does not remove it from git history. When the product
 repository is eventually published, it needs a fresh repository or a history rewrite —
@@ -103,5 +132,5 @@ the existing private remote has history that predates any of this.
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*

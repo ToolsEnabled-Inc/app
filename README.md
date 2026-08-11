@@ -1,4 +1,4 @@
-# ToolsEnabled with Mission Control
+# ToolsEnabled
 
 ## Attribution
 
@@ -10,7 +10,7 @@ coordination architecture.**
 | --- | --- |
 | Company / copyright holder | ToolsEnabled, Inc. *(in formation — see [Legal status](#legal-status))* |
 | Sole founder and creator | Joshua Pinckard |
-| Official product | ToolsEnabled with Mission Control |
+| Official product | ToolsEnabled |
 | Official publisher | ToolsEnabled, Inc. *(in formation)* |
 
 Outside developers are listed in [`CONTRIBUTORS.md`](CONTRIBUTORS.md) as contributors and
@@ -24,10 +24,12 @@ maintainers. Contributors are never founders; the founder credit above is not sh
 tools — a policy kernel that decides what is allowed, a tamper-evident audit ledger that
 records what happened, and a provider surface that performs the work.
 
-**Mission Control** is the reference interface for it: the fleet, the agents, the
-approvals, the spend ledger and the audit trail in one place.
+It ships with a reference interface of the same name: the fleet, the agents, the
+approvals, the spend ledger and the audit trail in one place. The interface does not have
+a separate name, because it is not a separate product — it is what ToolsEnabled looks
+like.
 
-They ship together as one free, open-source product. You can run it three ways:
+It is one free, open-source product. You can run it three ways:
 
 - **Locally**, on one machine.
 - **Over your own LAN**, from one machine to another you already control.
@@ -62,8 +64,15 @@ tooling are developed separately and are not intended to be part of this reposit
 
 What the official build actually redistributes is not left to that sentence to enforce.
 It is declared in `config/payload-boundary.json` and checked by a gate on every release
-build, which fails rather than warns. That file is the current, self-updating answer;
-prose in a README is not.
+build, which fails rather than warns. That file is the current answer; prose in a README
+is not.
+
+One distinction in that file is easy to read the wrong way, so it is worth stating here.
+A path marked `excluded` or `paid` is one the build measurably no longer ships, and the
+gate fails if it reappears. A path marked `pending` is one where the decision has been
+made but the file **still ships today**. The gate's "clean" verdict is only about the
+first kind. To know what is actually in a build, read the `pending` list, not the last
+line of the output.
 
 ## Legal status
 
@@ -74,9 +83,14 @@ Stated plainly, because a public repository is a dated, permanent record:
   personally by Joshua Pinckard until the entity exists and the rights are assigned to it.
   At that point the copyright holder line changes and the *(in formation)* qualifier is
   removed.
-- **No trademark application has been filed** for "ToolsEnabled" or "Mission Control", and
-  neither is claimed here as a registered mark. "Mission Control" is a common phrase and
-  there are unrelated businesses using it.
+- **No trademark application has been filed** for "ToolsEnabled", and it is not claimed
+  here as a registered mark.
+- **The interface was previously called "Mission Control", and that name has been
+  dropped.** A USPTO search returned 17 live marks for it in the relevant classes,
+  including one held by Apple Inc. (Reg. 4240125, IC 009, covering graphical user
+  interface software) and one held by BMC Software. "ToolsEnabled" returned no hits, live
+  or dead. The name was changed before launch rather than after, because once a name is
+  in forks, package registries and third-party redistributions it cannot be recalled.
 - **Licensing is not yet final.** No open-source license has been selected, so no license
   grant is made by this file and all rights are reserved for now. The license will be
   chosen and added before this repository is made public.
@@ -87,5 +101,5 @@ Pre-release. This repository is not yet public.
 
 ---
 
-*ToolsEnabled with Mission Control — created by Joshua Pinckard, sole founder.
+*ToolsEnabled — created by Joshua Pinckard, sole founder.
 Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*
