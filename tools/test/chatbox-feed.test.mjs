@@ -308,6 +308,64 @@ test('being filtered to nothing is never reported as nobody talking', () => {
   assert.equal(quiet.panel.contextEmpty, null, 'and nobody talking is not reported as a filter')
 })
 
+/* THE PAIR, AND WHY THERE IS A PAIR.
+ *
+ * Three defects across two lanes were all the same mistake: a fact about the
+ * SELECTION printed as a fact about the BOX. "None of the agents talking are
+ * ones you picked" on a box deliberately showing no conversation; "3 agents are
+ * being kept out of this box" beside a list of runs and nothing else. The
+ * values were never wrong -- the name under-specified which of the two
+ * questions it answered, so `planChatbox` now answers both, separately.
+ *
+ * Both halves are pinned here, because gating the raw one would have been the
+ * easy fix and would have destroyed something: a person in "show only runs" who
+ * is about to turn the conversation back on has a real interest in whether it
+ * would show them anything, and only the ungated value can answer that. */
+test('the raw selection facts hold whether or not the conversation is on screen', () => {
+  const plan = planChatbox({
+    contextAvailable: true,
+    runsAvailable: true,
+    runsMode: 'only',
+    selection: { mode: 'chosen', ids: ['someone-else'] },
+    agentsInSource: ['codex', 'luna-02', 'terra-01'],
+  })
+  assert.equal(plan.showContext, false, 'the conversation is not on screen in runs-only')
+  assert.equal(plan.filteredToNothing, true, 'and turning it back on would still show nothing')
+  assert.equal(plan.hiddenAgents, 3, 'and this is how many would come back if the selection widened')
+})
+
+test('the gated facts say nothing about a half that is not on screen', () => {
+  const plan = planChatbox({
+    contextAvailable: true,
+    runsAvailable: true,
+    runsMode: 'only',
+    selection: { mode: 'chosen', ids: ['someone-else'] },
+    agentsInSource: ['codex', 'luna-02', 'terra-01'],
+  })
+  assert.equal(plan.contextFilteredToNothing, false)
+  assert.equal(plan.contextHiddenAgents, 0)
+
+  const shown = planChatbox({
+    contextAvailable: true,
+    runsAvailable: true,
+    runsMode: 'with',
+    selection: { mode: 'chosen', ids: ['someone-else'] },
+    agentsInSource: ['codex', 'luna-02', 'terra-01'],
+  })
+  assert.equal(shown.contextFilteredToNothing, true, 'and they agree with the raw ones once it is')
+  assert.equal(shown.contextHiddenAgents, 3)
+})
+
+test('the box never complains about a filter over a conversation it is not showing', () => {
+  for (const { label, input } of ALL) {
+    const { panel } = describeHome(input)
+    if (panel.context) continue
+    assert.equal(panel.contextEmpty, null, `an agent-filter notice with no conversation shown, ${label}`)
+    assert.equal(panel.hiddenAgents, 0, `a held-agent count with no conversation shown, ${label}`)
+    assert.doesNotMatch(panel.footer || '', /kept out of this box/i, `a held-agent sentence with no conversation shown, ${label}`)
+  }
+})
+
 test('the box says how many agents it is holding back, and only when it is', () => {
   const held = describeHome({
     fleetConfigured: true,

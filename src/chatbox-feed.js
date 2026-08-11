@@ -316,18 +316,55 @@ export function planChatbox({
   const current = normalizeSelection(selection)
   const speaking = normalizeIds(agentsInSource)
   const shown = speaking.filter(id => isAgentShown(current, id))
+  /* Bound before the object rather than written into it twice: the gated pair
+     below is derived from this, and a property of an object literal is not in
+     scope inside that same literal. */
+  const showContext = Boolean(contextAvailable) && chosenMode !== 'only'
 
   return Object.freeze({
     runsMode: chosenMode,
     selection: current,
-    showContext: Boolean(contextAvailable) && chosenMode !== 'only',
+    showContext,
     showRuns: Boolean(runsAvailable) && chosenMode !== 'hidden',
     agentsSpeaking: Object.freeze(speaking),
     agentsShown: Object.freeze(shown),
+
+    /* ---- TWO PAIRS, AND THE PAIR IS THE POINT ----
+     *
+     * Each of these facts comes in a raw form and a gated form, because there
+     * are genuinely two questions and one name was answering both badly.
+     *
+     * THE RAW ONES ARE ABOUT THE SELECTION, and they hold whether or not the
+     * conversation is on screen. That is not an oversight to be tidied away: a
+     * person sitting in "show only runs" who is about to turn the conversation
+     * back on has a real interest in whether it would show them anything, and
+     * only the ungated value can answer it. Gating them would delete the
+     * primitive rather than fix anything.
+     *
+     * THE GATED ONES ARE ABOUT THIS BOX, RIGHT NOW, and they are what a
+     * renderer almost always wants: say nothing about a filter over a half you
+     * are not showing.
+     *
+     * THIS EXISTS BECAUSE THE OLD NAME UNDER-SPECIFIED AND BOTH CONSUMERS
+     * TRIPPED ON IT, three times between them, always the same way: a fact
+     * about the selection printed as a fact about the box. "None of the agents
+     * talking are ones you picked" on a box deliberately showing no
+     * conversation; "N agents are being kept out of this box" beside a list of
+     * runs and nothing else. The values were never wrong. Reading them as
+     * something they do not claim to be was, so the fix is a name that says
+     * which of the two it is, not a value that quietly becomes the other one.
+     * Proposed by the page 2 lane, whose argument for keeping the primitive was
+     * better than my argument for gating it. */
     hiddenAgents: speaking.length - shown.length,
     /* Every agent in the conversation was filtered out. Distinct from "there is
        no conversation", and the screen must not report one as the other. */
     filteredToNothing: speaking.length > 0 && shown.length === 0,
+
+    /* The same two facts, but only while this box is actually showing the
+       conversation they are about. Reach for these when you are writing a
+       sentence a person will read. */
+    contextHiddenAgents: showContext ? speaking.length - shown.length : 0,
+    contextFilteredToNothing: showContext && speaking.length > 0 && shown.length === 0,
   })
 }
 

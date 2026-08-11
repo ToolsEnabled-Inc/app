@@ -455,7 +455,13 @@ function describePanel(mode, sessions, engine, chatbox) {
     empty: null,
     contextEmpty: null,
     footer: null,
-    hiddenAgents: plan.hiddenAgents,
+    /* The GATED count, because this number becomes a sentence a person reads.
+       It was the raw one, and in "show only runs" that printed "3 agents are
+       being kept out of this box by your own choice" beside a list of runs and
+       no conversation at all -- a complaint about a filter over a half that is
+       not on screen. The raw count is still on the plan for anyone who wants to
+       ask what widening the selection would bring back. */
+    hiddenAgents: plan.contextHiddenAgents,
   }
 
   /* Nothing at all was chosen. Said plainly, with the way back to the choice,
@@ -465,7 +471,7 @@ function describePanel(mode, sessions, engine, chatbox) {
     return panel
   }
 
-  if (plan.showContext && plan.filteredToNothing) {
+  if (plan.contextFilteredToNothing) {
     panel.contextEmpty = { ...COPY.chatboxNoAgentsChosen, action: { ...COPY.chatboxNoAgentsChosen.action } }
   }
 
@@ -507,12 +513,12 @@ function describePanel(mode, sessions, engine, chatbox) {
 
   /* An empty runs half is not an empty BOX when a conversation is beside it,
      and the renderer needs to know which of the two it is. */
-  if (panel.empty && plan.showContext && !plan.filteredToNothing) {
+  if (panel.empty && plan.showContext && !plan.contextFilteredToNothing) {
     panel.runsEmptyBesideContext = true
   }
 
-  if (plan.hiddenAgents > 0) {
-    const held = COPY.chatboxAgentsHeld(plan.hiddenAgents)
+  if (plan.contextHiddenAgents > 0) {
+    const held = COPY.chatboxAgentsHeld(plan.contextHiddenAgents)
     panel.footer = panel.footer ? `${panel.footer} ${held}` : held
   }
   return panel
