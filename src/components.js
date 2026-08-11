@@ -824,16 +824,8 @@ export function takeViewMorph() {
   return m
 }
 
-/** Runtime text updater registry — one central clock drives all timers. */
-const runtimeEls = new Set()
-export function bindRuntime(elm, bornAtFn) {
-  const entry = { elm, bornAtFn }
-  runtimeEls.add(entry)
-  return () => runtimeEls.delete(entry)
-}
-export function tickRuntimes(fmt) {
-  for (const { elm, bornAtFn } of [...runtimeEls]) {
-    if (!elm.isConnected) { runtimeEls.forEach(e => { if (e.elm === elm) runtimeEls.delete(e) }); continue }
-    elm.textContent = fmt(bornAtFn())
-  }
-}
+/** Runtime text updater registry — one central clock drives all timers.
+ *  Implemented in ./runtime-clock.js (dependency-free so it can be tested
+ *  without importing sim.js, which schedules timers at import time) and
+ *  re-exported here so every existing call site is unchanged. */
+export { bindRuntime, tickRuntimes } from './runtime-clock.js'

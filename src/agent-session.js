@@ -12,6 +12,7 @@
 import { el } from './components.js'
 import { isWriteEnabled } from './write-flags.js'
 import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
+import { createTranscriptAppender } from './agent-session-transcript.js'
 
 /* Said in the UI, not just in a comment, because it is the single most
    load-bearing fact about this control.
@@ -58,7 +59,16 @@ function unavailableReason(code) {
   return UNAVAILABLE_TEXT[code] || String(code || 'unavailable')
 }
 
-export function mountAgentSessionSurface(root, { agentId, bridge = globalThis.mcAgent } = {}) {
+/* The frame scheduler is injectable ONLY so a test can drive the transcript
+   flush deterministically instead of waiting on a real animation frame. The
+   shipped call passes nothing and gets requestAnimationFrame, so production
+   behaviour is unchanged. */
+export function mountAgentSessionSurface(root, {
+  agentId,
+  bridge = globalThis.mcAgent,
+  scheduleFrame = (fn) => globalThis.requestAnimationFrame(fn),
+  cancelFrame = (handle) => globalThis.cancelAnimationFrame(handle),
+} = {}) {
   if (!isWriteEnabled('agent-session')) return () => {}
 
   const surface = el(`<section class="write-surface agent-session-surface" aria-label="Agent session">
@@ -128,16 +138,33 @@ export function mountAgentSessionSurface(root, { agentId, bridge = globalThis.mc
     startButton.disabled = false
   })()
 
+  /* Transcript appends are batched per animation frame and written in bounded
+     chunks. This used to be `transcript.textContent += text` once per delta,
+     which is quadratic in the transcript's length -- 20,000 deltas measured at
+     1051 ms of blocked main thread, against 1.1 ms batched. The engine emits
+     one delta PER TOKEN, so that path ran tens of thousands of times per turn
+     and got worse the longer a session lived. Nothing is dropped or capped;
+     see src/agent-session-transcript.js for the full reasoning and numbers. */
+  const appender = createTranscriptAppender({
+    node: transcript,
+    createTextNode: text => document.createTextNode(text),
+    scheduleFrame,
+    cancelFrame,
+  })
+
   unsubscribe = bridge.onEvent((packet) => {
     if (destroyed || !sessionId) return
     const text = sessionEventText(packet, sessionId)
     if (text) {
-      transcript.hidden = false
-      transcript.textContent += text
+      appender.push(text)
       return
     }
     const turnStatus = sessionTurnStatus(packet, sessionId)
     if (turnStatus) {
+      /* Flush before the status flips, so "turn completed" is never shown
+         beside a transcript that is still missing that turn's last frame of
+         output. */
+      appender.flushNow()
       actionState(status, turnStatus === 'completed' ? 'confirmed' : 'refused', `turn ${turnStatus} · session still open`)
     }
   })
@@ -150,8 +177,7 @@ export function mountAgentSessionSurface(root, { agentId, bridge = globalThis.mc
 
     starting = true
     setStarted(true)
-    transcript.textContent = ''
-    transcript.hidden = true
+    appender.reset()
     actionState(status, 'pending', 'starting…')
     actionState(output, 'pending', UNRESTRICTED_NOTE)
 
@@ -193,6 +219,9 @@ export function mountAgentSessionSurface(root, { agentId, bridge = globalThis.mc
 
   return () => {
     destroyed = true
+    /* A scheduled frame outlives the element it would write into, so it is
+       cancelled here rather than left to fire against a detached surface. */
+    appender.dispose()
     if (unsubscribe) unsubscribe()
     void closeSession()
     surface.remove()
