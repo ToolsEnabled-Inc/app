@@ -313,6 +313,98 @@ function confinedSessionIsSignedOut(planner) {
   }
 }
 
+/* The Codex CLI itself: the SIXTH precondition, and the one that made the
+ * product lie.
+ *
+ * WHAT WAS MEASURED. A machine with a Codex `auth.json` present and no `codex`
+ * on PATH: availability answered {ok:true, AGENT_ENGINE_READY}, home said
+ * "agent engine ready", Start rendered ENABLED, and the press failed with the
+ * bare string `AGENT_SESSION_FAILED`. Every check above passed, because every
+ * check above asks about THIS INSTALLATION -- the engine's modules, its working
+ * directory, the credential file. None of them asks whether the program that
+ * actually runs an agent exists. A sign-in is a file; the CLI is a binary; the
+ * fifth precondition proved the file and stopped.
+ *
+ * IT IS UNCONDITIONAL, WHICH IS THE DIFFERENCE FROM THE CHECK ABOVE. The
+ * sign-in is only needed at an ISOLATED level, so confinedSessionIsSignedOut()
+ * is rightly conditional. The CLI is spawned at EVERY level -- `unrestricted`
+ * runs the same `codex` -- so a level-conditional CLI check would reproduce the
+ * same lie on the default level.
+ *
+ * IT IS CHECKED BEFORE THE SIGN-IN, AND THAT INVERTS THE START PATH'S ORDER ON
+ * PURPOSE. startSession() prepares the confined home (sign-in) before it spawns
+ * Codex (CLI), so start-path order would report "not signed in" first. That
+ * order is correct for a machine and wrong for a person: `codex login` is a
+ * SUBCOMMAND OF THE BINARY THAT IS MISSING. Telling someone with no CLI to sign
+ * in sends them to a dead end and the product looks broken twice. Reporting the
+ * CLI first yields the only sequence that terminates: install, then sign in,
+ * each step true when it is shown. This is the one place in this function where
+ * the person's dependency order beats the code's call order, and it is stated
+ * here so the next reader does not "fix" it back.
+ *
+ * IT MIRRORS resolveInvocation() IN THE PAYLOAD rather than guessing, because a
+ * check that resolves the CLI differently from the spawn is a check that can
+ * pass for a binary the spawn will not find. That duplication is CHECKED rather
+ * than trusted -- exactly as the confinement path above is -- by
+ * tools/test/agent-codex-cli-precondition.test.mjs, which reads
+ * capability/src/lib/agent-engine/codex-process.js and asserts both branches
+ * this function copies are still the branches that file takes.
+ *
+ * IT PROVES ABSENCE OR IT SAYS NOTHING. Every uncertain branch returns false
+ * and lets readiness stand, which is the same fail-open-on-own-uncertainty rule
+ * the rest of this probe follows: a machine whose PATH this shell cannot read
+ * has taught us nothing about whether Codex is installed, and turning "I could
+ * not tell" into "unavailable" would delete the product's core feature on it.
+ * The start path still fails closed there, so a false here is never worse than
+ * what shipped.
+ *
+ * WHAT IT DOES NOT DO IS RUN ANYTHING. `codex --version` is the engine's own
+ * liveness test (detectCodexVersion), but this probe runs on every home mount
+ * and spawning a child process per mount is a cost and a side effect an
+ * availability read must not have. So this answers PRESENCE, and the residual
+ * gap -- a `codex` that resolves but cannot execute -- is answered at the press
+ * instead, where CODEX_CLI_NOT_FOUND and CODEX_VERSION_DETECTION_FAILED now
+ * have copy of their own rather than reaching the DOM as bare identifiers. */
+function codexCommandIsMissing() {
+  try {
+    /* Branch one, win32: the npm global install the payload prefers, run
+     * through process.execPath with no shell. Same path, same order. */
+    if (process.platform === 'win32') {
+      const appData = process.env.APPDATA
+      if (appData) {
+        const entry = path.join(appData, 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
+        if (fs.existsSync(entry)) return false
+      }
+    }
+    /* Branch two: the payload falls back to a shell-resolved `codex`, which on
+     * Windows means cmd.exe searching PATH by PATHEXT. An extensionless file is
+     * NOT executable by cmd, so the extension list is the resolution -- checking
+     * for a bare `codex` would pass on the npm bash shim that cmd cannot run.
+     *
+     * PATH is read from this process because the session inherits it: the
+     * launch-environment scrub is a named credential denylist and PATH is not on
+     * it, which is precisely what lets Codex still be found on Windows. */
+    const rawPath = process.env.PATH || process.env.Path
+    if (!rawPath) return false
+    const extensions = process.platform === 'win32'
+      ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(value => value.trim()).filter(Boolean)
+      : ['']
+    for (const directory of rawPath.split(path.delimiter)) {
+      if (!directory) continue
+      for (const extension of extensions) {
+        try {
+          if (fs.statSync(path.join(directory, `codex${extension}`)).isFile()) return false
+        } catch {
+          /* one unreadable directory is not an answer about the others */
+        }
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 /* The environment an agent child is allowed to inherit, at EVERY level.
  *
  * BOTH BRANCHES, DELIBERATELY, because the asymmetry WAS the defect. Handling
@@ -379,6 +471,9 @@ function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
  *                                asar-path defect that killed every PACKAGED
  *                                start while every checkout stayed green.
  *   loadConfinementPlanner    -> planConfinement(), before anything is spawned.
+ *   the Codex CLI            -> spawned by startCodexSession() at EVERY level.
+ *                                See codexCommandIsMissing(), and the note there
+ *                                on why it is asked BEFORE the sign-in.
  *   the Codex sign-in         -> inside confinedSessionPlan(), at an isolated
  *                                level only. See confinedSessionIsSignedOut().
  *   loadLaunchEnvironment     -> resolved per session, after the plan.
@@ -386,6 +481,9 @@ function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
  * The ORDER is the start path's order so a payload missing more than one module
  * reports the same code from the probe as from the press. A probe that named a
  * different one of two true faults would send someone to fix the wrong thing.
+ * The single exception is the CLI/sign-in pair, inverted against the start path
+ * because one instruction cannot be carried out without the other; the reason is
+ * argued in full at codexCommandIsMissing().
  *
  * WHAT IS DELIBERATELY NOT DONE HERE, and it is the one thing that looks
  * missing: confinedSessionPlan() is NOT called. It is not a read --
@@ -407,6 +505,15 @@ function engineAvailability({ enginePath, defaultCwd = process.cwd(), ...options
     const { engineRoot } = loadEngine(enginePath, options)
     normalizeCwd(defaultCwd, defaultCwd)
     const planner = loadConfinementPlanner(engineRoot)
+    /* Before the sign-in, deliberately: `codex login` is a subcommand of this
+     * binary, so a machine missing both must be told about the binary first or
+     * the instruction it gets cannot be carried out. See codexCommandIsMissing(). */
+    if (codexCommandIsMissing()) {
+      fail(
+        'AGENT_CODEX_CLI_NOT_INSTALLED',
+        'The Codex command-line program is not installed on this computer, so there is nothing for a session to run.',
+      )
+    }
     if (confinedSessionIsSignedOut(planner)) {
       fail(
         'AGENT_CONFINEMENT_SIGNED_OUT',
@@ -436,6 +543,7 @@ function engineAvailability({ enginePath, defaultCwd = process.cwd(), ...options
 const AVAILABILITY_CODES = Object.freeze([
   'AGENT_ENGINE_UNAVAILABLE',
   'AGENT_CONFINEMENT_UNAVAILABLE',
+  'AGENT_CODEX_CLI_NOT_INSTALLED',
   'AGENT_CONFINEMENT_SIGNED_OUT',
   'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE',
   'AGENT_HOST_INVALID_CWD',

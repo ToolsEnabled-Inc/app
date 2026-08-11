@@ -268,6 +268,45 @@ const READ_PAGE = `(() => {
   }
 })()`
 
+/* THE SECOND EXAMPLE SURFACE, and the one this harness did not cover.
+ *
+ * dd01899 fenced the example AGENT page and its own commit message said the
+ * simulated COMPUTERS board still built the same real dispatch, team and loop
+ * boxes, gated on nothing but the dispatch write flag. So the example copy of
+ * page 2 could start a real agent while the app-wide notice on screen said the
+ * page was showing example data. Same defect, same fence, and now the same
+ * harness -- a fence measured on one of two surfaces is a fence with a hole in
+ * it, and the hole is exactly where nobody is looking.
+ *
+ * PRESENCE, NOT VISIBILITY, for the same reason as above: a control hidden by a
+ * stylesheet is still a control the keyboard reaches. */
+const READ_BOARD = `(() => {
+  const shown = node => {
+    if (!node) return false
+    const box = node.getBoundingClientRect()
+    const style = getComputedStyle(node)
+    return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
+  }
+  const text = node => (node ? node.textContent.replace(/[\\s]+/g, ' ').trim() : null)
+  const board = document.querySelector('.computers')
+  return {
+    present: Boolean(board),
+    liveMode: board ? board.dataset.liveMode : null,
+    railOpen: Boolean(document.querySelector('.computers .board-ctl-box')),
+    launchControls: document.querySelectorAll('.computers [data-launch]').length,
+    dispatchButton: Boolean(document.querySelector('.computers [data-launch="dispatch"]')),
+    teamControls: document.querySelectorAll('.computers [data-team]').length,
+    loopControls: document.querySelectorAll('.computers [data-loop]').length,
+    absentBox: Boolean(document.querySelector('.computers .board-ctl-absent')),
+    absentText: text(document.querySelector('.computers .board-ctl-absent')),
+    /* The app-wide "some screens show example data" notice. On the simulated
+       board it is replaced by the in-flow statement above, so it must not also
+       be shouting from the corner; on a live board it is true and must stay. */
+    exampleToastShown: shown(document.querySelector('.fleet-profile-notice:not(.is-serious)')),
+    bridgeIsReal: typeof globalThis.mcAgent === 'object' && globalThis.mcAgent !== null,
+  }
+})()`
+
 async function drive(executable, scratch, { live }) {
   const port = await freePort()
   const label = live ? 'live' : 'example'
@@ -332,7 +371,32 @@ async function drive(executable, scratch, { live }) {
        that is still in its pre-availability disabled state and calling that a
        fence. */
     await delay(2500)
-    return await evaluate(READ_PAGE)
+    const page = await evaluate(READ_PAGE)
+
+    /* ---------- and now the same question of the computers board ----------
+       Same window, same write flags, only the surface changes. The controls
+       rail is opened by DOUBLE-CLICKING a node, which is how the page opens it
+       for a person; there is no deep link to a rail. */
+    await evaluate(`(() => {
+      localStorage.setItem('mc.live.computers', ${JSON.stringify(live ? 'live' : 'simulated')});
+      location.hash = '#/computers';
+    })()`)
+    await evaluate('location.reload()')
+    const onBoard = await until('the computers board', `Boolean(document.querySelector('.computers'))`)
+    let board = { present: false, reachedRail: false }
+    if (onBoard) {
+      await delay(2000)
+      const opened = await evaluate(`(() => {
+        const node = document.querySelector('.computers .static-tree-node')
+        if (!node) return 'no-node'
+        node.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }))
+        return 'opened'
+      })()`)
+      await until('the controls rail', `Boolean(document.querySelector('.computers .board-ctl-box'))`, 40)
+      await delay(1500)
+      board = { ...(await evaluate(READ_BOARD)), reachedRail: opened === 'opened' }
+    }
+    return { page, board }
   } finally {
     session.close()
     try { child.kill() } catch { /* already gone */ }
@@ -352,7 +416,7 @@ try {
   console.log(`staged ${SHIPPED_SHELL ? 'current dist/ over the shipped shell' : 'current dist/ + shell/'}, tier ${TIER}\n`)
 
   console.log('EXAMPLE mode -- the page that says nothing on it is real')
-  const example = await drive(executable, scratch, { live: false })
+  const { page: example, board: exampleBoard } = await drive(executable, scratch, { live: false })
   check('the page is in simulated mode', example.liveMode === 'simulated', `liveMode=${example.liveMode}`)
   check('the example banner is the one on screen',
     typeof example.banner === 'string' && example.banner.includes('no control on this page reaches a real session'),
@@ -365,8 +429,33 @@ try {
     example.startPresent ? `Start is present (disabled=${example.startDisabled}, shown=${example.startShown}, status=${JSON.stringify(example.sessionStatus)})` : '')
   check('NO audited-dispatch surface is mounted', example.dispatchSurface === false)
 
+  console.log('\nEXAMPLE mode -- the computers board, same window, same flags')
+  check('the simulated board is in simulated mode',
+    exampleBoard.liveMode === 'simulated', `liveMode=${exampleBoard.liveMode}`)
+  check('the controls rail opens on the simulated board',
+    exampleBoard.reachedRail === true && exampleBoard.railOpen === true,
+    `reachedRail=${exampleBoard.reachedRail} railOpen=${exampleBoard.railOpen} -- if this is false the fence below proves nothing`)
+  check('NO launch controls exist on the simulated board',
+    exampleBoard.launchControls === 0, `${exampleBoard.launchControls} [data-launch] control(s)`)
+  check('NO dispatch button exists on the simulated board',
+    exampleBoard.dispatchButton === false,
+    'this is the one that reached a real bridge from the example copy of page 2')
+  check('NO team controls exist on the simulated board',
+    exampleBoard.teamControls === 0, `${exampleBoard.teamControls} [data-team] control(s)`)
+  check('NO loop controls exist on the simulated board',
+    exampleBoard.loopControls === 0, `${exampleBoard.loopControls} [data-loop] control(s)`)
+  /* Absent is not enough on its own: a gap where Dispatch used to be reads as a
+     broken page. The absence has to say it is deliberate and where the real one
+     is. */
+  check('and their absence is STATED rather than silent',
+    exampleBoard.absentBox === true && /nothing here starts anything/i.test(exampleBoard.absentText || ''),
+    JSON.stringify(exampleBoard.absentText))
+  check('the app-wide example-data notice is not also shouting on this board',
+    exampleBoard.exampleToastShown === false,
+    'the in-flow statement replaces it here; on a live board it stays')
+
   console.log('\nLIVE mode -- the same page backed by a real projection')
-  const liveView = await drive(executable, scratch, { live: true })
+  const { page: liveView, board: liveBoard } = await drive(executable, scratch, { live: true })
   check('the page is in live mode', liveView.liveMode === 'live', `liveMode=${liveView.liveMode}`)
   check('the live banner is the one on screen',
     typeof liveView.banner === 'string' && liveView.banner.includes('Declared topology read from this computer'),
@@ -375,6 +464,23 @@ try {
   check('the Start control EXISTS', liveView.startPresent === true)
   check('the Start control is ENABLED', liveView.startDisabled === false,
     `disabled=${liveView.startDisabled}, status=${JSON.stringify(liveView.sessionStatus)}`)
+
+  /* THE NON-VACUITY HALF. Every check above is satisfied by a board that builds
+     no controls at all, which is exactly what a fence applied to both branches
+     by mistake would produce -- a "fix" that passes the fence suite and removes
+     the feature. So the live board must still HAVE the controls the example one
+     is refused. */
+  console.log('\nLIVE mode -- the computers board still has the controls the example is refused')
+  check('the live board is in live mode', liveBoard.liveMode === 'live', `liveMode=${liveBoard.liveMode}`)
+  check('the controls rail opens on the live board',
+    liveBoard.reachedRail === true && liveBoard.railOpen === true,
+    `reachedRail=${liveBoard.reachedRail} railOpen=${liveBoard.railOpen}`)
+  check('launch controls EXIST on the live board',
+    liveBoard.launchControls > 0, `${liveBoard.launchControls} [data-launch] control(s)`)
+  check('the dispatch button EXISTS on the live board', liveBoard.dispatchButton === true)
+  check('and the stated-absence box is NOT on the live board',
+    liveBoard.absentBox === false,
+    'it would be telling a person the real controls are elsewhere while standing next to them')
 } finally {
   if (!KEEP) { try { rmSync(scratch, { recursive: true, force: true, maxRetries: 3 }) } catch { /* held by a dying child */ } }
 }

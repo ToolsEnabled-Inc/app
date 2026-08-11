@@ -1056,7 +1056,50 @@ export function computersView({ initialComputer = null, navigate }) {
    * capability/src/lib/mission-bridge/actions.js builds for the selected tier,
    * so a person can read what their choice does instead of trusting a label.
    */
-  function launchControlsBox(agent) {
+  /* What stands where the launch, team and loop boxes stand on the real board.
+   *
+   * It is a statement, not a control: no button, nothing focusable, nothing that
+   * could be re-enabled by deleting an attribute. It exists because an empty gap
+   * is its own kind of dishonesty -- somebody who used this page yesterday and
+   * finds Dispatch missing today should be told the board changed and where the
+   * working one is, rather than left to wonder whether the product broke.
+   *
+   * The route it names is the same one the tabs use, so it cannot rot into a
+   * link to a page that does not exist. */
+  function exampleControlsAbsentBox() {
+    return el(`
+      <div class="board-box board-ctl-box board-ctl-absent">
+        <div class="board-box-h"><span class="bh-t">No launch controls on this board</span></div>
+        <div class="board-cap">this is the example fleet, and nothing here starts anything</div>
+        <p class="board-absent-copy">Launch, team and loop controls are left out of the example on purpose, so that nothing on a demonstration screen can start a real agent. They appear on the board that reads this computer.</p>
+        <p class="board-absent-copy">Turn the example off in Settings, under what the screens show, to see your own computer and its controls.</p>
+      </div>`)
+  }
+
+  /* THE FENCE, and it is the same one dd01899 put on the example AGENT page.
+   *
+   * WHAT WAS WRONG. This box, and the team and loop boxes below it, were built
+   * for the SIMULATED board as readily as for the live one, gated on nothing but
+   * `isWriteEnabled('dispatch')`. So the example copy of page 2 -- the one whose
+   * own banner says nothing on it is real, sitting under an app-wide notice
+   * saying these screens show example data -- mounted a Dispatch button wired
+   * through postBridgeAction() to a real bridge. The write flag is a question
+   * about PERMISSION; it was standing in for a question about PROVENANCE, and
+   * the two are not the same question.
+   *
+   * `live` DEFAULTS TO FALSE so a caller that never considered the question
+   * cannot accidentally answer yes, and the test is `!== true` rather than a
+   * truthy check so a stray string cannot pass. The refusal returns null and the
+   * caller renders a stated absence: on this page the controls are GONE from the
+   * example board, not greyed out, because a disabled Dispatch button still
+   * describes a capability this board does not have.
+   *
+   * IT IS BELT AND BRACES ON PURPOSE. showControls() below no longer calls these
+   * at all for the simulated rail, so this branch should be unreachable; it is
+   * here because "unreachable" is a property of today's callers and this file is
+   * edited by several lanes. */
+  function launchControlsBox(agent, { live = false } = {}) {
+    if (live !== true) return null
     const settings = readLaunchSettings()
     const dispatchEnabled = isWriteEnabled('dispatch')
     const box = el(`
@@ -1176,7 +1219,9 @@ export function computersView({ initialComputer = null, navigate }) {
    * No animation is used anywhere in here: page 2 asserts that nothing inside
    * .computers is animating once settled.
    */
-  function teamControlsBox(agent) {
+  /* Same fence, same reason; see launchControlsBox(). */
+  function teamControlsBox(agent, { live = false } = {}) {
+    if (live !== true) return null
     const dispatchEnabled = isWriteEnabled('dispatch')
     const box = el(`
       <div class="board-box board-team-box">
@@ -1314,7 +1359,9 @@ export function computersView({ initialComputer = null, navigate }) {
    * terminating a stale pid is refused by the engine anyway
    * (BRIDGE_TERMINATE_STALE_PID).
    */
-  function loopControlsBox(agent) {
+  /* Same fence, same reason; see launchControlsBox(). */
+  function loopControlsBox(agent, { live = false } = {}) {
+    if (live !== true) return null
     const dispatchEnabled = isWriteEnabled('dispatch')
     const runOptions = []
     for (let runs = 2; runs <= LOOP_BOUNDS.maxIterations; runs += 1) runOptions.push(runs)
@@ -1574,11 +1621,18 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
 
     mountRailChat(agent, role)
-    const simulatedLaunchBox = launchControlsBox(agent)
-    controlsPage.querySelector('.board-ctl-box').replaceWith(simulatedLaunchBox)
-    const simulatedTeamBox = teamControlsBox(agent)
-    simulatedLaunchBox.after(simulatedTeamBox)
-    simulatedTeamBox.after(loopControlsBox(agent))
+    /* THE EXAMPLE BOARD GETS NO LAUNCH, TEAM OR LOOP BOX AT ALL.
+     *
+     * It used to get all three, really wired, gated only on the dispatch write
+     * flag -- so the demonstration copy of this page could dispatch a real
+     * agent. They are not disabled here, they are ABSENT, for the reason the
+     * example agent page settled on in dd01899: a disabled control still
+     * advertises a capability, and a disabled button is still something a
+     * keyboard can reach and a future refactor can re-enable by deleting one
+     * attribute. What replaces them says where the real ones are, because a
+     * person who came here looking for Dispatch is owed a direction rather than
+     * a hole. */
+    controlsPage.querySelector('.board-ctl-box').replaceWith(exampleControlsAbsentBox())
 
     const ringSize = Math.max(180, Math.min(214, (railElement.clientWidth || 320) - 130))
     boardRing = uptimeRing({
@@ -1645,11 +1699,14 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     mountRailChat(agent, role)
     mountRoleControl(agent, controlsPage.querySelector('.board-role-slot'))
-    const projectionLaunchBox = launchControlsBox(agent)
+    /* `live: true` is stated here and nowhere else. This is the projection rail
+       -- the one reading declared topology from this computer -- and it is the
+       only caller entitled to build a control that reaches the bridge. */
+    const projectionLaunchBox = launchControlsBox(agent, { live: true })
     controlsPage.querySelector('.board-launch-slot').replaceWith(projectionLaunchBox)
-    const projectionTeamBox = teamControlsBox(agent)
+    const projectionTeamBox = teamControlsBox(agent, { live: true })
     projectionLaunchBox.after(projectionTeamBox)
-    const projectionLoopBox = loopControlsBox(agent)
+    const projectionLoopBox = loopControlsBox(agent, { live: true })
     projectionTeamBox.after(projectionLoopBox)
     /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
        answer to the same question -- how does work get started from this

@@ -59,7 +59,7 @@ function sha256Hex(text) {
    commitment: if two callers serialise the same record with different key
    order they produce different hashes for identical facts. */
 function canonicalJson(record) {
-  return JSON.stringify([
+  const fields = [
     record.sequence,
     record.at,
     record.action,
@@ -67,7 +67,77 @@ function canonicalJson(record) {
     record.principal,
     record.details,
     record.previousHash,
-  ])
+  ]
+  /* THE EIGHTH FIELD IS APPENDED ONLY WHEN IT EXISTS, and that conditional is
+     what makes recording an outcome possible without invalidating a ledger
+     somebody already has.
+   *
+   * An unconditional eighth element -- even `record.outcome ?? null` -- changes
+   * the commitment for EVERY record ever written, including the ones already on
+   * disk with no outcome. Re-verifying them would recompute a different hash,
+   * verify() would report the chain broken, and the home screen would tell an
+   * existing user their record no longer checks out. A truthful new feature
+   * that makes the product accuse itself of tampering is not a truthful
+   * feature.
+   *
+   * IT IS STILL UNAMBIGUOUS, which is the property a conditional commitment has
+   * to earn. Presence is committed to, not just content: a record written WITH
+   * an outcome hashes over eight fields, so stripping the field yields seven and
+   * fails; a record written WITHOUT one hashes over seven, so adding a field
+   * yields eight and fails. Neither direction is forgeable, so nothing is
+   * weakened by the field being optional -- only old records are left alone. */
+  if (record.outcome !== undefined && record.outcome !== null) fields.push(record.outcome)
+  return JSON.stringify(fields)
+}
+
+/* What a run actually DID, in a shape that can never carry a path.
+ *
+ * WHY THIS IS NOT IN `details`. `details` is dropped outright by history() and
+ * the comment there says why: it carries the session's working directory, and a
+ * filter over a path-bearing field "is a thing someone widens later". That rule
+ * is right and is not being bent -- so the outcome gets its own field, designed
+ * from the start to be renderer-bound, and `details` keeps leaving nothing.
+ *
+ * THE VALIDATION IS THE GUARANTEE, not the convention. `reason` is constrained
+ * to /^[A-Z][A-Z0-9_]{0,63}$/, which structurally CANNOT hold a Windows path: no
+ * backslash, no colon, no dot, no space, no lower case. So the promise that this
+ * field is safe to render is enforced by the writer rather than trusted from the
+ * caller, and a future caller that passes an error message instead of a code is
+ * refused rather than published. */
+const OUTCOME_RESULTS = Object.freeze(['started', 'refused'])
+const OUTCOME_REASON_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/
+
+function boundedOutcome(outcome) {
+  if (outcome === undefined || outcome === null) return undefined
+  if (typeof outcome !== 'object' || Array.isArray(outcome)) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_OUTCOME', 'Record outcome must be a plain object')
+  }
+  if (!OUTCOME_RESULTS.includes(outcome.result)) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_OUTCOME', 'Record outcome.result must be "started" or "refused"')
+  }
+  if (!Number.isSafeInteger(outcome.resolves) || outcome.resolves < 1) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_OUTCOME', 'Record outcome.resolves must be the sequence it resolves')
+  }
+  const reason = outcome.reason === undefined || outcome.reason === null ? null : outcome.reason
+  if (reason !== null && (typeof reason !== 'string' || !OUTCOME_REASON_PATTERN.test(reason))) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_OUTCOME', 'Record outcome.reason must be a bare upper-case code')
+  }
+  /* Constructed in a fixed key order for the same reason canonicalJson fixes
+     its own: the hash commits to the serialisation, and an object whose keys
+     arrive in a caller's order would hash differently for identical facts. */
+  return { result: outcome.result, resolves: outcome.resolves, reason }
+}
+
+/* The same constraint, applied to bytes rather than to a caller, and answering
+   null instead of throwing. history() must never throw (its rule 3), so a
+   malformed outcome has to degrade to "this run does not say", which is the
+   same honest answer an older record without the field gives. */
+function readableOutcome(value) {
+  try {
+    return boundedOutcome(value) || null
+  } catch {
+    return null
+  }
 }
 
 function writeFileDurable(filePath, contents) {
@@ -195,7 +265,7 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
     }
   }
 
-  function record({ action, sessionId, principal = null, details } = {}) {
+  function record({ action, sessionId, principal = null, details, outcome } = {}) {
     if (typeof action !== 'string' || action.length === 0 || action.length > 128) {
       throw new SpawnRecordError('SPAWN_RECORD_INVALID_ACTION', 'action must be a bounded non-empty string')
     }
@@ -223,6 +293,12 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
       details: boundedDetails(details),
       previousHash: previous.hash,
     }
+    /* Assigned rather than declared in the literal so the key is ABSENT, not
+       present-and-undefined, on a record without an outcome. JSON.stringify
+       drops an undefined value anyway, but canonicalJson branches on the
+       property and an explicit absence is what that branch is reading. */
+    const recordedOutcome = boundedOutcome(outcome)
+    if (recordedOutcome !== undefined) entry.outcome = recordedOutcome
     const eventHash = sha256Hex(canonicalJson(entry))
     const signature = crypto.sign(null, Buffer.from(eventHash, 'hex'), key).toString('base64')
     const line = JSON.stringify({ ...entry, eventHash, signature }) + '\n'
@@ -356,6 +432,52 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
      file shrank, the prefix moved, the previous check failed, the boundary is
      not a record boundary -- falls through to the full verification.
      ------------------------------------------------------------------ */
+  /* HOW MANY RUNS, AND HOW MANY OF THEM WORKED -- counted over the WHOLE chain,
+   * because the tail cannot answer it.
+   *
+   * `entries` is the last 20 records and `total` is the line count, and neither
+   * is the number of RUNS any more: an outcome is a second record, so a chain of
+   * 6 lines can be 3 runs. A screen that kept reading `total` as a run count
+   * would now overstate it, which is the same class of error this whole change
+   * is repairing -- so the count a screen needs is computed here rather than
+   * guessed there.
+   *
+   * A FULL PARSE, AND IT IS NOT THE EXPENSIVE PART. verifyRun() already walks
+   * every line doing sha256 and an ed25519 verification per record; a JSON.parse
+   * over the same lines is a rounding error beside it, and it is cached on the
+   * same trigger -- the ledger's bytes -- so an unchanged file is counted once.
+   *
+   * ONE OUTCOME PER START, ENFORCED HERE RATHER THAN ASSUMED. These are bytes
+   * off disk, and history() deliberately still returns records when the chain
+   * does NOT verify, so a duplicated or invented outcome line is reachable. The
+   * `resolved` set means a second outcome naming a start already counted is
+   * ignored, and a run can therefore never be tallied as both started and
+   * refused. */
+  let tallyCache = null
+
+  function cachedTally(raw, lines) {
+    const hash = crypto.createHash('sha256').update(raw).digest('hex')
+    if (tallyCache && tallyCache.hash === hash) return tallyCache.tally
+    let starts = 0
+    let started = 0
+    let refused = 0
+    const resolved = new Set()
+    for (const line of lines) {
+      let parsed
+      try { parsed = JSON.parse(line) } catch { continue }
+      if (parsed?.action === 'agent_session_start') { starts += 1; continue }
+      if (parsed?.action !== 'agent_session_outcome') continue
+      const outcome = readableOutcome(parsed.outcome)
+      if (!outcome || resolved.has(outcome.resolves)) continue
+      resolved.add(outcome.resolves)
+      if (outcome.result === 'started') started += 1
+      else refused += 1
+    }
+    const tally = Object.freeze({ starts, started, refused })
+    tallyCache = { hash, tally }
+    return tally
+  }
+
   let verdictCache = null
 
   function rememberVerdict(raw, outcome) {
@@ -427,6 +549,17 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
    *    screen. Unreadable collapses to `{ok:false, code}` and the screen says
    *    so in one sentence.
    *
+   * AND ONE FIELD THAT IS PRESENT, ADDED AGAINST THOSE RULES RATHER THAN
+   * AROUND THEM. `outcome` is returned because without it this reply cannot
+   * distinguish a run that worked from a run that refused, and a screen built
+   * on that reply said "all 3 runs still check out" after three failed starts
+   * -- true about the RECORD and read by every person as a statement about
+   * their agents. Rule 1 is not bent to fix that: `details` still leaves
+   * nothing, because the answer to "this field carries a path" is a different
+   * field, not a filter over that one. `outcome` carries a closed vocabulary
+   * (`started`/`refused`), an integer, and a bare upper-case code, and
+   * readableOutcome() re-imposes that shape on the way out.
+   *
    * `total` is the whole chain and `entries` is the tail, deliberately: "3 of
    * 41 sessions" is a true thing a screen can say, and it cannot be said from a
    * truncated list alone. */
@@ -450,7 +583,19 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
       try { parsed = JSON.parse(line) } catch { continue }
       if (!Number.isSafeInteger(parsed?.sequence) || typeof parsed?.at !== 'string') continue
       if (typeof parsed.action !== 'string' || typeof parsed.sessionId !== 'string') continue
-      entries.push(Object.freeze({ sequence: parsed.sequence, at: parsed.at, action: parsed.action }))
+      entries.push(Object.freeze({
+        sequence: parsed.sequence,
+        at: parsed.at,
+        action: parsed.action,
+        /* RE-VALIDATED ON THE WAY OUT, not trusted because the writer validated
+           it on the way in. These are bytes off disk: the file is signed, but
+           this function deliberately does not throw and deliberately still
+           returns records when the chain does NOT verify (rule 3, and the
+           reasoning under `verified` below) -- so an unverified line reaches
+           here by design. Re-applying the writer's own constraint is what keeps
+           the promise that this field cannot carry a path even then. */
+        outcome: readableOutcome(parsed.outcome),
+      }))
     }
     entries.reverse() // newest first, which is the order a reader wants
 
@@ -467,7 +612,16 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
       verified = cachedVerdict(raw).ok === true
     } catch { verified = null }
 
-    return Object.freeze({ ok: true, total: lines.length, entries: Object.freeze(entries), verified })
+    /* Never fatal: a screen that can list the runs must not be denied the runs
+       because the counting threw. An absent tally reads downstream as "this
+       record does not say", which is the same honest degradation an old record
+       without an outcome gets. */
+    let outcomes = null
+    try {
+      outcomes = cachedTally(raw, lines)
+    } catch { outcomes = null }
+
+    return Object.freeze({ ok: true, total: lines.length, entries: Object.freeze(entries), verified, outcomes })
   }
 
   const stats = () => Object.freeze({ signatureChecks })

@@ -436,7 +436,10 @@ export function homeView() {
        the box, and the notice is the whole of it. Either way the list itself is
        what this renders. */
     const listed = view.panel.runs && !view.panel.empty ? state.sessions.runs : []
-    const signature = `${view.panel.runs}|${listed.map(run => run.sequence).join(',')}`
+    /* The outcome is part of the signature, not just the sequence. A run's row
+       changes when its outcome lands, and a signature built from sequences
+       alone would decide nothing had changed and leave the stale row up. */
+    const signature = `${view.panel.runs}|${listed.map(run => `${run.sequence}:${run.result || ''}`).join(',')}`
     if (runsSignature === signature) return
     runsSignature = signature
     runsSlot.replaceChildren()
@@ -449,8 +452,14 @@ export function homeView() {
          It also stops three runs started within a minute of each other from
          rendering as three identical rows reading "just now", which is honest
          and useless. */
-      const row = el('<li class="home-run"><span class="run-what"></span><span class="run-when"></span></li>')
+      const row = el('<li class="home-run"><span class="run-what"></span><span class="run-result"></span><span class="run-when"></span></li>')
       row.querySelector('.run-what').textContent = COPY.runLabel(run.sequence)
+      /* Empty string for a run whose outcome was never recorded, and the
+         data-attribute is set from the same value so the stylesheet cannot
+         colour a row the copy declined to label. */
+      const result = COPY.runResult(run.result)
+      row.querySelector('.run-result').textContent = result
+      if (result) row.dataset.result = run.result
       row.querySelector('.run-when').textContent = whenWords(state.nowMs - run.atMs) || COPY.runWhenUnknown
       list.appendChild(row)
     }

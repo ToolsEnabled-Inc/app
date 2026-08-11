@@ -13,6 +13,10 @@
  * key is.
  */
 import assert from 'node:assert/strict'
+/* Recomputing the commitment by hand is the only way to assert the
+   SERIALISATION rather than this process's agreement with itself; see the
+   seven-field test below for what that distinction cost. */
+import { createHash } from 'node:crypto'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -88,9 +92,125 @@ test('no signature or chain hash reaches the renderer', (t) => {
   assert.doesNotMatch(serialized, /previousHash/i)
   assert.equal(serialized.includes(receipt.eventHash), false)
 
+  /* `outcome` joined this list deliberately and is the ONLY field that has.
+     It exists because the reply could not otherwise distinguish a run that
+     worked from a run that refused, and the screen built on it told people
+     three failed starts "still check out". It is safe to render for a reason
+     this assertion does not have to take on trust -- see the test below, which
+     shows the writer refusing anything that is not a bare code. */
   for (const entry of recorder.history().entries) {
-    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'sequence'])
+    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'sequence'])
   }
+  assert.equal(recorder.history().entries[0].outcome, null, 'a start on its own has no outcome to report')
+})
+
+test('an outcome cannot carry anything but a bare code, so it is safe to render', (t) => {
+  const recorder = createSpawnRecorder({ safeStorage: keystore(), directory: workspace(t) })
+  const start = recorder.record({ action: 'agent_session_start', sessionId: 'one' })
+
+  /* The whole promise of this field is that it can never hold a path. It is
+     kept by the WRITER refusing, not by a reader filtering -- so these are the
+     shapes an incautious caller would reach for, and each one must throw. */
+  for (const reason of [
+    'C:\\Users\\someone\\.codex',
+    'Unable to run codex --version: C:\\Program Files\\nope',
+    'lower_case_code',
+    'HAS SPACES',
+  ]) {
+    assert.throws(
+      () => recorder.record({
+        action: 'agent_session_outcome',
+        sessionId: 'one',
+        outcome: { result: 'refused', resolves: start.sequence, reason },
+      }),
+      /outcome/i,
+      `a reason of ${JSON.stringify(reason)} must be refused, not written`,
+    )
+  }
+
+  assert.throws(() => recorder.record({
+    action: 'agent_session_outcome',
+    sessionId: 'one',
+    outcome: { result: 'probably', resolves: start.sequence, reason: null },
+  }), /outcome/i, 'the result is a closed vocabulary')
+
+  recorder.record({
+    action: 'agent_session_outcome',
+    sessionId: 'one',
+    outcome: { result: 'refused', resolves: start.sequence, reason: 'CODEX_CLI_NOT_FOUND' },
+  })
+
+  const reply = recorder.history()
+  const outcome = reply.entries.find(entry => entry.outcome)?.outcome
+  assert.deepEqual(outcome, { result: 'refused', resolves: start.sequence, reason: 'CODEX_CLI_NOT_FOUND' })
+  assert.deepEqual(reply.outcomes, { starts: 1, started: 0, refused: 1 }, 'and the run counts as one run, not two')
+  assert.equal(recorder.verify().ok, true, 'a record carrying an outcome still verifies')
+})
+
+test('a record with no outcome still commits to exactly the seven fields it always did', (t) => {
+  const directory = workspace(t)
+  const recorder = createSpawnRecorder({ safeStorage: keystore(), directory })
+  const first = recorder.record({ action: 'agent_session_start', sessionId: 'one' })
+  recorder.record({
+    action: 'agent_session_outcome',
+    sessionId: 'one',
+    outcome: { result: 'started', resolves: first.sequence, reason: null },
+  })
+
+  /* THE CROSS-VERSION PROPERTY, ASSERTED AGAINST THE BYTES rather than against
+     this process's own agreement with itself.
+   *
+   * The first version of this test wrote records and re-verified them in one
+   * run, which is a tautology: a canonicalJson that appends `outcome ?? null`
+   * unconditionally hashes AND re-hashes over eight fields, so the chain agrees
+   * with itself perfectly and the test stays green. A planted mutation proved
+   * exactly that -- it went green, and the property everybody cared about was
+   * unmeasured.
+   *
+   * What actually matters is what happens to a ledger written by the version
+   * BEFORE outcomes existed, which is every ledger already on a customer's
+   * disk. Those lines committed to seven fields. So this recomputes the
+   * commitment the old code would have made and requires the stored eventHash
+   * to equal it -- pinning the serialisation itself, not the round trip. If the
+   * eighth field ever becomes unconditional, this goes red here, and the
+   * symptom in the product would be every existing user being told their record
+   * no longer checks out. */
+  const lines = readFileSync(join(directory, 'agent-spawn-records.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map(line => JSON.parse(line))
+  const withoutOutcome = lines.find(line => line.outcome === undefined)
+  assert.ok(withoutOutcome, 'this test needs a record that carries no outcome')
+
+  const sevenFields = JSON.stringify([
+    withoutOutcome.sequence,
+    withoutOutcome.at,
+    withoutOutcome.action,
+    withoutOutcome.sessionId,
+    withoutOutcome.principal,
+    withoutOutcome.details,
+    withoutOutcome.previousHash,
+  ])
+  assert.equal(
+    createHash('sha256').update(sevenFields, 'utf8').digest('hex'),
+    withoutOutcome.eventHash,
+    'a record with no outcome must hash over seven fields, exactly as it did before outcomes existed',
+  )
+
+  /* And the record that DOES carry one commits to eight, so presence is part of
+     the commitment and stripping the field cannot go unnoticed. */
+  const withOutcome = lines.find(line => line.outcome !== undefined)
+  assert.ok(withOutcome, 'this test needs a record that carries an outcome')
+  const eightFields = JSON.stringify([
+    withOutcome.sequence, withOutcome.at, withOutcome.action, withOutcome.sessionId,
+    withOutcome.principal, withOutcome.details, withOutcome.previousHash, withOutcome.outcome,
+  ])
+  assert.equal(
+    createHash('sha256').update(eightFields, 'utf8').digest('hex'),
+    withOutcome.eventHash,
+    'a record carrying an outcome must commit to it',
+  )
+
+  assert.equal(recorder.verify().ok, true)
+  assert.deepEqual(recorder.history().outcomes, { starts: 1, started: 1, refused: 0 })
 })
 
 test('a tampered chain is reported, and the runs are still shown', (t) => {

@@ -34,6 +34,12 @@ import {
   DEFAULT_RUNS_MODE,
   planChatbox,
 } from './chatbox-feed.js'
+/* The remedy commands, imported rather than repeated. This screen and the agent
+   page both tell a person how to install and sign in to Codex; two copies of a
+   command line is two things to get wrong, and the one that goes stale is
+   always the one nobody is looking at. That module is pure data and a lookup
+   with no imports of its own, so this costs the home screen no module graph. */
+import { CODEX_SETUP_COMMANDS } from './agent-availability-copy.js'
 
 /* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
  *
@@ -77,6 +83,29 @@ export const COPY = Object.freeze({
   sampleNoReply: 'This example has no reply written for that.',
   runLabel: (sequence) => `Agent run ${sequence}`,
   runWhenUnknown: 'at a time this record does not give',
+  /* WHAT THE RUN DID, per row, and the empty string is load-bearing.
+     A run whose outcome was never recorded gets NO word rather than a
+     reassuring one: the whole defect being repaired here is a screen that
+     turned silence into success, and "started" printed on a run nobody
+     recorded would be the same lie in a smaller font. The row still shows its
+     number and time, so the person sees the run and simply is not told
+     something the computer does not know. */
+  runResult: (result) => (result === 'refused' ? 'did not start' : (result === 'started' ? 'started' : '')),
+  /* The aggregate, in the panel footer, under the record's own integrity line.
+     Returns null when the ledger says nothing either way, which is exactly the
+     state every record written before outcomes existed is in -- an older
+     ledger therefore reads as it always did rather than acquiring a made-up
+     summary. */
+  runOutcomes: (started, refused, total) => {
+    const unknown = Math.max(0, total - started - refused)
+    if (unknown === total) return null
+    if (refused > 0 && started === 0 && unknown === 0) {
+      return total === 1 ? 'It did not start.' : 'None of them started.'
+    }
+    if (refused > 0) return `${refused} of ${total} did not start.`
+    if (unknown > 0) return `${started} of ${total} started; the rest were recorded before this copy kept outcomes.`
+    return total === 1 ? 'It started.' : 'All of them started.'
+  },
   /* The two settings the owner asked for, in the words the box uses when they
      leave it holding something back. Each one names the setting that caused it
      and offers the way to it, because a box that is empty for a reason the
@@ -151,25 +180,67 @@ const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.
  * somebody was asked and the answer did not parse.
  */
 export function readLocalSessions(raw) {
+  const nothing = { total: 0, runs: Object.freeze([]), verified: null, started: null, refused: null }
   if (raw === undefined) {
-    return Object.freeze({ supported: false, readable: false, total: 0, runs: Object.freeze([]), verified: null })
+    return Object.freeze({ supported: false, readable: false, ...nothing })
   }
   if (!isRecord(raw) || raw.ok !== true || !Array.isArray(raw.entries)) {
-    return Object.freeze({ supported: true, readable: false, total: 0, runs: Object.freeze([]), verified: null })
+    return Object.freeze({ supported: true, readable: false, ...nothing })
   }
-  const runs = raw.entries
-    .filter(entry => isRecord(entry)
-      && typeof entry.at === 'string'
-      && Number.isFinite(Date.parse(entry.at))
-      && Number.isSafeInteger(entry.sequence))
-    .map(entry => Object.freeze({ sequence: entry.sequence, atMs: Date.parse(entry.at) }))
-  const total = Number.isSafeInteger(raw.total) && raw.total >= runs.length ? raw.total : runs.length
+  const usable = raw.entries.filter(entry => isRecord(entry)
+    && typeof entry.at === 'string'
+    && Number.isFinite(Date.parse(entry.at))
+    && Number.isSafeInteger(entry.sequence))
+
+  /* An outcome is a SEPARATE record naming the start it resolves, so the two
+     have to be rejoined here. Keyed on `resolves` rather than paired by
+     adjacency because concurrent starts interleave in the ledger, and the first
+     one wins because the list arrives newest-first and a duplicate must not be
+     able to overwrite the outcome already read. */
+  const resultBySequence = new Map()
+  for (const entry of usable) {
+    const outcome = entry.outcome
+    if (!isRecord(outcome)) continue
+    if (outcome.result !== 'started' && outcome.result !== 'refused') continue
+    if (!Number.isSafeInteger(outcome.resolves)) continue
+    if (resultBySequence.has(outcome.resolves)) continue
+    resultBySequence.set(outcome.resolves, outcome.result)
+  }
+
+  /* A run is a START. Outcome records are ledger lines too, and counting them
+     as runs would report twice as many agents as ever ran. An entry with NO
+     action is still treated as a run: every reply from the recorder carries
+     one, so the only things that reach this branch are older records and the
+     hand-built fixtures the suite uses, and silently dropping those would make
+     this function report zero runs on a ledger full of them. */
+  const runs = usable
+    .filter(entry => entry.action === undefined || entry.action === 'agent_session_start')
+    .map(entry => Object.freeze({
+      sequence: entry.sequence,
+      atMs: Date.parse(entry.at),
+      /* null is "this record does not say", NEVER "it worked". Every screen
+         below has to keep that distinction: an unrecorded outcome is exactly
+         the state that used to be displayed as success. */
+      result: resultBySequence.get(entry.sequence) || null,
+    }))
+
+  const tally = isRecord(raw.outcomes) ? raw.outcomes : null
+  const counted = tally && Number.isSafeInteger(tally.starts) ? tally.starts : null
+  const total = counted !== null && counted >= runs.length
+    ? counted
+    : (Number.isSafeInteger(raw.total) && raw.total >= runs.length ? raw.total : runs.length)
+
   return Object.freeze({
     supported: true,
     readable: true,
     total,
     runs: Object.freeze(runs),
     verified: raw.verified === true ? true : (raw.verified === false ? false : null),
+    /* Whole-chain counts, or null when this copy's recorder does not report
+       them. null must read as "unknown" everywhere downstream, not as zero --
+       zero refusals is a claim, and this is an absence of one. */
+    started: tally && Number.isSafeInteger(tally.started) ? tally.started : null,
+    refused: tally && Number.isSafeInteger(tally.refused) ? tally.refused : null,
   })
 }
 
@@ -203,7 +274,18 @@ export const ENGINE_REASON = Object.freeze({
   /* The one reason on this list that is not a fault at all, and the only one
      the reader can clear themselves -- so it says what to do rather than what
      is wrong. */
-  AGENT_CONFINEMENT_SIGNED_OUT: 'Sign in to Codex on this computer: the permission level recorded here builds each agent session from that sign-in',
+  /* THE FIRST THING A STRANGER SEES, and for one release it was a dead end: the
+     screen named what was missing and the product contained no button, link or
+     instruction anywhere that said how to get it. Both of these now carry the
+     command, because the command IS the remedy and a home screen that knows the
+     remedy and withholds it is choosing to be tidy over being useful. The
+     commands themselves live in agent-availability-copy.js so the three screens
+     that give them cannot drift apart. */
+  AGENT_CODEX_CLI_NOT_INSTALLED: `Codex is not installed on this computer, and it is the program that runs an agent. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}"`,
+  AGENT_CONFINEMENT_SIGNED_OUT: `Codex is installed but nobody is signed in to it. Run "${CODEX_SETUP_COMMANDS.signIn}" in Windows Terminal, then come back to this screen`,
+  CODEX_CLI_NOT_FOUND: `Codex could not be found when a session tried to start it. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}"`,
+  CODEX_VERSION_DETECTION_FAILED: 'Codex is installed here but did not answer when asked its version, so ToolsEnabled will not build a session on it',
+  AGENT_SESSION_FAILED: 'A session did not start and this copy could not work out why',
   AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'This copy did not ship the protection that keeps an agent session off your billed API account, so it will not start one',
   AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not check whether an agent can run here',
@@ -534,11 +616,33 @@ function panelTitle(mode, plan) {
    on this machine with a key held on this machine, so it proves the list has not
    been quietly edited; it does not prove who ran anything, and this product has
    no accounts, so it never will from here. Both halves ship or neither does. */
+/* TWO SENTENCES ABOUT TWO DIFFERENT THINGS, and running them together is what
+ * made this footer mislead.
+ *
+ * "All 3 runs still check out" was never a claim about the agents. It is the
+ * hash chain and the signatures verifying -- a statement about the RECORD. But
+ * it sat directly under "3 agent runs on this computer", and a person reading
+ * the two together was told, in the product's own voice, that their three runs
+ * were fine. All three had refused to start. That is the worst way for a screen
+ * to be wrong: it does not look broken, it looks reassuring, and it costs the
+ * reader the one signal that would have sent them to fix it.
+ *
+ * So the integrity sentence now names its own subject -- "the record of all 3
+ * still checks out" -- and the outcome gets a sentence of its own instead of
+ * being inferred from silence. When the ledger has nothing to say about
+ * outcomes, which is every record written before they existed, the second
+ * sentence is omitted rather than guessed. */
 function recordFooter(sessions) {
   const counted = countOf(sessions.total, 'run', 'runs')
-  if (sessions.verified === true) return `Written down on this computer as it happened. All ${counted} still check out.`
-  if (sessions.verified === false) return `Written down on this computer as it happened. The record no longer checks out, so treat this list as a guide, not a receipt.`
-  return `Written down on this computer as it happened, ${counted} in all.`
+  const integrity = sessions.verified === true
+    ? `Written down on this computer as it happened, and the record of all ${counted} still checks out.`
+    : sessions.verified === false
+      ? 'Written down on this computer as it happened. The record no longer checks out, so treat this list as a guide, not a receipt.'
+      : `Written down on this computer as it happened, ${counted} in all.`
+  const outcomes = Number.isSafeInteger(sessions.started) && Number.isSafeInteger(sessions.refused)
+    ? COPY.runOutcomes(sessions.started, sessions.refused, sessions.total)
+    : null
+  return outcomes ? `${integrity} ${outcomes}` : integrity
 }
 
 function panelStatements(panel) {

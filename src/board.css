@@ -733,3 +733,34 @@
   margin-top: 8px;
 }
 .computers .rail-page .role-actions .ctl-btn { flex: 1 1 auto; }
+
+/* ---- the example board's stated absence, and the notice it replaces ----
+
+   THE CONTROLS ARE GONE FROM THE EXAMPLE BOARD, and this is what stands in
+   their place. Deliberately styled as copy rather than as a control: no border
+   that reads as a button, nothing that invites a click, because the whole point
+   is that this board starts nothing. See exampleControlsAbsentBox(). */
+.computers .board-ctl-absent .board-absent-copy {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.computers .board-ctl-absent .board-absent-copy:first-of-type { margin-top: 10px; }
+
+/* The app-wide "some screens show example data" toast, hidden ONLY while this
+   page is actually showing the example.
+
+   WHY :has() AND NOT THE ROUTE. home.css, agent.css and setup.css each suppress
+   this notice for a whole route, which is right for them because those surfaces
+   are never anything else. The computers page is BOTH: on a live board the
+   notice is true and useful, and hiding it by route would suppress a real
+   message in the one mode that needs it. `:has()` reads the mode the view has
+   already published on its own root, so the rule tracks the live-flag event
+   with no JavaScript to run and no body class to leak onto another route when a
+   destroy is missed.
+
+   `:not(.is-serious)` is carried over from the other three deliberately: a
+   genuine profile failure is never hidden, on any surface. */
+body[data-route="computers"]:has(.computers[data-live-mode="simulated"])
+  .fleet-profile-notice:not(.is-serious) { display: none; }

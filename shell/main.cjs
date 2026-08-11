@@ -224,6 +224,39 @@ function agentIpcError(code, message) {
   throw error
 }
 
+/* Carry the CODE across the IPC boundary, and leave the message behind.
+ *
+ * THE DEFECT THIS REPAIRS IS WHY EVERY REFUSAL LOOKED IDENTICAL. Electron
+ * reconstructs a rejected invoke() in the renderer from the error's name,
+ * message and stack. Own properties do not survive -- so `error.code`, which is
+ * the ONLY thing src/agent-session.js is willing to render, arrived undefined
+ * for every start refusal without exception. Its `typeof error?.code ===
+ * 'string'` test therefore always failed and the code constant-folded to
+ * AGENT_SESSION_FAILED. That is the bare string a customer was shown: not a
+ * missing translation, a code that never crossed the boundary. Adding copy for
+ * the real codes without this would have changed nothing at all.
+ *
+ * THE MESSAGE IS DISCARDED RATHER THAN FORWARDED, and that is a second fix
+ * rather than a cost. The message is exactly what may name a path -- the engine
+ * raises `Unable to run codex --version: <stderr>` and the module loaders name
+ * absolute engine roots -- and today that text crosses into the renderer
+ * process inside an Error object even though the renderer is careful never to
+ * print it. Data that is not sent cannot be printed by the next person who
+ * forgets. So the replacement's message IS the code: a short fixed identifier
+ * from a closed vocabulary, which is the one thing the surface wanted.
+ *
+ * The renderer still refuses to trust it as text -- src/agent-session.js
+ * matches what arrives against its own copy table and renders nothing it cannot
+ * find there -- so this is a channel, not a licence to print. */
+function rendererSafeAgentError(error) {
+  const code = typeof error?.code === 'string' && error.code.length > 0 && error.code.length <= 128
+    ? error.code
+    : 'AGENT_SESSION_FAILED'
+  const safe = new Error(code)
+  safe.code = code
+  return safe
+}
+
 function agentPayload(value, allowedKeys) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     agentIpcError('MC_AGENT_INVALID_PAYLOAD', 'Agent IPC payload must be an object')
@@ -454,6 +487,56 @@ function recordSpawnIntent(request) {
   return receipt
 }
 
+/* WHAT THE START ACTUALLY DID, recorded after it is known.
+ *
+ * THE LEDGER USED TO RECORD ONLY THE INTENT, and the intent is written BEFORE
+ * the spawn on purpose (a session that could not be recorded does not start).
+ * So the one record a run produced was written at the only moment its result
+ * could not yet be known -- and nothing was ever appended afterwards. Three
+ * starts that all refused left three `agent_session_start` lines byte-shaped
+ * exactly like three that worked, and the home screen, having nothing else to
+ * read, counted them and reported "3 agent runs on this computer. All 3 runs
+ * still check out." That sentence was true of the RECORD and false about the
+ * product, which is the worst way for a screen to be wrong: it does not fail,
+ * it reassures.
+ *
+ * A SECOND RECORD, NOT A MUTATED FIRST ONE. The ledger is append-only and hash-
+ * chained; going back to stamp a result onto the start record would mean
+ * rewriting a signed line, which is the one thing this file exists to make
+ * impossible. `outcome.resolves` carries the start's sequence, so the pair is
+ * explicit rather than inferred from adjacency -- two sessions starting at once
+ * interleave, and "the record before this one" would have quietly mispaired
+ * them.
+ *
+ * IT CANNOT FAIL A RUN, WHICH IS THE OPPOSITE OF recordSpawnIntent's RULE, and
+ * the asymmetry is deliberate. Refusing to start something that cannot be
+ * recorded is correct: nothing has happened yet. Killing a session that IS
+ * ALREADY RUNNING because the note about it did not save would destroy the very
+ * thing the note describes. So every failure here is swallowed, and the run is
+ * left with no outcome record -- which the screen reports as an outcome it does
+ * not know, never as a success. Silence must read as silence. */
+function recordSpawnOutcome(request, receipt, result, reason) {
+  if (!receipt || !Number.isSafeInteger(receipt.sequence)) return
+  try {
+    getSpawnRecorder().record({
+      action: 'agent_session_outcome',
+      sessionId: request.sessionId,
+      principal: accountPrincipal(),
+      details: {},
+      outcome: {
+        resolves: receipt.sequence,
+        result,
+        /* A bare code or nothing. The recorder enforces this too -- it refuses
+           anything that is not /^[A-Z][A-Z0-9_]{0,63}$/ -- so a caller that
+           reached for error.message would be rejected rather than published. */
+        reason: typeof reason === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(reason) ? reason : null,
+      },
+    })
+  } catch {
+    /* Deliberately silent; see the note above on why this must not fail a run. */
+  }
+}
+
 /* WHY THE DEFAULT CWD IS THE WORKSPACE AND NOT `__dirname/..`.
  *
  * This used to be `path.join(__dirname, '..')`. In a checkout that is the repo
@@ -588,6 +671,7 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
   try {
     const result = await getAgentHost().startSession(request)
     session.state = 'ready'
+    recordSpawnOutcome(request, record, 'started', null)
     /* The receipt travels back with the session so the surface can show that
        the start was recorded, rather than asserting it. */
     return { ...result, record: { sequence: record.sequence, eventHash: record.eventHash } }
@@ -597,7 +681,12 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
     } else if (agentSessions.get(request.sessionId) === session) {
       agentSessions.delete(request.sessionId)
     }
-    throw error
+    /* Recorded BEFORE the throw, because the throw leaves this process and the
+       reason is only in scope here. `error.code` is the engine's or the host's
+       own bounded identifier -- the same value the renderer is about to be
+       given -- so the ledger and the screen name the failure identically. */
+    recordSpawnOutcome(request, record, 'refused', typeof error?.code === 'string' ? error.code : null)
+    throw rendererSafeAgentError(error)
   }
 })
 

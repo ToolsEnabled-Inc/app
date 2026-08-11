@@ -47,6 +47,89 @@ const historyReply = (count, verified = true) => ({
   })),
 })
 
+/* The same reply, with the outcome records a run now leaves behind. `results`
+   is one entry per run, newest first, each 'started' | 'refused' | null, where
+   null is a run recorded before outcomes existed. */
+const historyReplyWithOutcomes = (results, verified = true) => {
+  const count = results.length
+  const starts = Array.from({ length: count }, (_value, index) => ({
+    sequence: count - index,
+    at: new Date(NOW - minutes(index + 1)).toISOString(),
+    action: 'agent_session_start',
+    outcome: null,
+  }))
+  const outcomes = results
+    .map((result, index) => (result === null ? null : {
+      sequence: count + count - index,
+      at: new Date(NOW - minutes(index + 1)).toISOString(),
+      action: 'agent_session_outcome',
+      outcome: { result, resolves: count - index, reason: result === 'refused' ? 'CODEX_CLI_NOT_FOUND' : null },
+    }))
+    .filter(Boolean)
+  return {
+    ok: true,
+    total: count + outcomes.length,
+    verified,
+    entries: [...outcomes, ...starts],
+    outcomes: {
+      starts: count,
+      started: results.filter(result => result === 'started').length,
+      refused: results.filter(result => result === 'refused').length,
+    },
+  }
+}
+
+test('three runs that all failed are not reported as three runs that are fine', () => {
+  /* THE MEASURED DEFECT, kept as a test. After three starts that every one of
+     them refused, this screen read "3 agent runs on this computer" over
+     "All 3 runs still check out" -- and a person reading it had no way to learn
+     that nothing had worked. The record really was intact; that was never the
+     question being asked. */
+  const view = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions(historyReplyWithOutcomes(['refused', 'refused', 'refused'])),
+    engine: readAgentEngine({ ok: true }),
+    nowMs: NOW,
+  })
+
+  assert.match(view.panel.footer, /none of them started/i, 'the failure has to be stated, not implied')
+  assert.doesNotMatch(view.panel.footer, /all 3 runs still check out/i)
+
+  /* And the count is of RUNS. An outcome is a second ledger line, so a reply
+     carrying 3 runs and 3 outcomes is 6 records -- reporting 6 would trade one
+     wrong number for another. */
+  assert.match(view.headline, /^3 agent runs/, `counted the ledger lines instead of the runs: ${view.headline}`)
+  assert.equal(view.panel.runs, true)
+})
+
+test('a run says what it did, and says nothing when nobody wrote it down', () => {
+  assert.equal(COPY.runResult('refused'), 'did not start')
+  assert.equal(COPY.runResult('started'), 'started')
+  /* The branch the generic copy walk cannot reach, and the one that matters:
+     an unrecorded outcome must produce NO word rather than a reassuring one. */
+  assert.equal(COPY.runResult(null), '')
+  assert.equal(COPY.runResult(undefined), '')
+  assert.equal(COPY.runResult('anything else'), '')
+
+  const mixed = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions(historyReplyWithOutcomes(['started', 'refused', null])),
+    engine: readAgentEngine({ ok: true }),
+    nowMs: NOW,
+  })
+  assert.match(mixed.panel.footer, /1 of 3 did not start/i)
+
+  /* A ledger with no outcomes at all -- every record written before this
+     existed -- gains no summary rather than an invented one. */
+  const legacy = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions(historyReply(3, true)),
+    engine: readAgentEngine({ ok: true }),
+    nowMs: NOW,
+  })
+  assert.doesNotMatch(legacy.panel.footer, /started|did not start/i)
+})
+
 const SESSION_INPUTS = [
   ['no shell to ask', undefined],
   ['asked, unreadable', { ok: false, code: 'SPAWN_RECORD_LEDGER_UNREADABLE' }],
@@ -321,12 +404,25 @@ function everyCopyString(value, path = 'COPY') {
   return []
 }
 
+/* The one entry whose empty answer is the point rather than a gap.
+ *
+ * COPY.runResult() labels a run "started" or "did not start" and returns the
+ * EMPTY STRING for a run whose outcome was never recorded -- which is every run
+ * from before outcomes were kept. That silence is deliberate and load-bearing:
+ * the defect this whole area was repaired for is a screen that turned an
+ * unrecorded outcome into a reassuring one, and a word invented here to satisfy
+ * a non-empty rule would put that defect straight back. The generic walk below
+ * calls every function with one sample argument, which for this function
+ * necessarily lands on exactly that branch, so it is named here and checked
+ * properly by the test underneath instead. */
+const DELIBERATELY_SILENT = new Set(['COPY.runResult()'])
+
 test('the copy that does not come from the decision follows the same rules', () => {
   const strings = everyCopyString(COPY)
   assert.ok(strings.length >= 12, `expected the whole set, walked ${strings.length}`)
   for (const [path, sentence] of strings) {
     assert.equal(typeof sentence, 'string')
-    assert.ok(sentence.length > 0, `${path} is empty`)
+    if (!DELIBERATELY_SILENT.has(path)) assert.ok(sentence.length > 0, `${path} is empty`)
     for (const pattern of INTERNAL_VOCABULARY) {
       assert.doesNotMatch(sentence, pattern, `${path} names a mechanism: ${JSON.stringify(sentence)}`)
     }
@@ -509,7 +605,17 @@ test('what the local record proves is stated exactly, and its failure is not hid
     engine: readAgentEngine({ ok: true }),
     nowMs: NOW,
   })
-  assert.match(intact.panel.footer, /check out/i)
+  /* "still checks out" rather than "check out": the sentence was reworded so
+     its subject is the RECORD. It used to read "All 3 runs still check out"
+     directly under "3 agent runs on this computer", which is a true statement
+     about a hash chain that every reader took as a statement about their
+     agents -- and it was printed after three runs that all refused to start. */
+  assert.match(intact.panel.footer, /the record of all 3 runs still checks out/i)
+  assert.doesNotMatch(
+    intact.panel.footer,
+    /all 3 runs still check out/i,
+    'the old wording made an integrity result read as a statement about the agents',
+  )
 
   const broken = describeHome({
     fleetConfigured: false,
