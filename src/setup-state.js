@@ -75,6 +75,14 @@ export const TIER_QUESTION_SUB = 'This is the only thing you need to decide righ
  * a blanket warning would have pushed people away from the safe path -- the
  * exact failure this notice exists to prevent, pointed the other way.
  *
+ * FORKING THE SAME THREAD WAS MEASURED SEPARATELY, because thread/fork and
+ * thread/resume are different server methods and "it takes the same spawn path"
+ * is an inference about where confinement is applied rather than an observation
+ * of it. Forked at 'read-only' the write was denied; forked at
+ * danger-full-access it succeeded; both produced a thread id distinct from the
+ * source. Fork is the mode that SOUNDS safest, which is the reason not to let it
+ * ride on another mode's evidence.
+ *
  * What remains true is the mirror case, and it is not softened: a session that
  * keeps running in the other program is still being run BY that program, under
  * whatever it was started with, and nothing chosen here reaches into it. The
