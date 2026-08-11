@@ -203,9 +203,26 @@ contextBridge.exposeInMainWorld('mcAccount', Object.freeze({
   current: () => ipcRenderer.invoke('mc-account:current'),
   create: request => ipcRenderer.invoke('mc-account:create', request),
   signIn: request => ipcRenderer.invoke('mc-account:sign-in', request),
+  /* SIGN IN WITH GOOGLE. Note that NONE of these takes an argument, and that is
+     the whole design: the page asks for the flow to start, the main process
+     runs it against the system browser, and the identity arrives from Google
+     already verified. A page that could pass an email address in here would be
+     a page that could sign in as anybody. */
+  googleAvailability: () => ipcRenderer.invoke('mc-account:google-availability'),
+  googleSignIn: () => ipcRenderer.invoke('mc-account:google-sign-in'),
+  /* The address the browser was sent to, so a person whose browser did not open
+     can open it themselves. Carries no credential; answers nothing once the
+     attempt has settled. */
+  googleUrl: () => ipcRenderer.invoke('mc-account:google-url'),
+  googleCancel: () => ipcRenderer.invoke('mc-account:google-cancel'),
   signOut: () => ipcRenderer.invoke('mc-account:sign-out'),
   signOutEverywhere: () => ipcRenderer.invoke('mc-account:sign-out-everywhere'),
   changePassword: request => ipcRenderer.invoke('mc-account:change-password', request),
+  /* The shown name, changeable for the life of the account. It carries no
+     credential in either direction and it cannot move an account: which account
+     is renamed is decided in the main process from the session, exactly like
+     the audit principal, so a page cannot rename somebody else. */
+  changeDisplayName: request => ipcRenderer.invoke('mc-account:change-display-name', request),
   /* WHAT BELONGS TO WHOEVER IS SIGNED IN. Note what is NOT here: no method
      takes an account id. Which account these read and write is decided in the
      main process from the session, for the same reason the audit principal is

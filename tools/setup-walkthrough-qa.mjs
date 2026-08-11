@@ -251,7 +251,14 @@ async function drive(mode, executable, scratch) {
       const account = await screen()
       check('the sign-in step is REACHABLE and renders', /Who is using this copy|Signed in as/i.test(account))
       check('its disclosure survives: the account is local to this computer', /account on this computer/i.test(account))
-      check('its disclosure survives: it is not a provider login', /not a login to Claude, ChatGPT or Google/i.test(account))
+      /* REWORDED WITH THE COPY, NOT LOOSENED. Google sign-in now exists, so
+         "not a login to ... Google" stopped being true and the sentence on
+         screen changed. What B14 is actually about -- a Claude or ChatGPT
+         SUBSCRIPTION login -- is unchanged, and that is what this reads. */
+      check('its disclosure survives: it is not a provider subscription login', /not a login to Claude or ChatGPT/i.test(account))
+      /* AND THE SECOND WAY IN IS ON THE SCREEN. It may be offered or it may say
+         why it cannot be; what it must never do is be absent without a word. */
+      check('the Google option is on the first-run step, offered or explained', /Sign in with Google/i.test(account))
       check('a person can carry on without an account', await evaluate('document.querySelectorAll("[data-setup-next]").length > 0'))
 
       await clickLast('[data-setup-next]')

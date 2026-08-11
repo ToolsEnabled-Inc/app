@@ -36,11 +36,14 @@ import {
   readActionResult,
 } from '../../src/account-state.js'
 import {
+  changeDisplayNameMarkup,
   esc,
   formMarkup,
+  googleOptionMarkup,
   scopeMarkup,
   screenMarkup,
   setupAccountStepMarkup,
+  signedInMarkup,
 } from '../../src/account-markup.js'
 import { MIN_PASSWORD_LENGTH as SHELL_MIN_PASSWORD_LENGTH } from '../../shell/product-account.cjs'
 
@@ -242,7 +245,15 @@ test('the walkthrough seam refuses rather than throwing when there is no bridge'
 
 test('the walkthrough seam exposes no field that could carry a credential', () => {
   const step = accountStep({})
-  assert.deepEqual(Object.keys(step).sort(), ['available', 'create', 'load', 'signIn', 'signOut'])
+  /* The three google* entries take NO ARGUMENTS, which is why they are safe
+     additions to a seam whose whole purpose is having nowhere to put a
+     credential: there is no parameter on any of them for one to arrive in. The
+     identity is decided in the main process from a token Google signed. */
+  assert.deepEqual(Object.keys(step).sort(),
+    ['available', 'create', 'googleAvailability', 'googleCancel', 'googleSignIn', 'load', 'signIn', 'signOut'])
+  for (const name of ['googleSignIn', 'googleCancel', 'googleAvailability']) {
+    assert.equal(step[name].length, 0, `${name} takes an argument, so a page could aim the sign-in`)
+  }
   /* src/views/setup.js serialises its answers to localStorage and renders them
      on a review page. A password reaching that object would be written to disk
      in the clear, so the seam must have nowhere to put one. */
@@ -267,6 +278,9 @@ test('the surface says what the account is not, where the account is made', () =
   assert.ok(notice.includes('claude') && notice.includes('chatgpt'),
     'it must say this is not a provider login -- SHIPMENT-PLAN B14')
   assert.ok(notice.includes('subscription'), 'it must say it carries no subscription')
+  /* The second way in has to be described where the first one is, or the
+     screen offers a Google button the copy never explains. */
+  assert.ok(notice.includes('google'), 'it must say what signing in with Google does')
   assert.ok(VIEW.includes('ACCOUNT_SCOPE_NOTICE'), 'and the view must actually render it')
 })
 
@@ -426,23 +440,70 @@ const REGISTERED_CLAIMS = Object.freeze([
     },
   },
   {
-    claim: 'It is not a login to Claude, ChatGPT or Google',
-    stillTrueBecause: 'no account module names a provider credential, key format, or provider auth environment variable. SHIPMENT-PLAN B14 bars taking a provider subscription login here.',
+    /* RE-REGISTERED, BECAUSE THE PROMISE CHANGED. It used to read "not a login
+       to Claude, ChatGPT or Google". Google sign-in now exists, so the old
+       sentence would have been false the moment it shipped -- and the pin below
+       would NOT have caught it, because a regex for credential names says
+       nothing about a sentence's truth. It was changed in the copy first and
+       re-registered here, which is the two-minute speed bump working.
+
+       WHAT DID NOT CHANGE is the thing B14 is actually about: no PROVIDER
+       SUBSCRIPTION login. Google sign-in asks for `openid email profile`,
+       which buys access to nothing and carries no plan anybody pays for. */
+    claim: 'not a login to Claude or ChatGPT',
+    stillTrueBecause: 'no account module names an Anthropic or OpenAI credential, key format, or auth environment variable, and the only OAuth on the sign-in path asks for openid/email/profile -- scopes that grant access to no service and carry no subscription. SHIPMENT-PLAN B14 bars taking a provider subscription login; it does not reach an identity assertion.',
     pin() {
-      const providerCredential = /anthropic|api[_-]?key|sk-ant|openai|oauth|access[_-]?token|refresh[_-]?token/i
+      /* The providers B14 is about. `oauth`/`access_token` are deliberately
+         NOT in this list any more: an identity flow legitimately names them,
+         and a guard that fires on correct code gets widened until it catches
+         nothing. What must stay absent is a credential belonging to a paid
+         plan. */
+      /* CREDENTIAL SHAPES, NOT PROVIDER NAMES. The first draft of this list
+         included `chatgpt`, and it fired on the sentence it was guarding --
+         the copy names those providers precisely in order to say it is not
+         them. A guard that refuses its own promise gets deleted by the next
+         person. What must stay absent is a KEY. */
+      const subscriptionCredential = /anthropic|sk-ant|openai|api[_-]?key|ANTHROPIC_API_KEY|OPENAI_API_KEY/i
       for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
-        assert.ok(!providerCredential.test(source),
-          `${name} touches a provider credential, so "It is not a login to Claude, ChatGPT or Google" is no longer true`)
+        assert.ok(!subscriptionCredential.test(source),
+          `${name} touches a provider subscription credential, so "not a login to Claude or ChatGPT" is no longer true`)
+      }
+      /* And the scopes, checked against the constant the flow actually sends
+         rather than against the sentence. A widened scope list is what would
+         turn the identity flow into an access grant. */
+      const flow = stripComments(read('shell/google-signin.cjs'))
+      assert.ok(/SIGNIN_SCOPES = Object\.freeze\(\['openid', 'email', 'profile'\]\)/.test(flow),
+        'the Google sign-in scopes are no longer openid/email/profile, so this is no longer only an identity assertion')
+      for (const marker of ['drive', 'gmail', 'calendar', 'cloud-platform']) {
+        assert.ok(!new RegExp('SIGNIN_SCOPES[^\\n]*' + marker).test(flow),
+          `the sign-in scopes now include ${marker}`)
       }
     },
   },
   {
     claim: 'this one never asks for them',
-    stillTrueBecause: 'the same pin as the claim above: the account flow has no field, channel, or storage key for a provider credential.',
+    stillTrueBecause: 'the account flow has no field, channel, or storage key for a Claude or ChatGPT credential, and the Google account record has no token field of any kind -- only a subject identifier and a verified address.',
     pin() {
-      const providerField = /provider|claude|chatgpt|gemini/i
-      assert.ok(!providerField.test(ACCOUNT_SOURCES['shell/product-account.cjs']),
-        'the store now mentions a provider, so "this one never asks for them" needs re-checking')
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      /* NARROWED, AND SAID WHY. The old pin refused the bare word "provider"
+         anywhere in the store. That was a fine proxy while the store knew about
+         no identity provider at all; it is a false alarm now that a record
+         legitimately says `provider: 'google'`. The promise was never about the
+         WORD -- it is about not asking anybody for a provider's password or key,
+         so that is what is checked. */
+      const asksForOne = /claude|chatgpt|gemini|anthropic|openai|apiKey|api_key|providerPassword|providerToken/i
+      assert.ok(!asksForOne.test(store),
+        'the store now names a provider credential, so "this one never asks for them" needs re-checking')
+      /* THE GOOGLE RECORD HOLDS NO TOKEN. This is the specific thing that would
+         make the sentence false, and it is checked on the field names the
+         record could store one in. */
+      /* A FIELD, not the word. `REQUIRED_IDENTITY_ASSURANCE = "id_token-verified"`
+         is the name of a check that has to have happened -- the opposite of a
+         stored token -- and a bare-word scan flags it. What a stored token
+         would look like is an assignment, so that is what this matches. */
+      const tokenField = /(?:accessToken|access_token|refreshToken|refresh_token|idToken|id_token|bearerToken)\s*[:=]/i
+      assert.ok(!tokenField.test(store),
+        'the account store now holds a Google token, which it must never do -- the product calls no Google API on anybody\'s behalf')
     },
   },
   {
@@ -461,7 +522,17 @@ const REGISTERED_CLAIMS = Object.freeze([
     stillTrueBecause: 'changePassword returns on every refusal before its single writeStore call, so a refused change leaves the old verifier and the old epoch intact. The behavioural half is proved in product-account.test.mjs: after a refused change the old password still works and the session is untouched.',
     pin() {
       const store = ACCOUNT_SOURCES['shell/product-account.cjs']
-      const change = store.slice(store.indexOf('async function changePassword'))
+      /* BOUNDED AT BOTH ENDS, and it was not. This used to slice to the end of
+         the file, which counted every later `writeStore` as one of
+         changePassword's -- correct only for as long as changePassword happened
+         to be the last mutation in the file. `changeDisplayName` was added
+         after it and the pin failed on code that is not the code it is about.
+         An assertion whose subject depends on file order is an assertion that
+         reports the wrong function. It is pinned by its own end marker now, and
+         changeDisplayName gets its own pin below because it makes the SAME
+         promise and therefore owes the same proof. */
+      const change = store.slice(store.indexOf('async function changePassword'), store.indexOf('function changeDisplayName'))
+      assert.ok(change.length > 400, 'the changePassword slice is empty or unbounded; its end marker moved')
       assert.equal((change.match(/writeStore\(/g) || []).length, 1, 'changePassword writes more than once, so a refusal could leave a partial change')
       assert.ok(change.indexOf("ACCOUNT_HASH_FAILED") < change.indexOf('writeStore('),
         'the hash-failure refusal now comes after the write, so "nothing was changed" would be false')
@@ -474,6 +545,46 @@ const REGISTERED_CLAIMS = Object.freeze([
          as coverage. This one matches the awaited call itself. */
       assert.ok(/await verifyPassword\(currentPassword/.test(change),
         'changePassword no longer proves the current password before changing it')
+
+      /* THE SAME SENTENCE, SAID BY THE RENAME PATH, PROVED THE SAME WAY.
+         `changeDisplayName` refuses with "so nothing was changed" four times.
+         Each refusal must return before its single write, or the sentence is
+         false on whichever branch does not. */
+      const rename = store.slice(store.indexOf('function changeDisplayName'), store.indexOf('/* ------------------------- the account partition'))
+      assert.ok(rename.length > 400, 'the changeDisplayName slice is empty; its markers moved')
+      assert.equal((rename.match(/writeStore\(/g) || []).length, 1,
+        'changeDisplayName writes more than once, so a refusal could leave a partial change')
+      const firstWrite = rename.indexOf('writeStore(')
+      for (const code of ['ACCOUNT_NOT_SIGNED_IN', 'ACCOUNT_DISPLAY_NAME_INVALID', 'ACCOUNT_STORE_CORRUPT', 'ACCOUNT_DISPLAY_NAME_UNCHANGED']) {
+        const at = rename.indexOf(code)
+        assert.ok(at !== -1 && at < firstWrite,
+          `${code} is gone or now comes after the write, so "nothing was changed" would be false on that branch`)
+      }
+    },
+  },
+  {
+    /* THE PROMISE THE RENAME SCREEN MAKES, and the one a person actually acts
+       on: they will only press Save if renaming themselves is safe for what
+       they already did. */
+    claim: 'never re-labels or hides anything you already did',
+    stillTrueBecause: 'a run is recorded against `account:<id>` -- shell/spawn-record.cjs writes the principal the main process read from the store -- and changeDisplayName writes exactly one field, `displayName`. It cannot reach `id`, and the account screen counts a person\'s own runs by comparing the id, so no past record changes hands or changes label when the name changes.',
+    pin() {
+      const store = ACCOUNT_SOURCES['shell/product-account.cjs']
+      const rename = store.slice(store.indexOf('function changeDisplayName'), store.indexOf('/* ------------------------- the account partition'))
+      assert.ok(rename.length > 400, 'the rename path is gone, so this promise is about nothing')
+      /* The write must be a spread that replaces ONE field. A rename that
+         assigned a whole record could take the id with it. */
+      assert.ok(/\{ \.\.\.entry, displayName: next \}/.test(rename),
+        'changeDisplayName no longer writes exactly one field, so it may now touch the id a record is filed under')
+      for (const field of ['id:', 'epoch:', 'username:', 'identity:', 'verifier:']) {
+        assert.ok(!rename.includes(field),
+          `changeDisplayName now writes ${field} -- renaming must not touch the identity a past record is filed under`)
+      }
+      /* And the page must not be able to name the account it renames. */
+      assert.ok(!/accountId|account\.id\s*=/.test(stripComments(ACCOUNT_SOURCES['src/views/account.js']).slice(
+        stripComments(ACCOUNT_SOURCES['src/views/account.js']).indexOf("kind === 'display-name'"),
+        stripComments(ACCOUNT_SOURCES['src/views/account.js']).indexOf("const currentPassword"),
+      )), 'the rename action now sends an account id, which would let a page rename somebody else')
     },
   },
   {
@@ -558,6 +669,63 @@ const REGISTERED_CLAIMS = Object.freeze([
         'attachPaymentMethod no longer checks the vault key against the fixed allowlist')
       assert.ok(!store.includes("PAYMENT_VAULT_KEYS = Object.freeze(['payment_card_default', 'owner_legal_identity_v1'"),
         'the identity record is now attachable as a payment method')
+    },
+  },
+  {
+    /* ---- the three promises Google sign-in adds ---- */
+    claim: 'never into this program',
+    stillTrueBecause: 'the authorization URL is handed to the operating system\'s browser through shell.openExternal. No account module and no part of the sign-in flow opens a BrowserWindow, a webview or an iframe on a Google address, and there is no password field anywhere on the Google path -- so there is nowhere for a Google password to be typed into this program.',
+    pin() {
+      const flow = stripComments(read('shell/google-signin.cjs'))
+      /* An embedded window showing Google's sign-in page is the exact thing
+         this sentence promises does not happen, and it is what Google itself
+         refuses. The flow must not be able to build one. */
+      assert.ok(!/BrowserWindow|webContents|<webview|createElement\(.iframe.\)/i.test(flow),
+        'the Google sign-in flow can now open a window of its own, so the password would be typed into this program after all')
+      assert.ok(/openExternal/.test(stripComments(MAIN)),
+        'the shell no longer hands the sign-in URL to the system browser')
+      /* AND THE GOOGLE OPTION ITSELF COLLECTS NOTHING. Rendered rather than
+         searched: the first version of this scanned every source line that
+         mentioned Google for the word `password`, and it fired on the sentence
+         'there is no password here to change' -- a guard matching the copy that
+         states the promise. What it should check is that the option a person
+         presses has no field on it, and that can only be seen by building it. */
+      for (const google of [null, { available: false, code: 'X', reason: 'no id' }, { available: true, source: 'shipped', testProvider: null }]) {
+        for (const busy of [false, true]) {
+          const rendered = googleOptionMarkup({ google, busy })
+          assert.ok(!/<input|type="password"|autocomplete=/i.test(rendered),
+            `the Google option renders an input field when google=${JSON.stringify(google)} busy=${busy}`)
+        }
+      }
+    },
+  },
+  {
+    claim: 'It gets no access to your Drive, your Gmail or your Calendar',
+    stillTrueBecause: 'the scope list sent to Google is the frozen constant SIGNIN_SCOPES = openid, email, profile. None of them grants read or write access to any Google service, and the flow refuses to start if the list ever contains a service marker.',
+    pin() {
+      const flow = stripComments(read('shell/google-signin.cjs'))
+      assert.ok(/SIGNIN_SCOPES = Object\.freeze\(\['openid', 'email', 'profile'\]\)/.test(flow),
+        'the requested scopes changed, so the promise about Drive, Gmail and Calendar needs re-checking')
+      /* The runtime guard, not just the constant: a widened list must stop the
+         flow rather than quietly ask for more. */
+      assert.ok(/GOOGLE_SIGNIN_SCOPE_REFUSED/.test(flow),
+        'the flow no longer refuses to start when the scopes reach a service')
+    },
+  },
+  {
+    claim: 'Nothing is signed in until you do',
+    stillTrueBecause: 'the view awaits the shell\'s reply and only calls refresh() -- the read that decides what the screen says -- after it. Every failure path repaints from the same read, so a sign-in that did not complete leaves the screen showing signed out.',
+    pin() {
+      const view = ACCOUNT_SOURCES['src/views/account.js']
+      const start = view.slice(view.indexOf('async function startGoogleSignIn'), view.indexOf('function onClick'))
+      assert.ok(start.length > 200, 'the Google sign-in action is gone, so this promise is about nothing')
+      /* There must be no assignment that makes the screen say signed-in
+         without going through the state read. */
+      assert.ok(!/states*=s*{/.test(start), 'the Google action now writes the signed-in state directly instead of re-reading it')
+      assert.ok(/await refresh\(\)/.test(start), 'the Google action no longer re-reads who is signed in')
+      /* And the failure branch must repaint from that read too. */
+      const failure = start.slice(start.indexOf('if (!result.ok)'))
+      assert.ok(/await refresh\(\)/.test(failure), 'a failed Google sign-in no longer re-reads the account state')
     },
   },
 ])
@@ -663,6 +831,10 @@ const REPORTED_STATE = Object.freeze([
   ['The password cannot be the same as the username', 'states a rule that IS enforced, and is pinned by the password-rules test.'],
   ['this installation’s own vault does not hold that record', 'reports a vault this copy just read and found the record absent from. It is a measurement, not a promise -- and it is the branch that exists so that state cannot render as "no card on file".'],
   ['This copy could not check whether a card is attached', 'reports that the check itself failed. The sentence exists to refuse the false report; making it a promise would be promising that a read never fails.'],
+  ['That email address already identifies a different Google account on this computer', 'reports a collision the store just found between a Google subject identifier and an address already on this computer. It is a refusal that happened, not a promise -- and it is the branch that stops one person being handed another\'s account, pinned behaviourally in google-account.test.mjs.'],
+  ['An account on this computer already uses that name', 'reports a name collision the store just found. Same refusal shape as the line above.'],
+  ['This copy cannot sign in with Google', 'reports that this build has no Google sign-in channel on its bridge. A fact about the build, said instead of showing a button that would fail.'],
+  ['This copy cannot change the name it shows', 'reports that this build has no rename channel on its bridge -- the same shape as the Google line above. It is said instead of a Save that appears to work and changes nothing, which is the failure the sentence exists to refuse.'],
   ['there is no account whose data this would be', 'reports that nobody is signed in. It is the partition refusing to answer rather than answering with somebody else\'s data, which is the behaviour the isolation tests pin.'],
 ])
 
@@ -698,7 +870,8 @@ test('the shared settings row is classified too', () => {
 test('the shell exposes the account bridge, and exposes no way to set the principal', () => {
   assert.ok(PRELOAD.includes("exposeInMainWorld('mcAccount'"), 'the bridge must be exposed')
   for (const channel of ['mc-account:availability', 'mc-account:current', 'mc-account:create',
-    'mc-account:sign-in', 'mc-account:sign-out', 'mc-account:change-password']) {
+    'mc-account:sign-in', 'mc-account:sign-out', 'mc-account:change-password',
+    'mc-account:change-display-name']) {
     assert.ok(PRELOAD.includes(channel), `${channel} must be reachable from the page`)
     assert.ok(MAIN.includes(`ipcMain.handle('${channel}'`), `${channel} must be handled in main`)
   }
@@ -795,12 +968,82 @@ test('every state the screen can be in renders something a person can act on', (
     ['signed out', { state: SIGNED_OUT_VIEW }, /name="password"/],
     ['signed in', { state: SIGNED_IN_VIEW }, /data-account-sign-out/],
     ['changing password', { state: SIGNED_IN_VIEW, mode: 'change-password' }, /name="currentPassword"/],
+    ['changing the shown name', { state: SIGNED_IN_VIEW, mode: 'display-name' }, /name="displayName"/],
   ]
   for (const [name, input, expected] of states) {
     const html = screenMarkup(input)
     assert.ok(html.length > 100, `${name} renders ${html.length} characters, which is not a screen`)
     assert.match(html, expected, `${name} does not render its own control`)
   }
+})
+
+/* THE NAME A PERSON IS SHOWN AS, AND THAT IT IS NOT A ONE-WAY DOOR.
+ *
+ * The defect: the first-run walkthrough creates the account with an empty
+ * display name, the store falls back to the username, and there was no screen
+ * anywhere in the product that could change it afterwards -- so a username
+ * typed in the first ninety seconds was the permanent label on every record of
+ * that person's work. These render the repair rather than searching for it,
+ * for the reason the whole file exists. */
+test('the signed-in screen offers a way to change the name it shows', () => {
+  const html = signedInMarkup({ state: SIGNED_IN_VIEW })
+  assert.match(html, /data-account-shown-as/, 'the signed-in screen no longer says what it calls you')
+  assert.match(html, /data-account-mode="display-name"/, 'there is no control that opens the rename form')
+  /* A GOOGLE ACCOUNT TOO. Its display name is the verified email address, in
+     full, on every record -- the person who most needs this. The password row
+     is hidden for them and it would be easy to hide this one by the same
+     reflex; there is no password here to change, but there IS a name. */
+  const google = signedInMarkup({
+    state: { ...SIGNED_IN_VIEW, signInMethod: 'google', username: 'a@example.com', verifiedEmail: 'a@example.com', displayName: 'a@example.com' },
+  })
+  assert.match(google, /data-account-mode="display-name"/, 'a Google account is not offered the rename it needs most')
+})
+
+test('the rename form states what an empty box means, with the username in it', () => {
+  const html = changeDisplayNameMarkup({ state: SIGNED_IN_VIEW })
+  assert.match(html, /<input[^>]*name="displayName"/, 'the rename form has no field')
+  assert.match(html, /value="Josh P"/, 'the field is not prefilled with the current name, so saving would need it retyped')
+  assert.match(html, /type="submit"/, 'nothing to submit the rename with')
+  /* THE ABSENCE CASE, WHICH IS THIS CODEBASE'S SIGNATURE DEFECT. An empty
+     field MEANS something here -- go back to the username -- and a meaning
+     that is not printed is a meaning nobody consented to. */
+  assert.match(html, /Leave it empty/, 'the form no longer says what an empty box does')
+  assert.match(html, /<code>josh<\/code>/, 'the form does not name the username an empty box falls back to')
+  /* No password is asked for on this form, and none may be rendered by it. */
+  assert.ok(!/type="password"/.test(html), 'the rename form now asks for a password it does not need')
+})
+
+test('the rename action sends what was typed, and lets the shell decide what it becomes', () => {
+  const view = stripComments(ACCOUNT_SOURCES['src/views/account.js'])
+  const action = view.slice(view.indexOf("kind === 'display-name'"), view.indexOf('const currentPassword'))
+  assert.ok(action.length > 200, 'the rename action is gone')
+  /* Not trimmed, not defaulted, not emptied in the page. Two opinions about
+     what a name normalizes to eventually disagree, and the one on screen would
+     be the wrong one. Asserted on the READ and on the SEND rather than by
+     scanning the whole action for a `||`, because the action legitimately uses
+     one to render the result afterwards -- a guard that cannot tell those apart
+     is a guard that fires on correct code. */
+  assert.match(action, /const displayName = fieldValue\('displayName'\)/,
+    'the rename no longer reads the field as typed')
+  assert.match(action, /changeDisplayName\(\{ displayName \}\)/,
+    'the rename now transforms the name before sending it, so the page and the shell can disagree about what somebody is called')
+  /* The sentence shown afterwards must come from the re-read, not from the
+     typed string: they differ exactly when the name was emptied or stripped.
+     Scoped to what happens AFTER the shell is called -- the refusal branch in
+     front of it legitimately writes a notice without reading anything, and an
+     unscoped index comparison flags that as the defect it is not. */
+  const onSuccess = action.slice(action.indexOf('changeDisplayName({ displayName })'))
+  assert.ok(onSuccess.length > 100, 'the success handler is gone')
+  assert.ok(onSuccess.indexOf('await refresh()') < onSuccess.indexOf('notice ='),
+    'the rename now writes its confirmation before re-reading, so it can claim a name the shell did not store')
+  /* And it must not print an empty name when the re-read comes back signed
+     out -- the session can expire while the write is in flight. */
+  assert.ok(/state\?\.signedIn/.test(onSuccess),
+    'the rename no longer checks that the re-read is still signed in before naming somebody')
+  /* A build without the channel must say so rather than showing a Save that
+     silently does nothing. */
+  assert.ok(/typeof bridge\.changeDisplayName !== 'function'/.test(action),
+    'the rename no longer checks that this build has the channel')
 })
 
 test('the keystore warning appears exactly when the keystore is missing', () => {

@@ -6,13 +6,28 @@
  * by matching source text is a gate that can silently stop existing. Both were
  * tried on the tier screen; the source-matched one slipped through.
  *
- * WHAT THIS ACCOUNT IS, said here because the interface has to say it
- * too. It is an account on THIS computer. It is not a login to Claude, ChatGPT
- * or Google, it does not carry a subscription, and it never asks for a provider
- * password -- docs/design/SHIPMENT-PLAN.md blocker B14 records that taking a
- * provider subscription login inside a third-party product is barred by those
- * providers' terms. Signing in here answers "who is using this copy", which is
- * what the agent record needs and could not previously say.
+ * WHAT THIS ACCOUNT IS, said here because the interface has to say it too.
+ *
+ * There are TWO WAYS IN, and the screen offers them in this order:
+ *
+ *   SIGN IN WITH GOOGLE, the first option. Google says who you are and the
+ *   verified email address on your Google account becomes the name on the
+ *   record. The password is typed into the system browser, not into this
+ *   program, and this program stores no Google token of any kind -- see
+ *   shell/google-signin.cjs.
+ *
+ *   AN ACCOUNT ON THIS COMPUTER, the second. It works with no network and for
+ *   anybody who would rather not use Google. It is kept because removing it
+ *   would leave those people with nothing.
+ *
+ * NEITHER IS A LOGIN TO CLAUDE OR CHATGPT and neither carries a subscription --
+ * docs/design/SHIPMENT-PLAN.md blocker B14 records that taking a provider
+ * SUBSCRIPTION login inside a third-party product is barred by those providers'
+ * terms. Google sign-in is a different thing and B14 does not reach it: it asks
+ * for `openid email profile`, which grants this product no access to anybody's
+ * Drive, Gmail or Calendar, and it is the flow Google publishes for exactly this
+ * purpose. Signing in answers "who is using this copy", which is what the agent
+ * record needs and could not previously say.
  *
  * NOTHING IN THIS FILE HOLDS A SECRET. A password is read from a field, handed
  * straight to the shell, and dropped. It is never stored in a variable that
@@ -43,9 +58,91 @@ export const ACCOUNT_QUESTION_SUB = 'Sign in so the record of what your assistan
 export const ACCOUNT_SCOPE_LEAD = 'What this account is, before you make one.'
 export const ACCOUNT_SCOPE_NOTICE = Object.freeze([
   'It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one.',
-  'It is not a login to Claude, ChatGPT or Google, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy.',
+  'Signing in with Google instead puts the verified email address from your Google account on the record, and Google is what checks it rather than this computer.',
+  'Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy.',
   'It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it.',
 ])
+
+/* ---- SIGN IN WITH GOOGLE: the words, and the state behind the button ----
+ *
+ * The copy is HERE, next to the local account's copy, so the two can never
+ * disagree about what either one is. Both are rendered by src/account-markup.js
+ * and both are pinned by tools/test/product-account-surface.test.mjs.
+ *
+ * The sentence about scope is not marketing. `openid email profile` is the whole
+ * request, and it is what keeps this product out of Google's sensitive-scope
+ * review entirely -- so the promise on screen and the constant in
+ * shell/google-signin.cjs are the same fact, and a test compares them. */
+export const GOOGLE_SIGNIN_LABEL = 'Sign in with Google'
+export const GOOGLE_SIGNIN_DESCRIPTION = 'Your browser opens, you choose your Google account there, and the verified email address on it becomes the name on the record. Your Google password is typed into your browser and never into this program.'
+export const GOOGLE_SIGNIN_SCOPE_NOTE = 'It asks Google for your name and email address only. It gets no access to your Drive, your Gmail or your Calendar, and this program keeps no Google password and no Google token.'
+
+/* WHAT AN UNAVAILABLE GOOGLE OPTION LOOKS LIKE, and this is the case that
+ * matters most on the machine this was built on: the owner has not created the
+ * Google application id yet, so the answer today is "not configured".
+ *
+ * A missing configuration must NOT hide the button and must NOT produce a
+ * button that fails when pressed. It produces a DISABLED option that says which
+ * of those two it is, next to a local account that works right now. Absence
+ * read as consent -- treating "no config" as "sign in some other way and don't
+ * mention it" -- is this codebase's signature defect, and this is where it would
+ * appear on the sign-in screen. */
+const GOOGLE_UNAVAILABLE = Object.freeze({
+  available: false,
+  source: null,
+  testProvider: null,
+  code: 'MC_GOOGLE_SIGNIN_UNAVAILABLE',
+  reason: 'This copy did not say whether signing in with Google is available, so it is not offered.',
+})
+
+/**
+ * Normalize the shell's Google availability reply. Fails closed: anything this
+ * build does not recognise is UNAVAILABLE with a reason, never "probably fine".
+ */
+export function readGoogleAvailability(value) {
+  if (!isPlainObject(value)) return GOOGLE_UNAVAILABLE
+  if (value.ok !== true || value.available !== true) {
+    return Object.freeze({
+      ...GOOGLE_UNAVAILABLE,
+      code: typeof value.code === 'string' ? value.code : GOOGLE_UNAVAILABLE.code,
+      reason: typeof value.reason === 'string' && value.reason ? value.reason : GOOGLE_UNAVAILABLE.reason,
+    })
+  }
+  return Object.freeze({
+    available: true,
+    source: typeof value.source === 'string' ? value.source.slice(0, 40) : null,
+    /* CARRIED SO THE SCREEN CAN SAY IT. A build pointed at a test identity
+       provider must be visibly different from one pointed at Google; a
+       screenshot that cannot be told apart from a real sign-in is evidence of
+       nothing. */
+    testProvider: isPlainObject(value.testProvider) && typeof value.testProvider.issuer === 'string'
+      ? Object.freeze({ issuer: value.testProvider.issuer.slice(0, 200) })
+      : null,
+    code: null,
+    reason: null,
+  })
+}
+
+/** Ask the shell whether Google sign-in is available here. Never throws. */
+export async function loadGoogleAvailability(scope = globalThis) {
+  const bridge = accountBridge(scope)
+  if (!bridge || typeof bridge.googleAvailability !== 'function') {
+    return Object.freeze({
+      ...GOOGLE_UNAVAILABLE,
+      code: 'MC_GOOGLE_SIGNIN_ABSENT',
+      reason: 'This copy of the program does not offer signing in with Google. Making an account on this computer does the same job.',
+    })
+  }
+  try {
+    return readGoogleAvailability(await bridge.googleAvailability())
+  } catch {
+    return Object.freeze({
+      ...GOOGLE_UNAVAILABLE,
+      code: 'MC_GOOGLE_SIGNIN_READ_FAILED',
+      reason: 'The application did not answer whether signing in with Google is available, so it is not offered.',
+    })
+  }
+}
 
 const SIGNED_OUT = Object.freeze({
   available: false,
@@ -53,6 +150,11 @@ const SIGNED_OUT = Object.freeze({
   accountCount: 0,
   displayName: null,
   username: null,
+  /* Present on the signed-out shape too, so every consumer sees the same keys
+     whichever branch it got. A field that only exists on the happy path is a
+     field somebody reads as `undefined` on the unhappy one. */
+  signInMethod: null,
+  verifiedEmail: null,
   expiresAtMs: null,
   canPersistSession: false,
   code: 'MC_ACCOUNT_SHELL_ABSENT',
@@ -90,6 +192,17 @@ function boundedName(value) {
   const trimmed = value.trim()
   if (!trimmed) return null
   return trimmed.slice(0, 64)
+}
+
+/* An address gets its own bound rather than reusing the 64 above. A display
+   name that is cut short is untidy; an EMAIL ADDRESS that is cut short is a
+   different address, and this one is an identity the person is being shown so
+   they can check it is theirs. 320 is the addressing limit. */
+function boundedEmail(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > 320) return null
+  return trimmed
 }
 
 /**
@@ -158,6 +271,19 @@ export function readAccountState(availability, current) {
     accountId: typeof current.account.id === 'string' && /^[0-9a-f]{32}$/.test(current.account.id)
       ? current.account.id
       : null,
+    /* WHICH DOOR THIS ACCOUNT USES, and the default is the conservative one.
+     *
+     * Only the literal string `google` from the shell makes this `google`;
+     * anything else -- absent, misspelt, a number, a build that predates the
+     * field -- reads as `local`. That direction is deliberate: a local account
+     * shown as a Google one would tell somebody Google had verified them when
+     * nothing had, and would offer to change a password that does exist. The
+     * other way round costs a person one visible option. */
+    signInMethod: current.account.signInMethod === 'google' ? 'google' : 'local',
+    /* Shown only on a Google account, and only when the shell said so. It is
+       the same string as the username; it is carried separately so the screen
+       can say "verified by Google" about it rather than guessing from an `@`. */
+    verifiedEmail: current.account.signInMethod === 'google' ? boundedEmail(current.account.email) : null,
     expiresAtMs: Number.isSafeInteger(current.session?.expiresAtMs) ? current.session.expiresAtMs : null,
   })
 }
@@ -215,6 +341,30 @@ export function readActionResult(value) {
        keystore would not hold it. Carried through so the surface can say so
        rather than letting the person discover it at the next launch. */
     persisted: value.persisted !== false,
+  })
+}
+
+/**
+ * Normalize the reply to a Google sign-in attempt.
+ *
+ * FAIL CLOSED, AND THE FAILURE IS THE POINT. Six things can go wrong and every
+ * one of them arrives here as `ok: false` with a code and a sentence: no
+ * network, Google refusing, a token that did not verify, the loopback port
+ * being refused, the browser not opening, and the person closing the tab. None
+ * of them is a reason to sign anybody in, and there is no branch below that
+ * treats a shape this build does not recognise as success.
+ */
+export function readGoogleSignInResult(value) {
+  const base = readActionResult(value)
+  if (!base.ok) return base
+  return Object.freeze({
+    ...base,
+    /* Whether an account was made just now, so the screen can greet rather than
+       welcome back. Only an explicit `true` counts. */
+    created: isPlainObject(value) && value.created === true,
+    /* SAID OUT LOUD WHEN IT IS TRUE. A run against the local test identity
+       provider must never read on screen as a run against Google. */
+    usedTestProvider: isPlainObject(value) && value.usedTestProvider === true,
   })
 }
 
@@ -382,6 +532,21 @@ export function accountStep(scope = globalThis) {
     signOut: async () => {
       if (!bridge) return readActionResult(null)
       try { return readActionResult(await bridge.signOut()) } catch { return readActionResult(null) }
+    },
+    /* NO ARGUMENT, and that is the design rather than an omission: what comes
+       back from Google is verified in the main process, and a page that could
+       hand in an email address would be a page that could sign in as anybody.
+       A build without the channel refuses rather than pretending. */
+    googleAvailability: () => loadGoogleAvailability(scope),
+    googleSignIn: async () => {
+      if (!bridge || typeof bridge.googleSignIn !== 'function') {
+        return Object.freeze({ ok: false, code: 'MC_GOOGLE_SIGNIN_ABSENT', reason: 'This copy of the program does not offer signing in with Google.' })
+      }
+      try { return readGoogleSignInResult(await bridge.googleSignIn()) } catch { return readGoogleSignInResult(null) }
+    },
+    googleCancel: async () => {
+      if (!bridge || typeof bridge.googleCancel !== 'function') return { ok: true, cancelled: false }
+      try { return await bridge.googleCancel() } catch { return { ok: true, cancelled: false } }
     },
   })
 }

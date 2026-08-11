@@ -182,10 +182,25 @@ function createSession(port, child) {
 const VISIBLE = `(selector) => {
   const node = document.querySelector(selector)
   if (!node) return { state: 'absent' }
-  const box = node.getBoundingClientRect()
   const style = getComputedStyle(node)
   if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return { state: 'hidden' }
+  /* SCROLLED TO FIRST, and this was a real defect in this harness.
+     The coordinates below are dispatched as a MOUSE EVENT at a page position.
+     An element that is on the page but BELOW THE FOLD passed every check here
+     and then reported 'clicked' while the click landed on whatever was actually
+     at that y -- so a control the harness never touched read as a control that
+     did not work. It was found when the sign-in screen grew and pushed "Create
+     account" to y=846 in an 832px window: the fields typed, the button did not
+     press, and eight checks failed for a reason that was not the product's.
+     A person scrolls; so does this. */
+  node.scrollIntoView({ block: 'center', inline: 'nearest' })
+  const box = node.getBoundingClientRect()
   if (box.width < 1 || box.height < 1) return { state: 'zero-size' }
+  /* Still out of the viewport after scrolling is a genuine problem, and it is
+     reported as one rather than clicked at blindly. */
+  if (box.bottom < 0 || box.top > window.innerHeight || box.right < 0 || box.left > window.innerWidth) {
+    return { state: 'off-screen' }
+  }
   return { state: 'visible', x: box.x + box.width / 2, y: box.y + box.height / 2 }
 }`
 

@@ -271,7 +271,7 @@ export function createFleetProfileSettings() {
         <article class="settings-row">
           <div class="settings-copy">
             <div class="settings-name">Your account</div>
-            <div class="settings-desc">Sign in, sign out, or change your password. Your account lives on this computer and nowhere else, so that the record of what your assistant does can say who asked for it. It is not a login to Claude, ChatGPT or Google, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them.</div>
+            <div class="settings-desc">Sign in with Google, or with an account you make here — then sign out or change your password. Your account lives on this computer and nowhere else; signing in with Google means Google checks who you are, and no Google password or token is kept here. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them.</div>
           </div>
           <div class="settings-control fleet-inline-control">
             <a class="ctl-btn" href="#/account">Open sign-in</a>

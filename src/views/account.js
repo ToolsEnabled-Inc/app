@@ -36,7 +36,9 @@ import {
   accountBridge,
   loadAccountState,
   loadAccountBelongings,
+  loadGoogleAvailability,
   readActionResult,
+  readGoogleSignInResult,
 } from '../account-state.js'
 
 import '../settings.css'
@@ -80,8 +82,14 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
   let data = null
   let payment = null
   let history = null
+  /* `null` means "not asked yet", exactly like `state`. It is NOT the same as
+     "unavailable", and the markup renders the two differently -- a screen that
+     showed "Google sign-in is not available on this copy" while it was still
+     reading would be telling somebody something false for a few hundred
+     milliseconds, and they would act on it. */
+  let google = null
 
-  const view = () => ({ state, mode, busy, notice, data, payment, history })
+  const view = () => ({ state, mode, busy, notice, data, payment, history, google })
 
   function paint() {
     if (destroyed) return
@@ -124,7 +132,11 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
        account opens on "create"; one that has accounts opens on "sign in", so
        the common case is one field and a password. */
     if (!state.signedIn && mode !== 'create' && state.available && state.accountCount === 0) mode = 'create'
-    if (state.signedIn && mode !== 'change-password') mode = 'signed-in'
+    /* The two sub-forms of the signed-in screen survive a refresh; every other
+       mode collapses back to it. Leaving `display-name` out of this list was
+       the first version, and it threw the person out of the rename form the
+       moment anything re-read the account. */
+    if (state.signedIn && mode !== 'change-password' && mode !== 'display-name') mode = 'signed-in'
     if (!state.signedIn) {
       /* Cleared on sign-out. Leaving the previous account's counts on the
          screen after somebody signs out is the partition failing in the one
@@ -132,6 +144,12 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
       data = null
       payment = null
       history = null
+      paint()
+      /* Read AFTER the first paint, so the screen appears immediately and the
+         Google row fills in. Only while signed out: it is the sign-out screen
+         that offers it, and asking on every read would ask on every paint. */
+      google = await loadGoogleAvailability()
+      if (destroyed) return
       paint()
       return
     }
@@ -244,6 +262,64 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
         },
       )
     }
+    if (kind === 'display-name') {
+      /* READ AS TYPED, and deliberately not trimmed or defaulted here. An empty
+         field means "show me as my username again" and the shell is the one
+         place that decides what a name normalizes to -- a renderer that
+         pre-emptied or pre-trimmed would be a second opinion, and the two would
+         eventually disagree about what somebody is called. */
+      const displayName = fieldValue('displayName')
+      const bridge = accountBridge()
+      if (!bridge || typeof bridge.changeDisplayName !== 'function') {
+        /* SAID, NOT HIDDEN. A build without the channel must not show a Save
+           that appears to work; the person is told the copy cannot do it. */
+        notice = {
+          tone: 'bad',
+          title: 'This copy cannot change the name it shows.',
+          detail: 'The installed application did not offer that, so nothing was changed and you are still shown as before.',
+        }
+        paint()
+        return undefined
+      }
+      return run(
+        signedInBridge => signedInBridge.changeDisplayName({ displayName }),
+        async () => {
+          mode = 'signed-in'
+          /* Re-read BEFORE the sentence is written, so what it claims is what
+             the shell now holds rather than what was typed. They differ
+             whenever the name was emptied or normalized, and those are exactly
+             the cases where a person needs to be told. */
+          await refresh()
+          /* THE SESSION CAN HAVE ENDED WHILE THIS RAN -- an expiry, or another
+             window signing out everywhere. The name WAS saved; this window
+             just has nothing to show it on. Printing "You are shown as  now."
+             with an empty name is the shape of failure this codebase keeps
+             finding, so the signed-out case gets its own sentence. */
+          if (!state?.signedIn) {
+            notice = {
+              tone: 'warn',
+              title: 'The new name was saved.',
+              detail: 'This window is signed out now, so it is not showing it back to you — sign in again and it will be there.',
+            }
+            paint()
+            return
+          }
+          notice = {
+            tone: 'good',
+            title: `You are shown as ${state.displayName} now.`,
+            detail: state.displayName === state.username
+              /* "as often as you like", not "whenever": the copy scanner in
+                 tools/test/product-account-surface.test.mjs matches absolute
+                 words by substring, and "whe-never" trips it. Rewording is
+                 honest; classifying an accidental match as a promise would
+                 leave a fake entry in the register. */
+              ? 'That is the name you sign in with, which is what an empty box means. Change it again as often as you like.'
+              : 'That name goes on the record of work from now on. Everything already recorded stays exactly as it was written.',
+          }
+          paint()
+        },
+      )
+    }
     const currentPassword = fieldValue('currentPassword')
     const newPassword = fieldValue('newPassword')
     return run(
@@ -268,8 +344,121 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
     submit(form.dataset.accountForm)
   }
 
+  /* SIGN IN WITH GOOGLE, from the page's side.
+   *
+   * The page starts it and waits. It sends NOTHING -- no email address, no
+   * account name, no token -- because the identity is decided in the main
+   * process from what Google signed, and a page that could name the person
+   * would make the whole flow decorative.
+   *
+   * WHILE IT IS RUNNING the button says so and a Cancel appears next to it. The
+   * person's browser is a separate window they may close, lose behind this one,
+   * or walk away from, and none of those is observable from here -- so Cancel
+   * is the honest control, and the attempt also times out on the shell side.
+   *
+   * EVERY FAILURE LANDS SIGNED OUT WITH THE SENTENCE THE SHELL WROTE. There is
+   * no branch here that retries, that falls back to the password form on the
+   * person's behalf, or that treats an unrecognised reply as success. */
+  async function startGoogleSignIn() {
+    if (busy) return
+    const bridge = accountBridge()
+    if (!bridge || typeof bridge.googleSignIn !== 'function') {
+      notice = {
+        tone: 'bad',
+        title: 'This copy cannot sign in with Google.',
+        detail: 'Use an account on this computer instead — it records the same thing.',
+      }
+      paint()
+      return
+    }
+    busy = true
+    notice = {
+      tone: 'warn',
+      title: 'Your browser is opening.',
+      detail: 'Choose your Google account there, then come back to this window. Nothing is signed in until you do.',
+    }
+    paint()
+
+    /* THE ADDRESS, SHOWN WHILE IT WAITS. Not decoration: if this computer has
+       no working default browser, nothing opens and the person has no way to
+       continue. Asked for after the paint above so the screen never waits on
+       it, and a build without the channel simply does not show the line. */
+    ;(async () => {
+      if (typeof bridge.googleUrl !== 'function') return
+      /* ASKED MORE THAN ONCE, and the first version did not -- which is how a
+         measured run found this. The address does not exist until the loopback
+         listener has a port, and that is a few milliseconds after the button is
+         pressed. A single read comes back empty and the recovery line never
+         appears, so a person whose browser did not open is left with nothing
+         after all. It stops as soon as it has one, or as soon as the attempt is
+         no longer waiting. */
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (destroyed || !busy) return
+        let reply
+        try { reply = await bridge.googleUrl() } catch { return }
+        if (destroyed || !busy) return
+        if (reply && reply.ok === true && typeof reply.url === 'string') {
+          notice = {
+            tone: 'warn',
+            title: 'Your browser is opening.',
+            detail: 'Choose your Google account there, then come back to this window. Nothing is signed in until you do.',
+            address: reply.url,
+          }
+          paint()
+          return
+        }
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+    })()
+
+    let result
+    try {
+      result = readGoogleSignInResult(await bridge.googleSignIn())
+    } catch {
+      result = readGoogleSignInResult(null)
+    }
+    if (destroyed) return
+    busy = false
+
+    if (!result.ok) {
+      /* The shell's own sentence, unedited. It names which of the six things
+         went wrong -- no network, Google refusing, a token that did not verify,
+         the port, the browser, or the person not finishing -- and the person is
+         still signed out. */
+      notice = { tone: 'bad', title: 'You were not signed in.', detail: result.reason }
+      await refresh()
+      paint()
+      return
+    }
+
+    await refresh()
+    const testWarning = result.usedTestProvider
+      ? ' This copy is pointed at a test sign-in service rather than at Google, so this is not a real Google account.'
+      : ''
+    notice = {
+      tone: result.usedTestProvider ? 'warn' : 'good',
+      title: result.created ? 'Signed in with Google, and an account was made for you.' : 'Signed in with Google.',
+      detail: `${result.persisted
+        ? 'Work your assistant does is recorded against this account. You will stay signed in when you reopen the program.'
+        : 'Work your assistant does is recorded against this account. This computer cannot remember the sign-in, so you will be asked again next time.'}${testWarning}`,
+    }
+    paint()
+  }
+
   function onClick(event) {
     if (event.target.closest('[data-account-home]')) { navigate('#/'); return }
+
+    if (event.target.closest('[data-google-signin-start]')) { startGoogleSignIn(); return }
+    if (event.target.closest('[data-google-signin-cancel]')) {
+      const bridge = accountBridge()
+      if (bridge && typeof bridge.googleCancel === 'function') {
+        /* Cancelling makes the waiting call above resolve to a refusal, which
+           paints the "you were not signed in" notice through the same path as
+           every other failure. Nothing is special-cased here. */
+        try { bridge.googleCancel() } catch { /* the attempt has already finished */ }
+      }
+      return
+    }
 
     const next = event.target.closest('[data-account-mode]')
     if (next) {

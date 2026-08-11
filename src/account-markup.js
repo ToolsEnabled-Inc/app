@@ -31,6 +31,9 @@ import {
   ACCOUNT_QUESTION_SUB,
   ACCOUNT_SCOPE_LEAD,
   ACCOUNT_SCOPE_NOTICE,
+  GOOGLE_SIGNIN_DESCRIPTION,
+  GOOGLE_SIGNIN_LABEL,
+  GOOGLE_SIGNIN_SCOPE_NOTE,
   MIN_PASSWORD_LENGTH,
 } from './account-state.js'
 
@@ -49,9 +52,19 @@ export function expiryText(expiresAtMs, now = Date.now()) {
 
 export function statusMarkup({ notice = null, state = null } = {}) {
   if (notice) {
+    /* THE ADDRESS THE BROWSER WAS SENT TO, when there is one.
+     *
+     * Rendered as TEXT inside <code>, never as a link: a clickable element
+     * built from a string is one more thing that has to be right, and the
+     * address is here precisely for the case where handing a URL to this
+     * computer did not work. It is escaped like everything else. */
+    const address = typeof notice.address === 'string' && notice.address
+      ? `<span data-account-notice-address>If your browser did not open, use this address: <code>${esc(notice.address)}</code></span>`
+      : ''
     return `<div class="fleet-profile-status ${notice.tone === 'good' ? 'is-good' : notice.tone === 'warn' ? 'is-warn' : 'is-serious'}" role="${notice.tone === 'good' ? 'status' : 'alert'}">
       <strong>${esc(notice.title)}</strong>
       <span>${esc(notice.detail)}</span>
+      ${address}
     </div>`
   }
   /* is-warn, not is-serious: a sign-in that cannot be remembered across a
@@ -70,6 +83,85 @@ export function scopeMarkup() {
     <strong>${esc(ACCOUNT_SCOPE_LEAD)}</strong>
     ${ACCOUNT_SCOPE_NOTICE.map(paragraph => `<span>${esc(paragraph)}</span>`).join('')}
   </div>`
+}
+
+/* SIGN IN WITH GOOGLE: the first option on the screen.
+ *
+ * THREE STATES, NEVER TWO, for the same reason the payment row has three:
+ * "available", "not available and here is which reason", and "not asked yet".
+ * Collapsing the middle one into a hidden button is the failure this codebase
+ * keeps finding -- an absence rendered as though somebody had chosen it. A
+ * person who cannot use Google sign-in on this copy is TOLD SO, in a sentence,
+ * with the account on this computer sitting right underneath it and working.
+ *
+ * THE DISABLED BUTTON IS DELIBERATE. Hiding it would leave somebody who was
+ * told "sign in with Google" hunting for a control that is not there, and would
+ * make the owner's one remaining setup step invisible. A control that says why
+ * it cannot be used is a working screen; a missing control is a mystery.
+ *
+ * THE TEST-PROVIDER BANNER IS NOT DEBUG DRESSING. When a build is pointed at a
+ * local identity provider instead of Google, this says so on the screen where
+ * the sign-in happens. Without it a screenshot of a rehearsal is
+ * indistinguishable from a screenshot of the real thing, and one of them would
+ * eventually be filed as evidence for the other. */
+export function googleOptionMarkup({ google = null, busy = false } = {}) {
+  /* ONE PARAGRAPH, NOT TWO, and the reason is measured rather than aesthetic.
+     As two `settings-desc` blocks this row was 90px tall and pushed the local
+     form's "Create account" button to y=846 in an 832px window -- the primary
+     action of the screen, off the bottom edge, on a default-size window. Same
+     words, one block. */
+  const description = `${esc(GOOGLE_SIGNIN_DESCRIPTION)} ${esc(GOOGLE_SIGNIN_SCOPE_NOTE)}`
+
+  if (google === null) {
+    return `<article class="settings-row" data-google-signin data-google-state="unknown">
+      <div class="settings-copy">
+        <div class="settings-name">${esc(GOOGLE_SIGNIN_LABEL)}</div>
+        <div class="settings-desc">Checking whether this copy can sign in with Google…</div>
+      </div>
+      <div class="settings-control fleet-inline-control">
+        <button type="button" class="ctl-btn" data-google-signin-start disabled>${esc(GOOGLE_SIGNIN_LABEL)}</button>
+      </div>
+    </article>`
+  }
+
+  if (google.available !== true) {
+    const reason = google.reason || 'This copy did not say why.'
+    /* SAID ONCE. Some refusals already name the alternative -- the
+       not-configured one does, because it also travels through channels that no
+       screen wraps -- and appending it unconditionally printed the same sentence
+       twice on the shipped screen. Measured on the packaged window before this
+       line existed. */
+    const alternative = /account on this computer/i.test(reason)
+      ? ''
+      : ' Making an account on this computer, below, works now and records the same thing.'
+    return `<article class="settings-row" data-google-signin data-google-state="unavailable" data-google-code="${esc(google.code || '')}">
+      <div class="settings-copy">
+        <div class="settings-name">${esc(GOOGLE_SIGNIN_LABEL)} — not available on this copy</div>
+        <div class="settings-desc">${esc(reason)}${alternative}</div>
+      </div>
+      <div class="settings-control fleet-inline-control">
+        <button type="button" class="ctl-btn" data-google-signin-start disabled>${esc(GOOGLE_SIGNIN_LABEL)}</button>
+      </div>
+    </article>`
+  }
+
+  const testBanner = google.testProvider
+    ? `<div class="fleet-profile-status is-serious" role="alert" data-google-test-provider>
+        <strong>This copy is pointed at a test sign-in service, not at Google.</strong>
+        <span>It will sign in against ${esc(google.testProvider.issuer)}. Nothing here reaches Google, and no real Google account is involved.</span>
+      </div>`
+    : ''
+
+  return `${testBanner}<article class="settings-row" data-google-signin data-google-state="available" data-google-source="${esc(google.source || '')}">
+    <div class="settings-copy">
+      <div class="settings-name">${esc(GOOGLE_SIGNIN_LABEL)}</div>
+      <div class="settings-desc">${description}</div>
+    </div>
+    <div class="settings-control fleet-inline-control">
+      <button type="button" class="ctl-btn" data-google-signin-start ${busy ? 'disabled' : ''}>${busy ? 'Waiting for your browser…' : esc(GOOGLE_SIGNIN_LABEL)}</button>
+      ${busy ? '<button type="button" class="ctl-btn" data-google-signin-cancel>Cancel</button>' : ''}
+    </div>
+  </article>`
 }
 
 export function loadingMarkup() {
@@ -202,6 +294,47 @@ export function belongingsMarkup({ data = null, payment = null, history = null }
   return rows.join('')
 }
 
+/* THE NAME THIS PROGRAM SHOWS, AND THE CONTROL THAT CHANGES IT.
+ *
+ * It is a row of its own rather than a line inside the Account row above,
+ * because those two say different things and a person acts on only one of them.
+ * The Account row says WHO the account is -- the username you sign in with, or
+ * the address Google verified -- and neither of those can be edited here. This
+ * row says what the product CALLS you, which is the part that is yours.
+ *
+ * WHY IT SHIPS AT ALL. Before it, the display name was written once and never
+ * again. The first-run walkthrough creates the account with an empty one, so
+ * the username became the permanent label on every record of that person's work
+ * for the life of the account; a Google account got the verified email address,
+ * in full, on every approval record. There was no screen anywhere in the
+ * product that could change either.
+ *
+ * IT IS SHOWN FOR A GOOGLE ACCOUNT TOO, and that is deliberate rather than
+ * incidental. The password row below is hidden for Google accounts because
+ * there is no password here to change. A display name is not in that class:
+ * it is held on this computer for both kinds of account, and the person whose
+ * records read as a 30-character email address is the one who needs this most.
+ */
+export function shownAsMarkup({ state, busy = false } = {}) {
+  /* SAID, NOT INFERRED. `displayName` falls back to the username in
+     src/account-state.js, so "Josh" and "josh_p" arrive here as the same kind
+     of string and a screen that printed only the value would leave a person
+     unable to tell whether they had ever chosen one. The two sentences differ
+     so that the answer to "did I set this?" is on the screen. */
+  const chosen = state.displayName !== state.username
+  return `<article class="settings-row" data-account-shown-as>
+      <div class="settings-copy">
+        <div class="settings-name">Shown as</div>
+        <div class="settings-desc">${chosen
+          ? `This program calls you ${esc(state.displayName)}, and that name goes on the record of what your assistant does. Change it as often as you like — the record keeps every past entry exactly as it was.`
+          : `This program calls you ${esc(state.displayName)}, which is the name you sign in with, because no other one was ever chosen. Change it as often as you like — the record keeps every past entry exactly as it was.`}</div>
+      </div>
+      <div class="settings-control fleet-inline-control">
+        <button type="button" class="ctl-btn" data-account-mode="display-name" ${busy ? 'disabled' : ''}>Change</button>
+      </div>
+    </article>`
+}
+
 export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null } = {}) {
   return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
     ${statusMarkup({ notice, state })}
@@ -209,11 +342,31 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
       <article class="settings-row">
         <div class="settings-copy">
           <div class="settings-name">Account</div>
-          <div class="settings-desc">${esc(state.username)} — an account on this computer only. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs, now))}</div>
+          <div class="settings-desc">${state.signInMethod === 'google'
+            /* NOT "an account on this computer only". The account IS held here,
+               but who it belongs to was decided by Google, and printing the
+               local-only sentence over a Google identity would be telling
+               somebody their sign-in is weaker than it is. Found by reading the
+               packaged screen, not by reading the code. */
+            ? `${esc(state.verifiedEmail || state.username)} — an account on this computer, and Google is what checked who you are. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs, now))}`
+            : `${esc(state.username)} — an account on this computer only. Work your assistant does is recorded against it. ${esc(expiryText(state.expiresAtMs, now))}`}</div>
         </div>
       </article>
+      ${shownAsMarkup({ state, busy })}
       ${belongingsMarkup({ data, payment, history })}
-      <article class="settings-row">
+      ${state.signInMethod === 'google'
+        /* A GOOGLE ACCOUNT IS NOT OFFERED A PASSWORD CHANGE, because it has no
+           password on this computer to change. Showing the control and refusing
+           on press would send somebody hunting for a password they never set;
+           the store refuses it too (ACCOUNT_GOOGLE_NO_PASSWORD), so the screen
+           and the store agree rather than one covering for the other. */
+        ? `<article class="settings-row" data-account-signin-method="google">
+        <div class="settings-copy">
+          <div class="settings-name">How you sign in</div>
+          <div class="settings-desc">With Google, as <code>${esc(state.verifiedEmail || state.username)}</code>. Google checked that address, so there is no password here to change — change it in your Google account. This program holds no Google password and no Google token.</div>
+        </div>
+      </article>`
+        : `<article class="settings-row" data-account-signin-method="local">
         <div class="settings-copy">
           <div class="settings-name">Change password</div>
           <div class="settings-desc">Changing it signs you out here and ends every other sign-in to this account, including any that was copied off this computer.</div>
@@ -221,7 +374,7 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
         <div class="settings-control fleet-inline-control">
           <button type="button" class="ctl-btn" data-account-mode="change-password" ${busy ? 'disabled' : ''}>Change password</button>
         </div>
-      </article>
+      </article>`}
       <article class="settings-row">
         <div class="settings-copy">
           <div class="settings-name">Sign out</div>
@@ -270,11 +423,65 @@ export function changePasswordMarkup({ state, busy = false, notice = null } = {}
     </form>`
 }
 
-export function formMarkup({ mode = 'sign-in', busy = false, notice = null, state = null } = {}) {
+/* CHANGING THE SHOWN NAME.
+ *
+ * NO PASSWORD IS ASKED FOR, and that is a judgement rather than an oversight.
+ * The change-password form next door asks for the current password because an
+ * unattended unlocked window must not be enough to take an account over
+ * permanently. A rename takes nothing over: it cannot sign anybody in, cannot
+ * move a past record -- those are keyed on the account id, not on this string --
+ * and is undone by typing the old name back. Asking for a password to correct a
+ * typo would be security theatre charged to the person who least deserves it.
+ *
+ * THE FIELD IS PREFILLED WITH THE CURRENT NAME, so the common act is editing
+ * what is there rather than retyping it, and so an empty field is unmistakably
+ * something the person did.
+ *
+ * AND THE EMPTY FIELD'S MEANING IS PRINTED ABOVE IT, not left to be discovered.
+ * Blank means "go back to my username", stated with the username in it. An
+ * absence that quietly means something is this codebase's signature defect; an
+ * absence that says out loud what it means is a choice.
+ */
+export function changeDisplayNameMarkup({ state, busy = false, notice = null } = {}) {
+  return `<h1 class="setup-title">What should this program call you?</h1>
+    ${statusMarkup({ notice, state })}
+    <form class="settings-section-rows" data-account-form="display-name" autocomplete="off">
+      <article class="settings-row">
+        <div class="settings-copy">
+          <div class="settings-name" id="account-shown-as-label">Shown as</div>
+          <div class="settings-desc">This is the name on the record of what your assistant does from now on. Leave it empty to go back to being shown as <code>${esc(state.username)}</code>.</div>
+        </div>
+        <div class="settings-control fleet-inline-control">
+          <input class="fleet-profile-input" type="text" name="displayName" value="${esc(state.displayName)}" autocomplete="nickname" aria-labelledby="account-shown-as-label" ${busy ? 'disabled' : ''}/>
+        </div>
+      </article>
+      <article class="settings-row">
+        <div class="settings-copy">
+          <div class="settings-name">What this does not change</div>
+          <div class="settings-desc">${state.signInMethod === 'google'
+            ? 'You still sign in with Google as the same address, and every past entry in the record stays exactly as it was written — this program keeps them by account, not by name, so renaming yourself never re-labels or hides anything you already did.'
+            : `You still sign in as ${esc(state.username)} with the same password, and every past entry in the record stays exactly as it was written — this program keeps them by account, not by name, so renaming yourself never re-labels or hides anything you already did.`}</div>
+        </div>
+      </article>
+      <div class="setup-actions">
+        <button type="button" class="ctl-btn" data-account-mode="signed-in" ${busy ? 'disabled' : ''}>Back</button>
+        <div class="setup-actions-spacer"></div>
+        <button type="submit" class="ctl-btn" ${busy ? 'disabled' : ''}>${busy ? 'Saving…' : 'Save this name'}</button>
+      </div>
+    </form>`
+}
+
+export function formMarkup({ mode = 'sign-in', busy = false, notice = null, state = null, google = null } = {}) {
   const creating = mode === 'create'
   return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
     <p class="setup-subtitle">${esc(ACCOUNT_QUESTION_SUB)}</p>
     ${statusMarkup({ notice, state })}
+    <div class="settings-section-rows" data-account-google-block>
+      ${googleOptionMarkup({ google, busy })}
+    </div>
+    <p class="setup-subtitle" data-account-or>${google && google.available === true
+      ? 'Or use an account on this computer.'
+      : 'Use an account on this computer.'}</p>
     <form class="settings-section-rows" data-account-form="${creating ? 'create' : 'sign-in'}" autocomplete="on">
       <article class="settings-row">
         <div class="settings-copy">
@@ -326,15 +533,15 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
  * dispatcher inside the view can only be checked by reading it, and reading is
  * what missed the last two defects. This one is called by the tests with each
  * state in turn. */
-export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null } = {}) {
+export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, google = null } = {}) {
   if (state === null) return loadingMarkup()
   if (!state.available) return unavailableMarkup({ state })
   if (state.signedIn) {
-    return mode === 'change-password'
-      ? changePasswordMarkup({ state, busy, notice })
-      : signedInMarkup({ state, busy, notice, now, data, payment, history })
+    if (mode === 'change-password') return changePasswordMarkup({ state, busy, notice })
+    if (mode === 'display-name') return changeDisplayNameMarkup({ state, busy, notice })
+    return signedInMarkup({ state, busy, notice, now, data, payment, history })
   }
-  return formMarkup({ mode, busy, notice, state })
+  return formMarkup({ mode, busy, notice, state, google })
 }
 
 /* ---- the first-run step ----
@@ -364,6 +571,13 @@ export function setupAccountStepMarkup({
   busy = false,
   notice = null,
   actions = '',
+  /* The same three-state Google option the account screen shows, rendered here
+     too. A first-time customer meets sign-in in the WALKTHROUGH, so offering
+     only the password form here would leave the option the owner asked for
+     invisible on the one run where it matters most. `null` is the honest
+     "still checking" state, which is what a caller that has not asked yet
+     should see. */
+  google = null,
 } = {}) {
   if (accountState === null) {
     return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
@@ -396,6 +610,12 @@ export function setupAccountStepMarkup({
       <strong>That did not work</strong>
       <span>${esc(notice)}</span>
     </div>` : ''}
+    <div class="settings-section-rows" data-account-google-block>
+      ${googleOptionMarkup({ google, busy })}
+    </div>
+    <p class="setup-subtitle" data-account-or>${google && google.available === true
+      ? 'Or use an account on this computer.'
+      : 'Use an account on this computer.'}</p>
     <div class="settings-section-rows">
       <article class="settings-row fleet-profile-block setup-question">
         <div class="settings-copy">

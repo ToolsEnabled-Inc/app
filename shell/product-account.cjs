@@ -8,15 +8,40 @@
  * started on this device" into "this person started it", which is the sentence
  * shell/spawn-record.cjs could not previously write.
  *
- * WHAT THIS IS EMPHATICALLY NOT, and the distinction is a terms condition and
- * not a stylistic one: it is NOT a login to the user's Anthropic, OpenAI or
- * Google account, and it must never be presented as one or accept those
- * credentials. docs/design/SHIPMENT-PLAN.md blocker B14 records that taking a
- * Claude subscription login inside a third-party product is barred by provider
- * terms, and src/lib/setup/provider-auth.js in the engine already refuses to
- * build that form. Provider credentials stay in the provider CLIs, where the
- * provider put them. This file never reads them, never stores them, and never
- * asks for them.
+ * TWO WAYS TO SIGN IN, AND THE DIFFERENCE BETWEEN THEM.
+ *
+ *   SIGN IN WITH GOOGLE is the first option and the stronger one. The person's
+ *   Google account, verified by Google, becomes this product's identity: the
+ *   account's name IS the verified email address. See shell/google-signin.cjs.
+ *   No password reaches this program on that path -- it is typed into the
+ *   system browser -- and no password is stored for it, because there is none.
+ *   The record here holds the Google subject identifier and the address, and
+ *   nothing else: NO access token, NO refresh token, no Google credential of
+ *   any kind. Once Google has said who somebody is, this file mints its own
+ *   session, with its own expiry and its own revocation, exactly as it does for
+ *   a local account.
+ *
+ *   AN ACCOUNT ON THIS COMPUTER is kept, deliberately, as the second option. It
+ *   works with no network, it works for somebody who will not sign in with
+ *   Google, and it works on a copy that has never been given a Google
+ *   application id. Deleting working code because a better option now exists
+ *   would leave those people with nothing.
+ *
+ * WHAT NEITHER OF THEM IS, and the distinction is a terms condition and not a
+ * stylistic one: neither is a login to the user's Anthropic or OpenAI account,
+ * and neither may be presented as one or accept those credentials.
+ * docs/design/SHIPMENT-PLAN.md blocker B14 records that taking a PROVIDER
+ * SUBSCRIPTION login inside a third-party product -- signing in to somebody's
+ * paid Claude or ChatGPT plan so this product can spend it -- is barred by those
+ * providers' terms, and src/lib/setup/provider-auth.js in the engine already
+ * refuses to build that form. Google sign-in here is a different thing and B14
+ * does not reach it: it is the identity flow Google publishes for exactly this
+ * purpose, it asks for `openid email profile` and nothing else, and those grant
+ * this product no access to anybody's Drive, Gmail or Calendar. It answers who
+ * you are. It does not carry a subscription and cannot spend one.
+ *
+ * Provider credentials stay in the provider CLIs, where the provider put them.
+ * This file never reads them, never stores them, and never asks for them.
  *
  * WHY LOCAL AND NOT HOSTED. A hosted identity service would mean a server, an
  * uptime obligation, and a database of other people's email addresses and
@@ -170,6 +195,32 @@ const LOCKOUT_MS = 15 * 60 * 1000
 const UNAUTHENTICATED_PRINCIPAL = 'unauthenticated'
 const PRINCIPAL_PREFIX = 'account:'
 
+/* ---- accounts that Google identified ----
+ *
+ * THE STORED RECORD IS AN ASSERTION, NOT A CREDENTIAL. `subject` is Google's
+ * permanent identifier for the account (it never changes and is never reused);
+ * `email` is the address Google says it verified, and it is what the person
+ * sees. There is no token field here and there must never be one -- this
+ * product does not call a Google API on anybody's behalf, so a stored Google
+ * token would be a durable credential to somebody's mail kept on this disk in
+ * exchange for nothing.
+ *
+ * THE ACCOUNT IS KEYED ON `subject`, NOT ON THE ADDRESS. A person can change
+ * the address on their Google account; matching on the address would hand their
+ * history to whoever the address was reassigned to, and would lose it for them
+ * the day they changed it. */
+const GOOGLE_PROVIDER = 'google'
+/* Stamped by shell/google-oidc.cjs ONLY after a signature, an issuer, an
+   audience, an expiry and a nonce have all been checked. This file refuses an
+   identity that does not carry it, so a caller that assembles one by hand --
+   from an id_token nobody verified, say -- fails closed instead of signing
+   somebody in. It is a seatbelt against a future edit, not a cryptographic
+   check: the real check is in google-oidc.cjs and this is the reminder that it
+   has to have happened. */
+const REQUIRED_IDENTITY_ASSURANCE = 'id_token-verified'
+const MAX_IDENTITY_SUBJECT_LENGTH = 255
+const MAX_IDENTITY_EMAIL_LENGTH = 320
+
 /* The one signed-out answer, built once.
  *
  * Every refusal path in `current()` returns THIS rather than composing its own
@@ -318,6 +369,48 @@ function normalizeUsername(value) {
   return trimmed
 }
 
+/* An email address used AS an account name.
+ *
+ * Deliberately a separate function from `normalizeUsername` rather than a
+ * loosened version of it. Local usernames may not contain `@` and never will,
+ * so the two name spaces cannot collide -- a local account can never be created
+ * with a name that would shadow somebody's Google identity, and vice versa. The
+ * same ASCII-only rule applies for the same confusable reason: this string is
+ * the thing two people compare to decide whether they are looking at the same
+ * person. */
+function normalizeIdentityEmail(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  if (trimmed.length < 3 || trimmed.length > MAX_IDENTITY_EMAIL_LENGTH) return null
+  if (!/^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(trimmed)) return null
+  return trimmed
+}
+
+/* The identity as it is STORED. No assurance stamp is required here, because
+   what is on disk was checked when it was written -- requiring it would mean
+   writing the word into the file, where anyone could type it. */
+function validateStoredIdentity(value) {
+  if (!isPlainObject(value)) return null
+  if (value.provider !== GOOGLE_PROVIDER) return null
+  if (typeof value.subject !== 'string' || !/^[A-Za-z0-9_.-]{1,255}$/.test(value.subject)) return null
+  if (value.subject.length > MAX_IDENTITY_SUBJECT_LENGTH) return null
+  const email = normalizeIdentityEmail(value.email)
+  if (!email) return null
+  /* An unverified address is not an identity. It cannot get into the file
+     through the sign-in path, and if it is in the file anyway the file is
+     wrong -- so this refuses rather than repairs. */
+  if (value.emailVerified !== true) return null
+  return { provider: GOOGLE_PROVIDER, subject: value.subject, email, emailVerified: true }
+}
+
+/* The identity as it ARRIVES from a sign-in. This one demands the assurance
+   stamp, and it is the only door into the store from the outside world. */
+function validateVerifiedIdentity(value) {
+  if (!isPlainObject(value)) return null
+  if (value.assurance !== REQUIRED_IDENTITY_ASSURANCE) return null
+  return validateStoredIdentity(value)
+}
+
 function normalizeDisplayName(value, fallback) {
   if (typeof value !== 'string') return fallback
   /* Control characters, zero-width characters and bidi overrides are stripped
@@ -413,23 +506,45 @@ function createAccountStore({
   function validateAccount(value) {
     if (!isPlainObject(value)) return null
     if (typeof value.id !== 'string' || !/^[0-9a-f]{32}$/.test(value.id)) return null
-    const username = normalizeUsername(value.username)
+
+    /* EXACTLY ONE WAY IN, PER ACCOUNT. A record with both a password verifier
+       and a Google identity would be a record with two doors, and the weaker
+       one decides -- somebody who signed in with Google would still be
+       reachable by guessing a password nobody told them they had. A record with
+       NEITHER cannot be signed in to at all and is equally a corrupt record.
+       Both are refused, which condemns the file (see `readStore`) rather than
+       silently dropping the account. */
+    const identity = validateStoredIdentity(value.identity)
+    const verifier = decodeVerifier(value.verifier) ? value.verifier : null
+    if (Boolean(identity) === Boolean(verifier)) return null
+
+    /* THE NAME OF A GOOGLE ACCOUNT IS THE VERIFIED ADDRESS. Storing them in two
+       fields makes it possible for them to disagree, so the check is that they
+       do not: a record whose displayed name is one address and whose verified
+       identity is another is exactly the impersonation this replaces the
+       username-as-identity defect to prevent. */
+    const username = identity ? normalizeIdentityEmail(value.username) : normalizeUsername(value.username)
     if (!username) return null
-    if (!decodeVerifier(value.verifier)) return null
+    if (identity && username !== identity.email) return null
+
     if (!Number.isSafeInteger(value.createdAtMs) || value.createdAtMs < 0) return null
     if (!Number.isSafeInteger(value.epoch) || value.epoch < 1) return null
     const failedAttempts = Number.isSafeInteger(value.failedAttempts) && value.failedAttempts >= 0 ? value.failedAttempts : 0
     const lockedUntilMs = Number.isSafeInteger(value.lockedUntilMs) && value.lockedUntilMs >= 0 ? value.lockedUntilMs : 0
-    return {
+    const account = {
       id: value.id,
       username,
       displayName: normalizeDisplayName(value.displayName, username),
-      verifier: value.verifier,
       createdAtMs: value.createdAtMs,
       epoch: value.epoch,
       failedAttempts,
       lockedUntilMs,
     }
+    /* Only the field this account actually has is written back out, so a
+       round-trip through the store cannot invent the other one. */
+    if (identity) account.identity = identity
+    else account.verifier = verifier
+    return account
   }
 
   /**
@@ -653,6 +768,16 @@ function createAccountStore({
         username: account.username,
         displayName: account.displayName,
         createdAtMs: account.createdAtMs,
+        /* WHICH DOOR THIS ACCOUNT USES. The screen has to know, because the
+           things it may offer differ: there is no password to change on a
+           Google account, and there is no "sign in with Google" for a local
+           one. Derived from the record rather than remembered from the sign-in,
+           so it cannot drift. */
+        signInMethod: account.identity ? GOOGLE_PROVIDER : 'local',
+        /* Present only on a Google account, and it is the SAME string as the
+           username -- carried separately so a surface can say "verified by
+           Google" about it without inferring that from the shape of a name. */
+        email: account.identity ? account.identity.email : null,
       }),
       session: Object.freeze({
         /* MAIN-PROCESS CONSUMERS ONLY. A decision record that wants to say
@@ -776,6 +901,25 @@ function createAccountStore({
     refusal('ACCOUNT_CREDENTIALS_REJECTED', 'That username and password do not match an account on this computer.'),
   )
 
+  /* THE ONE PLACE A SESSION IS MINTED. Both doors come through here.
+   *
+   * Factored out when Google sign-in was added, and the factoring is the point:
+   * two copies of this would eventually differ in the expiry, or in the epoch,
+   * or in whether the in-memory session is marked restored -- and the copy that
+   * differed would be the one an auth bug lived in. */
+  function issueSession(account, at) {
+    const session = {
+      sessionId: crypto.randomBytes(16).toString('hex'),
+      accountId: account.id,
+      issuedAtMs: at,
+      expiresAtMs: at + sessionLifetimeMs,
+      epoch: account.epoch,
+    }
+    activeSession = Object.freeze({ ...session })
+    sessionRestored = true
+    return { session, persisted: persistSession(session) }
+  }
+
   async function signIn({ username, password } = {}) {
     const normalized = normalizeUsername(username)
     if (typeof password !== 'string' || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) {
@@ -789,6 +933,19 @@ function createAccountStore({
       return refusal(error.code || 'ACCOUNT_STORE_CORRUPT', error.message)
     }
     const account = normalized ? store.accounts.find(entry => entry.username === normalized) : null
+    /* A GOOGLE ACCOUNT HAS NO PASSWORD DOOR, and this states it rather than
+       relying on the fact that it fails anyway.
+       It already could not be reached: `normalizeUsername` refuses `@`, so an
+       address never matches here, and even if it did `account.verifier` is
+       absent and `verifyPassword` refuses an undecodable verifier. Two accidents
+       in a row is not a guarantee -- either could be relaxed by somebody who did
+       not know it was load-bearing. The refusal is the SAME one a wrong password
+       gets, because telling a stranger "that name exists and uses Google" is
+       still telling them the name exists. */
+    if (account && account.identity) {
+      await burnEquivalentWork()
+      return BAD_CREDENTIALS
+    }
     if (!account) {
       await burnEquivalentWork()
       return BAD_CREDENTIALS
@@ -828,24 +985,148 @@ function createAccountStore({
       } catch { /* the counter is a convenience; a correct password still signs in */ }
     }
 
-    const session = {
-      sessionId: crypto.randomBytes(16).toString('hex'),
-      accountId: account.id,
-      issuedAtMs: at,
-      expiresAtMs: at + sessionLifetimeMs,
-      epoch: account.epoch,
-    }
-    activeSession = Object.freeze({ ...session })
-    sessionRestored = true
-    const persisted = persistSession(session)
+    const issued = issueSession(account, at)
     return Object.freeze({
       ok: true,
       /* False means this sign-in is good for this run only. Said here so the
          screen can tell the person, rather than letting them discover it at the
          next launch. */
-      persisted,
+      persisted: issued.persisted,
       account: Object.freeze({ id: account.id, username: account.username, displayName: account.displayName }),
-      expiresAtMs: session.expiresAtMs,
+      expiresAtMs: issued.session.expiresAtMs,
+    })
+  }
+
+  /**
+   * SIGN IN WITH AN IDENTITY GOOGLE HAS ALREADY VERIFIED.
+   *
+   * This function does NOT talk to Google and must never be given anything that
+   * has not been through shell/google-oidc.cjs. What arrives is the result of a
+   * checked signature, issuer, audience, expiry and nonce; what this does is
+   * decide which account on this computer that identity IS, creating one the
+   * first time, and then mint a session exactly as a password sign-in does.
+   *
+   * NOTHING GOOGLE ISSUED IS WRITTEN DOWN. The id_token, the access token and
+   * the authorization code are all out of scope by the time this is called, and
+   * none of them is a parameter here. What is stored is the subject identifier
+   * and the address.
+   *
+   * FAIL CLOSED, and the interesting case is the third one: an address that
+   * already belongs to a DIFFERENT Google account on this computer is refused
+   * rather than adopted. That happens when a Workspace address is deleted and
+   * reissued to a new person, and quietly handing them the previous holder's
+   * account -- their settings, their history, their attached payment method --
+   * because the two strings match is the exact failure keying on `subject`
+   * exists to prevent.
+   */
+  async function signInWithGoogle({ identity } = {}) {
+    const verified = validateVerifiedIdentity(identity)
+    if (!verified) {
+      return refusal(
+        'ACCOUNT_GOOGLE_IDENTITY_REFUSED',
+        'The reply from Google was not one this program had checked, so nobody was signed in.',
+      )
+    }
+    let store
+    try {
+      store = readStore()
+    } catch (error) {
+      return refusal(error.code || 'ACCOUNT_STORE_CORRUPT', error.message)
+    }
+
+    const at = now()
+    const bySubject = store.accounts.find(entry => entry.identity && entry.identity.subject === verified.subject)
+    const byName = store.accounts.find(entry => entry.username === verified.email)
+
+    if (bySubject) {
+      /* THE ADDRESS ON A GOOGLE ACCOUNT CAN CHANGE, and when it does this
+         follows it -- the account, its settings and its history stay with the
+         person, because they are keyed on the subject and not on the string. */
+      const renamed = bySubject.username !== verified.email
+      if (renamed && byName && byName.id !== bySubject.id) {
+        return refusal(
+          'ACCOUNT_GOOGLE_EMAIL_TAKEN',
+          'Another account on this computer already uses that email address, so this sign-in was refused rather than merged.',
+        )
+      }
+      if (renamed || bySubject.displayName !== verified.email) {
+        try {
+          writeStore({
+            version: STORE_VERSION,
+            accounts: store.accounts.map(entry => (entry.id === bySubject.id
+              ? {
+                ...entry,
+                username: verified.email,
+                /* A display name the person chose is theirs and is kept.
+                   Google's `name` only fills in when they never chose one. */
+                displayName: entry.displayName === entry.username ? verified.email : entry.displayName,
+                identity: { ...entry.identity, email: verified.email },
+              }
+              : entry)),
+          })
+        } catch {
+          return refusal('ACCOUNT_STORE_WRITE_FAILED', 'The change to that account could not be saved on this computer, so nobody was signed in.')
+        }
+      }
+      const account = { ...bySubject, username: verified.email }
+      const issued = issueSession(account, at)
+      return Object.freeze({
+        ok: true,
+        created: false,
+        persisted: issued.persisted,
+        account: Object.freeze({ id: account.id, username: account.username, displayName: account.displayName }),
+        expiresAtMs: issued.session.expiresAtMs,
+      })
+    }
+
+    if (byName) {
+      /* Two shapes, one refusal each, and neither of them signs anybody in.
+         The local branch cannot be reached today -- `normalizeUsername` forbids
+         `@`, so a local name can never equal an address -- and it is written
+         anyway, because "unreachable" is a property of today's validator. */
+      return refusal(
+        byName.identity ? 'ACCOUNT_GOOGLE_SUBJECT_MISMATCH' : 'ACCOUNT_GOOGLE_NAME_TAKEN',
+        byName.identity
+          ? 'That email address already identifies a different Google account on this computer, so this sign-in was refused. Nothing was changed.'
+          : 'An account on this computer already uses that name, so this sign-in was refused. Nothing was changed.',
+      )
+    }
+
+    if (store.accounts.length >= MAX_ACCOUNTS) {
+      return refusal('ACCOUNT_LIMIT_REACHED', `This computer already holds the maximum of ${MAX_ACCOUNTS} accounts.`)
+    }
+
+    const account = {
+      id: crypto.randomBytes(16).toString('hex'),
+      username: verified.email,
+      displayName: normalizeDisplayName(identity.displayName, verified.email),
+      /* NO `verifier` FIELD. Not an empty one, not a placeholder: the record
+         has no password door at all, and `validateAccount` refuses one that has
+         both. */
+      identity: { provider: GOOGLE_PROVIDER, subject: verified.subject, email: verified.email, emailVerified: true },
+      createdAtMs: at,
+      epoch: 1,
+      failedAttempts: 0,
+      lockedUntilMs: 0,
+    }
+    const isFirstAccountOnThisComputer = store.accounts.length === 0
+    try {
+      writeStore({ version: STORE_VERSION, accounts: [...store.accounts, account] })
+    } catch {
+      return refusal('ACCOUNT_STORE_WRITE_FAILED', 'The account could not be saved on this computer, so nobody was signed in.')
+    }
+    /* Same rule as a locally created account: the first account on a computer
+       that has been in use adopts the settings already on it. */
+    const adoption = isFirstAccountOnThisComputer ? adoptDeviceSettings(account.id) : { adopted: false, count: 0 }
+    const issued = issueSession(account, at)
+    return Object.freeze({
+      ok: true,
+      created: true,
+      persisted: issued.persisted,
+      adoptedSettings: adoption.adopted,
+      adoptedSettingCount: adoption.count,
+      account: Object.freeze({ id: account.id, username: account.username, displayName: account.displayName }),
+      expiresAtMs: issued.session.expiresAtMs,
     })
   }
 
@@ -907,6 +1188,17 @@ function createAccountStore({
     }
     const account = store.accounts.find(entry => entry.id === state.account.id)
     if (!account) return refusal('ACCOUNT_NOT_SIGNED_IN', 'That account no longer exists on this computer.')
+    /* SAID PLAINLY, because here the person IS signed in as this account and
+       there is nothing to leak by telling them the truth about it. Falling
+       through would answer "the current password is not right" about a password
+       that does not exist, which sends somebody hunting for a password they
+       never set. */
+    if (account.identity) {
+      return refusal(
+        'ACCOUNT_GOOGLE_NO_PASSWORD',
+        'This account signs in with Google, so there is no password here to change. Change it in your Google account instead.',
+      )
+    }
 
     if (typeof currentPassword !== 'string' || currentPassword.length === 0 || currentPassword.length > MAX_PASSWORD_LENGTH
       || !(await verifyPassword(currentPassword, account.verifier))) {
@@ -940,6 +1232,107 @@ function createAccountStore({
        they find out it took effect. */
     signOut()
     return Object.freeze({ ok: true, signedOut: true })
+  }
+
+  /**
+   * Change the name this program shows for the signed-in account.
+   *
+   * WHY THIS EXISTS AT ALL. It did not, and the consequence was a one-way door
+   * at the worst possible moment: the first-run walkthrough creates the account
+   * with an empty display name, `normalizeDisplayName` falls back to the
+   * username, and that username was then the permanent label on every record of
+   * that person's work for the life of the account. A person who typed `jp` in
+   * their first ninety seconds was `jp` forever. Google accounts had the same
+   * door in a different room -- their display name is set to the verified email
+   * address, so an approval record read as somebody's full email address rather
+   * than as their name.
+   *
+   * WHAT IT DOES NOT TOUCH, and each omission is load-bearing:
+   *   - the `id`. It is the account identity: `spawn-record` writes
+   *     `account:<id>` and the history rows on the account screen are counted by
+   *     comparing against it, so a rename must not re-attribute a single past
+   *     run. src/account-state.js already states this rule; this is the write
+   *     path it was written for.
+   *   - the `username`. That is the name typed at sign-in, and on a Google
+   *     account it is the verified address, which this program has no business
+   *     editing.
+   *   - the `epoch`. A rename is not a credential change, so it does not end
+   *     sessions. Ending them here would sign a person out for correcting a
+   *     typo -- and worse, would hide the result, since the point of pressing
+   *     the button is to SEE the new name.
+   *   - the `identity`. A Google account may be renamed for display and stays
+   *     the same verified identity. `signInWithGoogle` already agrees: it
+   *     overwrites the display name only when it still equals the username.
+   *
+   * AN EMPTY NAME IS AN ANSWER, NOT AN ABSENCE, and it is the only reading that
+   * lets a person undo a rename. Blank means "go back to being shown as my
+   * username", the reply says `clearedToUsername` so the screen can say which of
+   * the two happened, and src/account-markup.js prints that rule on the form
+   * ABOVE the field rather than leaving it to be discovered. A value that is not
+   * a string at all is a different thing -- a malformed call, not a choice --
+   * and is refused rather than read as blank.
+   *
+   * A NAME IS NOT CHECKED FOR UNIQUENESS, deliberately and consistently with
+   * `createAccount`, which does not check either. Display names are not
+   * identities here; the id is. Adding the check on this path alone would let a
+   * person create an account as "josh" but not rename to it, which is two rules
+   * where the product has one.
+   */
+  function changeDisplayName({ displayName } = {}) {
+    const state = current()
+    if (!state.signedIn) return refusal('ACCOUNT_NOT_SIGNED_IN', 'Sign in before changing the name shown for an account.')
+    /* Not `!displayName`. An empty string is a choice this accepts; anything
+       that is not a string is a call this build cannot read, and reading it as
+       blank would silently clear somebody's name on a malformed request. */
+    if (typeof displayName !== 'string') {
+      return refusal('ACCOUNT_DISPLAY_NAME_INVALID', 'No name was sent, so nothing was changed.')
+    }
+    /* A DEFENSIVE BOUND, not the length rule. The length rule is
+       `MAX_DISPLAY_NAME_LENGTH` and the normalizer applies it by truncating, so
+       a person who pastes a long name gets a short one rather than a refusal.
+       This refuses only input that is not a name at all -- it stops a
+       megabyte-long string reaching the character-class replace above. The IPC
+       boundary in shell/main.cjs bounds it first; this holds if that is ever
+       relaxed, because a validator that relies on its caller is not one. */
+    if (displayName.length > MAX_DISPLAY_NAME_LENGTH * 64) {
+      return refusal('ACCOUNT_DISPLAY_NAME_INVALID', 'That is longer than a name, so nothing was changed.')
+    }
+
+    let store
+    try {
+      store = readStore()
+    } catch (error) {
+      return refusal(error.code || 'ACCOUNT_STORE_CORRUPT', error.message)
+    }
+    const account = store.accounts.find(entry => entry.id === state.account.id)
+    if (!account) return refusal('ACCOUNT_NOT_SIGNED_IN', 'That account no longer exists on this computer.')
+
+    /* The SAME normalizer the create path uses, so a name that is acceptable
+       when an account is made is acceptable when it is renamed. It strips the
+       control, zero-width and bidi characters that would let a rendered name
+       claim to be a different name -- see its own comment; that is the whole
+       reason a rename cannot simply assign the string. */
+    const next = normalizeDisplayName(displayName, account.username)
+    if (next === account.displayName) {
+      return refusal('ACCOUNT_DISPLAY_NAME_UNCHANGED', 'That is already the name shown for this account, so nothing was changed.')
+    }
+    try {
+      writeStore({
+        version: STORE_VERSION,
+        accounts: store.accounts.map(entry => (entry.id === account.id ? { ...entry, displayName: next } : entry)),
+      })
+    } catch {
+      return refusal('ACCOUNT_STORE_WRITE_FAILED', 'The new name could not be saved on this computer, so nothing was changed.')
+    }
+    return Object.freeze({
+      ok: true,
+      /* Returned so the screen can show what it BECAME rather than what was
+         typed. The two differ whenever the normalizer stripped something, and a
+         screen echoing the typed string in that case would be telling somebody
+         their name is one thing while the record says another. */
+      displayName: next,
+      clearedToUsername: next === account.username,
+    })
   }
 
   /* ------------------------- the account partition -------------------------
@@ -1238,9 +1631,11 @@ function createAccountStore({
     principal,
     createAccount,
     signIn,
+    signInWithGoogle,
     signOut,
     signOutEverywhere,
     changePassword,
+    changeDisplayName,
     accountsPath,
     sessionPath,
     dataDirectory,
@@ -1309,10 +1704,14 @@ module.exports = {
   LOCKOUT_MS,
   UNAUTHENTICATED_PRINCIPAL,
   PRINCIPAL_PREFIX,
+  GOOGLE_PROVIDER,
+  REQUIRED_IDENTITY_ASSURANCE,
   REFUSED_PASSWORDS,
   encodeVerifier,
   decodeVerifier,
   normalizeUsername,
+  normalizeIdentityEmail,
+  validateVerifiedIdentity,
   /* Exported so the DEFENSIVE branch inside it can be tested directly. In
      normal operation `readStore` refuses a malformed verifier before this is
      ever reached, which means a mutation that made this function ADMIT on an
