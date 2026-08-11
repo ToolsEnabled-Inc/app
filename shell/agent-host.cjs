@@ -96,6 +96,31 @@ function loadStartCodexSession(enginePath) {
   )
 }
 
+/**
+ * Resolve the engine WITHOUT starting a session, and report only a bounded
+ * code. The resolver's own message names every path it tried; that message is
+ * a diagnostic for the main process, never for a renderer, because rendering
+ * it is precisely how a private checkout path reached the DOM before
+ * (BLOCKER 2). Callers that show this to a person get {ok, code} and nothing
+ * else -- there is no path, no message, and no error object to leak.
+ *
+ * This exists so a spawn surface can be HONEST about its own availability.
+ * Without it the only way to learn whether an engine is reachable is to try
+ * to start one, which means the UI must offer a control that may be dead --
+ * the exact defect the regression gate was written to prevent.
+ */
+function engineAvailability({ enginePath } = {}) {
+  try {
+    loadStartCodexSession(enginePath)
+    return Object.freeze({ ok: true, code: 'AGENT_ENGINE_READY' })
+  } catch (error) {
+    return Object.freeze({
+      ok: false,
+      code: typeof error?.code === 'string' ? error.code : 'AGENT_ENGINE_UNAVAILABLE',
+    })
+  }
+}
+
 function normalizeSessionId(value) {
   return boundedString(value, 'sessionId', 128)
 }
@@ -367,4 +392,4 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd() } = {}) {
   })
 }
 
-module.exports = { createAgentHost }
+module.exports = { createAgentHost, engineAvailability }
