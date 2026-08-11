@@ -199,9 +199,7 @@
     "rename addressed roughly 20 mentions of about 350. That is a separate, larger decision and it",
     "is deliberately not claimed as done here."
   ],
-  "pending": {
-    "tools/prior-work-index.js": "INTERNAL DEVELOPER TOOLING, ships today. Required only by tools/agent-preflight.js, tools/grepsaver-orient.js and tools/prior-work.js -- all developer tools, none a customer surface. The README states internal development tooling is not intended to be part of this repository, so the correct end state is excluded. It is pending rather than excluded because removing it means decoupling those three tools from the payload, which is a scoped job and not a classification. Its corpus (docs/** and reports/**) is not staged either, so on a customer machine it indexes nothing."
-  },
+  "pending": {},
   "open": {
     "$comment": [
       "PROPOSED OPEN. Derived from the measured staged payload, not hand-typed: every file the",
@@ -475,6 +473,7 @@
       "tools/owner-prompt-theme.ps1",
       "tools/playwright-call.js",
       "tools/playwright-mcp.cmd",
+      "tools/prior-work-index.js",
       "tools/secrets.ps1"
     ]
   }
