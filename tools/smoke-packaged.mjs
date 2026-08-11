@@ -89,12 +89,34 @@ async function runPowerShell(command) {
   return stdout.trim()
 }
 
-async function findExistingInstances() {
+// SCOPED TO THE ARTIFACT UNDER TEST, NOT TO A PROCESS NAME.
+//
+// This guard exists so a smoke run cannot start a second copy of the artifact it
+// is about to exercise -- that copy holds file locks on the very tree being read
+// and answers on the ports the run probes, so the result would describe neither
+// instance honestly.
+//
+// It used to match ANY process named ToolsEnabled anywhere on the machine. On a
+// machine where several agents test in isolated temp directories, an unrelated
+// harness three folders away aborted the release chain -- and it did so at the
+// LAST step, after every other gate had passed. That is the same defect as the
+// port suites fixed in e92bc61: a check that can only pass on a globally idle
+// machine will fail in CI, on a laptop with the app open, and whenever a
+// colleague is testing, and a gate that cries wolf is one people learn to skip.
+//
+// Filtering by executable path narrows it to exactly the instances that can
+// interfere. It is not a weakening: a different install cannot lock this tree.
+// Port conflicts are a separate concern and are already checked separately, so
+// nothing is lost by declining to treat an unrelated binary as this one.
+async function findExistingInstances(executablePath) {
+  if (!executablePath) throw new Error("findExistingInstances requires the path of the artifact under test")
+  const quoted = executablePath.replace(/'/g, "''")
   const output = await runPowerShell(
     "@(Get-Process -Name 'ToolsEnabled' -ErrorAction SilentlyContinue | " +
+    "Where-Object { $_.Path -eq '" + quoted + "' } | " +
     "Select-Object -ExpandProperty Id) -join ','",
   )
-  return output ? output.split(',').map((value) => Number(value)).filter(Number.isInteger) : []
+  return output ? output.split(",").map((value) => Number(value)).filter(Number.isInteger) : []
 }
 
 async function getWindowTitle(pid) {
@@ -234,7 +256,7 @@ export async function main(directory = 'release/win-unpacked', overrides = {}) {
 
   let existingInstances
   try {
-    existingInstances = await dependencies.findExistingInstances()
+    existingInstances = await dependencies.findExistingInstances(executable)
   } catch (error) {
     throw new Error(`Could not check for another ToolsEnabled instance: ${error.message}`)
   }
