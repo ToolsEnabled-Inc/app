@@ -271,36 +271,43 @@
 .metrics #burn-chart { height: 176px; }
 .metrics .echart svg { width: 100%; height: 100%; }
 
-/* A missing live route keeps the hero's full measured slot. Braces and two
-   hairlines make the absence deliberate without turning it into a card; the
-   one action is an explicit source switch, never simulated data under a live
-   label. */
+/* A missing live route keeps the hero's full measured slot. Two hairlines and
+   the strip's own absence mark make the absence deliberate without turning it
+   into a card; the one action is an explicit source switch, never simulated
+   data under a live label.
+   The bracket pair that used to flank this copy is gone. It was not bracketing
+   anything: measured at 1440x900 the copy column was 660px wide inside a
+   1704px slot, so each 190px-tall glyph stood ~120px clear of the nearest word
+   with the panel's own hairlines already closing the region above and below --
+   two ornaments parked beside the middle third, which is the exact failure
+   home.css documents for the typeset glyph. What replaces it is the page's own
+   word for "no measurement": the em-dash the six stat tiles overhead put in
+   their value slot when a figure is unavailable (see metrics.js, `ref.num`).
+   One page, one way of saying it, and the reader has already learned it two
+   bands up. */
 .metrics #sankey-chart.m-sankey-empty-host {
   min-height: 430px;
   padding: var(--s5) clamp(12px, 4vw, 56px);
   border-block: 1px solid var(--line);
 }
 .m-sankey-empty {
-  width: min(720px, 100%);
+  width: min(560px, 100%);
   min-height: 164px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 34px;
-  align-items: stretch;
-  column-gap: var(--s3);
+  align-content: center;
+  justify-items: center;
 }
-.m-sankey-empty-brace {
-  display: grid;
-  place-items: center;
-  color: var(--brace);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(92px, 11vw, 142px);
-  font-weight: 300;
+/* Same glyph, same weight family and same ink as `.stat .tv` carries when a
+   figure is unavailable — set larger because this one is the hero's whole
+   answer rather than one of six. It is a state mark, not a rule: it must
+   not read as a divider, so it keeps the value ink rather than --line. */
+.m-sankey-empty-mark {
+  font-size: 44px;
+  font-weight: 640;
   line-height: 1;
-  transform: scaleX(0.7);
-  transform-origin: center;
+  color: var(--ink-25);
   user-select: none;
 }
-.m-sankey-empty-brace.is-right { transform: scaleX(0.7); }
 .m-sankey-empty-copy {
   align-self: center;
   display: grid;

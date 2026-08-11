@@ -63,9 +63,7 @@ function safeReportMarkup(report) {
           </dl>
         </div>
         <div class="research-context">
-          <span aria-hidden="true">{</span>
           <p>${esc(report?.summary || 'Curated summary unavailable.')}</p>
-          <span aria-hidden="true">}</span>
         </div>
       </div>
     </li>`
@@ -158,9 +156,7 @@ function queueItemMarkup(item) {
           </dl>
         </div>
         <div class="research-context">
-          <span aria-hidden="true">{</span>
           <p>${esc(item.observation)}</p>
-          <span aria-hidden="true">}</span>
         </div>
         <p class="research-authorization"><strong>Research:</strong> ${esc(item.researchQuestion)}</p>
       </div>

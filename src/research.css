@@ -1,5 +1,6 @@
-/* RESEARCH — an unboxed report register. Hairlines establish hierarchy;
-   braces identify curated context. Every colour comes from the shared theme. */
+/* RESEARCH — an unboxed report register. Hairlines establish hierarchy; a
+   left rule identifies curated context as quoted, not as the app's own
+   voice. Every colour comes from the shared theme. */
 
 .research-page { scrollbar-gutter: stable; }
 .research-shell {
@@ -134,27 +135,31 @@
 }
 .research-report-meta dd { margin: 0; }
 
+/* ---- curated context is QUOTED material, and a rule says so; a bracket
+   pair could not ----
+   The register is full-bleed, so the pair's two halves landed at the row's
+   opposite ends: measured at 1440x900 the left '{' sat at x=190 and the
+   right '}' at x=1815, i.e. 1.6k pixels apart around a paragraph that was
+   often a single line. Nothing at that separation reads as one bracket --
+   they read as two unrelated marks, and the right one collided with the
+   mono STATE/ORIGIN metadata above it. The glyph also could not fit the
+   block it enclosed: a fixed 38px shape over a paragraph that is 1 line in
+   the queue and 2-3 in the catalog, so it towered over the short ones and
+   sank under the long.
+   A left rule plus inset is the mark for held text, and it is layout, not
+   ornament: its height IS the paragraph's, at every width, in every theme,
+   with no JS and no measurement. It keeps the tone the brackets carried --
+   --brace is the theme-solved value (see styles.css) whose alpha is picked
+   per theme so the stroke composites to the same 2.10 weight on black, tan
+   and white, rather than --line-2, which is the token for a separator and
+   would say "divider" where this has to say "quoted". */
 .research-context {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 18px;
-  gap: var(--s2);
-  align-items: stretch;
   margin-top: var(--s3);
+  padding-left: var(--s3);
+  border-left: 1px solid var(--brace);
   color: var(--ink-3);
 }
-.research-context > span {
-  display: grid;
-  place-items: center;
-  color: var(--brace);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 38px;
-  font-weight: 300;
-  line-height: 1;
-  transform: scaleX(0.75);
-  user-select: none;
-}
 .research-context p {
-  align-self: center;
   margin: 0;
   color: var(--ink-3);
   font-size: 13px;
@@ -250,8 +255,7 @@
   .research-register-row { grid-template-columns: 1fr; }
   .research-report-head { grid-template-columns: 1fr; gap: var(--s2); }
   .research-report-meta { flex-wrap: wrap; white-space: normal; }
-  .research-context { grid-template-columns: 14px minmax(0, 1fr) 14px; gap: var(--s1); }
-  .research-context > span { font-size: 32px; }
+  .research-context { padding-left: var(--s2); }
 }
 
 @media (prefers-reduced-motion: reduce) {

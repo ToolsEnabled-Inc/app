@@ -1801,13 +1801,12 @@ export function metricsView() {
 
     const panel = el(`
       <div class="m-sankey-empty" data-sankey-empty="true">
-        <span class="m-sankey-empty-brace" aria-hidden="true">{</span>
         <div class="m-sankey-empty-copy">
+          <span class="m-sankey-empty-mark" aria-hidden="true">—</span>
           <span class="m-sankey-empty-label">live observation unavailable</span>
           <p></p>
           <button type="button" class="m-sankey-sim">View simulated</button>
         </div>
-        <span class="m-sankey-empty-brace is-right" aria-hidden="true">}</span>
       </div>`)
     panel.querySelector('p').textContent = sentence
     panel.querySelector('button').addEventListener('click', () => setLiveView('metrics', false))
