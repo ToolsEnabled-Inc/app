@@ -52,6 +52,7 @@ import {
   writeStoredProfile,
 } from '../../src/setup-profile.js'
 import { WRITE_ACTION_FLAGS } from '../../src/write-flags.js'
+import { createSetupProfileSettings } from '../../src/setup-profile-settings.js'
 import { LIVE_VIEW_FLAGS } from '../../src/live-flags.js'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -278,6 +279,34 @@ test('every setting the questions produce is reachable in Settings afterwards', 
   )
   for (const category of ["'System'", "'Setup'"]) {
     assert.ok(dispatcher.includes(category), `${category} is a category with no branch in the dispatcher`)
+  }
+
+  /* AND THE ASSERTIONS ABOVE ARE NOT ENOUGH, which is the whole lesson.
+   *
+   * Every one of them reads SOURCE TEXT, and a defect that empties markup()
+   * leaves all of it untouched: the dispatcher still says
+   * `return setupController.markup()`, the import is still there, the rail entry
+   * is still there, and the section renders nothing. Planting `return ''` at the
+   * top of markup() with the real builder still below it kept this suite GREEN.
+   * Dead code matches a text search exactly as well as live code does, so no
+   * assertion over source can see reachability -- it can only see presence, and
+   * presence is what survives every defect of this family.
+   *
+   * A sibling lane had to move its markup into a DOM-free module to make this
+   * checkable. Mine already is one: src/setup-profile-settings.js imports no
+   * stylesheet and touches no DOM, so the test CALLS it and reads what comes
+   * back. That is a rendered result, not a description of one.
+   *
+   * The view itself (src/views/setup.js) cannot be called here -- it imports
+   * three stylesheets and builds DOM -- so its rendering is covered by the
+   * packaged run instead, which drives the real window and reads real text. */
+  const rendered = createSetupProfileSettings().markup()
+  assert.ok(rendered.length > 400, `the Setup section rendered ${rendered.length} characters; it is empty or nearly so`)
+  for (const row of ['Permission level', 'Working folders', 'Acting on its own', 'What the screens show', 'Walk through setup again']) {
+    assert.ok(rendered.includes(row), `the Setup section renders without its "${row}" row`)
+  }
+  for (const field of PROFILE_INTENT) {
+    assert.ok(rendered.includes(field.name), `the Setup section renders without the "${field.name}" row, so that setting is unreachable after first run`)
   }
 
   const SECTION = read('src/setup-profile-settings.js')
