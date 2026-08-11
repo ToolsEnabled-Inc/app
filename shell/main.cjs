@@ -50,6 +50,7 @@ const {
   preferredPortFirst,
 } = require('./port-scan.cjs')
 const { createRendererPrefs } = require('./renderer-prefs.cjs')
+const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
 
 const fatalStartup = createFatalStartupHandler({
   app,
@@ -64,6 +65,28 @@ process.on('uncaughtException', (error) => fatalStartup(error, 'Uncaught excepti
 
 const DIST = path.join(__dirname, '..', 'dist')
 const TITLEBAR_H = 36
+/* BEFORE ANY LINE BELOW RESOLVES userData. Renaming the product from "Mission
+   Control" to "ToolsEnabled" moved userData to a directory that does not exist
+   yet, so an existing customer's settings, workspace and spawn records are
+   sitting in the old one reading as "new user". This carries them across once.
+   It has to run above FLEET_PROFILE_FILE, CRASH_DUMP_DIR, WORKSPACE_ROOT and
+   the renderer-prefs store, because each of those resolves -- and the last of
+   them writes -- at module scope. See shell/userdata-adoption.cjs.
+
+   The outcome is deliberately not bound to a variable here: it is written
+   durably to <userData>/.userdata-adoption.json, which outlives the process and
+   is what support would actually read. A console line would not -- shell build
+   diagnostics are stripped from the shipped app. */
+adoptLegacyUserData({
+  userDataPath: app.getPath('userData'),
+  /* dirname(userData) IS appData: Electron defines one as the other joined with
+     productName. Deriving it keeps the search beside wherever this install's
+     data actually lives rather than in a fixed OS folder it might not be in. */
+  searchRoot: path.dirname(app.getPath('userData')),
+  fs,
+  path,
+})
+
 const FLEET_PROFILE_FILE = path.join(app.getPath('userData'), 'fleet-profile.json')
 const MAX_FLEET_PROFILE_BYTES = 2 * 1024 * 1024
 const MAX_FLEET_PROFILE_RECORD_BYTES = MAX_FLEET_PROFILE_BYTES + 4096

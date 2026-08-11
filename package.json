@@ -91,6 +91,7 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
+      "guid": "21cb002d-a6ac-5e62-b88d-ba3c87d67396",
       "uninstallDisplayName": "${productName}"
     }
   },
