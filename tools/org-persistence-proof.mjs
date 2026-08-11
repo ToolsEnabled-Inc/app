@@ -264,8 +264,37 @@ async function proveTier(exe, payloadSource, tier) {
     'the store resolved into the ISOLATED LOCALAPPDATA', `got ${before.servicesRoot}`)
   assert(before.roleCount === 9, 'the nine shipped roles are present in a fresh install', `got ${before.roleCount}`)
 
+  /* A null allowlist is not a failure to resolve one -- it is how this engine
+     spells "no narrowing", which is what `unrestricted` means. A restricted
+     level must resolve to a finite list; the unrestricted level must resolve to
+     null. Asserting "> 0 tools" for both would have failed the honest answer
+     and, worse, would have passed if a restricted level ever started returning
+     null, which is the direction that actually matters. */
+  const toolsBefore = parse(
+    await runInPayload(exe, payloadRoot, profile, PHASES.tools, 60000, { MC_PROOF_TIER: tier }), 'tools/before')
+  if (tier === 'unrestricted') {
+    assert(toolsBefore.toolCount === null,
+      'the unrestricted level narrows nothing, and says so with a null allowlist', `got ${toolsBefore.toolCount}`)
+  } else {
+    assert(Number.isInteger(toolsBefore.toolCount) && toolsBefore.toolCount > 0,
+      `the "${tier}" level resolves to a finite tool allowlist`, `got ${toolsBefore.toolCount}`)
+  }
+
   const edited = parse(await runInPayload(exe, payloadRoot, profile, PHASES.edit), 'edit')
   assert(Array.isArray(edited.rolesCreated) && edited.rolesCreated.length === 2, 'two custom roles were created')
+
+  /* The escalation question, asked directly. Two custom roles now exist and are
+     assigned to agents. If defining or holding a role could change what this
+     permission level allows, a role would be a permission escalation wearing a
+     friendly name. */
+  const toolsAfter = parse(
+    await runInPayload(exe, payloadRoot, profile, PHASES.tools, 60000, { MC_PROOF_TIER: tier }), 'tools/after')
+  assert(toolsAfter.toolCount === toolsBefore.toolCount,
+    'DEFINING AND ASSIGNING CUSTOM ROLES DID NOT CHANGE THE TOOL COUNT THIS LEVEL ALLOWS',
+    `before=${toolsBefore.toolCount} after=${toolsAfter.toolCount}`)
+  assert(toolsAfter.readOnlyCount === toolsBefore.readOnlyCount,
+    'the read-only tool allowlist is unchanged by a custom role',
+    `before=${toolsBefore.readOnlyCount} after=${toolsAfter.readOnlyCount}`)
 
   // Every editing process is gone by now. This is a cold read.
   const after = parse(await runInPayload(exe, payloadRoot, profile, PHASES.verify), 'verify')
@@ -291,7 +320,7 @@ async function proveTier(exe, payloadSource, tier) {
     'the shipped config/agent-org.json inside the payload was NOT modified')
 
   await rm(profile.root, { recursive: true, force: true })
-  return { tier, before, after }
+  return { tier, before, after, toolCount: toolsAfter.toolCount }
 }
 
 async function main() {
@@ -324,6 +353,17 @@ async function main() {
     && guided.after.alphaMayClaim === unrestricted.after.alphaMayClaim
     && guided.after.betaMayClaim === unrestricted.after.betaMayClaim,
   'the organisation behaves identically at guided and unrestricted')
+
+  /* And the levels must still be DIFFERENT from each other in the thing they
+     actually govern. Without this, every tier assertion above would also pass
+     on a build where the level had stopped being enforced at all -- which is a
+     confident, wrong finding a previous lane actually produced by inheriting
+     this machine's own level. */
+  assert(Number.isInteger(guided.toolCount) && unrestricted.toolCount === null,
+    'the permission levels still differ in what they allow: guided narrows to a finite list, unrestricted does not narrow',
+    `guided=${guided.toolCount} unrestricted=${unrestricted.toolCount}`)
+  console.log(`  note: guided narrows to ${guided.toolCount} tools; unrestricted narrows nothing (null).`)
+  console.log('  note: both readings were taken AFTER two custom roles were defined and assigned.')
 
   console.log(`\n${failures === 0 ? 'ORGANISATION PERSISTENCE PROVEN' : `${failures} ASSERTION(S) FAILED`} across tiers: ${TIERS.join(', ')}`)
   process.exit(failures === 0 ? 0 : 1)
