@@ -25,10 +25,11 @@
 
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 
 import {
   AUTONOMY_CHOICES,
@@ -352,9 +353,20 @@ test('applying the profile goes through the application’s own setters', () => 
 
 const SETUP_RECORD = require_(path.join(REPO_ROOT, 'shell', 'setup-record.cjs'))
 
-const SERVICES_ROOT = 'C:\\services-root-never-shown'
-const INSTALL_ROOT = 'C:\\install-root-never-shown'
-const NODE_PATH = 'C:\\install-root-never-shown\\node.exe'
+/* Real temporary directories, not invented absolute paths. `recordWorkspaces`
+   now writes an assistant configuration into the chosen folder, so a fixture
+   naming `C:\Work` would have this suite create that directory on the machine
+   running it. Every path below lives under one temp root that is removed after. */
+const SANDBOX = mkdtempSync(path.join(tmpdir(), 'mc-setup-profile-'))
+const inSandbox = (...parts) => path.join(SANDBOX, ...parts)
+const SERVICES_ROOT = inSandbox('services-root')
+const INSTALL_ROOT = inSandbox('install-root')
+const NODE_PATH = inSandbox('install-root', 'node.exe')
+const DEFAULT_WORKSPACE = inSandbox('home', 'Documents', 'AI Workspace')
+const WORK = inSandbox('work')
+const REFUSED_ROOT = inSandbox('refused')
+
+after(() => rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 10 }))
 
 function baseRecord(overrides = {}) {
   return {
@@ -364,7 +376,7 @@ function baseRecord(overrides = {}) {
     installRoot: INSTALL_ROOT,
     servicesRoot: SERVICES_ROOT,
     nodePath: NODE_PATH,
-    workspaceRoots: ['C:\\Users\\someone\\Documents\\AI Workspace'],
+    workspaceRoots: [DEFAULT_WORKSPACE],
     loopbackHost: '127.0.0.1',
     shellPortRange: { first: 4601, last: 4609 },
     bridgePortRange: { first: 4610, last: 4619 },
@@ -374,7 +386,7 @@ function baseRecord(overrides = {}) {
 }
 
 function fakeModules({ record = baseRecord(), readThrows = null, refuse = () => null, provisionThrows = false } = {}) {
-  const calls = { provisioned: [], written: [] }
+  const calls = { provisioned: [], written: [], configured: [] }
   return {
     calls,
     modules: {
@@ -385,10 +397,14 @@ function fakeModules({ record = baseRecord(), readThrows = null, refuse = () => 
         readMachineRecord: () => { if (readThrows) throw readThrows; return record },
         buildMachineRecord: input => ({ ...baseRecord(), ...input, machine: { id: input.machineId, label: input.machineLabel } }),
         writeMachineRecord: written => { calls.written.push(written); return 'written' },
-        writeMcpConfig: () => ({}),
+        writeMcpConfig: (record, { targetDirectory }) => {
+          calls.configured.push(targetDirectory)
+          writeFileSync(path.join(targetDirectory, '.mcp.json'), '{"mcpServers":{}}\n')
+          return { document: { mcpServers: { 'toolsenabled-readonly': {} } } }
+        },
       },
       workspace: {
-        defaultWorkspacePath: () => 'C:\\Users\\someone\\Documents\\AI Workspace',
+        defaultWorkspacePath: () => DEFAULT_WORKSPACE,
         checkWorkspaceCandidate: candidate => {
           const refusal = refuse(candidate)
           return refusal || { ok: true, resolved: candidate }
@@ -396,6 +412,7 @@ function fakeModules({ record = baseRecord(), readThrows = null, refuse = () => 
         provisionWorkspace: candidate => {
           if (provisionThrows) throw Object.assign(new Error('no'), { code: 'SETUP_WORKSPACE_UNAVAILABLE' })
           calls.provisioned.push(candidate)
+          mkdirSync(candidate, { recursive: true })
           return { workspace: candidate, created: true, undoAvailable: true }
         },
       },
@@ -452,7 +469,7 @@ test('a folder that cannot be prepared is reported, not half-recorded', () => {
 test('an empty or oversized list of folders is refused', () => {
   const { modules } = fakeModules()
   assert.equal(SETUP_RECORD.recordWorkspaces([], { modules }).code, 'SETUP_WORKSPACE_MISSING')
-  const many = Array.from({ length: SETUP_RECORD.MAX_WORKSPACE_ROOTS + 1 }, (_, index) => `C:\\Work${index}`)
+  const many = Array.from({ length: SETUP_RECORD.MAX_WORKSPACE_ROOTS + 1 }, (_, index) => inSandbox(`work-${index}`))
   assert.equal(SETUP_RECORD.recordWorkspaces(many, { modules }).code, 'SETUP_WORKSPACE_TOO_MANY')
 })
 
@@ -486,6 +503,79 @@ test('a copy with no setup code says so instead of pretending', () => {
   assert.deepEqual(state.roots, [])
   assert.equal(SETUP_RECORD.checkWorkspace('C:\\Work', { modules: absent }).ok, false)
   assert.equal(SETUP_RECORD.recordWorkspaces(['C:\\Work'], { modules: absent }).ok, false)
+})
+
+/* ---------- the assistant configuration follows the folder ----------
+ *
+ * FOUND IN A REAL PACKAGED BUILD, not deduced. `recordTier` generates
+ * `.mcp.json` into `workspaceRoots[0]`, which during first run is the folder
+ * setup picked by itself -- so answering only the permission question created
+ * `<profile>\Documents\AI Workspace` AND configured an assistant inside it,
+ * before anyone had been asked which folder they wanted. Answering the folder
+ * question then moved the record and left that document behind, describing a
+ * workspace the person had just declined.
+ */
+
+test('choosing a folder configures the assistant in THAT folder', () => {
+  const { modules, calls } = fakeModules()
+  const result = SETUP_RECORD.recordWorkspaces([WORK], { modules })
+  assert.equal(result.ok, true)
+  assert.deepEqual(calls.configured, [WORK], 'the assistant was configured somewhere other than the folder the person chose')
+  assert.equal(result.assistantConfig.ok, true)
+  assert.ok(existsSync(path.join(WORK, '.mcp.json')))
+})
+
+test('the folder nobody chose gives its assistant configuration back', () => {
+  mkdirSync(DEFAULT_WORKSPACE, { recursive: true })
+  writeFileSync(path.join(DEFAULT_WORKSPACE, '.mcp.json'), '{"mcpServers":{"stale":{}}}\n')
+  writeFileSync(path.join(DEFAULT_WORKSPACE, 'a-note-from-the-user.txt'), 'mine\n')
+
+  const { modules } = fakeModules({ record: baseRecord({ workspaceRoots: [DEFAULT_WORKSPACE] }) })
+  const result = SETUP_RECORD.recordWorkspaces([WORK], { modules })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.releasedRoots, ['SETUP_ASSISTANT_CONFIG_RELEASED'])
+  assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), false, 'a declined folder kept an assistant configuration')
+  /* Only the document. The folder and anything in it are the person's. */
+  assert.equal(existsSync(DEFAULT_WORKSPACE), true, 'the folder itself was deleted')
+  assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, 'a-note-from-the-user.txt')), true, 'something the person put in that folder was deleted')
+})
+
+/* THE PREVIOUS FOLDER HERE IS THE DEFAULT ONE, and that is the whole point of
+   the test. Written first with a folder that was not the default, it passed
+   with the `workspaceChosen` guard REMOVED -- the "only the invented folder"
+   condition was quietly doing all the work, so the test could not tell "spared
+   because the person chose it" from "spared because it was never ours". A
+   planted defect found that; this version isolates the guard by making every
+   other condition point at stripping. It is also the realistic case: someone
+   who accepted the suggested folder at Finish and later moves elsewhere. */
+test('a folder the person actually chose is never stripped', () => {
+  mkdirSync(DEFAULT_WORKSPACE, { recursive: true })
+  writeFileSync(path.join(DEFAULT_WORKSPACE, '.mcp.json'), '{"mcpServers":{}}\n')
+  const { modules } = fakeModules({ record: baseRecord({ workspaceRoots: [DEFAULT_WORKSPACE], workspaceChosen: true }) })
+  const result = SETUP_RECORD.recordWorkspaces([WORK], { modules })
+  assert.deepEqual(result.releasedRoots, [], 'changing to a second folder was treated as consent to strip the first')
+  assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), true)
+})
+
+/* Condition 3 of the rule, on its own: only the exact path the default produces.
+   A folder that merely happens to be abandoned is not setup's to touch. */
+test('only the folder setup invented is ever touched', () => {
+  const typed = inSandbox('typed-by-hand')
+  mkdirSync(typed, { recursive: true })
+  writeFileSync(path.join(typed, '.mcp.json'), '{"mcpServers":{}}\n')
+  const { modules } = fakeModules({ record: baseRecord({ workspaceRoots: [typed] }) })
+  const result = SETUP_RECORD.recordWorkspaces([WORK], { modules })
+  assert.deepEqual(result.releasedRoots, [])
+  assert.equal(existsSync(path.join(typed, '.mcp.json')), true)
+})
+
+test('keeping the same folder does not release it', () => {
+  mkdirSync(DEFAULT_WORKSPACE, { recursive: true })
+  writeFileSync(path.join(DEFAULT_WORKSPACE, '.mcp.json'), '{"mcpServers":{}}\n')
+  const { modules } = fakeModules({ record: baseRecord({ workspaceRoots: [DEFAULT_WORKSPACE] }) })
+  const result = SETUP_RECORD.recordWorkspaces([DEFAULT_WORKSPACE], { modules })
+  assert.deepEqual(result.releasedRoots, [])
+  assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), true, 'confirming the suggested folder removed its own configuration')
 })
 
 /* shell/setup-record.cjs states that the workspace is the ONE path allowed to

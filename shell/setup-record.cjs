@@ -408,7 +408,73 @@ function recordWorkspaces(roots, options = {}) {
   } catch (error) {
     return failure(error?.code || 'SETUP_MACHINE_RECORD_WRITE_FAILED', 'Those folders could not be saved on this computer.')
   }
-  return { ok: true, roots: checked, provisioned }
+
+  /* THE ASSISTANT CONFIGURATION FOLLOWS THE FOLDER, and this is not tidiness.
+   *
+   * `recordTier` generates `.mcp.json` into `workspaceRoots[0]`, which during
+   * first run is the folder setup picked BY ITSELF before anyone was asked --
+   * so pressing Continue on the permission question creates a folder in the
+   * person's Documents and configures an assistant inside it. Answering the
+   * folder question then moved the record and left that document behind,
+   * describing a workspace the person had just declined.
+   *
+   * Measured in a real packaged build, not deduced: after the level question
+   * alone, `<profile>\Documents\AI Workspace` existed and contained `.mcp.json`.
+   *
+   * So the chosen folder gets the document, and the folder nobody chose gives it
+   * up. That is the same rule the generator already states for itself -- "a stale
+   * document is removed rather than left ... the dangerous case is not the absent
+   * file, it is the previous one". This applies it across the folder question.
+   *
+   * NEITHER OUTCOME FAILS THE RECORDING. The folders are the person's answer and
+   * they are already saved; reporting a failure here would tell them their choice
+   * did not take when it did. Both outcomes are returned alongside, with codes
+   * and no paths, so the screen can say what did and did not happen. */
+  const assistantConfig = writeAssistantConfig(stamped, modules)
+  const releasedRoots = releaseUnchosenAssistantConfig({
+    previous: existing,
+    chosen: checked,
+    modules,
+  })
+  return { ok: true, roots: checked, provisioned, assistantConfig, releasedRoots }
+}
+
+/**
+ * Take back the assistant configuration from the folder setup chose by itself.
+ *
+ * DELIBERATELY THE NARROWEST POSSIBLE RULE, because this deletes a file. All
+ * four conditions must hold:
+ *   1. the previous record was never the result of a person answering the folder
+ *      question (`workspaceChosen` falsy) -- a folder someone chose is theirs,
+ *      and changing to a second folder is not consent to strip the first;
+ *   2. the folder is no longer among the recorded roots;
+ *   3. the folder is EXACTLY the path `defaultWorkspacePath()` produces, so only
+ *      the one setup invented is ever touched;
+ *   4. only `.mcp.json` is removed. The folder stays, and anything the person
+ *      put in it stays, because setup created an empty folder and cannot know
+ *      what has happened in it since.
+ */
+function releaseUnchosenAssistantConfig({ previous, chosen, modules }) {
+  const released = []
+  if (!previous || previous.workspaceChosen) return released
+  let fallback = null
+  try {
+    fallback = path.resolve(modules.workspace.defaultWorkspacePath({}))
+  } catch {
+    return released
+  }
+  const keep = new Set(chosen.map(entry => path.resolve(entry)))
+  for (const root of Array.isArray(previous.workspaceRoots) ? previous.workspaceRoots : []) {
+    const resolved = path.resolve(root)
+    if (keep.has(resolved) || resolved !== fallback) continue
+    try {
+      fs.rmSync(path.join(resolved, '.mcp.json'), { force: true })
+      released.push('SETUP_ASSISTANT_CONFIG_RELEASED')
+    } catch {
+      released.push('SETUP_ASSISTANT_CONFIG_RELEASE_FAILED')
+    }
+  }
+  return released
 }
 
 module.exports = {
