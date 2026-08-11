@@ -265,6 +265,13 @@ function swapView(route, morph, zoom, snapshotted) {
   }
 
   if (old) {
+    /* The outgoing view stays on screen for the exit transition, so until it is
+       removed it is still clickable. A person who presses a control on a view
+       that is 420ms from being destroyed drives an instance whose async
+       handlers come back to `destroyed === true` — which is how Finish in
+       src/views/setup.js came to silently do nothing at all. It is leaving, so
+       it takes no more input. */
+    old.el.inert = true
     if (snapshotted) {
       old.view.destroy?.()
       old.el.remove()

@@ -38,3 +38,10 @@ error.log
 # UNSHIPPABLE-OWNER-DATA.txt and `npm run dist` refuses it, but neither of
 # those would stop a `git add -A`. This line does.
 /capability/
+
+# Harness output: tools/owner-popup-qa.cjs writes screenshots here by default and
+# tools/packaged-qa-suite.mjs can be pointed here with --logs. Untracked files
+# fail tools/require-clean-tree.mjs and so block `npm run dist` outright -- the
+# same trap error.log above was added for. Anchored with a leading slash, per the
+# warning at the top of this file, so it cannot swallow a future tools/artifacts/.
+/artifacts/
