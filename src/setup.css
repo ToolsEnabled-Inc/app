@@ -1,0 +1,64 @@
+/* First-run permission level: LAYOUT ONLY.
+ *
+ * Every colour, weight, size and control skin on this screen is already in
+ * settings.css, fleet-profile-settings.css or styles.css, because
+ * docs/design/INSTALLER-EXPERIENCE.md 2.1 names the settings surface as the
+ * model for this question. This sheet does four things and nothing else: it
+ * narrows the column, it takes the control column off the three description
+ * rows, it marks which description the seg is currently on, and it takes the
+ * navigation chrome away while the question is unanswered. No new token, no
+ * new colour, no new component.
+ */
+
+/* A single question does not want the full 1240px settings column; it wants to
+   be read. --page-max stays the outer bound (.settings-shell), this narrows it
+   inside that. */
+.setup-shell { max-width: min(var(--page-max), calc(var(--s5) * 30)); }
+
+.setup-page { display: flex; }
+.setup-page > .setup-shell { margin-block: auto; padding-block: var(--s5); }
+
+/* Exactly .agent-head .an -- 20px/640/--ink -- which is this app's existing
+   size for "the name of the thing you are looking at". Not a new heading. */
+.setup-title {
+  margin: 0 0 var(--s5);
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 640;
+  line-height: 1.25;
+}
+
+/* .settings-row is a two-column grid, copy | control. These rows have no
+   control: the one seg above them is the control for all three. */
+.setup-choice {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  /* The same 2px-left-rule geometry .fleet-profile-status uses, so "this block
+     carries state" reads the same way it does everywhere else in this family.
+     Transparent at rest: the rule appears on the chosen option rather than a
+     new colour being introduced for it. */
+  padding: var(--s2) 0 var(--s2) var(--s3);
+  border-left: 2px solid transparent;
+}
+
+.setup-choice[aria-current='true'] { border-left-color: var(--ink-3); }
+
+/* All three descriptions stay at full strength whichever is selected. 2.1
+   requires them to be comparable -- a reader deciding between the levels is
+   reading the two they have NOT picked. */
+.setup-question { border-top: none; padding-top: 0; }
+
+.setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--s5);
+}
+
+/* While the question is unanswered the arrows and the settings gear are the
+   only way off this screen, and leaving it would land someone in a product
+   whose permission level was never recorded. The chrome comes back the moment
+   a level exists -- including when this screen is revisited later to change
+   one, which must NOT be a trap. src/main.js owns the body class. */
+body.first-run .topbar { display: none; }
+body.first-run.in-shell #stage,
+body.first-run #stage { padding-top: 0; }

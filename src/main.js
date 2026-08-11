@@ -17,9 +17,11 @@ import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { approvalsView } from './views/approvals.js'
 import { settingsView } from './views/settings.js'
+import { setupView } from './views/setup.js'
 import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
+import { SETUP_RESOLUTION, firstRunPending } from './setup-state.js'
 
 // loaded last so the shared-element morph rules win over the base sheets
 import './morphs.css'
@@ -46,7 +48,17 @@ function parse() {
   if (parts[0] === 'ledger') return { name: 'ledger' }
   if (parts[0] === 'approvals') return { name: 'approvals' }
   if (parts[0] === 'settings') return { name: 'settings' }
+  if (parts[0] === 'setup') return { name: 'setup' }
   return { name: 'home' }
+}
+
+/* Screens that are not stops on the ring, and where each arrow goes from them.
+   `agent` is a drill-in; `setup` is the first-run question. Both were single
+   `route.name === 'agent'` ternaries below -- this is the same rule with a
+   second entry, not a new behaviour. */
+const RING_EXIT = {
+  agent: { back: 'computers', next: 'metrics' },
+  setup: { back: 'home', next: 'home' },
 }
 
 function makeView(route) {
@@ -60,6 +72,7 @@ function makeView(route) {
     case 'ledger': return ledgerView()
     case 'approvals': return approvalsView()
     case 'settings': return settingsView()
+    case 'setup': return setupView({ navigate })
     default: return homeView()
   }
 }
@@ -74,6 +87,7 @@ function crumbFor(route) {
     case 'comms': return `${base} / comms`
     case 'ledger': return `${base} / ledger`
     case 'settings': return `${base} / settings`
+    case 'setup': return `${base} / setup`
     default: return `${base} / home`
   }
 }
@@ -96,8 +110,39 @@ const motionQuery = typeof window.matchMedia === 'function'
 const motionReduced = () =>
   document.body.classList.contains('reduce-motion') || !!motionQuery?.matches
 
+/* THE FIRST-RUN GATE.
+ *
+ * The permission level is the one thing docs/design/INSTALLER-EXPERIENCE.md 2.1
+ * says has to be decided before anything else, and this app had no screen that
+ * asked it -- so an installed copy ran with no level recorded and nothing ever
+ * said so. When the shell can record one and none exists, the first launch
+ * opens on the question.
+ *
+ * It fails OPEN, deliberately. `firstRunPending` is false whenever the app
+ * cannot write a level at all (a browser, a build with no capability payload,
+ * a machine record that exists but cannot be parsed). Gating on a screen whose
+ * only button is guaranteed to fail would turn a missing payload into an app
+ * nobody can get past, which is a worse product than one that carries on and
+ * says so in Settings.
+ *
+ * The body class is what hides the navigation chrome, and it is recomputed on
+ * every render rather than set once: the moment a level is recorded the arrows
+ * come back, and revisiting this screen later to CHANGE a level is not a trap.
+ */
+function syncFirstRunChrome() {
+  const pending = firstRunPending(SETUP_RESOLUTION)
+  document.body.classList.toggle('first-run', pending)
+  return pending
+}
+
 function render() {
   const route = parse()
+
+  if (syncFirstRunChrome() && route.name !== 'setup') {
+    // the hashchange this fires re-enters render() with the setup route
+    location.hash = '#/setup'
+    return
+  }
 
   // a view can hand us a shared element to morph through (e.g. the agent
   // bubble behind "Open full view"); it only ever affects motion, never a route
@@ -190,8 +235,8 @@ function swapView(route, morph, zoom, snapshotted) {
      fades in on hover/focus. Fewer pieces, and the ones left do more. */
   const label = (n) => (n === 'home' ? 'home' : n)
   const ringAt = (i) => ORDER[(i + ORDER.length) % ORDER.length]
-  back.dataset.dest = route.name === 'agent' ? 'computers' : label(ringAt(idx - 1))
-  next.dataset.dest = route.name === 'agent' ? 'metrics' : label(ringAt(idx + 1))
+  back.dataset.dest = RING_EXIT[route.name] ? RING_EXIT[route.name].back : label(ringAt(idx - 1))
+  next.dataset.dest = RING_EXIT[route.name] ? RING_EXIT[route.name].next : label(ringAt(idx + 1))
 
   /* …and the same destination has to reach a screen reader, which the CSS
      ::after caption never could: it is generated content, and the static
@@ -226,14 +271,14 @@ const hashFor = (name) => (name === 'home' ? '#/' : `#/${name}`)
 document.getElementById('nav-back').addEventListener('click', () => {
   const route = parse()
   // the agent view is a drill-in, not a ring stop: back surfaces to its graph
-  if (route.name === 'agent') { location.hash = '#/computers'; return }
+  if (RING_EXIT[route.name]) { location.hash = hashFor(RING_EXIT[route.name].back); return }
   const idx = ORDER.indexOf(route.name)
   location.hash = hashFor(ORDER[(idx - 1 + ORDER.length) % ORDER.length])
 })
 document.getElementById('nav-next').addEventListener('click', () => {
   const route = parse()
   // ...and forward from the drill-in resumes the ring after its graph
-  if (route.name === 'agent') { location.hash = '#/metrics'; return }
+  if (RING_EXIT[route.name]) { location.hash = hashFor(RING_EXIT[route.name].next); return }
   const idx = ORDER.indexOf(route.name)
   location.hash = hashFor(ORDER[(idx + 1) % ORDER.length])
 })
