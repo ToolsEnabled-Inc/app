@@ -23,7 +23,7 @@
 
 import { createHash } from 'node:crypto'
 import { execFile as execFileCallback } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -398,8 +398,32 @@ async function main() {
     .sort()
   assertNoSecretMaterial([...staged, ...manifest.neutralDefaults])
 
-  rmSync(out, { recursive: true, force: true })
+  /* EMPTY THE DIRECTORY; DO NOT DELETE IT.
+   *
+   * This was `rmSync(out, {recursive, force})` followed by `mkdirSync(out)`.
+   * Same end state -- an empty destination -- but deleting the ROOT fails with
+   * EBUSY whenever any process holds the directory itself, and on Windows a
+   * process merely having it as its working directory is enough.
+   *
+   * That is not hypothetical here: agents are directed to offload read-only
+   * analysis to `codex exec --cd <this tree>`, and each such run holds this
+   * path for its lifetime. Measured tonight -- `rmdir(capability)` failed
+   * EBUSY while removing all eight children INDIVIDUALLY succeeded, which is
+   * what proves the lock is on the directory and not its contents. With two
+   * such runs alive, `npm run dist` died here before writing a single file,
+   * and the count rose from two to four within the hour because every lane is
+   * told to work that way.
+   *
+   * The alternative on the table was freezing that directive across the whole
+   * swarm to wait for a natural gap that may never come. This is two lines
+   * instead, and it removes the race rather than scheduling around it.
+   *
+   * `force: true` on each child so a concurrent reader that vanishes between
+   * readdir and rm does not fail the build. */
   mkdirSync(out, { recursive: true })
+  for (const entry of readdirSync(out)) {
+    rmSync(path.join(out, entry), { recursive: true, force: true })
+  }
 
   let bytes = 0
   for (const relative of staged) {
