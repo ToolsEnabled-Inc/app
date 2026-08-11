@@ -2406,3 +2406,31 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
   cursor: pointer;
 }
 .settings-recovery-dismiss:hover { color: var(--ink); border-color: var(--line); }
+
+/* OUT FROM UNDER THE OPEN DRAWER.
+ *
+ * The drawer is fixed at right:14px, width:320px, z-index 80 -- above this bar
+ * -- so while it is open it lands on the bar's right-hand end, which is exactly
+ * where Dismiss sits. A control that is covered but still in the tab order is
+ * the WCAG 2.2 SC 2.4.11 failure src/main.js already had to fix once for this
+ * same drawer; shipping a second one would be introducing the defect rather
+ * than inheriting it. Pinning the right edge inside the drawer's left edge
+ * (320 + its 14 offset + a 12 gap) is what prevents it.
+ *
+ * MOVED, NOT HIDDEN. Going quiet at the moment somebody opens Settings is the
+ * worst available timing for a message about settings. A sibling selector does
+ * it, because the notice is appended to <body> after the drawer -- so no
+ * JavaScript has to know this rule exists.
+ *
+ * MEASURED IN THE PACKAGED APP, not derived: with the drawer open on a
+ * 1400-wide window the bar computes to right:346px / width:354px, and the base
+ * `left:50%` and centring transform above are what it is 354px wide instead of
+ * ~1040. Overriding either of them from here did not take -- both stayed at
+ * their base values in getComputedStyle -- so those two declarations were
+ * removed rather than left in looking like they did something. The narrower bar
+ * is a cosmetic cost while a drawer is open; the property that matters, that
+ * Dismiss is never both covered and focusable, is carried by `right` alone. */
+.drawer.open ~ .settings-recovery {
+  right: 346px;
+  width: auto;
+}
