@@ -62,6 +62,18 @@ function harness(overrides = {}) {
       requestTimeoutMs: 5,
       ports: [4601],
       log: () => {},
+      // Every case below is about what the smoke run DOES -- how it spawns,
+      // what it probes, how it tears down. None of them is about the
+      // "another instance is already running" guard. Left uninjected, that
+      // guard scans the real machine and aborts the run before any of this
+      // is reached, so all of these went red together whenever a ToolsEnabled
+      // process happened to be open: the app itself, another build, a
+      // teammate, CI running two jobs. That made the suite pass only on a
+      // globally idle machine, which is a defect in the test rather than a
+      // fact about the code. The guard's own behaviour is not lost -- C10
+      // pins it directly, in both directions, which is a sharper statement
+      // than every unrelated case tripping over it by accident.
+      findExistingInstances: async () => [],
       ...overrides,
     },
   };
@@ -300,5 +312,54 @@ test('C9 - failures identify the directory or the port range and timeout', async
       assert.ok(error.message.trim().toLowerCase() !== 'failed');
       return true;
     });
+  });
+});
+
+test('C10 - the already-running-instance guard still decides, and decides before spawning', async (t) => {
+  // The counterweight to injecting findExistingInstances everywhere else: if
+  // that injection were the only thing this file said about the guard, the
+  // guard could be deleted outright and this suite would stay green. So both
+  // directions are pinned here, against the real code path, with the answer
+  // supplied rather than read off whatever this machine happens to be doing.
+  await t.test('refuses, names the offending PIDs, and never spawns', async (t) => {
+    const dir = await packagedFixture(t);
+    const h = harness({ findExistingInstances: async () => [4242, 9111] });
+
+    await assert.rejects(main(dir, h.dependencies), (error) => {
+      assert.match(error.message, /another instance is running/i);
+      // A person has to be able to act on this, which means knowing which
+      // processes to close.
+      assert.match(error.message, /4242/);
+      assert.match(error.message, /9111/);
+      return true;
+    });
+
+    assert.equal(h.spawns.length, 0, 'the guard must refuse before launching a second copy, not after');
+  });
+
+  await t.test('a failure to check is refused too, rather than assumed clear', async (t) => {
+    const dir = await packagedFixture(t);
+    const h = harness({
+      findExistingInstances: async () => {
+        throw new Error('tasklist unavailable');
+      },
+    });
+
+    await assert.rejects(main(dir, h.dependencies), (error) => {
+      assert.match(error.message, /could not check/i);
+      assert.match(error.message, /tasklist unavailable/);
+      return true;
+    });
+
+    assert.equal(h.spawns.length, 0, 'an unanswerable check must not be treated as "nothing is running"');
+  });
+
+  await t.test('proceeds when nothing else is running', async (t) => {
+    const dir = await packagedFixture(t);
+    const h = harness({ findExistingInstances: async () => [] });
+
+    await main(dir, h.dependencies);
+
+    assert.equal(h.spawns.length, 1, 'an empty instance list must not block the run');
   });
 });
