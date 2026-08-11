@@ -385,9 +385,25 @@ async function main() {
   console.log(
     `Files seen: ${filesSeen} (informational -- this guard asserts on named paths, never on a count).`,
   );
+  // COUNT DISTINCT PATHS, NOT FINDINGS.
+  //
+  // By default two roots are scanned -- the staged payload and the copy already
+  // inside release/win-unpacked -- so every finding is counted once per root and
+  // the raw totals come out doubled. Six files reported as twelve is not a
+  // rounding annoyance: a reader who goes to config/payload-boundary.json to see
+  // the twelve finds six, and a gate whose number disagrees with the file it
+  // reads is a gate people learn to argue with. Worse, the --ship refusal below
+  // already deduplicates, so the same run printed "pending=12" and "NOT
+  // PUBLISHABLE -- 6 file(s)" a few lines apart and contradicted itself.
+  //
+  // Both roots are still scanned and every finding is still reported below with
+  // its own root; only the headline totals are per-path. The root count is
+  // printed alongside so the difference is visible rather than surprising.
+  const distinct = (klass) => new Set(found[klass].map((item) => item.path)).size;
   console.log(
-    `Classified: open=${found.open.length} pending=${found.pending.length} ` +
-      `paid=${found.paid.length} excluded=${found.excluded.length} unclassified=${found.unclassified.length}`,
+    `Classified (distinct paths across ${roots.length} root(s)): ` +
+      `open=${distinct("open")} pending=${distinct("pending")} ` +
+      `paid=${distinct("paid")} excluded=${distinct("excluded")} unclassified=${distinct("unclassified")}`,
   );
 
   if (boundary.status === STATUS_PROPOSED) {
