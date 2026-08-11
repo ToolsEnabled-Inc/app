@@ -106,7 +106,18 @@ async function prepareSurface(surface) {
   return result
 }
 
-export function mountAgentWriteSurface(root, { agentId }) {
+export function mountAgentWriteSurface(root, { agentId, live = false }) {
+  /* SAME FENCE, SAME REASON as mountAgentSessionSurface -- see the long note at
+     its head for the measurement. This surface dispatches a real audited agent
+     lane and reads real report files off a real worktree, and it was mounted on
+     the demonstration copy of the agent page too, under the banner that says no
+     control on that page reaches a real session. It was the quieter half of the
+     same defect only because prepareSurface leaves its controls disabled until
+     the bridge answers; that is a timing property of the bridge handshake, not a
+     fence, and it is not the thing standing between a fake page and a real
+     dispatch. `live` defaults to false so a caller that never considered the
+     question cannot accidentally answer yes. */
+  if (live !== true) return () => {}
   const dispatchEnabled = isWriteEnabled('dispatch')
   const reportEnabled = isWriteEnabled('report-read')
   if (!dispatchEnabled && !reportEnabled) return () => {}

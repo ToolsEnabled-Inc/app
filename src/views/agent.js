@@ -272,8 +272,17 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     provenance.textContent = 'Example data. These are not your agents — nothing here is running, and no control on this page reaches a real session.'
   }
 
-  const destroyWriteSurface = mountAgentWriteSurface(root, { agentId })
-  const destroyAgentSession = mountAgentSessionSurface(root, { agentId })
+  /* `live` IS PASSED, AND IT IS THE SAME `live` THE BANNER ABOVE IS COMPUTED
+     FROM. Both surfaces below mount real controls -- one starts a CLI child
+     process on this machine, the other dispatches an audited lane -- and both
+     used to be mounted here with only `{ agentId }`, so the provenance this
+     function had already worked out four lines earlier was dropped on the way
+     in. That is how the page came to print "no control on this page reaches a
+     real session" directly above an enabled Start that reached one.
+     The Terminate control immediately below has taken `live` since it was
+     written; these two were the outliers, not the precedent. */
+  const destroyWriteSurface = mountAgentWriteSurface(root, { agentId, live })
+  const destroyAgentSession = mountAgentSessionSurface(root, { agentId, live })
   const terminateButton = root.querySelector('[data-control="terminate"]')
   const terminateLabel = terminateButton.querySelector('.ctl-label')
   const terminateNote = terminateButton.querySelector('.ctl-note')

@@ -75,10 +75,43 @@ function actionState(node, kind, text) {
    behaviour is unchanged. */
 export function mountAgentSessionSurface(root, {
   agentId,
+  live = false,
   bridge = globalThis.mcAgent,
   scheduleFrame = (fn) => globalThis.requestAnimationFrame(fn),
   cancelFrame = (handle) => globalThis.cancelAnimationFrame(handle),
 } = {}) {
+  /* THE PAGE MUST SAY IT IS SHOWING REAL DATA BEFORE A REAL CONTROL APPEARS ON IT.
+   *
+   * This is the surface that starts an actual CLI child process on the user's
+   * actual machine. Until this check existed it asked exactly one question --
+   * "is the agent-session write flag on?" -- and mounted a working Start
+   * whenever the answer was yes, with no idea whether the page around it was
+   * the live drill-in or the demonstration copy.
+   *
+   * MEASURED on the packaged build (release/win-unpacked, tier unrestricted),
+   * at #/agent/c1/terra-01 with the view in simulated mode: the page rendered
+   * its own banner reading "Example data. These are not your agents -- nothing
+   * here is running, and no control on this page reaches a real session", and
+   * in the same viewport this surface rendered an ENABLED Start over the note
+   * "This computer is set to Unrestricted. Nothing narrows it: it can read,
+   * change and delete any file on this computer and run any program, without
+   * asking." Pressing it took mcAgent.history().total from 0 to 1 and the
+   * status from "agent engine ready" to "running - session open". A real
+   * spawn, recorded on the device, from a page that told the person nothing on
+   * it was real.
+   *
+   * `live` DEFAULTS TO FALSE, and that direction is the whole point. This
+   * project's recurring defect is absence read as consent -- a missing field or
+   * a falsy check turning "nothing specified" into "allowed". A caller that
+   * says nothing about its provenance is a caller that has not established the
+   * page is real, so it gets no real control. The one caller that can prove it
+   * (src/views/agent.js, which only has a projection when the fetch returned
+   * one) passes `live` explicitly.
+   *
+   * The demonstration page loses nothing a person could legitimately use: this
+   * surface never read `agentId` at all, so the session it started was never
+   * the agent whose page it sat on. */
+  if (live !== true) return () => {}
   if (!isWriteEnabled('agent-session')) return () => {}
 
   const surface = el(`<section class="write-surface agent-session-surface" aria-label="Agent session">
