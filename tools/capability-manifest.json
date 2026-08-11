@@ -61,13 +61,40 @@
     "src/lib/agent-session-confinement.js",
     "src/lib/providers/subscription-launch-env.js"
   ],
+  "$comment_licenseTrustAnchor": [
+    "config/license-trust.json IS THE ODD ONE OUT IN dataFiles, AND DELIBERATELY SO.",
+    "",
+    "Every other entry is JSON that staged code reads today. This one is the PUBLIC",
+    "half of the vendor licence signing key, and the code that reads it --",
+    "src/lib/providers/license.js -- is classified `paid` in",
+    "config/payload-boundary.json and is NOT in this payload. So it ships with no",
+    "reader, which normally would be a reason to leave it out.",
+    "",
+    "It is staged anyway because of what its ABSENCE did. Licence verification is",
+    "pinned to this anchor and fails closed without one; the anchor file did not",
+    "exist anywhere in the source tree, so every verify threw",
+    "LICENSE_TRUST_ANCHOR_MISSING and no paid licence could be activated by anyone,",
+    "for weeks, with no gate red. The failure was invisible precisely because the",
+    "missing thing was a file nobody had listed. Listing it here means the day the",
+    "paid layer enters this payload its anchor is already beside it, instead of",
+    "reproducing that outage on a customer's machine.",
+    "",
+    "IT IS SAFE TO SHIP. A public key lets you CHECK a signature and never FORGE",
+    "one -- that is the whole point of asymmetric signing. The private half lives",
+    "only in the vendor's DPAPI vault under vault/secrets.json, which",
+    "assertNoSecretMaterial() below refuses to stage by prefix AND by basename.",
+    "tools/test/license-trust-anchor-payload.test.mjs asserts both halves of that",
+    "against the STAGED BYTES: the public key present, no private key material",
+    "anywhere in the payload."
+  ],
   "dataFiles": [
     "config/model-floor.json",
     "config/toolsenabled.policy.json",
     "config/settings-registry.json",
     "config/dependency-acceptance.json",
     "config/uac-delegation-allowlist.json",
-    "config/capability-base-profiles.json"
+    "config/capability-base-profiles.json",
+    "config/license-trust.json"
   ],
   "$comment_helperPrograms": [
     "PROGRAMS THE LAYER RUNS THAT ARE NOT JAVASCRIPT, and the reason this",
