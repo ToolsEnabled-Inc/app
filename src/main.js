@@ -24,6 +24,7 @@ import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
 import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
+import { mountSettingsRecoveryNotice } from './settings-recovery-notice.js'
 import {
   CHECKOUT_SURFACE_EVENT,
   checkoutSurfaceAvailable,
@@ -578,3 +579,10 @@ window.addEventListener(CHECKOUT_SURFACE_EVENT, () => render())
 void probeCheckoutSurface()
 
 render()
+
+/* IF THE SETTINGS FILE COULD NOT BE READ, SAY SO. Mounted after the first
+   render and outside it, because it is a fact about this WINDOW rather than
+   about the current route: it must not be torn down and rebuilt by every
+   navigation, and it must not disappear when a view does. See
+   src/settings-recovery-notice.js for why silence here is the defect. */
+mountSettingsRecoveryNotice()

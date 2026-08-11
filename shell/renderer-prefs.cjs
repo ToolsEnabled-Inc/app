@@ -83,6 +83,23 @@ const RETRYABLE_READ_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY'])
 const MAX_QUARANTINE_FILES = 8
 const QUARANTINE_PREFIX = 'renderer-prefs.damaged'
 
+/* THE SET-ASIDE COPY IS DATED, because the person is going to be told about it
+   and "renderer-prefs.damaged-3.json" does not answer the question they will
+   actually have, which is WHICH ONE IS MINE. An index only orders the copies
+   against each other; a date says whether this is the settings they lost this
+   morning or a file from a fault three months ago they already gave up on.
+   Colons and dots are illegal in a Windows filename, so the ISO timestamp is
+   written with dashes throughout. */
+function quarantineFileName(stamp) {
+  return `${QUARANTINE_PREFIX}-${stamp.toISOString().replace(/[:.]/g, '-')}.json`
+}
+
+function isQuarantineFile(name) {
+  /* The dotted form is what builds before the dated name wrote. It is counted
+     against the bound so an upgrade cannot restart the budget from zero. */
+  return name === `${QUARANTINE_PREFIX}.json` || name.startsWith(`${QUARANTINE_PREFIX}-`)
+}
+
 /* A synchronous pause. The whole store is synchronous on purpose -- it stands
    in for localStorage, which is durable when the setter returns -- so the retry
    cannot hand control back to the event loop and let a second write interleave
@@ -140,12 +157,18 @@ function validateEntry(key, value) {
   return null
 }
 
-function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pid }) {
+function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pid, now = () => new Date() }) {
   if (!directory) throw new TypeError('createRendererPrefs requires a directory')
   const file = path.join(directory, RECORD_FILE)
 
   let record = null
   let damaged = null
+  /* WHERE THE UNREADABLE FILE WENT, kept so the product can say it out loud.
+     Preserving the bytes and not telling anybody is only half a fix: the person
+     still sees every setting they chose replaced by defaults, and a silent
+     recovery is indistinguishable from the silent factory reset it replaced.
+     This is the fact src/settings-recovery-notice.js turns into a sentence. */
+  let preservedAt = null
 
   function readFileWithRetry() {
     let lastError = null
@@ -213,21 +236,39 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
   /* A NAME NOTHING IS ALREADY USING, RESERVED BEFORE THE MOVE.
      `wx` fails rather than clobbering, so a previous quarantine cannot be
      overwritten by the next one. The reservation is then replaced by the
-     rename, which is why creating the empty file first is not a wasted step. */
+     rename, which is why creating the empty file first is not a wasted step.
+
+     THE BOUND IS COUNTED, NOT WALKED. While the names were an index sequence,
+     trying them in order both found a free name and enforced the limit. A dated
+     name has no order to walk, so the copies already on disk are counted
+     directly -- and a directory that cannot be listed REFUSES rather than
+     counting zero, because "I could not check the limit" must not read as
+     "the limit is clear". */
   function reserveQuarantineName() {
-    for (let index = 0; index < MAX_QUARANTINE_FILES; index += 1) {
-      const candidate = path.join(directory, index === 0
-        ? `${QUARANTINE_PREFIX}.json`
-        : `${QUARANTINE_PREFIX}-${index}.json`)
+    let existing
+    try {
+      existing = fs.readdirSync(directory).filter(isQuarantineFile).length
+    } catch (error) {
+      return { path: null, error, atLimit: false }
+    }
+    if (existing >= MAX_QUARANTINE_FILES) return { path: null, error: null, atLimit: true }
+
+    /* Two damaged records inside one millisecond would collide on the dated
+       name. `wx` catches that instead of one silently replacing the other, and
+       the suffix disambiguates them without losing the date. */
+    const stamp = now()
+    for (let attempt = 0; attempt < MAX_QUARANTINE_FILES; attempt += 1) {
+      const name = quarantineFileName(stamp)
+      const candidate = path.join(directory, attempt === 0 ? name : name.replace(/\.json$/, `-${attempt}.json`))
       try {
         fs.closeSync(fs.openSync(candidate, 'wx'))
-        return { path: candidate, error: null }
+        return { path: candidate, error: null, atLimit: false }
       } catch (error) {
         if (error && error.code === 'EEXIST') continue
-        return { path: null, error }
+        return { path: null, error, atLimit: false }
       }
     }
-    return { path: null, error: null }
+    return { path: null, error: null, atLimit: true }
   }
 
   /* WHAT A WRITE MUST NOT DO TO A RECORD IT COULD NOT READ.
@@ -264,22 +305,30 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
   function quarantineDamaged() {
     const reserved = reserveQuarantineName()
     if (!reserved.path) {
-      const detail = reserved.error && reserved.error.code
-        ? `a copy could not be set aside (${reserved.error.code})`
-        : `${MAX_QUARANTINE_FILES} damaged copies have already been set aside`
+      const detail = reserved.atLimit
+        ? `${MAX_QUARANTINE_FILES} damaged copies have already been set aside`
+        : `a copy could not be set aside (${reserved.error && reserved.error.code ? reserved.error.code : 'unknown error'})`
       return failure('MC_PREFS_DAMAGED', `Refusing to overwrite settings that could not be read (${damaged}): ${detail}.`)
     }
     let lastError = null
     for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt += 1) {
       try {
         fs.renameSync(file, reserved.path)
-        return { ok: true }
+        preservedAt = reserved.path
+        return { ok: true, preservedAt: reserved.path }
       } catch (error) {
         lastError = error
         /* The record was damaged because the read failed, and the file has
            since gone. There is nothing left to preserve and nothing to
-           destroy, so the write may proceed. */
-        if (error && error.code === 'ENOENT') return { ok: true }
+           destroy, so the write may proceed -- but the name reserved for it
+           does not get to stay. An empty file left here would spend one of the
+           eight slots and, now that the product POINTS A PERSON AT THESE
+           FILES, would offer them a zero-byte "recovered copy" of settings
+           that were never in it. */
+        if (error && error.code === 'ENOENT') {
+          try { fs.unlinkSync(reserved.path) } catch { /* nothing was promised by the reservation */ }
+          return { ok: true, preservedAt: null }
+        }
         if (!RETRYABLE_WRITE_ERRORS.has(error && error.code)) break
         if (attempt < PERSIST_ATTEMPTS - 1) pauseSync(PERSIST_BACKOFF_MS[attempt])
       }
@@ -296,9 +345,11 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
 
     /* Every mutator funnels through here, so the damaged-record rule is
        enforced once rather than at four call sites that can drift apart. */
+    let setAside = null
     if (damaged) {
       const preserved = quarantineDamaged()
       if (!preserved.ok) return preserved
+      setAside = preserved.preservedAt
     }
 
     /* WINDOWS WILL REFUSE THIS RENAME AT RANDOM, and it is not a disk problem.
@@ -323,7 +374,12 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
       if (lastError === null) {
         record = next
         damaged = null
-        return { ok: true }
+        /* `preservedAt` deliberately survives `damaged` being cleared. The
+           record is healthy again from this line on, but the person's OLD
+           settings are still sitting in that dated file and they have not been
+           told yet -- the write that clears the damage is the very call that
+           carries the news back to the renderer. */
+        return setAside ? { ok: true, preservedAt: setAside } : { ok: true }
       }
       if (!RETRYABLE_WRITE_ERRORS.has(lastError && lastError.code)) break
       if (attempt < PERSIST_ATTEMPTS - 1) pauseSync(PERSIST_BACKOFF_MS[attempt])
@@ -341,6 +397,10 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
         values: { ...current.values },
         drainedOrigins: [...current.drainedOrigins],
         damaged,
+        /* Null until a write has actually moved the file. Saying where a copy
+           WILL go is a promise; this field is only ever a report of something
+           that has happened. */
+        preservedAt,
       }
     },
 
@@ -419,7 +479,12 @@ function createRendererPrefs({ directory, fs, path, randomUUID, pid = process.pi
       const drainedOrigins = [...current.drainedOrigins, origin].slice(-MAX_DRAINED_ORIGINS)
       const written = persist({ storageVersion: STORAGE_VERSION, values, drainedOrigins })
       if (!written.ok) return written
-      return { ok: true, migrated, skipped }
+      /* The drain is usually the FIRST write of a launch, so it is usually the
+         call that sets a damaged record aside. Dropping `preservedAt` here
+         would lose the news on the one path most likely to carry it. */
+      return written.preservedAt
+        ? { ok: true, migrated, skipped, preservedAt: written.preservedAt }
+        : { ok: true, migrated, skipped }
     },
   }
 }
@@ -428,9 +493,12 @@ module.exports = {
   MAX_DRAINED_ORIGINS,
   MAX_KEYS,
   MAX_KEY_LENGTH,
+  MAX_QUARANTINE_FILES,
   MAX_RECORD_BYTES,
   MAX_VALUE_LENGTH,
+  QUARANTINE_PREFIX,
   RECORD_FILE,
   STORAGE_VERSION,
   createRendererPrefs,
+  isQuarantineFile,
 }

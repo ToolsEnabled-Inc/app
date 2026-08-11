@@ -2332,3 +2332,77 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
 .topbar .icon-btn[disabled] { opacity: 0.2; }
 /* the 0.7 rest opacity + :hover lift that used to live here is gone — see
    .tb-settings-label above; the word now reads at full strength at rest */
+
+/* ---------- the settings file could not be read ----------------------------
+ *
+ * See src/settings-recovery-notice.js. It appears only when a person's saved
+ * settings did not load, which is a state most installs will never reach, so
+ * it costs nothing at rest and must be unmissable when it happens.
+ *
+ * IT IS A FIXED BAR AT THE BOTTOM RATHER THAN A BANNER AT THE TOP, and that is
+ * layout, not taste: `.topbar` is fixed at top:14px and every `.view` is
+ * absolutely positioned at `inset: 82px 0 0 0`, so a notice in normal flow at
+ * the top of <body> is painted underneath the running view, and one placed over
+ * that band covers the only navigation this product has. The bottom edge is the
+ * one place a persistent message can sit without taking a control away from
+ * somebody who is already having a bad day.
+ *
+ * z-index 70 is above the topbar's 60 and below the settings drawer's 80. The
+ * drawer is modal and covers the page; a notice punching through a modal would
+ * be a second defect.
+ *
+ * COLOURS COME FROM THE THEME TOKENS, so this reads correctly on white, tan and
+ * black -- including for the person whose stored theme is exactly what failed
+ * to load, who is therefore looking at this on the default sheet. */
+.settings-recovery {
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: 14px;
+  width: min(var(--page-max), calc(100vw - 2 * var(--page-gutter)));
+  box-sizing: border-box;
+  z-index: 70;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "heading dismiss"
+    "body    body"
+    "path    path";
+  gap: 4px 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--s-serious, var(--ink-2));
+  background: var(--sheet);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  color: var(--ink-2);
+  font-size: 12.5px; line-height: 1.45;
+}
+.settings-recovery-heading {
+  grid-area: heading;
+  color: var(--ink); font-weight: 650;
+}
+.settings-recovery-body { grid-area: body; }
+.settings-recovery-path {
+  grid-area: path;
+  color: var(--ink-25);
+}
+/* The path is the actionable half of the message, so it wraps rather than
+   being clipped: a truncated path is a path a person cannot use, and this is
+   the one line they may need to type somewhere else. */
+.settings-recovery-path code {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.settings-recovery-dismiss {
+  grid-area: dismiss;
+  padding: 2px 9px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  background: none;
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-recovery-dismiss:hover { color: var(--ink); border-color: var(--line); }

@@ -17,7 +17,9 @@ const require = createRequire(import.meta.url)
 const {
   MAX_KEYS,
   MAX_KEY_LENGTH,
+  MAX_QUARANTINE_FILES,
   MAX_VALUE_LENGTH,
+  QUARANTINE_PREFIX,
   RECORD_FILE,
   STORAGE_VERSION,
   createRendererPrefs,
@@ -377,24 +379,55 @@ test('a write does not flatten a settings file the store could not read', () => 
   assert.equal(readRecord(file).values['mc.theme'], 'white')
   assert.deepEqual(
     filesMatching(directory, planted),
-    ['renderer-prefs.damaged.json'],
+    [path.basename(result.preservedAt)],
     'the settings that could not be read must still be on disk, byte for byte',
+  )
+  // The write that moved the file is the only call that can carry the news
+  // back, and the product tells the person WHERE the file went. A rescue the
+  // caller cannot name is a rescue nobody can be told about.
+  assert.equal(result.preservedAt, path.join(directory, path.basename(result.preservedAt)))
+  assert.equal(prefs.snapshot().preservedAt, result.preservedAt)
+  assert.match(
+    path.basename(result.preservedAt),
+    /^renderer-prefs\.damaged-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/,
+    'the copy a person is pointed at is dated, because an index only says which came first',
   )
 })
 
 test('a second damaged record does not overwrite the first one set aside', () => {
   const { directory, file } = freshStore()
+  // The clock is injected so the two dated names are fixed rather than being
+  // whatever the machine's millisecond happened to be. Nothing here is timing
+  // dependent; the two DATES are the thing under test.
+  const at = (iso) => () => new Date(iso)
   const first = plantDamagedRecord(file)
-  createRendererPrefs({ directory, fs, path, randomUUID }).set('mc.theme', 'white')
+  createRendererPrefs({ directory, fs, path, randomUUID, now: at('2026-03-04T05:06:07.008Z') }).set('mc.theme', 'white')
 
   fs.writeFileSync(file, '{ a different damaged record')
   const second = sha256(fs.readFileSync(file))
-  createRendererPrefs({ directory, fs, path, randomUUID }).set('mc.theme', 'tan')
+  createRendererPrefs({ directory, fs, path, randomUUID, now: at('2026-09-10T11:12:13.014Z') }).set('mc.theme', 'tan')
 
   // A quarantine that clobbers the previous quarantine destroys exactly what
   // it was added to protect, one launch later.
-  assert.deepEqual(filesMatching(directory, first), ['renderer-prefs.damaged.json'])
-  assert.deepEqual(filesMatching(directory, second), ['renderer-prefs.damaged-1.json'])
+  assert.deepEqual(filesMatching(directory, first), ['renderer-prefs.damaged-2026-03-04T05-06-07-008Z.json'])
+  assert.deepEqual(filesMatching(directory, second), ['renderer-prefs.damaged-2026-09-10T11-12-13-014Z.json'])
+})
+
+/* Two faults inside one millisecond is the only case where a dated name can
+   collide. It must disambiguate rather than let the second replace the first,
+   which is the whole property the test above is protecting. */
+test('two damaged records set aside in the same millisecond do not collide', () => {
+  const { directory, file } = freshStore()
+  const now = () => new Date('2026-03-04T05:06:07.008Z')
+  const first = plantDamagedRecord(file)
+  createRendererPrefs({ directory, fs, path, randomUUID, now }).set('mc.theme', 'white')
+
+  fs.writeFileSync(file, '{ a different damaged record')
+  const second = sha256(fs.readFileSync(file))
+  createRendererPrefs({ directory, fs, path, randomUUID, now }).set('mc.theme', 'tan')
+
+  assert.deepEqual(filesMatching(directory, first), ['renderer-prefs.damaged-2026-03-04T05-06-07-008Z.json'])
+  assert.deepEqual(filesMatching(directory, second), ['renderer-prefs.damaged-2026-03-04T05-06-07-008Z-1.json'])
 })
 
 test('a write is refused, not performed, when the unreadable record cannot be set aside', () => {
@@ -433,7 +466,7 @@ test('clear() does not report an unreadable record as already empty', () => {
   // absence it could not read is the same mistake as flattening it.
   assert.equal(result.unchanged, undefined)
   assert.equal(result.ok, true)
-  assert.deepEqual(filesMatching(directory, planted), ['renderer-prefs.damaged.json'])
+  assert.deepEqual(filesMatching(directory, planted), [path.basename(result.preservedAt)])
 })
 
 /* THE READ HAD NO RETRY WHILE THE WRITE HAD FIVE, and the asymmetry mattered
@@ -481,4 +514,129 @@ test('a settings file that is simply absent is not retried', () => {
   assert.equal(attempts, 1, 'a first launch is not a transient lock; retrying it just delays an answer that is already correct')
   assert.equal(snapshot.damaged, null)
   assert.deepEqual(snapshot.values, {})
+})
+
+/* ---------------------------------------------------------------------------
+ * TELLING THE PERSON, which is the other half of not destroying their data.
+ *
+ * Preserving an unreadable settings file and saying nothing leaves them looking
+ * at an application wearing none of their choices, with no error -- the exact
+ * experience the silent factory reset produced. These tests are over the fact
+ * the product needs in order to speak: WHERE the file went. The sentence built
+ * from it is tools/test/settings-recovery-notice.test.mjs, and the proof that a
+ * running packaged application actually shows it is the damaged-record scenario
+ * in tools/prefs-origin-proof.mjs.
+ * ------------------------------------------------------------------------- */
+
+test('nothing claims a file was set aside until one actually has been', () => {
+  const { directory, file } = freshStore()
+  plantDamagedRecord(file)
+  const prefs = createRendererPrefs({ directory, fs, path, randomUUID })
+
+  // Saying where a copy WILL go is a promise about the future, and the file is
+  // deliberately not moved until a write happens -- a record that was only
+  // transiently unreadable is recovered intact by the next launch's retrying
+  // read, and an eager move would displace a file that was never damaged.
+  assert.match(prefs.snapshot().damaged, /malformed JSON/)
+  assert.equal(prefs.snapshot().preservedAt, null)
+  assert.deepEqual(fs.readdirSync(directory).filter((name) => name.includes('damaged')), [])
+
+  const result = prefs.set('mc.theme', 'white')
+  assert.equal(typeof result.preservedAt, 'string')
+  assert.equal(prefs.snapshot().preservedAt, result.preservedAt)
+})
+
+test('a drain reports where it set the unreadable record aside', () => {
+  const { directory, file } = freshStore()
+  plantDamagedRecord(file)
+  const prefs = createRendererPrefs({ directory, fs, path, randomUUID })
+
+  // The drain is usually the FIRST write of a launch, so it is usually the call
+  // that moves the file. Dropping the fact here would lose the news on the one
+  // path most likely to be carrying it.
+  const drained = prefs.drain('http://127.0.0.1:4601', [['mc.text', '0.9']])
+
+  assert.equal(drained.ok, true)
+  assert.equal(typeof drained.preservedAt, 'string')
+  assert.equal(fs.existsSync(drained.preservedAt), true)
+})
+
+test('the news survives the write that clears the damage', () => {
+  const { directory, file } = freshStore()
+  plantDamagedRecord(file)
+  const prefs = createRendererPrefs({ directory, fs, path, randomUUID })
+  const preserved = prefs.set('mc.theme', 'white').preservedAt
+
+  // The record is healthy from that write on, so `damaged` is correctly gone --
+  // but the person's OLD settings are still sitting in that dated file and they
+  // have not been told yet. Clearing the address with the fault would make the
+  // rescue unmentionable.
+  assert.equal(prefs.snapshot().damaged, null)
+  assert.equal(prefs.snapshot().preservedAt, preserved)
+})
+
+test('a record that vanishes before the write leaves no empty file posing as a rescue', () => {
+  const { directory, file } = freshStore()
+  plantDamagedRecord(file)
+  const prefs = createRendererPrefs({ directory, fs, path, randomUUID })
+  assert.match(prefs.snapshot().damaged, /malformed JSON/, 'the premise: damaged is latched by the read')
+
+  // Something removed the file between the failed read and the write. There is
+  // nothing left to preserve, so the write proceeds -- and the name reserved
+  // for the copy must not stay behind. Now that the product POINTS A PERSON AT
+  // these files, a zero-byte one is an offer of settings it does not have.
+  fs.unlinkSync(file)
+  const result = prefs.set('mc.theme', 'white')
+
+  assert.equal(result.ok, true)
+  // The contract this field carries is "a string names a file that was moved,
+  // and nothing else does" -- the notice in the product only speaks when it has
+  // a real path to give.
+  assert.notEqual(typeof result.preservedAt, 'string')
+  assert.equal(prefs.snapshot().preservedAt, null)
+  assert.equal(readRecord(file).values['mc.theme'], 'white')
+  assert.deepEqual(fs.readdirSync(directory).filter((name) => name.includes('damaged')), [])
+})
+
+test('copies already set aside are counted against the limit, including the undated ones', () => {
+  const { directory, file } = freshStore()
+  // What a build before the dated name would have left. An upgrade must not
+  // restart the disk budget from zero.
+  for (let index = 0; index < MAX_QUARANTINE_FILES; index += 1) {
+    fs.writeFileSync(path.join(directory, index === 0 ? `${QUARANTINE_PREFIX}.json` : `${QUARANTINE_PREFIX}-${index}.json`), 'set aside earlier')
+  }
+  const planted = plantDamagedRecord(file)
+  const prefs = createRendererPrefs({ directory, fs, path, randomUUID })
+
+  const result = prefs.set('mc.theme', 'white')
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'MC_PREFS_DAMAGED')
+  assert.match(result.error.message, /already been set aside/)
+  // Reaching the bound REFUSES. It still does not destroy anything, which is
+  // the property that has to hold at every exit from this path.
+  assert.equal(sha256(fs.readFileSync(file)), planted)
+})
+
+test('a directory that cannot be listed refuses the write instead of assuming the limit is clear', () => {
+  const { directory, file } = freshStore()
+  const planted = plantDamagedRecord(file)
+  const blind = {
+    ...fs,
+    readdirSync(target, options) {
+      if (String(target) === directory) throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+      return fs.readdirSync(target, options)
+    },
+  }
+  const prefs = createRendererPrefs({ directory, fs: blind, path, randomUUID })
+
+  const result = prefs.set('mc.theme', 'white')
+
+  // "I could not check the limit" must not read as "the limit is clear". The
+  // house defect is an absence taken for consent, and a failed readdir counted
+  // as zero is that defect in the guard meant to bound it.
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'MC_PREFS_DAMAGED')
+  assert.match(result.error.message, /EACCES/)
+  assert.equal(sha256(fs.readFileSync(file)), planted, 'a refusal must leave the unreadable record exactly where it was')
 })

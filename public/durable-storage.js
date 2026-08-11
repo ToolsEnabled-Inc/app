@@ -52,6 +52,46 @@
      read first, and the host is told to mark the origin ONLY once that read
      has actually succeeded. A read that throws leaves the origin unmarked, and
      a later launch tries again. */
+  /* WHAT THE PERSON IS OWED IF THEIR SETTINGS DID NOT LOAD.
+   *
+   * The store beneath this preserves a settings file it cannot read instead of
+   * replacing it. That stops the data loss and, on its own, nothing else: the
+   * app still opens wearing none of the choices they made, which from where
+   * they sit is exactly the silent factory reset it replaced. So the facts are
+   * carried here and published, and src/settings-recovery-notice.js turns them
+   * into a sentence on the screen.
+   *
+   * `preservedAt` ARRIVES LATE, ON PURPOSE. The unreadable file is only moved
+   * when a write actually happens -- deliberately, because a file that was only
+   * transiently unreadable is recovered intact by the next launch's retrying
+   * read, and moving it eagerly would displace a record that was never damaged.
+   * So at boot this is usually null and the notice says the file is still in
+   * place; the first write returns the dated path and the notice updates.
+   */
+  var notice = {
+    damaged: typeof bridge.damaged === 'string' ? bridge.damaged : null,
+    file: typeof bridge.file === 'string' ? bridge.file : null,
+    preservedAt: typeof bridge.preservedAt === 'string' ? bridge.preservedAt : null,
+  }
+  var listeners = []
+  function readNotice() {
+    return { damaged: notice.damaged, file: notice.file, preservedAt: notice.preservedAt }
+  }
+  /* A listener that throws must not take the write down with it. The notice is
+     an explanation; a broken explanation is not worth failing a save over. */
+  function announce() {
+    var snapshot = readNotice()
+    for (var index = 0; index < listeners.length; index += 1) {
+      try { listeners[index](snapshot) } catch (error) { /* a notice is not worth a throw */ }
+    }
+  }
+  function learnFrom(result) {
+    if (!result || typeof result.preservedAt !== 'string') return
+    if (result.preservedAt === notice.preservedAt) return
+    notice.preservedAt = result.preservedAt
+    announce()
+  }
+
   var initial = bridge.values || {}
   if (bridge.drainRequired === true) {
     var entries = null
@@ -67,6 +107,7 @@
     } catch (error) { entries = null }
     if (entries) {
       var drained = bridge.drain(entries)
+      learnFrom(drained)
       if (drained && drained.ok && drained.values) initial = drained.values
     }
   }
@@ -82,6 +123,11 @@
      there next time. Every call site in src/ already wraps storage in
      try/catch, so a throw is contained where the platform's would have been. */
   function demand(result, action, key) {
+    /* The news travels on the result of the write that caused it, so it is
+       collected before the success check -- a refusal to overwrite an
+       unreadable record is exactly the case a person most needs explained, and
+       reading the notice only on the happy path would drop it there. */
+    learnFrom(result)
     if (result && result.ok === true) return
     var reason = result && result.error && result.error.message
       ? result.error.message
@@ -128,6 +174,27 @@
      the defect. */
   Object.defineProperty(window, 'localStorage', {
     value: storage,
+    configurable: true,
+    writable: false,
+  })
+
+  /* EXPOSED SEPARATELY FROM localStorage, because it is not storage. A module
+     that wants to explain the state of the settings file asks here;
+     src/settings-recovery-notice.js is the only caller, and in a plain browser
+     this global is absent along with the rest of the shell -- so that module
+     renders nothing rather than guessing. */
+  Object.defineProperty(window, 'mcPrefsNotice', {
+    value: Object.freeze({
+      read: readNotice,
+      subscribe: function subscribe(listener) {
+        if (typeof listener !== 'function') return function () {}
+        listeners.push(listener)
+        return function unsubscribe() {
+          var at = listeners.indexOf(listener)
+          if (at >= 0) listeners.splice(at, 1)
+        }
+      },
+    }),
     configurable: true,
     writable: false,
   })

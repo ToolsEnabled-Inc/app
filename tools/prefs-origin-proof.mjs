@@ -45,7 +45,7 @@ const execFile = promisify(execFileCallback)
    again here. If it is ever renamed, the damaged-record scenario below fails
    loudly with "no durable record to damage" instead of quietly looking for a
    file that no longer exists and finding nothing to worry about. */
-const { RECORD_FILE } = createRequire(import.meta.url)('../shell/renderer-prefs.cjs')
+const { RECORD_FILE, isQuarantineFile } = createRequire(import.meta.url)('../shell/renderer-prefs.cjs')
 
 export const APP_EXE = 'ToolsEnabled.exe'
 const APP_ORIGIN_PATTERN = /^http:\/\/127\.0\.0\.1:(\d+)\//
@@ -352,6 +352,32 @@ const readProbe = `(() => {
   return out
 })()`
 
+/* WHAT THE PERSON IS ACTUALLY LOOKING AT.
+ *
+ * Read out of the running application's own DOM, because the question this
+ * answers is not "does a notice module exist" -- a module can be flawless and
+ * never mounted, which is this codebase's most repeated near miss -- but "did
+ * anything appear on the screen of somebody whose settings did not load". The
+ * element is polled rather than read once: the notice is mounted by a module,
+ * and a module has not necessarily evaluated at the instant the document
+ * reports complete. */
+const noticeProbe = `(() => {
+  const node = document.querySelector('[data-settings-recovery]')
+  if (!node) return null
+  return { kind: node.getAttribute('data-settings-recovery'), text: node.textContent || '' }
+})()`
+
+async function readNotice(session, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  let last = null
+  while (Date.now() < deadline) {
+    last = await session.evaluate(noticeProbe)
+    if (last && last.text) return last
+    await sleep(150)
+  }
+  return last
+}
+
 function writeProbe(settings) {
   return `(() => {
     for (const [key, value] of ${JSON.stringify(settings.map((setting) => [setting.key, setting.value]))}) {
@@ -520,6 +546,16 @@ async function freshInstallScenario(context) {
  * forever would preserve the bytes and brick the settings, which is why the
  * store sets the unreadable file aside instead of refusing outright -- and why
  * this scenario fails if the change threw.
+ *
+ * AND IT REQUIRES THE PERSON TO BE TOLD, which is the half that was missing
+ * when the bytes were first rescued. Preserving a file and saying nothing
+ * leaves them looking at an application wearing none of their choices, with no
+ * error -- the same window, the same missing settings and the same silence as
+ * the factory reset it replaced, so nothing about their experience improved and
+ * nobody ever asks for the file back. This scenario therefore reads the real
+ * DOM of the running application over CDP and fails unless the text on screen
+ * names the file that actually holds the planted bytes. Wording is checked
+ * loosely; the FILENAME is checked exactly, against what is on the disk.
  */
 async function damagedRecordScenario(context) {
   const { executable, appDirectory, timeoutMs, log } = context
@@ -568,17 +604,23 @@ async function damagedRecordScenario(context) {
     log(`[prefs-origin-proof] planted an unreadable ${RECORD_FILE} (sha256 ${damagedHash.slice(0, 12)})`)
 
     second = await launchApp({ executable, appDirectory, profileDirectory, timeoutMs, log })
+    /* READ BEFORE TOUCHING ANYTHING. A person whose settings did not load must
+       be told when the window opens, not only once they happen to change
+       something -- by then they have already concluded the product reset
+       itself and started redoing their choices by hand. */
+    const noticeOnOpen = await readNotice(second.session, 15_000)
     const changed = await second.session.evaluate(`(() => {
       try { localStorage.setItem('mc.theme', 'white'); return 'saved' }
       catch (error) { return 'THREW:' + String(error && error.message || error) }
     })()`)
+    const noticeAfterWrite = await readNotice(second.session, 15_000)
     second.session.close()
     await killTree(second.child)
     second = null
 
     const survivors = []
     for (const name of await readdir(profileDirectory)) {
-      if (!name.startsWith('renderer-prefs')) continue
+      if (name !== RECORD_FILE && !isQuarantineFile(name)) continue
       const bytes = await readFile(path.join(profileDirectory, name)).catch(() => null)
       if (bytes && createHash('sha256').update(bytes).digest('hex') === damagedHash) survivors.push(name)
     }
@@ -590,7 +632,38 @@ async function damagedRecordScenario(context) {
     if (changed !== 'saved') {
       failures.push(`the application could not change a setting after the damaged record was set aside: ${JSON.stringify(changed)}. Preserving the bytes by refusing every write forever is not a fix.`)
     }
-    const detail = `the unreadable record survived byte-identical as ${survivors.join(', ') || '(nowhere)'} and the app still saved a change`
+
+    /* PRESERVING THE FILE IN SILENCE IS STILL THE DEFECT.
+     *
+     * Everything above proves the bytes are on the disk. None of it proves the
+     * person has any way to know that, and from where they sit an unannounced
+     * rescue is indistinguishable from the loss it replaced: same application,
+     * same missing choices, same absence of any error. The three assertions
+     * below are the ones a customer would make.
+     *
+     * The last of them is the one that cannot be satisfied by a reassuring
+     * sentence: the text on the screen has to contain the name of the file that
+     * actually holds the planted bytes. A notice that says settings were kept
+     * without saying where is a promise nobody can act on, and a notice naming
+     * a file that is not the one on disk is worse than saying nothing. */
+    if (!noticeOnOpen || !noticeOnOpen.text) {
+      failures.push('the application said NOTHING about settings it could not read: no [data-settings-recovery] element in the page after launch. The file was preserved silently, which from the person\'s side is the same window, the same missing settings and the same absence of any error as the factory reset.')
+    } else if (!/could not be read/i.test(noticeOnOpen.text)) {
+      failures.push(`the notice shown at launch does not say the settings could not be read: ${JSON.stringify(noticeOnOpen.text)}`)
+    } else if (!/nothing was deleted|nothing has been deleted/i.test(noticeOnOpen.text)) {
+      failures.push(`the notice does not tell the person their settings still exist, which is the conclusion they will otherwise reach: ${JSON.stringify(noticeOnOpen.text)}`)
+    }
+
+    const preserved = survivors[0]
+    if (preserved && !/^renderer-prefs\.damaged-\d{4}-\d{2}-\d{2}T/.test(preserved)) {
+      failures.push(`the copy the person is pointed at is not dated (${preserved}), so nothing on it answers the question they will actually have, which is whether it is the settings they lost today or a fault from months ago.`)
+    }
+    const announced = noticeAfterWrite && noticeAfterWrite.text ? noticeAfterWrite.text : ''
+    if (preserved && !announced.includes(preserved)) {
+      failures.push(`the application never told the person where the unreadable file went: the bytes are in ${preserved} and the notice on screen reads ${JSON.stringify(announced) || '(nothing)'}. A rescue nobody can find is a rescue nobody has.`)
+    }
+
+    const detail = `the unreadable record survived byte-identical as ${survivors.join(', ') || '(nowhere)'}, the app still saved a change, and the window says so on open (${JSON.stringify((noticeOnOpen && noticeOnOpen.text || '').slice(0, 90))}...)`
     if (failures.length) {
       return { name: 'a settings file the build cannot read', ok: false, reason: failures.join('\n  ') }
     }

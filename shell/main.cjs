@@ -1368,6 +1368,16 @@ ipcMain.on('mc-prefs:bootstrap', (event) => {
   event.returnValue = {
     ok: true,
     values: snapshot.values,
+    /* THE THREE FACTS A PERSON IS OWED WHEN THEIR SETTINGS DID NOT LOAD.
+       The store already preserves an unreadable file instead of replacing it;
+       these fields are what stops that from being a silent recovery. `damaged`
+       is why the app is showing defaults, `file` is where their settings are
+       supposed to live, and `preservedAt` is where the unreadable copy was put
+       once a write has actually moved it. src/settings-recovery-notice.js is
+       the only consumer and it says all three out loud. */
+    damaged: typeof snapshot.damaged === 'string' ? snapshot.damaged : null,
+    preservedAt: typeof snapshot.preservedAt === 'string' ? snapshot.preservedAt : null,
+    file: rendererPrefs.file,
     /* The renderer is asked to hand over its browser copy only while THIS
        origin has never been drained. After a port change the new origin is
        undrained and empty, so the drain is a no-op -- and the settings the
@@ -1382,7 +1392,20 @@ ipcMain.on('mc-prefs:drain', (event, request) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('migration'); return }
   const drained = rendererPrefs.drain(shellOrigin, request && request.entries)
   if (!drained.ok) { event.returnValue = drained; return }
-  event.returnValue = { ok: true, migrated: drained.migrated, values: rendererPrefs.snapshot().values }
+  event.returnValue = {
+    ok: true,
+    migrated: drained.migrated,
+    values: rendererPrefs.snapshot().values,
+    /* MEASURED, by the packaged proof, on the version of this line that built
+       its reply from scratch and left this field out: the drain is the FIRST
+       write of a launch, so on a damaged record it is the call that moves the
+       unreadable file aside -- and it was the only call that knew where the
+       file went. Dropping the field here meant the page kept saying "your
+       settings file is still where it was" about a file that had already been
+       moved thirty milliseconds earlier, and the person was never given the
+       path. The rescue happened and remained unfindable. */
+    preservedAt: typeof drained.preservedAt === 'string' ? drained.preservedAt : null,
+  }
 })
 
 ipcMain.on('mc-prefs:write', (event, request) => {

@@ -123,6 +123,18 @@ contextBridge.exposeInMainWorld('mcPrefs', Object.freeze({
   available: Boolean(prefs && prefs.ok),
   values: Object.freeze(prefs && prefs.ok ? { ...prefs.values } : {}),
   drainRequired: Boolean(prefs && prefs.ok && prefs.drainRequired),
+  /* WHY THE PAGE IS SHOWING DEFAULTS, AND WHERE THE OLD FILE WENT.
+     A settings file that cannot be read is preserved rather than replaced, and
+     that half of the fix is invisible: the person still opens an app wearing
+     none of their choices. Without these three the only conclusion available to
+     them is the one this whole store exists to stop -- that the software threw
+     their settings away. `preservedAt` is null here on nearly every launch,
+     because the file is only set aside when a write actually happens; the live
+     value travels back on the write result and public/durable-storage.js
+     carries it forward. */
+  damaged: prefs && prefs.ok && typeof prefs.damaged === 'string' ? prefs.damaged : null,
+  preservedAt: prefs && prefs.ok && typeof prefs.preservedAt === 'string' ? prefs.preservedAt : null,
+  file: prefs && prefs.ok && typeof prefs.file === 'string' ? prefs.file : null,
   /* THE DRAIN IS PERFORMED BY THE PAGE, NOT HERE, AND THAT IS THE WHOLE POINT.
      This preload first ran the migration itself, reading window.localStorage
      from its own isolated world. Measured on the packaged upgrade path: a

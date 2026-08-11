@@ -398,3 +398,139 @@ test('nothing in src/ reaches a setting by named property access', () => {
     + 'plain browser, which is the hardest possible version of this bug to see. Use getItem.',
   )
 })
+
+/* ---------------------------------------------------------------------------
+ * CARRYING THE NEWS THAT THE SETTINGS FILE COULD NOT BE READ.
+ *
+ * The store beneath this preserves an unreadable settings file rather than
+ * replacing it. That closes the data loss and, on its own, changes nothing a
+ * person experiences: the app still opens wearing none of their choices, with
+ * no error at all. So the three facts travel through here to the notice module
+ * -- WHY the defaults are showing, THAT nothing was deleted, and WHERE the file
+ * went -- and the last of those arrives LATE, on the result of the write that
+ * moves the file, because the file is deliberately not moved until then.
+ *
+ * The paths are built with path.win32 rather than written as literals. They are
+ * Windows paths, a Windows path is mostly backslashes, and a backslash in a
+ * hand-written string literal is an escape waiting to eat a character.
+ * ------------------------------------------------------------------------- */
+
+const USER_DATA = 'C:/Users/someone/AppData/Roaming/ToolsEnabled'
+const RECORD_PATH = path.win32.join(USER_DATA, 'renderer-prefs.json')
+const MOVED_PATH = path.win32.join(USER_DATA, 'renderer-prefs.damaged-2026-03-04T05-06-07-008Z.json')
+
+/* A bridge in the state the shell reports when the settings file did not load.
+   Everything the notice needs is on it, and preservedAt starts null because
+   nothing has moved the file yet. */
+function damagedBridge({ write, damaged = 'the settings file contains malformed JSON', file = RECORD_PATH } = {}) {
+  return {
+    available: true,
+    values: {},
+    drainRequired: false,
+    damaged,
+    file,
+    preservedAt: null,
+    write: write || (() => ({ ok: true })),
+    remove: () => ({ ok: true }),
+    clear: () => ({ ok: true }),
+    drain: () => ({ ok: true, values: {} }),
+  }
+}
+
+test('the reason the settings did not load is readable by the page', () => {
+  const { window } = install({ bridge: damagedBridge() })
+
+  /* Field by field rather than deepEqual: the shipped file is evaluated in its
+     own vm realm, so the object it hands back carries THAT realm's
+     Object.prototype and a structural comparison fails on the prototype alone.
+     The failure looks like a value mismatch and is not one. */
+  const notice = window.mcPrefsNotice.read()
+  assert.equal(notice.damaged, 'the settings file contains malformed JSON')
+  assert.equal(notice.file, RECORD_PATH)
+  assert.equal(notice.preservedAt, null)
+})
+
+test('the page learns where the unreadable file went from the write that moved it', () => {
+  const { window } = install({ bridge: damagedBridge({ write: () => ({ ok: true, preservedAt: MOVED_PATH }) }) })
+  const seen = []
+  window.mcPrefsNotice.subscribe((state) => seen.push(state.preservedAt))
+
+  // At boot the file is still in place and the notice says so. It is only moved
+  // when something writes, which is what the line below is.
+  assert.equal(window.mcPrefsNotice.read().preservedAt, null)
+  window.localStorage.setItem('mc.theme', 'white')
+
+  assert.equal(window.mcPrefsNotice.read().preservedAt, MOVED_PATH)
+  assert.deepEqual(seen, [MOVED_PATH], 'the surface showing the notice is told once, when the fact changes')
+})
+
+test('the news is announced once, not on every subsequent write', () => {
+  const { window } = install({ bridge: damagedBridge({ write: () => ({ ok: true, preservedAt: MOVED_PATH }) }) })
+  const seen = []
+  window.mcPrefsNotice.subscribe((state) => seen.push(state.preservedAt))
+
+  window.localStorage.setItem('mc.theme', 'white')
+  window.localStorage.setItem('mc.text', '1.12')
+  window.localStorage.setItem('mc.live.fleet', 'live')
+
+  // A banner that redraws on every settings click is a banner that steals
+  // focus and flickers at somebody who has already read it.
+  assert.deepEqual(seen, [MOVED_PATH])
+})
+
+test('a drain that sets the record aside reports it, because it is usually the first write', () => {
+  const { window } = install({
+    drainRequired: true,
+    legacy: { 'mc.theme': 'black' },
+    drainResult: { ok: true, values: { 'mc.theme': 'black' }, preservedAt: MOVED_PATH },
+  })
+
+  assert.equal(window.mcPrefsNotice.read().preservedAt, MOVED_PATH)
+})
+
+test('a refused write still delivers the explanation it was refused with', () => {
+  const { window } = install({
+    bridge: damagedBridge({
+      /* The store refuses rather than destroying a record it could not move
+         aside. That is the case a person most needs explained, so the notice
+         must not be collected only on the happy path. */
+      write: () => ({ ok: false, error: { code: 'MC_PREFS_DAMAGED', message: 'Refusing to overwrite settings that could not be read' } }),
+    }),
+  })
+
+  assert.throws(() => window.localStorage.setItem('mc.theme', 'white'), /Refusing to overwrite/)
+  assert.equal(window.mcPrefsNotice.read().damaged, 'the settings file contains malformed JSON')
+})
+
+test('a listener that throws does not take the save down with it', () => {
+  const { window } = install({
+    bridge: damagedBridge({
+      damaged: 'the settings file could not be read (EBUSY)',
+      write: () => ({ ok: true, preservedAt: MOVED_PATH }),
+    }),
+  })
+  window.mcPrefsNotice.subscribe(() => { throw new Error('the notice surface is broken') })
+
+  // A broken explanation is not worth failing a save over: that would cost the
+  // person the setting as well as the message.
+  window.localStorage.setItem('mc.theme', 'white')
+
+  assert.equal(window.localStorage.getItem('mc.theme'), 'white')
+})
+
+test('unsubscribing stops the updates', () => {
+  const { window } = install({ bridge: damagedBridge({ write: () => ({ ok: true, preservedAt: MOVED_PATH }) }) })
+  const seen = []
+  const stop = window.mcPrefsNotice.subscribe((state) => seen.push(state))
+  stop()
+
+  window.localStorage.setItem('mc.theme', 'white')
+
+  assert.deepEqual(seen, [])
+})
+
+test('a plain browser has no notice global, because there is no settings file to report on', () => {
+  const { window } = install({ available: false })
+
+  assert.equal(window.mcPrefsNotice, undefined)
+})
