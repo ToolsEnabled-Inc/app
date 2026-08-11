@@ -17,6 +17,7 @@ const { readAgentConfinement } = require('./agent-confinement-read.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
+const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
   readCapabilityProof,
   resolveCapabilityRoot,
@@ -158,7 +159,29 @@ const projectionCapability = randomBytes(32).toString('base64url')
 const OWNER_PURCHASE_LIST_URL = '/data/purchase-catalog.json'
 const OWNER_PURCHASE_LIST_FILE = () => path.join(app.getPath('userData'), 'purchase-catalog.json')
 const MAX_OWNER_PURCHASE_LIST_BYTES = 2 * 1024 * 1024
-const bridgeProof = readBridgeProof({ env: process.env, readFileSync: fs.readFileSync })
+/* The env proof is fenced to unpackaged builds. MC_BRIDGE_PROOF_FILE lives in
+   HKCU\Environment, which the user can write with no elevation, so "the
+   developer set it" is an assumption a packaged install cannot make. Fencing
+   here -- at the single point the value is produced -- rather than at each
+   reader is deliberate: currentBridgeProof() below can hand back this value
+   from two different branches. See shell/bridge-env-path.cjs for the attack
+   this closes and for why a packaged build ignores the variable instead of
+   refusing to launch. */
+const bridgeProof = resolveEnvBridgeProof({
+  env: process.env,
+  isPackaged: app.isPackaged,
+  readBridgeProof,
+  readFileSync: fs.readFileSync,
+})
+/* Not silent: a tampered packaged launch leaves a record beside the user's
+   data, because shell build diagnostics are stripped from the shipped app and a
+   console line would reach nobody. A clean launch clears it. */
+recordEnvProofRefusal({
+  directory: app.getPath('userData'),
+  refused: bridgeProof.envProofRefused === true,
+  fs,
+  path,
+})
 const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
 /* The one real directory the product owns on a customer's disk. The capability
    layer already serves it as its workspace root; an agent session runs THERE,
@@ -1766,8 +1789,13 @@ ipcMain.handle('mc-account:change-password', (event, value) =>
  *
  * MC_BRIDGE_PROOF_FILE is the developer path: a bridge was started outside
  * this app and its proof file was named on the environment. It wins when it is
- * set, so a developer pointing the app at a bridge they are debugging keeps
- * getting that bridge and not a second one this app started.
+ * set AND this build is not packaged, so a developer pointing the app at a
+ * bridge they are debugging keeps getting that bridge and not a second one this
+ * app started. In a packaged build it is ignored -- the variable is settable by
+ * any same-user process without elevation, so it cannot be treated as proof
+ * that a developer is present. The fence is applied where bridgeProof is
+ * produced, not here, which is why the tail of this function is safe as well:
+ * it returns the same env-derived value and would otherwise leak it.
  *
  * The supervised path is the customer path, and it is the one that makes an
  * installed product work: no environment variable, no checkout, no developer
@@ -1799,14 +1827,28 @@ ipcMain.handle('mc-bridge-proof', () => currentBridgeProof())
  * and the renderer pins to it instead of guessing. The developer path
  * (MC_BRIDGE_PROOF_FILE) names a proof file but not a port -- the bridge was
  * started outside this app -- so the shell cannot vouch for an origin there; it
- * reports source 'env' and the renderer keeps scanning, which is the
- * developer's explicit opt-in and not a customer's exposure. */
+ * reports source 'env' and the renderer keeps scanning.
+ *
+ * That scan is the exposure this pin exists to prevent, so it is now reachable
+ * only in an unpackaged build, where a developer really did opt in. A packaged
+ * build never produces an ok env proof at all (see the bridgeProof declaration
+ * above), so this function cannot reach 'env' there and the customer path is
+ * always the pinned, non-scanning one. envProofRefused rides along so a
+ * tampered launch is legible to the renderer and not only to the record on
+ * disk. */
 function currentBridgeEndpoint() {
+  const envProofRefused = bridgeProof.envProofRefused === true
   if (bridgeProof.ok) return { ok: true, source: 'env' }
   if (capabilityLayerStatus.ok && typeof capabilityLayerStatus.baseUrl === 'string') {
-    return { ok: true, source: 'supervised', baseUrl: capabilityLayerStatus.baseUrl, pid: capabilityLayerStatus.pid }
+    return {
+      ok: true,
+      source: 'supervised',
+      baseUrl: capabilityLayerStatus.baseUrl,
+      pid: capabilityLayerStatus.pid,
+      envProofRefused,
+    }
   }
-  return { ok: false, source: 'none', reason: capabilityLayerStatus.reason }
+  return { ok: false, source: 'none', reason: capabilityLayerStatus.reason, envProofRefused }
 }
 
 ipcMain.handle('mc-bridge-endpoint', () => currentBridgeEndpoint())
