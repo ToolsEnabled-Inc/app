@@ -91,14 +91,21 @@ Stated plainly, because a public repository is a dated, permanent record:
   interface software) and one held by BMC Software. "ToolsEnabled" returned no hits, live
   or dead. The name was changed before launch rather than after, because once a name is
   in forks, package registries and third-party redistributions it cannot be recalled.
-- **The license is chosen but not yet in force.** The intended license is **AGPLv3** for
-  this, the free product, with separate commercial terms for ToolsEnabled Anywhere. Dual
-  licensing stays available because Joshua Pinckard is the sole copyright holder and is
-  therefore not bound by his own AGPL grant.
+- **The license is in force.** This, the free product, is released under the **GNU Affero
+  General Public License, version 3 or later**. The grant is made by [`LICENSE`](LICENSE),
+  which holds the unmodified text as published by the Free Software Foundation; if
+  anything here disagrees with that file, that file controls. ToolsEnabled Anywhere is a
+  separate, commercially licensed product and is not covered by this grant.
 
-  A license is granted by a `LICENSE` file, not by a sentence in a README, and there is no
-  `LICENSE` file yet. **Until one is added, no grant is made and all rights are reserved.**
-  It will be added before this repository is made public.
+  Dual licensing stays available because Joshua Pinckard is the sole copyright holder and
+  is therefore not bound by his own AGPL grant — but that holds **only while copyright
+  stays unfragmented.** Merging an outside contribution without a contributor agreement
+  leaves that contributor holding copyright in their part, after which no commercial
+  license can be granted over the whole work without asking every one of them. That has to
+  be settled before the first outside pull request is merged, not after. See
+  [`LICENSING.md`](LICENSING.md) and [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
+
+  None of this has been reviewed by a lawyer.
 
 ## Status
 
