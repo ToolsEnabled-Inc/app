@@ -66,6 +66,22 @@ contextBridge.exposeInMainWorld('mcFleetProfile', Object.freeze({
   probe: profile => ipcRenderer.invoke('mc-fleet-profile:probe', profile),
 }))
 
+/* The permission level. Read synchronously for the same reason the fleet
+   profile is: src/main.js decides whether this launch shows the setup question
+   or the fleet, and it decides that before the first paint. Setting the level
+   stays an explicit invoke.
+
+   `bootstrap` is present and `available: false` in a build with no capability
+   payload, so the renderer can state that plainly instead of offering a button
+   that is guaranteed to fail -- the same rule mcAgent.availability() follows.
+   In a plain browser (vite dev, preview) window.mcSetup is absent entirely,
+   which the renderer reads as "there is no machine here to configure". */
+const setup = ipcRenderer.sendSync('mc-setup:bootstrap')
+contextBridge.exposeInMainWorld('mcSetup', Object.freeze({
+  bootstrap: setup,
+  chooseTier: tier => ipcRenderer.invoke('mc-setup:choose-tier', tier),
+}))
+
 function rgbToHex(rgb) {
   const match = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)
   if (!match) return '#fdfdfd'

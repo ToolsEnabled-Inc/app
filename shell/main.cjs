@@ -4,7 +4,7 @@
 // titlebar strip — the VSCode arrangement: the app owns the top strip, the
 // OS owns min/max/close (which keeps Win11 snap layouts on the maximize
 // button for free).
-const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu, screen } = require('electron')
+const { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeTheme, Menu, safeStorage, screen } = require('electron')
 const http = require('http')
 const https = require('https')
 const net = require('net')
@@ -13,6 +13,7 @@ const path = require('path')
 const fs = require('fs')
 const { randomBytes, randomUUID } = require('crypto')
 const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
+const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const {
   readCapabilityProof,
@@ -20,6 +21,7 @@ const {
   startCapabilityLayer,
   stopCapabilityLayer,
 } = require('./capability-layer.cjs')
+const { readTierState, recordTier } = require('./setup-record.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
 const { headlessWindowOptions } = require('./window-options.cjs')
 const { startupFailureDetail } = require('./startup-failure-message.cjs')
@@ -216,6 +218,61 @@ function bindAgentOwner(owner) {
   })
 }
 
+/* The spawn recorder is built lazily: safeStorage is only meaningful after the
+   app is ready, and userData is not resolvable before then either. */
+let spawnRecorder = null
+function getSpawnRecorder() {
+  if (spawnRecorder) return spawnRecorder
+  spawnRecorder = createSpawnRecorder({
+    safeStorage,
+    directory: app.getPath('userData'),
+  })
+  return spawnRecorder
+}
+
+function spawnRecordAvailability() {
+  try {
+    return getSpawnRecorder().availability()
+  } catch (error) {
+    return Object.freeze({
+      ok: false,
+      code: typeof error?.code === 'string' ? error.code : 'SPAWN_RECORD_UNAVAILABLE',
+    })
+  }
+}
+
+/* Starting an agent is an external mutation: it creates a process. The audited
+   dispatch action refuses without a durable receipt, and this path now behaves
+   the same way, against this app's OWN signed local ledger rather than the
+   canonical chain -- which the shipped app cannot reach (no vault) and which
+   has been observed in an anchor-integrity alarm. Recording FIRST and refusing
+   on failure is the whole point: a session that could not be recorded is a
+   session that does not start. */
+function recordSpawnIntent(request) {
+  let receipt
+  try {
+    receipt = getSpawnRecorder().record({
+      action: 'agent_session_start',
+      sessionId: request.sessionId,
+      /* Null deliberately: there is no account system yet. When there is, the
+         value is read HERE, in the main process, and never accepted from the
+         renderer -- an identity a page can choose is not an identity. */
+      principal: null,
+      details: { cwd: request.cwd === undefined ? null : request.cwd },
+    })
+  } catch (error) {
+    agentIpcError(
+      'MC_AGENT_RECORD_UNAVAILABLE',
+      'The agent session was not started because it could not be recorded: '
+        + (typeof error?.code === 'string' ? error.code : 'SPAWN_RECORD_UNAVAILABLE'),
+    )
+  }
+  if (!receipt || receipt.durable !== true || receipt.signed !== true) {
+    agentIpcError('MC_AGENT_RECORD_UNAVAILABLE', 'The agent session was not started because its record was not durable')
+  }
+  return receipt
+}
+
 function getAgentHost() {
   if (agentHost) return agentHost
   const host = createAgentHost({ defaultCwd: path.join(__dirname, '..') })
@@ -240,7 +297,12 @@ function getAgentHost() {
 ipcMain.handle('mc-agent:availability', async (event, value) => {
   assertTrustedAgentSender(event)
   agentPayload(value === undefined || value === null ? {} : value, [])
-  return engineAvailability()
+  /* Both conditions, because a spawn needs both: something to run, and
+     somewhere to record that it ran. Reporting them separately would let the
+     surface offer a control that the start handler will refuse. */
+  const engine = engineAvailability()
+  if (engine.ok !== true) return engine
+  return spawnRecordAvailability()
 })
 
 ipcMain.handle('mc-agent:start', async (event, value) => {
@@ -253,13 +315,19 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
     agentIpcError('MC_AGENT_SESSION_LIMIT', 'At most ' + MAX_AGENT_SESSIONS + ' agent sessions may be open')
   }
 
+  /* Before anything is spawned. If this throws, no process was created and
+     nothing needs unwinding -- which is why it comes first. */
+  const record = recordSpawnIntent(request)
+
   const session = { owner: event.sender, state: 'starting' }
   agentSessions.set(request.sessionId, session)
   bindAgentOwner(event.sender)
   try {
     const result = await getAgentHost().startSession(request)
     session.state = 'ready'
-    return result
+    /* The receipt travels back with the session so the surface can show that
+       the start was recorded, rather than asserting it. */
+    return { ...result, record: { sequence: record.sequence, eventHash: record.eventHash } }
   } catch (error) {
     if (error && error.code === 'AGENT_SESSION_CLEANUP_FAILED') {
       session.state = 'close-failed'
@@ -969,6 +1037,38 @@ ipcMain.handle('mc-fleet-profile:choose-directory', event => withFleetProfileSen
 
 ipcMain.handle('mc-fleet-profile:probe', (event, profile) =>
   withFleetProfileSender(event, () => probeFleetProfile(profile)))
+
+/* ---------- first run: the permission level ----------
+ *
+ * The renderer asks what this install's permission level is, and sets it. Both
+ * go through shell/setup-record.cjs, which writes the engine's own machine
+ * record out of the capability payload rather than a second app-local copy.
+ *
+ * `bootstrap` is SYNCHRONOUS for the same reason mc-fleet-profile:bootstrap is:
+ * the first-run gate has to decide which screen to paint while the renderer's
+ * module graph is still evaluating. An async answer paints the fleet first and
+ * then yanks it away, which reads as a glitch on the product's first
+ * impression. It is a bounded read of one small JSON file.
+ *
+ * The write is an invoke and carries the same sender check as every other
+ * mutation here: a permission level arriving from a frame that is not this
+ * window's main frame is refused, not recorded. */
+ipcMain.on('mc-setup:bootstrap', (event) => {
+  if (!trustedFleetProfileSender(event)) {
+    event.returnValue = { ok: false, code: 'MC_SETUP_SENDER_REFUSED', reason: 'Setup request did not come from the application main frame.' }
+    return
+  }
+  try {
+    event.returnValue = readTierState()
+  } catch (error) {
+    /* readTierState is written not to throw. If it ever does, the first-run
+       gate must still get an answer, or the window paints nothing at all. */
+    event.returnValue = { ok: false, code: 'MC_SETUP_STATE_FAILED', reason: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
+  withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '')))
 
 /* Two ways to get the bootstrap proof, and the order matters.
  *
