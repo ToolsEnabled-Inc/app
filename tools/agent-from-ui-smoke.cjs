@@ -90,6 +90,8 @@ async function run() {
       const stopped = await window.mcAgent.close({ sessionId: id })
       return JSON.stringify({
         threadId: typeof started.threadId === 'string' && started.threadId.length > 0,
+        recordSequence: started.record && started.record.sequence,
+        recordHash: started.record && started.record.eventHash,
         status,
         reply: text.trim(),
         closed: stopped.closed === true,
@@ -99,9 +101,30 @@ async function run() {
 
   const session = JSON.parse(result)
   step('start() opened a real session from the page', session.threadId === true, 'threadId present')
+  step(
+    'the spawn was recorded before it ran',
+    Number.isSafeInteger(session.recordSequence) && session.recordSequence > 0
+      && /^[a-f0-9]{64}$/.test(String(session.recordHash || '')),
+    `sequence=${session.recordSequence} hash=${String(session.recordHash).slice(0, 12)}`,
+  )
   step('the turn completed', session.status === 'completed', 'status=' + session.status)
   step('output streamed back into the page', session.reply === 'PONG', 'reply=' + JSON.stringify(session.reply))
   step('close() stopped the session from the page', session.closed === true, 'closed=' + session.closed)
+
+  /* Independent verification, from outside the code under test: rebuild a
+     recorder over the same directory and re-check every hash, link, and
+     signature. A chain nothing ever verifies is decoration. */
+  const { app, safeStorage } = require('electron')
+  const { createSpawnRecorder } = require(path.join(APP_ROOT, 'shell', 'spawn-record.cjs'))
+  const verification = createSpawnRecorder({
+    safeStorage,
+    directory: app.getPath('userData'),
+  }).verify()
+  step(
+    'the recorded chain verifies end to end',
+    verification.ok === true && verification.count > 0,
+    `count=${verification.count}${verification.ok ? '' : ' code=' + verification.code}`,
+  )
 }
 
 app.whenReady().then(async () => {

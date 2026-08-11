@@ -105,13 +105,44 @@ test('the spawn surface states that no tier restricts a running session', () => 
   assert.match(surface, /UNRESTRICTED_NOTE/, 'the note must be rendered, not only defined')
 })
 
-test('the spawn surface states that the session is not recorded', () => {
-  // The sibling dispatch form refuses outright when the canonical audit writer
-  // is unavailable; this path writes no receipt at all. Until that asymmetry
-  // is closed, the surface must say so, and nothing may call a session here
-  // attributable to anyone -- there is no record to attribute.
+test('the spawn surface states that starts are recorded, and claims no more', () => {
+  // The claim must be exactly as strong as the evidence. "Recorded on this
+  // device" is true: an app-local signed chain, written before the spawn.
+  // Calling it the audit ledger, or implying off-device attestation, would
+  // overstate a key that lives on the same machine as the records.
   const surface = read('src/agent-session.js')
-  assert.match(surface, /this session is not recorded in the audit ledger/)
+  assert.match(surface, /recorded on this device before it runs/)
+  assert.doesNotMatch(
+    surface.match(/const UNRESTRICTED_NOTE = '[^']*'/)[0],
+    /audit ledger|canonical|tamper-proof|verified by/i,
+    'the note must not claim more than an app-local signed record',
+  )
+})
+
+test('a spawn is refused when it cannot be recorded', () => {
+  // The whole point of the gate: no receipt, no process. The record call must
+  // come before any spawn, and a failure must refuse rather than continue.
+  const main = read('shell/main.cjs')
+  assert.match(main, /const record = recordSpawnIntent\(request\)/, 'the spawn must be recorded first')
+  const start = main.slice(main.indexOf("ipcMain.handle('mc-agent:start'"))
+  assert.ok(
+    start.indexOf('recordSpawnIntent(request)') < start.indexOf('startSession(request)'),
+    'the record must be written before the session is started, not after',
+  )
+  assert.match(
+    main,
+    /agentIpcError\(\s*'MC_AGENT_RECORD_UNAVAILABLE'/,
+    'a record failure must refuse the spawn with a typed error',
+  )
+})
+
+test('availability requires both an engine and a usable recorder', () => {
+  // Reporting only the engine would let the surface offer a Start control that
+  // the start handler then refuses -- a dead button by a different route.
+  const main = read('shell/main.cjs')
+  const handler = main.slice(main.indexOf("ipcMain.handle('mc-agent:availability'"))
+  assert.match(handler.slice(0, 600), /engineAvailability\(\)/)
+  assert.match(handler.slice(0, 600), /spawnRecordAvailability\(\)/)
 })
 
 test('the surface renders only recognised event text', () => {
