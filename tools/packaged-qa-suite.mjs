@@ -113,6 +113,7 @@ const SETTINGS = new Map([
   ['page2-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
   ['owner-popup-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
   ['checkout-privacy-packaged-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
+  ['owner-account-packaged-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
   ['test-account-journey-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
   ['account-isolation-leak-qa.mjs', { runner: 'node', timeoutMs: 900_000 }],
   ['account-isolation-session-qa.mjs', { runner: 'node', timeoutMs: 900_000 }],
