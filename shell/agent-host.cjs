@@ -90,9 +90,9 @@ function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot()
   return candidates
 }
 
-function loadStartCodexSession(enginePath) {
+function loadStartCodexSession(enginePath, options = {}) {
   const attempts = []
-  for (const candidate of engineCandidates(enginePath)) {
+  for (const candidate of engineCandidates(enginePath, options)) {
     let modulePath
     try {
       modulePath = normalizedModulePath(candidate.value)
@@ -139,9 +139,16 @@ function loadStartCodexSession(enginePath) {
  * to start one, which means the UI must offer a control that may be dead --
  * the exact defect the regression gate was written to prevent.
  */
-function engineAvailability({ enginePath } = {}) {
+/* `capabilityRoot` is injectable so a test can pin the genuinely-engine-less
+ * state deterministically. It used to be enough to delete
+ * MISSION_CONTROL_ENGINE, because an unconfigured shell had no other way to
+ * find an engine. Now that a shipped payload legitimately resolves one, "no
+ * environment variable" no longer means "no engine", and a test that relies on
+ * that would be measuring ambient state -- green or red depending on whether a
+ * payload happens to be staged beside it. */
+function engineAvailability({ enginePath, ...options } = {}) {
   try {
-    loadStartCodexSession(enginePath)
+    loadStartCodexSession(enginePath, options)
     return Object.freeze({ ok: true, code: 'AGENT_ENGINE_READY' })
   } catch (error) {
     return Object.freeze({
@@ -422,4 +429,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd() } = {}) {
   })
 }
 
-module.exports = { createAgentHost, engineAvailability }
+/* engineCandidates is exported for ORDER assertions only. engineAvailability()
+ * cannot reveal precedence: the resolver walks every candidate and returns the
+ * first that WORKS, so when only one resolves the order is unobservable through
+ * it. A precedence test written against engineAvailability() therefore passes
+ * whichever way round the candidates are, which is exactly what a planted
+ * swap proved before this was exported. */
+module.exports = { createAgentHost, engineAvailability, engineCandidates }

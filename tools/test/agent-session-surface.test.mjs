@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import test from 'node:test'
 
-import { engineAvailability } from '../../shell/agent-host.cjs'
+import { engineAvailability, engineCandidates } from '../../shell/agent-host.cjs'
 import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-events.js'
 
 // The interface can start an agent only if three things hold at once: the
@@ -15,13 +16,21 @@ const ROOT = resolve(import.meta.dirname, '..', '..')
 const read = (path) => readFileSync(resolve(ROOT, path), 'utf8')
 
 test('availability reports a bounded code and never a path', () => {
-  // The unconfigured answer is the one that ships. It must stay {ok, code}:
-  // the resolver's real message lists every path it tried, and rendering that
-  // is how a private checkout path reached the DOM before.
+  // The engine-less answer must stay {ok, code}: the resolver's real message
+  // lists every path it tried, and rendering that is how a private checkout
+  // path reached the DOM before.
+  //
+  // `capabilityRoot: null` pins that state explicitly. Deleting the env var
+  // used to be sufficient, because an unconfigured shell had no other way to
+  // find an engine -- but a shipped payload now legitimately resolves one, so
+  // "no environment variable" no longer means "no engine". Without this the
+  // test measures whether a payload happens to be staged in the checkout
+  // beside it, and flips green/red on ambient state rather than on the
+  // behaviour it is pinning.
   const previous = process.env.MISSION_CONTROL_ENGINE
   delete process.env.MISSION_CONTROL_ENGINE
   try {
-    const result = engineAvailability()
+    const result = engineAvailability({ capabilityRoot: null })
     assert.equal(result.ok, false)
     assert.equal(result.code, 'AGENT_ENGINE_UNAVAILABLE')
     assert.deepEqual(Object.keys(result).sort(), ['code', 'ok'])
@@ -183,4 +192,68 @@ test('the agent page mounts the session surface and closes it on destroy', () =>
   const view = read('src/views/agent.js')
   assert.match(view, /mountAgentSessionSurface\(root/, 'the agent page must mount the session surface')
   assert.match(view, /destroyAgentSession\(\)/, 'navigating away must close any open session')
+})
+
+test('availability resolves the engine the installer ships, with no environment variable set', () => {
+  // THE CUSTOMER PATH, and the one that was dead on every shipped copy until
+  // 2026-08-10. Measured over CDP against the real installed 1.0.5:
+  // mc.write.agent-session was already "enabled" and availability() still
+  // answered AGENT_ENGINE_UNAVAILABLE, because engineCandidates() knew only an
+  // explicit enginePath and MISSION_CONTROL_ENGINE. A customer has neither, and
+  // no UI sets one, so "start an agent from inside Mission Control" could never
+  // work. The engine now ships in the capability payload
+  // (tools/capability-manifest.json hostModules) and resolves from the same
+  // root shell/setup-record.cjs already uses.
+  //
+  // The fixture mirrors the payload's real layout rather than working around
+  // the resolver, so a change to PAYLOAD_ENGINE_MODULE breaks this test.
+  const root = mkdtempSync(join(tmpdir(), 'mc-capability-'))
+  try {
+    const engineDir = join(root, 'src', 'lib', 'agent-engine')
+    mkdirSync(engineDir, { recursive: true })
+    copyFileSync(
+      resolve(ROOT, 'tools/test/fixtures/agent-engine/codex-process.js'),
+      join(engineDir, 'codex-process.js'),
+    )
+
+    const previous = process.env.MISSION_CONTROL_ENGINE
+    delete process.env.MISSION_CONTROL_ENGINE
+    try {
+      const result = engineAvailability({ capabilityRoot: root })
+      assert.equal(result.ok, true, 'a payload that carries the engine must resolve without any environment variable')
+      assert.equal(result.code, 'AGENT_ENGINE_READY')
+    } finally {
+      if (previous === undefined) delete process.env.MISSION_CONTROL_ENGINE
+      else process.env.MISSION_CONTROL_ENGINE = previous
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an explicitly configured engine still wins over the shipped payload', () => {
+  // A developer pointing MISSION_CONTROL_ENGINE at their own checkout must keep
+  // getting that checkout, not the packaged copy -- the same precedence
+  // shell/main.cjs applies to MC_BRIDGE_PROOF_FILE. Pinned because the obvious
+  // way to add the payload candidate is to put it first, which would silently
+  // start ignoring the override.
+  //
+  // Asserted on the CANDIDATE ORDER, not on engineAvailability(). The resolver
+  // walks every candidate and returns the first that WORKS, so when only one of
+  // them resolves the order is invisible through availability() -- an earlier
+  // version of this test did exactly that and stayed GREEN when the precedence
+  // was deliberately reversed. Proven by planting that swap.
+  const previous = process.env.MISSION_CONTROL_ENGINE
+  process.env.MISSION_CONTROL_ENGINE = resolve(ROOT, 'tools/test/fixtures/agent-engine')
+  try {
+    const sources = engineCandidates(undefined, { capabilityRoot: '/any/payload/root' }).map((c) => c.source)
+    assert.deepEqual(
+      sources,
+      ['MISSION_CONTROL_ENGINE', 'capability-payload'],
+      'the configured engine must be tried before the shipped payload',
+    )
+  } finally {
+    if (previous === undefined) delete process.env.MISSION_CONTROL_ENGINE
+    else process.env.MISSION_CONTROL_ENGINE = previous
+  }
 })
