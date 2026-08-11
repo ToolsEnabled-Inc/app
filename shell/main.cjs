@@ -66,6 +66,11 @@ const PROJECTION_CAPABILITY_HEADER = 'x-mc-projection-capability'
 const projectionCapability = randomBytes(32).toString('base64url')
 const bridgeProof = readBridgeProof({ env: process.env, readFileSync: fs.readFileSync })
 const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
+/* The one real directory the product owns on a customer's disk. The capability
+   layer already serves it as its workspace root; an agent session runs THERE,
+   for the same reason, and the constant is shared so the two cannot drift into
+   disagreeing about where the user's work lives. */
+const WORKSPACE_ROOT = path.join(app.getPath('userData'), 'workspace')
 
 fs.mkdirSync(CRASH_DUMP_DIR, { recursive: true })
 app.setPath('crashDumps', CRASH_DUMP_DIR)
@@ -273,9 +278,36 @@ function recordSpawnIntent(request) {
   return receipt
 }
 
+/* WHY THE DEFAULT CWD IS THE WORKSPACE AND NOT `__dirname/..`.
+ *
+ * This used to be `path.join(__dirname, '..')`. In a checkout that is the repo
+ * root -- a real directory -- and every session started. In a PACKAGED app
+ * `__dirname` is inside the archive, so it resolved to `resources/app.asar`,
+ * which on the real filesystem is a 1.8 MB FILE.
+ *
+ * Nothing caught it. normalizeCwd() validates with fs.statSync, and Electron's
+ * asar-patched fs answers that `app.asar` IS a directory, so validation passed
+ * cleanly. child_process.spawn does not go through that patch: it hands the
+ * path to CreateProcess, which refuses a file as a working directory and
+ * reports ENOENT -- attributed, misleadingly, to the COMMAND rather than the
+ * cwd. The Codex child therefore died at spawn on every packaged install.
+ *
+ * MEASURED 2026-08-10, engine run under the shipped `Mission Control.exe`:
+ *   cwd = C:\Users\joshp\Desktop\wt-capability   -> START OK, threadId issued
+ *   cwd = ...\resources\app.asar                 -> CODEX_APP_SERVER_EXITED
+ *     "spawn C:\...\Mission Control.exe ENOENT"
+ * Same binary, same engine, same auth; only the cwd differed.
+ *
+ * The third dev-only-works bug in this path, and the same shape as the other
+ * two: a value that is a real thing in a checkout and a virtual one inside the
+ * asar. The workspace root is a genuine directory that the app creates on
+ * every start, so it is correct on a customer's machine and in a checkout --
+ * and it is also where the user's work actually is, which is where an agent
+ * should be running in the first place. */
 function getAgentHost() {
   if (agentHost) return agentHost
-  const host = createAgentHost({ defaultCwd: path.join(__dirname, '..') })
+  try { fs.mkdirSync(WORKSPACE_ROOT, { recursive: true }) } catch { /* normalizeCwd reports an unusable workspace */ }
+  const host = createAgentHost({ defaultCwd: WORKSPACE_ROOT })
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
     if (!session || session.owner.isDestroyed()) return
@@ -1160,7 +1192,7 @@ function currentWorkAreas() {
  * with no new surface and nothing new to render. */
 async function startSupervisedCapabilityLayer() {
   const root = resolveCapabilityRoot()
-  const workspaceRoot = path.join(app.getPath('userData'), 'workspace')
+  const workspaceRoot = WORKSPACE_ROOT
   try { fs.mkdirSync(workspaceRoot, { recursive: true }) } catch { /* the layer reports its own refusal */ }
 
   const started = await startCapabilityLayer({ root, origin: shellOrigin, workspaceRoot })

@@ -162,16 +162,54 @@ function normalizeSessionId(value) {
   return boundedString(value, 'sessionId', 128)
 }
 
+/* Stat the way the OS will, not the way Electron's fs patch will.
+ *
+ * Electron patches fs so that paths inside an `.asar` archive report as real
+ * directories. child_process.spawn honours no such patch: it hands cwd to
+ * CreateProcess/chdir, which sees `app.asar` as the single FILE it is and
+ * refuses it -- surfacing as an ENOENT blamed on the command, not the cwd.
+ *
+ * So a plain fs.statSync() here answers a DIFFERENT question than the one the
+ * spawn will ask, and approves a working directory that cannot work. That gap
+ * is not hypothetical: it is how a packaged-only agent-start failure got past
+ * this validator while every checkout stayed green (measured 2026-08-10, see
+ * getAgentHost() in shell/main.cjs). `process.noAsar` turns the patch off for
+ * the duration of the call, so validation and execution agree.
+ *
+ * Setting a process flag Electron reads is not an Electron dependency -- this
+ * module still require()s no Electron -- and in plain Node the property is
+ * simply unused. */
+function statAsTheOsWill(target) {
+  const previous = process.noAsar
+  process.noAsar = true
+  try {
+    return fs.statSync(target)
+  } finally {
+    process.noAsar = previous
+  }
+}
+
 function normalizeCwd(value, fallback) {
   const raw = value === undefined ? fallback : boundedString(value, 'cwd', 32_768)
   const resolved = path.resolve(raw)
   let stats
   try {
-    stats = fs.statSync(resolved)
+    stats = statAsTheOsWill(resolved)
   } catch (error) {
     fail('AGENT_HOST_INVALID_CWD', `cwd is not accessible: ${resolved} (${error.code || error.message})`)
   }
-  if (!stats.isDirectory()) fail('AGENT_HOST_INVALID_CWD', `cwd is not a directory: ${resolved}`)
+  if (!stats.isDirectory()) {
+    // Name the archive case explicitly. "not a directory" about a path that
+    // Electron's own fs calls a directory reads as a contradiction otherwise,
+    // and that confusion is what cost the time this comment exists to save.
+    const inArchive = resolved.split(path.sep).some(segment => segment.toLowerCase().endsWith('.asar'))
+    fail(
+      'AGENT_HOST_INVALID_CWD',
+      inArchive
+        ? `cwd is inside an asar archive and cannot be a working directory: ${resolved}`
+        : `cwd is not a directory: ${resolved}`,
+    )
+  }
   return resolved
 }
 

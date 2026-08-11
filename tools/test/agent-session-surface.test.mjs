@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
 
-import { engineAvailability, engineCandidates } from '../../shell/agent-host.cjs'
+import { createAgentHost, engineAvailability, engineCandidates } from '../../shell/agent-host.cjs'
 import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-events.js'
 
 // The interface can start an agent only if three things hold at once: the
@@ -229,6 +229,87 @@ test('availability resolves the engine the installer ships, with no environment 
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+/* THE THIRD DEV-ONLY-WORKS BUG on this path, and the last one blocking
+   "start an agent from inside Mission Control".
+
+   getAgentHost() passed `path.join(__dirname, '..')` as the session cwd. In a
+   checkout that is the repo root; in a packaged app `__dirname` lives inside
+   the archive, so it resolved to `resources/app.asar` -- a FILE. Electron's
+   asar-patched fs reports that path as a directory, so normalizeCwd() approved
+   it, and child_process.spawn (which does not honour the patch) then failed at
+   CreateProcess with an ENOENT blamed on the command. Every packaged agent
+   start died there while every checkout stayed green.
+
+   MEASURED 2026-08-10 with the shipped binary as the engine's script host:
+     cwd = <a real directory>      -> START OK, threadId issued
+     cwd = ...\resources\app.asar  -> CODEX_APP_SERVER_EXITED, spawn ... ENOENT
+   Same binary, same engine, same auth; the cwd was the only difference. */
+
+test('the agent session cwd is a real directory, not a path inside the app bundle', () => {
+  // The defect in one line. A __dirname-relative default is a real directory in
+  // a checkout and a virtual one inside the asar, so this can only be caught by
+  // reading what the shell actually passes.
+  const main = read('shell/main.cjs')
+  const call = main.match(/createAgentHost\(\{[^}]*\}\)/)
+  assert.ok(call, 'main.cjs must construct the agent host with an explicit default cwd')
+  assert.doesNotMatch(
+    call[0],
+    /__dirname/,
+    'the agent default cwd must not be derived from __dirname: inside a packaged app that is an asar path, which cannot be a spawn working directory',
+  )
+  assert.match(call[0], /defaultCwd:\s*WORKSPACE_ROOT/, 'the agent must run in the workspace root')
+  assert.match(
+    main,
+    /const WORKSPACE_ROOT = path\.join\(app\.getPath\('userData'\), 'workspace'\)/,
+    'the workspace root must be a real directory under userData',
+  )
+})
+
+test('a cwd inside an asar archive is refused with a message that says so', () => {
+  // The validator must reject what the spawn will reject. Named explicitly
+  // because "not a directory" about a path Electron's own fs calls a directory
+  // reads as a contradiction, and that confusion is what cost the time.
+  const root = mkdtempSync(join(tmpdir(), 'mc-agent-cwd-'))
+  try {
+    const archive = join(root, 'resources', 'app.asar')
+    mkdirSync(join(root, 'resources'), { recursive: true })
+    writeFileSync(archive, 'not a directory')
+    assert.throws(
+      () => createAgentHost({
+        enginePath: resolve(ROOT, 'tools/test/fixtures/agent-engine'),
+        defaultCwd: archive,
+      }),
+      (error) => {
+        assert.equal(error.code, 'AGENT_HOST_INVALID_CWD')
+        assert.match(error.message, /inside an asar archive/)
+        return true
+      },
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the cwd check asks the question the spawn will ask, not the one fs answers', () => {
+  // Under Electron, a plain fs.statSync() reports asar-internal paths as
+  // directories, so the isDirectory() guard above passes on exactly the path
+  // that broke. `process.noAsar` makes validation and execution agree. This is
+  // asserted on the source because the divergence only exists inside Electron
+  // and cannot be reproduced by the plain-node test runner.
+  const agentHost = read('shell/agent-host.cjs')
+  assert.match(agentHost, /process\.noAsar = true/, 'the cwd stat must run with asar interception disabled')
+  assert.match(
+    agentHost,
+    /statAsTheOsWill\(resolved\)/,
+    'normalizeCwd must use the unpatched stat, not fs.statSync directly',
+  )
+  assert.doesNotMatch(
+    agentHost.slice(agentHost.indexOf('function normalizeCwd')),
+    /fs\.statSync/,
+    'normalizeCwd must not fall back to the asar-patched stat',
+  )
 })
 
 test('an explicitly configured engine still wins over the shipped payload', () => {
