@@ -50,9 +50,15 @@
 
 .setup-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: var(--s2);
   margin-top: var(--s5);
 }
+
+/* The spacer, not `justify-content: flex-end`, because the row now carries a
+   left-aligned Skip and right-aligned Back/Continue. One rule handles both the
+   single-button step and the three-control one. */
+.setup-actions-spacer { flex: 1 1 auto; }
 
 /* .ctl-btn carries no horizontal padding of its own -- every surface that uses
    it sizes it (the agent view's control strip sets `padding: 5px 6px`, the
@@ -70,6 +76,89 @@
 body.first-run .topbar { display: none; }
 body.first-run.in-shell #stage,
 body.first-run #stage { padding-top: 0; }
+
+/* ---------- the rest of the walkthrough ----------
+ *
+ * Same rule as everything above: layout only. Every colour here is an existing
+ * token and every control is an existing component. The three additions below
+ * exist because a multi-step flow needs to say WHERE you are, and a review needs
+ * a second heading level that the single-question screen never did.
+ */
+
+/* "Question 2 of 3" -- the whole defence of "relatively few steps" is that the
+   person can see how few. Sized as the app's existing micro-label: the same
+   11px/0.14em uppercase treatment .settings-prefix uses. */
+.setup-progress {
+  margin: 0 0 var(--s2);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.setup-lede {
+  margin: calc(var(--s5) * -1 + var(--s2)) 0 var(--s4);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Exactly .settings-section-title, which is what this is: a group heading over
+   settings rows. Declared rather than reused only because the review's groups
+   are inside one section element instead of being sections themselves. */
+.setup-subtitle {
+  margin: var(--s5) 0 var(--s2);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Skip is a real exit and is styled as text rather than as a button, so it can
+   be found without competing with the action the screen is actually for. It is
+   never hidden: a walkthrough with a hidden exit is a trap. */
+.setup-skip {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.setup-skip:hover { color: var(--ink-2); }
+
+.setup-root {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* The folder is the one path this program shows the person, and it is theirs.
+   Set in the data face because it is a machine value they may need to compare
+   character by character, and allowed to wrap rather than truncate: a path cut
+   off in the middle cannot be checked. */
+.setup-root-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.setup-hint {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 /* The fleet notice is appended to <body> once, at module evaluation, and is
    not route-aware -- it predates there being any screen before the fleet. Seen

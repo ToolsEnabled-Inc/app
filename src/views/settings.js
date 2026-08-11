@@ -11,11 +11,22 @@ import {
   FLEET_PROFILE_SETTING_COUNT,
   createFleetProfileSettings,
 } from '../fleet-profile-settings.js'
+/* The first-run walkthrough's settings. They are a SECTION here rather than a
+   screen of their own because the owner's requirement has two halves: the
+   walkthrough may infer, and every inferred setting must stay visible and
+   editable afterwards. A profile only the walkthrough could edit would satisfy
+   the first half and fail the second. */
+import {
+  SETUP_PROFILE_SETTING_COUNT,
+  createSetupProfileSettings,
+} from '../setup-profile-settings.js'
 import '../settings.css'
 import '../fleet-profile-settings.css'
+import '../setup.css'
 
 const SECTIONS = [
   'System',
+  'Setup',
   'Appearance',
   'Text & Reading',
   'Motion & Effects',
@@ -337,6 +348,7 @@ function setTierFocusable(tier, open) {
 
 export function settingsView() {
   const profileController = createFleetProfileSettings()
+  const setupController = createSetupProfileSettings()
   const root = el(`<main class="view-pad settings-page">
     <div class="settings-shell">
       <header class="settings-header m-head">
@@ -399,10 +411,11 @@ export function settingsView() {
     for (const input of sectionsNode.querySelectorAll('input[type="range"]')) rangeFill(input)
     syncArchiveControl()
     profileController.afterRender(root)
+    setupController.afterRender(root)
   }
 
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT} settings · ${shown} shown · search reaches all depths`
+    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT} settings · ${shown} shown · search reaches all depths`
   }
 
   function syncRail() {
@@ -414,11 +427,16 @@ export function settingsView() {
     }
   }
 
+  function sectionNodeMarkup(section) {
+    if (section === 'System') return profileController.markup()
+    if (section === 'Setup') return setupController.markup()
+    return sectionMarkup(section, levels.get(section))
+  }
+
   function renderSectioned() {
-    sectionsNode.innerHTML = SECTIONS.map(section => section === 'System'
-      ? profileController.markup()
-      : sectionMarkup(section, levels.get(section))).join('')
-    shown = FLEET_PROFILE_SETTING_COUNT + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    sectionsNode.innerHTML = SECTIONS.map(sectionNodeMarkup).join('')
+    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT
+      + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     // `inert` is the primary guard; the explicit tabindex pass keeps closed
     // tiers unreachable in older engines while preserving the CSS reveal.
     for (const section of SECTIONS) syncSectionDepth(section)
@@ -431,13 +449,17 @@ export function settingsView() {
     const normalized = query.trim().toLowerCase()
     const matches = SETTINGS.filter(setting => `${setting.name} ${setting.desc} ${setting.section}`.toLowerCase().includes(normalized))
     const profileMatches = profileController.matches(normalized)
+    const setupMatches = setupController.matches(normalized)
     sectionsNode.innerHTML = `<section class="settings-results">
       <h2 class="settings-section-title">Results</h2>
       ${profileMatches ? profileController.markup({ searchResult: true }) : ''}
+      ${setupMatches ? setupController.markup({ searchResult: true }) : ''}
       ${matches.map(setting => rowMarkup(setting, true)).join('')}
-      ${profileMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
+      ${profileMatches || setupMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
     </section>`
-    shown = matches.length + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
+    shown = matches.length
+      + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
+      + (setupMatches ? SETUP_PROFILE_SETTING_COUNT : 0)
     wireControls()
     updateFooter()
   }
