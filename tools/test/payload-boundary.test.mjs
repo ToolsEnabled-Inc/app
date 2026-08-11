@@ -208,12 +208,34 @@ test("a pending file is reported with its reason and does NOT fail the build", a
   });
 });
 
-test("status 'proposed' prints an unratified notice", async () => {
+// THE PROPOSED NOTICE MUST NOT SEND THE READER LOOKING FOR A DECISION.
+//
+// This test used to pin the literal phrase "has not been ratified by the owner".
+// That phrase was false -- the owner ruled on every entry, and twenty-three of
+// those decisions are executed -- and pinning it made the falsehood load-bearing:
+// correcting the tool turned this suite red, which is pressure to restore the
+// wrong sentence rather than fix it.
+//
+// So the assertions below are about MEANING, not wording. The notice must say the
+// pending paths still ship and that ratification follows from emptying pending;
+// it must not claim a decision is outstanding. The negative assertion is the point
+// of the test -- a phrase that was wrong once is exactly the one worth forbidding.
+test("status 'proposed' explains the mechanism, not a missing decision", async () => {
   await withFixture(async ({ payload, writeManifest, writePayloadFile }) => {
     await writePayloadFile(OPEN_FILE);
     const result = runGuard(await writeManifest(baseManifest()), payload);
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /has not been ratified by the owner/);
+
+    assert.match(result.output, /still shipping/, 'the notice must say pending paths still ship');
+    assert.match(result.output, /owner-ratified/, 'the notice must name the status it becomes');
+
+    assert.doesNotMatch(
+      result.output,
+      /has not been ratified by the owner|once the owner has ruled/,
+      'the notice claims a decision is outstanding. The owner has ruled on every entry; the status ' +
+        'is held by pending files, not by a missing signature, and a reader told otherwise goes ' +
+        'hunting for a decision instead of removing the files.',
+    );
   });
 });
 
