@@ -1,33 +1,74 @@
 // Independent contract test for shell/port-scan.cjs (R1206 test lane).
 //
-// Written from the contract only, without reading shell/port-scan.cjs or
-// shell/main.cjs. The module's public surface (SHELL_HOST, SHELL_PORT_MIN,
-// SHELL_PORT_MAX, SHELL_PORTS, listenOnFirstFreePort) was confirmed by
-// requiring the module and inspecting Object.keys()/typeof at a shell prompt
-// -- not by reading its source -- because a black-box test still has to know
-// how to call the thing it is testing. No behavioural assumption below comes
-// from that inspection; only the call signature does.
+// PROVENANCE, honestly stated: the cases below were originally written from
+// the contract alone, without reading shell/port-scan.cjs. That is no longer
+// true of the whole file -- the machine-independence repair described next
+// was made with the module's source in hand, because it changes HOW the
+// module is called (which port list is injected), and a repair to a calling
+// convention cannot be made blind. The behavioural claims themselves are
+// unchanged and still come from the contract, not from the implementation.
 //
-// Every case below drives real sockets on 127.0.0.1 (and, for the foreign
-// -host case, the real loopback address 127.0.0.2). Nothing is mocked or
-// stubbed.
+// WHY THIS SUITE NO LONGER BINDS 4601-4609
+//
+// It used to drive every case against the product's real port range, and
+// opened with a `before()` hook that failed the entire file unless all nine
+// of those ports were free. On any machine where something else held one --
+// the app itself, a second build, a QA harness, a teammate testing, CI with
+// two jobs on one box -- all nine tests went red at once, for a reason that
+// had nothing to do with the code under test.
+//
+// That is a test-design defect, not bad luck. A suite that can only pass on a
+// globally idle machine is fragile, not strict; it cries wolf, and a gate
+// that cries wolf is one people learn to skip. Requiring an idle machine is
+// also a requirement no real environment honours.
+//
+// The repair splits the claim in two, which makes both halves STRONGER:
+//
+//   P1  The declared range IS the inclusive 4601-4609 set, ascending and
+//       contiguous. Asserted directly against the module's exported
+//       constants -- a direct reading of the declaration, rather than
+//       something inferred from nine successful binds.
+//
+//   P2  listenOnFirstFreePort takes the FIRST entry in the list it is given
+//       that will bind, and gives up only when every entry fails. Asserted
+//       against real sockets on ports this test OWNS -- an ephemeral block
+//       the OS hands out and this file holds for the duration -- so no other
+//       process on the machine can perturb the result.
+//
+// P1 and P2 together entail the original claim ("binds the lowest free port
+// in 4601-4609") and, unlike the original, neither half can be broken by a
+// stranger's socket. The list is a parameter of the function under test and
+// shell/main.cjs passes the real range through that same parameter, so P2 is
+// exercising the production path, not a test-only one.
+//
+// Injectability must not become "the product scans whatever the test says",
+// so two cases below deliberately pin the production default: contract #9
+// exercises the no-argument default against the real declared range, and
+// contract #10 pins the shell's own call site to the exported constants.
+//
+// Everything here still drives real OS sockets on 127.0.0.1 (and, for the
+// foreign-host case, the real loopback address 127.0.0.2). Nothing is mocked
+// or stubbed.
 //
 // Contract item -> test map:
-//   1) scans inclusive 4601-4609, binds first available -> covered by 2-6
-//   2) whole range free -> selects 4601                  -> "contract #2"
-//   3) 4601 held -> 4602; general lowest-free-port claim  -> "contract #3"
-//   4) 4601-4608 held -> 4609                             -> "contract #4"
-//   5) all nine held -> distinguishable typed error,
-//      not raw EADDRINUSE, no server left listening       -> "contract #5"
-//   6) binds only 127.0.0.1; other hosts rejected          -> "contract #6"
+//   1) declared range is the inclusive 4601-4609 set        -> "contract #1"
+//   2) whole list free -> selects the first entry            -> "contract #2"
+//   3) first entry held -> next; general lowest-free claim   -> "contract #3"
+//   4) all but the last held -> selects the last             -> "contract #4"
+//   5) every entry held -> distinguishable typed error,
+//      not raw EADDRINUSE, no server left listening          -> "contract #5"
+//   6) binds only 127.0.0.1; other hosts rejected            -> "contract #6"
 //   7) a non-"address in use" listen error propagates
-//      unchanged, is not swallowed into "port busy"        -> "contract #7"
-//   8) no Electron dependency, runs under bare Node         -> "contract #8"
+//      unchanged, is not swallowed into "port busy"          -> "contract #7"
+//   8) no Electron dependency, runs under bare Node          -> "contract #8"
+//   9) the no-argument default really is the declared range  -> "contract #9"
+//  10) the shell wires that declared range into the scan     -> "contract #10"
 
 import assert from 'node:assert/strict'
 import net from 'node:net'
-import test, { before } from 'node:test'
+import test from 'node:test'
 import { execFileSync } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import portScan from '../../shell/port-scan.cjs'
 
@@ -53,21 +94,9 @@ function occupy(host, port) {
   })
 }
 
-async function occupyMany(host, ports) {
-  const held = []
-  for (const port of ports) {
-    held.push(await occupy(host, port))
-  }
-  return held
-}
-
 function release(server) {
   if (!server || !server.listening) return Promise.resolve()
   return new Promise((resolve) => server.close(() => resolve()))
-}
-
-function releaseAll(servers) {
-  return Promise.all(servers.map(release))
 }
 
 // Attempts a real client connection; resolves true only if something is
@@ -102,31 +131,40 @@ async function captureRejection(fn) {
   }
 }
 
-// ---- suite hygiene: fail loudly and early if the range is not clean,
-// ---- instead of producing a confusing false result deeper in the file.
-// ---- (This is a real concern here: another test file in this same
-// ---- directory binds this exact port range with real sockets too, and
-// ---- `node --test` runs separate files concurrently by default.) -------
+// ---- ephemeral port blocks: ports this file owns outright ---------------
+//
+// Binding port 0 asks the OS for a port nothing else currently holds. We
+// take `size` of them AND KEEP HOLDING THEM, so between the moment the block
+// is chosen and the moment a case runs, no other process can take one: they
+// are not merely "free right now", they are ours. A case then releases only
+// the slots it wants the scan to be able to take, which is what makes the
+// expected answer exact instead of hopeful.
+//
+// Sorted ascending so that "the first entry in the list" and "the lowest
+// port in the block" are the same port -- that is the shape the real range
+// has (P1 asserts it), so a case written against this block is making the
+// same claim the product relies on.
 
-before(async () => {
-  const busy = []
-  for (const port of SHELL_PORTS) {
-    try {
-      const probe = await occupy(SHELL_HOST, port)
-      await release(probe)
-    } catch {
-      busy.push(port)
-    }
+async function borrowBlock(t, size) {
+  const holders = []
+  for (let index = 0; index < size; index += 1) {
+    holders.push(await occupy(SHELL_HOST, 0))
   }
-  assert.deepEqual(
-    busy,
-    [],
-    `expected the full ${SHELL_PORT_MIN}-${SHELL_PORT_MAX} range to be free ` +
-      `before this suite runs; found already busy: ${busy.join(', ') || 'none'}. ` +
-      'Another process (possibly a concurrently running sibling port-scan test ' +
-      'file) is holding one of these ports.',
-  )
-})
+  const slots = holders
+    .map((holder) => ({ port: holder.address().port, holder }))
+    .sort((left, right) => left.port - right.port)
+
+  t.after(() => Promise.all(slots.map((slot) => release(slot.holder))))
+
+  return {
+    slots,
+    ports: Object.freeze(slots.map((slot) => slot.port)),
+    // Hand these port numbers back to the OS so the scan can take them.
+    free: (...indexes) =>
+      Promise.all(indexes.map((index) => release(slots[index].holder))),
+    freeAll: () => Promise.all(slots.map((slot) => release(slot.holder))),
+  }
+}
 
 // ---- contract item 1 (range) --------------------------------------------
 
@@ -135,91 +173,120 @@ test('contract #1: the declared scan range is the inclusive 4601-4609 set', () =
   assert.equal(SHELL_PORT_MIN, 4601)
   assert.equal(SHELL_PORT_MAX, 4609)
   assert.deepEqual(SHELL_PORTS, [4601, 4602, 4603, 4604, 4605, 4606, 4607, 4608, 4609])
+
+  // The ordering and shape are load-bearing, not incidental: "lowest free
+  // port" is only true of a scan that walks its list in order because that
+  // list is ascending and contiguous. Assert those properties outright so
+  // the second half of the claim (contract #3) has something to stand on.
+  assert.equal(SHELL_PORTS.length, SHELL_PORT_MAX - SHELL_PORT_MIN + 1)
+  assert.equal(SHELL_PORTS[0], SHELL_PORT_MIN)
+  assert.equal(SHELL_PORTS[SHELL_PORTS.length - 1], SHELL_PORT_MAX)
+  assert.equal(new Set(SHELL_PORTS).size, SHELL_PORTS.length, 'no port may appear twice')
+  for (let index = 1; index < SHELL_PORTS.length; index += 1) {
+    assert.equal(
+      SHELL_PORTS[index],
+      SHELL_PORTS[index - 1] + 1,
+      'the declared range must be ascending and contiguous',
+    )
+  }
+  assert.equal(Object.isFrozen(SHELL_PORTS), true, 'a caller must not be able to edit the declared range')
 })
 
 // ---- contract item 2 -----------------------------------------------------
 
-test('contract #2: with the whole range free, it selects and really binds 4601', async () => {
+test('contract #2: with the whole list free, it selects and really binds the first entry', async (t) => {
+  const block = await borrowBlock(t, 4)
+  await block.freeAll()
+
   const server = net.createServer()
+  const second = net.createServer()
   try {
-    const port = await listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST)
-    assert.equal(port, 4601)
+    const port = await listenOnFirstFreePort(server, block.ports, SHELL_HOST)
+    assert.equal(port, block.ports[0])
     assert.equal(server.listening, true)
     const address = server.address()
     assert.equal(typeof address, 'object')
     assert.equal(address.address, SHELL_HOST)
-    assert.equal(address.port, 4601)
+    assert.equal(address.port, block.ports[0])
 
     assert.equal(
-      await probeConnect(SHELL_HOST, 4601),
+      await probeConnect(SHELL_HOST, block.ports[0]),
       true,
       'a real client must be able to reach the port the scan says it bound',
     )
 
-    for (const other of SHELL_PORTS.filter((p) => p !== 4601)) {
-      assert.equal(
-        await probeConnect(SHELL_HOST, other),
-        false,
-        `port ${other} must be untouched when 4601 was free and selected`,
-      )
-    }
+    // It must take ONE port, not several. Proving that by rescanning the
+    // same list with a second server: if the first scan had quietly bound
+    // more of the list, this would not come back with the second entry.
+    const next = await listenOnFirstFreePort(second, block.ports, SHELL_HOST)
+    assert.equal(next, block.ports[1], 'the scan must consume exactly one port from the list')
   } finally {
     await release(server)
+    await release(second)
   }
 })
 
 // ---- contract item 3 (direct case + general "lowest free" claim) --------
 
-test('contract #3: when 4601 is already held, it selects 4602', async () => {
-  const blocker = await occupy(SHELL_HOST, 4601)
+test('contract #3: when the first entry is already held, it selects the second', async (t) => {
+  const block = await borrowBlock(t, 4)
+  await block.free(1, 2, 3) // slot 0 stays held by us
+
   const server = net.createServer()
   try {
-    const port = await listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST)
-    assert.equal(port, 4602)
-    assert.equal(server.address().port, 4602)
+    const port = await listenOnFirstFreePort(server, block.ports, SHELL_HOST)
+    assert.equal(port, block.ports[1])
+    assert.equal(server.address().port, block.ports[1])
   } finally {
     await release(server)
-    await release(blocker)
   }
 })
 
-test('contract #3 (general case): it selects the lowest free port, not merely the next one after the last held port', async () => {
-  // 4601 and 4603 and 4605 are held, but not 4602 -- a scan that just
-  // walked past the highest held port, or resumed after the last hold,
-  // would get this wrong. The lowest free port here is 4602.
-  const blockers = await occupyMany(SHELL_HOST, [4601, 4603, 4605])
+test('contract #3 (general case): it selects the lowest free port, not merely the next one after the last held port', async (t) => {
+  // Slots 0, 2 and 4 are held and 1 and 3 are free -- a scan that just
+  // walked past the highest held entry, or resumed after the last hold,
+  // would answer slot 3 (or fail). The lowest free port here is slot 1.
+  const block = await borrowBlock(t, 5)
+  await block.free(1, 3)
+
   const server = net.createServer()
   try {
-    const port = await listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST)
-    assert.equal(port, 4602)
+    const port = await listenOnFirstFreePort(server, block.ports, SHELL_HOST)
+    assert.equal(
+      port,
+      block.ports[1],
+      'the scan must return the lowest free entry, not the first one after the last held entry',
+    )
   } finally {
     await release(server)
-    await releaseAll(blockers)
   }
 })
 
 // ---- contract item 4 -------------------------------------------------
 
-test('contract #4: when 4601 through 4608 are all held, it selects 4609', async () => {
-  const blockers = await occupyMany(SHELL_HOST, SHELL_PORTS.slice(0, SHELL_PORTS.length - 1))
+test('contract #4: when every entry but the last is held, it selects the last', async (t) => {
+  const block = await borrowBlock(t, 5)
+  await block.free(block.ports.length - 1)
+
   const server = net.createServer()
   try {
-    const port = await listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST)
-    assert.equal(port, SHELL_PORT_MAX)
-    assert.equal(port, 4609)
+    const port = await listenOnFirstFreePort(server, block.ports, SHELL_HOST)
+    assert.equal(port, block.ports[block.ports.length - 1])
   } finally {
     await release(server)
-    await releaseAll(blockers)
   }
 })
 
 // ---- contract item 5 -------------------------------------------------
 
-test('contract #5: when all nine ports are held, it fails with a distinguishable typed error and leaves no server listening', async () => {
-  const blockers = await occupyMany(SHELL_HOST, SHELL_PORTS)
+test('contract #5: when every port in the range is held, it fails with a distinguishable typed error and leaves no server listening', async (t) => {
+  // Nothing is released: this file holds every entry in the list for the
+  // whole case, so exhaustion is guaranteed rather than hoped for.
+  const block = await borrowBlock(t, 9)
+
   const server = net.createServer()
   try {
-    const outcome = await captureRejection(() => listenOnFirstFreePort(server, SHELL_PORTS, SHELL_HOST))
+    const outcome = await captureRejection(() => listenOnFirstFreePort(server, block.ports, SHELL_HOST))
 
     assert.equal(outcome.rejected, true, 'exhausting the whole range must fail, not silently succeed')
     const error = outcome.error
@@ -242,18 +309,24 @@ test('contract #5: when all nine ports are held, it fails with a distinguishable
       'the error must identify range exhaustion in some recognisable way',
     )
 
+    // The report must account for every port it was asked to try, so a
+    // person reading the startup failure sees the whole attempt.
+    assert.deepEqual([...error.ports], [...block.ports], 'the error must name every port it attempted')
+
     assert.equal(server.listening, false, 'the server passed in must be left unbound after exhaustion')
   } finally {
     await release(server)
-    await releaseAll(blockers)
   }
 })
 
 // ---- contract item 6 -------------------------------------------------
 
-test('contract #6: a request to bind a host other than 127.0.0.1 is rejected, not honoured', async () => {
+test('contract #6: a request to bind a host other than 127.0.0.1 is rejected, not honoured', async (t) => {
   const foreignHost = '127.0.0.2' // real, distinct loopback address; safe, no external exposure
-  const candidatePort = 4601
+  const block = await borrowBlock(t, 1)
+  await block.freeAll()
+  const candidatePort = block.ports[0]
+
   const server = net.createServer()
   try {
     const outcome = await captureRejection(() => listenOnFirstFreePort(server, [candidatePort], foreignHost))
@@ -261,15 +334,16 @@ test('contract #6: a request to bind a host other than 127.0.0.1 is rejected, no
     assert.equal(outcome.rejected, true, 'a non-127.0.0.1 host request must be rejected, not silently bound')
     assert.equal(server.listening, false, 'no bind may be left standing after a rejected host request')
 
+    // The server handed in is the only thing the module could have bound, so
+    // an unbound server is proof no fallback bind happened anywhere -- a
+    // stronger and completely machine-independent statement than probing a
+    // port number and hoping nobody else is on it.
+    assert.equal(server.address(), null, 'a rejected host request must not leave the server bound to anything')
+
     assert.equal(
       await probeConnect(foreignHost, candidatePort),
       false,
       'the foreign host must never actually end up with something listening on it',
-    )
-    assert.equal(
-      await probeConnect(SHELL_HOST, candidatePort),
-      false,
-      'a rejected foreign-host request must not silently fall back to binding 127.0.0.1 instead',
     )
   } finally {
     await release(server)
@@ -371,4 +445,73 @@ test('contract #8: the module carries no Electron dependency and runs under bare
   assert.equal(pulledInElectron, false, 'loading the module must not pull an electron package into the module graph')
 
   assert.equal(typeof listenOnFirstFreePort, 'function')
+})
+
+// ---- contract items 9 and 10: the injected list must not be able to
+// ---- quietly become the product's real behaviour ----------------------
+
+test('contract #9: called with no port list, the scan uses the declared range and nothing else', async () => {
+  // The one case that deliberately touches the real 4601-4609 range -- but
+  // it cannot be broken by what else holds those ports, because BOTH
+  // outcomes are accounted for and both pin the same fact:
+  //
+  //   range busy    -> it must give up naming exactly the declared range
+  //   range usable  -> whatever it took must be a member of that range
+  //
+  // So a default that quietly drifted to some other range fails here on an
+  // idle machine and on a busy one alike, which is the property the rest of
+  // this file gives up by injecting its own list.
+  const server = net.createServer()
+  try {
+    const outcome = await captureRejection(() => listenOnFirstFreePort(server))
+
+    if (outcome.rejected) {
+      assert.equal(
+        outcome.error.code,
+        'SHELL_PORT_RANGE_EXHAUSTED',
+        'the default scan may only fail by exhausting the declared range',
+      )
+      assert.deepEqual(
+        [...outcome.error.ports],
+        [...SHELL_PORTS],
+        'the default scan must attempt exactly the declared range',
+      )
+    } else {
+      assert.ok(
+        SHELL_PORTS.includes(outcome.value),
+        `the default scan bound ${outcome.value}, which is outside the declared ${SHELL_PORT_MIN}-${SHELL_PORT_MAX} range`,
+      )
+      assert.equal(server.address().address, SHELL_HOST, 'the default host must be the declared loopback host')
+      assert.equal(server.address().port, outcome.value)
+    }
+  } finally {
+    await release(server)
+  }
+})
+
+test('contract #10: the shell wires the declared range into the scan, so an injected list cannot become the product behaviour', async () => {
+  // Every other case here injects its own port list. That is safe only while
+  // the SHIPPING call site still passes the declared range -- otherwise this
+  // suite would go on passing while the product scanned something else
+  // entirely. This case reads the real call site and pins it.
+  const source = await readFile(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
+
+  const callSites = source.match(/listenOnFirstFreePort\(/g) || []
+  assert.equal(callSites.length, 1, 'the shell must have exactly one port-scan call site to pin')
+
+  assert.match(
+    source,
+    /=\s*require\(['"]\.\/port-scan\.cjs['"]\)/,
+    'the shell must take its port constants from the port-scan module',
+  )
+  assert.match(
+    source,
+    /const\s+ports\s*=\s*preferredPortFirst\(\s*SHELL_PORTS\s*,/,
+    'the scanned list must be derived from the exported SHELL_PORTS, not a list the shell invents',
+  )
+  assert.match(
+    source,
+    /listenOnFirstFreePort\(\s*server\s*,\s*ports\s*,\s*SHELL_HOST\s*\)/,
+    'the shell must scan that derived list on the exported SHELL_HOST',
+  )
 })
