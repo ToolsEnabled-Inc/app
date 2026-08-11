@@ -222,7 +222,13 @@ test('both generators emit matching live fields and declared/observed provenance
   // with MODULE_NOT_FOUND inside this fixture's isolated src/lib the moment
   // it is required, which fails closed and hides real fields as undefined --
   // see tools/test/agent-control-target.test.mjs for the same bug.
-  for (const name of ['agent-org.js', 'agent-presence.js', 'request-id.js']) {
+  // runtime-state-root.js joined this list for the same reason and failed the
+  // same way: agent-presence.js now resolves state/ through it, so an INSTALLED
+  // product does not write its presence records into its own program directory.
+  // It is a leaf too (node builtins only), and inside this fixture root -- no
+  // PAYLOAD.json, no TOOLSENABLED_STATE_ROOT -- it resolves to the fixture's own
+  // state/, which is where this test writes.
+  for (const name of ['agent-org.js', 'agent-presence.js', 'request-id.js', 'runtime-state-root.js']) {
     const target = join(canonical, 'src', 'lib', name)
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(REAL_CANONICAL, 'src', 'lib', name), target)

@@ -59,7 +59,7 @@
  *    HERE. Every run of a loop uses the same tier, which resolves to one
  *    declared identity (TIER_AGENT_IDENTITY in ./agent-teams.js). The presence
  *    registry refuses a second live lane for an identity that already has one:
- *    AGENT_PRESENCE_ACTIVE at capability/src/lib/agent-presence.js:571, surfaced
+ *    AGENT_PRESENCE_ACTIVE at capability/src/lib/agent-presence.js:575, surfaced
  *    as BRIDGE_AGENT_LANE_COLLISION at
  *    capability/src/lib/mission-bridge/actions.js:472. So if run N is still
  *    going when run N+1 comes due, run N+1 is refused and the loop reports it as
@@ -110,7 +110,7 @@ export const LOOP_OVERRUN = Object.freeze({
   behaviour: 'skip',
   code: 'BRIDGE_AGENT_LANE_COLLISION',
   sentence: 'If a run is still going when the next one is due, the next one is skipped, not queued and not run alongside. The engine refuses it: one declared identity may only have one live lane.',
-  evidence: 'capability/src/lib/agent-presence.js:571',
+  evidence: 'capability/src/lib/agent-presence.js:575',
 })
 
 /** The run cap, restated here only to name the bound and its address. */

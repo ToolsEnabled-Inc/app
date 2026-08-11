@@ -131,7 +131,16 @@ function copyCanonicalReaders(root) {
   // fixture's isolated src/lib, which fails closed and nulls every
   // controlTarget. That is a missing fixture dependency, not a reason to
   // weaken any assertion below.
-  for (const name of ['agent-org.js', 'agent-presence.js', 'request-id.js']) {
+  // runtime-state-root.js joined this list the same way request-id.js did, and
+  // proved the comment above by failing in exactly the way it predicts:
+  // agent-presence.js now resolves state/ through it (so an INSTALLED product
+  // does not write its presence records into its own program directory), and
+  // without the copy every controlTarget came back null. It is likewise a leaf
+  // -- node builtins only -- so copying it alone is sufficient. Inside this
+  // fixture root there is no PAYLOAD.json and no TOOLSENABLED_STATE_ROOT, so it
+  // resolves to the fixture's own state/agent-presence.json, which is where
+  // this test writes it.
+  for (const name of ['agent-org.js', 'agent-presence.js', 'request-id.js', 'runtime-state-root.js']) {
     const target = join(root, 'src', 'lib', name)
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(join(CANONICAL_FIXTURE_SOURCE, 'src', 'lib', name), target)

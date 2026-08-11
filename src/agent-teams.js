@@ -12,7 +12,7 @@
  *    tiers share (capability/src/lib/mission-bridge/actions.js:53-60). The
  *    presence registry refuses a second live lane for an identity that already
  *    has one: `AGENT_PRESENCE_ACTIVE` at
- *    capability/src/lib/agent-presence.js:568-576, surfaced as
+ *    capability/src/lib/agent-presence.js:572-580, surfaced as
  *    BRIDGE_AGENT_LANE_COLLISION / HTTP 409.
  *
  *    So "run Opus and Sonnet on this together" is not a thing this product can
