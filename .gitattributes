@@ -1,0 +1,19 @@
+# Line-ending pin for shell hooks. NOT a style preference — a correctness fix.
+#
+# This repository has core.autocrlf=true (measured 2026-08-11) and, until this
+# file, no .gitattributes at all. Under that setting git rewrites LF to CRLF on
+# CHECKOUT. A /bin/sh script checked out with CRLF has a shebang of
+# "#!/bin/sh\r", which the interpreter cannot resolve — the hook then fails to
+# execute rather than refusing anything.
+#
+# That failure mode is silent and it is the dangerous one: git skips a hook it
+# cannot run without reporting anything, so .githooks/commit-msg would appear
+# installed while enforcing nothing. An inert guard is worse than an absent one,
+# because it stops anyone looking.
+#
+# Scoped deliberately to .githooks only. The engine repo
+# (Desktop/toolsenabled-current) solves this with a repo-wide `* -text`, which it
+# needs for FRA byte-fidelity hashing. This repo has no such requirement, and a
+# repo-wide rule here would change the checkout bytes of every file for all
+# worktrees sharing this repository — a far larger change than the problem.
+/.githooks/** text eol=lf
