@@ -459,10 +459,30 @@ async function walk(directory, visitFile) {
   }
 }
 
+// A GREEN THAT DOES NOT SAY WHAT IT SCANNED IS NOT A MEASUREMENT.
+//
+// The fallback below is useful and stays. What was dangerous was that it was
+// SILENT. Measured on 2026-08-11: with release/ deleted, a bare
+// `node tools/check-no-owner-data.mjs` scanned dist/ -- 36 files, 1.8 MB -- and
+// printed "Total matches: 0." The shipping payload it was believed to have
+// cleared is 330 files and 473 MB. Nothing in the output distinguished those two
+// runs, so a reader had no way to tell a cleared installer from a cleared
+// renderer bundle.
+//
+// That is this file's own recurring defect wearing a new hat: the check passes
+// because of what it was not given, and the failure is invisible. Compare
+// tools/test/license-trust-anchor-payload.test.mjs, which hit the same missing
+// directory in the same tree on the same day and failed LOUDLY, naming the path
+// it could not find. The test was honest and the guard was not.
+//
+// So the choice is now reported, and an IMPLICIT choice says so. This changes no
+// exit code and no scan behaviour -- every caller in `npm run dist` passes its
+// directory explicitly and is unaffected -- it only makes the bare run state
+// which artifact it actually read.
 function chooseRoots(arguments_) {
-  if (arguments_.length > 0) return arguments_;
-  if (existsSync("release")) return ["release"];
-  if (existsSync("dist")) return ["dist"];
+  if (arguments_.length > 0) return { roots: arguments_, implicit: false };
+  if (existsSync("release")) return { roots: ["release"], implicit: true };
+  if (existsSync("dist")) return { roots: ["dist"], implicit: true, fellBackFrom: "release" };
   throw new Error('nothing to check: pass a directory, or create "release" or "dist"');
 }
 
@@ -480,7 +500,22 @@ async function main() {
     ...BUILT_IN_PATTERNS.map((pattern) => ({ ...pattern, builtIn: true })),
     ...identityPatterns,
   ];
-  const roots = chooseRoots(process.argv.slice(2));
+  const rootChoice = chooseRoots(process.argv.slice(2));
+  const roots = rootChoice.roots;
+  // Printed BEFORE the walk, so a run that is about to scan the wrong thing says
+  // so even if it is later killed, and so the line sits above the matches rather
+  // than after a screen of them.
+  if (rootChoice.fellBackFrom) {
+    console.log(
+      `NOTE: no "${rootChoice.fellBackFrom}" directory here, so this scanned ${JSON.stringify(roots)} instead. ` +
+        `That is NOT the packaged installer. To clear the shipping payload, build it and scan it by name ` +
+        `(this is what "npm run dist" does: check-no-owner-data.mjs release/win-unpacked).`,
+    );
+  } else if (rootChoice.implicit) {
+    console.log(`Scanning ${JSON.stringify(roots)} (chosen by default; no directory was named on the command line).`);
+  } else {
+    console.log(`Scanning ${JSON.stringify(roots)} (named on the command line).`);
+  }
   let filesScanned = 0;
   let bytesScanned = 0;
   let totalMatches = 0;
