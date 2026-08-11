@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "generatedAt": "2026-08-11T05:05:00.000Z",
+  "generatedAt": "2026-08-11T09:50:00.000Z",
   "currency": "USD",
   "spendPolicy": {
     "dailyLimitUsd": 100,
-    "source": "config/toolsenabled.policy.json limits.defaultDailySpendUsd, read as dailyLimitCents by src/lib/providers/pay.js",
-    "readAt": "2026-08-11T04:32:00.000Z"
+    "source": "config/toolsenabled.policy.json limits.defaultDailySpendUsd, converted to the ledger daily limit by src/lib/providers/pay.js",
+    "readAt": "2026-08-11T09:47:00.000Z"
   },
   "categories": [
     {
@@ -81,20 +81,14 @@
       "priceVerified": true,
       "priceVerifiedDate": "2026-08-11",
       "quantityMax": 3,
-      "defaultSelected": false,
+      "defaultSelected": true,
       "whatItIs": "The web address the product lives at, and the domain every support and billing email is sent from.",
       "whatBreaksWithout": "Your ruling requires published terms and a privacy policy before the first dollar, and a policy sitting in a code repository is not published. Stripe's signup asks for a business website. The strict minimum really is $0 - a free hosted page would technically carry both - so this is not impossible to ship without. What $11 buys is an address you own that does not put someone else's brand in the URL a customer reads before trusting you with their machine.",
       "whyHeWantedIt": "You asked for it twice. R1162, 2026-08-07: ok do we need a digital ocean server for this then? because there needs to be a website. we also need a good url. you have my credit info in the vault, it sends me an approval, ill approve reasonable purchases. And again on 2026-08-08: we need a url then right? have any luna max subagents surface any or can you assign 2 personally? You also said plainly: Yes we need a hompage and a privacy policy.",
       "sourceUrl": "https://porkbun.com/tld/com",
       "warning": "There is a real deadline on this one and it has nothing to do with us. The wholesale .com price rises from $10.26 to $10.97 on 2026-11-01 - the registry gave formal notice on an earnings call - and every registrar passes it straight through. That is about twelve weeks away. Registering or renewing multiple years BEFORE that date locks today's rate; after it, every year costs about seventy cents more, forever.",
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "The company and product name is not settled, and a trademark and name-availability check is running right now. Buying before it clears risks paying for the wrong name and buying again.",
-          "severity": "blocking"
-        }
-      ],
-      "notes": "No first-year-versus-renewal gap here: $11.08 every year at this registrar, which is unusual and is exactly why it beats cheaper-looking alternatives. Quantity up to 3 in case you want the exact name plus a spelling or two. Availability was established by direct registry record lookups rather than by typing candidate names into a registrar search box, because search boxes are the actual front-running leak vector and you were right to worry about that."
+      "blockers": [],
+      "notes": "No first-year-versus-renewal gap: $11.08 every year at this registrar, verified today against Porkbun's pricing API. That flat renewal is exactly why it beats cheaper-looking alternatives that promo the first year. Availability was established by a direct RDAP lookup against the registry (404 for toolsenabled.com, with google.com returning 200 as a control proving the endpoint works) rather than by typing candidate names into a registrar search box, because search boxes are the front-running leak vector you were right to worry about. Check the cart line reads $11.08 and not a premium price before paying: RDAP proves the registry has no record, which does not by itself rule out a premium tier at the registrar. Quantity up to 3 in case you want a spelling variant."
     },
     {
       "id": "stripe-account",
@@ -105,7 +99,7 @@
       "firstYearUsd": 0,
       "renewalUsd": null,
       "priceVerified": true,
-      "priceVerifiedDate": "2026-08-10",
+      "priceVerifiedDate": "2026-08-11",
       "quantityMax": 1,
       "defaultSelected": false,
       "whatItIs": "The service that takes a customer's card and puts the money in your bank. There is nothing to buy - it takes a share of money you have already been paid.",
@@ -114,7 +108,7 @@
       "sourceUrl": "https://stripe.com/pricing",
       "warning": "This corrects something you were told earlier, and it changes the shape of this whole list. Your approvals queue says a live Stripe account needs a registered business, so a company must come first. It does not. Stripe supports Individual and Sole Proprietor accounts directly - you give a social security number rather than a company tax ID. A company buys liability protection, not payment access. That fact takes company formation off the critical path, which is why it now sits under Defensive.",
       "blockers": [],
-      "notes": "No setup fee, no monthly fee, no closure fee. 2.9 percent plus 30 cents per successful domestic card charge - a fee taken out of money already received, not a purchase you approve. At the 2-to-40-subscriber planning floor in your own ruling that is roughly $1 to $22 a month. Optional extras only if you later want them: Billing at 0.7 percent of billing volume, Tax at 0.5 percent per transaction."
+      "notes": "No setup fee, no monthly fee, no closure fee - verified today at stripe.com/pricing in Stripe's own words. The old note here said 2.9% + $0.30, which is right for one-off charges and WRONG for subscriptions: those run through Stripe Billing, priced separately at 0.7% of billing volume pay-as-you-go (the alternative is a $620/month contract you do not want). A $19.99 subscription therefore costs $0.58 + $0.30 + $0.14 = $1.02 and nets $18.97 - about 5.1%, not 2.9%. At 40 subscribers that is roughly $41/month against $800 of revenue. It comes out of money already received, so there is nothing to approve."
     },
     {
       "id": "terms-and-privacy-review",
@@ -156,16 +150,16 @@
       "firstYearUsd": 71.88,
       "renewalUsd": null,
       "priceVerified": true,
-      "priceVerifiedDate": "2026-08-10",
+      "priceVerifiedDate": "2026-08-11",
       "quantityMax": 1,
       "defaultSelected": false,
       "whatItIs": "A service that generates and hosts a maintained privacy policy, terms and cookie notice for a website, and keeps them current as laws change.",
       "whatBreaksWithout": "Nothing breaks - but this is the option that matches what you actually said you wanted to do, and nobody had priced it for you before now.",
       "whyHeWantedIt": "It is the concrete form of your own instruction, R1162: where there are things like legal review for the messaging system look for admittances and disclosures instead, and maybe we cant claim its super secure because we havent had legal review, but maybe we can still ship it with sections in our policiese and such that disclose it may or may not even work. A generated, maintained policy is the disclosure route. The lawyer above is the assurance route. You said disclosures.",
       "sourceUrl": "https://www.iubenda.com/en/pricing",
-      "warning": "Not a substitute for the lawyer on the part that actually matters. A generator writes a competent privacy policy; it does not assess whether YOUR liability cap survives the fact that your product deletes files on a user's machine by design. Use it for the policy pages and keep the attorney for the liability language when you charge.",
+      "warning": "This $71.88/yr Essentials tier may not include the Terms & Conditions generator - only the privacy and cookie policy. An earlier lane reported that it does not; this lane could not confirm or refute it from the rendered pricing page, whose feature matrix is drawn with icons. Check that the tier covers BOTH documents before subscribing, or you will buy a plan that cannot produce the document you need. The cheapest tier that certainly covers both is Advanced at $24.99/mo billed yearly = $299.88/yr.",
       "blockers": [],
-      "notes": "$5.99 per site per month billed annually, up to 25,000 pageviews. The other real option is Termly at $10 per site per month billed annually, with a free tier that carries their branding. TermsFeed sells documents once rather than by subscription if you would rather not carry a recurring line at all."
+      "notes": "$5.99 per site per month billed yearly = $71.88/yr, up to 25,000 pageviews; Advanced is $24.99/mo yearly = $299.88/yr; Ultimate is $99.99/mo yearly. All three verified today on iubenda's own pricing page, and a free tier also exists. There is a $0 route: the privacy and terms drafts already exist in the repo and need a lawyer's review rather than a generator - ask for a fixed fee to review and finalize three existing drafts, never an open-ended engagement."
     },
     {
       "id": "external-security-review",
@@ -199,6 +193,26 @@
       "notes": "Your council's own recommendation is not to fund this up front: scope it to the relay and auth plane rather than the whole codebase, pay for it out of Team-tier deals and annual prepayments, and schedule it after the engineering ahead of it lands. Free tools that cover real ground meanwhile and cost nothing: OWASP ZAP, Dependabot, CodeQL, Semgrep, Trivy."
     },
     {
+      "id": "anywhere-relay-vps",
+      "name": "Relay coordination server",
+      "vendor": "DigitalOcean, Basic 2 GiB droplet",
+      "category": "required-before-charging",
+      "cadence": "monthly",
+      "firstYearUsd": 12.0,
+      "renewalUsd": null,
+      "priceVerified": true,
+      "priceVerifiedDate": "2026-08-11",
+      "quantityMax": 1,
+      "defaultSelected": true,
+      "whatItIs": "One small Linux VM running the coordination, signalling and relay services that let two of your machines find each other from anywhere. This is the server the paid tier sells access to.",
+      "whatBreaksWithout": "There is no paid product. The free product still ships and still works, but only when both machines are on the same private network. The paid tier would be a price page with nothing behind it.",
+      "whyHeWantedIt": "Your own recorded decision, RELAY-DECISION-R1228, 2026-08-10, verbatim: \"thats literally why i thought hosting servers for customer convenience and charge them for that was the smart move and instead they would have to set up their own secure server otherwise.\" That makes the hosted relay the revenue engine rather than a cost line, and names pricing and the provider as YOUR approval queue rather than an engineering choice.",
+      "sourceUrl": "https://www.digitalocean.com/pricing/droplets",
+      "warning": "Do NOT substitute a hosted relay SaaS such as NetBird Cloud, however cheap or free its tier looks. R1228 settles that the hosted relay is OURS and that self-hosting is the free alternative we offer CUSTOMERS, not a dependency we take on ourselves; and reselling access to a third party free tier as a paid product is the pattern those terms exist to prohibit. An earlier version of this list recommended exactly that and was wrong.",
+      "blockers": [],
+      "notes": "$12.00/month verified today on DigitalOcean's live pricing page for the 1 vCPU / 2 GiB / 50 GiB Basic tier. You were previously quoted $4-6/month; that does not meet the requirement. NetBird's own self-hosting quickstart states the minimum verbatim as a Linux VM with at least 1CPU and 2GB of memory, so the $4.00 (512 MiB) and $6.00 (1 GiB) tiers are a quarter and a half of it. The hostname costs $0 extra - it is a subdomain of the primary domain and DNS is included free at that registrar. Could not verify: NetBird publishes no disk requirement at all, and Hetzner's true landed cost is unknown because their prices exclude VAT and bill IPv4 separately."
+    },
+    {
       "id": "delaware-certificate-of-incorporation",
       "name": "Company formation, Delaware corporation",
       "vendor": "Delaware Division of Corporations",
@@ -215,13 +229,7 @@
       "whyHeWantedIt": "It has sat at the top of your approvals queue as decision one, and $159 of it is in the live cart in this app right now. It also connects to your own plan, R1162: i am planning after first launch for a agent campaign in my voice of investor emails. The corporation is the structure that campaign presupposes.",
       "sourceUrl": "https://corpfiles.delaware.gov/Fee_Schedule/AugustFee2026.pdf",
       "warning": "The franchise-tax trap is worth more than every other number on this page combined, and the figure is exact, not approximate. Delaware bills the Authorized Shares Method BY DEFAULT: at a common 10,000,000 shares that is $250 + (999 x $85) = $85,165.00 in year one. You only get the $400 alternative if whoever files the annual report actively enters Total Gross Assets and Total Issued Shares. A registered agent reminds you the report is due; they do not pick the cheaper method. Make it impossible instead: authorize 5,000 shares or fewer and the minimum is $175.",
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "You file under a specific name and the name is not decided. A trademark and name-availability check is running now. Filing first means filing the wrong name.",
-          "severity": "blocking"
-        }
-      ],
+      "blockers": [],
       "notes": "$109 is the state minimum for a one-page filing; add $9 per extra page and $50 for a certified copy. This line is the only one on the page that exceeds the $100 daily spend cap on its own, so if it is approved and later recorded through the purchase-recording path it is refused by itself while smaller lines succeed - which reads as partial success rather than a failure. Read the California warning on the home-state option before choosing any state."
     },
     {
@@ -242,11 +250,6 @@
       "sourceUrl": "https://corp.delaware.gov/alt-entitytaxinstructions/",
       "warning": null,
       "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same as the corporation - you file under a name that is not settled yet.",
-          "severity": "blocking"
-        },
         {
           "code": "PICK_ONE_STRUCTURE",
           "summary": "An alternative to the corporation, not an addition. Choose one.",
@@ -274,11 +277,6 @@
       "warning": null,
       "blockers": [
         {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same as the others - the name is not settled.",
-          "severity": "blocking"
-        },
-        {
           "code": "PICK_ONE_STRUCTURE",
           "summary": "Pick one state, not several.",
           "severity": "caution"
@@ -304,11 +302,6 @@
       "sourceUrl": "https://www.ftb.ca.gov/file/business/types/limited-liability-company/index.html",
       "warning": "THIS CHANGES THE ANSWER ON ALL THREE OPTIONS ABOVE. California charges an $800 minimum annual tax on any company doing business in California, and the state says a company that does NOT register but does business there owes it anyway. Not registering does not avoid it. So an out-of-state company run from California costs its own fees PLUS $800. A Delaware LLC run from California is $400 + $800 + $50 agent = $1,250 a year, plus $70 to register as a foreign entity. A plain California LLC is $800 + about $10. The out-of-state company costs ~$450 a year MORE and buys a solo operator with no investors nothing.",
       "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same as the others - the name is not settled.",
-          "severity": "blocking"
-        },
         {
           "code": "PICK_ONE_STRUCTURE",
           "summary": "Pick one state, not several.",
@@ -401,10 +394,10 @@
       "vendor": "Mercury",
       "category": "optional-defensive",
       "cadence": "one-off",
-      "firstYearUsd": 0,
+      "firstYearUsd": null,
       "renewalUsd": null,
-      "priceVerified": true,
-      "priceVerifiedDate": "2026-08-10",
+      "priceVerified": false,
+      "priceVerifiedDate": null,
       "quantityMax": 1,
       "defaultSelected": false,
       "whatItIs": "Where money from customers lands. Payouts go to an account in the company's name rather than a personal one.",
@@ -414,12 +407,12 @@
       "warning": null,
       "blockers": [
         {
-          "code": "PICK_ONE_STRUCTURE",
-          "summary": "Needs the company and the tax ID first. Free either way.",
+          "code": "NEEDS_ENTITY_FIRST",
+          "summary": "Mercury is NOT available to an unincorporated sole proprietor. Their own help centre requires state-filed formation documents AND an IRS-issued EIN document, and a sole proprietor has neither. Form an entity first, or use a bank that takes sole proprietors.",
           "severity": "blocking"
         }
       ],
-      "notes": "$0 to open, $0 monthly, no minimum balance. Novo and Relay are equally free if you dislike this one. Needs a real business address - a registered-agent address or a PO box is not accepted."
+      "notes": "Their $0/month claim could NOT be verified - mercury.com returned HTTP 429 to every attempt - so no price is asserted here. The eligibility rule was read successfully and is the blocking problem anyway. If you do form an entity, the EIN is free from the IRS and Mercury opens up. Novo and Relay are alternatives."
     },
     {
       "id": "uspto-trademark-filing",
@@ -430,22 +423,16 @@
       "firstYearUsd": 350,
       "renewalUsd": null,
       "priceVerified": true,
-      "priceVerifiedDate": "2026-08-10",
+      "priceVerifiedDate": "2026-08-11",
       "quantityMax": 1,
       "defaultSelected": false,
       "whatItIs": "Federal registration of the product or company name - what actually lets you stop someone else using it.",
       "whatBreaksWithout": "Nothing at launch. It matters later, once the name is worth copying.",
-      "whyHeWantedIt": "Not something you asked to buy. It surfaced because the name itself is unresolved: a clearance check is running now, and a live business already trades commercially as Mission Control in the productivity-software space, which is a real collision signal against the app name.",
+      "whyHeWantedIt": "Not something you asked to buy - it surfaced from the naming question. That question is now settled: the product was renamed to ToolsEnabled, verified mechanically in package.json (productName ToolsEnabled, appId com.toolsenabled.desktop), so the collision that raised this is retired rather than pending.",
       "sourceUrl": "https://www.uspto.gov/trademarks/trademark-fee-information",
-      "warning": "The $350 is only the clean-filing price. The fee schedule was restructured in January 2025 and now adds $100 per class if required information is incomplete, $200 per class if you write your own goods-and-services description instead of picking from the approved list, and $200 per extra 1,000 characters. A sloppy filing is easily $650 instead of $350, and none of it comes back.",
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Filing before the name is settled means filing for the wrong name. The fee is not refundable and the application cannot be amended to a different mark.",
-          "severity": "blocking"
-        }
-      ],
-      "notes": "Searching the register yourself is free. A professional knockout search is $50 to $150 and a full attorney clearance is $500 to $1,000 - and clearance is the step that stops you spending the filing fee on a name that was never available. That is the step currently running."
+      "warning": "Filing today would be an INTENT-TO-USE application, because the product has not launched and the mark is not yet in use in commerce. That route needs a Statement of Use later at $150 per class (fee code 7003), so the true cost of filing now is $500, not $350. Filing AFTER launch is use-based and costs $350 with nothing later. The extra $150 buys an earlier priority date, which is what decides who wins if someone else files in between. USPTO fees are not refundable and an application cannot be amended to a different mark.",
+      "blockers": [],
+      "notes": "$350 is the base electronic fee per class, verified today off USPTO's official fee schedule (fee code 7017; paper filing is $850). It stays $350 only if you pick your goods/services wording from USPTO's ID Manual. Writing your own adds $200 (code 7019), each extra 1,000 characters adds $200 more (7020), and an incomplete field adds $100 (7018) - realistic worst case $550. TOOLSENABLED came back clean: 0 hits on USPTO's own search backend today, with a control query on the same field returning 653, so the zero is a real absence and not a broken query. Word marks only. This line exceeds the $100/day spend cap by itself."
     },
     {
       "id": "domain-defensive-net-org",
@@ -464,13 +451,7 @@
       "whyHeWantedIt": "An earlier purchase list marked seven domains REQUIRED. That was wrong by about $247, and this pair is the only part of it worth considering, because these two are the only alternates with no renewal cliff.",
       "sourceUrl": "https://porkbun.com/tld/net",
       "warning": null,
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same name problem as the main domain.",
-          "severity": "blocking"
-        }
-      ],
+      "blockers": [],
       "notes": "$12.52 plus $7.98 in year one, renewing at $12.52 plus $11.84 - the .org is on sale and renews higher, the .net does not move. If you want a cheap hedge at all, this is the one to take: together about $2 a month."
     },
     {
@@ -490,13 +471,7 @@
       "whyHeWantedIt": "Both were on the earlier list of seven marked REQUIRED. They are not required; they are here so the choice is yours rather than assumed away.",
       "sourceUrl": "https://porkbun.com/tld/dev",
       "warning": "Both are on sale in year one and both jump at renewal: .dev goes $8.75 to $12.87, and .app goes $8.75 to $14.93, a 71 percent rise. The sale price is what you remember and the renewal is what you pay forever.",
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same name problem as the main domain.",
-          "severity": "blocking"
-        }
-      ],
+      "blockers": [],
       "notes": "Both are on the browser preload list, so encrypted connections are mandatory and cannot be switched off. That costs nothing extra because certificates are free, but a misconfigured certificate makes the site completely unreachable rather than merely insecure."
     },
     {
@@ -516,13 +491,7 @@
       "whyHeWantedIt": "It was marked REQUIRED on the earlier purchase list. It is not, and it carries the worst renewal cliff of anything here except the yearly minimum on .ai.",
       "sourceUrl": "https://porkbun.com/tld/io",
       "warning": "$28.12 in year one becomes $51.80 every year after, an 84 percent jump. It is also a country-code ending whose registry sets the price and has raised it before, so even the $51.80 is not a promise.",
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same name problem as the main domain.",
-          "severity": "blocking"
-        }
-      ],
+      "blockers": [],
       "notes": "The most tempting of the defensive registrations and the one whose long-run cost is most often underestimated. Over five years this single extra domain costs more than the main .com does over ten."
     },
     {
@@ -534,7 +503,7 @@
       "firstYearUsd": 165.4,
       "renewalUsd": null,
       "priceVerified": true,
-      "priceVerifiedDate": "2026-08-10",
+      "priceVerifiedDate": "2026-08-11",
       "quantityMax": 1,
       "defaultSelected": false,
       "whatItIs": "The ending most associated with AI products, and by far the most expensive line on this page that is not a tax.",
@@ -542,14 +511,8 @@
       "whyHeWantedIt": "It was marked REQUIRED on the earlier purchase list. If you buy one thing here against advice, please do not let it be this one.",
       "sourceUrl": "https://porkbun.com/tld/ai",
       "warning": "The registry requires a two-year minimum, so the $82.70 a year that is advertised means $165.40 due at checkout, and the same again at every renewal. It is very easy to under-budget this by exactly half. Confirm the total on the payment screen before paying.",
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "Same name problem as the main domain.",
-          "severity": "blocking"
-        }
-      ],
-      "notes": "On its own this costs more than the entire needed-to-ship set does in a year, several times over. It is the clearest example of why buy the matching domains is expensive advice."
+      "blockers": [],
+      "notes": "$165.40 is TWO years, not one: .ai carries a two-year registry minimum at registration. The per-year price is $82.70 for both registration and renewal, verified today against Porkbun's pricing API. The old catalogue showed $165.40 as a first-year price, which made .ai look twice as expensive per year as it is - and it is still the clearest example of why 'buy the matching domains' is expensive advice."
     },
     {
       "id": "domain-name-variants",
@@ -568,13 +531,7 @@
       "whyHeWantedIt": "Two of these were on the earlier list of seven marked REQUIRED.",
       "sourceUrl": "https://porkbun.com/tld/com",
       "warning": null,
-      "blockers": [
-        {
-          "code": "NAME_NOT_DECIDED",
-          "summary": "You cannot register variants of a name that is not chosen yet.",
-          "severity": "blocking"
-        }
-      ],
+      "blockers": [],
       "notes": "$11.08 each per year, flat, no renewal cliff - pick a quantity if you want any. The candidates checked and found available were a get prefix, a use prefix, a hyphenated form and a singular form. Honest assessment: buy these when someone is actually mistyping your name, not before."
     },
     {
@@ -950,6 +907,26 @@
         }
       ],
       "notes": "Posting organically to your own account, as you suggested, costs nothing and reaches people who already know you, which is a better first channel than paid traffic for a product with no reviews yet. Deliberately unpriced because the recommendation is not to spend."
+    },
+    {
+      "id": "hosted-relay-saas",
+      "name": "Hosted relay service from a third party",
+      "vendor": "NetBird Cloud, Tailscale, ZeroTier or similar",
+      "category": "do-not-buy",
+      "cadence": "monthly",
+      "firstYearUsd": null,
+      "renewalUsd": null,
+      "priceVerified": false,
+      "priceVerifiedDate": null,
+      "quantityMax": 1,
+      "defaultSelected": false,
+      "whatItIs": "Somebody else's hosted coordination service, used to carry your customers connections instead of running the relay yourself.",
+      "whatBreaksWithout": "Nothing. Declining this is the recommendation.",
+      "whyHeWantedIt": "You did not ask for it. It is listed because a previous version of this list RECOMMENDED it - running the beta on a free tier - and that recommendation contradicted your own decision. It is recorded here with its reason so it does not get re-proposed a third time.",
+      "sourceUrl": null,
+      "warning": null,
+      "blockers": [],
+      "notes": "Not a price problem, a shape problem. R1228 makes the hosted relay ours and self-hosting the free path we offer customers. Reselling a third party free tier as our paid product is the pattern those terms prohibit, and it would put our customers traffic on infrastructure we do not control. Buy the server in the required-before-charging group instead."
     }
   ]
 }
