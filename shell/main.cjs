@@ -293,10 +293,14 @@ function recordSpawnIntent(request) {
  * cwd. The Codex child therefore died at spawn on every packaged install.
  *
  * MEASURED 2026-08-10, engine run under the shipped `Mission Control.exe`:
- *   cwd = C:\Users\joshp\Desktop\wt-capability   -> START OK, threadId issued
- *   cwd = ...\resources\app.asar                 -> CODEX_APP_SERVER_EXITED
- *     "spawn C:\...\Mission Control.exe ENOENT"
+ *   cwd = <any real directory>     -> START OK, threadId issued
+ *   cwd = <app>\resources\app.asar -> CODEX_APP_SERVER_EXITED
+ *     "spawn <app>\Mission Control.exe ENOENT"
  * Same binary, same engine, same auth; only the cwd differed.
+ *
+ * (Those paths are written as placeholders on purpose: this comment ships
+ * inside the asar, and check-no-owner-data.js correctly rejected the build
+ * when an earlier draft pasted the builder's real checkout path here.)
  *
  * The third dev-only-works bug in this path, and the same shape as the other
  * two: a value that is a real thing in a checkout and a virtual one inside the
