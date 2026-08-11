@@ -387,9 +387,20 @@ function recordSpawnIntent(request) {
  * every start, so it is correct on a customer's machine and in a checkout --
  * and it is also where the user's work actually is, which is where an agent
  * should be running in the first place. */
+/* The one place the agent's working directory is prepared, called by BOTH the
+   probe and the start. Availability has to answer the question the start will
+   ask, and it cannot do that by validating a directory the start would have
+   created after the probe ran: a fresh install would report "no workspace" once
+   and be told it was broken. Creating it here, from both callers, is idempotent
+   and keeps the two answers derived from one act rather than two. */
+function ensureWorkspaceRoot() {
+  try { fs.mkdirSync(WORKSPACE_ROOT, { recursive: true }) } catch { /* normalizeCwd reports an unusable workspace */ }
+  return WORKSPACE_ROOT
+}
+
 function getAgentHost() {
   if (agentHost) return agentHost
-  try { fs.mkdirSync(WORKSPACE_ROOT, { recursive: true }) } catch { /* normalizeCwd reports an unusable workspace */ }
+  ensureWorkspaceRoot()
   const host = createAgentHost({ defaultCwd: WORKSPACE_ROOT })
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
@@ -412,12 +423,26 @@ function getAgentHost() {
 ipcMain.handle('mc-agent:availability', async (event, value) => {
   assertTrustedAgentSender(event)
   agentPayload(value === undefined || value === null ? {} : value, [])
-  /* Both conditions, because a spawn needs both: something to run, and
-     somewhere to record that it ran. Reporting them separately would let the
-     surface offer a control that the start handler will refuse. */
-  const engine = engineAvailability()
-  if (engine.ok !== true) return engine
-  return spawnRecordAvailability()
+  /* EVERY condition a start needs, from the same values the start uses, IN THE
+     ORDER THE START REFUSES IN.
+
+     Reporting a subset would let the surface offer a control that the start
+     handler then refuses -- which is exactly what shipped: this used to ask
+     engineAvailability() a question about the ENGINE ALONE while startSession()
+     additionally required the confinement planner, the launch-environment
+     scrub, and a usable working directory. `defaultCwd` is passed rather than
+     defaulted so the probe validates the directory the session will actually
+     run in, prepared by the same ensureWorkspaceRoot() getAgentHost() calls.
+
+     THE RECORDER FIRST, because that is the order mc-agent:start refuses in:
+     recordSpawnIntent() runs before getAgentHost().startSession(). Asking in
+     the other order meant that an installation with BOTH faults was told about
+     the engine while the press would have told it about the record -- the
+     smaller version of the same defect, sending a person to fix the wrong
+     thing. Both are still required; only which one is named first changed. */
+  const record = spawnRecordAvailability()
+  if (record.ok !== true) return record
+  return engineAvailability({ defaultCwd: ensureWorkspaceRoot() })
 })
 
 /* The second agent channel that starts nothing, and the only one that reads

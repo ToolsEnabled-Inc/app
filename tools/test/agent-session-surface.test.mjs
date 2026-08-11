@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
 
-import { createAgentHost, engineAvailability, engineCandidates } from '../../shell/agent-host.cjs'
+import { AVAILABILITY_CODES, createAgentHost, engineAvailability, engineCandidates } from '../../shell/agent-host.cjs'
+import { RECORD_AVAILABILITY_CODES } from '../../shell/spawn-record.cjs'
 import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-events.js'
+import { UNAVAILABLE_TEXT, unavailableReason } from '../../src/agent-availability-copy.js'
+import { ENGINE_REASON, readAgentEngine } from '../../src/local-activity.js'
 
 // The interface can start an agent only if three things hold at once: the
 // renderer can reach the agent channels, the surface can tell whether an
@@ -43,21 +46,59 @@ test('availability reports a bounded code and never a path', () => {
   }
 })
 
-test('availability resolves a real configured engine', () => {
-  // Proves the probe answers ok for an engine that genuinely exports the
-  // contract, rather than only ever failing closed.
+/* A complete engine tree: all three hostModules present, laid out exactly as
+   the payload lays them out. Pointing at the ENGINE DIRECTORY inside it rather
+   than at the tree root is deliberate -- normalizedModulePath() appends
+   codex-process.js to any path not ending in .js, and engineRootOf() then walks
+   three levels back up, so this is the only shape from which the host resolves
+   the sibling modules the way it does on a real install. */
+const COMPLETE_ENGINE = resolve(ROOT, 'tools/test/fixtures/confined-engine/src/lib/agent-engine')
+
+/* Payload-relative paths, duplicated from shell/agent-host.cjs on purpose: a
+   test that imported the constants could not notice one of them being changed
+   to something the installer does not stage. */
+const HOST_MODULES = Object.freeze({
+  engine: 'src/lib/agent-engine/codex-process.js',
+  confinement: 'src/lib/agent-session-confinement.js',
+  launchEnvironment: 'src/lib/providers/subscription-launch-env.js',
+})
+
+/* Build a payload root that carries exactly the named modules, copied from the
+   complete fixture tree. `omit` is what makes the negative direction real:
+   every "not ready" assertion below is about a tree that is genuinely missing a
+   file, not about a stub that returns a code. */
+function stagePayload({ omit = [] } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'mc-capability-'))
+  const source = resolve(ROOT, 'tools/test/fixtures/confined-engine')
+  for (const [name, relative] of Object.entries(HOST_MODULES)) {
+    if (omit.includes(name)) continue
+    const target = join(root, ...relative.split('/'))
+    mkdirSync(join(target, '..'), { recursive: true })
+    copyFileSync(join(source, ...relative.split('/')), target)
+  }
+  return root
+}
+
+function withoutEngineEnvironment(run) {
   const previous = process.env.MISSION_CONTROL_ENGINE
+  delete process.env.MISSION_CONTROL_ENGINE
   try {
-    // A directory, not a file: the resolver appends codex-process.js to any
-    // path that does not already end in .js, so the fixture mirrors the real
-    // engine's layout rather than working around the resolver.
-    const result = engineAvailability({ enginePath: resolve(ROOT, 'tools/test/fixtures/agent-engine') })
-    assert.equal(result.ok, true)
-    assert.equal(result.code, 'AGENT_ENGINE_READY')
+    return run()
   } finally {
     if (previous === undefined) delete process.env.MISSION_CONTROL_ENGINE
     else process.env.MISSION_CONTROL_ENGINE = previous
   }
+}
+
+test('availability resolves a real configured engine', () => {
+  // Proves the probe answers ok for an engine that genuinely exports the
+  // contract, rather than only ever failing closed. THE CONVERSE DIRECTION,
+  // and the one that matters most for a readiness check that got stricter: a
+  // false negative here does not annoy a customer, it deletes the product's
+  // core feature.
+  const result = engineAvailability({ enginePath: COMPLETE_ENGINE })
+  assert.equal(result.ok, true, 'a complete engine tree must report ready')
+  assert.equal(result.code, 'AGENT_ENGINE_READY')
 })
 
 /* Derive the preload from main.cjs rather than naming one. An earlier version
@@ -145,13 +186,52 @@ test('a spawn is refused when it cannot be recorded', () => {
   )
 })
 
-test('availability requires both an engine and a usable recorder', () => {
-  // Reporting only the engine would let the surface offer a Start control that
-  // the start handler then refuses -- a dead button by a different route.
+test('availability requires an engine, a usable recorder, and the workspace the session runs in', () => {
+  // Reporting only some of what a start needs would let the surface offer a
+  // Start control that the start handler then refuses -- a dead button by a
+  // different route.
+  //
+  // Bounded by the handler's own closing brace rather than by a character
+  // count. The earlier version sliced the first 600 characters, which made the
+  // test's meaning depend on how long the comments inside the handler happened
+  // to be -- it went red for a comment and would have gone green for a handler
+  // that lost a check under a shorter one.
   const main = read('shell/main.cjs')
-  const handler = main.slice(main.indexOf("ipcMain.handle('mc-agent:availability'"))
-  assert.match(handler.slice(0, 600), /engineAvailability\(\)/)
-  assert.match(handler.slice(0, 600), /spawnRecordAvailability\(\)/)
+  const start = main.indexOf("ipcMain.handle('mc-agent:availability'")
+  assert.ok(start > 0, 'main.cjs must register the availability channel')
+  const handler = main.slice(start, main.indexOf('\n})', start))
+  assert.match(handler, /engineAvailability\(\{[^)]*defaultCwd:/, 'the probe must be asked about the working directory the session will use')
+  assert.match(handler, /spawnRecordAvailability\(\)/)
+
+  /* THE SAME ORDER THE PRESS REFUSES IN. mc-agent:start records the intent
+     before it asks the host for a session, so an installation with both faults
+     is refused by the recorder. A probe that named the engine first would send
+     that person to fix the wrong thing. */
+  // Comments stripped first: this handler EXPLAINS the order in prose above
+  // the code that implements it, and an index test over the raw text measures
+  // the sentence rather than the statement.
+  const executable = handler.replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.ok(
+    executable.indexOf('spawnRecordAvailability()') < executable.indexOf('engineAvailability('),
+    'availability must ask about the record before the engine, because the start does',
+  )
+  const startHandler = main.slice(main.indexOf("ipcMain.handle('mc-agent:start'"))
+  assert.ok(
+    startHandler.indexOf('recordSpawnIntent(request)') < startHandler.indexOf('getAgentHost()'),
+    'this test\'s premise: the start really does record before it resolves a host',
+  )
+
+  // ONE preparation, called by both, so the probe cannot validate a directory
+  // the start would only create afterwards -- which on a fresh install would
+  // report a broken workspace that is about to exist.
+  assert.match(handler, /ensureWorkspaceRoot\(\)/, 'the probe must prepare the workspace the same way the start does')
+  const host = main.slice(main.indexOf('function getAgentHost()'))
+  assert.match(host.slice(0, 400), /ensureWorkspaceRoot\(\)/, 'getAgentHost must use the same preparation the probe uses')
+  assert.equal(
+    (main.match(/fs\.mkdirSync\(WORKSPACE_ROOT/g) || []).length,
+    1,
+    'the workspace must be created in exactly one place, or the probe and the start can disagree about it',
+  )
 })
 
 test('the surface renders only recognised event text', () => {
@@ -207,27 +287,290 @@ test('availability resolves the engine the installer ships, with no environment 
   //
   // The fixture mirrors the payload's real layout rather than working around
   // the resolver, so a change to PAYLOAD_ENGINE_MODULE breaks this test.
-  const root = mkdtempSync(join(tmpdir(), 'mc-capability-'))
+  const root = stagePayload()
   try {
-    const engineDir = join(root, 'src', 'lib', 'agent-engine')
-    mkdirSync(engineDir, { recursive: true })
-    copyFileSync(
-      resolve(ROOT, 'tools/test/fixtures/agent-engine/codex-process.js'),
-      join(engineDir, 'codex-process.js'),
-    )
-
-    const previous = process.env.MISSION_CONTROL_ENGINE
-    delete process.env.MISSION_CONTROL_ENGINE
-    try {
+    withoutEngineEnvironment(() => {
       const result = engineAvailability({ capabilityRoot: root })
-      assert.equal(result.ok, true, 'a payload that carries the engine must resolve without any environment variable')
+      assert.equal(result.ok, true, 'a payload that carries every host module must resolve without any environment variable')
       assert.equal(result.code, 'AGENT_ENGINE_READY')
-    } finally {
-      if (previous === undefined) delete process.env.MISSION_CONTROL_ENGINE
-      else process.env.MISSION_CONTROL_ENGINE = previous
-    }
+    })
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+/* ------------------------------------------------------------------
+   READINESS MEANS STARTABLE.
+
+   The defect these pin: engineAvailability() resolved the ENGINE and answered
+   AGENT_ENGINE_READY, while startSession() additionally required the
+   confinement planner, the launch-environment scrub, and a working directory
+   the OS will accept. Readiness and startability were computed from two
+   different sources, so on any payload missing one of the other modules the
+   product reported READY, enabled Start, and threw on every press.
+
+   Not hypothetical. agent-session-confinement.js and subscription-launch-env.js
+   were declared under `hostModules` AFTER the 1.0.5 installer was built, so the
+   copy already delivered to the second machine is exactly that payload.
+   ------------------------------------------------------------------ */
+
+test('a payload with the engine but no confinement planner is not ready', () => {
+  const root = stagePayload({ omit: ['confinement'] })
+  try {
+    withoutEngineEnvironment(() => {
+      const result = engineAvailability({ capabilityRoot: root })
+      assert.equal(result.ok, false, 'an engine alone is not a startable installation')
+      assert.equal(result.code, 'AGENT_CONFINEMENT_UNAVAILABLE', 'the refusal must name the missing precondition, not a generic engine fault')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a payload with no launch-environment scrub is not ready', () => {
+  const root = stagePayload({ omit: ['launchEnvironment'] })
+  try {
+    withoutEngineEnvironment(() => {
+      const result = engineAvailability({ capabilityRoot: root })
+      assert.equal(result.ok, false, 'a copy that cannot protect the billed account is not startable')
+      assert.equal(result.code, 'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE', 'the refusal must name the launch-environment module')
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a payload missing two host modules reports the one the start would report', () => {
+  // ORDER, not merely membership. A probe that named a different one of two
+  // true faults would send someone to fix the wrong thing, and the start path
+  // resolves confinement before the launch environment.
+  const root = stagePayload({ omit: ['confinement', 'launchEnvironment'] })
+  try {
+    withoutEngineEnvironment(() => {
+      assert.equal(
+        engineAvailability({ capabilityRoot: root }).code,
+        'AGENT_CONFINEMENT_UNAVAILABLE',
+        'the probe must resolve preconditions in the start path order',
+      )
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('availability refuses a working directory the spawn cannot use', () => {
+  // The third dev-only-works bug, asked as a READINESS question. A packaged
+  // build whose workspace resolved inside the archive reported ready and then
+  // died at CreateProcess on every start.
+  const root = mkdtempSync(join(tmpdir(), 'mc-agent-cwd-'))
+  try {
+    const archive = join(root, 'resources', 'app.asar')
+    mkdirSync(join(root, 'resources'), { recursive: true })
+    writeFileSync(archive, 'not a directory')
+    const result = engineAvailability({ enginePath: COMPLETE_ENGINE, defaultCwd: archive })
+    assert.equal(result.ok, false, 'a cwd the spawn will refuse must not be reported ready')
+    assert.equal(result.code, 'AGENT_HOST_INVALID_CWD', 'the refusal must name the working directory, not the engine')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the probe and the start agree, code for code, on every incomplete payload', async () => {
+  /* THE ANTI-DRIFT TEST, and the only one here that reads both sources at once.
+     Each case below asks the SAME installation two questions -- "are you ready"
+     and "start a session" -- and requires one answer. Every other test in this
+     block could pass while the two drifted apart again; this one cannot.
+
+     createAgentHost() is what a start goes through, so the comparison is
+     against the real construction and start, not against a re-reading of
+     availability's own logic. */
+  /* The fixture planner answers with whatever MC_TEST_CONFINEMENT_PLAN holds
+     and refuses by default, which would make every case below stop at the
+     confinement check and never reach the one it is about. Staging a plan that
+     SUCCEEDS is what lets the launch-environment case be measured at all. */
+  const previousPlan = process.env.MC_TEST_CONFINEMENT_PLAN
+  process.env.MC_TEST_CONFINEMENT_PLAN = JSON.stringify({
+    ok: true, tier: 'unrestricted', isolated: false,
+    threadOptions: { sandbox: 'danger-full-access', approvalPolicy: 'never' }, env: null,
+  })
+  const cases = [
+    ['no confinement planner', { omit: ['confinement'] }, 'AGENT_CONFINEMENT_UNAVAILABLE'],
+    ['no launch-environment scrub', { omit: ['launchEnvironment'] }, 'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE'],
+  ]
+  try {
+  for (const [label, staging, expected] of cases) {
+    const root = stagePayload(staging)
+    try {
+      const enginePath = join(root, ...HOST_MODULES.engine.split('/'))
+      const probe = engineAvailability({ enginePath })
+      assert.equal(probe.code, expected, `${label}: the probe must report ${expected}`)
+      assert.equal(probe.ok, false, `${label}: the probe must not report ready`)
+
+      const host = createAgentHost({ enginePath, defaultCwd: root })
+      let started = null
+      try {
+        await host.startSession({ sessionId: `probe-${label}` })
+      } catch (error) {
+        started = error
+      }
+      assert.ok(started, `${label}: the start must actually fail, or the probe is refusing a working install`)
+      assert.equal(
+        started.code,
+        probe.code,
+        `${label}: readiness and startability must be computed from one source -- the probe said ${probe.code} and the start said ${started.code}`,
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+  } finally {
+    if (previousPlan === undefined) delete process.env.MC_TEST_CONFINEMENT_PLAN
+    else process.env.MC_TEST_CONFINEMENT_PLAN = previousPlan
+  }
+})
+
+/* ------------------------------------------------------------------
+   A REFUSAL NOBODY CAN READ IS A REFUSAL NOBODY CAN ACT ON.
+
+   The main-process message names the missing module and the manifest that
+   should have staged it -- and also names an absolute engine root, so it can
+   never cross the bridge. The CODE carries that specificity instead, which only
+   works if every surface that shows a code has a sentence for it.
+   ------------------------------------------------------------------ */
+
+test('every code availability can return has a specific sentence on both surfaces', () => {
+  /* MAPPED EXPLICITLY, not merely "different from the fallback". "This copy is
+     not set up to run agents yet" is the fallback AND the deliberate, correct
+     sentence for AGENT_ENGINE_UNAVAILABLE, so a difference test would force
+     that one entry to be reworded into something less true. The property that
+     actually matters is that a code was CONSIDERED. */
+  const noEngine = ENGINE_REASON.AGENT_ENGINE_UNAVAILABLE
+  /* BOTH HALVES of the composed answer. mc-agent:availability returns the
+     RECORDER's verdict when a record cannot be written and the ENGINE's when it
+     can, and both reach the page carrying the Start control -- so walking only
+     the engine codes was itself a list of two of three preconditions. */
+  for (const code of [...RECORD_AVAILABILITY_CODES, ...AVAILABILITY_CODES]) {
+    const page = unavailableReason(code)
+    assert.ok(Object.hasOwn(UNAVAILABLE_TEXT, code), `the agent page has no entry for ${code}, so it would show the bare code`)
+    assert.notEqual(page, code, `the agent page shows the bare code for ${code} instead of a sentence`)
+    assert.ok(page.length > 20, `the agent page's copy for ${code} is too short to act on: ${page}`)
+
+    assert.ok(Object.hasOwn(ENGINE_REASON, code), `the home screen has no entry for ${code} and would fall back to generic copy`)
+    const home = readAgentEngine({ ok: false, code }).why
+    assert.equal(home, ENGINE_REASON[code], `readAgentEngine does not render the home screen's own entry for ${code}`)
+    assert.equal(readAgentEngine({ ok: false, code }).ready, false, `${code} must never read as ready`)
+
+    /* A copy is not "not set up to run agents" when its engine resolved and one
+       sibling module is missing -- that sentence sends a person to reinstall
+       for a fault that has nothing to do with configuration. */
+    if (code !== 'AGENT_ENGINE_UNAVAILABLE') {
+      assert.notEqual(home, noEngine, `${code} reuses the no-engine sentence, which is untrue of an installation whose engine resolved`)
+    }
+  }
+})
+
+test('the two surfaces name the same fault in their own register', () => {
+  // Two tables exist because a home screen and a spawn control speak
+  // differently, not because the product has two opinions. Each pair must be
+  // about the same thing, and neither may be the other's text verbatim.
+  for (const code of ['AGENT_CONFINEMENT_UNAVAILABLE', 'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE']) {
+    assert.notEqual(UNAVAILABLE_TEXT[code], ENGINE_REASON[code], `${code} has the same sentence on both surfaces; one of them is in the wrong register`)
+    assert.ok(/will not start/.test(ENGINE_REASON[code]), `${code} must tell a home-screen reader what the consequence is`)
+  }
+  assert.match(UNAVAILABLE_TEXT.AGENT_CONFINEMENT_UNAVAILABLE, /agent-session-confinement/, 'the refusal must keep the missing module nameable')
+  assert.match(UNAVAILABLE_TEXT.AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE, /subscription-launch-env/, 'the refusal must keep the missing module nameable')
+  for (const text of Object.values(UNAVAILABLE_TEXT)) {
+    assert.doesNotMatch(text, /[\\]|[A-Za-z]:\//, 'no refusal sentence may carry a filesystem path')
+  }
+})
+
+test('a code with no copy still refuses, rather than degrading to ready', () => {
+  // The fallback direction. An unmapped code is a copy gap, and a copy gap must
+  // never become an enabled control -- both surfaces branch on `ok`, never on
+  // whether they recognise the code.
+  const unknown = readAgentEngine({ ok: false, code: 'AGENT_SOMETHING_NEW' })
+  assert.equal(unknown.ready, false)
+  assert.equal(unknown.supported, true)
+  assert.ok(unknown.why, 'an unrecognised code must still produce a sentence')
+  assert.equal(readAgentEngine({}).ready, false, 'a malformed reply must not read as ready')
+  assert.equal(readAgentEngine(undefined).ready, false, 'no answer at all must not read as ready')
+
+  const surface = read('src/agent-session.js')
+  assert.match(
+    surface,
+    /if \(available\?\.ok !== true\) \{/,
+    'the agent page must gate Start on ok, never on whether it recognises the code',
+  )
+})
+
+test('every refusal code in the agent host is classified as reachable from the probe or not', () => {
+  /* MECHANICAL, so a precondition added later cannot quietly return a code no
+     surface can translate. Every fail() in shell/agent-host.cjs is collected
+     from the source and must appear in exactly one of the two sets below --
+     AVAILABILITY_CODES (which the copy test above walks) or the start-only list
+     here, each entry of which is start-only for a stated reason. A new code
+     lands in neither and fails this test. */
+  const startOnly = new Set([
+    // Raised while a session is running or being torn down; there is nothing
+    // for a readiness probe to resolve.
+    'AGENT_ENGINE_INVALID_SESSION',
+    'AGENT_ENGINE_INVALID_TURN',
+    'AGENT_HOST_CLOSED',
+    'AGENT_SESSION_UNKNOWN',
+    'AGENT_SESSION_NOT_READY',
+    'AGENT_SESSION_EXISTS',
+    'AGENT_SESSION_START_CANCELLED',
+    'AGENT_TURN_ACTIVE',
+    'AGENT_TURN_NONE',
+  ])
+  const source = read('shell/agent-host.cjs')
+  const found = new Set()
+  for (const match of source.matchAll(/\bfail\(\s*\n?\s*'([A-Z_]+)'/g)) found.add(match[1])
+  // startSession() re-raises the planner's own code, which is why the literal
+  // appears there as a fallback; the planner loader owns it.
+  assert.ok(found.size >= 10, `the code scan found only ${found.size} refusals, so its pattern has stopped matching`)
+  const classified = new Set([...AVAILABILITY_CODES, ...startOnly])
+  for (const code of found) {
+    assert.ok(
+      classified.has(code),
+      `${code} is raised by shell/agent-host.cjs but classified neither as reachable from availability (with UI copy) nor as start-only`,
+    )
+  }
+  for (const code of AVAILABILITY_CODES) {
+    assert.ok(found.has(code), `${code} is exported as an availability code but nothing in the host raises it`)
+  }
+})
+
+test('the recorder half of the vocabulary is derived from what the recorder can raise', () => {
+  /* WITHOUT THIS, THE COPY TEST IS SELF-SELECTING. It walks
+     RECORD_AVAILABILITY_CODES, so deleting an entry from that list makes the
+     copy gap it was covering disappear -- coverage that shrinks to fit is the
+     hand-maintained-count defect this repo already names in
+     tools/check-suites-discovered.mjs.
+
+     So the list is checked against the source instead: availability() calls
+     loadOrCreateKey() and loadHead() and substitutes SPAWN_RECORD_UNAVAILABLE
+     for anything without a code, and every SPAWN_RECORD_* those two can raise
+     must be in the exported list. */
+  const source = read('shell/spawn-record.cjs')
+  const bodyOf = (name) => {
+    const start = source.indexOf(`function ${name}(`)
+    assert.ok(start > 0, `shell/spawn-record.cjs must still define ${name}(), or this scan is measuring nothing`)
+    return source.slice(start, source.indexOf('\n  }', start))
+  }
+  const raised = new Set(['SPAWN_RECORD_UNAVAILABLE'])
+  for (const fn of ['loadOrCreateKey', 'loadHead']) {
+    for (const match of bodyOf(fn).matchAll(/'(SPAWN_RECORD_[A-Z_]+)'/g)) raised.add(match[1])
+  }
+  assert.ok(raised.size >= 4, `the recorder scan found only ${raised.size} codes, so its pattern has stopped matching`)
+  for (const code of raised) {
+    assert.ok(
+      RECORD_AVAILABILITY_CODES.includes(code),
+      `${code} can be reported by the availability probe but is missing from RECORD_AVAILABILITY_CODES, so no surface is required to have copy for it`,
+    )
+  }
+  for (const code of RECORD_AVAILABILITY_CODES) {
+    assert.ok(source.includes(`'${code}'`), `${code} is exported as a recorder availability code but the recorder never raises it`)
   }
 })
 

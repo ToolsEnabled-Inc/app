@@ -162,11 +162,25 @@ export function readAgentEngine(raw, sessionsEnabled = false) {
   })
 }
 
-const ENGINE_REASON = Object.freeze({
+/* One sentence per reason a start would be refused, because the fallback below
+   ("not set up to run agents yet") is true of a copy with no engine and simply
+   WRONG about a copy whose engine is fine and whose payload is missing the
+   permission-level enforcement -- a distinction the shell now reports and this
+   screen would otherwise throw away. The agent page carries the same map with
+   more detail; this one stays at the register of a home screen. */
+export const ENGINE_REASON = Object.freeze({
   AGENT_ENGINE_UNAVAILABLE: 'This copy is not set up to run agents yet',
+  AGENT_CONFINEMENT_UNAVAILABLE: 'This copy did not ship the permission-level enforcement an agent session needs, so it will not start one',
+  AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'This copy did not ship the protection that keeps an agent session off your billed API account, so it will not start one',
+  AGENT_HOST_INVALID_CWD: 'Mission Control cannot use its own workspace folder, so an agent has nowhere to run',
+  AGENT_HOST_INVALID_ARGUMENT: 'Mission Control could not check whether an agent can run here',
   AGENT_HOST_CLOSED: 'Mission Control is shutting down',
+  SPAWN_RECORD_NO_KEYSTORE: 'This copy cannot reach the Windows keystore that protects the record of what runs here, so it will not start an agent',
+  SPAWN_RECORD_NO_DIRECTORY: 'Mission Control has nowhere to keep its record of what runs here, so it will not start an agent',
   SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let Mission Control protect its record of what runs here, so it will not start an agent',
   SPAWN_RECORD_KEY_UNREADABLE: 'The record of what has run here cannot be opened, so Mission Control will not add to it',
+  SPAWN_RECORD_LEDGER_CORRUPT: 'The record of what has run here does not read back as a record, so Mission Control will not add to it',
+  SPAWN_RECORD_UNAVAILABLE: 'The record of what runs here cannot be opened, so Mission Control will not start an agent',
   MC_AGENT_INVALID_PAYLOAD: 'This copy is not set up to run agents yet',
 })
 

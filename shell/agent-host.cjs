@@ -190,10 +190,6 @@ function loadEngine(enginePath, options = {}) {
   )
 }
 
-function loadStartCodexSession(enginePath, options = {}) {
-  return loadEngine(enginePath, options).startCodexSession
-}
-
 /* Resolve the confinement planner out of the engine tree.
  *
  * FAIL CLOSED, AND FAILING CLOSED HERE MEANS REFUSING TO START. The tempting
@@ -302,9 +298,56 @@ function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
  * environment variable" no longer means "no engine", and a test that relies on
  * that would be measuring ambient state -- green or red depending on whether a
  * payload happens to be staged beside it. */
-function engineAvailability({ enginePath, ...options } = {}) {
+
+/* READINESS MUST MEAN STARTABLE, AND FOR ONE RELEASE IT DID NOT.
+ *
+ * This function used to resolve ONLY the engine -- `loadStartCodexSession()`
+ * and nothing else -- and answer AGENT_ENGINE_READY when that came back. The
+ * real start path resolves three modules out of the engine tree and validates a
+ * working directory, so readiness and startability were computed from two
+ * different sources. On any payload missing one of the other two the product
+ * reported READY, enabled Start, and threw on every press with no way for the
+ * person to tell why. That is not hypothetical: agent-session-confinement.js
+ * and subscription-launch-env.js were both declared under `hostModules` AFTER
+ * the 1.0.5 installer was built, so the copy already delivered to a second
+ * machine is exactly that build.
+ *
+ * SO THE LIST BELOW IS THE START PATH'S OWN LIST, IN THE START PATH'S OWN
+ * ORDER, and each entry is here because startSession() cannot proceed without
+ * it -- not because it seemed prudent:
+ *
+ *   loadEngine                -> createAgentHost's first statement.
+ *   loadConfinementPlanner    -> planConfinement(), before anything is spawned.
+ *   loadLaunchEnvironment     -> resolved per session, after the plan.
+ *   normalizeCwd(defaultCwd)  -> createAgentHost's second statement, and the
+ *                                asar-path defect that killed every PACKAGED
+ *                                start while every checkout stayed green.
+ *
+ * The ORDER is the start path's order so a payload missing more than one module
+ * reports the same code from the probe as from the press. A probe that named a
+ * different one of two true faults would send someone to fix the wrong thing.
+ *
+ * WHAT IS DELIBERATELY NOT DONE HERE, and it is the one thing that looks
+ * missing: confinedSessionPlan() is NOT called. It is not a read --
+ * prepareConfinedCodexHome() mkdirs the isolated agent home, links the Codex
+ * credential into it and writes config.toml. Availability is the one agent
+ * channel that starts nothing, and a probe the home screen runs on every mount
+ * must not build a session's home as a side effect. Its `plan.ok === false`
+ * refusal therefore remains a start-time refusal; see the note on that check in
+ * startSession(). Everything install-shaped -- a module the payload did not
+ * ship, a module this shell does not recognise, a working directory that is a
+ * file inside an archive -- is answered here, before a control is offered.
+ *
+ * `defaultCwd` defaults to process.cwd() rather than being optional, and it is
+ * the SAME default createAgentHost() takes. An optional precondition is a
+ * precondition a caller can skip, which is the defect this function is being
+ * repaired for, one level up. */
+function engineAvailability({ enginePath, defaultCwd = process.cwd(), ...options } = {}) {
   try {
-    loadStartCodexSession(enginePath, options)
+    const { engineRoot } = loadEngine(enginePath, options)
+    loadConfinementPlanner(engineRoot)
+    loadLaunchEnvironment(engineRoot)
+    normalizeCwd(defaultCwd, defaultCwd)
     return Object.freeze({ ok: true, code: 'AGENT_ENGINE_READY' })
   } catch (error) {
     return Object.freeze({
@@ -313,6 +356,24 @@ function engineAvailability({ enginePath, ...options } = {}) {
     })
   }
 }
+
+/* Every code engineAvailability() can answer with when it is not ready.
+ *
+ * EXPORTED SO THE UI CANNOT SILENTLY OUTGROW ITS OWN VOCABULARY. Both surfaces
+ * that consume availability translate a code into a sentence and fall back to
+ * generic copy for anything unrecognised -- so adding a precondition here
+ * without adding copy there produces a refusal that says nothing, next to a
+ * disabled control, which is only marginally better than the enabled one it
+ * replaced. tools/test/agent-session-surface.test.mjs walks this list against
+ * both copy tables, and separately walks every fail() code in this file to
+ * force a new one to be classified rather than forgotten. */
+const AVAILABILITY_CODES = Object.freeze([
+  'AGENT_ENGINE_UNAVAILABLE',
+  'AGENT_CONFINEMENT_UNAVAILABLE',
+  'AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE',
+  'AGENT_HOST_INVALID_CWD',
+  'AGENT_HOST_INVALID_ARGUMENT',
+])
 
 function normalizeSessionId(value) {
   return boundedString(value, 'sessionId', 128)
@@ -707,4 +768,4 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
  * it. A precedence test written against engineAvailability() therefore passes
  * whichever way round the candidates are, which is exactly what a planted
  * swap proved before this was exported. */
-module.exports = { createAgentHost, engineAvailability, engineCandidates }
+module.exports = { AVAILABILITY_CODES, createAgentHost, engineAvailability, engineCandidates }

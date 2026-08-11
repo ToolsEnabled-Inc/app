@@ -475,4 +475,24 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
   return Object.freeze({ availability, record, verify, history, stats, ledgerPath, keyPath })
 }
 
-module.exports = { createSpawnRecorder, SpawnRecordError, GENESIS }
+/* Every code availability() can answer with when a record could not be
+ * written, exported for the same reason shell/agent-host.cjs exports its own
+ * list: this half of the availability answer reaches the SAME two surfaces,
+ * and one of them is the page carrying the Start control. Until this existed
+ * that page had copy for none of these and showed the bare identifier beside a
+ * disabled button -- a refusal a person cannot act on, which is the defect the
+ * engine half was just repaired for, in a smaller size.
+ *
+ * SPAWN_RECORD_UNAVAILABLE is included because it is the catch-all the wrapper
+ * substitutes for any error carrying no string code, so it is reachable by
+ * construction and not only by a named throw. */
+const RECORD_AVAILABILITY_CODES = Object.freeze([
+  'SPAWN_RECORD_NO_KEYSTORE',
+  'SPAWN_RECORD_NO_DIRECTORY',
+  'SPAWN_RECORD_KEYSTORE_UNAVAILABLE',
+  'SPAWN_RECORD_KEY_UNREADABLE',
+  'SPAWN_RECORD_LEDGER_CORRUPT',
+  'SPAWN_RECORD_UNAVAILABLE',
+])
+
+module.exports = { createSpawnRecorder, SpawnRecordError, GENESIS, RECORD_AVAILABILITY_CODES }

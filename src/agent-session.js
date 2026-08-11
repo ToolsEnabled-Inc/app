@@ -10,6 +10,7 @@
  * styling and introduces no visual vocabulary of its own.
  */
 import { el } from './components.js'
+import { unavailableReason } from './agent-availability-copy.js'
 import { isWriteEnabled } from './write-flags.js'
 import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
@@ -40,14 +41,6 @@ import { createTranscriptAppender } from './agent-session-transcript.js'
    than that would be the UI overstating its own evidence. */
 const UNRESTRICTED_NOTE = 'Runs with your full local access. No permission tier limits a running session. Every start is recorded on this device before it runs.'
 
-/* Bounded copy for the codes availability can return. An unknown code is
-   shown verbatim -- codes are short, fixed identifiers, never paths. */
-const UNAVAILABLE_TEXT = Object.freeze({
-  AGENT_ENGINE_UNAVAILABLE: 'no agent engine is configured on this installation',
-  AGENT_HOST_CLOSED: 'the agent host is shutting down',
-  MC_AGENT_INVALID_PAYLOAD: 'the agent host refused the availability request',
-})
-
 const BRIDGE_ABSENT = 'the desktop shell is required; this surface is inert in a browser'
 
 function actionState(node, kind, text) {
@@ -55,9 +48,6 @@ function actionState(node, kind, text) {
   node.textContent = text
 }
 
-function unavailableReason(code) {
-  return UNAVAILABLE_TEXT[code] || String(code || 'unavailable')
-}
 
 /* The frame scheduler is injectable ONLY so a test can drive the transcript
    flush deterministically instead of waiting on a real animation frame. The
