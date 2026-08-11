@@ -318,7 +318,36 @@ async function run() {
   // Chip ↔ chat remains functional and is the only context-label size motion.
   await webContents.executeJavaScript(`document.querySelector('.static-tree-chip.screen-chip-visible')?.click()`)
   await waitFor(webContents, `document.querySelector('.static-tree-chip.as-chat .chat')`)
-  check('context chip opens chat', true)
+  /* This check used to be `check('context chip opens chat', true)` — a literal
+     that cannot fail. It waited for the chat ELEMENT and then asserted nothing
+     about whether a person could see it, and underneath it the product shipped
+     a chat that opened and was then hidden at every window size on every node:
+     the placer found no seat for a 360x368 panel under the "immediately beside
+     the circle" rule and set the whole block to opacity 0. So the assertion is
+     now what the name always claimed — the chat is ON SCREEN, inside the
+     canvas, reachable by a pointer, and still wearing the braces the owner
+     keeps on this page's chatboxes. */
+  const chatOpened = await webContents.executeJavaScript(`(() => {
+    const chip = document.querySelector('.static-tree-chip.as-chat')
+    if (!chip) return { present: false }
+    const box = chip.getBoundingClientRect()
+    const host = document.querySelector('.graph-wrap').getBoundingClientRect()
+    const style = getComputedStyle(chip)
+    return {
+      present: true,
+      opacity: Number(style.opacity),
+      visibility: style.visibility,
+      pointerEvents: style.pointerEvents,
+      width: Math.round(box.width), height: Math.round(box.height),
+      insideCanvas: box.x >= host.x - 1 && box.y >= host.y - 1
+        && box.right <= host.right + 1 && box.bottom <= host.bottom + 1,
+      braces: chip.querySelectorAll('.monitor-brace').length,
+    }
+  })()`)
+  check('context chip opens a chat a person can actually see',
+    chatOpened.present && chatOpened.opacity > 0.9 && chatOpened.visibility === 'visible'
+    && chatOpened.pointerEvents !== 'none' && chatOpened.width > 200 && chatOpened.height > 200
+    && chatOpened.insideCanvas && chatOpened.braces === 2, JSON.stringify(chatOpened))
   await webContents.executeJavaScript(`document.querySelector('.static-tree-chip.as-chat .chat-close')?.click()`)
   await waitFor(webContents, `!document.querySelector('.static-tree-chip.as-chat')`)
 

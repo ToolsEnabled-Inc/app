@@ -26,13 +26,19 @@ const nameOf = (node) => String(node?.name ?? node?.agent?.name ?? idOf(node))
    for that word rather than for a clock it does not have. 34 is the floor
    the packer already treats as "still readable". */
 const SILENT_SCALE = 0.72
+/* The smallest circle this file will draw, and the height of the name+role
+   stack that hangs under every one of them. Both are used by the vertical
+   fitter in layoutTree; 34 is the same floor the horizontal packer already
+   treats as "still readable", so the two axes agree on what readable means. */
+const RADIUS_FLOOR = 34
+const LABEL_STACK = 34
 export function treeNodeRadius(node) {
   const explicit = finite(node?.r) ?? finite(node?.radius)
-  if (explicit !== null) return Math.max(34, explicit)
+  if (explicit !== null) return Math.max(RADIUS_FLOOR, explicit)
   const base = ROLE_RADII[roleOf(node)] ?? ROLE_RADII.default
   const source = node?.agent ?? node
   const silent = !Number.isFinite(Number(source?.bornAt))
-  return Math.max(34, silent ? Math.round(base * SILENT_SCALE) : base)
+  return Math.max(RADIUS_FLOOR, silent ? Math.round(base * SILENT_SCALE) : base)
 }
 const radiusOf = treeNodeRadius
 
@@ -117,9 +123,27 @@ function packedXs(list, width) {
    manager owns which lane. Siblings of one parent are packed TIGHT; different
    parents' groups are separated by a gap several times larger, and each group
    is centred under its own parent. The whitespace does the work the edges were
-   being asked to do alone. */
+   being asked to do alone.
+
+   TWO THINGS THIS PACKER DID NOT DO. Neither was visible while the canvas was
+   frozen at 827px wide; both are what a canvas allowed to use the window turns
+   into (see the page-2 column in src/styles.css).
+
+   1. A rank whose nodes all share ONE parent was refused here — `groups.length
+      < 2` — and fell through to packedXs, which spreads a rank EVENLY across
+      the whole canvas. That is the exact failure the paragraph above was
+      written to prevent, left in place for the commonest shape there is: one
+      coordinator with four managers under it. On a 1260px canvas those four
+      stand 252px apart and the rank stops reading as one family. One group is
+      still a group; it is packed and centred under its parent like any other.
+   2. The air between siblings was a constant, so a rank with room to breathe
+      never used it and a wider window bought the reader nothing. The air is
+      now the largest value up to AIR_WITHIN_MAX that still fits the rank, and
+      the gap BETWEEN groups holds a constant ratio to it, so the "tight
+      siblings, wide gap between families" reading survives at every width. */
 const AIR_WITHIN = 18
-const AIR_BETWEEN = 64
+const AIR_WITHIN_MAX = 68
+const BETWEEN_RATIO = 3.5
 const RANK_EDGE = 24
 function packGroupedXs(list, width, anchorOf) {
   if (!list.length) return null
@@ -131,12 +155,24 @@ function packGroupedXs(list, width, anchorOf) {
     if (last && last.key === key) last.items.push(record)
     else groups.push({ key, items: [record], anchor: anchor?.x ?? null })
   }
-  if (groups.length < 2) return null
+
+  const circleSpan = list.reduce((sum, record) => sum + record.r * 2, 0)
+  const room = width - RANK_EDGE * 2 - circleSpan
+  if (room < 0) return null
+  /* total(air) = circleSpan + air * (n - g) + air * RATIO * (g - 1), so the
+     widest air the rank can afford is one division rather than a search. */
+  const airUnits = (list.length - groups.length) + BETWEEN_RATIO * (groups.length - 1)
+  let air = AIR_WITHIN_MAX
+  if (airUnits > 0) {
+    air = Math.floor(Math.min(AIR_WITHIN_MAX, room / airUnits))
+    if (air < AIR_WITHIN) return null
+  }
+  const between = Math.floor(air * BETWEEN_RATIO)
 
   const widthOf = (group) => group.items.reduce((sum, record) => sum + record.r * 2, 0)
-    + AIR_WITHIN * (group.items.length - 1)
+    + air * (group.items.length - 1)
   const total = groups.reduce((sum, group) => sum + widthOf(group), 0)
-    + AIR_BETWEEN * (groups.length - 1)
+    + between * (groups.length - 1)
   if (total > width - RANK_EDGE * 2) return null
 
   let cursor = RANK_EDGE
@@ -144,7 +180,7 @@ function packGroupedXs(list, width, anchorOf) {
     const groupWidth = widthOf(group)
     const desired = group.anchor == null ? (width - groupWidth) / 2 : group.anchor - groupWidth / 2
     group.left = Math.max(cursor, desired)
-    cursor = group.left + groupWidth + AIR_BETWEEN
+    cursor = group.left + groupWidth + between
   }
   // A group centred under a right-hand parent can push the rank past the edge;
   // pull the whole run back, then re-seat it against the left edge.
@@ -154,12 +190,12 @@ function packGroupedXs(list, width, anchorOf) {
     for (let index = groups.length - 1; index >= 0; index -= 1) {
       const group = groups[index]
       group.left = Math.min(group.left, limit - widthOf(group))
-      limit = group.left - AIR_BETWEEN
+      limit = group.left - between
     }
     let floor = RANK_EDGE
     for (const group of groups) {
       group.left = Math.max(group.left, floor)
-      floor = group.left + widthOf(group) + AIR_BETWEEN
+      floor = group.left + widthOf(group) + between
     }
   }
 
@@ -168,7 +204,7 @@ function packGroupedXs(list, width, anchorOf) {
     let x = group.left
     for (const record of group.items) {
       xs.push(x + record.r)
-      x += record.r * 2 + AIR_WITHIN
+      x += record.r * 2 + air
     }
   }
   return xs.at(-1) + list.at(-1).r <= width - 4 ? xs : null
@@ -265,6 +301,40 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
     }
   }
   const rowHeight = rows > 1 ? (height - padTop - padBottom) / (rows - 1) : 0
+
+  /* THE VERTICAL AXIS HAD NO FITTER.
+     Horizontally a rank that will not fit is packed, then culled, then
+     drilled — three lines of defence. Vertically the row pitch was simply
+     (height - pads) / (rows - 1) and NOTHING compared it against the circles
+     it had to carry, so a short canvas drew the tiers straight through each
+     other and painted every name under the neighbouring circle. Measured on
+     the shipped build at 1024x768: a 339px canvas, three tiers, an 85px pitch
+     holding 114px of circle — six overlapping pairs and three names hidden
+     behind a bubble.
+     The circles shrink TOGETHER, so a coordinator stays visibly larger than a
+     lane and the role sizing still reads, down to the same 34px floor the
+     packer already calls readable. A canvas too short for the tree gets a
+     smaller tree, never a broken one. Below the floor the honest answer is
+     more height, which is why the stacked breakpoint in src/styles.css now
+     asks for enough of it. */
+  if (rows > 1 && rowHeight > 0) {
+    const tallestPerTier = tierKeys.map(key =>
+      tiers.get(key).reduce((max, record) => Math.max(max, record.r), 0))
+    let needed = 0
+    for (let index = 0; index + 1 < tallestPerTier.length; index += 1) {
+      needed = Math.max(needed, tallestPerTier[index] + tallestPerTier[index + 1] + LABEL_STACK)
+    }
+    if (needed > rowHeight) {
+      const circles = needed - LABEL_STACK
+      const scale = circles > 0 ? Math.max(0, rowHeight - LABEL_STACK) / circles : 1
+      if (scale < 1) {
+        for (const record of records) {
+          record.r = Math.max(RADIUS_FLOOR, Math.round(record.r * scale))
+        }
+      }
+    }
+  }
+
   const slots = new Map()
   const labels = new Map()
   const culled = new Set()
@@ -317,7 +387,13 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
     })
   })
 
-  return { slots, rowYs, rowOf, culled, drillRequired, labels, parents }
+  /* The radius is not a number this file kept to itself: it is the drawn
+     diameter, the origin of every leader line and the obstacle the context
+     blocks are routed around. If the fitter above changed it, the caller has
+     to be told, or the canvas draws full-size circles into slots that were
+     packed for smaller ones. */
+  const radii = new Map(records.map(record => [record.id, record.r]))
+  return { slots, rowYs, rowOf, culled, drillRequired, labels, parents, radii }
 }
 
 export const TREE_ROLE_RADII = ROLE_RADII

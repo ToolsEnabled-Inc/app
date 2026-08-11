@@ -371,6 +371,7 @@ export class StaticTreeGraph {
       chip: null,
       chipLeader: null,
       chatOpen: false,
+      chatHeight: 0,
       runtimeUnsub: null,
       chipRuntimeUnsub: null,
       clickTimer: 0,
@@ -591,6 +592,21 @@ export class StaticTreeGraph {
     this._layoutResult = result
     this._culled = result.culled
     this._layoutVisibleIds = new Set(agents.map(agent => agent.id))
+
+    /* The layout is allowed to shrink the circles so the tiers clear each
+       other on a short canvas (src/tree-layout.js, vertical fitter). It hands
+       back what it decided, and every consumer of the radius has to move with
+       it — the drawn diameter (--d), the clamp that keeps a node on the
+       canvas below, the leader-line origins and the obstacle boxes in
+       _placeChips all read record.r. Recomputed from the role on every
+       layout, never from the last shrunk value, so a window that grows gives
+       the circles their full size back instead of ratcheting down. */
+    for (const record of this.nodes.values()) {
+      const radius = result.radii?.get(record.id)
+      if (!Number.isFinite(radius) || radius === record.r) continue
+      record.r = radius
+      record.el.style.setProperty('--d', `${radius * 2}px`)
+    }
 
     for (const record of this.nodes.values()) {
       const slot = result.slots.get(record.id)
@@ -1042,6 +1058,7 @@ export class StaticTreeGraph {
     chip.removeAttribute('role')
     chip.style.zIndex = String(++chatZ)
     const chatHeight = Math.max(250, Math.min(368, (this.zoomHost.clientHeight || this.H) - 24))
+    record.chatHeight = chatHeight
     const chat = buildChat({
       title: record.agent.name,
       subtitle: `${ROLES[record.agent.role]?.label || 'Agent'} · context`,
@@ -1059,6 +1076,7 @@ export class StaticTreeGraph {
     if (!record.chip || !record.chatOpen) return
     const chip = record.chip
     record.chatOpen = false
+    record.chatHeight = 0
     chip.classList.remove('as-chat')
     chip.setAttribute('role', 'button')
     chip.style.zIndex = ''
@@ -1168,10 +1186,14 @@ export class StaticTreeGraph {
 
     const dimensions = new Map(records.map(record => {
       const width = Math.min(record.chatOpen ? SCREEN_CHAT_W : SCREEN_CHIP_W, hostWidth - SCREEN_EDGE * 2)
-      const height = Math.min(
-        record.chip.offsetHeight || (record.chatOpen ? 368 : SCREEN_CHIP_H),
-        hostHeight - SCREEN_TOP - SCREEN_EDGE,
-      )
+      /* offsetHeight is measured DURING the open transition, so an opening
+         chat reports the collapsed block's height and the placer sizes a
+         368px panel as a 126px one. openChat records the height it asked for;
+         that number is what the panel will actually be. */
+      const target = record.chatOpen
+        ? (record.chatHeight || record.chip.offsetHeight || 368)
+        : (record.chip.offsetHeight || SCREEN_CHIP_H)
+      const height = Math.min(target, hostHeight - SCREEN_TOP - SCREEN_EDGE)
       return [record.id, { width, height }]
     }))
     // Every visible circle in screen space — the leader must not cross any of
@@ -1200,13 +1222,38 @@ export class StaticTreeGraph {
 
     for (const record of records) {
       const chip = record.chip
-      const selected = slots.get(record.id)
+      /* AN OPEN CHAT IS NEVER WITHHELD.
+         Withholding a COLLAPSED monitoring block the placer cannot attach
+         cleanly is right, and _chipCandidates explains why. An open chat is
+         not an annotation the reader has to attribute — it is the panel a
+         person just clicked for, it carries the agent's name in its own
+         title, and it draws a leader to its own circle.
+         Measured on the shipped build, by OS-level click rather than a
+         synthetic one, at 1360x700 and at 1024x700, on every node tried:
+         clicking a monitoring block built the chat and then left the whole
+         block at opacity 0 / visibility hidden / pointer-events none. The
+         click looked like it did nothing. A 360x368 panel simply does not fit
+         the "immediately beside the circle, clear of every obstacle" rule the
+         126px-tall collapsed block is placed by, so election returned no slot
+         and the branch below hid it. The page's own driver could not catch it:
+         it waited for the chat ELEMENT and then passed a hardcoded true for
+         whether anyone could see it (tools/page2-qa.cjs).
+         So an open chat gets a guaranteed seat instead of no seat. It may
+         cover a neighbour; that is what a panel opened on purpose is allowed
+         to do, and it closes on its own button or on Escape. */
+      let selected = slots.get(record.id)
+      if (!selected && record.chatOpen) {
+        selected = this._forcedChatSlot(record, dimensions.get(record.id), hostWidth, hostHeight)
+      }
       if (!selected) {
         chip.classList.remove('screen-chip-visible')
         record.chipLeader.classList.remove('visible')
         record.chipLeaderDot?.classList.remove('visible')
         continue
       }
+      chip.classList.add('screen-chip-visible')
+      record.chipLeader.classList.add('visible')
+      record.chipLeaderDot?.classList.add('visible')
       const { width } = dimensions.get(record.id)
       const x = this.panX + record.x * this.zoom
       const y = this.panY + record.y * this.zoom
@@ -1233,6 +1280,34 @@ export class StaticTreeGraph {
       record.chipLeader.setAttribute('y2', String(endY))
       record.chipLeaderDot?.setAttribute('cx', String(startX))
       record.chipLeaderDot?.setAttribute('cy', String(startY))
+    }
+  }
+
+  /* The seat an open chat gets when election found none: the side of its own
+     node with more room, vertically centred on it, clamped inside the canvas
+     so no part of the panel can land off-screen. Deliberately NOT a search —
+     a search is what already failed, and a panel the person is waiting for is
+     owed a definite answer rather than a better-placed absence. */
+  _forcedChatSlot(record, dimension, hostWidth, hostHeight) {
+    const width = Math.min(dimension?.width || SCREEN_CHAT_W, Math.max(120, hostWidth - SCREEN_EDGE * 2))
+    const height = Math.min(
+      dimension?.height || record.chatHeight || 368,
+      Math.max(120, hostHeight - SCREEN_TOP - SCREEN_EDGE),
+    )
+    const x = this.panX + record.x * this.zoom
+    const y = this.panY + record.y * this.zoom
+    const radius = record.r * this.zoom
+    const maxX = Math.max(SCREEN_EDGE, hostWidth - width - SCREEN_EDGE)
+    const maxY = Math.max(SCREEN_TOP, hostHeight - height - SCREEN_EDGE)
+    const rightEdge = x + radius + 14
+    const leftEdge = x - radius - 14 - width
+    const roomRight = hostWidth - SCREEN_EDGE - rightEdge
+    const roomLeft = leftEdge - SCREEN_EDGE
+    return {
+      x: clamp(roomRight >= roomLeft ? rightEdge : leftEdge, SCREEN_EDGE, maxX),
+      y: clamp(y - height / 2, SCREEN_TOP, maxY),
+      w: width,
+      h: height,
     }
   }
 

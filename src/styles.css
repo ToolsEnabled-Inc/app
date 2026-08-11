@@ -426,11 +426,21 @@
 }
 .write-surface > header span,
 .session-write-state,
-.write-form output {
+.write-form output,
+.write-restated {
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.4;
   color: var(--ink-3);
+}
+/* The answer to a write this form already sent, carried over from a moment when
+   this panel did not exist to show it. Its own line rather than the <output>,
+   because the output is written by the bridge handshake and the queue snapshot a
+   fraction of a second after mount and would have erased it. */
+.write-restated {
+  margin: 0;
+  padding-left: var(--s2);
+  border-left: 2px solid currentColor;
 }
 .write-surface [data-state="confirmed"],
 .session-write-state[data-state="confirmed"] { color: var(--s-good); }
@@ -453,6 +463,7 @@
 .write-form-title,
 .write-form .write-wide,
 .write-form output,
+.write-form .write-restated,
 .write-form .write-report { grid-column: 1 / -1; }
 .write-form label {
   min-width: 0;
@@ -1192,6 +1203,24 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
    margins), never as inner padding, so box edge == content edge == topbar */
 .computers { height: 100%; display: flex; flex-direction: column; padding: 0 0 20px; width: min(var(--page-max), calc(100% - 2 * var(--page-gutter))); margin-inline: auto; gap: var(--s3); }
 
+/* THE TREE IS THE ONE PAGE WHERE WIDTH IS INFORMATION.
+   1240px is the right measure for every other surface here, because every
+   other surface is prose or cards and prose stops being readable past about
+   that. Page 2 is a canvas: width is how many siblings fit in a rank before
+   the layout has to cull them, how much label each one gets, and whether the
+   placer can seat a monitoring block beside its own node instead of
+   withholding it.
+   Measured on this build before the change: the canvas was 827px wide at 1280
+   and STILL 827px wide at 1920 — the same tree, with 342px of bare sheet down
+   each side and 4 of the 9 monitors withheld for want of room. So page 2, and
+   page 2 only, takes a wider column. The token is redefined on the route
+   rather than on :root, so the topbar's arrows travel with the page edge and
+   nothing on any other route moves.
+   The RAIL is deliberately left at its 400px cap: it holds counts and
+   sentences, which do not get better past a measure. Every pixel the wider
+   window buys goes to the canvas, which is the half that was starved. */
+body[data-route="computers"] { --page-max: 1680px; }
+
 .tabs { display: flex; gap: var(--s2); align-items: center; flex: none; padding: 2px; }
 .tab {
   position: relative;
@@ -1216,8 +1245,32 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .tab.add { padding: var(--s2) var(--s3); font-size: 16px; color: var(--ink-25); }
 
 .comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, 400px); gap: var(--s3); }
+
+/* A WINDOW CAN BE DRAGGED SHORTER THAN THE TREE NEEDS AT ANY WIDTH, not only
+   at the stacked breakpoint below. Measured on one window driven through a
+   resize ladder: at 1102x381 the canvas came to 659x227, and three tiers
+   cannot clear each other in 227px even with every circle shrunk to its 34px
+   floor — six overlapping pairs, which is the exact defect the vertical
+   fitter exists to prevent, one drag of the window edge below where shrinking
+   can still win. Below the floor the only honest answer is more height.
+   So the page asks for the height it needs and scrolls for the rest, which is
+   the cure this file already chose for the stacked rows. `auto` is inert
+   whenever the page fits, which is every ordinary window: at 900px tall the
+   body is 745px against a 520px ask, and no scrollbar appears. */
+.comp-body { min-height: 520px; }
+.computers { overflow-y: auto; }
+
 @media (max-width: 1080px) {
-  .comp-body { grid-template-columns: 1fr; grid-template-rows: minmax(340px, 1fr) minmax(440px, auto); }
+  /* 340px was not a minimum, it was the height at which this page breaks.
+     Stacked, the canvas measured 339px at 1024x768 and the tree drew its
+     three tiers 85px apart while carrying 114px of circle: six overlapping
+     pairs, three names painted underneath a neighbouring bubble. The layout
+     now shrinks circles to fit a short canvas rather than overlapping them
+     (src/tree-layout.js), but shrinking a three-tier tree to its 34px floor
+     to survive 339px is a worse answer than giving it the ~150px of pitch it
+     wants and letting the page scroll — which this breakpoint already
+     enables, and which the rail below has always relied on. */
+  .comp-body { grid-template-columns: 1fr; grid-template-rows: minmax(560px, 1fr) minmax(440px, auto); }
   /* The stacked rows demand ≥780px while the viewports this breakpoint serves
      can be 768px tall, and every ancestor clips — measured: 158px of rail
      (half of TASKS, all of LEGEND) past the viewport with zero scrollable
@@ -1226,6 +1279,40 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
      this breakpoint so the side-by-side layout keeps its exact-fit column. */
   .computers { overflow-y: auto; }
   .rail { min-height: 440px; }
+}
+
+/* THE EMPTY STATE IS THE SHIPPING STATE, AND IT SHIPPED AS TWO VOIDS.
+   public/data/fleet.json ships ok:false, so this — not the tree — is what a
+   fresh install renders here. The words were already right (see
+   showProjectionUnavailable in src/views/computers.js); the SHAPE was not. The
+   two cards are sized to hold a tree and a live statistics rail, so at
+   1920x1080 a person with no fleet yet got an 860x980 card holding three
+   centred sentences and a 400x980 card holding two, and roughly 1500 square
+   centimetres of blank sheet between them. Emptiness drawn at that scale reads
+   as a page that failed to load rather than one that is honestly waiting.
+   The cards now take the height their content needs — enough for the
+   explanation and its one action, never the whole window — and the sheet below
+   them is plainly sheet. Nothing is hidden: the rail keeps its own sentence
+   about the projection and the organisation store, which is a separate fact
+   from the fleet's and is what tools/agent-route-reachability.mjs reads. */
+/* Height on the ROW, never `align-items: start` on the items. The explanation
+   is `position: absolute; inset: 0` inside the canvas slot — it has to be, it
+   occupies the slot the tree would — so a card asked to size to its content
+   measures zero and collapses to its own top border. Verified by eye at
+   1920x1080: the first attempt at this rule erased the whole empty state. */
+.computers[data-projection-state="unavailable"] .comp-body {
+  grid-template-rows: minmax(300px, min(52vh, 460px));
+  /* align-CONTENT centres the row track; align-items would have sized the
+     items instead, which is the collapse described above. Centred, the sheet
+     left over reads as margin around a statement rather than as the bottom
+     half of a page that failed to draw. */
+  align-content: center;
+}
+@media (max-width: 1080px) {
+  .computers[data-projection-state="unavailable"] .comp-body {
+    grid-template-rows: minmax(280px, auto) minmax(200px, auto);
+  }
+  .computers[data-projection-state="unavailable"] .rail { min-height: 200px; }
 }
 
 /* --- graph canvas --- */

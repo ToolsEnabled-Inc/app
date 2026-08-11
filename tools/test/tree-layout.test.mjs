@@ -65,3 +65,62 @@ test('declared hierarchy edges are consumed without accepting a cycle', () => {
   assert.equal(result.slots.size, 3)
   assert.ok(new Set([...result.slots.values()].map(slot => slot.y)).size >= 2)
 })
+
+/* The three properties the vertical fitter and the grouped packer are FOR.
+   Written as unit tests rather than screenshots because the interesting
+   inputs here are the degenerate ones — no nodes, one node, no room — and a
+   screenshot is worst at exactly those. */
+
+test('a rank under one parent is packed under it, not smeared across the canvas', () => {
+  const family = [
+    { id: 'root', name: 'Coordinator', role: 'coordinator', bornAt: 1 },
+    ...['a', 'b', 'c', 'd'].map(key => ({
+      id: `manager-${key}`, name: `Manager ${key.toUpperCase()}`, role: 'manager', parentId: 'root', bornAt: 1,
+    })),
+  ]
+  const narrow = layoutTree({ nodes: family, W: 840, H: 700 })
+  const wide = layoutTree({ nodes: family, W: 1260, H: 700 })
+  const pitchOf = (result) =>
+    result.slots.get('manager-b').x - result.slots.get('manager-a').x
+  // The rank keeps ONE spacing as the canvas grows: a wider window buys the
+  // tree room around itself, never a rank stretched to the window's width.
+  assert.equal(pitchOf(wide), pitchOf(narrow))
+  const span = wide.slots.get('manager-d').x - wide.slots.get('manager-a').x
+  assert.ok(span < 1260 / 2, `rank span ${span} should stay a family, not fill the canvas`)
+  // ...and it stays centred on its own parent.
+  const mid = (wide.slots.get('manager-a').x + wide.slots.get('manager-d').x) / 2
+  assert.ok(Math.abs(mid - wide.slots.get('root').x) < 2, `${mid} vs ${wide.slots.get('root').x}`)
+})
+
+test('a canvas too short for the tiers shrinks the circles instead of overlapping them', () => {
+  const deep = [
+    { id: 'root', name: 'Coordinator', role: 'coordinator', bornAt: 1 },
+    { id: 'mid', name: 'Manager', role: 'manager', parentId: 'root', bornAt: 1 },
+    { id: 'leaf', name: 'Lane', role: 'default', parentId: 'mid', bornAt: 1 },
+  ]
+  const roomy = layoutTree({ nodes: deep, W: 900, H: 760 })
+  const cramped = layoutTree({ nodes: deep, W: 900, H: 339 })
+  assert.equal(roomy.radii.get('root'), 62, 'a canvas with room keeps the full role size')
+  const pitch = cramped.slots.get('mid').y - cramped.slots.get('root').y
+  const circles = cramped.radii.get('root') + cramped.radii.get('mid')
+  assert.ok(circles <= pitch, `circles ${circles} must clear the ${pitch}px row pitch`)
+  assert.ok(cramped.radii.get('root') >= 34, 'never below the readable floor')
+  // Growing the window back must give the full size back, not ratchet down.
+  assert.equal(layoutTree({ nodes: deep, W: 900, H: 760 }).radii.get('root'), 62)
+})
+
+test('absence is answered without a slot, a radius or a throw', () => {
+  const empty = layoutTree({ nodes: [], W: 1260, H: 800 })
+  assert.equal(empty.slots.size, 0)
+  assert.equal(empty.radii.size, 0)
+  assert.equal(empty.drillRequired, false)
+  assert.deepEqual(empty.rowYs, [])
+  // No argument at all is the same answer as an empty fleet.
+  assert.equal(layoutTree().slots.size, 0)
+  // One node, no parent, no edges: centred, full size, nothing culled.
+  const lone = layoutTree({ nodes: [{ id: 'only', name: 'Only', role: 'coordinator', bornAt: 1 }], W: 1260, H: 800 })
+  assert.equal(lone.slots.get('only').x, 630)
+  assert.equal(lone.radii.get('only'), 62)
+  assert.equal(lone.culled.size, 0)
+  assert.equal(lone.drillRequired, false)
+})
