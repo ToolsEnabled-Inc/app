@@ -457,9 +457,28 @@ async function main() {
   log(`staged ${all.length} files (${(bytes / 1024 / 1024).toFixed(2)} MB) into ${out}`)
 
   const guard = await runOwnerDataGuard(out)
+  // THIS RECORD DELIBERATELY CARRIES NO TIMESTAMP.
+  //
+  // It used to carry `stagedAt: new Date().toISOString()`, which had a writer
+  // and no reader anywhere -- not in shell/capability-layer.cjs, not in
+  // check-asar-manifest.mjs, smoke-packaged.mjs, capability-acceptance.mjs or
+  // check-payload-current.mjs, which between them consume entrypoints,
+  // bridgeEntrypoint, hostModules, fileCount, ownerDataClean and
+  // neutralDefaults. It was nonetheless the ONLY thing that stopped two
+  // stagings of identical source from producing an identical payload: every
+  // other staged file was byte-for-byte the same across rebuilds.
+  //
+  // docs/REPRODUCIBLE-BUILD.md §5 tells a reader who needs to prove two builds
+  // carry the same payload to compare resources/ between them. One unread
+  // wall-clock field made that comparison impossible to pass. Removing it costs
+  // nothing and makes the payload verifiable.
+  //
+  // Note payloadSha256 below is computed from `digest`, which was accumulated
+  // BEFORE this record exists, so it has always excluded PAYLOAD.json itself by
+  // construction -- and fileCount counts `all`, which likewise cannot include
+  // the record being written. Neither is a bug; do not "fix" either.
   const record = {
     schemaVersion: 1,
-    stagedAt: new Date().toISOString(),
     entrypoints: manifest.entrypoints,
     bridgeEntrypoint: manifest.entrypoints[0],
     hostModules,
