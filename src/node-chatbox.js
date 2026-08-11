@@ -115,9 +115,11 @@ export function planNodeChatbox({
        "show only runs" nothing is filtered out, the whole half is gone — so
        testing it first let it win over the runs-only branch and report the
        wrong cause. It is only actionable while the context half is on screen,
-       so it is gated at the point of use. Found by the author of
-       src/chatbox-feed.js; their own describePanel() gates it the same way. */
-    if (plan.showContext && plan.filteredToNothing) emptyReason = 'Every agent in this conversation is hidden by your chat settings.'
+       so the question has to be asked by name. `contextFilteredToNothing` is
+       the module's own gated form — this file no longer assembles the gate
+       itself, so there is exactly one definition of it and it lives with the
+       fact it gates. */
+    if (plan.contextFilteredToNothing) emptyReason = 'Every agent in this conversation is hidden by your chat settings.'
     else if (plan.runsMode === 'only' && !allRuns.length) emptyReason = 'No runs recorded on this computer yet, and your chat settings show runs only.'
     else if (plan.runsMode === 'hidden' && !allTurns.length) emptyReason = 'Nothing said yet, and your chat settings hide runs.'
     else emptyReason = 'Nothing said yet.'
@@ -129,8 +131,18 @@ export function planNodeChatbox({
     showRuns: plan.showRuns,
     turns: Object.freeze(shownTurns),
     runs: Object.freeze(shownRuns),
+    /* BOTH HALVES OF EACH PAIR ARE PASSED THROUGH, under the module's own
+       names. The raw fact answers "is every speaker unticked", which stays
+       worth knowing while the conversation is off screen — a person in
+       "show only runs" may want to know whether turning it back on would show
+       them anything. The context- form answers "is THIS BOX empty because of
+       the filter", which is the only one a rendering layer should act on.
+       Keeping one and dropping the other is how the pair collapses back into
+       the single ambiguous fact that caused the defect. */
     hiddenAgents: plan.hiddenAgents,
     filteredToNothing: plan.filteredToNothing,
+    contextHiddenAgents: plan.contextHiddenAgents,
+    contextFilteredToNothing: plan.contextFilteredToNothing,
     emptyReason,
     composerReason: channel.canSend ? null : channel.reason,
     /* "THERE IS NO CHANNEL" AND "YOU ASKED NOT TO SEE IT" ARE DIFFERENT FACTS.
@@ -143,9 +155,6 @@ export function planNodeChatbox({
     contextHiddenReason: !plan.showContext && channel.canSend
       ? 'Your chat settings show runs only, so this conversation is hidden here.'
       : null,
-    /* Only meaningful while the context half is on screen, for the same reason
-       filteredToNothing is. */
-    heldAgents: plan.showContext ? plan.hiddenAgents : 0,
   })
 }
 

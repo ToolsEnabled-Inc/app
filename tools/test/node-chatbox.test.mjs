@@ -189,7 +189,11 @@ test('runs-only with everyone unticked does not blame the context filter', () =>
     agent: AGENT, live: false, turns: [{ who: 'luna-02' }], runs: [], runsSupported: true,
   })
   assert.equal(plan.showContext, false)
+  /* BOTH HALVES PINNED. Asserting only one lets the pair collapse back into
+     the single ambiguous fact that caused the defect: alias the derived field
+     to the raw one and a test on the raw value alone still passes. */
   assert.equal(plan.filteredToNothing, true, 'the underlying selection fact should still be true')
+  assert.equal(plan.contextFilteredToNothing, false, 'the gated fact leaked a half that is not on screen')
   assert.match(plan.emptyReason, /show runs only/,
     'the box reported the context filter as the cause while showing no context')
   assert.doesNotMatch(plan.emptyReason, /hidden by your chat settings/)
@@ -200,7 +204,7 @@ test('no agents are "held out by your choice" when the whole half is switched of
   store.set('mc.chat.agents', JSON.stringify(['terra-01']))
   const plan = planNodeChatbox({ agent: AGENT, live: false, turns: TURNS, runs: RUNS, runsSupported: true })
   assert.equal(plan.hiddenAgents, 1, 'the raw selection fact is unchanged')
-  assert.equal(plan.heldAgents, 0, 'the box blamed the agent filter while showing no conversation')
+  assert.equal(plan.contextHiddenAgents, 0, 'the box blamed the agent filter while showing no conversation')
 })
 
 test('a hidden conversation is not reported as a missing channel', () => {

@@ -816,17 +816,19 @@ export function computersView({ initialComputer = null, navigate }) {
          entirely — so in "show only runs" this appended a complaint about the
          context filter to a box that was deliberately not showing context, and
          swallowed the runs-only sentence in the branch below. */
-      if (plan.showContext && plan.filteredToNothing && log) {
+      if (plan.contextFilteredToNothing && log) {
         const chosen = COPY.chatboxNoAgentsChosen
         log.appendChild(el(`<div class="chat-empty"><b>${escapeMarkup(chosen.title)}</b><span>${escapeMarkup(chosen.body)}</span><a href="${escapeMarkup(chosen.action.href)}">${escapeMarkup(chosen.action.label)}</a></div>`))
       } else if (plan.emptyReason && !plan.turns.length && !plan.runs.length && log && !log.childElementCount) {
         log.appendChild(el(`<div class="chat-empty"><span>${escapeMarkup(plan.emptyReason)}</span></div>`))
       }
-      /* heldAgents, not hiddenAgents: same gating. With the conversation half
+      /* contextHiddenAgents, not hiddenAgents. With the conversation half
          switched off, nobody is being "kept out by your own choice" — the
-         whole half is gone, and saying otherwise blames the wrong setting. */
-      if (plan.heldAgents > 0) {
-        host.appendChild(el(`<div class="chat-hidden-note">${escapeMarkup(COPY.chatboxAgentsHeld(plan.heldAgents))}</div>`))
+         whole half is gone, and saying otherwise blames the wrong setting.
+         The name now says which of the two questions it answers, so this is a
+         field choice rather than a condition someone has to remember to add. */
+      if (plan.contextHiddenAgents > 0) {
+        host.appendChild(el(`<div class="chat-hidden-note">${escapeMarkup(COPY.chatboxAgentsHeld(plan.contextHiddenAgents))}</div>`))
       }
     }
     host.addEventListener('keydown', (event) => {
