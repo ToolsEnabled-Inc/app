@@ -209,8 +209,10 @@ function main() {
     console.error('\nProduct naming is inconsistent:')
     for (const problem of problems) console.error(`  - ${problem}`)
     console.error(
-      '\nThe paid product name is the owner\'s decision ("The paid product is ToolsEnabled Anywhere") and the ' +
-      'plan names are R1229\'s. Fix the disagreement; do not rename either to make this pass.'
+      '\nThe paid product name and the plan names are both R1229\'s -- adopted by a five-seat council convened ' +
+      'at the owner\'s instruction, and NOT quoted from him: "Anywhere" and "$19" each appear 0 times in ' +
+      'reports/OWNER-REQUEST-LEDGER.json. Fix the disagreement; do not rename either to make this pass, and do ' +
+      'not re-describe the name as his decision without a ledger citation.'
     )
     process.exitCode = 1
     return
