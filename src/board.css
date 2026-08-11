@@ -489,6 +489,37 @@
   overflow-wrap: anywhere;
 }
 
+/* TEAM PANEL.
+   Deliberately static: page 2 asserts that nothing inside .computers is
+   animating once the view has settled, so a transition here would fail
+   'no settled Page 2 CSS animation' and take every later check with it. */
+.board-page .team-member-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px;
+  margin-top: 6px;
+}
+.board-page .team-member {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--ink);
+}
+.board-page .team-member code {
+  color: var(--ink-2); opacity: 0.8;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.board-page .team-roster { display: grid; gap: 6px; margin-top: 8px; }
+.board-page .team-row {
+  display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 8px;
+  font-size: 12.5px; line-height: 1.45;
+}
+.board-page .team-row b { color: var(--ink); font-weight: 650; }
+.board-page .team-row code {
+  color: var(--ink-2); opacity: 0.8;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.board-page .team-row span { color: var(--ink-2); overflow-wrap: anywhere; }
+/* Phase is carried in a data attribute, not a colour alone: the roster has to
+   be readable when the status colour is the only thing distinguishing rows. */
+.board-page .team-row[data-phase="refused"] b { color: var(--danger, var(--ink)); }
+
 .board-page .ctl-dispatch { margin-top: 12px; display: grid; gap: 6px; }
 .board-page .ctl-out {
   font-family: var(--font-mono); font-size: 12px;
