@@ -1279,13 +1279,19 @@ function readOutcomeScript(nonce) {
   })
   return {
     sinks: sink,
-    /* THE IDENTIFIER, WHEREVER IT IS. Asked of the whole document rather than
-       of the sink that spoke: which element carries it is the wiring lane's
-       decision (the compose panel deliberately renders no codes at all), and a
-       check that demanded it on one particular node would be asserting a
-       layout rather than the promise -- which is that the code survives for a
-       support conversation without ever being shown to a person. */
-    refusalCodesOnPage: [...document.querySelectorAll('[data-refusal-code]')]
+    /* THE IDENTIFIER, ON THIS PAGE, AND THE SCOPE IS THE POINT.
+       Not asked of one named element: which node carries it is the wiring
+       lane's decision (the compose panel deliberately names no refusal, being a
+       component that performs no action), and demanding a particular node would
+       assert a layout rather than the promise -- that the code survives for a
+       support conversation without ever being shown to a person.
+       But not asked of the whole DOCUMENT either. A document-wide sweep passes
+       on a code left behind by any other control on screen, including one that
+       has nothing to do with the start that just refused, so it would go green
+       on a page where this flow dropped the identifier entirely. Scoping it to
+       the fleet page's own root is the difference between "a code exists
+       somewhere" and "this refusal was recorded". */
+    refusalCodesOnPage: [...root.querySelectorAll('[data-refusal-code]')]
       .map(node => node.getAttribute('data-refusal-code'))
       .filter(Boolean),
     nodes: nodes.map(describe),
@@ -1528,7 +1534,9 @@ async function main() {
   let app = null
   try {
     /* ---------- 0. the artifact under test ---------- */
+    const current = assertRendererCurrent()
     const staged = await stage(scratch)
+    console.log(`built:   dist/ at ${current.builtAt} (newest source: ${current.newestSource})`)
     console.log(`app:     ${staged.executable}`)
     console.log(`         ${staged.origin}`)
     console.log(`payload: ${staged.payload.origin}`)
