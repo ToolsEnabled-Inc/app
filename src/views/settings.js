@@ -4,6 +4,8 @@
 
 import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
+import { sim } from '../sim.js'
+import { QUICK_SETTING_EVENT } from '../quick-settings.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { createLedgerArchiveController } from '../mission-bridge.js'
@@ -256,6 +258,12 @@ function readValue(setting) {
     return zoom === 0.9 || zoom === 1.12 ? String(zoom) : '1'
   }
   if (setting.id === 'glow') {
+    /* The applied value lives on the root element; the drawer's slider is a
+       COPY of it and only exists once the drawer has rendered (it is built
+       per page since R1520), so the variable is the source and the slider
+       only a fallback. */
+    const applied = parseFloat(document.documentElement.style.getPropertyValue('--glow'))
+    if (Number.isFinite(applied)) return Math.round(applied * 100)
     const drawerValue = Number(document.getElementById('set-glow')?.value)
     return Number.isFinite(drawerValue) ? drawerValue : setting.def
   }
@@ -581,6 +589,15 @@ export function settingsView() {
       document.body.classList.toggle('reduce-motion', value)
       const drawerToggle = document.getElementById('set-motion')
       if (drawerToggle) drawerToggle.checked = value
+    } else if (setting.id === 'scenario_tick_rate') {
+      /* This row is live: it drives the sim clock the way the drawer's pace
+         slider used to (R1520 moved that slider out of the drawer and here),
+         and unlike that slider the choice persists — applyStoredSimPace()
+         re-applies it at launch. */
+      const number = clampNumber(setting, value)
+      sim.setPace(number / 100)
+      writeStored(setting, number)
+      value = number
     } else {
       writeStored(setting, value)
     }
@@ -710,13 +727,16 @@ export function settingsView() {
   }
   root.addEventListener('scroll', onScroll, { passive: true })
 
-  const drawerBindings = [
-    [document.getElementById('theme-seg'), 'click', () => syncSetting('theme')],
-    [document.getElementById('text-seg'), 'click', () => syncSetting('text_size')],
-    [document.getElementById('set-glow'), 'input', () => syncSetting('glow')],
-    [document.getElementById('set-motion'), 'change', () => syncSetting('reduce_motion')],
-  ].filter(binding => binding[0])
-  for (const [node, type, listener] of drawerBindings) node.addEventListener(type, listener)
+  /* The drawer's controls used to be static nodes this view could bind to by
+     id; since R1520 the drawer is rebuilt per page at every open, so a node
+     bound here would be a dead reference after the next open. The drawer
+     announces every applied value instead (src/quick-settings.js), and this
+     page re-syncs its copy of that control. */
+  const onQuickSetting = (event) => {
+    const id = event?.detail?.settingId
+    if (id && byId.has(id)) syncSetting(id)
+  }
+  window.addEventListener(QUICK_SETTING_EVENT, onQuickSetting)
 
   profileController.bind(root)
   /* MEASURED, NOT ASSUMED: neither of these two was bound. `createSetupProfileSettings`
@@ -738,7 +758,16 @@ export function settingsView() {
       setupController.destroy()
       chatboxController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
-      for (const [node, type, listener] of drawerBindings) node.removeEventListener(type, listener)
+      window.removeEventListener(QUICK_SETTING_EVENT, onQuickSetting)
     },
   }
+}
+
+/* SIMULATION PACE, THE BOOT HALF. The pace control lives in this page's
+   Data & Sim section (scenario_tick_rate) since R1520 retired the drawer's
+   per-session slider; the choice is stored like every other row here, and
+   main.js calls this at launch so the sim clock actually runs at it. */
+export function applyStoredSimPace() {
+  const setting = byId.get('scenario_tick_rate')
+  if (setting) sim.setPace(Number(readStored(setting)) / 100)
 }

@@ -6,7 +6,7 @@ import '@fontsource-variable/jetbrains-mono'
 import './glow.css'
 import './styles.css'
 
-import { sim, fmtRuntime } from './sim.js'
+import { fmtRuntime } from './sim.js'
 import { tickRuntimes, takeViewMorph } from './components.js'
 import { homeView } from './views/home.js'
 import { computersView } from './views/computers.js'
@@ -17,10 +17,10 @@ import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { approvalsView } from './views/approvals.js'
 import { checkoutView } from './views/checkout.js'
-import { settingsView } from './views/settings.js'
+import { settingsView, applyStoredSimPace } from './views/settings.js'
+import { renderQuickSettings } from './quick-settings.js'
 import { setupView } from './views/setup.js'
 import { accountView } from './views/account.js'
-import { rangeFill } from './views/computers.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
 import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
@@ -47,7 +47,13 @@ let current = null           // { el(wrapper), view, route }
 // Checkout sits directly after approvals: both are surfaces where the owner
 // decides about money, and the pair reads as one stretch of the ring rather
 // than a shop dropped between the register and home.
-const RING = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout']
+// Settings is the last stop before the ring closes (owner, R1520: "a second
+// way to access it by just going through the pages to the settings page") —
+// so the page is one Back press from home, and walking forward reaches it
+// after the money stretch. Before this it was reachable ONLY through the
+// drawer's "all settings" link: a screen with exactly one door, and that door
+// inside a popover.
+const RING = ['home', 'computers', 'metrics', 'research', 'comms', 'ledger', 'approvals', 'checkout', 'settings']
 
 /* STOPS THAT ONLY EXIST ON SOME COPIES.
  *
@@ -455,10 +461,13 @@ const closeDrawer = () => {
   if (hadFocus) openSettingsBtn.focus()
 }
 const openDrawer = () => {
+  // built fresh at every open, for the page that is on screen (owner R1520:
+  // per-page settings, not the same simulation-flavoured list everywhere)
+  renderQuickSettings(drawer.querySelector('.drawer-body'), resolve(parse()).name)
   setDrawer(true)
   // focus follows the surface that just covered the page — the close button
-  // is the drawer's first stop, so Tab continues through Theme/Glow/Pace/
-  // Reduce motion from there instead of starting back at the top of the page
+  // is the drawer's first stop, so Tab continues through the page group and
+  // Theme/Glow/Reduce motion from there instead of the top of the page
   document.getElementById('close-settings').focus()
 }
 openSettingsBtn.addEventListener('click', openDrawer)
@@ -496,80 +505,31 @@ document.addEventListener('pointerdown', (e) => {
 })
 setDrawer(false)
 
-/* ---------- theme: white | tan (Gruvbox Light Soft) | black ----------
-   Sticky across sessions. This module is deferred, so the *first paint* copy
-   of this read lives inline in index.html (same key, same guard) — without it
-   a tan/black user got a white flash on every load. Here it re-reads the same
-   value to sync the segmented control.
-   localStorage can throw (private mode, quota), so every access is guarded
-   and a failure simply means "use the default". */
-const THEME_KEY = 'mc.theme'
-const themeSeg = document.getElementById('theme-seg')
-const readTheme = () => {
-  try {
-    const t = localStorage.getItem(THEME_KEY)
-    return t === 'tan' || t === 'black' ? t : 'white'
-  } catch { return 'white' }
-}
-function applyTheme(t) {
-  document.documentElement.dataset.theme = t
-  for (const b of themeSeg.querySelectorAll('button')) {
-    const on = b.dataset.theme === t
-    b.classList.toggle('on', on)
-    b.setAttribute('aria-pressed', on ? 'true' : 'false')
-  }
-}
-themeSeg.addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-theme]')
-  if (!b) return
-  const t = b.dataset.theme
-  try { localStorage.setItem(THEME_KEY, t) } catch {}
-  applyTheme(t)
-})
-applyTheme(readTheme())
+/* ---------- stored appearance, re-applied before the first render ----------
+   The controls themselves live in src/quick-settings.js now (built per page,
+   at every drawer open) and on the settings page; what remains here is the
+   boot half of each sticky setting.
 
-/* ---------- text size ----------
-   The owner asked for a user-facing text-size setting. The app is sized in
-   px throughout (13px reading floor, 12.5 data tier), so the honest scale
-   control is zoom on the body: layout rescales coherently, fixed chrome
-   included, and every chart re-fits itself because its host resizes and the
-   existing ResizeObservers fire. Default is exactly 1 — an untouched user
-   is byte-identical, and the QA suites (which assert px) run at default. */
-const TEXT_KEY = 'mc.text'
-const textSeg = document.getElementById('text-seg')
-const readText = () => {
-  try {
-    const v = parseFloat(localStorage.getItem(TEXT_KEY))
-    return v === 0.9 || v === 1.12 ? v : 1
-  } catch { return 1 }
-}
-function applyText(v) {
-  document.body.style.zoom = v === 1 ? '' : String(v)
-  for (const b of textSeg.querySelectorAll('button')) {
-    const on = parseFloat(b.dataset.text) === v
-    b.classList.toggle('on', on)
-    b.setAttribute('aria-pressed', on ? 'true' : 'false')
-  }
-}
-textSeg.addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-text]')
-  if (!b) return
-  const v = parseFloat(b.dataset.text)
-  try { localStorage.setItem(TEXT_KEY, String(v)) } catch {}
-  applyText(v)
-})
-applyText(readText())
+   Theme is already on the page — the inline classic script in index.html
+   applies it before first paint (same key, same guard), and the drawer reads
+   document.documentElement.dataset.theme whenever it renders, so there is no
+   second copy to sync here any more.
 
-const glowInput = document.getElementById('set-glow')
-glowInput.addEventListener('input', () => {
-  document.documentElement.style.setProperty('--glow', String(glowInput.value / 100))
-})
-const paceInput = document.getElementById('set-pace')
-paceInput.addEventListener('input', () => sim.setPace(paceInput.value / 100))
-document.getElementById('set-motion').addEventListener('change', (e) => {
-  document.body.classList.toggle('reduce-motion', e.target.checked)
-})
-document.querySelectorAll('.drawer input[type="range"]').forEach(rangeFill)
+   Text size (the owner's user-facing scale control) is zoom on the body: the
+   app is sized in px throughout (13px reading floor, 12.5 data tier), so
+   zoom rescales layout coherently, fixed chrome included, and every chart
+   re-fits itself because its host resizes and the existing ResizeObservers
+   fire. Default is exactly 1 — an untouched user is byte-identical, and the
+   QA suites (which assert px) run at default. */
+try {
+  const v = parseFloat(localStorage.getItem('mc.text'))
+  if (v === 0.9 || v === 1.12) document.body.style.zoom = String(v)
+} catch {}
+/* Simulation pace moved out of the drawer (owner R1520 — the upper-right
+   control kept showing simulation settings on every page) and into the
+   settings page's Data & Sim section, where it persists; this re-applies the
+   stored choice to the sim clock at launch. */
+applyStoredSimPace()
 
 /* ---------- central clock for every runtime readout ---------- */
 setInterval(() => tickRuntimes(fmtRuntime), 500)
@@ -586,6 +546,10 @@ window.addEventListener(CHECKOUT_SURFACE_EVENT, () => render())
 void probeCheckoutSurface()
 
 render()
+/* The drawer rebuilds at every open; this first build only means its body is
+   never empty — a harness (or a stylesheet measure) that reaches for
+   #theme-seg before ever pressing the gear still finds it. */
+renderQuickSettings(drawer.querySelector('.drawer-body'), resolve(parse()).name)
 
 /* IF THE SETTINGS FILE COULD NOT BE READ, SAY SO. Mounted after the first
    render and outside it, because it is a fact about this WINDOW rather than

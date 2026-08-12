@@ -65,50 +65,16 @@
         <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </div>
-    <div class="drawer-body">
-      <div class="set-row">
-        <span class="set-label">Theme</span>
-        <div class="theme-seg" id="theme-seg" role="group" aria-label="Theme">
-          <button type="button" data-theme="white">White</button>
-          <button type="button" data-theme="tan">Tan</button>
-          <button type="button" data-theme="black">Black</button>
-        </div>
-      </div>
-      <!-- same control family as Theme on purpose: one drawer, one control
-           language. Scales the whole app via zoom (the codebase is sized in
-           px throughout; zoom rescales layout coherently and every
-           ResizeObserver-driven chart re-fits itself on the change). -->
-      <div class="set-row">
-        <span class="set-label">Text size</span>
-        <div class="theme-seg" id="text-seg" role="group" aria-label="Text size">
-          <button type="button" data-text="0.9">Small</button>
-          <button type="button" data-text="1">Default</button>
-          <button type="button" data-text="1.12">Large</button>
-        </div>
-      </div>
-      <label class="set-row">
-        <span class="set-label">Glow intensity</span>
-        <input type="range" id="set-glow" min="0" max="200" value="100" />
-      </label>
-      <label class="set-row">
-        <span class="set-label">Simulation pace</span>
-        <input type="range" id="set-pace" min="30" max="300" value="100" />
-      </label>
-      <label class="set-row set-toggle">
-        <span class="set-label">Reduce motion</span>
-        <span class="toggle"><input type="checkbox" id="set-motion" /><i></i></span>
-      </label>
-      <!-- The note used to end with a two-line machine roster, "Machine A ·
-           <addr> / Machine B · <addr>", hardcoded here in the markup. It was
-           one particular fleet's roster, it was in the shipped index.html of
-           every install, and no static page can know what machines a stranger
-           owns. Machines are profile data now (src/fleet-profile.js) and the
-           surfaces that legitimately name them read them from there; an
-           appearance drawer is not one of those surfaces. -->
-      <div class="drawer-note">
-        Appearance only — the fleet keeps running.
-      </div>
-    </div>
+    <!-- The body is rendered per page by src/quick-settings.js at every open
+         (owner R1520: this control used to show the same simulation-flavoured
+         list on every page; it now shows the settings for the page you are on,
+         then the app-wide appearance controls). The markup that used to live
+         here — theme seg, text seg, glow, simulation pace, reduce motion — is
+         generated there; simulation pace itself moved to the settings page's
+         Data & Sim section, where it is stored and re-applied at launch.
+         The machine-roster note that once ended this drawer is long gone for
+         the reasons src/fleet-profile.js records. -->
+    <div class="drawer-body"></div>
     <a class="drawer-all" href="#/settings">all settings →</a>
   </aside>
 
