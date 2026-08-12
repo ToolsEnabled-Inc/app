@@ -56,7 +56,34 @@
       "data/schema/purchase-catalog.schema.json",
       "data/schema/research-queue.schema.json",
       "data/schema/research.schema.json",
-      "data/schema/status.schema.json"
+      "data/schema/status.schema.json",
+
+      "preview/index.html",
+      "preview/preview.css",
+      "preview/main.js",
+      "preview/honesty.js",
+      "preview/sim-data.js",
+      "preview/surfaces.js",
+      "preview/exits.js"
+    ],
+    "$commentPreview": [
+      "preview/* is the website's embedded product simulation (R1268 lane W1). It is a",
+      "product asset in the strictest sense: it is the page a stranger is shown BEFORE",
+      "they have anything of ours, and every value in it is generated in their browser",
+      "from a fixed seed in preview/sim-data.js. There is no reading, no hostname, no",
+      "address, no account and no path from any real fleet in it -- which is the whole",
+      "reason it can be handed to someone we have never met.",
+      "",
+      "It also ships INSIDE the installer, because vite copies public/ into dist/ and",
+      "build.files packs dist/. That is deliberate and harmless: it is seven static",
+      "files a person can open from their own install, it reaches no network (see the",
+      "Content-Security-Policy in preview/index.html), and tools/check-preview-honesty.mjs",
+      "fails the build if that ever stops being true.",
+      "",
+      "BEFORE ADDING A FILE HERE, the question from the note above still applies: would",
+      "you hand this to someone you have never met. For the preview there is a second",
+      "one -- can it be generated from the seed. If it has to be measured from a real",
+      "machine to be interesting, it does not belong in a preview."
     ]
   },
   "operator": {
