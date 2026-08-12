@@ -154,14 +154,27 @@
       "registers the real reporter from src/lib/tool-packs/vendor-license-issuance.js.",
       "",
       "So a future edit that re-adds ANY mention of these paths inside require(...) in a staged file",
-      "-- including one in a comment -- puts them back in the payload and must fail here."
+      "-- including one in a comment -- puts them back in the payload and must fail here.",
+      "",
+      "THE LAST THREE PATHS WERE ADDED 2026-08-11 BY R1268 LANE W2 AND HAVE NEVER SHIPPED. They are",
+      "the payment-to-grant path: entitlement-grant.js turns a signature-verified provider webhook",
+      "into an issued licence and hands it to the customer who paid; paid-surface-entitlement.js is",
+      "the operator-side admission gate for website access; tools/entitlement-webhook.js is the",
+      "listener a payment provider POSTs to. All three run on machines WE operate and none of them",
+      "belongs on a customer's computer -- entitlement-grant.js in particular can ISSUE licences,",
+      "which is the one power that must never leave the vendor. They are listed pre-emptively, which",
+      "is exactly what this block is for: the guard now fails the day a require() first reaches them",
+      "rather than the day someone notices they shipped."
     ],
     "paths": [
       "src/lib/providers/hosted-relay-entitlement.js",
       "src/lib/entitlement-fulfilment.js",
       "src/lib/entitlement.js",
       "src/lib/providers/license.js",
-      "src/lib/license-store.js"
+      "src/lib/license-store.js",
+      "src/lib/entitlement-grant.js",
+      "src/lib/providers/paid-surface-entitlement.js",
+      "tools/entitlement-webhook.js"
     ],
     "prefixes": []
   },
