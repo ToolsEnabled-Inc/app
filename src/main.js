@@ -21,6 +21,7 @@ import { settingsView, applyStoredSimPace } from './views/settings.js'
 import { renderQuickSettings } from './quick-settings.js'
 import { setupView } from './views/setup.js'
 import { accountView } from './views/account.js'
+import { subscribeView } from './views/subscribe.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
 import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
@@ -84,7 +85,15 @@ function ringOrder() {
 
 function parse() {
   const h = location.hash || '#/'
-  const parts = h.replace(/^#\//, '').split('/').filter(Boolean)
+  /* A hash can carry a query. Splitting the path off before the segments are
+     read is not a new behaviour for the existing routes -- none of them has
+     ever been reachable WITH a query, and `#/ledger?x=1` used to parse as a
+     stop literally named "ledger?x=1" and silently resolve to home. The
+     subscribe surface needs one (the payment provider returns the visitor to
+     `#/subscribe?signup=<id>`), so the router learns to read one, once, here. */
+  const [hashPath, hashQuery = ''] = h.replace(/^#\//, '').split('?')
+  const parts = hashPath.split('/').filter(Boolean)
+  const query = new URLSearchParams(hashQuery)
   if (parts[0] === 'computers') return { name: 'computers', comp: parts[1] || null }
   /* `/example` is a fourth segment rather than a stored preference on purpose.
      The empty computers page offers a way to SEE this surface on a machine that
@@ -106,6 +115,10 @@ function parse() {
   if (parts[0] === 'settings') return { name: 'settings' }
   if (parts[0] === 'setup') return { name: 'setup' }
   if (parts[0] === 'account') return { name: 'account' }
+  /* `pricing` is what a stranger types; `subscribe` is what the product calls
+     the surface. Both reach it rather than one of them reaching home, because a
+     404 on the page that takes payment is a lost customer, not a typo. */
+  if (parts[0] === 'subscribe' || parts[0] === 'pricing') return { name: 'subscribe', query }
   return { name: 'home' }
 }
 
@@ -118,6 +131,11 @@ const RING_EXIT = {
   agent: { back: 'computers', next: 'metrics' },
   setup: { back: 'home', next: 'home' },
   account: { back: 'home', next: 'home' },
+  /* Off the ring for the same reason `account` is: the chevrons walk the
+     product, and the page where you buy a subscription is not a stop on that
+     tour. Both arrows return home so a visitor who arrives on it from a link
+     can always get out. */
+  subscribe: { back: 'home', next: 'home' },
 }
 
 /* A hash naming a stop this copy does not offer is not an error and must not be
@@ -143,6 +161,7 @@ function makeView(route) {
     case 'settings': return settingsView()
     case 'setup': return setupView({ navigate })
     case 'account': return accountView({ navigate })
+    case 'subscribe': return subscribeView({ query: route.query })
     default: return homeView()
   }
 }
@@ -161,6 +180,7 @@ function crumbFor(route) {
     case 'settings': return `${base} / settings`
     case 'setup': return `${base} / setup`
     case 'account': return `${base} / account`
+    case 'subscribe': return `${base} / subscribe`
     default: return `${base} / home`
   }
 }
