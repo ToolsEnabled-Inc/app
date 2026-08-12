@@ -106,7 +106,8 @@
       "perMachine": false,
       "guid": "21cb002d-a6ac-5e62-b88d-ba3c87d67396",
       "uninstallDisplayName": "${productName}"
-    }
+    },
+    "electronVersion": "43.3.0"
   },
   "license": "AGPL-3.0-or-later"
 }
