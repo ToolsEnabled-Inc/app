@@ -5,18 +5,18 @@
 export const LIVE_FLAGS_EVENT = 'mc:live-flags-changed'
 
 export const LIVE_VIEW_FLAGS = Object.freeze([
-  Object.freeze({ id: 'home', label: 'Home / coordinator', domain: 'coordinator' }),
+  Object.freeze({ id: 'home', label: 'Home page', domain: 'coordinator' }),
   /* Computers ran simulated-by-default for a few hours on 2026-08-06; the
      owner overruled it the same day: "changing source is the worst way to
      fix the problem." The graph reads live and the RENDER absorbs the data
      shape instead — a flat swarm of subagents draws as the uniform grey
      spawned tree, culled to the density budget (see computers.js/graph.js).
      defaultLive stays supported for any future view that needs it. */
-  Object.freeze({ id: 'computers', label: 'Computers graph', domain: 'fleet' }),
-  Object.freeze({ id: 'agent', label: 'Agent drill-in', domain: 'agents' }),
-  Object.freeze({ id: 'metrics', label: 'Metrics panel', domain: 'metrics' }),
-  Object.freeze({ id: 'comms', label: 'Ops-channel board', domain: 'ops' }),
-  Object.freeze({ id: 'ledger', label: 'R/Q ledger', domain: 'ledger' }),
+  Object.freeze({ id: 'computers', label: 'Computers page', domain: 'fleet' }),
+  Object.freeze({ id: 'agent', label: 'Agent pages', domain: 'agents' }),
+  Object.freeze({ id: 'metrics', label: 'Metrics page', domain: 'metrics' }),
+  Object.freeze({ id: 'comms', label: 'Comms page', domain: 'ops' }),
+  Object.freeze({ id: 'ledger', label: 'Ledger page', domain: 'ledger' }),
 ])
 
 const IDS = new Set(LIVE_VIEW_FLAGS.map(flag => flag.id))

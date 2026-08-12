@@ -68,11 +68,11 @@ const SENDERS = {
   gem4:       { tag: 'gem-lane-4/builder', role: 'default',    mach: host(0) },
   sandbox:    { tag: 'sandbox-w1/builder', role: 'default',    mach: host(1) },
   assistant:  { tag: 'assistant',          role: 'spawned',    mach: host(0) },
-  declared:   { tag: 'declared',           role: 'default',    mach: '—' },
+  declared:   { tag: 'on record',          role: 'default',    mach: '—' },
   service:    { tag: 'service',            role: 'default',    mach: '—' },
-  observed:   { tag: 'observed',           role: 'helper',     mach: '—' },
+  observed:   { tag: 'seen running',       role: 'helper',     mach: '—' },
   channel:    { tag: 'channel',            role: 'helper',     mach: '—' },
-  projection: { tag: 'projection',         role: 'shadow',     mach: '—' },
+  projection: { tag: 'status',             role: 'shadow',     mach: '—' },
 }
 
 /* "role hues = the graph's" was a promise the literals above quietly broke:
@@ -331,7 +331,7 @@ const liveCard = (id, kind, key, desc, unavailable = null) => ({
 
 function liveWatchInit() {
   if (LIVE_WATCH) return LIVE_WATCH
-  const pending = liveCard('ops-projection', 'projection', 'ops projection', 'Live ops projection is loading.', 'loading live ops projection')
+  const pending = liveCard('ops-projection', 'projection', 'live comms', 'Reading this computer’s live comms data.', 'still reading the live comms data')
   LIVE_WATCH = {
     convs: new Map([[pending.id, pending]]),
     stack: [wbLeaf(pending.id)],
@@ -467,9 +467,9 @@ export function commsView() {
   const history = liveMode ? {} : seedHistory()
   const compose = liveMode ? null : makeComposer()
   let channelDefs = liveMode
-    ? [{ id: 'ops-projection', name: 'ops projection', key: 'ops', mach: 'live', topic: 'Loading the live ops projection.', unavailable: 'loading live ops projection' }]
+    ? [{ id: 'ops-projection', name: 'live comms', key: 'ops', mach: 'live', topic: 'Reading this computer’s live comms data.', unavailable: 'still reading the live comms data' }]
     : CHANNELS
-  let liveMessagesReason = liveMode ? 'loading live ops projection' : null
+  let liveMessagesReason = liveMode ? 'still reading the live comms data' : null
   let destroyed = false
   /* The opening channel used to be the id 'directive', which only existed
      because the channel list was a literal in this file. A profile names its
@@ -559,7 +559,7 @@ export function commsView() {
       topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
       logEl.innerHTML = ''
       if (def.unavailable || liveMessagesReason) logEl.appendChild(projectionUnavailableEl(def.unavailable || liveMessagesReason))
-      else if (!history[id]?.length) logEl.appendChild(projectionNoticeEl('No observed messages for this exact projection ID.'))
+      else if (!history[id]?.length) logEl.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
       else for (const m of history[id]) logEl.appendChild(liveMsgEl(m))
       state.pinnedToBottom = true
       state.newCount = 0
@@ -818,7 +818,7 @@ export function commsView() {
     const pv = box.querySelector('.chip-preview')
     if (d.unavailable) pv.appendChild(projectionUnavailableEl(d.unavailable))
     else if (d.hist.length) for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
-    else if (liveMode) pv.appendChild(projectionNoticeEl('No observed messages for this exact projection ID.'))
+    else if (liveMode) pv.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
     requestAnimationFrame(() => { pv.scrollTop = pv.scrollHeight })
 
     box._pvFollow = true
@@ -888,7 +888,7 @@ export function commsView() {
     const log = chat.querySelector('.chat-log')
     if (d.unavailable) log.appendChild(projectionUnavailableEl(d.unavailable))
     else if (d.hist.length) for (const m of d.hist.slice(-6)) log.appendChild(chatMsgEl(d, m))
-    else if (liveMode) log.appendChild(projectionNoticeEl('No observed messages for this exact projection ID.'))
+    else if (liveMode) log.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
     log.scrollTop = log.scrollHeight
     box._chatFollow = true
     log.addEventListener('scroll', () => {
@@ -1056,7 +1056,7 @@ export function commsView() {
   }
 
   function projectionDetailCard(parent, kind, unavailable) {
-    const detail = liveCard(`${parent.id}:source`, 'projection', `${kind} status`, `${kind} is shown as its own projection record; no declared/observed mapping is inferred.`, unavailable)
+    const detail = liveCard(`${parent.id}:source`, 'projection', `${kind} status`, `${kind} is kept as its own record; the app never guesses that a service on record and a channel seen running are the same thing.`, unavailable)
     parent.child = detail.id
     return detail
   }
@@ -1065,20 +1065,20 @@ export function commsView() {
     if (destroyed) return
     const envelope = result.ok ? result.data : null
     if (!envelope?.data) {
-      const reason = result.reason || 'ops projection unavailable'
-      const unavailable = liveCard('ops-projection', 'projection', 'ops projection', 'Live ops projection is unavailable.', reason)
+      const reason = result.reason || 'the live comms data could not be read'
+      const unavailable = liveCard('ops-projection', 'projection', 'live comms', 'This computer’s live comms data could not be read.', reason)
       W.convs = new Map([[unavailable.id, unavailable]])
       W.stack = [wbLeaf(unavailable.id)]
       W.open.clear()
-      channelDefs = [{ id: unavailable.id, name: 'ops projection', key: 'ops', mach: 'unavailable', topic: 'Live ops projection could not be read.', unavailable: reason }]
+      channelDefs = [{ id: unavailable.id, name: 'live comms', key: 'ops', mach: 'unavailable', topic: 'The live comms data could not be read.', unavailable: reason }]
       liveMessagesReason = reason
       root.dataset.projectionState = 'unavailable'
       root.dataset.projectionUnavailable = 'true'
       root.querySelector('.head-live').lastChild.textContent = 'unavailable'
-      headMeta.textContent = 'ops projection · unavailable'
+      headMeta.textContent = 'live comms · could not be read'
       countEl.textContent = '—'
-      headCount.childNodes[1].textContent = ' projection'
-      setProjectionFoot([`ops projection unavailable — ${reason}`])
+      headCount.childNodes[1].textContent = ' record'
+      setProjectionFoot([`the live comms data could not be read — ${reason}`])
       state.active = unavailable.id
       state.unread.clear()
       boxEls.clear()
@@ -1094,7 +1094,7 @@ export function commsView() {
     const services = data.declaredServices
     const observed = data.channels.ok ? data.channels.value : null
     const messages = data.messages
-    liveMessagesReason = messages.ok ? null : messages.reason || 'messages observation unavailable'
+    liveMessagesReason = messages.ok ? null : messages.reason || 'the messages could not be read'
     const rawMessages = messages.ok ? messages.value : []
     const cards = []
     const defs = []
@@ -1104,17 +1104,17 @@ export function commsView() {
 
     for (const service of services) {
       const id = `declared:${service.id}`
-      const card = liveCard(id, 'declared', service.displayName, `Declared service · ${service.transport} · :${service.port} · ${service.resolution}`, liveMessagesReason)
+      const card = liveCard(id, 'declared', service.displayName, `Service on record · ${service.transport} · :${service.port} · ${service.resolution}`, liveMessagesReason)
       card.hist = messageRows(service.id)
-      cards.push(card, projectionDetailCard(card, 'Declared service', liveMessagesReason))
-      defs.push({ id, sourceId: service.id, name: service.displayName, key: `declared/${service.id}`, mach: 'declared', topic: `Declared service · ${service.transport} · port ${service.port} · ${service.resolution}`, unavailable: liveMessagesReason })
+      cards.push(card, projectionDetailCard(card, 'This service on record', liveMessagesReason))
+      defs.push({ id, sourceId: service.id, name: service.displayName, key: `declared/${service.id}`, mach: 'declared', topic: `Service on record · ${service.transport} · port ${service.port} · ${service.resolution}`, unavailable: liveMessagesReason })
       history[id] = card.hist
     }
     if (!services.length) {
       const id = 'declared:empty'
-      const card = liveCard(id, 'projection', 'declared services', 'The live projection declared no services.', liveMessagesReason)
-      cards.push(card, projectionDetailCard(card, 'Declared services', liveMessagesReason))
-      defs.push({ id, name: 'declared services', key: 'declared', mach: 'empty', topic: 'The live projection declared no services.', unavailable: liveMessagesReason })
+      const card = liveCard(id, 'projection', 'services on record', 'No services are on record for this computer.', liveMessagesReason)
+      cards.push(card, projectionDetailCard(card, 'Services on record', liveMessagesReason))
+      defs.push({ id, name: 'services on record', key: 'declared', mach: 'empty', topic: 'No services are on record for this computer.', unavailable: liveMessagesReason })
       history[id] = []
     }
 
@@ -1122,18 +1122,18 @@ export function commsView() {
       for (const item of observed) {
         const id = `observed:${item.id}`
         const detail = item.detail ? ` · ${item.detail}` : ''
-        const card = liveCard(id, 'observed', item.name, `Observed channel · ${item.state}${detail}`, liveMessagesReason)
+        const card = liveCard(id, 'observed', item.name, `Channel seen running · ${item.state}${detail}`, liveMessagesReason)
         card.hist = messageRows(item.id)
-        cards.push(card, projectionDetailCard(card, 'Observed channel', liveMessagesReason))
-        defs.push({ id, sourceId: item.id, name: item.name, key: `observed/${item.id}`, mach: item.state, topic: `Observed channel · ${item.state}${detail}`, unavailable: liveMessagesReason, dividerBefore: defs.length > 0 && !defs.some(def => def.dividerBefore) })
+        cards.push(card, projectionDetailCard(card, 'This channel seen running', liveMessagesReason))
+        defs.push({ id, sourceId: item.id, name: item.name, key: `observed/${item.id}`, mach: item.state, topic: `Channel seen running · ${item.state}${detail}`, unavailable: liveMessagesReason, dividerBefore: defs.length > 0 && !defs.some(def => def.dividerBefore) })
         history[id] = card.hist
       }
     } else {
       const id = 'observed:unavailable'
-      const reason = data.channels.reason || 'observed channels unavailable'
-      const card = liveCard(id, 'projection', 'observed channels', 'Observed channels are unavailable in this projection.', reason)
-      cards.push(card, projectionDetailCard(card, 'Observed channels', reason))
-      defs.push({ id, name: 'observed channels', key: 'observed', mach: 'unavailable', topic: 'Observed channels are unavailable in this projection.', unavailable: reason, dividerBefore: defs.length > 0 })
+      const reason = data.channels.reason || 'the channels seen running could not be read'
+      const card = liveCard(id, 'projection', 'channels seen running', 'The channels seen running could not be read.', reason)
+      cards.push(card, projectionDetailCard(card, 'Channels seen running', reason))
+      defs.push({ id, name: 'channels seen running', key: 'observed', mach: 'unavailable', topic: 'The channels seen running could not be read.', unavailable: reason, dividerBefore: defs.length > 0 })
       history[id] = []
     }
 
@@ -1147,18 +1147,18 @@ export function commsView() {
     if (liveMessagesReason) root.dataset.projectionUnavailable = 'messages'
     else delete root.dataset.projectionUnavailable
     root.querySelector('.head-live').lastChild.textContent = liveMessagesReason ? 'partial' : 'live'
-    headMeta.textContent = `ops projection · ${services.length} declared · ${observed ? observed.length : 'channels unavailable'} observed`
+    headMeta.textContent = `live comms · ${services.length} on record · ${observed ? observed.length : 'unreadable'} seen running`
     countEl.textContent = String(services.length)
     headCount.childNodes[1].textContent = ' declared'
-    wtMeta.textContent = `ops projection · ${services.length + (observed?.length || 0)} separate records`
+    wtMeta.textContent = `live comms · ${services.length + (observed?.length || 0)} separate records`
     const mcpLine = data.mcp.ok
-      ? `MCP observed · ${data.mcp.value.live.length} live · ${data.mcp.value.dead.length} dead`
-      : `MCP unavailable — ${data.mcp.reason || 'observation unavailable'}`
+      ? `Tool links (MCP) · ${data.mcp.value.live.length} live · ${data.mcp.value.dead.length} dead`
+      : `Tool links (MCP) could not be read — ${data.mcp.reason || 'no reason given'}`
     setProjectionFoot([
-      `${services.length} declared services`,
-      observed ? `${observed.length} observed channels` : `observed channels unavailable — ${data.channels.reason}`,
+      `${services.length} services on record`,
+      observed ? `${observed.length} channels seen running` : `channels seen running could not be read — ${data.channels.reason}`,
       mcpLine,
-      liveMessagesReason ? `messages unavailable — ${liveMessagesReason}` : 'messages observation available',
+      liveMessagesReason ? `messages could not be read — ${liveMessagesReason}` : 'messages are being read',
     ])
     boxEls.clear()
     renderRail()

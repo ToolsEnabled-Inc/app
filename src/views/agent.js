@@ -115,13 +115,13 @@ function declaredAgentProjection(compId, agentId, data) {
       state: declaredAgent.enabled ? 'active' : 'inactive',
       bornAt: runtime?.bornAt ?? null,
       stoppedAt: runtime?.stoppedAt ?? null,
-      projectionUnavailableReason: 'not provided by agents projection',
+      projectionUnavailableReason: 'not part of this computer’s agent record',
       model: declaredAgent.provider,
       pool: 'declared',
       ...(declaredAgent.id === agentId ? { controlTarget: declaredAgent.controlTarget } : {}),
       context: [
-        labels.length ? `Relationship · ${labels.join('; ')}` : 'No declared relationship',
-        `Declared · ${declaredAgent.enabled ? 'enabled' : 'disabled'} · ${declaredAgent.provider}`,
+        labels.length ? `Relationship · ${labels.join('; ')}` : 'No recorded relationship',
+        `On record · ${declaredAgent.enabled ? 'enabled' : 'disabled'} · ${declaredAgent.provider}`,
       ],
     }
   }
@@ -131,7 +131,7 @@ function declaredAgentProjection(compId, agentId, data) {
     id: compId,
     /* The machine this copy runs on has a name a person recognises; a route
        segment is not it. Everything else keeps the id it arrived with. */
-    name: `${compId === THIS_COMPUTER_ID ? THIS_COMPUTER_LABEL : compId} · declared topology`,
+    name: `${compId === THIS_COMPUTER_ID ? THIS_COMPUTER_LABEL : compId} · as recorded here`,
     agents: [agent, ...relatedIds.map(id => asGraphAgent(declaredById.get(id), agent.id))],
   }
   return {
@@ -169,7 +169,7 @@ export function agentView(args) {
     }
     root.replaceChildren(state)
   }
-  showState('Declared agent projection', 'reading live projection…', true)
+  showState('Opening this agent', 'reading what this computer has on record…', true)
   let destroyed = false
   let current = null
   /* THE SAME SOURCE THE GRAPH WAS DRAWN FROM.
@@ -192,15 +192,15 @@ export function agentView(args) {
     const projection = result.ok ? declaredAgentProjection(args.compId, args.agentId, result.data?.data) : null
     if (!projection) {
       showState(
-        result.ok ? 'Declared agent unavailable' : 'Agent projection unavailable',
-        result.ok ? `no declared agent matches ${args.agentId}` : result.reason,
+        result.ok ? 'This agent is not on record here' : 'This agent’s record could not be read',
+        result.ok ? `no agent on this computer’s record matches ${args.agentId}` : result.reason,
       )
       return
     }
     current = buildAgentView(args, projection)
     root.replaceChildren(current.el)
   }).catch((error) => {
-    if (!destroyed) showState('Agent projection unavailable', error?.message || String(error))
+    if (!destroyed) showState('This agent’s record could not be read', error?.message || String(error))
   })
 
   return {
@@ -293,7 +293,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   const provenance = root.querySelector('.agent-provenance')
   if (live) {
     provenance.dataset.kind = 'declared'
-    provenance.textContent = 'Declared topology read from this computer.'
+    provenance.textContent = 'Read from the team record saved on this computer.'
   } else {
     provenance.dataset.kind = 'example'
     provenance.textContent = 'Example data. These are not your agents — nothing here is running, and no control on this page reaches a real session.'
@@ -537,18 +537,18 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
 
     const rail = root.querySelector('.ctl-panel .rail-scroll')
     rail.replaceChildren()
-    rail.appendChild(el('<div class="rail-sec">Projection</div>'))
+    rail.appendChild(el('<div class="rail-sec">On record</div>'))
     const rows = [
-      ['Declared state', agent.state === 'active' ? 'enabled' : 'disabled'],
+      ['Recorded state', agent.state === 'active' ? 'enabled' : 'disabled'],
       ['Provider', agent.model],
-      ['Relationships', `${projection.relationshipCount} declared`],
-      ['Observed sessions', sessionState],
+      ['Relationships', `${projection.relationshipCount} recorded`],
+      ['Running sessions', sessionState === 'unavailable' ? 'could not be read' : 'not matched by name'],
     ]
     for (const [label, value] of rows) {
       const row = el('<div class="ctl-row"><span class="cl"></span><span class="cv"></span></div>')
       row.querySelector('.cl').textContent = label
       row.querySelector('.cv').textContent = value
-      if (label === 'Observed sessions') {
+      if (label === 'Running sessions') {
         row.classList.add('projection-state')
         if (sessionState === 'unavailable') row.classList.add('projection-unavailable')
       }
@@ -613,7 +613,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     if (!live) return
     chatProvenance.textContent = liveSessionFor(agent.id)
       ? 'local draft · a session is running; this box does not send to it'
-      : `local draft · observed session ${sessionState}`
+      : `local draft · ${sessionState === 'unavailable' ? 'running sessions could not be read' : 'no running session is matched to this agent'}`
   }
   syncChatProvenance()
   root.querySelector('.chat-panel').appendChild(chat)

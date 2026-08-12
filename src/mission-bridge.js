@@ -651,7 +651,7 @@ export function createTerminateController({
       retrySameIntent,
       retrySameIntent ? 'Retry terminate' : 'Terminate',
       retrySameIntent ? 'Same intent' : 'Unavailable',
-      `${code}: ${reason} No stop has been confirmed.${retrySameIntent ? ' Retry reuses the same request.' : ' Refresh the projection before trying again.'}`,
+      `${code}: ${reason} No stop has been confirmed.${retrySameIntent ? ' Retry reuses the same request.' : ' Reload this page before trying again.'}`,
     ))
     return state
   }
@@ -680,7 +680,7 @@ export function createTerminateController({
             true,
             'Terminate',
             'Available',
-            `BRIDGE_IDEMPOTENCY_UNAVAILABLE: ${error?.message || 'A fresh idempotency key could not be created.'} No request was sent.`,
+            `BRIDGE_IDEMPOTENCY_UNAVAILABLE: ${error?.message || 'A fresh one-time request key could not be created.'} No request was sent.`,
           ))
           return Promise.resolve(state)
         }

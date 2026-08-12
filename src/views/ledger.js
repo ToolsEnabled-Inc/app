@@ -258,7 +258,7 @@ export function ledgerView() {
       node.closest('.ledger-stat').toggleAttribute('data-empty', !unavailable && counts[state] === 0)
     }
     for (const note of root.querySelectorAll('[data-summary-note]')) {
-      note.textContent = unavailable ? '· unavailable' : (live ? '· projection' : '· this session')
+      note.textContent = unavailable ? '· unavailable' : (live ? '· your records' : '· this session')
     }
   }
 
@@ -277,12 +277,12 @@ export function ledgerView() {
     const rows = []
 
     if (source.kind === 'loading' || source.kind === 'unavailable') {
-      const reason = source.kind === 'loading' ? 'ledger projection loading' : source.reason
+      const reason = source.kind === 'loading' ? 'still reading the ledger' : source.reason
       renderSummary([], { unavailable: true, live: true })
       register.removeAttribute('role')
-      register.setAttribute('aria-label', 'Ledger projection unavailable')
-      register.innerHTML = `<p class="ledger-empty projection-unavailable">ledger projection unavailable · ${esc(reason)}</p>`
-      root.querySelector('[data-visible-count]').textContent = source.kind === 'loading' ? 'source loading' : 'source unavailable'
+      register.setAttribute('aria-label', 'The ledger could not be read')
+      register.innerHTML = `<p class="ledger-empty projection-unavailable">the ledger could not be read yet · ${esc(reason)}</p>`
+      root.querySelector('[data-visible-count]').textContent = source.kind === 'loading' ? 'reading…' : 'could not be read'
       root.dataset.projectionState = source.kind
       return
     }
@@ -295,9 +295,9 @@ export function ledgerView() {
     if (mode === 'q' && live && !qObservation.ok) {
       renderSummary([], { unavailable: true, live: true })
       register.removeAttribute('role')
-      register.setAttribute('aria-label', 'Questions projection unavailable')
-      register.innerHTML = `<p class="ledger-empty projection-unavailable">questions projection unavailable · ${esc(qObservation.reason)}</p>`
-      root.querySelector('[data-visible-count]').textContent = 'questions source unavailable'
+      register.setAttribute('aria-label', 'The questions could not be read')
+      register.innerHTML = `<p class="ledger-empty projection-unavailable">the questions could not be read · ${esc(qObservation.reason)}</p>`
+      root.querySelector('[data-visible-count]').textContent = 'questions could not be read'
       root.dataset.projectionState = 'questions-unavailable'
       return
     }
@@ -311,12 +311,12 @@ export function ledgerView() {
         for (const item of childrenByParent.get('') || []) renderRBranch(item, 0, rows)
       }
       register.setAttribute('role', 'tree')
-      register.setAttribute('aria-label', live ? 'Request projection' : 'Owner request outline')
+      register.setAttribute('aria-label', live ? 'Your requests' : 'Owner request outline')
       register.innerHTML = rows.length
         ? rows.join('')
-        : '<p class="ledger-empty">no requests in this register · the ledger is quiet</p>'
+        : '<p class="ledger-empty">no requests in this list · the ledger is quiet</p>'
       root.querySelector('[data-visible-count]').textContent = live
-        ? `${rItems.length} requests · status and gate projection`
+        ? `${rItems.length} requests · with their status and gates`
         : `${R_ITEMS.length} requests · 3 decomposed roots`
     } else {
       for (const item of qItems) {
@@ -325,10 +325,10 @@ export function ledgerView() {
           : recordMarkup(item, { mode: 'q', expanded: expandedRows.has(`q:${item.id}`) }))
       }
       register.setAttribute('role', 'list')
-      register.setAttribute('aria-label', live ? 'Questions projection' : 'Questions to the owner')
+      register.setAttribute('aria-label', live ? 'Your questions' : 'Questions to the owner')
       register.innerHTML = rows.length
         ? rows.join('')
-        : '<p class="ledger-empty">no owner questions in this register · nothing waiting on a decision</p>'
+        : '<p class="ledger-empty">no owner questions in this list · nothing waiting on a decision</p>'
       const open = live
         ? qItems.filter(item => item.statusClass === 'open').length
         : Q_ITEMS.filter(item => item.status === 'pending').length

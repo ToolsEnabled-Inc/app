@@ -70,7 +70,7 @@ function unavailableState(surface, status, result) {
 async function prepareSurface(surface) {
   const status = surface.querySelector('[data-write-status]')
   for (const control of surface.querySelectorAll('button, input, textarea, select')) control.disabled = true
-  actionState(status, 'checking', 'checking audited bridge…')
+  actionState(status, 'checking', 'checking the audited connection…')
   // Reachability first. NOTE, corrected 2026-08-09: this is NOT "the cheap
   // unauthenticated probe" the previous wording claimed. bridgeReachable()
   // calls session(), which resolves /v1/runtime discovery across the declared
@@ -126,8 +126,8 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
     <header><strong>Audited actions</strong><span data-write-status role="status">not connected</span></header>
     <div class="write-surface-grid">
       ${dispatchEnabled ? `<form class="write-form" data-dispatch-form>
-        <span class="write-form-title">Dispatch agent lane</span>
-        <label>Root<select data-root-select aria-label="Dispatch worktree root"></select></label>
+        <span class="write-form-title">Hand work to an agent</span>
+        <label>Root<select data-root-select aria-label="Folder the work runs in"></select></label>
         <label>Tier<select name="tier"><optgroup label="Codex"><option value="luna">Luna · medium</option><option value="terra">Terra · high</option><option value="sol">Sol · ultra</option></optgroup><optgroup label="Claude"><option value="claude-fable">Fable</option><option value="claude-sonnet">Sonnet</option><option value="claude-opus">Opus</option></optgroup></select></label>
         <label>Objective<input name="objectiveRef" maxlength="80" value="agent-${esc(agentId)}" required /></label>
         <label class="write-wide">Brief<textarea name="brief" maxlength="16000" rows="2" required></textarea></label>
@@ -136,7 +136,7 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
       </form>` : ''}
       ${reportEnabled ? `<form class="write-form" data-report-form>
         <span class="write-form-title">Read agent report</span>
-        <label>Root<select data-root-select aria-label="Report worktree root"></select></label>
+        <label>Root<select data-root-select aria-label="Folder the report is read from"></select></label>
         <label class="write-wide">Report path<input name="relativePath" maxlength="260" value="P5-REPORT.md" required /></label>
         <button type="submit">Read report</button>
         <output data-action-output role="status"></output>
@@ -209,8 +209,8 @@ export function mountLedgerWriteSurface(root) {
         <output data-action-output role="status"></output>
       </form>` : ''}
       ${queueEnabled ? `<form class="write-form" data-queue-form>
-        <span class="write-form-title">Strict queue transition</span>
-        <label>Root<select data-root-select aria-label="Queue worktree root"></select></label>
+        <span class="write-form-title">Take or finish queued work</span>
+        <label>Root<select data-root-select aria-label="Folder of the work queue"></select></label>
         <label>Phase<input name="phaseId" maxlength="4" placeholder="Q103" required /></label>
         <label class="write-wide">Observed queue SHA-256<input name="expectedHash" minlength="64" maxlength="64" required /></label>
         <label class="write-wide">Close reason<input name="reason" maxlength="2000" placeholder="required only for close" /></label>

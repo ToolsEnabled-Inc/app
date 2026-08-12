@@ -84,7 +84,7 @@ export function tierArgvFragment(id) {
    no field for. */
 export const SANDBOX_LEVELS = Object.freeze({
   guided: Object.freeze({ codex: 'read-only', claude: 'plan', summary: 'Reads only. Writes are refused by the operating system.' }),
-  standard: Object.freeze({ codex: 'workspace-write', claude: 'acceptEdits', summary: 'Writes inside the worktree only. Writes elsewhere are refused by the operating system.' }),
+  standard: Object.freeze({ codex: 'workspace-write', claude: 'acceptEdits', summary: 'Writes only inside its work folder. Writes anywhere else are refused by the operating system.' }),
   unrestricted: Object.freeze({ codex: 'danger-full-access', claude: 'bypassPermissions', summary: 'No sandbox. The agent can write anywhere this account can.' }),
 })
 

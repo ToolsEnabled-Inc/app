@@ -112,7 +112,7 @@ function projectedComputer(computer, projection) {
       tasksDone: Number.isSafeInteger(node.tasksDone) && node.tasksDone >= 0 ? node.tasksDone : null,
       failRate: Number.isFinite(node.failRate) && node.failRate >= 0 && node.failRate <= 100 ? node.failRate : null,
       context: [],
-      projectionUnavailableReason: 'not provided by fleet projection',
+      projectionUnavailableReason: 'not part of this computer’s fleet record',
     }]
   }))
   const edges = projection.edges.map(edge => ({ ...edge }))
@@ -884,20 +884,20 @@ export function computersView({ initialComputer = null, navigate }) {
   function renderLiveStats() {
     const services = computer.services || []
     statsPage.innerHTML = `
-      <div class="rail-title">Fleet Projection</div>
+      <div class="rail-title">Fleet overview</div>
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
-        <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Declared graph nodes</span></div>
+        <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agents on record</span></div>
         <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
-        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">Fleet projection unavailable · ${escapeMarkup(declaredOnlyReason)} These are the agents this copy declares, not agents observed running.</div>` : ''}
+        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">The live fleet data could not be read · ${escapeMarkup(declaredOnlyReason)} These are the agents this computer has on record, not agents seen running.</div>` : ''}
         <div class="rail-sec">Services</div>
         <div class="task-list projection-state">
           ${services.length ? services.map(service => {
             const meta = [service.state, service.detail].filter(Boolean).join(' · ').replace(/\s--\s/g, ' — ')
             return `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b><span class="svc-meta">${escapeMarkup(meta)}</span></div>`
-          }).join('') : '<div class="rail-sub">No services declared by fleet projection</div>'}
+          }).join('') : '<div class="rail-sub">No services are on record for this computer</div>'}
         </div>
-        <div class="rail-sec">Declared graph</div>
-        <div class="rail-sub">${computer.graphEdges.length} declared relationships · runtime, load, tasks, and messages unavailable · not provided by fleet projection</div>
+        <div class="rail-sec">Recorded relationships</div>
+        <div class="rail-sub">${computer.graphEdges.length} recorded relationships · runtime, load, tasks, and messages are not part of this record</div>
         ${orgSourceMarkup()}
         <div class="rail-sec">Roles</div>
         <div class="board-org-slot"></div>
@@ -1124,8 +1124,8 @@ export function computersView({ initialComputer = null, navigate }) {
           ${UNSUPPORTED_CONTROLS.map(item => `<div class="ctl-unsupported-row"><b>${escapeMarkup(item.label)}</b><span>${escapeMarkup(item.reason)}</span><code>${escapeMarkup(item.evidence)}</code></div>`).join('')}
         </div>
         <div class="ctl-dispatch">
-          <button class="ctl-btn" type="button" data-launch="dispatch"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Start an audited lane nested under this agent' : 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'}">Dispatch a lane under ${escapeMarkup(agent.name)}</button>
-          <output class="ctl-out" data-launch="out" role="status">${dispatchEnabled ? '' : 'dispatch is off in Settings'}</output>
+          <button class="ctl-btn" type="button" data-launch="dispatch"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Start a recorded work lane nested under this agent' : 'Handing out work is switched off. Turn on “Hand out work to agents” in Settings to use it.'}">Hand work to ${escapeMarkup(agent.name)}</button>
+          <output class="ctl-out" data-launch="out" role="status">${dispatchEnabled ? '' : 'switched off in Settings'}</output>
         </div>
       </div>`)
 
@@ -1172,12 +1172,12 @@ export function computersView({ initialComputer = null, navigate }) {
     if (dispatchEnabled) {
       dispatchButton.addEventListener('click', async () => {
         dispatchButton.disabled = true
-        output.textContent = 'checking audited bridge…'
+        output.textContent = 'checking the audited connection…'
         const status = await prepareBridgeOnce()
         if (!box.isConnected) return
         const rootId = Array.isArray(status?.roots) ? status.roots[0] : null
         if (!status?.ok || !rootId) {
-          output.textContent = `unavailable · ${status?.reason || 'no declared worktree root'}`
+          output.textContent = `unavailable · ${status?.reason || 'no workspace folder is recorded for this computer'}`
           dispatchButton.disabled = false
           return
         }
@@ -1244,8 +1244,8 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="rail-sub" data-team="identity-note">The code beside each name is the declared agent it becomes. Two members that resolve to the same agent cannot run at once, so at most ${TEAM_BOUNDS.maxConcurrent} lanes can be live together on this computer.</div>
         <div class="rail-sub" data-team="plan" role="status"></div>
         <div class="ctl-dispatch">
-          <button class="ctl-btn" type="button" data-team="go"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Dispatch the lead, then nest each member under its launch' : 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'}">Dispatch team</button>
-          <output class="ctl-out" data-team="out" role="status">${dispatchEnabled ? '' : 'dispatch is off in Settings'}</output>
+          <button class="ctl-btn" type="button" data-team="go"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Start the lead first, then nest each member under its launch' : 'Handing out work is switched off. Turn on “Hand out work to agents” in Settings to use it.'}">Start the team</button>
+          <output class="ctl-out" data-team="out" role="status">${dispatchEnabled ? '' : 'switched off in Settings'}</output>
         </div>
         <div class="team-roster" data-team="roster"></div>
         <div class="rail-sub" data-team="honesty">Started means the process is running, not that it has answered. A dispatch returns a launch receipt, never a result.</div>
@@ -1273,9 +1273,9 @@ export function computersView({ initialComputer = null, navigate }) {
         ? `Ready: ${plan.lead} leads ${plan.members.length} member${plan.members.length === 1 ? '' : 's'}; ${plan.size} lanes total.`
         : plan.problems.join(' ')
       goButton.disabled = !dispatchEnabled || !plan.dispatchable
-      if (!dispatchEnabled) goButton.title = 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'
+      if (!dispatchEnabled) goButton.title = 'Handing out work is switched off. Turn on “Hand out work to agents” in Settings to use it.'
       else if (!plan.dispatchable) goButton.title = plan.problems.join(' ')
-      else goButton.title = 'Dispatch the lead, then nest each member under its launch'
+      else goButton.title = 'Start the lead first, then nest each member under its launch'
       return plan
     }
 
@@ -1300,12 +1300,12 @@ export function computersView({ initialComputer = null, navigate }) {
         const plan = paintPlan()
         if (!plan.dispatchable) return
         goButton.disabled = true
-        output.textContent = 'checking audited bridge…'
+        output.textContent = 'checking the audited connection…'
         const status = await prepareBridgeOnce()
         if (!box.isConnected) return
         const rootId = Array.isArray(status?.roots) ? status.roots[0] : null
         if (!status?.ok || !rootId) {
-          output.textContent = `unavailable · ${status?.reason || 'no declared worktree root'}`
+          output.textContent = `unavailable · ${status?.reason || 'no workspace folder is recorded for this computer'}`
           goButton.disabled = false
           return
         }
@@ -1420,7 +1420,7 @@ export function computersView({ initialComputer = null, navigate }) {
         : plan.problems.join(' ')
       goButton.disabled = !dispatchEnabled || !plan.runnable
       goButton.title = !dispatchEnabled
-        ? 'Dispatch is switched off. Turn on “Dispatch agent lanes” in Settings to use it.'
+        ? 'Handing out work is switched off. Turn on “Hand out work to agents” in Settings to use it.'
         : (plan.runnable ? 'Start the loop. The first run starts immediately.' : plan.problems.join(' '))
       return plan
     }
@@ -1453,12 +1453,12 @@ export function computersView({ initialComputer = null, navigate }) {
         const plan = paintPlan()
         if (!plan.runnable) return
         goButton.disabled = true
-        output.textContent = 'checking audited bridge…'
+        output.textContent = 'checking the audited connection…'
         const status = await prepareBridgeOnce()
         if (!box.isConnected) return
         const rootId = Array.isArray(status?.roots) ? status.roots[0] : null
         if (!status?.ok || !rootId) {
-          output.textContent = `unavailable · ${status?.reason || 'no declared worktree root'}`
+          output.textContent = `unavailable · ${status?.reason || 'no workspace folder is recorded for this computer'}`
           goButton.disabled = false
           return
         }
@@ -1674,14 +1674,14 @@ export function computersView({ initialComputer = null, navigate }) {
        had neither; now the rail has a chatbox that states its own channel, and
        a control box whose knobs are real. Leaving them here would have the
        panel report two things missing while they sit above it. */
-    const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task telemetry' : null, 'activity'].filter(Boolean)
+    const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task history' : null, 'activity'].filter(Boolean)
     controlsPage.innerHTML = `
-      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet projection</button><span class="spacer"></span>Declared node</div>
+      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet overview</button><span class="spacer"></span>Recorded agent</div>
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div></div>
         <div class="board-box board-chat-box"></div>
         <div class="board-box board-ctl-box projection-state">
-          <div class="board-box-h"><span class="bh-t">Projection register</span></div>
+          <div class="board-box-h"><span class="bh-t">What is on record</span></div>
           <div class="rail-sub">ID · ${escapeMarkup(agent.id)}</div>
           <div class="rail-sub">Provider · ${escapeMarkup(agent.provider)}</div>
           <div class="rail-sub">State · ${escapeMarkup(agent.state)}</div>
@@ -1852,7 +1852,7 @@ export function computersView({ initialComputer = null, navigate }) {
        before any computer reports. Leaving the panel out here would have put the
        only way to reach it behind a host most copies do not have. */
     statsPage.innerHTML = `
-      <div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Fleet projection loading…' : `Fleet projection unavailable · ${escapeMarkup(reason)}`}</div>
+      <div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Reading your fleet…' : `The live fleet data could not be read · ${escapeMarkup(reason)}`}</div>
       ${loading ? '' : `<div class="rail-scroll rail-org-only">${orgSourceMarkup()}<div class="board-org-slot"></div></div>`}`
     controlsPage.innerHTML = ''
     activateRail(statsPage)
@@ -1863,7 +1863,7 @@ export function computersView({ initialComputer = null, navigate }) {
     emptyPanel = el(`
       <div class="graph-empty" data-projection-state="unavailable">
         <div class="graph-empty-h">No computers are reporting to this copy</div>
-        <div class="graph-empty-reason">Fleet projection unavailable · ${escapeMarkup(reason)}</div>
+        <div class="graph-empty-reason">The live fleet data could not be read · ${escapeMarkup(reason)}</div>
         <div class="graph-empty-body">This page draws the agents running on each computer in your fleet, and opens any one of them in a detail page with its own chat, runtime and controls. It fills in on its own once a computer here is running an agent host this copy can read.</div>
         ${emptyStateExample()}
       </div>`)
@@ -1875,7 +1875,7 @@ export function computersView({ initialComputer = null, navigate }) {
     declaredOnlyReason = declaredReason
     const next = projectionComputers(data, orgReady() ? orgAvailability.org : null)
     if (!next.length) {
-      showProjectionUnavailable('fleet projection has no usable computers or declared graph')
+      showProjectionUnavailable('the fleet record lists no usable computers or relationships')
       return
     }
     clearSourceUnsubs()
@@ -1920,7 +1920,7 @@ export function computersView({ initialComputer = null, navigate }) {
       syncEditAvailability()
     }).catch(error => {
       if (destroyed || version !== fetchVersion || !isLiveView('computers')) return
-      showProjectionUnavailable(`fleet projection request failed: ${error?.message || error}`)
+      showProjectionUnavailable(`the fleet record could not be fetched: ${error?.message || error}`)
     })
   }
 

@@ -190,7 +190,7 @@ export function buildRoleAssignBox({ agent, availability, onAssign }) {
     ? availability.org.agents.find(entry => entry.id === agent.id) || null
     : null
   const blocked = disabledReason(availability)
-    || (declared ? null : `This node is not in the declared organisation this copy can edit, so its role cannot be changed here. The fleet projection still names it "${agent.declaredRole || agent.id}".`)
+    || (declared ? null : `This agent is not part of the organisation saved on this computer, so its role cannot be changed here. The fleet record still names it "${agent.declaredRole || agent.id}".`)
   const current = declared?.role || agent.declaredRole || ''
   const disabled = Boolean(blocked)
 

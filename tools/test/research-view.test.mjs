@@ -154,8 +154,11 @@ test('live Sankey empty state preserves the hero slot and offers an explicit sim
   const view = read('src/views/metrics.js')
   const css = read('src/metrics.css')
 
-  assert.match(view, /measured usage is not attributed across pools, providers, and agent roles/)
-  assert.match(view, /View simulated/)
+  /* R1522 language pass: the sentence leads with what cannot be drawn and why,
+     in plain words; the button names the demonstration the way the rest of the
+     product does. */
+  assert.match(view, /measured usage does not say which pool, provider, or role it belongs to/)
+  assert.match(view, /View the demonstration/)
   assert.match(view, /setLiveView\('metrics', false\)/)
   assert.match(view, /host\.replaceChildren\(panel\)/)
   assert.match(css, /#sankey-chart\.m-sankey-empty-host[\s\S]*?min-height: 430px/)

@@ -35,8 +35,8 @@ function formatBytes(value) {
 function lockedReportMarkup(report) {
   // R198 boundary: do not add a fallback that reads summary/path/bytes/date.
   // A future malformed producer cannot make this branch disclose them.
-  const title = report?.title || 'Authorization-gated report'
-  const reason = report?.authorizationReason || 'Owner authorization is required before content use.'
+  const title = report?.title || 'Locked report'
+  const reason = report?.authorizationReason || 'This report stays locked until you authorize it.'
   return `
     <li class="research-report is-locked" data-locked-report="true">
       <span class="research-lock" aria-hidden="true">
@@ -63,18 +63,18 @@ function safeReportMarkup(report) {
           </dl>
         </div>
         <div class="research-context">
-          <p>${esc(report?.summary || 'Curated summary unavailable.')}</p>
+          <p>${esc(report?.summary || 'No summary was written for this report.')}</p>
         </div>
       </div>
     </li>`
 }
 
 function unavailableMarkup(label, reason) {
-  return `<p class="research-unavailable projection-unavailable">${esc(label)} unavailable · ${esc(reason || 'projection did not supply a reason')}</p>`
+  return `<p class="research-unavailable projection-unavailable">${esc(label)} could not be read · ${esc(reason || 'the app was not told why')}</p>`
 }
 
 function emptyMarkup(label) {
-  return `<p class="research-observed-empty">No ${esc(label)} were supplied by this projection.</p>`
+  return `<p class="research-observed-empty">The research data has no ${esc(label)} in it yet.</p>`
 }
 
 function validQueueText(value, maxLength) {
@@ -196,7 +196,7 @@ function taxonomyMarkup(item) {
 }
 
 function questionMarkup(item) {
-  return `<li><p>${esc(item?.question || 'Question unavailable.')}</p><small>${esc(item?.methodToClose || 'Method to close unavailable.')}</small></li>`
+  return `<li><p>${esc(item?.question || 'Question unavailable.')}</p><small>${esc(item?.methodToClose || 'No way to answer it was recorded.')}</small></li>`
 }
 
 function observationMarkup(observation, { label, emptyLabel, itemMarkup }) {
@@ -211,25 +211,25 @@ export function researchView() {
       <div class="research-shell">
         <header class="research-mast">
           <div>
-            <p class="research-eyebrow">owner-scoped corpus</p>
+            <p class="research-eyebrow">your private research library</p>
             <h1>Research</h1>
           </div>
-          <p class="research-source" data-research-source>projection loading</p>
+          <p class="research-source" data-research-source>reading your research…</p>
         </header>
 
         <section class="research-section" aria-labelledby="research-queue-title" data-research-queue-section>
           <div class="research-section-head">
             <h2 id="research-queue-title">Research queue</h2>
-            <p>Owner observations awaiting research, with state and provenance kept explicit.</p>
+            <p>Things you noticed that are waiting to be researched, each with its status and where it came from.</p>
           </div>
           <div data-research-queue data-queue-state="loading" aria-busy="true" aria-live="polite">
-            <p class="research-observed-empty">Loading research queue.</p>
+            <p class="research-observed-empty">Reading the research queue.</p>
           </div>
         </section>
 
         <div class="research-loading projection-state is-loading" data-research-state role="status">
-          <strong>Loading research projection</strong>
-          <span>Reading the browser-safe catalog and authorization boundaries.</span>
+          <strong>Loading your research</strong>
+          <span>Reading the report catalog kept on this computer. Reports that need your authorization stay locked.</span>
         </div>
       </div>
     </main>`)
@@ -248,12 +248,12 @@ export function researchView() {
   function renderUnavailable(reason) {
     root.setAttribute('aria-busy', 'false')
     root.dataset.projectionState = 'unavailable'
-    root.querySelector('[data-research-source]').textContent = 'source unavailable'
+    root.querySelector('[data-research-source]').textContent = 'could not be read'
     root.querySelector('[data-research-state]')?.remove()
     shell.insertAdjacentHTML('beforeend', `
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
-        <strong>Research projection unavailable</strong>
-        <span>${esc(reason || 'The projection did not supply a reason.')}</span>
+        <strong>Your research could not be loaded</strong>
+        <span>${esc(reason || 'The app was not told why.')}</span>
       </section>`)
   }
 
@@ -263,7 +263,7 @@ export function researchView() {
     const notes = data.methodNotes
     root.setAttribute('aria-busy', 'false')
     root.dataset.projectionState = 'ready'
-    root.querySelector('[data-research-source]').textContent = `projection generated ${formatDate(envelope.generatedAt)}`
+    root.querySelector('[data-research-source]').textContent = `catalog generated ${formatDate(envelope.generatedAt)}`
     root.querySelector('[data-research-state]')?.remove()
 
     const catalogBody = !catalog?.ok
@@ -287,8 +287,8 @@ export function researchView() {
     shell.insertAdjacentHTML('beforeend', `
       <section class="research-section" aria-labelledby="research-corpus-title">
         <div class="research-section-head">
-          <h2 id="research-corpus-title">Corpus catalog</h2>
-          <p>Curated local reports; gated entries remain metadata-only.</p>
+          <h2 id="research-corpus-title">Report library</h2>
+          <p>Reports kept on this computer. Locked ones show only their title until you authorize them.</p>
         </div>
         ${catalogBody}
       </section>
@@ -296,27 +296,27 @@ export function researchView() {
       <section class="research-section" aria-labelledby="research-method-title">
         <div class="research-section-head">
           <h2 id="research-method-title">Method notes</h2>
-          <p>Rules carried with the corpus, not inferred from it.</p>
+          <p>The rules this research follows, written down alongside the reports rather than guessed from them.</p>
         </div>
         ${notesBody}
       </section>
 
       <section class="research-section research-registers" aria-labelledby="research-registers-title">
         <div class="research-section-head">
-          <h2 id="research-registers-title">Research registers</h2>
-          <p>Unavailable evidence stays unavailable; an empty observation is named, never shown as zero.</p>
+          <h2 id="research-registers-title">Working lists</h2>
+          <p>What the research has found so far. A list that could not be read says so — it is never quietly shown as empty.</p>
         </div>
         <div class="research-register-row">
-          <h3>Findings register</h3>
-          <div>${observationMarkup(data.findingsRegister, { label: 'Findings register', emptyLabel: 'findings', itemMarkup: findingMarkup })}</div>
+          <h3>Findings</h3>
+          <div>${observationMarkup(data.findingsRegister, { label: 'The findings list', emptyLabel: 'findings', itemMarkup: findingMarkup })}</div>
         </div>
         <div class="research-register-row">
-          <h3>Failure taxonomy</h3>
-          <div>${observationMarkup(data.failureTaxonomy, { label: 'Failure taxonomy', emptyLabel: 'failure categories', itemMarkup: taxonomyMarkup })}</div>
+          <h3>Failure categories</h3>
+          <div>${observationMarkup(data.failureTaxonomy, { label: 'The failure-category list', emptyLabel: 'failure categories', itemMarkup: taxonomyMarkup })}</div>
         </div>
         <div class="research-register-row">
           <h3>Open questions</h3>
-          <div>${observationMarkup(data.openQuestions, { label: 'Open questions', emptyLabel: 'open questions', itemMarkup: questionMarkup })}</div>
+          <div>${observationMarkup(data.openQuestions, { label: 'The open-question list', emptyLabel: 'open questions', itemMarkup: questionMarkup })}</div>
         </div>
       </section>`)
   }

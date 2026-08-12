@@ -320,7 +320,7 @@ export function metricsView() {
   const timers = new Set()
   const after = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn() }, ms); timers.add(t); return t }
   let destroyed = false
-  let projection = liveMode ? { ok: false, reason: 'loading projection' } : null
+  let projection = liveMode ? { ok: false, reason: 'still reading the live totals' } : null
 
   const state = { range: '24h', machine: 'all', laneFilter: null, editing: false }
   const meta = () => RANGE_META[state.range]
@@ -340,9 +340,9 @@ export function metricsView() {
 
   function liveObservation(field) {
     if (!projection?.ok || !projection.data?.data) {
-      return { ok: false, reason: projection?.reason || 'projection unavailable', value: null }
+      return { ok: false, reason: projection?.reason || 'the live totals could not be read', value: null }
     }
-    return projection.data.data[field] || { ok: false, reason: 'observation missing from projection', value: null }
+    return projection.data.data[field] || { ok: false, reason: 'this reading is not in the live totals', value: null }
   }
 
   function liveTile(tile) {
@@ -355,10 +355,10 @@ export function metricsView() {
   function liveUsageAttribution() {
     const observation = liveObservation('usageAttribution')
     if (!observation?.ok || !observation.value) {
-      return { state: 'unavailable', reason: observation?.reason || 'usage attribution unavailable', value: null }
+      return { state: 'unavailable', reason: observation?.reason || 'usage attribution could not be read', value: null }
     }
     if (!['complete', 'empty', 'partial'].includes(observation.state)) {
-      return { state: 'unavailable', reason: 'usage attribution state invalid', value: null }
+      return { state: 'unavailable', reason: 'the usage attribution reading is invalid', value: null }
     }
     return { state: observation.state, reason: null, value: observation.value }
   }
@@ -456,7 +456,7 @@ export function metricsView() {
           <span class="mf-label">Machine</span>
           ${pillGroup('machine', MACHINES, 'Machine')}
           <span class="spacer"></span>
-          <span class="mf-note" id="mf-note">simulated fleet · <i class="live-dot" aria-hidden="true"></i><b>live</b></span>
+          <span class="mf-note" id="mf-note">demonstration fleet · <i class="live-dot" aria-hidden="true"></i><b>live</b></span>
           <button type="button" class="m-edit-btn" id="m-edit" aria-pressed="false">Edit layout</button>
         </div>
         <div class="m-strip" id="tiles" data-mc="stats"></div>
@@ -982,8 +982,8 @@ export function metricsView() {
         ? 'unavailable'
         : (typeof tile.unit === 'function' ? tile.unit(value) : tile.unit)
       ref.delta.textContent = unavailable
-        ? `unavailable · ${observation.reason || 'projection unavailable'}`
-        : 'aggregate projection · no series'
+        ? `unavailable · ${observation.reason || 'the live totals could not be read'}`
+        : 'live total · no history series'
       ref.delta.className = `td flat${unavailable ? ' projection-unavailable' : ''}`
       /* A sparkline asserts a sequence. The aggregate contract supplies none,
          so preserve this protected stat-strip DOM while clearing its path. */
@@ -1767,7 +1767,7 @@ export function metricsView() {
   function projectionReason(field, absent) {
     const observation = field ? liveObservation(field) : null
     if (observation && !observation.ok) return `${absent} · ${observation.reason}`
-    if (!projection?.ok) return `unavailable · ${projection?.reason || 'projection unavailable'}`
+    if (!projection?.ok) return `unavailable · ${projection?.reason || 'the live totals could not be read'}`
     return `unavailable · ${absent}`
   }
 
@@ -1794,8 +1794,8 @@ export function metricsView() {
     if (!host) return
 
     const sentence = projection?.ok
-      ? 'Live token routing is unavailable because measured usage is not attributed across pools, providers, and agent roles.'
-      : `Live token routing is unavailable because ${projection?.reason || 'the metrics projection could not be read'}.`
+      ? 'Live token routing cannot be drawn: the measured usage does not say which pool, provider, or role it belongs to.'
+      : `Live token routing cannot be drawn: ${projection?.reason || 'the live totals could not be read'}.`
     const sub = root.querySelector('#sankey-sub')
     if (sub) sub.textContent = 'pools → providers → roles · unavailable'
 
@@ -1803,9 +1803,9 @@ export function metricsView() {
       <div class="m-sankey-empty" data-sankey-empty="true">
         <div class="m-sankey-empty-copy">
           <span class="m-sankey-empty-mark" aria-hidden="true">—</span>
-          <span class="m-sankey-empty-label">live observation unavailable</span>
+          <span class="m-sankey-empty-label">live reading unavailable</span>
           <p></p>
-          <button type="button" class="m-sankey-sim">View simulated</button>
+          <button type="button" class="m-sankey-sim">View the demonstration</button>
         </div>
       </div>`)
     panel.querySelector('p').textContent = sentence
@@ -1835,8 +1835,8 @@ export function metricsView() {
     const usage = liveUsageAttribution()
     if (usage.state === 'unavailable') {
       setSankeyStatePanel(
-        'live observation unavailable',
-        `Live token routing is unavailable because ${usage.reason}.`,
+        'live reading unavailable',
+        `Live token routing cannot be drawn: ${usage.reason}.`,
         'pools → providers → roles · unavailable',
       )
       return
@@ -1852,7 +1852,7 @@ export function metricsView() {
     if (usage.state === 'partial') {
       const { totals } = usage.value
       setSankeyStatePanel(
-        'partial observation',
+        'partial reading',
         `A complete total is unavailable. Measured lower bound: ${totals.measuredLowerBoundTokens.toLocaleString('en-US')} tokens across ${totals.calls.toLocaleString('en-US')} calls.`,
         'pools → providers → roles · partial lower bound',
       )
@@ -1882,19 +1882,19 @@ export function metricsView() {
     root.dataset.projectionState = projection?.ok ? 'aggregate' : 'unavailable'
     metricsSurface.dataset.projectionState = root.dataset.projectionState
     root.querySelector('#mf-note').textContent = projection?.ok
-      ? 'live aggregate projection'
-      : `live projection unavailable · ${projection?.reason || 'projection unavailable'}`
+      ? 'live totals from this computer'
+      : `the live totals could not be read · ${projection?.reason || 'no reason given'}`
     applyLiveTiles()
 
     applyLiveSankey()
     setProjectionUnavailable('tokenflow', '#tokens-sub',
-      projectionReason(null, 'aggregate projection has no token-flow time series'), ['#hero-chart', '#strip-chart'])
+      projectionReason(null, 'the live totals keep no token-flow history'), ['#hero-chart', '#strip-chart'])
     setProjectionUnavailable('heatmap', '#heat-sub',
-      projectionReason(null, 'aggregate projection has no fleet-activity time series'), ['#heat-chart'])
+      projectionReason(null, 'the live totals keep no fleet-activity history'), ['#heat-chart'])
     setProjectionUnavailable('verdicts', '#verdict-sub',
       projectionReason('audit', 'audit unavailable'), ['#verdict-chart'])
     setProjectionUnavailable('lanes', '#fail-sub',
-      projectionReason(null, 'aggregate projection has no failure-lane observation'), ['#fail-chart'])
+      projectionReason(null, 'the live totals keep no failure-lane reading'), ['#fail-chart'])
     setProjectionUnavailable('heartbeat', '#heartbeat-sub',
       projectionReason('fleetSupervisor', 'fleet supervisor unavailable'), ['#heartbeat-chart'])
     setProjectionUnavailable('burn', '#burn-sub',

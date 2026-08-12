@@ -1,11 +1,11 @@
 export const WRITE_FLAGS_EVENT = 'mc:write-flags-changed'
 
 export const WRITE_ACTION_FLAGS = Object.freeze([
-  Object.freeze({ id: 'dispatch', label: 'Dispatch agent lanes', description: 'Show the audited Codex and Claude dispatch form.' }),
-  Object.freeze({ id: 'decision', label: 'Approve or decline', description: 'Show durable decision controls in the ledger.' }),
-  Object.freeze({ id: 'queue', label: 'Claim or close queue', description: 'Show strict BUILD-QUEUE claim and close controls.' }),
-  Object.freeze({ id: 'thread-reply', label: 'Coordinator replies', description: 'Enable the durable coordinator-thread composer.' }),
-  Object.freeze({ id: 'report-read', label: 'Read agent reports', description: 'Show the bounded report reader on agent drill-in.' }),
+  Object.freeze({ id: 'dispatch', label: 'Hand out work to agents', description: 'Show the form that hands a job to a Codex or Claude agent. Every hand-off is recorded (an audited dispatch).' }),
+  Object.freeze({ id: 'decision', label: 'Approve or decline', description: 'Show Approve and Decline buttons on ledger requests. Every decision is recorded and kept.' }),
+  Object.freeze({ id: 'queue', label: 'Take or finish queued work', description: 'Show the controls that take a waiting work item or mark one finished, on the strict build queue.' }),
+  Object.freeze({ id: 'thread-reply', label: 'Reply to your coordinator', description: 'Let you type replies into the coordinator conversation. Every reply is sent and recorded.' }),
+  Object.freeze({ id: 'report-read', label: 'Read agent reports', description: 'Show an agent’s written reports on its page. Reading only; nothing is changed.' }),
   Object.freeze({ id: 'agent-session', label: 'Run an agent session', description: 'Start, watch, and stop a live agent session from the agent page.' }),
   /* Codex Cloud. Default-off like every other write action, and that is the
      answer to "why is this feature not simply on": the flags fail closed

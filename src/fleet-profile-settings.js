@@ -63,7 +63,7 @@ function initialFeedback() {
     return {
       tone: 'serious',
       title: `${state.rawProfile.label} needs the installed desktop app`,
-      detail: 'This browser cannot read the configured projection directory. It is not substituting that directory with a successful connection state.',
+      detail: 'This browser cannot read the data folder you configured, and it will not pretend that folder connected. Open the installed app to use it.',
     }
   }
   if (state.kind === 'recovered') {
@@ -136,7 +136,7 @@ function browserProbe(profile) {
     })),
     dataSource: profile.dataSource
       ? { state: 'unavailable', message: reason, files: [] }
-      : { state: 'not-configured', message: 'no local projection directory is configured', files: [] },
+      : { state: 'not-configured', message: 'no local data folder is configured', files: [] },
   }
 }
 
@@ -163,7 +163,7 @@ function probeMarkup(probe, busy) {
     <ul>
       ${(probe.machines || []).map(item => probeLine(item, 'machine')).join('')}
       ${(probe.transports || []).map(item => probeLine(item, 'transport')).join('')}
-      <li class="fleet-probe-line is-${esc(source.state)}"><span>projection directory</span><b>${esc(source.state)}</b><small>${esc(source.message)}${missingFiles ? ` · ${esc(missingFiles)}` : ''}</small></li>
+      <li class="fleet-probe-line is-${esc(source.state)}"><span>data folder</span><b>${esc(source.state)}</b><small>${esc(source.message)}${missingFiles ? ` · ${esc(missingFiles)}` : ''}</small></li>
     </ul>
   </div>`
 }
@@ -299,8 +299,8 @@ export function createFleetProfileSettings() {
 
         <article class="settings-row fleet-profile-block">
           <div class="settings-copy">
-            <div class="settings-name">Local projection directory</div>
-            <div class="settings-desc">The desktop shell serves status.json and each domain projection from this folder. Missing or malformed files fail visibly; they never fall through to bundled data.</div>
+            <div class="settings-name">Local data folder</div>
+            <div class="settings-desc">The folder this app reads its fleet data from (status.json and one file per page). A missing or broken file shows up as an error on the page it feeds; it is never quietly replaced with sample data.</div>
           </div>
           <div class="fleet-source-control">
             <input class="fleet-profile-input" data-profile-field="data-source" value="${esc(sourcePath)}" placeholder="not configured" autocomplete="off" spellcheck="false" ${!shellAvailable || locked ? 'disabled' : ''}/>
@@ -410,10 +410,10 @@ export function createFleetProfileSettings() {
       const unavailable = records.filter(record => record.state === 'unreachable' || record.state === 'unavailable')
       const unverified = records.filter(record => record.state === 'unverified' || record.state === 'not-configured')
       feedback = unavailable.length
-        ? { tone: 'serious', title: `${unavailable.length} configured connection${unavailable.length === 1 ? '' : 's'} unavailable`, detail: 'The exact failures are listed below. No sample or bundled projection replaced a failed configured source.' }
+        ? { tone: 'serious', title: `${unavailable.length} configured connection${unavailable.length === 1 ? '' : 's'} unavailable`, detail: 'The exact failures are listed below. Nothing replaced a failed connection with sample data.' }
         : unverified.length
           ? { tone: 'warn', title: 'Configuration checked with unverified lanes', detail: 'Unconfigured lanes and addresses without a port are listed explicitly below; none is being called up.' }
-          : { tone: 'good', title: 'Configured connections answered', detail: 'Every probeable lane answered and all required projection files parsed as JSON.' }
+          : { tone: 'good', title: 'Configured connections answered', detail: 'Everything that could be checked answered, and every required data file read back correctly.' }
     }
     refresh()
   }
@@ -523,7 +523,7 @@ export function createFleetProfileSettings() {
 
   async function chooseDirectory() {
     if (!globalThis.mcFleetProfile?.chooseDirectory) {
-      feedback = { tone: 'serious', title: 'Folder selection unavailable', detail: 'Run the installed desktop app to connect a local projection directory.' }
+      feedback = { tone: 'serious', title: 'Folder selection unavailable', detail: 'Run the installed desktop app to connect a local data folder.' }
       refresh()
       return
     }
