@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -126,4 +126,98 @@ test('the notices are configured to ship with the installer', () => {
       `${doc} is not in build.extraResources, so it will not reach users`
     );
   }
+});
+
+// A DUPLICATED PARAGRAPH IN A SHIPPED LEGAL NOTICE, AND THE GATE THAT COULD NOT SEE IT.
+//
+// Measured 2026-08-11: NOTICE carried the "Mission Control" trademark paragraph
+// twice, verbatim and back to back, and this gate reported PASS. Everything it
+// checked was still true -- the file existed, it was not empty, and LICENSE still
+// hashed to the unmodified AGPL -- so the duplicate was invisible to it and
+// shipped to every user as resources/NOTICE.
+//
+// THIS TEST PLANTS THAT EXACT DEFECT INTO THE REAL FILE rather than into a
+// fixture, because the gate resolves REPO from its own location and always reads
+// the real NOTICE; a fixture would prove a copy of the rule works on a copy of
+// the file. Planting the real thing is also what makes this a mutation proof
+// rather than a decoration: the red state asserted below IS the state that
+// shipped.
+//
+// The restore is asserted by sha256, not assumed. A test that damages a legal
+// notice and cannot prove it put the bytes back is worse than no test.
+test('gate fails when a shipped notice repeats a paragraph verbatim', () => {
+  const noticePath = join(REPO, 'NOTICE');
+  const original = readFileSync(noticePath);
+  const originalSha = createHash('sha256').update(original).digest('hex');
+
+  // Match the file's own line endings. This repository is checked out with
+  // core.autocrlf=true, so a hardcoded \n plant silently fails to find its
+  // target on a fresh clone -- and a plant that does not land produces a green
+  // that looks exactly like a working rule.
+  const text = original.toString('utf8');
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const paragraph = [
+    'The interface was previously called "Mission Control". That name was dropped',
+    'before launch: a USPTO search returned 17 live marks for it in the relevant',
+    'classes, including Apple Inc. (Reg. 4240125, IC 009) and BMC Software.',
+    '"ToolsEnabled" returned no hits, live or dead.',
+  ].join(eol);
+
+  assert.ok(
+    text.includes(paragraph),
+    'the paragraph this test plants a duplicate of is no longer in NOTICE, so the plant ' +
+      'would not land and the assertions below would pass without testing anything. ' +
+      'Update the paragraph text here to a block that NOTICE actually contains.'
+  );
+
+  try {
+    writeFileSync(noticePath, text.replace(paragraph, `${paragraph}${eol}${eol}${paragraph}`));
+
+    // Prove the plant changed the file before trusting what the gate says about it.
+    const plantedSha = createHash('sha256').update(readFileSync(noticePath)).digest('hex');
+    assert.notEqual(plantedSha, originalSha, 'the plant did not change NOTICE, so the gate result below is meaningless');
+
+    const { status, out } = runGate();
+    assert.equal(status, 1, `expected exit 1 on a duplicated paragraph, got ${status}:\n${out}`);
+    // The failure must NAME the document and the offending text. A red that does
+    // not say what is wrong sends the reader to the wrong file.
+    assert.match(out, /NOTICE repeats the same paragraph 2 times verbatim/, out);
+    assert.match(out, /Mission Control/, out);
+  } finally {
+    writeFileSync(noticePath, original);
+  }
+
+  const restoredSha = createHash('sha256').update(readFileSync(noticePath)).digest('hex');
+  assert.equal(restoredSha, originalSha, 'NOTICE was not restored byte-identically after the plant');
+
+  // And the restored file must actually pass, so a failure here cannot be left
+  // looking like a pre-existing condition.
+  const after = runGate();
+  assert.equal(after.status, 0, `NOTICE should pass again after restore:\n${after.out}`);
+});
+
+// THIRD-PARTY-LICENSES.md MUST NOT BE SUBJECT TO THE DUPLICATE RULE.
+//
+// It reproduces the full licence text of every redistributed dependency, so
+// identical MIT and BSD-3-Clause bodies repeat legitimately -- 44 duplicated
+// blocks when measured on 2026-08-11. If the rule ever grows to cover it, this
+// gate goes permanently red and the only way out is deleting the rule. This test
+// fails the moment that happens, while the fix is still cheap.
+test('the duplicate-paragraph rule does not apply to reproduced third-party licence texts', () => {
+  const tpl = readFileSync(join(REPO, 'THIRD-PARTY-LICENSES.md'), 'utf8').replace(/\r\n/g, '\n');
+  const counts = new Map();
+  for (const block of tpl.split(/\n\s*\n/)) {
+    const trimmed = block.trim();
+    if (trimmed.length < 60) continue;
+    counts.set(trimmed, (counts.get(trimmed) || 0) + 1);
+  }
+  const duplicated = [...counts.values()].filter((n) => n > 1).length;
+  assert.ok(
+    duplicated > 0,
+    'expected THIRD-PARTY-LICENSES.md to contain legitimately repeated licence bodies; if it no ' +
+      'longer does, this test is no longer proving the exclusion is needed'
+  );
+  // The gate passes today, which is the actual assertion: the rule is scoped away from this file.
+  const { status } = runGate();
+  assert.equal(status, 0, 'the gate must stay green despite the repeated licence bodies above');
 });

@@ -129,6 +129,56 @@ if (existsSync(join(REPO, 'LICENSE'))) {
   }
 }
 
+// A NOTICE THAT SAYS THE SAME THING TWICE HAS BEEN APPENDED TO WITHOUT BEING READ.
+//
+// Measured 2026-08-11: NOTICE carried the "Mission Control" trademark paragraph
+// TWICE, verbatim, back to back -- and this gate passed, because everything it
+// checked was still true. The file existed, it was non-empty, and LICENSE still
+// hashed to the unmodified AGPL. The duplicate had nothing to do with any of
+// those, so the gate could not see it, and the duplicated text shipped to every
+// user inside the installer as resources/NOTICE.
+//
+// That is worth a rule rather than a proofread. NOTICE, LICENSING.md and
+// COMMERCIAL-LICENSE.md are the documents that state the licence grant, the
+// dual-licensing position and the founder attribution. They are edited by
+// appending a paragraph, which is exactly the operation that duplicates one --
+// and a legal notice that contradicts or repeats itself is the kind of defect
+// nobody catches by reading, because everyone skims a file they have seen before.
+//
+// THIRD-PARTY-LICENSES.md IS DELIBERATELY EXCLUDED, and that exclusion is the
+// load-bearing part of the design rather than a convenience. It reproduces the
+// full licence text of every redistributed dependency, so identical MIT and
+// BSD-3-Clause bodies repeat legitimately -- 44 duplicated blocks when measured.
+// Applying this rule there would produce a permanently red gate whose only
+// possible resolution is deleting the rule, and a gate that must be deleted to
+// get a build out protects nothing the day it finally catches something real.
+//
+// Blocks shorter than 60 characters are ignored: headings, rule lines and the
+// aligned "Sole founder and creator : ..." field lines repeat by design.
+const PROSE_NOTICE_DOCS = ['NOTICE', 'LICENSING.md', 'COMMERCIAL-LICENSE.md', 'CONTRIBUTORS.md'];
+const MINIMUM_PARAGRAPH = 60;
+
+for (const doc of PROSE_NOTICE_DOCS) {
+  const p = join(REPO, doc);
+  if (!existsSync(p)) continue; // absence is already a failure above for REQUIRED_DOCS
+  const text = readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const counts = new Map();
+  for (const block of text.split(/\n\s*\n/)) {
+    const trimmed = block.trim();
+    if (trimmed.length < MINIMUM_PARAGRAPH) continue;
+    counts.set(trimmed, (counts.get(trimmed) || 0) + 1);
+  }
+  for (const [block, n] of counts) {
+    if (n === 1) continue;
+    const firstLine = block.split('\n')[0].slice(0, 90);
+    fail(
+      `${doc} repeats the same paragraph ${n} times verbatim: "${firstLine}..."\n` +
+        '      A licence notice that states something twice was appended to without being read. ' +
+        'This document ships to every user; remove the duplicate.'
+    );
+  }
+}
+
 const tplPath = join(REPO, 'THIRD-PARTY-LICENSES.md');
 if (existsSync(tplPath)) {
   const tpl = readFileSync(tplPath, 'utf8');
