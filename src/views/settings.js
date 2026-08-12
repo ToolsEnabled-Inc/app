@@ -29,23 +29,10 @@ import {
   CHATBOX_SETTING_COUNT,
   createChatboxSettings,
 } from '../chatbox-settings.js'
-/* WHY A SECTION ON THIS PAGE NEEDS A SENTENCE ABOVE ITS SWITCHES.
- *
- * LEGACY-ONB-001, re-measured on a sterile profile: a person whose fleet graph
- * and comms board both say "No local agent fleet host detected on this machine"
- * comes here looking for the switch that fixes it. Under Data and Sim they find
- * six toggles reading "<screen> live data", every one of them already ON, and
- * nothing anywhere on the page telling them that turning them on was never the
- * problem. There is no switch for the thing they are looking for, and the most
- * useful thing this page can do is say so and point at the page that explains it
- * -- otherwise the search ends in them flipping live sources off and concluding
- * the product is fake data. */
-import { GUIDE_HREF } from '../first-run-needs.js'
 import '../settings.css'
 import '../chatbox-settings.css'
 import '../fleet-profile-settings.css'
 import '../setup.css'
-import '../guide.css'
 
 const SECTIONS = [
   CHATBOX_SECTION,
@@ -370,29 +357,6 @@ function tierMarkup(section, depth, content, open) {
   return `<div class="settings-tier settings-tier-${depth} ${open ? 'is-open' : ''}" id="settings-tier-${SECTIONS.indexOf(section)}-${depth}" data-tier-depth="${depth}" aria-hidden="${open ? 'false' : 'true'}" ${open ? '' : 'inert'}><div class="settings-tier-inner">${content}</div></div>`
 }
 
-/* A sentence under a section title, for the two sections whose switches a person
-   arrives at with the wrong question. Data, not markup in the render, so the
-   words are visible in one place and a third section can be added without
-   touching the renderer. A section with no note gets no element at all rather
-   than an empty one. */
-const SECTION_NOTES = Object.freeze({
-  'Data & Sim': Object.freeze({
-    text: 'These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that.',
-    link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
-  }),
-  Write: Object.freeze({
-    text: 'Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear.',
-    link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
-  }),
-})
-
-function sectionNoteMarkup(section) {
-  const note = SECTION_NOTES[section]
-  if (!note) return ''
-  return `<p class="settings-section-note host-absent-body" data-section-note="${escapeHtml(section)}">${escapeHtml(note.text)}
-    <a class="host-absent-action" href="${escapeHtml(note.link.href)}">${escapeHtml(note.link.label)}</a></p>`
-}
-
 function sectionMarkup(section, level) {
   const items = SETTINGS.filter(setting => setting.section === section)
   const at = depth => items.filter(setting => setting.depth === depth)
@@ -413,7 +377,6 @@ function sectionMarkup(section, level) {
 
   return `<section class="settings-section" data-settings-section="${escapeHtml(section)}">
     <h2 class="settings-section-title">${escapeHtml(section)}</h2>
-    ${sectionNoteMarkup(section)}
     <div class="settings-section-rows">${at(1).map(setting => rowMarkup(setting)).join('')}</div>
     ${revealMarkup(section, 2, hidden, '', level >= 2)}
     ${depth2}
