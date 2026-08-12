@@ -541,7 +541,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
             </div>
             <small class="setup-hint">${esc(workspace.chosen || answers.workspaceRoots.length
               ? 'This folder is recorded. Nothing is created or changed until you finish setup.'
-              : 'This is a suggestion, not a decision. It is created for you when you finish, and it is given a history so that undoing what an assistant did is a real thing this program can do.')}</small>
+              : 'This is a suggestion, not a decision. It is created for you when you finish. It is given a history, so undoing what an assistant did is a real thing this program can do.')}</small>
           </div>
         </article>
       </div>
@@ -803,8 +803,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
       <div class="fleet-profile-status is-warn" role="status">
         <strong>What those four do today, stated plainly.</strong>
-        <span>They record what you want and this program keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. They are set to the cautious end unless you moved them.</span>
-        <span>The only account this setup asks for is the one on this computer, described where it was offered. No subscription, key, or password for Claude, ChatGPT or Google is asked for anywhere in this setup or stored by this program — those stay in their own programs.</span>
+        <span>They record what you want, and this program keeps them. The parts that would act on them are still being built. So today they change what is remembered, not what happens. They are set to the cautious end unless you moved them.</span>
+        <span>The only account this setup asks for is the one on this computer, described where it was offered. Nothing in this setup asks for a subscription, key or password for Claude, ChatGPT or Google, and this program stores none. Those stay in their own programs.</span>
       </div>
 
       ${refusal ? `<div class="fleet-profile-status is-serious" data-setup-status role="alert">

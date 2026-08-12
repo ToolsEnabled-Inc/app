@@ -53,6 +53,7 @@ import {
 } from './lib/git.mjs'
 import { measureFile, sameBytes } from './lib/hash.mjs'
 import { provisionNodeModules } from './lib/node-modules-reuse.mjs'
+import { assertStagingFree } from './lib/staging-collision.mjs'
 import { findOtherCandidates } from './lib/scan-artifacts.mjs'
 import { readExeVersionInfo } from './lib/version-info.mjs'
 import { computeNextVersion, writePackageVersion } from './lib/version-bump.mjs'
@@ -70,12 +71,13 @@ const DEFAULT_STAGING_ROOT = path.join(os.homedir(), 'Desktop', 'MACHINE-A-INSTA
 const DEFAULT_TEST_STAGING_ROOT = path.join(os.tmpdir(), 'release-packager-test-candidates')
 
 function parseArgs(argv) {
-  const args = { bump: 'patch', advanceBranch: false, keepWorktree: false, test: false, allowSameVersion: false }
+  const args = { bump: 'patch', advanceBranch: false, keepWorktree: false, test: false, allowSameVersion: false, replaceStaged: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--bump') args.bump = argv[++i]
     else if (arg === '--version') args.explicitVersion = argv[++i]
     else if (arg === '--allow-same-version') args.allowSameVersion = true
+    else if (arg === '--replace-staged') args.replaceStaged = true
     else if (arg === '--source-ref') args.sourceRef = argv[++i]
     else if (arg === '--repo') args.repo = argv[++i]
     else if (arg === '--staging') args.staging = argv[++i]
@@ -115,6 +117,10 @@ bump -> isolated clean build -> staged artifact -> re-hashed -> declaration.
   --bump <patch|minor|major>   default: patch
   --version <X.Y.Z>            explicit version instead of --bump
   --allow-same-version         allow reusing the current version (loud, logged)
+  --replace-staged             overwrite a candidate ALREADY staged at this version (loud, logged).
+                                Without it, an occupied staging slot refuses before anything is built --
+                                package.json's version does not move unless --advance-branch is used, so
+                                back-to-back cuts from different tips otherwise compute the same number.
   --source-ref <ref>           default: current tip of the checked-out branch
   --repo <path>                default: ${DEFAULT_REPO}
   --staging <dir>              default: ${portablePath(DEFAULT_STAGING_ROOT)}\\<version>  (or a scratch dir with --test)
@@ -273,6 +279,17 @@ async function main() {
   // --- staging ---------------------------------------------------------------
   const stagingRoot = args.staging ?? (args.test ? DEFAULT_TEST_STAGING_ROOT : DEFAULT_STAGING_ROOT)
   const stagingDir = path.join(stagingRoot, version)
+
+  /* BEFORE the directory is created, before a worktree exists, before anything
+   * is built: is this version's slot already taken by a candidate cut from a
+   * different commit? computeNextVersion() cannot answer that -- it only
+   * compares against package.json, and package.json does not advance unless
+   * --advance-branch was used, so every cut from a non-advancing branch
+   * computes the same "next" number. Refusing here costs a wasted argument;
+   * refusing after the build would already have overwritten the installer and
+   * the declaration that describes it. */
+  assertStagingFree({ stagingDir, version, sourceRef, replaceStaged: args.replaceStaged, log: console.log })
+
   await mkdir(stagingDir, { recursive: true })
 
   // --- isolated build worktree ------------------------------------------------

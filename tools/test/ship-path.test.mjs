@@ -16,6 +16,29 @@ const REQUIRED_STAGES = [
       'The dist ship path must invoke scripts.verify; otherwise an installer can be produced without the test ratchet passing.',
   },
   {
+    // Added after the owner read the shipped product and said "the wording is
+    // dense and not easy to consume or friendly for users."
+    //
+    // WHY IT IS A SHIP STAGE AND NOT ONLY A TEST. It is both, deliberately.
+    // tools/test/plain-language.test.mjs runs on every `npm test` and is
+    // therefore already inside `verify` -- so this stage is not what makes the
+    // rule enforced. What it adds is that the rule is VISIBLE in the chain and
+    // survives the suite: a lane that baselines the copy suite in
+    // tools/test-baseline.json, for whatever good reason, would otherwise ship
+    // an installer whose first-run screens had quietly gone back to naming
+    // mechanisms and printing machine codes at a stranger, with nothing between
+    // that and the download.
+    //
+    // IT RUNS BEFORE build FOR THE SAME REASON verify DOES: it is a statement
+    // about the source that is ABOUT to be compiled into the renderer, so
+    // running it after packaging would be checking the wrong artifact and
+    // paying for a build first.
+    name: 'plain-language',
+    pattern: /(?:^|\s)(?:node\s+)?\S*check-plain-language\.mjs(?=\s|$)/,
+    missing:
+      'The dist ship path must run check-plain-language.mjs; otherwise an installer can be produced whose first-run copy has gone back to internal ids, mechanism names and failures with nothing to do about them.',
+  },
+  {
     name: 'build',
     pattern: /\bnpm\s+run\s+build\b/,
     missing:
@@ -174,7 +197,7 @@ export function assertShipPath(distScript, verifyScript) {
 }
 
 const VALID_CHAIN =
-  'npm run verify && npm run build && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release';
+  'npm run verify && node tools/check-plain-language.mjs && npm run build && node tools/require-clean-tree.mjs dist && electron-builder --win nsis && node tools/strip-build-diagnostics.mjs release && node tools/check-asar-manifest.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release/win-unpacked && node tools/smoke-packaged.mjs release/win-unpacked && node tools/check-no-owner-data.mjs release';
 const VALID_VERIFY = 'node tools/test-ratchet.mjs';
 
 test('the real package.json dist chain preserves the ship-path contract', () => {

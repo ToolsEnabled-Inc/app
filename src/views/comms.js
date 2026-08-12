@@ -732,7 +732,12 @@ export function commsView() {
   const stackEl = root.querySelector('.watch-stack')
   const stackDrop = el(`<div class="wb-stackdrop"></div>`)
   const wtMeta = root.querySelector('.head-wt-meta')
-  wtMeta.textContent = `message board · ${W.convs.size} conversations`
+  /* `${n} conversations` read "1 conversations" on a fresh install, which is
+     the first line of the first page a person reaches from home's forward
+     arrow. Singular/plural is spelled the way the rest of this codebase
+     spells it (src/local-activity.js, src/account-markup.js and 18 others). */
+  const conversationsMeta = count => `message board · ${count} conversation${count === 1 ? '' : 's'}`
+  wtMeta.textContent = conversationsMeta(W.convs.size)
   const EASE = 'cubic-bezier(0.22, 0.9, 0.26, 1)'
   const boxEls = new Map()            // convId -> chip element (this mount)
   let dragTeardown = null
@@ -1113,6 +1118,12 @@ export function commsView() {
       root.dataset.projectionUnavailable = 'true'
       root.querySelector('.head-live').lastChild.textContent = 'unavailable'
       headMeta.textContent = 'live comms · could not be read'
+      /* The watch-board line was left at its mount-time value, so a page whose
+         every other readout says "could not be read" still claimed
+         "message board · 1 conversations" -- counting the synthetic
+         could-not-be-read card as a conversation. Same sentence as headMeta
+         above, for the same reason. */
+      wtMeta.textContent = 'message board · could not be read'
       countEl.textContent = '—'
       headCount.childNodes[1].textContent = ' record'
       setProjectionFoot([`the live comms data could not be read — ${reason}`])

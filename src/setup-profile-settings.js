@@ -261,8 +261,8 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       ${withheldSectionMarkup(profile, currentTier)}
       <div class="fleet-profile-status is-warn" role="status">
         <strong>What the last four rows do today.</strong>
-        <span>This program records them and keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. Each is set to its cautious end unless you moved it.</span>
-        <span>No subscription, key, or password for Claude, ChatGPT or Google is asked for on this screen or stored by this program — those stay in their own programs. The account for this computer is its own setting, not one of these.</span>
+        <span>This program records them and keeps them. The parts that would act on them are still being built. So today they change what is remembered, not what happens. Each is set to its cautious end unless you moved it.</span>
+        <span>This screen asks for no subscription, key or password for Claude, ChatGPT or Google, and this program stores none. Those stay in their own programs. The account for this computer is its own setting, not one of these.</span>
       </div>
     </section>`
   }

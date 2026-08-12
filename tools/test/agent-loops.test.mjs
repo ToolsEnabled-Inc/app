@@ -223,11 +223,30 @@ test('a runnable plan names its tier, identity and overrun rule', () => {
   assert.deepEqual(plan.problems, [])
 })
 
-test('a loop longer than the engine admits is refused, naming the engine refusal', () => {
+test('a loop longer than the engine admits is refused, naming the limit in words', () => {
+  /* THIS USED TO ASSERT THE CODE, AND THE CODE IS THE ONE THING THAT MUST NOT
+   * BE HERE.
+   *
+   * The message read "...at most 8 runs under one parent (LAUNCH_FANOUT_EXCEEDED),
+   * and this loop nests every run under its first", and this test required that
+   * bracket to be there. It is a refusal a person is being STOPPED from
+   * reaching -- the whole purpose of the sentence is that they never see it --
+   * so naming it bought them nothing and cost them a line they cannot read.
+   * src/refusal-copy.js has the sentence for that code for the case where the
+   * engine really does raise it.
+   *
+   * What has to be true is unchanged and is what is asserted now: the refusal
+   * names the LIMIT, says the rest would be refused, and is a sentence rather
+   * than an identifier. The bound is read from LOOP_BOUNDS rather than typed, so
+   * a change to the cap cannot leave this test passing on a stale number. */
   const plan = planLoop({ tier: 'luna', iterations: 99 })
   assert.equal(plan.runnable, false)
   assert.equal(plan.problems.length > 0, true, 'a refusal with no reason is not a refusal')
-  assert.match(plan.problems.join(' '), /LAUNCH_FANOUT_EXCEEDED/)
+  const said = plan.problems.join(' ')
+  assert.match(said, new RegExp(`\\b${LOOP_BOUNDS.maxFanOut}\\b`), 'the refusal does not name the limit it is refusing against')
+  assert.match(said, /refused/, 'the refusal does not say what happens to the runs past the limit')
+  assert.equal(said.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g), null,
+    `a machine code reached a sentence a person reads: ${said}`)
   assert.equal(plan.iterations, LOOP_BOUNDS.maxIterations, 'the clamped value must still be inside the bound')
 })
 

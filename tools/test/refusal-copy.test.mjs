@@ -108,6 +108,57 @@ test('a code nobody wrote an entry for still leaves with a sentence', () => {
   assert.equal(refusalRemedy('TOTALLY_UNRELATED_THING'), GENERIC_REMEDY)
 })
 
+/* EVERY REFUSAL THE LAUNCH RECORD CAN RAISE, READ OFF THE ENGINE ITSELF.
+ *
+ * A HAND-WRITTEN LIST WOULD MEASURE THIS SUITE'S MEMORY, NOT THE PRODUCT. The
+ * codes are scanned out of the shipped payload, so an engine that adds one next
+ * month is covered here the day it lands rather than the day somebody remembers.
+ *
+ * WHAT WAS TRUE BEFORE THIS EXISTED: exactly one of them was curated, and every
+ * other one — over twenty codes, including "that agent is switched off" and
+ * "that agent may not take this work" — fell through every family to the generic
+ * remedy, which tells the reader to close the application and open it again.
+ * They were unreachable while a fresh install declared no agents to launch; the
+ * shipped organisation now declares eight, so they are live.
+ */
+test('no refusal from the launch record reaches a person as "close and reopen the app"', () => {
+  const source = read(path.join('capability', 'src', 'lib', 'controller-launch-record.js'))
+  const codes = new Set([...source.matchAll(/fail\('(LAUNCH_[A-Z0-9_]+)'/g)].map(match => match[1]))
+  assert.ok(codes.size >= 15, `the scan found only ${codes.size} launch codes, so its pattern has stopped matching`)
+
+  for (const code of codes) {
+    const remedy = refusalRemedy(code)
+    assertActionable(remedy, `refusalRemedy(${code})`)
+    assert.notEqual(remedy, GENERIC_REMEDY, `${code} still falls to the generic remedy`)
+    /* The specific wrong advice this repairs. None of these is cured by
+       restarting, and a person who follows that instruction loses their window
+       and comes back to the same refusal. */
+    assert.ok(!/reopen|open it a second time|reinstall/i.test(remedy),
+      `${code} tells a person to restart the application, which cannot clear it: ${remedy}`)
+  }
+
+  /* The five the brief named are curated rather than left on the family floor,
+     because each has a DIFFERENT next move and the floor can only offer one. */
+  for (const code of ['LAUNCH_DISABLED_AGENT', 'LAUNCH_UNKNOWN_AGENT', 'LAUNCH_PHASE_REJECTED', 'LAUNCH_SCOPE_ACTIVATION_REQUIRED', 'LAUNCH_FANOUT_EXCEEDED']) {
+    assert.ok(Object.hasOwn(REFUSAL_REMEDY, code), `${code} has no curated sentence of its own`)
+    assert.ok(codes.has(code), `${code} is curated but the engine no longer raises it; check the entry is still wanted`)
+  }
+})
+
+test('a full pool is answered as capacity, not as something the person set up wrong', () => {
+  /* BRIDGE_ALL_SEATS_BUSY is raised when every agent in the level's pool is
+     already carrying a lane. Telling that reader to change what they chose sends
+     them to edit their fleet over a queue that clears on its own, so this
+     assertion is about what the sentence must NOT do as much as what it says. */
+  const remedy = refusalRemedy('BRIDGE_ALL_SEATS_BUSY')
+  assertActionable(remedy, 'refusalRemedy(BRIDGE_ALL_SEATS_BUSY)')
+  assert.notEqual(remedy, GENERIC_REMEDY)
+  assert.match(remedy, /\bwait\b/i, 'a capacity refusal has to offer waiting as an answer')
+  assert.match(remedy, /\bstop\b/i, 'a capacity refusal has to offer stopping one as the other answer')
+  assert.ok(!/reopen|reinstall|correct what you|not one this copy/i.test(remedy),
+    `a full pool was reported as a fault to be fixed: ${remedy}`)
+})
+
 test('ABSENCE — every shape of "we were told nothing" still produces a whole sentence', () => {
   /* THE SIGNATURE DEFECT OF THIS CODEBASE, in its refusal-copy costume. Each of
      these really arrives: a call that threw before the layer said anything, a
@@ -357,12 +408,19 @@ test('no view or copy module interpolates a code into a string a person reads', 
   }
   assert.ok(files.length >= 40, `the scan found only ${files.length} modules, so its walk has stopped matching`)
 
-  /* KNOWN AND STATED, rather than silently skipped.
-     src/views/agent.js is fenced to another wave at the time of writing; its one
-     site is routed to the coordinator as an exact edit in the B6 report. When
-     that lands, delete the entry -- and if it is deleted before the edit lands,
-     this test goes red, which is the intended alarm. */
-  const fenced = new Set([path.join('src', 'views', 'agent.js')])
+  /* THE FENCE IS EMPTY, AND THAT IS THE POINT IT WAS LEFT HERE TO REACH.
+   *
+   * It used to hold src/views/agent.js, whose steering controls printed
+   * `${id} did not happen · ${result?.code}` -- the last bare identifier in the
+   * product -- with the note that the entry should be deleted when the edit
+   * landed. The edit has landed: that line now composes the control's own words
+   * with unavailableReason(), and the code stays on `result.code` where a
+   * support conversation can still reach it.
+   *
+   * The set stays, and so does the assertion below that a fenced file is really
+   * still offending, so that fencing the NEXT one is a two-line act somebody has
+   * to write down rather than a quiet skip. */
+  const fenced = new Set([])
 
   const offences = []
   for (const file of files) {
@@ -379,9 +437,13 @@ test('no view or copy module interpolates a code into a string a person reads', 
   const unexpected = offences.filter(offence => ![...fenced].some(name => offence.startsWith(`${name}:`)))
   assert.deepEqual(unexpected, [], `these lines put a code into a string a person reads:\n${unexpected.join('\n')}`)
 
-  const fencedHits = offences.filter(offence => [...fenced].some(name => offence.startsWith(`${name}:`)))
-  assert.ok(
-    fencedHits.length > 0,
-    'src/views/agent.js no longer interpolates a code, so remove it from the fenced list above rather than leaving a permanent exemption',
-  )
+  /* A fence that no longer covers a real offence is a permanent exemption
+     wearing a temporary one's clothes, so an empty fence is fine and a stale
+     entry is not. */
+  for (const name of fenced) {
+    assert.ok(
+      offences.some(offence => offence.startsWith(`${name}:`)),
+      `${name} no longer interpolates a code, so remove it from the fenced list above rather than leaving a permanent exemption`,
+    )
+  }
 })

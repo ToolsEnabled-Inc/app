@@ -29,7 +29,9 @@ import { fetchAgents } from '../live-status.js'
 import { readOrg } from '../org-controls.js'
 import { declaredAgentsData, THIS_COMPUTER_ID, THIS_COMPUTER_LABEL } from '../declared-fleet.js'
 import { buildAgentRoster } from '../agent-roster.js'
-import { rangeFill } from './computers.js'
+/* The sentences the three steering controls answer with, looked up rather than
+   printed raw. See the note above `sessionResult` for what this replaced. */
+import { unavailableReason } from '../agent-availability-copy.js'
 import '../agent.css'
 
 /* Normalize the one runtime source shared by the roster and the controls ring.
@@ -254,24 +256,31 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
           <section class="apanel glass ctl-panel">
             <div class="apanel-title">Controls</div>
             <div class="rail-scroll">
-              <div class="rail-sec">Tuning</div>
-              <div class="ctl-row"><span class="cl">Context budget</span><input type="range" aria-label="Context budget" min="0" max="100" value="62"/><span class="cv">124k</span></div>
-              <div class="ctl-row"><span class="cl">Wake interval</span><input type="range" aria-label="Wake interval" min="0" max="100" value="35"/><span class="cv">20m</span></div>
-              <div class="ctl-row"><span class="cl">Verbosity</span><input type="range" aria-label="Verbosity" min="0" max="100" value="20"/><span class="cv">low</span></div>
+              <p class="ctl-absent">Nothing on this page can be tuned.</p>
+              <p class="ctl-absent">These are example agents, and none of them is running.</p>
+              <p class="ctl-absent">Your own agent's page lists what it is set to, read from this computer.</p>
               <div class="agent-ring-wrap"></div>
             </div>
             <div class="ctl-grid ctl-actions">
               <div class="ctl-btn ctl-declared-state" data-control="declared-state" aria-label="Declared state: ${declaredState}">
                 <span class="ctl-label">${declaredState}</span><span class="ctl-note">${declaredStateNote}</span>
               </div>
-              <button type="button" class="ctl-btn" data-control="pause" disabled aria-label="Pause unavailable: no bridge action exists.">
-                <span class="ctl-label">Pause</span><span class="ctl-note">Unavailable</span>
+              <!-- THESE TWO LABELS WERE LEFT BEHIND BY A REPAIR. They read
+                   "Pause unavailable: no bridge action exists" -- a mechanism
+                   name, and no longer true: both controls steer a session this
+                   app owns, and src/agent-session-controls.js decides whether
+                   they may. Both attributes are rewritten on the first paint by
+                   renderSessionControl(), so what is here is what a screen
+                   reader would meet in the instant before that, and it should
+                   say the same thing. -->
+              <button type="button" class="ctl-btn" data-control="pause" disabled aria-label="Pause. Checking whether there is anything running to stop.">
+                <span class="ctl-label">Pause</span><span class="ctl-note">Checking…</span>
               </button>
-              <button type="button" class="ctl-btn" data-control="respawn" disabled aria-label="Respawn unavailable: no bridge action exists.">
-                <span class="ctl-label">Respawn</span><span class="ctl-note">Unavailable</span>
+              <button type="button" class="ctl-btn" data-control="respawn" disabled aria-label="Respawn. Checking whether a session is running for this agent.">
+                <span class="ctl-label">Respawn</span><span class="ctl-note">Checking…</span>
               </button>
               <button type="button" class="ctl-btn danger" data-control="terminate" disabled>
-                <span class="ctl-label">Terminate</span><span class="ctl-note">Unavailable</span>
+                <span class="ctl-label">Terminate</span><span class="ctl-note">Checking…</span>
               </button>
             </div>
             <div class="ctl-result" data-phase="unavailable" role="status" aria-live="polite"></div>
@@ -493,11 +502,40 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     }
     sessionBusy = null
     if (destroyedView) return
+    /* WHAT A REFUSED PRESS SAYS, AND WHAT IT USED TO SAY.
+     *
+     * It used to say `${id} did not happen · ${result?.code}` -- the control's
+     * internal id, then the bare machine code, and nothing else. On a screen
+     * where a person has just pressed Terminate on a running agent, that is a
+     * grep term where an answer belongs. tools/test/refusal-copy.test.mjs has
+     * named this line as the last one of its kind in the product since B6
+     * landed, and asserts that every code these three controls can answer with
+     * already HAS a sentence in src/agent-availability-copy.js -- so the
+     * sentences were written, sitting there, and this line never asked for one.
+     *
+     * Three parts now, in the order a person needs them: WHAT DID NOT HAPPEN,
+     * in the control's own words rather than its id; WHY, looked up; and the
+     * remedy, which unavailableReason() guarantees for a code nobody wrote an
+     * entry for as well as for one that has one. The code is not shown; it is
+     * still on `result.code` for a support conversation. */
+    const outcome = {
+      pause: 'Stopped the turn that was running. The session is still open.',
+      respawn: 'Ended that session and started a new one for this agent, with the same prompt.',
+      terminate: 'Ended the session. The program it was running on this computer is closed.',
+    }
+    const notDone = {
+      pause: 'The work was not stopped.',
+      respawn: 'No new session was started.',
+      terminate: 'The session was not ended.',
+    }
+    /* The table's sentences are written as fragments and a few of them already
+       end in a full stop -- the unknown-code fallback appends a whole remedy
+       sentence. Punctuating unconditionally produced "..", so it is repaired
+       here rather than by rewording the table this file does not own. */
+    const why = unavailableReason(result?.code || 'AGENT_SESSION_FAILED').trim()
     sessionResult = result?.ok
-      ? { pause: 'Stopped the turn that was running. The session is still open.',
-          respawn: 'Ended that session and started a new one for this agent with the same prompt.',
-          terminate: 'Ended the session. The child process this app started is closed.' }[id]
-      : `${id} did not happen · ${result?.code || 'AGENT_SESSION_FAILED'}`
+      ? outcome[id]
+      : `${notDone[id]} Why: ${/[.!?…]$/.test(why) ? why : `${why}.`}`
     /* Read AFTER the action, not before it: respawn's answer is about the
        session that now exists, and terminate's is about no session at all. */
     resultSessionId = (live ? liveSessionFor(agent.id) : null)?.sessionId ?? null
@@ -659,7 +697,34 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   ctlScroll.addEventListener('scroll', syncScrollEnd, { passive: true })
   const ctlResize = new ResizeObserver(() => syncScrollEnd())
   ctlResize.observe(ctlScroll)
-  root.querySelectorAll('input[type="range"]').forEach(rangeFill)
+  /* THE THREE SLIDERS THAT USED TO BE PAINTED HERE ARE GONE.
+   *
+   * `Context budget 124k`, `Wake interval 20m`, `Verbosity low`. They had NO
+   * listener at all: the only line in this file that touched them was a
+   * `rangeFill` call that painted the coloured track behind the thumb. Dragging
+   * one moved the thumb, left the readout on its hardcoded value, stored
+   * nothing, sent nothing, and reported no failure because nothing had been
+   * attempted.
+   *
+   * REMOVED RATHER THAN WIRED, and the choice is not close. There is no setting,
+   * no stored value and no bridge action anywhere in this product for a
+   * per-agent context budget, wake interval or verbosity -- wiring them would
+   * mean inventing three features, which is a larger act than this repair and
+   * nobody's to take here. The page 2 lane reached the same conclusion about the
+   * SAME THREE CONTROLS and removed them: see the note at the head of
+   * src/views/computers.js, src/board.css section 13, and the assertion by name
+   * in tools/test/orchestration-controls.test.mjs, which this lane extends to
+   * cover this file so re-adding one is a deliberate act with a failing test
+   * attached.
+   *
+   * The owner's rule for the class: "dont lie like we cant control temperature".
+   * A control that moves and changes nothing is worse than a missing control,
+   * because a missing control can be asked for and a moving one is believed --
+   * and this one sat on the page whose banner promises that no control on it
+   * reaches a real session.
+   *
+   * `rangeFill` went with them, and its import. It is still used by
+   * src/views/settings.js and src/quick-settings.js, where the sliders are real. */
 
   /* One second, not one frame.
    *

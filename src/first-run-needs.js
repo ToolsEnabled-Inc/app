@@ -84,7 +84,7 @@ export function hostAbsentNotice(reason) {
   return Object.freeze({
     title: 'Nothing is reporting to this copy yet',
     reason: quoted,
-    body: 'This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install.',
+    body: 'This screen draws a report written by an agent host. An agent host is a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install.',
     action: GUIDE_ACTION,
   })
 }
@@ -143,7 +143,7 @@ export const FIRST_RUN_NEEDS = Object.freeze([
        be followed in this order. The commands are imported, never retyped —
        three screens give them now and the one that goes stale is always the one
        nobody is looking at. */
-    body: 'ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session and every run is written down on this computer before it begins.',
+    body: 'ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session. Every run is written down here before it begins.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.install, note: 'in Windows Terminal. If you already have Node, "' + CODEX_SETUP_COMMANDS.installWithNode + '" does the same thing.' }),
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in the same window, once the install finishes.' }),
@@ -171,7 +171,7 @@ export const FIRST_RUN_NEEDS = Object.freeze([
     /* Both halves, because the switch alone is not the whole answer and a guide
        that gave only the switch would send a person to turn it on and watch
        nothing happen. */
-    body: 'The box on the first page has no place to type because sending replies is switched off, and because there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready, and it will stay quiet until an agent host reports here.',
+    body: 'The box on the first page has no place to type. Sending replies is switched off, and there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready. It will stay quiet until an agent host reports here.',
     steps: Object.freeze([
       Object.freeze({ kind: 'switch', text: 'Turn on "Coordinator replies"', note: 'in Settings, under Write.', href: SETTINGS_HREF }),
     ]),

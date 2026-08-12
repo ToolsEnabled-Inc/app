@@ -873,8 +873,22 @@ body {
    shadow: the controls simply float. */
 .topbar {
   position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-  /* same box as before, now stated in the shared page-column tokens */
-  width: min(var(--page-max), calc(100vw - 2 * var(--page-gutter)));
+  /* same box as before, now stated in the shared page-column tokens.
+     100% AND NOT 100vw, and this is a real defect rather than a preference:
+     the Text size setting is `zoom` on <body> (see src/main.js), and `vw`
+     units are NOT scaled by an ancestor zoom while the painted box IS. At
+     Large (zoom 1.12) the bar was therefore laid out at the full window width
+     and then painted 12% wider than the window, and `left:50%` spilled the
+     surplus equally off BOTH edges -- taking the two chevrons with it.
+     Measured at Large on this build before the change: 980px window -> back
+     chevron at -39..2 and forward at 979..1019; 1280px window -> back
+     -52..-12, forward 1292..1332 AND the gear off-screen as well, i.e. no
+     reachable navigation at all. Broken from 980 through 1366, which covers
+     the app's own minimum window and the commonest laptop screen. A fixed
+     element resolves a percentage against the viewport too, but in the zoomed
+     coordinate space, so the painted bar lands exactly inside the window at
+     every zoom. Same expression, same reason, on .settings-recovery below. */
+  width: min(var(--page-max), calc(100% - 2 * var(--page-gutter)));
   height: 44px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 2px;
@@ -2490,7 +2504,11 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
   position: fixed;
   left: 50%; transform: translateX(-50%);
   bottom: 14px;
-  width: min(var(--page-max), calc(100vw - 2 * var(--page-gutter)));
+  /* 100% not 100vw, for the reason spelled out on .topbar: under the Text
+     size zoom this bar was painted wider than the window and its Dismiss
+     button went off the right edge -- on the one screen a person reaches
+     only when their settings have already been lost. */
+  width: min(var(--page-max), calc(100% - 2 * var(--page-gutter)));
   box-sizing: border-box;
   z-index: 70;
   display: grid;

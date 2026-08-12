@@ -88,7 +88,7 @@ export function statusMarkup({ notice = null, state = null } = {}) {
   if (state?.available && state.canPersistSession === false) {
     return `<div class="fleet-profile-status is-warn" role="status">
       <strong>This computer cannot remember a sign-in.</strong>
-      <span>Windows did not offer the protected storage this uses, so signing in will last until you close the program and you will be asked again next time. Everything else works normally.</span>
+      <span>Windows did not offer the protected storage this uses. Signing in will last until you close the program, and you will be asked for it again next time. Everything else works normally.</span>
     </div>`
   }
   return ''
@@ -265,7 +265,7 @@ export function belongingsMarkup({ data = null, payment = null, history = null }
         <div class="settings-name">Your history</div>
         <div class="settings-desc">${history.mine === 0
           ? `Nothing recorded against you yet. This computer has ${esc(String(history.total))} recorded run${history.total === 1 ? '' : 's'} in total; runs started from now on will say your name.`
-          : `${esc(String(history.mine))} of the ${esc(String(history.total))} run${history.total === 1 ? '' : 's'} recorded on this computer were started by you. The record is one signed file for the whole computer, so the rest were started by another sign-in or before anybody signed in — it is not split up, and no account can quietly remove its own.`}</div>
+          : `${esc(String(history.mine))} of the ${esc(String(history.total))} run${history.total === 1 ? '' : 's'} recorded on this computer were started by you. The record is one signed file for the whole computer, so the rest were started by another sign-in or before anybody signed in. It is not split up, and no account can quietly remove its own.`}</div>
       </div>
     </article>`)
   }
@@ -621,8 +621,8 @@ export function changeDisplayNameMarkup({ state, busy = false, notice = null } =
         <div class="settings-copy">
           <div class="settings-name">What this does not change</div>
           <div class="settings-desc">${state.signInMethod === 'google'
-            ? 'You still sign in with Google as the same address, and every past entry in the record stays exactly as it was written — this program keeps them by account, not by name, so renaming yourself never re-labels or hides anything you already did.'
-            : `You still sign in as ${esc(state.username)} with the same password, and every past entry in the record stays exactly as it was written — this program keeps them by account, not by name, so renaming yourself never re-labels or hides anything you already did.`}</div>
+            ? 'You still sign in with Google, as the same address. Every past entry in the record stays exactly as it was written. This program keeps them by account and not by name, so renaming yourself never re-labels or hides anything you already did.'
+            : `You still sign in as ${esc(state.username)}, with the same password. Every past entry in the record stays exactly as it was written. This program keeps them by account and not by name, so renaming yourself never re-labels or hides anything you already did.`}</div>
         </div>
       </article>
       <div class="setup-actions">

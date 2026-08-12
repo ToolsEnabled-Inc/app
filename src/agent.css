@@ -430,6 +430,27 @@ body[data-route="agent"] #stage > .view > .data-live-mode {
 .agentv .agent-ring-wrap { padding: 10px 0 12px; }
 .agentv .rail-sec { font-size: 12.5px; margin: 26px 0 14px; }
 .agentv .rail-scroll > .rail-sec:first-child { margin-top: 2px; }
+
+/* A NAMED ABSENCE, WHERE THREE INERT SLIDERS USED TO BE.
+ *
+ * `Context budget`, `Wake interval` and `Verbosity` are gone from
+ * src/views/agent.js -- they had no listener, so dragging one moved the thumb
+ * and changed nothing. This is what stands in their place, and it is styled as
+ * QUIET PROSE rather than as disabled controls, which is the same decision
+ * src/board.css section 13 records for the same three sliders on page 2: a
+ * greyed-out slider still looks like a slider that might come back, and there
+ * is nothing here to come back to.
+ *
+ * One idea per line, so it reads as three short statements rather than a
+ * paragraph in a 260px rail. No new colour or font enters: --ink-3 and the
+ * rail's own 12.5px are what every other quiet line on this panel uses. */
+.agentv .ctl-absent {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  margin: 0 2px 8px;
+}
+.agentv .rail-scroll > .ctl-absent:first-child { margin-top: 2px; }
 .agentv .ctl-grid { gap: 10px; }
 .agentv .ctl-row { padding: 11px 2px; gap: var(--s3, 12px); }
 .agentv .ctl-row .cl {

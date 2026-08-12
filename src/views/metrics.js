@@ -1769,6 +1769,19 @@ export function metricsView() {
      charts are intentionally never initialized in live mode: a simulated
      shape, even for a frame, would be a false live claim and would leave
      idle ECharts/rAF work behind for information the projection lacks. */
+  /* THE REASONS ALREADY CARRY THEIR OWN FULL STOP.
+     src/declared-fleet.js states them as whole sentences ("No local agent
+     fleet host detected on this machine."), so the two templates below, which
+     appended a second one unconditionally, put "machine.." on the screen --
+     measured on a fresh profile, on the sankey panel, which is the widest
+     piece of copy this page shows while it has nothing to draw. Ending the
+     sentence here means the reason may end however it ends. */
+  function endSentence(text) {
+    const value = String(text ?? '').trim()
+    if (!value) return value
+    return /[.!?]$/.test(value) ? value : `${value}.`
+  }
+
   function projectionReason(field, absent) {
     const observation = field ? liveObservation(field) : null
     if (observation && !observation.ok) return `${absent} · ${observation.reason}`
@@ -1800,7 +1813,7 @@ export function metricsView() {
 
     const sentence = projection?.ok
       ? 'Live token routing cannot be drawn: the measured usage does not say which pool, provider, or role it belongs to.'
-      : `Live token routing cannot be drawn: ${projection?.reason || 'the live totals could not be read'}.`
+      : endSentence(`Live token routing cannot be drawn: ${projection?.reason || 'the live totals could not be read'}`)
     const sub = root.querySelector('#sankey-sub')
     if (sub) sub.textContent = 'pools → providers → roles · unavailable'
 
@@ -1841,7 +1854,7 @@ export function metricsView() {
     if (usage.state === 'unavailable') {
       setSankeyStatePanel(
         'live reading unavailable',
-        `Live token routing cannot be drawn: ${usage.reason}.`,
+        endSentence(`Live token routing cannot be drawn: ${usage.reason}`),
         'pools → providers → roles · unavailable',
       )
       return

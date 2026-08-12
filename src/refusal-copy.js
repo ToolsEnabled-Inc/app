@@ -136,6 +136,15 @@ export const REFUSAL_REMEDY = Object.freeze({
   AGENT_PRESENCE_ACTIVE: 'Nothing new was started, and that is the cap doing its job: this agent already has a session running. Stop the one that is running, or pick a different agent.',
   BRIDGE_AGENT_LANE_COLLISION: 'Nothing new was started, and that is the cap doing its job: this agent already has a lane running. Stop the one that is running, or pick a different agent.',
   LAUNCH_FANOUT_EXCEEDED: 'Nothing new was started. As many agents as this copy will run at once are already running; stop one before starting another.',
+  /* A CAPACITY ANSWER, AND IT MUST NOT READ AS A FAULT. The engine allocates a
+     free agent from the pool this level shares and refuses only when every one
+     of them is carrying work. Nothing is misconfigured, nothing needs fixing,
+     and the two things a person can actually do are both about the agents that
+     are already running — so this is worded like the cap above it rather than
+     like the declaration refusals further down, which ask them to change what
+     they chose. Getting that backwards sends somebody to edit their fleet over
+     a queue that would have cleared on its own. */
+  BRIDGE_ALL_SEATS_BUSY: 'Nothing new was started, and nothing is wrong: every agent this copy can run at this level is already working. Wait for one of them to finish, or stop one from the fleet page, and then start this again.',
   BRIDGE_TERMINATE_IN_PROGRESS: 'A stop for this one is already on its way. Wait for it rather than sending a second.',
   BRIDGE_TERMINATE_ALREADY_TERMINAL: 'There was nothing left to stop — it had already finished. Nothing on this computer is still running from it.',
   BRIDGE_TERMINATE_NOT_ACTIVE: 'There was nothing running to stop. Refresh this page; what it was showing you is out of date.',
@@ -182,6 +191,34 @@ export const REFUSAL_REMEDY = Object.freeze({
   ACCOUNTS_REGISTRY_MISSING: 'Nothing was read and nothing was spent: this computer has no list of Codex Cloud accounts, so there is nothing to launch into. Sign in to Codex Cloud on this machine first, then come back to this panel.',
   BRIDGE_AGENT_DECLARATION_MISSING: 'Nothing was started. The engine and effort chosen above is not one this copy has an agent declared for; choose a different one from the list.',
 
+  /* --- REFUSALS FROM THE LAUNCH RECORD, which is the gate a dispatch reaches
+         AFTER the bridge has resolved which agent to use.
+   *
+   * WHY THESE ARE HERE NOW. This table curated exactly one of them, and the
+   * other twenty-odd fell through every family to the generic remedy — which
+   * tells a stranger to close and reopen the application. Not one of these
+   * refusals is cured by restarting anything: each is the product declining to
+   * start a particular agent for a stated reason, and the person's next move is
+   * to choose differently or to change what their own fleet allows. Advice that
+   * confident and that wrong is worse than none, because the reader does it,
+   * loses their window, and arrives back at the same refusal.
+   *
+   * They were unreachable on a customer's machine while the shipped default
+   * organisation declared a controller and nothing else: every dispatch died one
+   * step earlier, before any of these gates could speak. Now that a fresh
+   * install ships agents these become live refusals on real installations.
+   *
+   * NONE OF THEM NAMES THE AGENT. The engine's own messages do — "Agent
+   * \"claude-3\" is disabled in the declared org" — but that text never reaches
+   * the glass: the bridge replaces it with a generic diagnosis and keeps only
+   * the code. These sentences must not put it back, so each says "the agent
+   * chosen above", which is what the person is looking at anyway. --- */
+  LAUNCH_DISABLED_AGENT: 'Nothing was started. The agent this would have used is switched off in this copy\'s own list of agents; turn it back on from the fleet page, or choose a different agent here.',
+  LAUNCH_UNKNOWN_AGENT: 'Nothing was started, because this copy has no agent by the name this screen asked for — usually because the list on screen is older than the one on this computer. Reload the page and choose again.',
+  LAUNCH_PHASE_REJECTED: 'Nothing was started. The agent chosen above is not allowed to take this piece of work; pick a different agent, or change what that one may work on from the fleet page.',
+  LAUNCH_SCOPE_ACTIVATION_REQUIRED: 'Nothing was started. This agent is deliberately kept switched off and can only be turned on by a specific written permission, which nothing on this screen can give it; choose a different agent.',
+  LAUNCH_SCOPE_PROVENANCE_REQUIRED: 'Nothing was started. This agent is deliberately kept switched off and can only be turned on by a specific written permission, which nothing on this screen can give it; choose a different agent.',
+
   /* --- the declared organisation --- */
   /* The diagnosis this pairs with (ORG_ABSENT_REASON in src/org-controls.js)
      already names the installed app, so repeating it here would say the same
@@ -203,6 +240,14 @@ const FAMILY_REMEDY = Object.freeze([
   Object.freeze([/^BRIDGE_TERMINATE_/, 'Nothing has been confirmed stopped. Refresh this page and look at whether it is still running before pressing stop again.']),
   Object.freeze([/^BRIDGE_CLOUD_/, 'Nothing was launched and nothing was spent. Check the account and environment chosen above, then try again.']),
   Object.freeze([/^BRIDGE_AGENT_/, 'Nothing was started. Check the folder and the agent chosen above, then try once more; if it refuses again, look at the fleet page before starting anything else.']),
+  /* THE FLOOR UNDER THE LAUNCH RECORD, and the one this table most needed. Its
+     vocabulary is over twenty codes — the widest single family the engine has —
+     and every one of them means the same thing to a person: this particular
+     agent was not started, and no amount of restarting the application will
+     change that. So the floor sends them to the two places that CAN change it,
+     the choice in front of them and the fleet page, rather than to the restart
+     the generic remedy would have offered. */
+  Object.freeze([/^LAUNCH_/, 'Nothing was started, and nothing else was changed. Check the agent and the level chosen above and try once more; if it refuses again, open the fleet page and look at what is already running before starting anything else.']),
   Object.freeze([/^BRIDGE_LEDGER_/, 'Nothing was moved. Ask for a fresh preview and read it before confirming anything.']),
   Object.freeze([/^BRIDGE_(BOOTSTRAP|TOKEN|ORIGIN|PORT|BIND|RUNTIME|SETTINGS|DEPENDENCY)_/, RESTART_REMEDY]),
   Object.freeze([/^BRIDGE_(INPUT|BODY|JSON|CONTENT_TYPE|ROUTE)_/, 'Nothing was sent. Correct what you typed above and try again.']),

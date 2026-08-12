@@ -16,18 +16,45 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   declaredFleetData, declaredAgentsData, THIS_COMPUTER_ID, THIS_COMPUTER_LABEL,
 } from '../../src/declared-fleet.js'
 
-/* The organisation a fresh install actually holds, measured from
-   window.mcOrg.read() in a packaged window with an isolated LOCALAPPDATA. */
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/* THE ORGANISATION A FRESH INSTALL ACTUALLY HOLDS — READ, NOT REMEMBERED.
+ *
+ * This fixture used to be a literal, annotated "measured from window.mcOrg.read()
+ * in a packaged window with an isolated LOCALAPPDATA": one controller, no
+ * relationships. That measurement was true when it was taken and is now false.
+ * capability-defaults/config/agent-org.json is the file the build stages in
+ * place of the builder's own organisation, and it declares a controller plus
+ * the codex and claude seats a dispatch resolves against; before that, EVERY
+ * dispatch on EVERY packaged install refused because no agent was declared for
+ * any tier.
+ *
+ * So the fixture is now READ from that file rather than restated next to it. A
+ * copy of a shipped default in a suite is a second declaration of it, and the
+ * copy is the one nobody updates — this suite went on asserting a one-agent
+ * fresh install for as long as it took somebody to notice. Reading the file
+ * means the shipped default and the thing this suite calls "a fresh install"
+ * cannot drift apart again, and it means the assertions below have to be about
+ * PROPERTIES rather than about a count somebody typed. */
+const SHIPPED_DEFAULT_ORG = JSON.parse(
+  readFileSync(path.join(REPO, 'capability-defaults', 'config', 'agent-org.json'), 'utf8'),
+)
+
+/* The record shape the fleet page is handed, which is what the org store hands
+   it: the declaration plus the revision and provenance the store adds. */
 const FRESH_INSTALL_ORG = Object.freeze({
-  revision: 1,
+  revision: SHIPPED_DEFAULT_ORG.revision,
   source: 'baseline',
-  agents: [{ id: 'controller', displayName: 'Controller', role: 'controller', provider: 'none', enabled: true }],
-  relationships: [],
+  agents: SHIPPED_DEFAULT_ORG.agents,
+  relationships: SHIPPED_DEFAULT_ORG.relationships,
 })
 
 const TWO_AGENT_ORG = Object.freeze({
@@ -46,9 +73,45 @@ test('a fresh install puts this computer on the fleet page', () => {
   assert.equal(data.computers.length, 1)
   assert.equal(data.computers[0].id, THIS_COMPUTER_ID)
   assert.equal(data.computers[0].label, THIS_COMPUTER_LABEL)
-  assert.equal(data.graph.nodes.length, 1)
-  assert.equal(data.graph.nodes[0].id, 'controller')
-  assert.equal(data.graph.nodes[0].label, 'Controller')
+  /* Every declared agent is drawn, and drawn in the order it was declared: the
+     page's own drill-in resolves by id from this list, so an agent the shipped
+     default declares and this projection drops is an agent a customer can never
+     open. */
+  assert.deepEqual(
+    data.graph.nodes.map(node => node.id),
+    SHIPPED_DEFAULT_ORG.agents.map(agent => agent.id),
+  )
+  const controller = data.graph.nodes.find(node => node.role === 'controller')
+  assert.ok(controller, 'the fleet page must show the agent that acts on this window\'s behalf')
+  assert.equal(controller.label, 'Controller')
+})
+
+test('a fresh install ships an agent for each engine a dispatch can ask for', () => {
+  /* THE PROPERTY THE ONE-AGENT FIXTURE COULD NOT HAVE HELD. The mission bridge
+     resolves a dispatch by finding a declared agent whose provider matches the
+     requested tier's, so a default declaring the controller alone made every
+     tier undispatchable on every install. This suite cannot POST a dispatch —
+     tools/agent-dispatch-packaged-qa.mjs does that against a real bridge — but
+     it can hold the half the bridge reads. */
+  const providers = new Set(declaredFleetData(FRESH_INSTALL_ORG).graph.nodes
+    .filter(node => node.enabled)
+    .map(node => node.provider))
+  for (const provider of ['codex', 'claude']) {
+    assert.ok(providers.has(provider), `a fresh install declares no enabled ${provider} agent, so every ${provider} tier refuses`)
+  }
+})
+
+test('every agent a fresh install declares is reachable from the controller', () => {
+  /* Not decoration. An agent with no management edge survives the lane resolver
+     (it falls back to the enabled controller) and then becomes UN-TERMINABLE,
+     because termination authorises through the declared management graph. The
+     shipped default states this rule about itself; this is where it is checked. */
+  const data = declaredFleetData(FRESH_INSTALL_ORG)
+  const managed = new Set(data.graph.edges.filter(edge => edge.type === 'manages').map(edge => edge.to))
+  for (const node of data.graph.nodes) {
+    if (node.role === 'controller') continue
+    assert.ok(managed.has(node.id), `${node.id} is declared with no manager, so nothing can stop it`)
+  }
 })
 
 test('the computer id is a stable route segment and carries no machine identity', () => {

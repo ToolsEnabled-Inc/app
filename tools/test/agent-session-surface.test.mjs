@@ -7,7 +7,7 @@ import test from 'node:test'
 import { AVAILABILITY_CODES, START_REFUSAL_CODES, createAgentHost, engineAvailability, engineCandidates } from '../../shell/agent-host.cjs'
 import { RECORD_AVAILABILITY_CODES } from '../../shell/spawn-record.cjs'
 import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-events.js'
-import { UNAVAILABLE_TEXT, refusalCode, unavailableReason } from '../../src/agent-availability-copy.js'
+import { MISSING_MODULE, UNAVAILABLE_TEXT, refusalCode, unavailableReason } from '../../src/agent-availability-copy.js'
 import { confinementNote } from '../../src/agent-confinement-copy.js'
 import { ENGINE_REASON, readAgentEngine } from '../../src/local-activity.js'
 
@@ -733,8 +733,31 @@ test('the two surfaces name the same fault in their own register', () => {
     assert.notEqual(UNAVAILABLE_TEXT[code], ENGINE_REASON[code], `${code} has the same sentence on both surfaces; one of them is in the wrong register`)
     assert.ok(/will not start/.test(ENGINE_REASON[code]), `${code} must tell a home-screen reader what the consequence is`)
   }
-  assert.match(UNAVAILABLE_TEXT.AGENT_CONFINEMENT_UNAVAILABLE, /agent-session-confinement/, 'the refusal must keep the missing module nameable')
-  assert.match(UNAVAILABLE_TEXT.AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE, /subscription-launch-env/, 'the refusal must keep the missing module nameable')
+  /* THE MODULE NAME IS STILL REQUIRED, AND IT MOVED OFF THE GLASS.
+   *
+   * These two lines used to assert that "(agent-session-confinement)" and
+   * "(subscription-launch-env)" appeared IN THE SENTENCE, on the grounds that
+   * the main-process message names the missing module and can never cross the
+   * bridge, so if the name is nowhere a support conversation has nothing to go
+   * on. That reason is right. The place was wrong: it put an internal module
+   * name, in brackets, mid-sentence, in front of a customer whose only available
+   * action is to reinstall.
+   *
+   * It is the identical situation src/refusal-copy.js settled for codes -- the
+   * identifier is a machine field on `data-refusal-code`, never in the prose --
+   * so the module name is now a machine field too, in MISSING_MODULE. BOTH
+   * HALVES ARE ASSERTED, because either one alone reintroduces a defect: drop
+   * the first and the name can vanish entirely, drop the second and it can go
+   * back into the sentence. */
+  assert.equal(MISSING_MODULE.AGENT_CONFINEMENT_UNAVAILABLE, 'agent-session-confinement',
+    'the missing module must stay nameable somewhere a support conversation can reach it')
+  assert.equal(MISSING_MODULE.AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE, 'subscription-launch-env',
+    'the missing module must stay nameable somewhere a support conversation can reach it')
+  for (const [code, name] of Object.entries(MISSING_MODULE)) {
+    assert.ok(Object.hasOwn(UNAVAILABLE_TEXT, code), `${code} names a missing module and has no sentence`)
+    assert.ok(!UNAVAILABLE_TEXT[code].includes(name),
+      `${code} puts the module name "${name}" in front of a person: ${UNAVAILABLE_TEXT[code]}`)
+  }
   for (const text of Object.values(UNAVAILABLE_TEXT)) {
     assert.doesNotMatch(text, /[\\]|[A-Za-z]:\//, 'no refusal sentence may carry a filesystem path')
   }

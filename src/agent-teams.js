@@ -138,7 +138,10 @@ export function planTeam({ lead = null, members = [] } = {}) {
      between refusing early and being refused by LAUNCH_FANOUT_EXCEEDED after
      some members have already started. */
   if (members.length > TEAM_BOUNDS.maxFanOut) {
-    problems.push(`The engine admits at most ${TEAM_BOUNDS.maxFanOut} lanes under one parent (LAUNCH_FANOUT_EXCEEDED); this team names ${members.length}.`)
+    /* Same repair as the loop panel's: "(LAUNCH_FANOUT_EXCEEDED)" named the
+       refusal a person is being stopped from reaching, in a message whose whole
+       job is to stop them reaching it. */
+    problems.push(`At most ${TEAM_BOUNDS.maxFanOut} agents can run under one leader, and this team names ${members.length}. Remove some, or run the rest as a second team.`)
   }
 
   return Object.freeze({

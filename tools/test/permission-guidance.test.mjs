@@ -299,7 +299,11 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     pinnedBy: 'the performance rows change frame caps, sample retention and debounce timings inside this window; none reaches the disk or the network, and none is a write-action flag',
   },
   {
-    match: /^None\. The example is invented data, it is labelled as an example/,
+    /* The comma splice became three sentences -- "The example is invented data.
+       Every screen that shows it says so. None of it is ever sent anywhere..."
+       -- so the pattern is written against the claim rather than against the
+       punctuation that carried it. The promise being pinned is identical. */
+    match: /^None\. The example is invented data\./,
     pinnedBy: 'the demonstration rows drive src/sim.js, whose data is generated in this window and never sent; every screen showing it renders its own sample banner, which the setup lane pins with "None of it is your data and each screen says so"',
   },
   {

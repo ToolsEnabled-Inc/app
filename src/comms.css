@@ -118,6 +118,15 @@
   background: var(--c-shadow);
 }
 .head-live i.beat { animation: commsBeat 0.85s var(--ease); }
+/* ...AND IT STOPS STATING IT WHEN IT IS NOT TRUE.
+   The word beside this dot is written by JS and becomes "unavailable" the
+   moment the live read fails, but the dot kept #00956c -- a saturated green
+   one step from this sheet's own --s-good (#198038). Measured on a fresh
+   profile: `rgb(0, 149, 108)` sitting immediately left of the word
+   "unavailable", which is a health light contradicting its own label. In the
+   unavailable state it takes the same --ink-3 every other "unavailable"
+   readout in this product uses. */
+.comms[data-projection-state="unavailable"] .head-live i { background: var(--ink-3); }
 @keyframes commsBeat {              /* a genuine state moment — glow, then gone */
   0%   { transform: none;         box-shadow: none; }
   22%  { transform: scale(1.38);  box-shadow: var(--glow-shadow-soft); }

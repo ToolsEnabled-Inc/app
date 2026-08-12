@@ -74,8 +74,25 @@ test('agent source has four truthful controls and no generic armed handler', () 
 
   assert.doesNotMatch(agentSource, /\barmed\b/i)
   assert.match(agentSource, /<div class="ctl-btn ctl-declared-state" data-control="declared-state"/)
-  assert.match(agentSource, /data-control="pause" disabled aria-label="Pause unavailable:[^"]+"/)
-  assert.match(agentSource, /data-control="respawn" disabled aria-label="Respawn unavailable:[^"]+"/)
+  /* THESE TWO LABELS SAID SOMETHING THAT HAD STOPPED BEING TRUE.
+   *
+   * They read "Pause unavailable: no bridge action exists" and this test
+   * required that shape. Both halves had gone wrong. "No bridge action exists"
+   * names a mechanism a person has never been shown; and it is no longer the
+   * reason -- src/agent-session-controls.js steers both controls against a
+   * session this app owns, so whether they are available is decided there, not
+   * by the absence of a bridge action. A label left behind by a repair, pinned
+   * by a test, is how a stale sentence survives.
+   *
+   * What the test is FOR is unchanged: the two controls must ship disabled and
+   * must carry a spoken label rather than nothing, because a screen reader
+   * meeting a nameless disabled button gets the word "button". So the shape is
+   * asserted and the sentence is not. Both are rewritten on the first paint by
+   * renderSessionControl(); this is what is there in the instant before that. */
+  assert.match(agentSource, /data-control="pause" disabled aria-label="Pause\. [^"]+"/)
+  assert.match(agentSource, /data-control="respawn" disabled aria-label="Respawn\. [^"]+"/)
+  /* And the mechanism name may not come back into either of them. */
+  assert.doesNotMatch(agentSource, /aria-label="(Pause|Respawn)[^"]*bridge[^"]*"/i)
   assert.match(agentSource, /controlTarget: declaredAgent\.controlTarget/)
   assert.match(bridgeSource, /terminate: '\/v1\/actions\/terminate'/)
   assert.match(bridgeSource, /terminate: 120_000/)

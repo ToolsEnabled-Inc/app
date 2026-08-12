@@ -216,6 +216,21 @@
 .stat .td.up { color: var(--s-good); }
 .stat .td.down { color: var(--s-serious); }
 .stat .td.flat { color: var(--ink-3); font-weight: 550; }
+/* THE ONE-LINE CLAMP ABOVE IS FOR A DELTA, NOT FOR A REASON.
+   `white-space: nowrap; text-overflow: ellipsis` is right for "+12.4% vs
+   yesterday". The SAME node carries the whole explanation when the tile has
+   nothing to show, and there it clipped the only sentence that says why:
+   measured on a fresh profile, six tiles each showed "unavailable · No local
+   agent fleet fl…" in 186px of the 368px the sentence needs, with no title
+   and no other copy of the text anywhere on the page. The class is already on
+   the node in exactly that state, so the clamp is lifted for that state only
+   and the numeric delta is untouched. */
+.stat .td.projection-unavailable {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  align-self: start;
+}
 .stat .spark { align-self: end; margin-top: 0; display: block; }
 
 /* count-up bump + sparkline end-point pulse (state marks, one-shot) */

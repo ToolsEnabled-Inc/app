@@ -40,6 +40,7 @@ const {
   readWorkspaceState,
   checkWorkspace,
   recordWorkspaces,
+  ensureDispatchAssistantConfig,
 } = require('./setup-record.cjs')
 const { createAgentOrgRecord } = require('./agent-org-record.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
@@ -1741,8 +1742,13 @@ function setupBootstrapReply(event) {
 
 ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrapReply(event) })
 
+/* THE DISPATCH ROOT IS PASSED IN, not derived inside the setup module. It is the
+   same constant the capability layer is handed as its `main` root, and the whole
+   point of the document written there is that the two agree about which
+   directory a lane runs in; deriving it twice is how they would stop agreeing.
+   See ensureDispatchAssistantConfig() in shell/setup-record.cjs. */
 ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
-  withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '')))
+  withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '', { dispatchRoot: WORKSPACE_ROOT })))
 
 /* ---------- the declared organisation ----------
  *
@@ -2373,6 +2379,22 @@ function startSupervisedCapabilityLayer() {
     const root = resolveCapabilityRoot()
     const workspaceRoot = WORKSPACE_ROOT
     try { fs.mkdirSync(workspaceRoot, { recursive: true }) } catch { /* the layer reports its own refusal */ }
+    /* THE ASSISTANT CONFIGURATION IS WRITTEN WHERE THE ROOT IS DECLARED, in the
+       same three lines that create the directory and hand it to the bridge.
+       Every Claude lane the bridge starts is launched with
+       `--mcp-config <root>\.mcp.json --strict-mcp-config`, and a missing file
+       there is not "an agent with no tools" -- the CLI exits before it runs.
+       This is also the only path that repairs an installation upgraded from a
+       build that never wrote the file, since its owner has no reason to answer
+       the permission question a second time.
+
+       It cannot fail the launch and is not awaited for a verdict: a window that
+       opens and honestly reports a broken lane is better than no window, which
+       is the same rule the layer supervisor above it already follows. */
+    const dispatchAssistantConfig = ensureDispatchAssistantConfig({ dispatchRoot: workspaceRoot })
+    if (!dispatchAssistantConfig.ok) {
+      console.error(`[capability-layer] the dispatch root has no assistant configuration: ${dispatchAssistantConfig.code}`)
+    }
 
     const started = await startCapabilityLayer({
       root,

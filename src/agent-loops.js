@@ -182,7 +182,12 @@ export function planLoop({ tier = null, iterations = LOOP_BOUNDS.maxIterations, 
   const every = clampLoopIntervalMs(intervalMs)
 
   if (Number(iterations) > LOOP_BOUNDS.maxIterations) {
-    problems.push(`A loop runs at most ${LOOP_BOUNDS.maxIterations} times. The engine admits at most ${LOOP_BOUNDS.maxFanOut} runs under one parent (LAUNCH_FANOUT_EXCEEDED), and this loop nests every run under its first.`)
+    /* THE CODE CAME OUT OF THE SENTENCE. It read "(LAUNCH_FANOUT_EXCEEDED)",
+       which is the refusal a person would get if they went ahead -- and this
+       message exists precisely so they do not, so naming the code buys them
+       nothing and costs them a line they cannot read. src/refusal-copy.js has
+       the sentence for that code when it really is raised. */
+    problems.push(`A loop runs at most ${LOOP_BOUNDS.maxIterations} times. This one nests every run under its first, and at most ${LOOP_BOUNDS.maxFanOut} can run under one parent before the rest are refused.`)
   }
   if (Number(iterations) === 1) {
     problems.push('A loop that runs once is an ordinary dispatch. Use the single-lane control instead.')

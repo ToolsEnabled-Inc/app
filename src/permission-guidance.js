@@ -61,6 +61,24 @@
  *   withoutIt                   what honestly happens if you decline -- which is
  *                               a partial function stated out loud, never a
  *                               silent failure and never a refusal to save.
+ *   gains / costs               what doing the step buys, and what it costs.
+ *
+ * `gains` AND `costs` WERE MISSING, AND THE SCREEN WAS ALREADY ASKING FOR THEM.
+ * src/guided-step.js rendered `capability.capabilitiesGained`, a field no entry
+ * in this file has ever had, so `group()` was handed an empty array and returned
+ * an empty string on every one of them. A heading a person never saw, above a
+ * list that was never there, for the whole life of the feature -- and nothing
+ * went red, because an absence rendered as nothing looks exactly like a decision
+ * not to render anything. That is this codebase's signature defect appearing in
+ * the module written to prevent it.
+ *
+ * So the field exists now, under the name the renderer will use, with a real
+ * statement in every entry -- and validateGuidance() below requires both halves,
+ * so an entry added later cannot arrive with the gain and no cost. THE COST IS
+ * REQUIRED SEPARATELY FROM `withoutIt` because they answer different questions:
+ * `withoutIt` is what happens if you SKIP the step, and `costs` is what it takes
+ * from you if you DO it. A person weighing an outside step needs both, and until
+ * now the product only ever said one of them.
  *
  * `elevation: true` marks the ones that need an administrator, which is the case
  * the owner named. This product does not ask Windows for administrator rights,
@@ -111,6 +129,15 @@ export const EXTERNAL_CAPABILITIES = Object.freeze({
     frequencyBecause: 'Codex is a separate program that Windows does not ship, so a computer that has never had it installed does not have it. Almost everybody meets this step once. It installs under your own account and needs no administrator, which is a different question from how often it comes up.',
     required: false,
     neverPerformedForYou: true,
+    gains: Object.freeze([
+      'An assistant can actually run on this computer, which is the thing every other switch here is about.',
+      'It runs on your own machine, so what it reads and writes stays here.',
+    ]),
+    costs: Object.freeze([
+      'You install a program from OpenAI and sign in to it. That account and that password are theirs, not this program’s.',
+      'It takes disk space and a few minutes, and it is yours to update afterwards.',
+      'Running an assistant on your own computer uses your processor while it works.',
+    ]),
     steps: Object.freeze([
       Object.freeze({
         do: 'Open Windows Terminal and run:  winget install OpenAI.Codex',
@@ -130,9 +157,18 @@ export const EXTERNAL_CAPABILITIES = Object.freeze({
     whatItDoes: 'Codex Cloud runs a task on OpenAI’s computers instead of yours. It needs an account there and a working internet connection.',
     elevation: false,
     frequency: 'typically',
-    frequencyBecause: 'Signing in to a service is something the service requires of everybody once, and a Codex Cloud account is not created by installing anything on this computer. Nobody reaches this feature already signed in unless they signed in for another reason first.',
+    frequencyBecause: 'Signing in to a service is something the service asks of everybody once. A Codex Cloud account is not created by installing anything on this computer. Nobody reaches this feature already signed in, unless they signed in for another reason first.',
     required: false,
     neverPerformedForYou: true,
+    gains: Object.freeze([
+      'Work can run while this computer is busy, asleep, or switched off.',
+      'You can watch a cloud task from the agent page beside everything running here.',
+    ]),
+    costs: Object.freeze([
+      'It is real, billable work on OpenAI’s computers. You pay them for it, not us.',
+      'Whatever the task is given to work on leaves this computer.',
+      'Once a cloud task has been accepted it cannot be cancelled.',
+    ]),
     steps: Object.freeze([
       Object.freeze({
         do: 'Sign in to Codex on this computer with an account that has Codex Cloud, using  codex login',
@@ -148,9 +184,17 @@ export const EXTERNAL_CAPABILITIES = Object.freeze({
     whatItDoes: 'The audited connection is the part of this product that carries out an action and writes the permanent record of it. It runs on this computer and is not reachable from anywhere else.',
     elevation: false,
     frequency: 'rarely',
-    frequencyBecause: 'This is part of this program rather than something separate to install, and it starts with it. The only time it needs anything from you is when it has not finished starting, or has stopped, which is the exception rather than the ordinary case.',
+    frequencyBecause: 'This is part of this program rather than something separate to install, and it starts with it. It only needs something from you when it has not finished starting, or has stopped. That is the exception, not the ordinary case.',
     required: false,
     neverPerformedForYou: true,
+    gains: Object.freeze([
+      'Every action this program takes for you is carried out and written down in the same moment.',
+      'The record is kept on this computer and signed here, so you can check afterwards exactly what was done.',
+    ]),
+    costs: Object.freeze([
+      'Nothing to set up and nothing to pay. It starts and stops with this window.',
+      'It has to be answering before an audited control will do anything. A panel can be waiting on it for a few seconds after the app opens.',
+    ]),
     steps: Object.freeze([
       Object.freeze({
         do: 'Leave ToolsEnabled open. The connection starts with it.',
@@ -161,7 +205,12 @@ export const EXTERNAL_CAPABILITIES = Object.freeze({
         why: 'It is usually still starting. Nothing outside this computer is involved, so there is nothing to sign in to.',
       }),
     ]),
-    verify: 'The panel’s own status line reads "audited bridge ready" and its buttons become usable.',
+    /* It named the OLD status line, word for word: "audited bridge ready". Two
+       mechanism names, and now not even the words on the screen -- the panel
+       says "Ready" (src/write-surfaces.js). A verification step that quotes a
+       string is a step that goes wrong the day the string improves, so this one
+       describes what the person will SEE instead. */
+    verify: 'The panel says it is ready, and its buttons stop being greyed out.',
     withoutIt: 'The switch stays on and the controls appear, disabled, with the reason on the panel. Nothing is sent and nothing is recorded until the connection answers.',
   }),
 })
@@ -284,7 +333,7 @@ export const RISK_PROFILES = Object.freeze({
   }),
   demonstration: Object.freeze({
     capabilities: Object.freeze(['Changes the built-in example fleet: how fast it moves and how varied it looks. It is there so you can see what each screen does before you have activity of your own.']),
-    risks: Object.freeze(['None. The example is invented data, it is labelled as an example on every screen that shows it, and none of it is ever sent anywhere or mistaken for your own records.']),
+    risks: Object.freeze(['None. The example is invented data. Every screen that shows it says so. None of it is ever sent anywhere, or mistaken for your own records.']),
   }),
   developer: Object.freeze({
     capabilities: Object.freeze(['Shows extra internal detail, which is useful when you are reporting a problem precisely.']),
@@ -424,7 +473,7 @@ export const SUBJECTS = Object.freeze({
       'On "remove everything", uninstalling actually removes it, rather than leaving it on the disk after the program is gone.',
     ]),
     risks: Object.freeze([
-      'On "keep my data", your saved sign-ins and the permanent record stay on this computer after the program is gone, where anyone using the computer could find them.',
+      'On "keep my data", your saved sign-ins and the permanent record stay on this computer after the program is gone. Anyone else using this computer could find them.',
       'On "remove everything", it is gone. There is no undo and no copy kept anywhere else.',
     ]),
     turnOnAt: 'Settings → Data & Privacy',
@@ -483,7 +532,7 @@ export const ANSWER_SUBJECTS = Object.freeze({
       'Assistants can approve items, close queued work and reply on your behalf without stopping for you.',
     ]),
     risks: Object.freeze([
-      'When an assistant reaches something it needs permission for it uses its own judgement instead of waiting, so work can travel a long way before you read it.',
+      'When an assistant reaches something it needs permission for, it decides for itself instead of waiting. Work can travel a long way before you read it.',
       'Approvals and replies made this way are recorded as yours.',
     ]),
     turnOnAt: 'Settings → Setup → Acting on its own',
@@ -573,11 +622,24 @@ export function guidedStepFor(id, { probe = null, posture = null } = {}) {
     /* WHAT WE SAY AT EACH STATE. `unknown` is a first-class answer with its own
        sentence, because "we could not check" and "it is missing" are different
        facts and a person acts on them differently. */
+    /* THE HEADLINES SAY WHAT COMES NEXT, AND ONE OF THEM USED TO SAY IT TWICE.
+     *
+     * `missing` read "${name} — not found on this computer", and the first
+     * capability's own name ends "...on this computer" -- so the line rendered
+     * as "Codex installed and signed in on this computer — not found on this
+     * computer". It also stopped at the bad news: a heading that reports a
+     * failure and names nothing to do about it is the shape this pass exists to
+     * remove, and the steps sitting underneath it do not excuse the heading,
+     * because the heading is what decides whether anybody opens the disclosure.
+     *
+     * `unknown` keeps the words "could not check" verbatim. They are pinned by
+     * tools/test/permission-guidance.test.mjs and by the tier suite, and rightly
+     * -- "we did not check" and "it is missing" are different facts. */
     headline: state === 'available'
-      ? `${capability.name} — found on this computer`
+      ? `${capability.name} — already here`
       : state === 'missing'
-        ? `${capability.name} — not found on this computer`
-        : `${capability.name} — this copy could not check`,
+        ? `${capability.name} — not here yet. The steps below show what to do.`
+        : `${capability.name} — this copy could not check whether it is here.`,
     showSteps: state !== 'available',
     withoutIt: capability.withoutIt,
     verify: capability.verify,
@@ -692,6 +754,14 @@ export function validateGuidance() {
     if (capability.elevation === true && !FREQUENCIES.includes(capability.frequency)) {
       errors.push(`${id}: a step that can need an administrator must say how often it asks something of you`)
     }
+    /* THE THREE THINGS EVERY PERMISSION CONTROL HAS TO SAY, required here so a
+       capability added later cannot arrive with two of them. `gains` and `costs`
+       are checked as a PAIR and separately from `withoutIt`, because a step's
+       cost and the consequence of skipping it are different facts: the renderer
+       showed a heading for the first of these for the whole life of the feature
+       and had nothing to put under it, and nothing was red. */
+    if (!list(capability.gains)) errors.push(`${id}: must say what doing this step would let the person do`)
+    if (!list(capability.costs)) errors.push(`${id}: must say what the step COSTS -- time, money, an account elsewhere, or what leaves this computer. A gain with no cost beside it is an advertisement`)
     if (!text(capability.withoutIt)) errors.push(`${id}: must say what still works without the step`)
     if (!text(capability.verify)) errors.push(`${id}: must say how the person knows it worked`)
     if (!Array.isArray(capability.steps) || capability.steps.length === 0) errors.push(`${id}: needs at least one step`)

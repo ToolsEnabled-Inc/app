@@ -66,7 +66,14 @@ import { withheldMarkup } from './guided-step.js'
  * who will get hurt by it. */
 const CONFINEMENT_PENDING = 'Checking what a session here would be allowed to do…'
 
-const BRIDGE_ABSENT = 'the desktop shell is required; this surface is inert in a browser'
+/* WHAT THIS SAID, AND WHY IT CHANGED. "the desktop shell is required; this
+   surface is inert in a browser" -- three words from inside the program in one
+   short line. "Desktop shell" is the installed application, "surface" is this
+   panel, and "inert" is what a person is being told about a control they can
+   see. None of the three names anything the reader owns, and the line offered
+   nothing to do. This one says which of the two things they are looking at, and
+   what to open instead. */
+const BRIDGE_ABSENT = 'this page is open in a browser, not in the installed ToolsEnabled application. Nothing here can start an agent. Open the installed app to use these controls'
 
 /* One per mounted session surface, so the status row's id stays unique while a
    rebuilt agent page and its predecessor are both briefly in the document. */
@@ -195,7 +202,11 @@ function switchedOffReason() {
   const because = chosen && chosen.consequence
     ? `Setup recorded “${chosen.label}”, and that answer switches off starting an assistant.`
     : 'Starting an assistant is switched off for this computer.'
-  return `${because} Nothing runs on this computer until you turn it on, and turning it on starts nothing by itself — it puts the Start control here, and you decide what to run. The same switch is in Settings → Write → Run an agent session.`
+  /* THREE SENTENCES, NOT ONE. This was a single thirty-word run-on carrying
+     three separate facts: that nothing runs yet, that the switch starts nothing
+     by itself, and where the switch is. One idea per sentence is the whole of
+     the change; not a word of meaning was dropped. */
+  return `${because} Nothing runs on this computer until you turn it on. Turning it on starts nothing by itself: it puts the Start control here, and you decide what to run. The same switch is in Settings → Write → Run an agent session.`
 }
 
 function mountSessionControls(root, {
@@ -485,7 +496,11 @@ function mountSessionControls(root, {
     if (!id) {
       starting = false
       setStarted(false)
-      actionState(status, 'refused', 'refused · no secure session id is available')
+      /* The table already has the sentence for this, with the remedy on it --
+         "close ToolsEnabled and open it again". Printing a shorter, remedy-less
+         version of a sentence that exists is how two copies of one message come
+         to disagree. */
+      actionState(status, 'refused', `refused · ${unavailableReason('AGENT_SESSION_NO_ID')}`)
       return { ok: false, code: 'AGENT_SESSION_NO_ID' }
     }
 

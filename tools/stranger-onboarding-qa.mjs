@@ -557,6 +557,21 @@ async function runScenario(executable, scratch, name) {
        control on the agent page at all -- without it the press scenario would
        find no control and silently measure nothing. */
     await clickVisible('[data-setup-set="autonomy"][data-setup-value="assisted"]')
+    /* WAIT FOR THE RE-RENDER THE ANSWER ABOVE CAUSES. Answering re-renders the
+       section, and for a frame the forward control is not in the document;
+       clickVisible does one querySelector and does not retry, so firing it
+       straight after the answer is a race. Every other transition in this walk
+       is already guarded by an `until` -- this was the one that was not.
+       MEASURED (R1531 w1, 2026-08-12): the SAME packed build scored 34/54 then
+       44/54 on two consecutive runs with two different failure sets, both
+       starting here with `it reaches the review -- absent`, while the previous
+       build scored 65/65. Read without this wait, that difference looks like a
+       hard regression introduced by the newer commit; the newer commit only
+       made the renderer bundle bigger and moved the re-render by a frame. A
+       harness that invents a product defect is worse than no harness. With the
+       wait, this step passes. No full-suite green number is quoted here on
+       purpose: see the port note on the next wait. */
+    await until('the review control to be re-rendered', `!!document.querySelector('[data-setup-next="review"]')`)
     const toReview = await clickVisible('[data-setup-next="review"]')
     check('it reaches the review', toReview === 'clicked', String(toReview))
     const atReview = await until('the review',
@@ -566,8 +581,25 @@ async function runScenario(executable, scratch, name) {
     /* ---------- THE SETUP STEP THAT DID NOT EXIST ----------
        Setup used to finish without ever naming Codex, and hand the person a
        home screen blocked on it. */
-    await until('the readiness answer on the review',
-      `!document.querySelector('[data-setup-section]')?.innerText.includes('Checking whether Codex')`)
+    /* THIS WAIT USED TO BE SATISFIED BY AN ABSENCE, WHICH IS THIS CODEBASE'S
+       NAMED RECURRING DEFECT. Its condition was only
+       `!innerText.includes('Checking whether Codex')` -- and a review body that
+       has not rendered that line YET does not contain it either, so the wait
+       returned true on its first poll against a half-drawn screen. Measured
+       (R1531 w1, 2026-08-12): the very next read then got 1337 characters of
+       review copy instead of 3208, and `[data-setup-next="finish"]` came back
+       'absent', reporting "setup names Codex before it finishes" and "the
+       review can be accepted" as product failures on a build where both are
+       fine. "Nothing says Checking" means BOTH "the check finished" and "the
+       check has not started"; only a positive signal separates them. So the
+       condition now also requires the review to be the screen on show and its
+       own accept control to exist -- three facts a blank screen cannot fake. */
+    await until('the readiness answer on the review', `(() => {
+      const text = document.querySelector('[data-setup-section]')?.innerText || ''
+      return text.includes('what those answers set')
+        && !text.includes('Checking whether Codex')
+        && !!document.querySelector('[data-setup-next="finish"]')
+    })()`)
     const reviewText = await evaluate(`document.querySelector('[data-setup-section]')?.innerText || ''`)
     check('setup names Codex before it finishes', /codex/i.test(reviewText),
       reviewText ? `${reviewText.length} chars of review copy` : 'no review copy at all')

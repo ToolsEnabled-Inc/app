@@ -175,6 +175,37 @@ test('the page 2 view carries no slider claiming to tune an agent', () => {
   assert.ok(!/data-t="(ctx|wake|auto)"/.test(view), 'the inert tuning rows are back on page 2')
 })
 
+test('the agent view carries no slider claiming to tune an agent either', () => {
+  /* THE SAME THREE SLIDERS, ON A SECOND PAGE, FOUND LATER.
+   *
+   * Page 2 lost them; src/views/agent.js kept its copy -- "Context budget 124k",
+   * "Wake interval 20m", "Verbosity low" -- and that copy was WORSE, because it
+   * had no click handler at all. Page 2's at least wrote a formatted string into
+   * the span beside them; these three only had `rangeFill`, which paints the
+   * track behind the thumb. Dragging one moved the thumb, left the readout on
+   * its hardcoded value, and stored, sent and reported nothing. They sat on the
+   * page whose own banner says "no control on this page reaches a real session".
+   *
+   * They were removed rather than wired, because there is no setting, no stored
+   * value and no bridge action in this product for any of the three, and wiring
+   * them would mean inventing the features first.
+   *
+   * ASSERTED BY NAME, and asserted for BOTH files in the same suite, because
+   * the reason one page fixed this and the other did not is that nothing was
+   * looking at the other one. */
+  const view = read('src/views/agent.js')
+  for (const label of ['Context budget', 'Wake interval', 'Verbosity']) {
+    assert.ok(!new RegExp(`<span class="cl">${label}</span>`).test(view),
+      `the inert "${label}" slider is back on the agent page`)
+  }
+  assert.ok(!/input type="range"/.test(view),
+    'a range input is back on the agent page; nothing on that page has a value to set')
+  /* The absence has to be SAID, not merely left blank. A rail that simply lost
+     three rows reads as a panel that failed to load. */
+  assert.match(view, /ctl-absent/,
+    'the agent page lost the sliders and says nothing where they were; an unexplained gap is its own defect')
+})
+
 /* ---------------------------------------------------------------
    4 · the run cap, which is real
    --------------------------------------------------------------- */

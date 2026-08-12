@@ -79,7 +79,10 @@ function loadSetupModules({ root = resolveCapabilityRoot(), load = require } = {
     || typeof machineRecord.writeMcpConfig !== 'function') {
     return failure('SETUP_MODULES_UNRECOGNIZED', 'The capability payload carries a setup module this shell does not recognize.')
   }
-  return { ok: true, machineRecord, workspace }
+  /* `root` TRAVELS WITH THE MODULES, because the generated assistant
+     configuration needs it and deriving it a second time at the point of use is
+     how two answers to "where is the engine" get born. See engineRootFor(). */
+  return { ok: true, machineRecord, workspace, root }
 }
 
 /* Where this install lives. Packaged, process.resourcesPath is
@@ -185,7 +188,27 @@ function recordTier(tier, options = {}) {
   } catch (error) {
     return failure(error?.code || 'SETUP_MACHINE_RECORD_WRITE_FAILED', 'The permission level could not be saved on this computer.')
   }
-  return { ok: true, tier: record.tier, configured: true, assistantConfig: writeAssistantConfig(record, modules) }
+  /* BOTH COPIES, ON THE SAME ANSWER. The dispatch root's document is refreshed
+     here rather than only at startup because this question is answered DURING a
+     run: the capability layer was started before the person chose a level, and
+     it is not restarted afterwards. Leaving the refresh to the next launch would
+     mean the first agent someone starts -- the one right after setup, which is
+     the whole point of the walkthrough -- runs against the fail-closed document
+     or none at all.
+
+     It is reported separately from `assistantConfig` and never fails the
+     recording, for the same reason that one does not: the level is saved, and
+     this is the product configuring itself. */
+  const dispatchAssistantConfig = options.dispatchRoot === undefined
+    ? null
+    : ensureDispatchAssistantConfig({ ...options, modules, record })
+  return {
+    ok: true,
+    tier: record.tier,
+    configured: true,
+    assistantConfig: writeAssistantConfig(record, modules),
+    ...(dispatchAssistantConfig ? { dispatchAssistantConfig } : {}),
+  }
 }
 
 /**
@@ -210,29 +233,187 @@ function recordTier(tier, options = {}) {
  * already saved; reporting `ok: false` here would tell them their choice did not
  * take when it did. The generation outcome is returned ALONGSIDE so the screen
  * can say what did and did not happen, with a code and no path.
+ *
+ * THE TARGET DIRECTORY MAY BE STATED, and there are exactly two callers that do
+ * anything different with it. Left unstated it is the folder the person chose,
+ * which is what their own agent client reads. ensureDispatchAssistantConfig()
+ * below states the app's own dispatch root instead, which is what this product's
+ * lane launcher reads. One generator, one record, two readers -- see the long
+ * note above that function for why both need a copy.
  */
-function writeAssistantConfig(record, modules) {
+function writeAssistantConfig(record, modules, { targetDirectory = null } = {}) {
   const { machineRecord } = modules
-  const targetDirectory = Array.isArray(record.workspaceRoots) ? record.workspaceRoots[0] : null
-  if (typeof targetDirectory !== 'string' || targetDirectory.length === 0) {
+  const directory = targetDirectory
+    || (Array.isArray(record.workspaceRoots) ? record.workspaceRoots[0] : null)
+  if (typeof directory !== 'string' || directory.length === 0) {
     return { ok: false, code: 'SETUP_ASSISTANT_CONFIG_NO_WORKSPACE' }
   }
   try {
-    fs.mkdirSync(targetDirectory, { recursive: true })
+    fs.mkdirSync(directory, { recursive: true })
   } catch (error) {
     return { ok: false, code: error?.code === 'EACCES' || error?.code === 'EPERM' ? 'SETUP_ASSISTANT_CONFIG_DENIED' : 'SETUP_ASSISTANT_CONFIG_NO_WORKSPACE' }
   }
   try {
-    const generated = machineRecord.writeMcpConfig(record, { targetDirectory })
+    const generated = machineRecord.writeMcpConfig(assistantConfigRecord(record, modules), { targetDirectory: directory })
     return {
       ok: true,
       code: 'SETUP_ASSISTANT_CONFIG_WRITTEN',
       servers: Object.keys(generated.document.mcpServers),
     }
   } catch (error) {
-    try { fs.rmSync(path.join(targetDirectory, '.mcp.json'), { force: true }) } catch { /* Reported below regardless. */ }
+    try { fs.rmSync(path.join(directory, '.mcp.json'), { force: true }) } catch { /* Reported below regardless. */ }
     return { ok: false, code: error?.code || 'SETUP_ASSISTANT_CONFIG_FAILED' }
   }
+}
+
+/**
+ * The record the GENERATOR is given, which is not the record on disk.
+ *
+ * ONE FIELD DIFFERS, AND WITHOUT IT THE DOCUMENT IS EMPTY ON EVERY PACKAGED
+ * INSTALL. generateMcpConfig() resolves each server as
+ * `path.join(record.installRoot, 'src/mcp-server.js')` and OMITS any server
+ * whose script is not on disk -- deliberately, so a client is never told about
+ * a server that cannot start. `installRoot` is recorded by resolveInstallRoot()
+ * below as the directory the application was installed into, because that is
+ * what the OTHER reader of the field needs: workspace.checkWorkspaceCandidate()
+ * refuses a workspace folder inside the installation, and that refusal is about
+ * the whole install directory. But the engine does not live at the top of that
+ * directory in a packaged build -- it is an extraResource under
+ * `resources\capability` -- so the generator looked for `<install>\src\
+ * mcp-server.js`, found nothing, and skipped all three servers.
+ *
+ * MEASURED ON THIS MACHINE'S OWN INSTALLATION, 2026-08-12, not deduced: the
+ * recorded installRoot named `...\Programs\toolsenabled`, `src/mcp-server.js`
+ * was absent from it, and the `.mcp.json` in the person's chosen folder read
+ *     {"mcpServers": {}}
+ * -- a configured assistant with no tools at all, which is the product.
+ *
+ * So the generator is handed the ENGINE root: the same payload directory the
+ * capability layer is started from, which is where `src/mcp-server.js` actually
+ * is in both a packaged install and a checkout. Two fields ride on it, and both
+ * want the engine rather than the installation: the `args` entry that names the
+ * server program, and the `cwd` the server runs in.
+ *
+ * THE RECORD ON DISK IS NOT REWRITTEN. It keeps saying what it has always said
+ * about where this copy is installed, because the workspace check reads it and
+ * means something different by it. The substitution happens here, at the one
+ * point where the field means "where the engine is", and nowhere else.
+ */
+function assistantConfigRecord(record, modules) {
+  const engineRoot = typeof modules?.root === 'string' && modules.root.length > 0 ? modules.root : null
+  return engineRoot ? { ...record, installRoot: engineRoot } : record
+}
+
+/* ---------- the configuration the DISPATCH root needs ----------
+ *
+ * WHAT WAS BROKEN, AND WHY NO SOURCE TEST COULD SEE IT.
+ *
+ * A Claude lane started by the mission bridge is launched with
+ *     --mcp-config <root>\.mcp.json --strict-mcp-config
+ * where `<root>` is the dispatch root the shell declares to the capability
+ * layer -- `<userData>\workspace` (WORKSPACE_ROOT in shell/main.cjs, handed over
+ * as `--root main=...` in shell/capability-layer.cjs). Nothing has ever written
+ * a `.mcp.json` there. The only writer in the product is writeAssistantConfig()
+ * above, and it writes into `workspaceRoots[0]` -- the folder the PERSON chose,
+ * which is a different directory and is deliberately so.
+ *
+ * MEASURED ON THIS MACHINE, 2026-08-12: `<userData>\workspace` existed and was
+ * EMPTY; `<profile>\Documents\AI Workspace\.mcp.json` existed. The two halves of
+ * the product disagreed about where an agent's configuration lives, and the half
+ * that launches agents was pointed at the empty one.
+ *
+ * `--strict-mcp-config` WITH A MISSING FILE IS NOT "NO TOOLS". IT IS NO AGENT.
+ * Measured against the installed Claude Code 2.1.186 rather than assumed:
+ *     --mcp-config <missing>          -> Error: Invalid MCP configuration:
+ *                                        MCP config file not found  (exit 1)
+ *     --mcp-config <file with {}>     -> starts; refuses only the empty prompt
+ * So the lane did not start "with zero ToolsEnabled tools"; it exited before it
+ * ran at all, and the person saw BRIDGE_AGENT_LANE_START_FAILED.
+ *
+ * WHY THE FILE MOVED TO THE DISPATCH ROOT RATHER THAN THE ROOT MOVING TO THE
+ * FILE. Handing the bridge the person's chosen folder instead was the other
+ * candidate and it is worse in three separate ways. The folder can be answered
+ * AFTER the layer has started, and the layer is started once per launch with a
+ * root it cannot be told to change -- so the bridge would dispatch into a folder
+ * the person had already moved away from. Before the folder question is answered
+ * there is no chosen folder at all, and the default one is deliberately NOT
+ * created until somebody says yes (see releaseUnchosenAssistantConfig below).
+ * And `<userData>\workspace` is the one directory this product owns, creates on
+ * every start, and can rely on being a real directory on a customer's machine --
+ * which the asar-as-cwd history in shell/main.cjs paid for once already.
+ *
+ * SO BOTH DIRECTORIES GET THE DOCUMENT, and they are not the same thing. The
+ * person's folder gets it because their own agent client reads it there. The
+ * dispatch root gets it because the product's own lane launcher reads it there.
+ * The document is generated from the record and not from the directory, so the
+ * two copies cannot describe different permission levels.
+ */
+function ensureDispatchAssistantConfig(options = {}) {
+  const dispatchRoot = options.dispatchRoot
+  if (typeof dispatchRoot !== 'string' || dispatchRoot.length === 0) {
+    return { ok: false, code: 'SETUP_DISPATCH_ROOT_ABSENT' }
+  }
+  const modules = options.modules || loadSetupModules(options)
+  if (!modules.ok) return { ok: false, code: modules.code }
+
+  let record = options.record
+  if (record === undefined) {
+    const { machineRecord } = modules
+    try {
+      record = machineRecord.readMachineRecord({ servicesRoot: machineRecord.resolveServicesRoot({}) })
+    } catch {
+      /* A record that EXISTS and cannot be read is the fail-closed case below,
+         not a reason to leave the lane unlaunchable. readMachineRecord refuses a
+         record whose integrity seal does not match, and that state is reachable
+         today -- so "unreadable" must still produce a runnable, minimal
+         configuration rather than nothing at all. */
+      record = null
+    }
+  }
+  return writeAssistantConfig(record || failClosedRecord(modules, options), modules, { targetDirectory: dispatchRoot })
+}
+
+/**
+ * The record used when this computer has not answered the level question yet.
+ *
+ * IT IS BUILT AND NEVER WRITTEN. Nothing on disk changes: this exists only to
+ * generate the document the dispatch root needs, because the alternative --
+ * leaving the file absent until somebody completes setup -- means a lane that
+ * cannot start at all, with a refusal that says nothing about setup.
+ *
+ * IT IS ALWAYS THE MOST RESTRICTIVE LEVEL, and that is what makes it safe to
+ * write something nobody has consented to. The engine already makes exactly this
+ * assumption on exactly this path: recordedPermissionSession() in the mission
+ * bridge falls back to the fail-closed tier when the record is absent or
+ * unreadable, and dispatches with that level's flags. Writing a document for any
+ * other level would put the configuration and the enforced session into
+ * disagreement; writing the fail-closed one keeps them saying the same thing.
+ *
+ * The level a person then chooses REPLACES this, both here and in their folder,
+ * because recordTier rewrites both copies.
+ */
+function failClosedRecord(modules, options = {}) {
+  const { machineRecord, workspace } = modules
+  const tiers = Array.isArray(machineRecord.TIERS) ? machineRecord.TIERS : []
+  /* The first entry, not a name typed here. src/lib/permission-tier-policy.js
+     owns the vocabulary and orders it from the most restrictive level upwards;
+     a literal 'guided' in this file would be a second declaration of that order
+     which nothing keeps in step with the first. */
+  const tier = tiers[0]
+  return machineRecord.buildMachineRecord({
+    tier,
+    installRoot: resolveInstallRoot(options),
+    servicesRoot: machineRecord.resolveServicesRoot({}),
+    nodePath: machineRecord.resolveNodePath({ execPath: resolveRuntimePath(options) }),
+    /* NAMED, NOT CREATED. buildMachineRecord requires a workspace root and this
+       record is never written, so naming the default here provisions nothing --
+       the folder question is still unanswered and the folder still does not
+       exist. The generated document does not depend on this value. */
+    workspaceRoots: [workspace.defaultWorkspacePath({})],
+    machineId: machineRecord.defaultMachineId(),
+    machineLabel: machineRecord.defaultMachineLabel(),
+    createdAtMs: Date.now(),
+  })
 }
 
 /* ---------- the workspace question (design section 3, step 7) ---------- */
@@ -484,6 +665,7 @@ module.exports = {
   loadSetupModules,
   readTierState,
   recordTier,
+  ensureDispatchAssistantConfig,
   readWorkspaceState,
   checkWorkspace,
   recordWorkspaces,

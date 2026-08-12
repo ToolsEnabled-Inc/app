@@ -126,6 +126,14 @@ const SETTINGS = new Map([
   ['recommended-path-packaged-qa.mjs', { runner: 'node', timeoutMs: 900_000 }],
   ['stranger-onboarding-qa.mjs', { runner: 'node', timeoutMs: 1_200_000 }],
   ['first-run-contract-qa.mjs', { runner: 'node', timeoutMs: 1_200_000 }],
+  /* The only driver here that opens no window: it starts the shipped payload's
+     own capability layer and POSTs real dispatches to it. Measured at ~102s
+     (twelve audited dispatches plus a second bridge for the negative control),
+     so the ceiling is deliberately close rather than the 900s default -- this
+     one hanging means a bridge did not come up, and waiting a quarter of an hour
+     to be told that helps nobody. It spends no provider budget by construction;
+     see the environment fence in its header. */
+  ['agent-dispatch-packaged-qa.mjs', { runner: 'node', timeoutMs: 300_000 }],
   /* Launches a real Codex Cloud task and follows it to a terminal state. Real
      provider budget, real network. Never in the default set. */
   ['cloud-launch-packaged-qa.mjs', { runner: 'node', timeoutMs: 1_500_000, costly: true }],

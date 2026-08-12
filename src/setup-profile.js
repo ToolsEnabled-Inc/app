@@ -119,7 +119,7 @@ export const AUTONOMY_CHOICES = Object.freeze([
     detail: 'Every screen still reads and reports, and nothing at all is switched on that acts: no assistant starts, nothing is approved, nothing is replied to. This is exactly what a computer that was never set up already does.',
     /* Present on exactly the answers that leave no way to start an agent, and
        pinned to that fact by the test suite rather than to this list. */
-    consequence: 'Nothing on this computer will be able to start an assistant while this is the answer — the agent page shows no Start control, because there is nothing switched on for it to start. The agent page says so and turns it on in one click when you want it, and Settings has the same switch.',
+    consequence: 'Nothing on this computer will be able to start an assistant while this is the answer. The agent page shows no Start control, because there is nothing switched on for it to start. That page says so, and turns it on in one click when you want it. Settings has the same switch.',
   }),
   Object.freeze({
     value: 'assisted',

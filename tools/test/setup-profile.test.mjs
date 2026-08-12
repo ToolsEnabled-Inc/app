@@ -548,14 +548,27 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     pinnedBy: 'the review step applies nothing until Finish; asserted by "nothing but the permission level is written before Finish", which counts applyDerived() call sites and allows exactly two, and observed in a real packaged run with every mc.write.* key still absent at that point',
   },
   {
-    match: /No subscription, key, or password for Claude, ChatGPT or Google is asked for anywhere in this setup/,
+    /* REWRITTEN FROM A NEGATIVE-SUBJECT SENTENCE INTO AN ACTIVE ONE. It read
+       "No subscription, key, or password for Claude, ChatGPT or Google is asked
+       for anywhere in this setup or stored by this program", which is
+       twenty-eight words in the passive voice on a screen a stranger reads once.
+       It is now "Nothing in this setup asks for a subscription, key or password
+       for Claude, ChatGPT or Google, and this program stores none." Same two
+       claims -- nothing is asked for, nothing is stored -- and the pattern is
+       written against the subjects rather than against the word order, so a
+       later rewording that keeps the promise does not turn this red. */
+    match: /(setup|product) (asks|is asked).{0,40}(subscription|key|password)|(subscription|key,? or password).{0,60}(asked for|stores none)/i,
     kind: 'pinned',
     pinnedBy: 'no setup surface collects a provider credential; asserted by "nothing a setup surface collects can reach the stored profile", which discovers the collected fields rather than listing them, and by the credential-claims test',
   },
   {
-    match: /No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup/,
+    /* The settings-drawer copy of the same claim, deliberately scoped to THIS
+       SCREEN rather than to the product: it said "anywhere in this product"
+       until a lane could have falsified it on a screen no test of mine can see,
+       and a claim nothing can keep is not worth making. */
+    match: /This screen asks for no subscription, key or password for Claude, ChatGPT or Google/,
     kind: 'pinned',
-    pinnedBy: 'same mechanism as above. Deliberately scoped to SETUP: this sentence said "anywhere in this product" until a lane could have falsified it on a screen no test of mine can see, and a claim nothing can keep is not worth making',
+    pinnedBy: 'same mechanism as above. Deliberately scoped to the screen it is printed on, for the reason recorded above it',
   },
   {
     match: /nothing at all is switched on that acts: no assistant starts/,

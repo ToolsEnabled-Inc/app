@@ -58,7 +58,7 @@ export const ACCOUNT_QUESTION_SUB = 'Sign in so the record of what your assistan
 export const ACCOUNT_SCOPE_LEAD = 'What this account is, before you make one.'
 export const ACCOUNT_SCOPE_NOTICE = Object.freeze([
   'It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one.',
-  'Signing in with Google instead puts the verified email address from your Google account on the record, and Google is what checks it rather than this computer.',
+  'Signing in with Google instead puts the verified email address from your Google account on the record. Google is what checks it, not this computer.',
   'Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy.',
   'It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it.',
 ])
@@ -330,7 +330,11 @@ export function readActionResult(value) {
     return Object.freeze({
       ok: false,
       code: typeof value.code === 'string' ? value.code : 'MC_ACCOUNT_REFUSED',
-      reason: typeof value.reason === 'string' && value.reason ? value.reason : 'The application refused, and did not say why.',
+      /* IT USED TO STOP AT "and did not say why", which is where a person is
+         left with nothing. This is the last-resort sentence on the sign-in
+         screen, so it is also the one most likely to be the only thing they
+         get, and it now names the two things worth trying. */
+      reason: typeof value.reason === 'string' && value.reason ? value.reason : 'The application refused, and did not say why. Check what you typed and try again; if it keeps refusing, close ToolsEnabled and open it a second time.',
     })
   }
   return Object.freeze({

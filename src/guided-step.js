@@ -74,6 +74,22 @@ function frequencyMarkup(frequency) {
   </p>`
 }
 
+/* THE GAIN AND THE COST, AND FOR THE WHOLE LIFE OF THIS FEATURE THERE WAS
+ * NEITHER.
+ *
+ * The gain line below used to read `capability.capabilitiesGained` -- a field no
+ * entry in src/permission-guidance.js has ever had. group() was therefore handed
+ * an empty array and returned an empty string, every time, on every capability:
+ * a heading nobody ever saw, over a list that was never there. Nothing went red,
+ * because an absence rendered as nothing is indistinguishable from a decision
+ * not to render anything. That is this codebase's signature defect, inside the
+ * pair of modules written to prevent it.
+ *
+ * It reads `capability.gains` now, the field is declared on every capability,
+ * and `capability.costs` is printed beside it -- because the owner's shape for a
+ * permission control is three things and the third is what it COSTS. A gain
+ * printed without its cost is an advertisement. validateGuidance() requires
+ * both, so the next capability cannot arrive with only the good half. */
 function stepMarkup(step) {
   if (!step) return ''
   const { capability, state } = step
@@ -83,7 +99,8 @@ function stepMarkup(step) {
     <p class="settings-desc">${esc(capability.whatItDoes)}</p>
     ${state === 'unknown' ? `<p class="settings-desc guided-unknown">This copy could not check whether this is set up, so it will not tell you either way. The steps below are what it would take if it is not.</p>` : ''}
     ${step.showSteps ? `
-      ${group('What doing this would let you do', capability.capabilitiesGained || [])}
+      ${group('What doing this would let you do', capability.gains || [])}
+      ${group('What it costs you', capability.costs || [])}
       <p class="settings-desc guided-optional">${esc(step.optionalNote)}</p>
       <p class="settings-desc guided-never">${capability.elevation
         ? 'This step needs an administrator. This program does not ask Windows for administrator rights, does not change any Windows security setting, and will not do this for you. The words below are what you would run yourself, and you can close the window and change nothing.'

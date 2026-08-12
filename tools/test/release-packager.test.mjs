@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 import { bumpSemver, computeNextVersion, writePackageVersion } from "../release-packager/lib/version-bump.mjs";
 import { measureFile, sameBytes, sha256File } from "../release-packager/lib/hash.mjs";
 import { findOtherCandidates } from "../release-packager/lib/scan-artifacts.mjs";
+import { assertStagingFree, classifyStagedCandidate } from "../release-packager/lib/staging-collision.mjs";
 import { currentBranch, isAncestor, revParse } from "../release-packager/lib/git.mjs";
 import { renderDeclaration } from "../release-packager/generate-declaration.mjs";
 import { copyPrivateInputs, parseKnownFixArg } from "../release-packager/cut-release-candidate.mjs";
@@ -410,6 +411,126 @@ test("serve-candidate.mjs --detach survives the launcher exiting, serves correct
     assert.doesNotMatch(logContent, new RegExp(token), "the token must never be written to the detached child's log file");
   } finally {
     await killIfAlive(childPid);
+    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+// --- staging-collision.mjs --------------------------------------------------
+//
+// The other half of version-bump.mjs's rule. computeNextVersion() compares the
+// new number against package.json's, and package.json does not advance unless
+// --advance-branch was used -- so two cuts from two DIFFERENT tips compute the
+// same "next" version, and the second one used to copy straight over the first
+// one's installer AND its declaration. Measured for real on 2026-08-12 (R1531
+// w1): 1.0.7 staged from e521606, the next cut from f8be6ed computed 1.0.7.
+
+test("an empty or missing staging slot is free", () => {
+  assert.equal(classifyStagedCandidate({ entries: [], version: "1.0.7", sourceRef: "aaa" }).free, true);
+  assert.equal(classifyStagedCandidate({ entries: undefined, version: "1.0.7", sourceRef: "aaa" }).free, true);
+});
+
+test("files that are not candidate artifacts do not occupy the slot", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["README.md", "notes.txt", ".gitkeep"],
+    version: "1.0.7",
+    sourceRef: "aaa",
+  });
+  assert.equal(verdict.free, true);
+  assert.deepEqual(verdict.occupants, []);
+});
+
+test("a candidate already staged from a DIFFERENT source ref refuses, and names both refs", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["ToolsEnabled Setup 1.0.7.exe", "DECLARATION.md", "declaration-facts.json"],
+    factsRaw: JSON.stringify({ version: "1.0.7", sourceRef: "e521606b9033f9025a7986f7e5669e665d6217d3" }),
+    version: "1.0.7",
+    sourceRef: "f8be6ed720ab14746ea539eb366cda310074d68b",
+  });
+  assert.equal(verdict.free, false);
+  assert.match(verdict.reason, /DIFFERENT source ref/);
+  assert.match(verdict.reason, /e521606b9033f9025a7986f7e5669e665d6217d3/);
+  assert.match(verdict.reason, /f8be6ed720ab14746ea539eb366cda310074d68b/);
+  assert.match(verdict.reason, /--version|--staging|--replace-staged/);
+});
+
+// ABSENCE IS NEVER CONSENT: these three are the whole point of the guard.
+test("an installer with NO declaration-facts.json refuses -- unreadable provenance is a stronger reason, not a weaker one", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["ToolsEnabled Setup 1.0.7.exe"],
+    factsRaw: null,
+    version: "1.0.7",
+    sourceRef: "f8be6ed",
+  });
+  assert.equal(verdict.free, false);
+  assert.match(verdict.reason, /no declaration-facts\.json/);
+});
+
+test("a BLANK sourceRef in the staged facts never reads as a match", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["DECLARATION.md", "declaration-facts.json"],
+    factsRaw: JSON.stringify({ version: "1.0.7", sourceRef: "   " }),
+    version: "1.0.7",
+    sourceRef: "f8be6ed",
+  });
+  assert.equal(verdict.free, false);
+  assert.equal(verdict.sameSource, false);
+  assert.match(verdict.reason, /records no sourceRef/);
+});
+
+test("unparseable staged facts refuse rather than being treated as absent", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["declaration-facts.json"],
+    factsRaw: "{ not json",
+    version: "1.0.7",
+    sourceRef: "f8be6ed",
+  });
+  assert.equal(verdict.free, false);
+  assert.match(verdict.reason, /could not be parsed/);
+});
+
+test("even the SAME source ref refuses without the explicit override -- a rebuild is still a second binary", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["ToolsEnabled Setup 1.0.7.exe", "declaration-facts.json"],
+    factsRaw: JSON.stringify({ sourceRef: "f8be6ed" }),
+    version: "1.0.7",
+    sourceRef: "f8be6ed",
+  });
+  assert.equal(verdict.free, false);
+  assert.equal(verdict.sameSource, true);
+  assert.match(verdict.reason, /THE SAME source ref/);
+});
+
+test("--replace-staged permits the overwrite and says exactly what it is discarding", () => {
+  const verdict = classifyStagedCandidate({
+    entries: ["ToolsEnabled Setup 1.0.7.exe", "declaration-facts.json"],
+    factsRaw: JSON.stringify({ sourceRef: "e521606" }),
+    version: "1.0.7",
+    sourceRef: "f8be6ed",
+    replaceStaged: true,
+  });
+  assert.equal(verdict.free, true);
+  assert.equal(verdict.replaced, true);
+  assert.match(verdict.reason, /overwriting the 1\.0\.7 candidate/);
+  assert.match(verdict.reason, /e521606/);
+});
+
+test("assertStagingFree throws on an occupied slot on disk and passes on a fresh one", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "release-packager-staging-"));
+  try {
+    const taken = path.join(home, "1.0.7");
+    await mkdir(taken, { recursive: true });
+    await writeFile(path.join(taken, "ToolsEnabled Setup 1.0.7.exe"), "not really an installer", "utf8");
+    await writeFile(path.join(taken, "declaration-facts.json"), JSON.stringify({ sourceRef: "e521606" }), "utf8");
+
+    assert.throws(
+      () => assertStagingFree({ stagingDir: taken, version: "1.0.7", sourceRef: "f8be6ed", log: () => {} }),
+      /staging-collision/,
+    );
+
+    const fresh = path.join(home, "1.0.8");
+    const verdict = assertStagingFree({ stagingDir: fresh, version: "1.0.8", sourceRef: "f8be6ed", log: () => {} });
+    assert.equal(verdict.free, true);
+  } finally {
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

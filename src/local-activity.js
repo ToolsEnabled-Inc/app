@@ -89,7 +89,10 @@ export const COPY = Object.freeze({
     title: 'This example has no conversation in it',
     body: 'Nothing was written for this profile to show here.',
   }),
-  sampleNoReply: 'This example has no reply written for that.',
+  /* IT USED TO STOP THERE. "This example has no reply written for that." is
+     true, and it leaves a person who has just typed something with nothing to
+     do about it. The second half is the whole repair. */
+  sampleNoReply: 'The example has no reply written for that one. Ask it something else, or turn the example off in Settings to use your own computer.',
   runLabel: (sequence) => `Agent run ${sequence}`,
   runWhenUnknown: 'at a time this record does not give',
   /* WHAT THE RUN DID, per row, and the empty string is load-bearing.

@@ -219,7 +219,9 @@ export const SETTINGS = [
     def: true,
   })),
   { id: 'event_variance', section: 'Data & Sim', name: 'Event variance', desc: 'How bursty the demonstration workload looks: steady, or arriving in waves.', depth: 2, type: 'range', min: 0, max: 100, step: 1, unit: '%', def: 35 },
-  { id: 'failure_rate', section: 'Data & Sim', name: 'Synthetic failure rate', desc: 'How often the demonstration shows a recoverable failure, as a percentage.', depth: 2, type: 'range', min: 0, max: 20, step: 1, unit: '%', def: 3 },
+  /* "Synthetic failure rate" was a name written from inside the code. Nothing a
+     person owns is synthetic, and the row is about the built-in example. */
+  { id: 'failure_rate', section: 'Data & Sim', name: 'Practice problems', desc: 'How often the demonstration shows a problem it recovers from, as a percentage. It is there so the screens have something to show.', depth: 2, type: 'range', min: 0, max: 20, step: 1, unit: '%', def: 3 },
   { id: 'sample_bucket', section: 'Data & Sim', name: 'Sample bucket width', desc: 'How many seconds of raw demonstration ticks are grouped into one chart point.', depth: 3, type: 'stepper', min: 1, max: 60, step: 1, unit: 's', def: 5 },
   { id: 'sim_worker_tick_bias', section: 'Data & Sim', name: 'Sim worker tick bias', desc: 'Whether the demonstration favors the freshest data or does more work per batch.', depth: 4, type: 'range', min: -100, max: 100, step: 5, unit: '%', def: 0 },
 
@@ -237,7 +239,7 @@ export const SETTINGS = [
   { id: 'log_level', section: 'Developer', name: 'Console detail', desc: 'How much diagnostic detail the demonstration writes to the console.', depth: 1, type: 'seg', options: ['quiet', 'normal', 'verbose'], def: 'normal' },
   { id: 'copy_ids', section: 'Developer', name: 'Copy stable identifiers', desc: 'When you copy a row, agent, or channel, copy its permanent ID rather than its display name.', depth: 1, type: 'toggle', def: true },
   { id: 'expose_timings', section: 'Developer', name: 'Expose render timings', desc: 'Show how long each screen took to draw, in development-only readouts.', depth: 2, type: 'toggle', def: false },
-  { id: 'mock_failures', section: 'Developer', name: 'Permit mock failures', desc: 'Allow practice error states to appear in otherwise healthy screens, for testing.', depth: 2, type: 'toggle', def: false },
+  { id: 'mock_failures', section: 'Developer', name: 'Show practice problems', desc: 'Let a pretend problem appear on a screen that is actually healthy, so you can see what this program does when something goes wrong.', depth: 2, type: 'toggle', def: false },
   { id: 'observer_budget', section: 'Developer', name: 'Observer callback budget', desc: 'The soft time limit for one internal resize or layout callback, in milliseconds.', depth: 3, type: 'stepper', min: 1, max: 24, step: 1, unit: 'ms', def: 8 },
   { id: 'tier_guide_hairline_alpha', section: 'Developer', name: 'Tier-guide hairline alpha', desc: 'How faint the thin guide lines between the map’s levels are (their alpha).', depth: 4, type: 'range', min: 1, max: 20, step: 1, unit: '%', def: 7 },
 ]
@@ -421,7 +423,7 @@ function tierMarkup(section, depth, content, open) {
    than an empty one. */
 const SECTION_NOTES = Object.freeze({
   'Data & Sim': Object.freeze({
-    text: 'These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that.',
+    text: 'These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything. On a fresh install the live readings are empty, because nothing has reported to this copy yet, and no switch on this page changes that.',
     link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
   }),
   Write: Object.freeze({

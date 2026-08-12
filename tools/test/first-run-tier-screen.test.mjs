@@ -242,7 +242,13 @@ test('the disclosure still admits the sessions it cannot confine', () => {
   const notice = TIER_LIMIT_NOTICE.join(' ')
   assert.match(notice, /keeps running in another program/)
   assert.match(notice, /still deciding what it may do/)
-  assert.match(notice, /choosing a level here does not reach/)
+  /* Case-insensitive because this clause is now a SENTENCE of its own rather
+     than a subordinate clause: the paragraph was two sentences of thirty-odd
+     words on the screen where somebody decides how much of their computer to
+     hand over, and it was split. The words are the same words; only the comma
+     before "where" became a full stop, which capitalised the C. Pinning the
+     lower-case C would be pinning the run-on, not the promise. */
+  assert.match(notice, /choosing a level here does not reach/i)
 })
 
 /* THE OVER-BROAD FAILURE MODE, which the first version of this notice shipped
@@ -262,7 +268,10 @@ test('the disclosure still admits the sessions it cannot confine', () => {
    red here rather than quietly shipping. */
 test('the disclosure does not overclaim the gap for sessions it does confine', () => {
   const notice = TIER_LIMIT_NOTICE.join(' ')
-  assert.match(notice, /Take a session over so it continues here and this level applies/)
+  /* The comma is the only difference: "...so it continues here, and this level
+     applies...". Same clause, same promise; the paragraph around it was split
+     into shorter sentences. */
+  assert.match(notice, /Take a session over so it continues here,? and this level applies/)
   assert.doesNotMatch(
     notice,
     /cannot confine an assistant ToolsEnabled did not start/,
@@ -271,7 +280,11 @@ test('the disclosure does not overclaim the gap for sessions it does confine', (
   /* The peer's qualification, kept because it is the true half of the old
      sentence: a level chosen now bounds what happens next, not what already
      happened somewhere else. */
-  assert.match(notice, /not to what it already did elsewhere/)
+  /* "though not to what it already did elsewhere" became its own sentence,
+     "It does not reach what that session already did somewhere else." The
+     qualification is what is pinned, not the subordinate clause that carried
+     it, so the pattern is written against the meaning. */
+  assert.match(notice, /already did (elsewhere|somewhere else)/)
 })
 
 /* The clause "and setup shows you the set it wrote" is TRUE of the command

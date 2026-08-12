@@ -55,6 +55,30 @@ export const CODEX_SETUP_COMMANDS = Object.freeze({
   signIn: 'codex login',
 })
 
+/* WHICH PART OF THE BUILD IS MISSING, KEPT AS DATA RATHER THAN IN THE SENTENCE.
+ *
+ * Two entries in the table below used to name a module in brackets, mid-sentence,
+ * to a customer: "(agent-session-confinement)" and "(subscription-launch-env)".
+ * tools/test/agent-session-surface.test.mjs required them to be there, and its
+ * reason was right -- the main-process message that names the missing module ALSO
+ * names an absolute engine root, so it can never cross the bridge, and if the
+ * name is nowhere then a support conversation about an incomplete build has
+ * nothing to go on.
+ *
+ * The reason was right and the place was wrong. That is the same fact
+ * src/refusal-copy.js established for codes: the identifier is a MACHINE FIELD,
+ * carried on `data-refusal-code` where a support conversation and a driver can
+ * read it, and never in the prose. This is the same rule applied to the module
+ * name, and the suite now asserts both halves -- that the name is here, and that
+ * it is NOT in the sentence.
+ *
+ * A person who cannot start an agent because their download was incomplete needs
+ * to reinstall. That is the whole of what the sentence has to carry. */
+export const MISSING_MODULE = Object.freeze({
+  AGENT_CONFINEMENT_UNAVAILABLE: 'agent-session-confinement',
+  AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'subscription-launch-env',
+})
+
 export const UNAVAILABLE_TEXT = Object.freeze({
   AGENT_ENGINE_UNAVAILABLE: 'no agent engine is configured on this installation',
   /* THE BLOCKER A STRANGER ACTUALLY HITS, and for one release the product did
@@ -62,8 +86,12 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      press with a bare identifier. Like the sign-out below this is not a fault
      in the install, so the sentence spends its length on the command rather
      than on an apology. */
-  AGENT_CODEX_CLI_NOT_INSTALLED: 'Codex is not installed on this computer, and Codex is the program that actually runs an agent; open Windows Terminal and run "winget install OpenAI.Codex" (or "npm install -g @openai/codex" if you have Node), then run "codex login"',
-  AGENT_CONFINEMENT_UNAVAILABLE: 'this copy shipped without the permission-level enforcement a session needs (agent-session-confinement), so it will not start one at a level it cannot hold; reinstall ToolsEnabled from a complete build',
+  AGENT_CODEX_CLI_NOT_INSTALLED: 'Codex is not installed on this computer, and Codex is the program that actually runs an agent. Open Windows Terminal and run "winget install OpenAI.Codex". If you already have Node, "npm install -g @openai/codex" does the same job. Then run "codex login"',
+  /* THE MODULE NAME CAME OUT OF THE SENTENCE. It read "(agent-session-confinement)"
+     -- an internal file name, in brackets, in the middle of a sentence to a
+     customer. It is a support detail, and the person holding the repository has
+     the code; the person reading this has a reinstall to do. */
+  AGENT_CONFINEMENT_UNAVAILABLE: 'this copy of ToolsEnabled was built without the part that holds a session to your permission level. It will not start one at a level it cannot hold. Reinstall ToolsEnabled from a complete build',
   /* NOT A PACKAGING FAULT, and the copy must not read like one. The install is
      complete; the assistant is signed out, and a confined level builds its
      session from that sign-in. This is the one refusal on this list the person
@@ -72,12 +100,14 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      probe returns it, and a start that gets past the probe raises the same code
      through plan.code -- which is why the press used to show the bare
      identifier here too. */
-  AGENT_CONFINEMENT_SIGNED_OUT: 'Codex is installed on this computer but nobody is signed in to it, and the permission level recorded here builds each session from that sign-in; open Windows Terminal, run "codex login", then come back to this screen',
-  AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'this copy shipped without the protection that keeps a session off your billed API account (subscription-launch-env), so it will not start one; reinstall ToolsEnabled from a complete build',
+  AGENT_CONFINEMENT_SIGNED_OUT: 'Codex is installed on this computer, but nobody is signed in to it. The permission level recorded here builds each session from that sign-in. Open Windows Terminal, run "codex login", then come back to this screen',
+  /* Same repair as the entry above: "(subscription-launch-env)" was a module
+     name printed to a customer. The fact that matters to them is the money. */
+  AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'this copy of ToolsEnabled was built without the part that keeps a session off your billed account. It will not start one and risk charging you. Reinstall ToolsEnabled from a complete build',
   AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent session has nowhere to run',
-  AGENT_HOST_INVALID_ARGUMENT: 'the agent host refused the availability request',
-  AGENT_HOST_CLOSED: 'the agent host is shutting down',
-  MC_AGENT_INVALID_PAYLOAD: 'the agent host refused the availability request',
+  AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not work out whether an agent can run here, because the question itself was refused. Close ToolsEnabled and open it again',
+  AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down, so nothing new will be started. Open it again when you want to start an agent',
+  MC_AGENT_INVALID_PAYLOAD: 'ToolsEnabled could not work out whether an agent can run here, because the question itself was refused. Close ToolsEnabled and open it again, and if it keeps refusing, reinstall from a complete build',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not
@@ -120,16 +150,16 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      have replaced the earlier one and whichever lane edited last would own the
      copy without either noticing. */
   AGENT_CONFINEMENT_RECORD_ABSENT: 'this computer has not been set up yet, so a session would run at the most restrictive level; open Settings and choose a permission level',
-  AGENT_CONFINEMENT_RECORD_UNREADABLE: 'the permission level recorded on this computer cannot be read, and ToolsEnabled will not start a session at a level it cannot confirm; re-choose the level in Settings',
-  AGENT_CONFINEMENT_TIER_REFUSED: 'the permission level recorded on this computer is not one this copy recognises, so no session can be started under it; re-choose the level in Settings',
+  AGENT_CONFINEMENT_RECORD_UNREADABLE: 'the permission level recorded on this computer cannot be read. ToolsEnabled will not start a session at a level it cannot confirm. Choose the level again in Settings',
+  AGENT_CONFINEMENT_TIER_REFUSED: 'the permission level recorded on this computer is not one this copy recognises. No session can be started under it. Choose the level again in Settings',
   AGENT_CONFINEMENT_TIER_UNMAPPED: 'the permission level recorded on this computer has no session rules in this copy, so it will not start one; re-choose the level in Settings',
   AGENT_CONFINEMENT_HOME_UNAVAILABLE: 'the protected home your permission level runs an assistant in could not be prepared, so no session was started',
-  AGENT_CONFINEMENT_HOME_UNWRITABLE: 'a folder name on this computer contains a character ToolsEnabled will not write into an assistant configuration, so it will not start a session it cannot confine',
+  AGENT_CONFINEMENT_HOME_UNWRITABLE: 'a folder name on this computer contains a character ToolsEnabled will not write into an assistant configuration. It will not start a session it cannot hold to your permission level. Choose a different folder in Settings',
   AGENT_CONFINEMENT_NOT_ISOLATED: 'this session was prepared for a permission level that does not match the one recorded here, so it was not started',
   SETUP_MACHINE_RECORD_INVALID: 'the setup recorded on this computer is incomplete, so the tools your level allows cannot be worked out; run through Settings again',
   SETUP_NODE_NOT_FOUND: 'the program ToolsEnabled recorded for running its tools is no longer on this computer; run through Settings again',
-  SETUP_TIER_PROFILE_EMPTY: 'the set of tools allowed at your permission level worked out to nothing at all, which would be read as no limit, so no session was started',
-  SETUP_TIER_PROFILE_UNAVAILABLE: 'the set of tools allowed at your permission level could not be worked out on this computer, so ToolsEnabled will not start a session that only claims to be limited',
+  SETUP_TIER_PROFILE_EMPTY: 'the set of tools allowed at your permission level worked out to nothing at all, which would be read as no limit. No session was started. Choose the level again in Settings',
+  SETUP_TIER_PROFILE_UNAVAILABLE: 'the set of tools allowed at your permission level could not be worked out on this computer. ToolsEnabled will not start a session that only claims to be limited. Choose the level again in Settings',
   SETUP_READ_ONLY_PROFILE_EMPTY: 'the read-only assistant profile worked out to nothing at all, which would be read as no limit, so no session was started',
 
   /* THE FOURTH HALF, raised by the ENGINE rather than by this shell, and the
@@ -148,8 +178,8 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      the engine can still reach it: the session spawns with a scrubbed
      environment, so a PATH this shell can read is not proof of a PATH the child
      gets. Same fault, two vantage points, one instruction. */
-  CODEX_CLI_NOT_FOUND: 'the Codex program could not be found when the session tried to start it; open Windows Terminal and run "winget install OpenAI.Codex" (or "npm install -g @openai/codex" if you have Node), then run "codex login"',
-  CODEX_VERSION_DETECTION_FAILED: 'Codex is installed on this computer but did not answer when asked its version, so ToolsEnabled will not build a session on it; run "codex --version" in Windows Terminal to see what it reports, and "codex doctor" if that does not explain it',
+  CODEX_CLI_NOT_FOUND: 'the Codex program could not be found when the session tried to start it. Open Windows Terminal and run "winget install OpenAI.Codex". If you already have Node, "npm install -g @openai/codex" does the same job. Then run "codex login"',
+  CODEX_VERSION_DETECTION_FAILED: 'Codex is installed on this computer but did not answer when asked its version, so ToolsEnabled will not build a session on it. Run "codex --version" in Windows Terminal to see what it reports. If that does not explain it, run "codex doctor"',
 
   /* THE LAST RESORT, WHICH IS NOT MEANT TO BE REACHED and until now was reached
      by EVERY refusal. src/agent-session.js falls back to this identifier when a
@@ -158,7 +188,7 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      should now mean what it says rather than standing in for all of the above.
      It gets a sentence anyway, because the one thing this table must never do
      again is put a bare constant in front of a person. */
-  AGENT_SESSION_FAILED: 'the session did not start and this copy could not work out why, which is itself a fault worth reporting; try once more, and if it repeats, reinstall ToolsEnabled from a complete build',
+  AGENT_SESSION_FAILED: 'the session did not start and this copy could not work out why, which is itself a fault worth reporting. Try once more. If it happens again, reinstall ToolsEnabled from a complete build',
 
   /* THE FIFTH HALF: THE THREE STEERING CONTROLS, which refuse in their own
      vocabulary and had a sentence for none of it.
@@ -183,13 +213,13 @@ export const UNAVAILABLE_TEXT = Object.freeze({
   AGENT_TURN_ACTIVE: 'this session is already working on a turn; stop that one first, or wait for it to finish',
   AGENT_SESSION_UNKNOWN: 'there is no open session on this screen to act on, so nothing was changed; start one first',
   AGENT_SESSION_EXISTS: 'a session for this agent is already open, so a second was not started; use the one that is running or stop it first',
-  AGENT_SESSION_NOT_READY: 'this screen is not in a state where that can be done -- either a session is already open or this copy is not ready to start one; reload the page and look at what it says before pressing it again',
+  AGENT_SESSION_NOT_READY: 'this screen is not in a state where that can be done. Either a session is already open, or this copy is not ready to start one. Reload the page and read what it says before pressing it again',
   AGENT_SESSION_NO_PROMPT: 'nothing was sent because there was nothing to send; type what you want the agent to do and start it again',
   AGENT_SESSION_NO_ID: 'this copy could not generate the secure identifier a session is tracked by, so none was started; close ToolsEnabled and open it again',
   AGENT_SESSION_VIEW_CLOSED: 'this screen was closed while that was in flight, so it was not completed; nothing is running from it',
   AGENT_SESSION_START_CANCELLED: 'the start was called off before the session opened, so nothing is running; start it again when you are ready',
-  AGENT_ENGINE_INVALID_SESSION: 'the session this screen was acting on is no longer one the agent engine knows about, so nothing was changed; reload the page and start again',
-  AGENT_ENGINE_INVALID_TURN: 'the piece of work this was acting on is no longer one the agent engine knows about, so nothing was changed; reload the page and look at what the session is doing',
+  AGENT_ENGINE_INVALID_SESSION: 'the session this screen was acting on is no longer one the agent engine knows about, so nothing was changed. Reload the page and start again',
+  AGENT_ENGINE_INVALID_TURN: 'the piece of work this was acting on is no longer one the agent engine knows about, so nothing was changed. Reload the page and look at what the session is doing',
 })
 
 /* THE ONE DOOR THIS MODULE LEFT OPEN, AND B6 CLOSED IT.

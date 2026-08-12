@@ -100,8 +100,12 @@ export const TIER_QUESTION_SUB = 'This is the only thing you need to decide righ
  */
 export const TIER_LIMIT_LEAD = 'Before you choose, one thing this program will not pretend about.'
 export const TIER_LIMIT_NOTICE = Object.freeze([
-  'This level decides which tools the assistant is given, and setup writes that configuration for you. An assistant started here also runs inside the level: at a narrower level this computer refuses the work itself, so “cannot reach anything else on this computer” is a limit and not a description.',
-  'It confines what it runs. Take a session over so it continues here and this level applies to everything it does from that point, though not to what it already did elsewhere. Only watch one that keeps running in another program and that program is still deciding what it may do, where choosing a level here does not reach.',
+  /* SPLIT, NOT SHORTENED. Both paragraphs said everything they had to say in
+     two sentences of thirty-odd words each, on the screen where somebody decides
+     how much of their computer to hand over. Every clause below is the clause
+     that was there; what changed is that each one is now its own sentence. */
+  'This level decides which tools the assistant is given, and setup writes that configuration for you. An assistant started here also runs inside the level. At a narrower level this computer refuses the work itself, so “cannot reach anything else on this computer” is a limit and not a description.',
+  'It confines what it runs. Take a session over so it continues here, and this level applies to everything it does from that point. It does not reach what that session already did somewhere else. Only watch one that keeps running in another program, and that program is still deciding what it may do. Choosing a level here does not reach that.',
 ])
 
 /**
