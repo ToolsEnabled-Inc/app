@@ -71,11 +71,50 @@
  *
  * IT IS NOT A SECURITY BOUNDARY CHANGE. Everything copied is the same user's
  * own data, moving between two directories that user already owns, on one
- * machine. agent-spawn-key.enc travels with the records it decrypts because
- * safeStorage is scoped to the Windows user rather than to a path -- splitting
- * them would leave the person with records nothing can read. No wider read
- * access is created: a process that can read the destination could already read
- * the source.
+ * machine. No wider read access is created: a process that can read the
+ * destination could already read the source.
+ *
+ * THE SENTENCE THAT USED TO STAND HERE WAS FALSE, AND IT COST A CUSTOMER THE
+ * PRODUCT. It read: "agent-spawn-key.enc travels with the records it decrypts
+ * because safeStorage is scoped to the Windows USER rather than to a PATH". That
+ * is true of raw DPAPI. It is NOT true of what Electron actually uses on
+ * Windows. MEASURED on the build machine against the two real directories:
+ *
+ *   %APPDATA%\Mission Control\agent-spawn-key.enc  first bytes: "v10"
+ *   %APPDATA%\ToolsEnabled\agent-spawn-key.enc     first bytes: "v10"
+ *
+ * "v10" is Chromium OSCrypt: AES-256-GCM under a key that is NOT the OS user's,
+ * but a per-profile random key kept in <userData>\Local State (os_crypt.
+ * encrypted_key, itself DPAPI-wrapped). Those two Local State files hold
+ * DIFFERENT keys, and the cross-decrypt matrix is total:
+ *
+ *   blob=Mission Control  key=Mission Control -> OK (119-byte PKCS8 PEM)
+ *   blob=Mission Control  key=ToolsEnabled    -> FAIL (unable to authenticate data)
+ *   blob=ToolsEnabled     key=Mission Control -> FAIL (unable to authenticate data)
+ *   blob=ToolsEnabled     key=ToolsEnabled    -> OK (119-byte PKCS8 PEM)
+ *
+ * So this module copied the CIPHERTEXT into a directory whose key cannot open
+ * it, and Local State is (correctly) excluded above as a Chromium file. The
+ * result was not a degraded feature. shell/spawn-record.cjs loadOrCreateKey()
+ * finds a key file, fails to decrypt it, and raises SPAWN_RECORD_KEY_UNREADABLE
+ * -- and it deliberately REFUSES to regenerate, because replacing a key would
+ * orphan the signatures of records that already exist. That refusal is right for
+ * a key that belongs to this install. Applied to a key this install could never
+ * open, it disabled Start PERMANENTLY, on every launch, at every tier, with the
+ * only explanation being "the key that signs the record of what runs here cannot
+ * be opened". A clean A/B confirmed it: with the legacy directory absent, a fresh
+ * key is created and a session runs.
+ *
+ * SO NOTHING SEALED BY THE KEYSTORE IS ADOPTED UNTIL IT IS PROVEN TO OPEN.
+ * The caller injects canDecrypt(); this module asks it before copying, and the
+ * ABSENCE of an answer is refusal, not permission -- an unchecked blob is
+ * exactly the "absence read as consent" this file exists to correct, and it is
+ * the shape that produced the defect above. A refused key takes its ledger with
+ * it: records signed by a key nothing can load would be re-signed by the fresh
+ * key and then fail their own verification, so the product would greet its owner
+ * by accusing itself of tampering. Neither file is deleted or moved -- the source
+ * directory is untouched -- and the refusal is written into the record below with
+ * the path, so the history is findable rather than silently dropped.
  */
 
 const RECORD_FILE = '.userdata-adoption.json'
@@ -131,6 +170,63 @@ const PRODUCT_STATE_ENTRIES = Object.freeze([
    another process may hold open, and a failed copy of a browser cache must not
    cost the person their workspace. */
 const BEST_EFFORT_ENTRIES = Object.freeze(['Local Storage'])
+
+/* THE ENTRY THAT IS CIPHERTEXT, AND THE ENTRIES THAT ARE WORTHLESS WITHOUT IT.
+   Sealed by the OS keystore, so whether it survives the move is a question only
+   the keystore can answer -- see the header. The bound list is not "related
+   files": it is every file whose meaning DEPENDS on that key, and adopting one
+   of those without the key is strictly worse than adopting neither, because the
+   fresh key would sign new records onto a chain whose existing signatures can no
+   longer be checked. */
+const KEYSTORE_SEALED_ENTRY = 'agent-spawn-key.enc'
+const ENTRIES_BOUND_TO_SEALED_KEY = Object.freeze(['agent-spawn-records.jsonl'])
+
+/* Stable codes, so the record is machine-readable and a support answer is not
+   prose archaeology. NOT_CHECKABLE is deliberately distinct from REFUSED: "the
+   keystore said no" and "nobody asked the keystore" are different facts about
+   the person's data, and collapsing them would hide a wiring mistake behind a
+   sentence about encryption. */
+const SEALED_KEY_NOT_ADOPTED = 'SEALED_KEY_NOT_ADOPTED'
+const SEALED_KEY_VERDICTS = Object.freeze({
+  DECRYPTABLE: 'DECRYPTABLE',
+  NOT_PRESENT: 'NOT_PRESENT',
+  UNREADABLE: 'UNREADABLE',
+  NOT_CHECKABLE: 'NOT_CHECKABLE',
+  REFUSED: 'REFUSED',
+})
+
+/* CAN THIS INSTALL ACTUALLY OPEN THE PRIOR INSTALL'S SIGNING KEY?
+ *
+ * Asked of the BYTES, by the only component that can answer -- the keystore, via
+ * the injected canDecrypt. Every non-answer is a refusal:
+ *
+ *   - no validator injected      -> NOT_CHECKABLE. A caller that forgot to wire
+ *                                   the keystore must not thereby be granted the
+ *                                   adoption that the wiring exists to gate.
+ *   - the validator threw        -> REFUSED. safeStorage raises rather than
+ *                                   returning false when a blob does not
+ *                                   authenticate, which is the ACTUAL production
+ *                                   path for this defect.
+ *   - anything but boolean true  -> REFUSED. Strict, because `undefined` from a
+ *                                   validator that forgot to return is the same
+ *                                   silence this module refuses everywhere else.
+ */
+function sealedKeyVerdict({ source, fs, path, canDecrypt }) {
+  let bytes
+  try {
+    bytes = fs.readFileSync(path.join(source, KEYSTORE_SEALED_ENTRY))
+  } catch (error) {
+    return error && error.code === 'ENOENT'
+      ? SEALED_KEY_VERDICTS.NOT_PRESENT
+      : SEALED_KEY_VERDICTS.UNREADABLE
+  }
+  if (typeof canDecrypt !== 'function') return SEALED_KEY_VERDICTS.NOT_CHECKABLE
+  try {
+    return canDecrypt(bytes) === true ? SEALED_KEY_VERDICTS.DECRYPTABLE : SEALED_KEY_VERDICTS.REFUSED
+  } catch {
+    return SEALED_KEY_VERDICTS.REFUSED
+  }
+}
 
 function samePath(a, b) {
   /* Windows paths are case-insensitive; adopting a directory into itself would
@@ -246,6 +342,12 @@ function adoptLegacyUserData({
   searchRoot,
   fs,
   path,
+  /* THE KEYSTORE'S OWN ANSWER, INJECTED. (bytes) => boolean: true only if THIS
+     install can actually open that ciphertext. Deliberately has NO default --
+     see sealedKeyVerdict(): a missing validator refuses the sealed key rather
+     than waving it through, so forgetting to wire this costs a person their old
+     signed history and never costs them the Start control. */
+  canDecrypt,
   legacyNames = LEGACY_USER_DATA_NAMES,
   now = () => new Date().toISOString(),
 } = {}) {
@@ -329,8 +431,34 @@ function adoptLegacyUserData({
 
   const entries = []
   const failures = []
+  const notes = []
+
+  /* WHAT THE KEYSTORE SAYS ABOUT THE PRIOR INSTALL'S SIGNING KEY, decided ONCE,
+     before the first byte moves. Anything short of DECRYPTABLE takes the key and
+     everything bound to it out of this adoption. */
+  const sealedVerdict = sealedKeyVerdict({ source, fs, path, canDecrypt })
+  const refusedEntries = new Set()
+  if (sealedVerdict !== SEALED_KEY_VERDICTS.DECRYPTABLE) {
+    for (const entry of [KEYSTORE_SEALED_ENTRY, ...ENTRIES_BOUND_TO_SEALED_KEY]) {
+      /* Only what the source actually has. Naming a file that was never there
+         would be a note about nothing, and this record is read by people. */
+      if (fs.existsSync(path.join(source, entry))) refusedEntries.add(entry)
+    }
+    if (refusedEntries.size > 0) {
+      notes.push({
+        code: SEALED_KEY_NOT_ADOPTED,
+        verdict: sealedVerdict,
+        entries: [...refusedEntries],
+        /* The path, because the data is still THERE and the only unhelpful
+           version of this note is one that does not say where. Nothing was
+           deleted or moved. */
+        from: source,
+      })
+    }
+  }
 
   for (const entry of PRODUCT_STATE_ENTRIES) {
+    if (refusedEntries.has(entry)) continue
     const from = path.join(source, entry)
     const to = path.join(userDataPath, entry)
     if (!fs.existsSync(from) || fs.existsSync(to)) continue
@@ -358,18 +486,18 @@ function adoptLegacyUserData({
   if (requiredFailed) {
     /* Leave the record at in-progress. The next launch resumes the same source
        and copies whatever is still missing. */
-    return { adopted: entries.length > 0, reason: 'INCOMPLETE', from: source, entries, failures }
+    return { adopted: entries.length > 0, reason: 'INCOMPLETE', from: source, entries, failures, notes }
   }
 
   try {
     writeRecord({
       recordPath,
       fs,
-      payload: { version: RECORD_VERSION, status: 'complete', adopted: true, from: source, entries, failures, at: now() },
+      payload: { version: RECORD_VERSION, status: 'complete', adopted: true, from: source, entries, failures, notes, at: now() },
     })
   } catch { /* the copy succeeded; a missing record only costs us a re-check */ }
 
-  return { adopted: true, reason: 'ADOPTED', from: source, entries, failures }
+  return { adopted: true, reason: 'ADOPTED', from: source, entries, failures, notes }
 }
 
 module.exports = {
@@ -378,5 +506,9 @@ module.exports = {
   LEGACY_USER_DATA_NAMES,
   PRODUCT_STATE_ENTRIES,
   BEST_EFFORT_ENTRIES,
+  KEYSTORE_SEALED_ENTRY,
+  ENTRIES_BOUND_TO_SEALED_KEY,
+  SEALED_KEY_NOT_ADOPTED,
+  SEALED_KEY_VERDICTS,
   adoptLegacyUserData,
 }

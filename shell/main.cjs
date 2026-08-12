@@ -96,6 +96,29 @@ adoptLegacyUserData({
   searchRoot: path.dirname(app.getPath('userData')),
   fs,
   path,
+  /* THE KEYSTORE ANSWERS FOR ITSELF, on the real bytes, before they are adopted.
+     safeStorage on Windows is Chromium OSCrypt, whose AES key lives in the
+     PROFILE's Local State -- so a blob written under the old productName cannot
+     be opened here, and adopting it disabled Start permanently. This is the
+     probe that catches that; see shell/userdata-adoption.cjs.
+
+     A THROW IS AN ANSWER: decryptString raises on a blob that does not
+     authenticate, which is exactly the production case. Returning false rather
+     than propagating keeps a launch-time carry-over from becoming a launch
+     failure, and the adoption module records WHY the key was left behind.
+
+     isEncryptionAvailable() is asked first because decryptString on an
+     unavailable keystore throws for a reason that has nothing to do with these
+     bytes, and calling that "REFUSED" would put a wrong cause in the record. */
+  canDecrypt: (bytes) => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) return false
+      safeStorage.decryptString(bytes)
+      return true
+    } catch {
+      return false
+    }
+  },
 })
 
 /* WHERE THE CAPABILITY LAYER KEEPS WHAT IT WRITES, AND WHY THE SHELL DECIDES IT.

@@ -52,12 +52,20 @@ function seedLegacyInstall(legacy, { theme = 'black' } = {}) {
   fs.writeFileSync(path.join(legacy, 'Cache', 'data_0'), 'x'.repeat(1024))
 }
 
-function adopt(paths) {
+/* THE DEFAULT IS "THE KEYSTORE CAN OPEN IT", and that is a statement about what
+   these tests mean, not a convenience. Every assertion below that expects the
+   signing key and its ledger to travel is an assertion about the case where THIS
+   install can actually open them; the module now refuses to carry ciphertext it
+   cannot prove usable, so the case has to be stated rather than assumed. The
+   refusal paths get their own tests further down, and one of them passes no
+   validator at all. */
+function adopt(paths, { canDecrypt = () => true } = {}) {
   return adoptLegacyUserData({
     userDataPath: paths.current,
     searchRoot: paths.root,
     fs,
     path,
+    canDecrypt,
     legacyNames: ['Mission Control'],
   })
 }
@@ -430,4 +438,252 @@ test('an existing file is never replaced by the one being adopted', () => {
 
   const prefs = JSON.parse(fs.readFileSync(path.join(paths.current, 'renderer-prefs.json'), 'utf8'))
   assert.equal(prefs.values['mc.theme'], 'tan')
+})
+
+/* ==================================================================
+   THE ADOPTED KEY THAT COULD NOT BE OPENED, AND THE START CONTROL IT
+   PERMANENTLY DISABLED.
+
+   MEASURED on the build machine, against the owner's two real directories,
+   before any of this was written:
+
+     %APPDATA%\Mission Control\agent-spawn-key.enc  -> first bytes "v10"
+     %APPDATA%\ToolsEnabled\agent-spawn-key.enc     -> first bytes "v10"
+
+   "v10" is Chromium OSCrypt: AES-256-GCM under a per-PROFILE key kept in
+   <userData>\Local State, not under the OS user. The two profiles' keys differ,
+   and the cross-decrypt matrix was total -- each blob opened under its own
+   profile's key and failed to authenticate under the other's. This module
+   carried the ciphertext across the rename and left the key behind, so
+   shell/spawn-record.cjs found a key file it could not decrypt, raised
+   SPAWN_RECORD_KEY_UNREADABLE, and -- correctly, for a key that belongs to the
+   install -- refused to regenerate. Start was disabled on every launch at every
+   tier, and the product's only explanation was that a key could not be opened.
+
+   THESE TESTS ASSERT THE CONSEQUENCE, NOT THE COPY LIST. The thing that was
+   broken was the Start control, so what is checked here is the REAL recorder's
+   own availability() answer against the REAL adopted directory. A test that only
+   counted copied files would have gone green throughout the outage.
+   ================================================================== */
+
+const { createSpawnRecorder } = require('../../shell/spawn-record.cjs')
+const {
+  KEYSTORE_SEALED_ENTRY,
+  ENTRIES_BOUND_TO_SEALED_KEY,
+  SEALED_KEY_NOT_ADOPTED,
+  SEALED_KEY_VERDICTS,
+} = require('../../shell/userdata-adoption.cjs')
+
+/* A keystore that behaves the way the real one was MEASURED to behave: bound to
+   a profile, not to the user. Blobs carry the profile that sealed them and
+   decryptString THROWS -- it does not return false -- when asked to open one
+   from a different profile, which is the actual production failure. */
+function profileBoundKeystore(profile) {
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString: (text) => Buffer.from('v10:' + profile + ':' + text, 'utf8'),
+    decryptString: (buffer) => {
+      const raw = Buffer.from(buffer).toString('utf8')
+      const prefix = 'v10:' + profile + ':'
+      if (!raw.startsWith(prefix)) {
+        const error = new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.')
+        error.code = 'ERR_CRYPTO_AUTH'
+        throw error
+      }
+      return raw.slice(prefix.length)
+    },
+  }
+}
+
+/* The legacy install as it really is: a spawn key and a ledger written by the
+   OLD profile's keystore, so the new profile genuinely cannot open them. */
+function seedLegacyWithRealSignedHistory(legacy, profile = 'mission-control') {
+  seedLegacyInstall(legacy)
+  /* seedLegacyInstall writes placeholder bytes for both. Clear them so the REAL
+     recorder below produces a genuinely sealed key and a genuinely signed,
+     hash-chained ledger -- the thing whose portability is under test. */
+  fs.rmSync(path.join(legacy, 'agent-spawn-key.enc'), { force: true })
+  fs.rmSync(path.join(legacy, 'agent-spawn-records.jsonl'), { force: true })
+  const old = profileBoundKeystore(profile)
+  const recorder = createSpawnRecorder({ safeStorage: old, directory: legacy })
+  recorder.record({ action: 'agent_session_start', sessionId: 'legacy-1', details: {} })
+  assert.equal(recorder.verify().ok, true, 'the seeded legacy history must verify under its own key')
+}
+
+/* What the product asks before it offers a Start control. */
+function startIsOffered(userDataPath, keystore) {
+  return createSpawnRecorder({ safeStorage: keystore, directory: userDataPath }).availability()
+}
+
+test('a signing key this install cannot open is left behind, and Start still works', () => {
+  const paths = makeAppData()
+  seedLegacyWithRealSignedHistory(paths.legacy)
+  const here = profileBoundKeystore('toolsenabled')
+
+  const result = adopt(paths, { canDecrypt: (bytes) => { here.decryptString(bytes); return true } })
+
+  assert.equal(result.adopted, true, 'everything else must still be carried across')
+  assert.equal(
+    fs.existsSync(path.join(paths.current, KEYSTORE_SEALED_ENTRY)), false,
+    'the undecryptable key was adopted -- this is the defect that disabled Start permanently',
+  )
+  for (const bound of ENTRIES_BOUND_TO_SEALED_KEY) {
+    assert.equal(
+      fs.existsSync(path.join(paths.current, bound)), false,
+      bound + ' was carried without the key that signs it; a fresh key would sign onto a chain whose own signatures no longer check out',
+    )
+  }
+  /* The settings the person actually chose still travel. A fix that protected
+     Start by abandoning the carry-over would pass the two assertions above. */
+  const prefs = JSON.parse(fs.readFileSync(path.join(paths.current, 'renderer-prefs.json'), 'utf8'))
+  assert.equal(prefs.values['mc.theme'], 'black', 'the rest of the carry-over was thrown away with the key')
+  assert.equal(fs.existsSync(path.join(paths.current, 'workspace', 'notes.md')), true)
+
+  /* THE POINT. */
+  const offered = startIsOffered(paths.current, here)
+  assert.equal(
+    offered.ok, true,
+    'Start is still disabled after the fix (' + offered.code + ') -- a person upgrading cannot run an agent at all',
+  )
+  assert.equal(
+    fs.existsSync(path.join(paths.current, KEYSTORE_SEALED_ENTRY)), true,
+    'availability() should have minted a fresh key in the new profile',
+  )
+  assert.equal(startIsOffered(paths.current, here).ok, true, 'and it must keep working on the next launch')
+})
+
+test('the refusal is written down with the path, so the old history is findable', () => {
+  const paths = makeAppData()
+  seedLegacyWithRealSignedHistory(paths.legacy)
+
+  const result = adopt(paths, { canDecrypt: () => false })
+
+  const note = (result.notes || []).find((entry) => entry.code === SEALED_KEY_NOT_ADOPTED)
+  assert.ok(note, 'a key was silently dropped with nothing recorded about it')
+  assert.equal(note.verdict, SEALED_KEY_VERDICTS.REFUSED)
+  assert.deepEqual(
+    [...note.entries].sort(),
+    [KEYSTORE_SEALED_ENTRY, ...ENTRIES_BOUND_TO_SEALED_KEY].sort(),
+    'the note must name everything it left behind',
+  )
+  assert.equal(note.from, paths.legacy, 'a note that does not say WHERE the data is is not a note')
+
+  const record = JSON.parse(fs.readFileSync(path.join(paths.current, RECORD_FILE), 'utf8'))
+  const durable = (record.notes || []).find((entry) => entry.code === SEALED_KEY_NOT_ADOPTED)
+  assert.ok(durable, 'the note did not survive into the record on disk, which is what support reads')
+  assert.equal(durable.from, paths.legacy)
+
+  /* Nothing was destroyed to achieve any of this. */
+  assert.equal(fs.existsSync(path.join(paths.legacy, KEYSTORE_SEALED_ENTRY)), true, 'the source key was removed')
+  for (const bound of ENTRIES_BOUND_TO_SEALED_KEY) {
+    assert.equal(fs.existsSync(path.join(paths.legacy, bound)), true, 'the source ' + bound + ' was removed')
+  }
+})
+
+test('a keystore that throws is refused, not treated as a pass', () => {
+  /* The production shape: safeStorage raises on a blob that does not
+     authenticate. A try/catch that swallowed the throw to `true` would restore
+     the whole defect. */
+  const paths = makeAppData()
+  seedLegacyWithRealSignedHistory(paths.legacy)
+  const here = profileBoundKeystore('toolsenabled')
+
+  const result = adopt(paths, { canDecrypt: (bytes) => { here.decryptString(bytes); return true } })
+
+  const note = (result.notes || []).find((entry) => entry.code === SEALED_KEY_NOT_ADOPTED)
+  assert.ok(note, 'a throwing keystore let the key through')
+  assert.equal(note.verdict, SEALED_KEY_VERDICTS.REFUSED)
+})
+
+test('ABSENCE: with no decryptability check wired at all, the sealed key is refused', () => {
+  /* THE HOUSE DEFECT, TESTED BEFORE THE PRESENT CASE. Nine times in this
+     codebase a missing field, an empty string or a falsy default has been read
+     as permission. A caller that never passes canDecrypt has stated NOTHING
+     about whether this install can open the key, and "nothing" must not mean
+     "carry it". Adopting on silence is exactly how the key that disabled Start
+     got there. */
+  const paths = makeAppData()
+  seedLegacyWithRealSignedHistory(paths.legacy)
+
+  const result = adoptLegacyUserData({
+    userDataPath: paths.current,
+    searchRoot: paths.root,
+    fs,
+    path,
+    legacyNames: ['Mission Control'],
+    /* canDecrypt deliberately absent */
+  })
+
+  assert.equal(
+    fs.existsSync(path.join(paths.current, KEYSTORE_SEALED_ENTRY)), false,
+    'silence was read as permission to adopt an unverified key',
+  )
+  const note = (result.notes || []).find((entry) => entry.code === SEALED_KEY_NOT_ADOPTED)
+  assert.ok(note, 'nothing was recorded about the key that was skipped')
+  assert.equal(
+    note.verdict, SEALED_KEY_VERDICTS.NOT_CHECKABLE,
+    'an unwired validator must be distinguishable from a keystore that said no',
+  )
+  assert.equal(startIsOffered(paths.current, profileBoundKeystore('toolsenabled')).ok, true)
+})
+
+test('a validator that answers anything other than true is refused', () => {
+  /* `undefined` from a validator that forgot to return, and a truthy string,
+     are both silence wearing a costume. */
+  for (const answer of [undefined, null, 'yes', 1, {}]) {
+    const paths = makeAppData()
+    seedLegacyWithRealSignedHistory(paths.legacy)
+
+    adopt(paths, { canDecrypt: () => answer })
+
+    assert.equal(
+      fs.existsSync(path.join(paths.current, KEYSTORE_SEALED_ENTRY)), false,
+      'a validator answering ' + String(answer) + ' was treated as proof the key opens',
+    )
+  }
+})
+
+test('a ledger whose key is missing from the old install is not adopted on its own', () => {
+  /* Records signed by a key that does not exist anywhere. Carrying them would
+     mint a fresh key, sign new records onto the same chain, and make the product
+     report its own history as broken on the home screen. */
+  const paths = makeAppData()
+  seedLegacyWithRealSignedHistory(paths.legacy)
+  fs.rmSync(path.join(paths.legacy, KEYSTORE_SEALED_ENTRY))
+
+  const result = adopt(paths, { canDecrypt: () => true })
+
+  for (const bound of ENTRIES_BOUND_TO_SEALED_KEY) {
+    assert.equal(
+      fs.existsSync(path.join(paths.current, bound)), false,
+      bound + ' was adopted with no key in existence to check its signatures',
+    )
+  }
+  const note = (result.notes || []).find((entry) => entry.code === SEALED_KEY_NOT_ADOPTED)
+  assert.ok(note, 'the orphaned ledger was dropped with nothing recorded')
+  assert.equal(note.verdict, SEALED_KEY_VERDICTS.NOT_PRESENT)
+  assert.deepEqual(note.entries, [...ENTRIES_BOUND_TO_SEALED_KEY], 'the note named a key that was never there')
+})
+
+test('a key this install CAN open is still carried across with its ledger', () => {
+  /* The other half. A fix that simply stopped adopting the key would pass every
+     refusal test above; this is the one it would fail. Same keystore profile on
+     both sides -- the case that arises on any move where the profile key travels
+     (a restore, or a platform whose keystore really is user-scoped). */
+  const paths = makeAppData()
+  seedLegacyWithRealSignedHistory(paths.legacy, 'same-profile')
+  const shared = profileBoundKeystore('same-profile')
+
+  const result = adopt(paths, { canDecrypt: (bytes) => { shared.decryptString(bytes); return true } })
+
+  assert.equal(fs.existsSync(path.join(paths.current, KEYSTORE_SEALED_ENTRY)), true, 'a usable key was left behind')
+  for (const bound of ENTRIES_BOUND_TO_SEALED_KEY) {
+    assert.equal(fs.existsSync(path.join(paths.current, bound)), true, bound + ' was separated from a key that opens it')
+  }
+  assert.equal((result.notes || []).length, 0, 'a successful adoption must not record a refusal')
+
+  const carried = createSpawnRecorder({ safeStorage: shared, directory: paths.current })
+  assert.equal(carried.availability().ok, true)
+  assert.equal(carried.verify().ok, true, 'the carried history no longer verifies under its own key')
+  assert.equal(carried.history().total, 1, 'the person lost their previous session record')
 })

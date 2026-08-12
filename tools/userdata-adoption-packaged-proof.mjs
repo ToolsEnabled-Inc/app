@@ -19,6 +19,7 @@
 
 import { spawn, execFile as execFileCb } from 'node:child_process'
 import { promisify } from 'node:util'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -31,6 +32,7 @@ const POLL_INTERVAL_MS = 250
 const PROBE_THEME = 'black'
 const PROBE_NOTE = '# work that predates the rename\n'
 const CACHE_MARKER = 'legacy-only-marker.bin'
+const LEGACY_LEDGER_MARKER = 'legacy-session-that-must-not-travel'
 
 const unpackedDirectory = path.resolve(process.argv[2] || 'release/win-unpacked')
 const executable = path.join(unpackedDirectory, APP_EXE)
@@ -233,13 +235,98 @@ async function proveStrandedByAnEvidencelessVerdict(root) {
   return true
 }
 
+/* SCENARIO 3: THE SIGNING KEY THE NEW INSTALL CANNOT OPEN.
+ *
+ * THE ONLY PLACE THIS CAN BE PROVED. The unit suite proves the module refuses an
+ * unopenable key; it cannot prove that the REAL keystore is the thing being
+ * asked. If shell/main.cjs stopped passing canDecrypt, every unit test would
+ * stay green and the module would answer NOT_CHECKABLE -- a refusal that looks
+ * identical from the outside and is reached for the wrong reason.
+ *
+ * So the assertion is on the VERDICT, not merely on the refusal: only a real
+ * safeStorage that was handed real bytes and threw can produce REFUSED. That one
+ * word is the wiring.
+ *
+ * WHY THIS MATTERS: adopting this file across the rename disabled Start
+ * permanently for every upgrading customer, at every tier, with the product's
+ * only explanation being that a key could not be opened. Measured on the build
+ * machine: %APPDATA%\Mission Control\agent-spawn-key.enc and the ToolsEnabled one
+ * both begin "v10" (Chromium OSCrypt) and neither opens under the other's
+ * profile key. The blob seeded below fails to authenticate for the same reason. */
+async function proveUnopenableSigningKeyIsNotAdopted(root) {
+  const legacy = path.join(root, 'Mission Control')
+  const current = path.join(root, 'ToolsEnabled')
+  seedLegacyInstall(legacy)
+
+  /* A well-formed Chromium OSCrypt header over bytes no keystore on this machine
+     can authenticate -- the same 150-byte shape as the real file. */
+  const sealedKey = Buffer.concat([Buffer.from('v10', 'utf8'), crypto.randomBytes(147)])
+  fs.writeFileSync(path.join(legacy, 'agent-spawn-key.enc'), sealedKey)
+  const legacyLedger = `{"sequence":1,"action":"agent_session_start","sessionId":"${LEGACY_LEDGER_MARKER}"}\n`
+  fs.writeFileSync(path.join(legacy, 'agent-spawn-records.jsonl'), legacyLedger)
+
+  const { record } = await runAgainst({ current, settled: () => true })
+
+  if (record.adopted !== true) {
+    fail(`the packaged app refused the whole carry-over (reason ${record.reason}) instead of only the key it cannot open`)
+    return false
+  }
+  const note = (record.notes || []).find((entry) => entry.code === 'SEALED_KEY_NOT_ADOPTED')
+  if (!note) {
+    fail(
+      'the packaged app adopted the signing key with no note about it. This is the shipped defect: '
+      + 'shell/spawn-record.cjs will find a key it cannot decrypt, raise SPAWN_RECORD_KEY_UNREADABLE, and '
+      + 'refuse to regenerate -- Start is then disabled on every launch with no way back.',
+    )
+    return false
+  }
+  if (note.verdict !== 'REFUSED') {
+    fail(
+      `the key was skipped with verdict ${note.verdict}, not REFUSED. Only a real keystore that was handed the `
+      + 'real bytes and threw can answer REFUSED, so this build is NOT asking the keystore -- '
+      + 'shell/main.cjs is no longer passing canDecrypt, and the refusal here is an accident.',
+    )
+    return false
+  }
+  const adoptedKey = path.join(current, 'agent-spawn-key.enc')
+  if (fs.existsSync(adoptedKey) && fs.readFileSync(adoptedKey).equals(sealedKey)) {
+    fail('the unopenable key is sitting in the new install; Start is permanently disabled for this customer')
+    return false
+  }
+  const adoptedLedger = path.join(current, 'agent-spawn-records.jsonl')
+  if (fs.existsSync(adoptedLedger) && fs.readFileSync(adoptedLedger, 'utf8').includes(LEGACY_LEDGER_MARKER)) {
+    fail('records signed by a key nothing can load were carried across; the product will report its own history as broken')
+    return false
+  }
+  /* Nothing was destroyed to achieve it. */
+  if (!fs.existsSync(path.join(legacy, 'agent-spawn-key.enc'))
+    || !fs.readFileSync(path.join(legacy, 'agent-spawn-records.jsonl'), 'utf8').includes(LEGACY_LEDGER_MARKER)) {
+    fail('the previous install\'s signed history was removed rather than left where the note says it is')
+    return false
+  }
+  /* The rest of the person's data still travelled. */
+  const prefs = JSON.parse(fs.readFileSync(path.join(current, 'renderer-prefs.json'), 'utf8'))
+  if (prefs.values?.['mc.theme'] !== PROBE_THEME) {
+    fail('the carry-over was abandoned along with the key')
+    return false
+  }
+  console.log('[userdata-adoption-proof] PASS the unopenable key: refused by the REAL keystore, everything else adopted')
+  console.log(`[userdata-adoption-proof]   verdict: ${note.verdict}; left behind: ${note.entries.join(', ')}`)
+  console.log(`[userdata-adoption-proof]   still readable at: ${path.basename(note.from)}`)
+  return true
+}
+
 async function main() {
   if (!fs.existsSync(executable)) {
     fail(`no packaged executable at ${executable} -- build it first (electron-builder --win --dir)`)
     return
   }
 
-  for (const scenario of [provePlainRename, proveStrandedByAnEvidencelessVerdict]) {
+  for (const scenario of [
+    provePlainRename,
+    proveStrandedByAnEvidencelessVerdict,
+    proveUnopenableSigningKeyIsNotAdopted,
+  ]) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'te-adoption-proof-'))
     try {
       const passed = await scenario(root)
