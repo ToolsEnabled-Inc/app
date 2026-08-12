@@ -34,6 +34,7 @@
 // never 0.
 
 import { spawn } from "node:child_process";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +42,68 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
 const BASELINE_PATH = path.join(HERE, "test-baseline.json");
+
+// THE TREE MUST NOT MOVE UNDER THE MEASUREMENT.
+//
+// Measured 2026-08-11 (R1526), and it is why this exists: a `--update` run in
+// a detached worktree reported 17 failures five minutes after the identical
+// command reported 0, and wrote all 17 into the baseline as accepted known
+// failures. Nothing had changed in the code. Another process on the machine
+// had moved `capability/` out of the tree while the suite was running, so
+// seventeen tests died on ENOENT reading a payload that had been there when
+// the run started.
+//
+// That is the worst thing this gate can do. A regression it misses is a bug
+// that ships; a baseline it RAISES on environmental noise is a permanent,
+// signed-off licence for real failures to hide behind, and it looks exactly
+// like a deliberate human decision afterwards.
+//
+// tools/check-test-inputs.mjs already refuses an incomplete checkout at the
+// START of `npm test` -- but a check at the start cannot see a directory
+// removed at second sixty. So the inputs are fingerprinted before and after,
+// and a reading taken across a change is refused outright rather than ruled
+// on. Same doctrine this file already applies to its own disagreeing counts:
+// refuse to rule on a reading it cannot trust.
+//
+// dist/ is on this list even though it is OPTIONAL to the suite, and that is
+// the point: its absence is handled by an honest skip, so moving it mid-run
+// silently changes the skip count rather than the failure count. Measured in
+// the same session -- two sequential runs of an unchanged tree reported 3
+// skips and then 2, because something moved dist/ between them. A reading
+// whose skip count is not reproducible is not reproducible.
+const MEASUREMENT_INPUTS = [
+  path.join(REPO_ROOT, "capability"),
+  path.join(REPO_ROOT, "dist"),
+  path.join(REPO_ROOT, "private", "capability-source.owner.json"),
+  path.join(REPO_ROOT, "private", "owner-data-patterns.owner.json"),
+  path.join(REPO_ROOT, "tools", "test"),
+];
+
+function fingerprintInputs() {
+  const fingerprint = {};
+  for (const target of MEASUREMENT_INPUTS) {
+    const key = path.relative(REPO_ROOT, target).split(path.sep).join("/");
+    if (!existsSync(target)) {
+      fingerprint[key] = "absent";
+      continue;
+    }
+    try {
+      const stats = statSync(target);
+      fingerprint[key] = stats.isDirectory()
+        ? `dir:${readdirSync(target).length} entries`
+        : `file:${stats.size} bytes`;
+    } catch (error) {
+      fingerprint[key] = `unreadable:${error.code ?? "unknown"}`;
+    }
+  }
+  return fingerprint;
+}
+
+function describeFingerprintDrift(before, after) {
+  return Object.keys(before)
+    .filter((key) => before[key] !== after[key])
+    .map((key) => `  ${key}: ${before[key]} -> ${after[key]}`);
+}
 
 // Single source of truth for what the suite IS lives in package.json's
 // `test` script. This spawns that entry point rather than restating the
@@ -166,10 +229,28 @@ async function main() {
   );
 
   console.log(`Test ratchet: running \`${SUITE_COMMAND}\` ...`);
+  const inputsBefore = fingerprintInputs();
   const { code, stdout, stderr } = await runSuite();
+  const inputsAfter = fingerprintInputs();
   const { failures, totalNotOk, reportedFail, reportedTests } = parseTap(stdout);
 
   // --- measurement integrity, before any verdict -------------------------
+
+  // The tree first, because everything below is a reading OF the tree. A run
+  // whose inputs moved underneath it is not a weaker measurement, it is not a
+  // measurement -- and `--update` would carve the resulting noise into the
+  // baseline permanently. See MEASUREMENT_INPUTS above for the run this cost.
+  const drift = describeFingerprintDrift(inputsBefore, inputsAfter);
+  if (drift.length > 0) {
+    throw new Error(
+      "the tree changed while the suite was running, so this reading is not a " +
+        "measurement of the code:\n" +
+        `${drift.join("\n")}\n` +
+        "Nothing has been ruled on and the baseline has NOT been touched. " +
+        "Find out what else is writing to this checkout -- another test run, a " +
+        "build, or another session -- and re-measure in a tree only you are using.",
+    );
+  }
 
   if (reportedTests === null) {
     const detail = (stderr.trim() || stdout.trim()).slice(-2000);
@@ -177,7 +258,11 @@ async function main() {
     throw new Error(
       "could not find a `# tests N` summary in the runner output; the suite " +
         `did not run in the shape this gate reads (child exit ${code}). ` +
-        "If the discovery guard rejected the run, fix that first.",
+        "The runner output printed above says why. Child exit 3 is the " +
+        "derived-input gate (tools/check-test-inputs.mjs) refusing an " +
+        "incomplete checkout, and exit 1 with no TAP is usually the " +
+        "discovery guard (tools/check-suites-discovered.mjs); either way, " +
+        "clear that first -- this gate has measured nothing about the code.",
     );
   }
   if (reportedTests === 0) {

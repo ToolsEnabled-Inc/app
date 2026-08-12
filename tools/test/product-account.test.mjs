@@ -341,12 +341,25 @@ test('fails closed: a session is not resurrected after the account file becomes 
 
 test('fails closed: an expired session', async (t) => {
   const directory = workspace(t)
-  const account = await withAccount(directory, { store: { sessionLifetimeMs: 1000 } })
+
+  /* THE FIXTURE GETS THE INJECTED CLOCK TOO, not just the reader below.
+     Measured 2026-08-11 (R1526): with three suite runs going at once this
+     case failed on the line under the sign-in -- `signedIn` was already
+     false -- because the lifetime here is ONE REAL SECOND and the machine
+     took longer than that to get from signIn() to the check. The runner
+     recorded duration_ms 2006 for the case that failed. Nothing had failed
+     closed; the test was racing the wall clock to set up its own
+     precondition, and losing.
+     The claim being made is "a session past its lifetime is not signed in",
+     and that claim has nothing to do with how fast the machine is. The case
+     immediately below already knew this and says so in three words. */
+  let clock = Date.now()
+  const account = await withAccount(directory, { store: { sessionLifetimeMs: 1000, now: () => clock } })
   assert.equal((await account.signIn({ username: 'josh', password: PASSWORD })).ok, true)
   assert.equal(account.current().signedIn, true)
 
   /* Time moves, nothing else does. */
-  let clock = Date.now() + 60_000
+  clock += 60_000
   const later = createAccountStore({ safeStorage: keystore(), directory, now: () => clock })
   assert.equal(later.current().signedIn, false)
   assert.equal(later.principal(), UNAUTHENTICATED_PRINCIPAL)

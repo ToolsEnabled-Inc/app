@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, statSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -16,11 +16,111 @@ import { fileURLToPath } from 'node:url';
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const GATE = join(REPO, 'tools', 'check-license-notices.mjs');
 
+// THE PLANT BELOW EDITS THE REAL NOTICE, SO IT NEEDS A CROSS-PROCESS LOCK.
+//
+// Measured 2026-08-11 (R1526), three `npm test` runs started together in one
+// checkout: one of them went red on 'the duplicate-paragraph rule does not
+// apply to reproduced third-party licence texts' -- a test that touches
+// neither NOTICE nor the plant. It failed because it ran the gate during the
+// window in which ANOTHER run had the duplicate planted in the real NOTICE.
+// Nothing was wrong with the product. The suite simply could not tell "the
+// notice is broken" from "a neighbour is mid-test", and a gate that cannot
+// tell those apart cannot answer the only question it is asked.
+//
+// There is a worse version of the same race, and it is why this is a lock
+// rather than a retry: two runs inside the window at once BOTH read
+// `original` first. Whichever restores second writes back whatever IT read --
+// and if that was the planted text, the duplicate stays in NOTICE. A tracked
+// legal document, left damaged in the working tree, by a test whose whole
+// purpose is to prove damaged notices get caught.
+//
+// mkdir is atomic on Windows and POSIX alike: exactly one caller creates the
+// directory and everyone else gets EEXIST, with no read-then-write gap to
+// lose. The lock lives under the OS temp directory, keyed by a hash of this
+// checkout's path, for two reasons -- a lock file inside the repo would be an
+// untracked file that fails tools/require-clean-tree.mjs and so blocks
+// `npm run dist`, and keying by checkout means two DIFFERENT worktrees never
+// serialise against each other over a NOTICE they do not share.
+//
+// A holder that died without cleaning up is taken over after STALE_LOCK_MS
+// instead of wedging the suite forever: a lock that can hang a test run is
+// its own outage.
+const PLANT_LOCK = join(
+  tmpdir(),
+  `te-notice-plant-${createHash('sha256').update(REPO).digest('hex').slice(0, 16)}`,
+);
+const STALE_LOCK_MS = 60_000;
+const LOCK_WAIT_LIMIT_MS = STALE_LOCK_MS * 2;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// Re-entrant within this process: the plant test holds the lock across a body
+// that itself calls runGate(), and runGate() takes the lock too so that the
+// OTHER tests in this file -- which only read -- cannot observe a planted
+// NOTICE. Without the depth counter that nesting would deadlock against
+// itself.
+let lockDepth = 0;
+
+function withRepoNoticeLock(body) {
+  if (lockDepth > 0) {
+    lockDepth += 1;
+    try { return body(); } finally { lockDepth -= 1; }
+  }
+
+  const waitingSince = Date.now();
+  for (;;) {
+    try {
+      mkdirSync(PLANT_LOCK);
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let heldForMs = Infinity;
+      try { heldForMs = Date.now() - statSync(PLANT_LOCK).mtimeMs; } catch { heldForMs = Infinity; }
+      if (heldForMs > STALE_LOCK_MS) {
+        try { rmSync(PLANT_LOCK, { recursive: true, force: true }); } catch { /* another waiter won the takeover */ }
+        continue;
+      }
+      if (Date.now() - waitingSince > LOCK_WAIT_LIMIT_MS) {
+        throw new Error(
+          `could not take the NOTICE plant lock at ${PLANT_LOCK} within ${LOCK_WAIT_LIMIT_MS}ms. ` +
+            'Another run of this suite in this same checkout is holding it, or a dead one left it behind. ' +
+            'Remove that directory to clear it.',
+        );
+      }
+      sleepSync(25);
+    }
+  }
+
+  lockDepth = 1;
+  try {
+    return body();
+  } finally {
+    lockDepth = 0;
+    try { rmSync(PLANT_LOCK, { recursive: true, force: true }); } catch { /* best effort: the stale takeover above covers this */ }
+  }
+}
+
 function runGate(args = []) {
   // Capture status from the bare process. Never read an exit code through a
   // pipe -- a pipeline reports the LAST command's status, not the gate's.
-  const r = spawnSync(process.execPath, [GATE, ...args], { encoding: 'utf8' });
-  return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+  const spawn = () => {
+    const r = spawnSync(process.execPath, [GATE, ...args], { encoding: 'utf8' });
+    return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+  };
+  // EVERY invocation is serialised, including the ones that name a packaged
+  // root. It is tempting to skip the lock for those on the grounds that they
+  // are "checking the package, not the repo" -- that was written here first
+  // and it is wrong. check-license-notices.mjs runs its repository checks
+  // unconditionally and only ADDS the packaged ones: the required-docs loop,
+  // the AGPL hash and the duplicate-paragraph rule over the repo's own
+  // NOTICE/LICENSING.md/COMMERCIAL-LICENSE.md/CONTRIBUTORS.md all execute
+  // before `if (packagedRoot)` is ever reached, which the gate says in its own
+  // words when it prints scope as "repository + <root>". So a packaged-mode
+  // run reads a planted NOTICE exactly like a bare one, and an exemption here
+  // would leave the race open on the two tests that pass a root.
+  return withRepoNoticeLock(spawn);
 }
 
 test('gate passes against the current repository', () => {
@@ -145,7 +245,9 @@ test('the notices are configured to ship with the installer', () => {
 //
 // The restore is asserted by sha256, not assumed. A test that damages a legal
 // notice and cannot prove it put the bytes back is worse than no test.
-test('gate fails when a shipped notice repeats a paragraph verbatim', () => {
+// The whole body runs under withRepoNoticeLock, including the FIRST read of
+// `original`: reading outside the lock is how the second race above starts.
+test('gate fails when a shipped notice repeats a paragraph verbatim', () => withRepoNoticeLock(() => {
   const noticePath = join(REPO, 'NOTICE');
   const original = readFileSync(noticePath);
   const originalSha = createHash('sha256').update(original).digest('hex');
@@ -168,6 +270,18 @@ test('gate fails when a shipped notice repeats a paragraph verbatim', () => {
     'the paragraph this test plants a duplicate of is no longer in NOTICE, so the plant ' +
       'would not land and the assertions below would pass without testing anything. ' +
       'Update the paragraph text here to a block that NOTICE actually contains.'
+  );
+
+  // START FROM A KNOWN-CLEAN FILE, and say so out loud if we do not. If a
+  // previous interrupted run left the duplicate behind, `original` already
+  // contains it -- the plant would then be a no-op, the gate would fail for a
+  // reason this test did not create, and the restore at the end would write
+  // the damage back as though it were the good copy.
+  assert.ok(
+    !text.includes(`${paragraph}${eol}${eol}${paragraph}`),
+    'NOTICE already contains the duplicated paragraph before this test planted anything. ' +
+      'A previous interrupted run of this test left it behind: restore NOTICE from git before ' +
+      'trusting any result here.'
   );
 
   try {
@@ -194,7 +308,7 @@ test('gate fails when a shipped notice repeats a paragraph verbatim', () => {
   // looking like a pre-existing condition.
   const after = runGate();
   assert.equal(after.status, 0, `NOTICE should pass again after restore:\n${after.out}`);
-});
+}));
 
 // THIRD-PARTY-LICENSES.md MUST NOT BE SUBJECT TO THE DUPLICATE RULE.
 //

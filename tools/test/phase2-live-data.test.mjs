@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -20,7 +20,20 @@ import {
   projectAgentRelationships,
 } from '../gen-projection-lib.mjs'
 
-const REAL_CANONICAL = 'C:/Users/joshp/Desktop/toolsenabled-current'
+// WHERE THE REAL FIXTURE READER COMES FROM.
+//
+// This was one developer's absolute Desktop path, which made these tests
+// unrunnable on any other machine and put an account name in a tracked file --
+// and a tracked file publishes on every push, which is the exposure the
+// owner-data rules exist for. tools/test/generator-failures.test.mjs and
+// tools/test/agent-control-target.test.mjs already removed exactly this
+// default and explain the reasoning at length; this file was missed. Resolved
+// the same way they do: the two checkouts are siblings in the normal layout,
+// and MC_CANONICAL_ROOT still wins for a machine that arranges them otherwise.
+// On this machine both forms name the same directory, so nothing about what
+// these tests measure changes.
+const REAL_CANONICAL =
+  process.env.MC_CANONICAL_ROOT?.trim() || resolve(PROJECT_ROOT, '..', 'toolsenabled-current')
 const FIXED_NOW = '2026-08-06T12:00:00.000Z'
 const SENSITIVE_MARKER = 'fixture-sensitive-marker-abcdefghijklmnopqrstuvwxyz123456'
 

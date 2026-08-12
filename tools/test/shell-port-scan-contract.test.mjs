@@ -46,9 +46,13 @@
 // exercises the no-argument default against the real declared range, and
 // contract #10 pins the shell's own call site to the exported constants.
 //
-// Everything here still drives real OS sockets on 127.0.0.1 (and, for the
-// foreign-host case, the real loopback address 127.0.0.2). Nothing is mocked
-// or stubbed.
+// Everything here drives real OS sockets on 127.0.0.1 (and, for the
+// foreign-host case, the real loopback address 127.0.0.2), with ONE stated
+// exception: contract #7a2 hands the module a server double, because the
+// error class it pins cannot be produced by a live socket inside this
+// module's fixed 127.0.0.1 / valid-unprivileged-port domain. That case
+// argues for itself in its own body; this sentence is here so the exception
+// is visible from the top of the file instead of discovered halfway down.
 //
 // Contract item -> test map:
 //   1) declared range is the inclusive 4601-4609 set        -> "contract #1"
@@ -58,8 +62,15 @@
 //   5) every entry held -> distinguishable typed error,
 //      not raw EADDRINUSE, no server left listening          -> "contract #5"
 //   6) binds only 127.0.0.1; other hosts rejected            -> "contract #6"
-//   7) a non-"address in use" listen error propagates
-//      unchanged, is not swallowed into "port busy"          -> "contract #7"
+//   7) a listen error the module does not classify as
+//      retryable propagates unchanged and stops the scan     -> "contract #7a"
+//      ...the same, for an OS errno shape, counting attempts -> "contract #7a2"
+//      an OS per-port exclusion is advanced past and the
+//      next free candidate really binds                      -> "contract #7b"
+//      ...and when it is the only candidate, the real code
+//      survives and is not reworded into "port busy"         -> "contract #7c"
+//      (REFORMULATED in R1526 -- the reasoning is in the long
+//       note above contract item 7 below)
 //   8) no Electron dependency, runs under bare Node          -> "contract #8"
 //   9) the no-argument default really is the declared range  -> "contract #9"
 //  10) the shell wires that declared range into the scan     -> "contract #10"
@@ -68,9 +79,11 @@ import assert from 'node:assert/strict'
 import net from 'node:net'
 import test from 'node:test'
 import { execFileSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import portScan from '../../shell/port-scan.cjs'
+import startupFailure from '../../shell/startup-failure-message.cjs'
 
 const {
   SHELL_HOST,
@@ -79,6 +92,8 @@ const {
   SHELL_PORTS,
   listenOnFirstFreePort,
 } = portScan
+
+const { startupFailureDetail } = startupFailure
 
 // ---- generic socket helpers (no mocks; every one of these touches a real
 // ---- OS socket) -------------------------------------------------------
@@ -351,6 +366,53 @@ test('contract #6: a request to bind a host other than 127.0.0.1 is rejected, no
 })
 
 // ---- contract item 7 -------------------------------------------------
+//
+// REFORMULATED (R1526). What used to live here was a single case named
+//
+//   contract #7: a real listen error that is not "address in use" propagates unchanged
+//
+// which manufactured a REAL, OS-generated EACCES by binding a port from
+// Windows' excluded-port table and then asserted that listenOnFirstFreePort
+// must reject with error.code === 'EACCES'. It failed from the day it was
+// written and was carried in tools/test-baseline.json as a known failure.
+//
+// It was adjudicated by a lane that wrote neither side -- ruling with full
+// measurements at reports/lanes/portscan-adjudication.md in the engine
+// checkout, cited by commit ab07f25 -- and the verdict was that THE TEST WAS
+// WRONG AND THE CODE IS RIGHT. On Windows an EACCES from a plain listen() on
+// an unprivileged loopback port is, in practice, a per-port OS exclusion
+// (Hyper-V/WinNAT reserves shifting blocks; `netsh interface ipv4 show
+// excludedportrange protocol=tcp` lists them), which is mechanically the same
+// signal as EADDRINUSE: this one candidate is not available, take the next.
+// Propagating it raw would strand a person whose 4601 happens to land in a
+// reserved block while eight other candidates sit free -- the exact class of
+// failure cef9da1 replaced the fixed-port bind to end. The clause had picked
+// the one code on this platform for which "never retry" is backwards.
+//
+// So the clause is NOT deleted and NOT weakened. It is re-pointed at what it
+// was actually protecting, and it now covers strictly more than before:
+//
+//   old "must not be swallowed into success"  -> asserted by #7a, #7a2, #7c
+//   old "propagates unchanged, not remapped"  -> #7a and #7a2, against errors
+//                                                that really are outside the
+//                                                retryable set, plus proof the
+//                                                scan did not advance past
+//                                                them onto a bindable port
+//   old "not reworded into 'port busy'"       -> #7c, raised from a regex over
+//                                                an internal error message to
+//                                                the actual sentence
+//                                                shell/startup-failure-message.cjs
+//                                                puts in front of a person
+//   NEW  the OS code is not destroyed         -> #7c (error.cause.code AND
+//                                                error.failures[])
+//   NEW  the retry the ruling defends really  -> #7b (an OS-excluded port is
+//        keeps the app launchable                 advanced past and the next
+//                                                 free candidate really binds)
+//
+// #7a and #7a2 run on any host. #7b and #7c need an OS-excluded port to
+// exist and skip loudly when the host has none -- the same honesty the old
+// clause had, kept deliberately: green on a host with no exclusion proves
+// nothing about this behaviour and must not be read as if it did.
 
 // Finds a TCP port on this Windows host that the OS will really refuse for a
 // reason other than "address in use" -- Windows periodically reserves
@@ -397,34 +459,216 @@ async function findNonEaddrinuseErrorPort(host) {
   return null
 }
 
-test('contract #7: a real listen error that is not "address in use" propagates unchanged', async (t) => {
-  const found = await findNonEaddrinuseErrorPort(SHELL_HOST)
-  if (!found) {
-    t.skip('no OS-reserved TCP port discovered on this host to force a genuine non-EADDRINUSE listen failure')
-    return
-  }
-  const { port: reservedPort, code: expectedCode } = found
-  assert.notEqual(expectedCode, 'EADDRINUSE') // sanity on the probe itself
+// A port number outside the TCP range. net.Server#listen itself refuses it
+// with ERR_SOCKET_BAD_PORT, synchronously -- which is why the module wraps
+// its server.listen() call in a try/catch at all. Nothing is faked: this is
+// the real net.Server refusing a real call, and ERR_SOCKET_BAD_PORT is not in
+// the module's retryable set.
+const PORT_THE_SOCKET_LAYER_REFUSES = 70000
+
+test('contract #7a: a non-retryable listen error propagates unchanged and stops the scan dead', async (t) => {
+  // Two ports that this file first took from the OS and then handed back, so
+  // "the scan could have bound one of these" is established rather than
+  // hoped: if the module treated the refusal as a per-port condition and
+  // advanced, this call would RESOLVE with a bound port instead of rejecting.
+  const block = await borrowBlock(t, 2)
+  await block.freeAll()
+  const [firstBehind, secondBehind] = block.ports
 
   const server = net.createServer()
   try {
-    const outcome = await captureRejection(() => listenOnFirstFreePort(server, [reservedPort], SHELL_HOST))
+    const outcome = await captureRejection(() => listenOnFirstFreePort(
+      server,
+      [PORT_THE_SOCKET_LAYER_REFUSES, firstBehind, secondBehind],
+      SHELL_HOST,
+    ))
 
-    assert.equal(outcome.rejected, true, `a real ${expectedCode} listen failure must not be swallowed into success`)
-    const error = outcome.error
     assert.equal(
-      error.code,
-      expectedCode,
-      'a non-EADDRINUSE listen error must propagate with its original code unchanged, not be remapped',
+      outcome.rejected,
+      true,
+      'a listen failure the module does not classify as retryable must not be swallowed into success',
     )
-    assert.notEqual(error.code, 'EADDRINUSE')
+    assert.equal(
+      outcome.error.code,
+      'ERR_SOCKET_BAD_PORT',
+      'a non-retryable listen error must propagate with its original code unchanged, not be remapped',
+    )
+    assert.notEqual(
+      outcome.error.code,
+      'SHELL_PORT_RANGE_EXHAUSTED',
+      'a non-retryable error must not be rewritten into the exhaustion signal, which means something else entirely',
+    )
+    // Getting the original code back rather than a bound port IS the proof
+    // that the scan stopped at the first entry: the two candidates behind it
+    // were bindable, so any retry would have ended in success, and a walk
+    // that ran out would have ended in SHELL_PORT_RANGE_EXHAUSTED. Neither
+    // happened.
+    assert.equal(server.listening, false, 'a rejected scan must leave nothing listening')
 
-    const message = String(error.message || '').toLowerCase()
+    const message = String(outcome.error.message || '').toLowerCase()
     assert.doesNotMatch(
       message,
       /port.*(busy|exhaust)/,
       'an unrelated listen failure must not be reworded into a "port busy" style message',
     )
+  } finally {
+    await release(server)
+  }
+})
+
+test('contract #7a2: an OS errno outside the retryable set is thrown on the first candidate, unwrapped', async () => {
+  // METHOD, STATED PLAINLY BECAUSE IT IS THE ONE EXCEPTION IN THIS FILE: the
+  // SERVER here is a double. It has to be. The module fixes the host at
+  // 127.0.0.1 and takes valid unprivileged port integers, and the only live
+  // non-EADDRINUSE errno that domain can produce on Windows is EACCES -- the
+  // discovery method in #7b/#7c below goes looking and comes back with
+  // EACCES every time, which is precisely how the old clause went wrong. So
+  // the third-category code is injected. The module under test is not faked;
+  // it is driven through its real retry classification, and the double emits
+  // a real Error carrying a real errno through the same 'error' event a
+  // net.Server uses. What this adds over #7a is the errno shape and a direct
+  // count of how many candidates were attempted.
+  class ServerThatRefusesWith extends EventEmitter {
+    constructor(code) {
+      super()
+      this.refusalCode = code
+      this.listening = false
+      this.attempts = []
+    }
+
+    listen(port, host) {
+      this.attempts.push(port)
+      const error = new Error(`listen ${this.refusalCode}: ${host}:${port}`)
+      error.code = this.refusalCode
+      queueMicrotask(() => this.emit('error', error))
+    }
+
+    close(callback) {
+      if (callback) callback()
+    }
+  }
+
+  const server = new ServerThatRefusesWith('EINVAL')
+  const outcome = await captureRejection(
+    () => listenOnFirstFreePort(server, [...SHELL_PORTS], SHELL_HOST),
+  )
+
+  assert.equal(outcome.rejected, true, 'a non-retryable errno must not be swallowed into success')
+  assert.equal(
+    outcome.error.code,
+    'EINVAL',
+    'a non-retryable errno must propagate with its original code unchanged, not be remapped',
+  )
+  assert.equal(
+    outcome.error.cause,
+    undefined,
+    'a non-retryable errno must come out unwrapped -- the caller should get the OS error itself, not a synthesized one carrying it',
+  )
+  assert.deepEqual(
+    server.attempts,
+    [SHELL_PORTS[0]],
+    'a non-retryable errno must stop the scan on the first candidate, not walk the whole declared range',
+  )
+})
+
+test('contract #7b: an OS-excluded port is advanced past, and the next free candidate really binds', async (t) => {
+  const found = await findNonEaddrinuseErrorPort(SHELL_HOST)
+  if (!found) {
+    t.skip('no OS-reserved TCP port discovered on this host to force a genuine non-EADDRINUSE listen failure')
+    return
+  }
+  if (found.code !== 'EACCES') {
+    // Any third code is #7a's claim, not this one: the module is supposed to
+    // propagate it, not retry it. Say so instead of quietly passing.
+    t.skip(`the OS exclusion table produced ${found.code}, not EACCES; retry is only correct for EACCES (see the ruling above)`)
+    return
+  }
+
+  // THE POINT OF THE RETRY, ASSERTED. A person whose first candidate falls in
+  // a Hyper-V/WinNAT reserved block must still end up with a running app.
+  const block = await borrowBlock(t, 1)
+  await block.freeAll()
+  const [freeCandidate] = block.ports
+
+  const server = net.createServer()
+  try {
+    const bound = await listenOnFirstFreePort(server, [found.port, freeCandidate], SHELL_HOST)
+    assert.equal(bound, freeCandidate, 'the scan must advance past an OS-excluded port to the next candidate')
+    assert.equal(server.address().port, freeCandidate, 'and must really be bound to it, not merely report it')
+    assert.equal(
+      await probeConnect(SHELL_HOST, freeCandidate),
+      true,
+      'the port the scan chose must really be accepting connections',
+    )
+  } finally {
+    await release(server)
+  }
+})
+
+test('contract #7c: with every candidate OS-excluded, the real code survives and nobody is told the ports are busy', async (t) => {
+  const found = await findNonEaddrinuseErrorPort(SHELL_HOST)
+  if (!found) {
+    t.skip('no OS-reserved TCP port discovered on this host to force a genuine non-EADDRINUSE listen failure')
+    return
+  }
+  const { port: excludedPort, code: osCode } = found
+  assert.notEqual(osCode, 'EADDRINUSE') // sanity on the probe itself
+
+  const server = net.createServer()
+  try {
+    const outcome = await captureRejection(() => listenOnFirstFreePort(server, [excludedPort], SHELL_HOST))
+
+    assert.equal(outcome.rejected, true, `a real ${osCode} listen failure must not be swallowed into success`)
+    const error = outcome.error
+    assert.equal(
+      error.code,
+      'SHELL_PORT_RANGE_EXHAUSTED',
+      'every candidate having failed is exhaustion, and contract #5 requires that be one distinguishable signal',
+    )
+    assert.notEqual(error.code, 'EADDRINUSE')
+
+    // THE ORIGINAL CODE MUST NOT BE DESTROYED. This is what the old clause
+    // was reaching for when it asserted on error.code; the implementation
+    // keeps it in two places and both are pinned here, so a change that
+    // dropped either would go red.
+    assert.equal(
+      error.cause?.code,
+      osCode,
+      'the OS error must survive at error.cause; demoting it is acceptable, discarding it is not',
+    )
+    assert.ok(Array.isArray(error.failures), 'the exhaustion error must record what each candidate did')
+    assert.equal(error.failures.length, 1)
+    assert.equal(error.failures[0].port, excludedPort)
+    assert.equal(
+      error.failures[0].code,
+      osCode,
+      'the per-port record must carry the real OS code, not the exhaustion code',
+    )
+
+    // AND IT MUST REACH THE PERSON. shell/main.cjs renders a failed scan
+    // through startupFailureDetail, so that sentence -- not the internal
+    // message -- is where "swallowed into port busy" would actually happen.
+    //
+    // Asserted against the HEADLINE only, not the whole string. Measured while
+    // writing this (R1526): startupFailureDetail appends the raw OS message
+    // after a blank line as "Underlying error: listen EACCES: ... :8032", and
+    // that tail carries the code and the port no matter what the sentence
+    // above it says. Blanking the OS-refusal branch outright still left both
+    // strings present, so a whole-string match here would have been a hole
+    // wearing the shape of a check. The tail is a diagnostic; the headline is
+    // what a person reads.
+    const shown = startupFailureDetail(error, { min: SHELL_PORT_MIN, max: SHELL_PORT_MAX })
+    const headline = shown.split('\n\nUnderlying error:')[0]
+    assert.notEqual(headline, shown, 'the underlying-error tail was not found, so the split below is not isolating the headline')
+    assert.match(headline, new RegExp(osCode), 'the sentence a person is shown must name the real OS code')
+    assert.match(headline, new RegExp(String(excludedPort)), 'and the port it happened on')
+    assert.doesNotMatch(
+      shown.toLowerCase(),
+      /in use|busy/,
+      'an OS refusal must not be reworded into "the ports are in use" -- that sends the person hunting for a program that is not there',
+    )
+
+    assert.equal(server.listening, false, 'a failed scan must leave nothing listening')
   } finally {
     await release(server)
   }
