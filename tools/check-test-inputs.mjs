@@ -40,11 +40,34 @@
 //   dist/                                absent -> 0 failures, 1 honest skip
 //   release/win-unpacked                 absent -> 2 honest skips, both naming `npm run dist`
 //
-// Where a number below is a floor ("at least N") rather than an exact count,
-// that is deliberate: this machine was running other lanes throughout, one of
-// which moved the same directories during a measurement, so the exact totals
-// for that input are not something I can stand behind. A floor I verified beats
-// a total I did not.
+// PROVENANCE OF THE THREE NUMBERS, because they were not all taken the same
+// way and a reader is entitled to know which is which:
+//
+//   private/capability-source.owner.json   2   re-measured 2026-08-11 on a
+//   private/owner-data-patterns.owner.json 8   verified-stable tree, whole
+//                                              suite, named reds diffed against
+//                                              a control taken the same way
+//   capability/                           31   first measurement, whole suite,
+//                                              NOT re-taken since
+//
+// The first two replace earlier figures (12 and "at least 5") that came from
+// runs taken while another process on the machine was moving these same paths.
+// They were wrong in both directions -- one overstated by 6x, one understated
+// -- which is the whole argument for re-measuring on a quiet tree instead of
+// hedging a contaminated number with the word "about".
+//
+// TO RE-MEASURE ANY NUMBER BELOW, BYPASS THIS FILE. Once this gate is wired
+// into `npm test`, moving an input aside and running `npm test` no longer
+// produces failure counts -- it produces THIS refusal, exit 3, with zero tests
+// run, which is the gate working. The reproduction is therefore:
+//
+//   mv private/<input> /tmp/held        # or rename capability/
+//   npm run test:data                   # the raw runner, no gates
+//   mv /tmp/held private/<input>        # put it back, always
+//
+// and compare the named reds against a `npm run test:data` control taken the
+// same way. Anyone who tries it through `npm test` and gets exit 3 has not
+// found a discrepancy in these numbers; they have found the gate.
 //
 // That asymmetry is the whole design. A missing input should cost you a
 // stated skip, never a red. Where it still costs a red, this gate stops the
@@ -92,8 +115,9 @@ const REQUIRED_INPUTS = [
     kind: "file",
     token: "capability-source.owner.json",
     measured:
-      "12 tests went red with this absent -- every case that re-stages the payload from source, " +
-      "because the packer cannot find the tree to cut it from",
+      "2 tests went red with this absent -- the two that re-stage the payload from source, " +
+      "because the packer cannot find the tree to cut it from (whole-suite run, 1457 tests, " +
+      "1453 pass, 2 fail)",
     whyNotInGit:
       "builder-private, and gitignored (/private/). It holds an absolute path to the capability-layer source " +
       "tree on THIS machine, which names the builder and their disk layout, so it is configuration and not a constant.",
@@ -108,9 +132,11 @@ const REQUIRED_INPUTS = [
     kind: "file",
     token: "owner-data-patterns.owner.json",
     measured:
-      "at least 5 declaration-privacy tests go red on this input alone, plus every case that " +
-      "re-stages the payload: the packer refuses outright (\"owner-data guard COULD NOT RUN, so " +
-      "this payload is UNCHECKED\"), which --allow-owner-data deliberately does not override",
+      "8 tests went red with this absent -- 5 declaration-privacy cases, 1 that checks the local " +
+      "owner profile belongs to the account building here, and the 2 that re-stage the payload: " +
+      "the packer refuses outright (\"owner-data guard COULD NOT RUN, so this payload is " +
+      "UNCHECKED\"), which --allow-owner-data deliberately does not override (whole-suite run, " +
+      "1457 tests, 1447 pass, 8 fail)",
     whyNotInGit:
       "builder-private, and gitignored (/private/). It IS the list of strings that must never ship -- the " +
       "builder's name, home paths and LAN addresses -- so committing it would publish exactly what it exists to catch.",
