@@ -320,6 +320,7 @@
       "src/lib/dispatch-permission-session.js",
       "src/lib/durable-memory-file.js",
       "src/lib/egress-preflight.js",
+      "src/lib/elevation-refusal.js",
       "src/lib/entitlement-report.js",
       "src/lib/env-scrub.js",
       "src/lib/error-taxonomy.js",
