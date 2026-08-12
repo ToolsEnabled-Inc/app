@@ -1,0 +1,200 @@
+/* THE COMPOSE PANEL'S OWN STYLES. Paired with src/agent-compose-panel.js.
+ *
+ * IMPORTED BY THE VIEW, NOT BY THE MODULE. src/agent-compose-panel.js is proven
+ * under `node --test`, and a `import './agent-compose-panel.css'` inside it
+ * would make the module unloadable there. So whichever view mounts the panel
+ * imports this file, the same way src/views/computers.js already imports
+ * board.css and tree-graph.css.
+ *
+ * NOTHING HERE INVENTS A COLOUR OR A SPACING. Every value is a token from
+ * src/styles.css, so the panel follows the theme, the text-size control and the
+ * high-contrast rules without a second set of rules to keep in step.
+ *
+ * THE FOCUS RING IS AN OUTLINE ON PURPOSE, and it is the one rule in this file
+ * that is not cosmetic. board.css styles its own controls' focus with a border
+ * colour and `outline: none`, which is legible in the normal themes. In Windows
+ * High Contrast the user agent drops box-shadow and overrides border colours, so
+ * an indicator built that way is not dimmed there -- it is gone, and a keyboard
+ * user cannot see which of these three controls they are on. Every focusable
+ * control in this panel therefore gets a real outline, which forced-colors mode
+ * keeps and recolours. tools/a11y-keyboard-qa.mjs measures exactly this.
+ */
+
+.agent-compose {
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.agent-compose-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.agent-compose-intro {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+/* Where the new agent is going. It carries a node name chosen by nobody on this
+   team, so it must be able to wrap: without this a long unbroken name pushes
+   the whole rail sideways. */
+.agent-compose-under {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The line offered on an empty tree only. Set apart from the intro so it reads
+   as a suggestion rather than as another instruction. */
+.agent-compose-suggestion {
+  margin: 0;
+  padding-left: var(--s2);
+  border-left: 2px solid var(--line-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+/* The chosen role's line, under the menu. It appears and disappears as the
+   choice changes, so it takes no room at all when nothing is chosen. */
+.agent-compose-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.agent-compose-summary[hidden] { display: none; }
+.agent-compose-summary:empty { display: none; }
+
+.agent-compose-field {
+  display: grid;
+  gap: var(--s1);
+}
+
+.agent-compose-field .cl {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.agent-compose-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.agent-compose-select,
+.agent-compose-text {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.agent-compose-text {
+  min-height: 7.5em;
+  resize: vertical;
+}
+
+.agent-compose-select[aria-invalid="true"],
+.agent-compose-text[aria-invalid="true"] {
+  border-color: var(--s-serious);
+}
+
+.agent-compose-select:disabled,
+.agent-compose-text:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* The refusal for one field, under that field. Never a colour on its own: the
+   sentence carries the meaning, and the colour is a second signal for people who
+   see it. */
+.agent-compose-problem {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--s-serious);
+  overflow-wrap: anywhere;
+}
+
+.agent-compose-problem[hidden],
+.agent-compose-notice[hidden],
+.agent-compose-status[hidden] {
+  display: none;
+}
+
+/* An empty alert element still occupies a row in a grid, which leaves a gap that
+   looks like a rendering fault. An empty one collapses. */
+.agent-compose-problem:empty {
+  display: none;
+}
+
+.agent-compose-notice {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--s-warn);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.agent-compose-notice[role="alert"] {
+  border-left-color: var(--s-serious);
+  color: var(--ink);
+}
+
+.agent-compose-status {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.agent-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.agent-compose-actions .ctl-btn {
+  flex: 1 1 auto;
+}
+
+.agent-compose-submit[disabled],
+.agent-compose-cancel[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.agent-compose-select:focus-visible,
+.agent-compose-text:focus-visible,
+.agent-compose-submit:focus-visible,
+.agent-compose-cancel:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

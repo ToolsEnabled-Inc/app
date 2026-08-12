@@ -353,6 +353,117 @@
 .static-tree-graph .role-spawned,
 .static-tree-chip.role-spawned { --rc: var(--c-spawned); }
 
+/* ============================================================
+   EMPTY SLOTS — a hole in the tree, drawn so it can be pressed
+   ============================================================
+
+   THE JOB. A person has to be able to tell, at a glance and without reading a
+   word, that this circle is NOT an agent and that pressing it will do
+   something. Three signals do that, and they are deliberately redundant
+   because any one of them alone is a guess:
+     - the ring is DASHED where every agent's ring is solid: the universal
+       drawing convention for a thing that is not there yet;
+     - it is EMPTY where every agent carries a runtime clock or a state word,
+       and it carries no name and no role beneath it;
+     - it holds a "+", which is the one mark that means "add" without copy.
+   It is also the smallest circle on the canvas, so it sits under its family
+   rather than competing with it.
+
+   WHY NOT `.node` / `.static-tree-node`. Explained at length in
+   src/tree-graph.js: those classes mean "a running agent" to this sheet, to
+   the shared graph skin in src/styles.css, and to nine QA harnesses. Every
+   property a slot needs from them — the absolute placement and the
+   centre-origin transform — is four lines, and repeating those four lines is
+   far cheaper than a circle that is an agent to half the tree. */
+.static-tree-graph .tree-empty-node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  /* The graph positions by CENTRE. Every left/top written by the layout is the
+     middle of the circle, for agents and for slots alike. */
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* A `hidden` slot is one the packer had no room for. The display above would
+   otherwise beat the UA's [hidden] rule and paint it anyway. */
+.static-tree-graph .tree-empty-node[hidden] { display: none; }
+.computers .static-tree-graph .tree-empty-node .tree-empty-ring {
+  width: var(--d);
+  height: var(--d);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  /* Dashed, not solid: the ring says "nothing is here yet" before any label
+     is read. Sized in the same --d the node records use, so a slot shrinks
+     with the tree when the vertical fitter shrinks it. */
+  border: 1.5px dashed color-mix(in oklab, var(--ink-3) 58%, transparent);
+  background: transparent;
+  transition: border-color 180ms var(--ease), background 180ms var(--ease);
+}
+.computers .static-tree-graph .tree-empty-node .tree-empty-mark {
+  color: var(--ink-3);
+  font: 400 21px/1 var(--font-ui);
+  transition: color 180ms var(--ease);
+}
+.computers .static-tree-graph .tree-empty-node:hover .tree-empty-ring {
+  border-color: color-mix(in oklab, var(--c-coordinator) 62%, var(--line-2));
+  background: color-mix(in oklab, var(--c-coordinator) 6%, var(--sheet));
+}
+.computers .static-tree-graph .tree-empty-node:hover .tree-empty-mark { color: var(--ink); }
+.computers .static-tree-graph .tree-empty-node:active .tree-empty-ring {
+  background: color-mix(in oklab, var(--c-coordinator) 12%, var(--sheet));
+}
+
+/* THE KEYBOARD HAS TO SEE IT TOO, AND THIS SHEET IS WHERE THAT GETS LOST.
+   Read the note at the top of this file: `.computers` flattens the page by
+   setting `box-shadow: none`, the design system's focus indicator IS a
+   box-shadow, and the computer tabs shipped with no keyboard indicator at all
+   because of it. The node skin does the same thing harder — `.computers
+   .static-tree-graph .node-glass` carries `box-shadow: none !important` — so a
+   focus ring written the ordinary way on a circle in this graph computes to
+   nothing. The ring below therefore carries !important on purpose: it is not
+   specificity noise, it is the counterweight to a declaration that would
+   otherwise silently delete the only thing a keyboard user has to go on. The
+   recipe is the site's, repeated rather than re-invented, so a focused slot
+   looks like every other focused control in the app. */
+.computers .static-tree-graph .tree-empty-node:focus-visible { outline: none; }
+.computers .static-tree-graph .tree-empty-node:focus-visible .tree-empty-ring {
+  border-color: color-mix(in oklab, var(--c-coordinator) 70%, var(--line-2));
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
+    0 0 0 3.5px var(--focus-ring) !important;
+}
+/* Keep the ring visible for anyone who cannot see a 1.5px dashed hairline: in
+   forced-colours the whole colour system is replaced, so ask for the system's
+   own button text colour rather than a token that no longer exists. */
+@media (forced-colors: active) {
+  .computers .static-tree-graph .tree-empty-node .tree-empty-ring {
+    border-color: ButtonText;
+  }
+  .computers .static-tree-graph .tree-empty-node .tree-empty-mark { color: ButtonText; }
+}
+
+/* The trunk down to a slot: the same elbow every child gets, drawn lighter and
+   dashed so it reads as a place rather than as a relationship. */
+.computers .static-tree-graph .tree-link.link-empty {
+  stroke: color-mix(in oklab, var(--ink-3) 32%, transparent);
+  stroke-dasharray: 3 4;
+}
+
 .static-tree-chip-overlay {
   position: absolute;
   inset: 0;
@@ -783,6 +894,8 @@
 
 body.reduce-motion .static-tree-graph .node,
 body.reduce-motion .static-tree-graph .node-glass,
+body.reduce-motion .static-tree-graph .tree-empty-ring,
+body.reduce-motion .static-tree-graph .tree-empty-mark,
 body.reduce-motion .static-tree-chip-overlay .static-tree-chip,
 body.reduce-motion .computers .rail-page,
 body.reduce-motion .computers .graph-hint,
@@ -792,6 +905,8 @@ body.reduce-motion .computers .graph-edit-note {
 @media (prefers-reduced-motion: reduce) {
   .static-tree-graph .node,
   .static-tree-graph .node-glass,
+  .static-tree-graph .tree-empty-ring,
+  .static-tree-graph .tree-empty-mark,
   .static-tree-chip-overlay .static-tree-chip,
   .computers .rail-page,
   .computers .graph-hint,

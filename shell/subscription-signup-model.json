@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "domain": "subscription-signup-model",
+  "generatedAt": "2026-08-12T19:30:53.418Z",
+  "derivedFrom": "src/lib/entitlement.js + src/lib/entitlement-fulfilment.js",
+  "requiredMetadata": {
+    "tier": "toolsenabled_tier",
+    "pairId": "toolsenabled_pair_id"
+  },
+  "tiers": {
+    "community": {
+      "id": "community",
+      "label": "Community",
+      "requiresLicense": false,
+      "monthlyUsd": 0,
+      "annualUsd": null,
+      "seatMinimum": null
+    },
+    "operator": {
+      "id": "operator",
+      "label": "Operator Cloud",
+      "requiresLicense": true,
+      "monthlyUsd": 19,
+      "annualUsd": 190,
+      "seatMinimum": null
+    },
+    "team": {
+      "id": "team",
+      "label": "Team",
+      "requiresLicense": true,
+      "monthlyUsd": 299,
+      "annualUsd": null,
+      "seatMinimum": 3
+    }
+  }
+}

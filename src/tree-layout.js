@@ -273,6 +273,22 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
       tierRank: finite(node?.tierRank ?? node?.agent?.tierRank),
       cullable: (node?.cullable ?? node?.agent?.cullable) === true,
       cullRank: finite(node?.cullRank ?? node?.agent?.cullRank) ?? 0,
+      /* WHERE A NODE SITS AMONG ITS OWN SIBLINGS, when the id is the wrong
+         answer. Sibling order in a rank falls back to `id.localeCompare`,
+         which is exactly right for agents — it is stable, it is derived from
+         data the caller already has, and no agent has a claim to be first.
+         It is wrong for a node that is not an agent. The empty "add a child
+         here" slot in src/tree-graph.js belongs at the END of the family it
+         hangs off — "the next one goes here" is the whole sentence it says —
+         and an id-sorted rank drops it wherever its generated id happens to
+         fall, usually between two running agents, where it reads as one of
+         them rather than as the space after them.
+         A number, not a boolean "last", because ordering is the layout's job
+         and a caller with two kinds of appendix should be able to say which
+         comes first without this file learning what either of them is.
+         Absent on every existing caller, so every existing rank keeps the
+         id order it has today. */
+      orderHint: finite(node?.orderHint ?? node?.agent?.orderHint) ?? 0,
     }))
     .filter(record => record.id)
   const parents = hierarchyParents(nodes, edges)
@@ -347,7 +363,9 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
     list.sort((left, right) => {
       const leftParentX = slots.get(parents.get(left.id))?.x ?? width / 2
       const rightParentX = slots.get(parents.get(right.id))?.x ?? width / 2
-      return leftParentX - rightParentX || left.id.localeCompare(right.id)
+      return leftParentX - rightParentX
+        || left.orderHint - right.orderHint
+        || left.id.localeCompare(right.id)
     })
     const y = rows > 1 ? padTop + rowIndex * rowHeight : height / 2
     rowYs.push(y)

@@ -206,6 +206,42 @@
 /* the hover tint was the old "this opens" affordance; nothing opens now */
 .home .home-feed:hover { background: transparent; }
 
+/* ---- the door to the subscription page ----
+   The last row of the panel's flex column, so it sits under whatever the panel
+   is showing and never inside the scroller: a link that scrolls away with the
+   transcript is one a person finds by accident or not at all, and this is the
+   only route to that page in the whole application.
+   `flex: none` is why the panel's fixed height still belongs to the log --
+   .session-view keeps `flex: 1`, so this row takes its own height and the
+   scroller gives up exactly that much rather than the column growing. Set as a
+   quiet line rather than as a button: the page behind it sells hosting, not
+   the product, and a call-to-action here would say otherwise before the reader
+   arrived. */
+.home .home-doors {
+  flex: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.home .home-door {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color .18s var(--ease), border-color .18s var(--ease);
+}
+.home .home-door:hover { color: var(--ink); border-bottom-color: var(--line-2, var(--line)); }
+.home .home-door:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ink) 55%, transparent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
 /* One quiet line names the surface; the braces do all the framing.
    NOT uppercase, and that is the point of the change. This line used to render
    "SESSION - SAMPLE TRANSCRIPT . DEMONSTRATION OF THIS VIEW" in tracked caps

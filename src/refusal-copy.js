@@ -228,6 +228,38 @@ export const REFUSAL_REMEDY = Object.freeze({
   ORG_READ_FAILED: 'Nothing was changed. Reload this page; if the hierarchy still will not open, the organisation file on this computer needs attention.',
   ORG_READ_THREW: 'Nothing was changed. Reload this page; if the hierarchy still will not open, the organisation file on this computer needs attention.',
   AGENT_ORG_STORE_REVISION_CONFLICT: 'Nothing was changed. Another window changed the organisation first — this page has re-read it, so look at the current hierarchy and make the change again.',
+
+  /* --- "you would have to be subscribed for this", and the one family whose
+         remedy the generic floor got actively WRONG ---
+   *
+   * Measured before this block existed: every one of these codes fell through
+   * to GENERIC_REMEDY, so a person who was refused because they are not
+   * subscribed was told to try again and then to close and reopen the
+   * application. They can do that all day. Restarting is not merely unhelpful
+   * here, it is confident advice pointing away from the only thing that would
+   * work, on the refusal that is the product's own best moment to say what a
+   * subscription is for.
+   *
+   * EACH ONE NAMES THE PAGE, and none of them is a link. Every surface that
+   * renders a refusal puts these sentences in as TEXT -- refusalSentence()
+   * returns a string and the nine call sites assign it to textContent -- so an
+   * anchor written here would reach a person as visible markup. The page is
+   * named in words instead, and it is genuinely reachable in two presses now
+   * that the account screen and the home screen both offer a door to it; before
+   * this lane there was nowhere to send anybody, which is the other half of why
+   * these entries did not exist.
+   *
+   * NONE OF THEM SAYS THE PERSON HAS LOST ANYTHING. What a subscription buys is
+   * the hosted side of the product, and an install that has paid nothing is a
+   * complete, supported, permanent state (the engine's UNLICENSED_INSTALL). A
+   * remedy that read as "you are locked out until you pay" would contradict the
+   * page it is sending them to. */
+  ENTITLEMENT_REQUIRED: 'Nothing was started and nothing was charged. This part runs on our computers rather than yours, and that part is what a subscription pays for; the rest of the product is unaffected. Open the account screen to read what the plans are and what each one costs.',
+  ENTITLEMENT_TIER_INSUFFICIENT: 'Nothing was started and nothing was charged. This is included in a different plan from the one this computer has. Open the account screen to read what each plan includes before changing anything.',
+  ENTITLEMENT_EXPIRED: 'Nothing was started and nothing was charged. The subscription this computer was using has ended, and none of your own work or settings were touched by that. Open the account screen to look at the plans again.',
+  ENTITLEMENT_INACTIVE: 'Nothing was started and nothing was charged. The subscription on this computer is not currently active, and nothing of yours was removed with it. Open the account screen to look at the plans again.',
+  ENTITLEMENT_REVOKED: 'Nothing was started and nothing was charged. The subscription this computer was using is no longer valid. Open the account screen to look at the plans, and get in touch if that is not what you expected.',
+  ENTITLEMENT_LICENSE_KEY_INVALID: 'Nothing was started and nothing was charged. The key this computer was given is not one that can be read. Check that it was pasted whole, and if it still refuses, get in touch rather than paying for a second one.',
 })
 
 /* THE FLOOR. Every code that reaches here without a curated sentence still
@@ -237,6 +269,14 @@ export const REFUSAL_REMEDY = Object.freeze({
    with an action in it. This array is the reason a code added to the engine
    next month cannot reach a customer as a bare identifier. */
 const FAMILY_REMEDY = Object.freeze([
+  /* THE PAID SURFACES, whose whole namespaces are about something a
+     subscription pays for, so one sentence is true of every code in them --
+     including the ones that mean "we could not confirm what you have paid for"
+     rather than "you have not paid". Both leave a person in the same place with
+     the same next move, and neither is cured by restarting the application,
+     which is what the generic floor was telling them. */
+  Object.freeze([/^(HOSTED_RELAY_ENTITLEMENT_|PAID_SURFACE_ENTITLEMENT_|ANYWHERE_TRANSPORT_ENTITLEMENT_)/,
+    'Nothing was started and nothing was charged. This part runs on our computers rather than yours. That is the part a subscription pays for. Everything that runs on this computer is unaffected. Open the account screen to read the plans and what each one costs.']),
   Object.freeze([/^BRIDGE_TERMINATE_/, 'Nothing has been confirmed stopped. Refresh this page and look at whether it is still running before pressing stop again.']),
   Object.freeze([/^BRIDGE_CLOUD_/, 'Nothing was launched and nothing was spent. Check the account and environment chosen above, then try again.']),
   Object.freeze([/^BRIDGE_AGENT_/, 'Nothing was started. Check the folder and the agent chosen above, then try once more; if it refuses again, look at the fleet page before starting anything else.']),

@@ -164,7 +164,27 @@
       "belongs on a customer's computer -- entitlement-grant.js in particular can ISSUE licences,",
       "which is the one power that must never leave the vendor. They are listed pre-emptively, which",
       "is exactly what this block is for: the guard now fails the day a require() first reaches them",
-      "rather than the day someone notices they shipped."
+      "rather than the day someone notices they shipped.",
+      "",
+      "THE LAST TWO PATHS WERE ADDED WHEN THE SOURCE-PUBLISH MODE FIRST RAN, AND THEY ARE THE REASON",
+      "THAT MODE HAD TO EXIST. Neither is in the payload, so the payload gate never had an opinion",
+      "about them and nothing was wrong -- but both are in the ENGINE REPOSITORY, and a source",
+      "publish exposes the repository, not the payload. They were classified nowhere at all, which",
+      "under rule 2 is the state that ships by silence.",
+      "",
+      "Both are named in the prose of this very file and were still unclassified, which is the",
+      "specific failure worth recording: a path mentioned in a comment reads as accounted for, and",
+      "a comment classifies nothing. src/lib/tool-packs/vendor-license-issuance.js is cited three",
+      "paragraphs up as where 'the vendor side registers the real reporter'; its own header opens",
+      "'VENDOR-SIDE ONLY. NOT SHIPPED.' It holds license.key_issue and license.key_revoke, which",
+      "need the private signing key -- the same never-leaves-the-vendor power as entitlement-grant.js.",
+      "",
+      "tools/entitlement.js is NOT tools/entitlement-webhook.js and the one-word difference is the",
+      "whole trap: the webhook listener was classified and its sibling was not. Its customer-side",
+      "verbs (status, explain, activate) would be harmless alone, but the same file carries the",
+      "operator verbs `fulfil` and `resolve` -- fulfil verifies a Stripe webhook signature against a",
+      "vault secret, then issues and records a licence offline -- and it requires src/lib/entitlement.js,",
+      "which is already paid here. A file that requires a paid module cannot be open."
     ],
     "paths": [
       "src/lib/providers/hosted-relay-entitlement.js",
@@ -174,7 +194,9 @@
       "src/lib/license-store.js",
       "src/lib/entitlement-grant.js",
       "src/lib/providers/paid-surface-entitlement.js",
-      "tools/entitlement-webhook.js"
+      "tools/entitlement-webhook.js",
+      "src/lib/tool-packs/vendor-license-issuance.js",
+      "tools/entitlement.js"
     ],
     "prefixes": []
   },

@@ -14,7 +14,7 @@ import {
   CAP_BOUNDS, clampCapMs, capMinutes, sandboxLevel,
 } from '../orchestration-controls.js'
 import {
-  TIER_AGENT_IDENTITY, TEAM_BOUNDS, planTeam, createTeamController,
+  TIER_SEAT_POOL, TEAM_BOUNDS, planTeam, createTeamController,
 } from '../agent-teams.js'
 import {
   LOOP_BOUNDS, LOOP_OVERRUN, LOOP_RUN_CAP, planLoop, createLoopController,
@@ -37,6 +37,26 @@ import { GUIDE_ACTION, hostAbsentMarkup } from '../first-run-needs.js'
 /* No bare identifier reaches a person from this page's controls; the code is
    carried as `data-refusal-code` instead. See src/refusal-copy.js. */
 import { markRefusalCode, refusalCodeOf, refusalSentence } from '../refusal-copy.js'
+/* The sentences for a refused agent START, which are a different table from the
+   product-wide remedies above and stay that way — see the note at the head of
+   src/refusal-copy.js for why the two do not import each other. UNAVAILABLE_TEXT
+   is read only to ASK whether a code has a sentence there; the sentence itself
+   always comes back through unavailableReason(). */
+import { refusalCode } from '../agent-availability-copy.js'
+/* EVERY SENTENCE THIS FLOW SAYS ABOUT A START, written once, in one voice, by
+   the lane that owns the words. Nothing in this file rewords a refusal: it hands
+   the whole bridge result over and shows what comes back. */
+import {
+  START_REFUSAL,
+  refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
+} from '../fleet-tree-copy.js'
+/* THE TREE A PERSON BUILDS, and the panel they build it in. Neither is this
+   file's to own: src/fleet-trees.js holds the structure and its rules, and
+   src/agent-compose-panel.js holds the form and its refusals. This view is the
+   join between them and the agent bridge — a press goes in one end and a running
+   session comes out the other. */
+import { createFleetTreeStore, FLEET_TREE_LIMITS, safeTreeStorage } from '../fleet-trees.js'
+import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
@@ -55,6 +75,11 @@ import {
 } from '../org-controls.js'
 import '../board.css'
 import '../tree-graph.css'
+/* The panel's own styles are imported HERE rather than by the module, because
+   src/agent-compose-panel.js is proven under `node --test` and a stylesheet
+   import inside it would make it unloadable there. Same arrangement as the two
+   above. */
+import '../agent-compose-panel.css'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, SVGRenderer])
 
@@ -418,6 +443,177 @@ function agentChartBox(agent) {
   }
 }
 
+/* ---------------------------------------------------------------
+   STARTING A REAL AGENT, WHICH IS THE ONE THING THIS PAGE COULD NOT DO.
+   ---------------------------------------------------------------
+
+ * WHAT THE OWNER ASKED FOR. The tree is empty until a person starts something.
+ * The empty places in it are drawn, and pressing one is how the structure grows:
+ * the panel on the right asks for a role and a message, and answering it starts
+ * a real agent. Not a card that says an agent exists — an actual session, on
+ * this computer, that a person can then talk to.
+ *
+ * THE ONE RULE THIS SECTION EXISTS TO KEEP. Nothing here runs on page load.
+ * Every function below is reached from a press and from nothing else, which is
+ * why the start lives in a function rather than in a promise chain that a mount
+ * could fall into. The page's other live control (Dispatch, above) had this
+ * property already; a tree that starts a session because somebody navigated to a
+ * fleet page would be a far worse defect than the one this repairs.
+ *
+ * WHY IT IS TWO CALLS AND NOT ONE. `mcAgent.start()` opens a session and mints
+ * its own name for it; `mcAgent.send()` carries the person's words into that
+ * session. There is no single call that does both, and there should not be: the
+ * two fail in genuinely different ways, and a person who is told "it did not
+ * start" when in fact it started and their message did not arrive will go and
+ * start a second one. So the two refusals are worded separately below, and the
+ * session name is carried out of a failed send rather than thrown away.
+ *
+ * WHY A REFUSAL IS READ RATHER THAN INFERRED. The bridge answers `{ok:false,
+ * code}` for a refusal it can describe, and it REJECTS for a refusal raised
+ * before anything was spawned — so a start that never happened arrives here as
+ * an ordinary value about half the time. Reading only exceptions would let a
+ * draft node sit on the screen looking like a running agent, which is this
+ * codebase's signature defect (absence read as consent) in its most expensive
+ * costume: a person believing work is under way when nothing is.
+ *
+ * A successful start carries NO `ok:true`. It answers `{sessionId, threadId,
+ * tier}` (shell/agent-host.cjs startSession), so the test below is `ok === false`
+ * plus a session name that is really a non-empty string. A truthiness check on
+ * `ok` would treat every successful start as a failure. */
+
+/* WHERE THE WORDS COME FROM, AND WHY NONE OF THEM ARE WRITTEN HERE.
+ *
+ * src/fleet-tree-copy.js owns every sentence this flow says about a start: the
+ * four curated refusals, the progress lines, the role labels. It composes the
+ * rest through src/agent-availability-copy.js and src/refusal-copy.js, so an
+ * engine code nobody has written a sentence for still arrives as English with an
+ * action in it. This file therefore holds NO refusal table of its own. It had
+ * one for about an hour; a second table is how one product ends up describing a
+ * missing assistant program two ways on two screens.
+ *
+ * THE ONE SENTENCE THIS FILE STILL COMPOSES is the send failure, and only
+ * because the shared module has no case for it: every sentence there opens with
+ * "Nothing was started", which is exactly the fact that is FALSE when the
+ * session opened and the message did not land. Composing it from the product's
+ * own shared composer (refusalSentence) rather than writing a second table
+ * keeps the vocabulary shared and the fact honest. */
+
+/* WHAT AN EMPTY NODE SAYS WHERE THERE IS NO INSTALLED APP BEHIND THE PAGE.
+ *
+ * The example fleet, the browser preview and the website's screenshots all run
+ * this same view with no agent bridge on `window`. Pressing an empty node there
+ * has to explain itself, because the two dishonest options are both worse: a
+ * press that silently does nothing reads as a broken product, and a press that
+ * reports a refusal reads as a fault on a machine that has none.
+ *
+ * It names no mechanism and no address. What a person needs is the one fact
+ * that this is not the installed application, and the one action that follows
+ * from it. It lives here rather than in the shared copy module because it is not
+ * a refusal from the engine — nothing was asked of anything. */
+const START_NEEDS_APP_TEXT = 'Starting an agent needs the installed ToolsEnabled application. This page is a preview of it, so nothing here can start one. Open ToolsEnabled on your computer to grow a real tree.'
+
+/* THE SENTENCE FOR THE ONE FAILURE THAT IS NOT A FAILED START.
+ *
+ * The lead states the fact only this file knows — the session opened, the words
+ * did not arrive — and refusalSentence() supplies the diagnosis and the remedy
+ * from the product's shared tables. It can never return a code and it can never
+ * return an empty string, so this is always two whole sentences. */
+const SEND_FAILED_LEAD = 'Your agent started, and your message did not reach it.'
+function sendRefusalSentence(result) {
+  return `${SEND_FAILED_LEAD} ${refusalSentence(result, { fallback: 'The message was not accepted by the session.' })}`
+}
+
+/* START AN AGENT FOR ONE NODE OF THE TREE, and report what really happened.
+ *
+ * Answers one of four states, and the caller has to be able to tell them apart:
+ *
+ *   { ok: true, sessionId }        a session is open and the words were sent
+ *   { ok: false, needsApp: true }  there is no installed app behind this page
+ *   { ok: false, sessionId: null } nothing started; the node did not begin
+ *   { ok: false, sessionId }       a session IS open and the words did not land
+ *
+ * The fourth is the one worth the length. Throwing the session name away because
+ * the send was refused would leave a real agent running on the person's computer
+ * with nothing on screen pointing at it, and the node would invite them to start
+ * a second one. So the name comes back, the node keeps it, and the sentence says
+ * plainly that the agent is running and the message is not.
+ */
+async function startAgentForNode({ text, surface }) {
+  const bridge = typeof window === 'undefined' ? null : window.mcAgent
+  if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
+    return {
+      ok: false,
+      needsApp: true,
+      sessionId: null,
+      code: null,
+      sentence: START_NEEDS_APP_TEXT,
+      needsAssistantProgram: false,
+    }
+  }
+
+  let started = null
+  try {
+    started = await bridge.start({ surface })
+  } catch (error) {
+    /* A REJECTION IS A REFUSAL WITH ITS CODE IN THE MESSAGE. Electron rebuilds a
+       rejected call in this window from the error's name and message; own
+       properties do not survive, so `error.code` is undefined for every refusal
+       that crossed the boundary and shell/main.cjs makes the MESSAGE the code
+       for exactly that reason. refusalCode() reads it back and only ever returns
+       a code the shared tables already have a sentence for. */
+    const refusal = { ok: false, code: refusalCode(error) }
+    return {
+      ok: false,
+      needsApp: false,
+      sessionId: null,
+      code: refusal.code,
+      sentence: startRefusalSentence(refusal),
+      needsAssistantProgram: refusalNeedsAssistantProgram(refusal),
+    }
+  }
+  /* READ, not inferred. `started.ok === false` is the described refusal;
+     a missing or empty session name is a reply that cannot be steered even if it
+     claims success, and treating it as a start would produce a node pointing at
+     a session nothing can send to. */
+  if (!started || started.ok === false || typeof started.sessionId !== 'string' || started.sessionId.length === 0) {
+    return {
+      ok: false,
+      needsApp: false,
+      sessionId: null,
+      code: refusalCodeOf(started),
+      sentence: startRefusalSentence(started),
+      needsAssistantProgram: refusalNeedsAssistantProgram(started),
+    }
+  }
+
+  const sessionId = started.sessionId
+  let sent = null
+  try {
+    sent = await bridge.send({ sessionId, text })
+  } catch (error) {
+    const refusal = { ok: false, code: refusalCode(error) }
+    return {
+      ok: false,
+      needsApp: false,
+      sessionId,
+      code: refusal.code,
+      sentence: sendRefusalSentence(refusal),
+      needsAssistantProgram: false,
+    }
+  }
+  if (sent && sent.ok === false) {
+    return {
+      ok: false,
+      needsApp: false,
+      sessionId,
+      code: refusalCodeOf(sent),
+      sentence: sendRefusalSentence(sent),
+      needsAssistantProgram: false,
+    }
+  }
+  return { ok: true, needsApp: false, sessionId, code: null, sentence: null, needsAssistantProgram: false }
+}
+
 export function computersView({ initialComputer = null, navigate }) {
   let liveMode = isLiveView('computers')
   let liveComputers = []
@@ -474,18 +670,30 @@ export function computersView({ initialComputer = null, navigate }) {
             <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
           </div>
           <div class="graph-edit-note">drag onto a parent or into empty space</div>
-          <!-- WHAT THE ORGANISATION STORE SAID ABOUT THE LAST DRAG.
+          <!-- WHAT THE LAST ACTION ON THIS CANVAS DID, and there are two of them
+               now: a drag onto a new manager, and a start from an empty node.
                A drag has no other place to report from: the rail is showing
                whichever node was last clicked, which is not necessarily the one
                being moved, and the canvas itself can only show the node's
-               position. A refusal stays until the next attempt; a save clears
-               itself, because a persistent "saved" would be indistinguishable
-               from a stale one. -->
+               position. A start needs this line for a different reason — the
+               panel that reported it closes on success, and the person is then
+               looking at the canvas. A refusal stays until the next attempt; a
+               save clears itself, because a persistent "saved" would be
+               indistinguishable from a stale one. -->
           <div class="org-status" data-state="idle" role="status" hidden></div>
         </div>
         <aside class="rail glass">
           <div class="rail-page stats-page is-active"></div>
           <div class="rail-page ctl-page board-page"></div>
+          <!-- THE RIGHT-SIDE PANEL THE OWNER ASKED FOR, and it is a THIRD page
+               rather than a takeover of one of the two above. Both of those are
+               about something that already exists — the fleet, or one agent —
+               and the person reading either of them may press an empty node
+               without meaning to lose it. This page holds the compose panel
+               while it is open and hands the rail back to whichever page was
+               showing when the panel closes. It is empty until a press: nothing
+               is built here on load, because nothing here is a thing to read. -->
+          <div class="rail-page compose-page"></div>
         </aside>
       </div>
     </div>`)
@@ -498,6 +706,7 @@ export function computersView({ initialComputer = null, navigate }) {
   const railElement = root.querySelector('.rail')
   const statsPage = root.querySelector('.stats-page')
   const controlsPage = root.querySelector('.ctl-page')
+  const composePage = root.querySelector('.compose-page')
   const editButton = root.querySelector('.graph-edit-btn')
   const resetButton = root.querySelector('.graph-reset-btn')
   const openButton = root.querySelector('.graph-open-btn')
@@ -535,17 +744,34 @@ export function computersView({ initialComputer = null, navigate }) {
      to make the page look healthier is how a screen starts lying. */
   let declaredOnlyReason = null
 
-  function setOrgStatus(text, state = 'info', { sticky = false } = {}) {
+  /* THE SENTENCE AND THE IDENTIFIER TRAVEL TOGETHER, and until a driver checked,
+     only half of that was true here.
+   *
+   * The rule src/refusal-copy.js sets has two halves: the code never appears in
+   * words a person reads, AND it is still carried where a support conversation
+   * can reach it. This line kept the first half and quietly dropped the second —
+   * a refused start left a good sentence on screen and nothing on the page
+   * anywhere naming which refusal it was. Measured on a packaged window from a
+   * fresh profile: querySelectorAll('[data-refusal-code]') returned nothing at
+   * all after a refused submit.
+   *
+   * It is marked HERE rather than at each call site so the attribute cannot
+   * outlive the sentence it belongs to. Every path through this function sets or
+   * clears it — including the seven-second fade, where a code left behind would
+   * describe a message that is no longer on screen. */
+  function setOrgStatus(text, state = 'info', { sticky = false, code = null } = {}) {
     clearTimeout(orgStatusTimer)
     orgStatusTimer = 0
     orgStatusElement.textContent = text || ''
     orgStatusElement.dataset.state = text ? state : 'idle'
     orgStatusElement.hidden = !text
+    markRefusalCode(orgStatusElement, code ? { code } : null)
     if (text && !sticky) {
       orgStatusTimer = setTimeout(() => {
         orgStatusElement.hidden = true
         orgStatusElement.textContent = ''
         orgStatusElement.dataset.state = 'idle'
+        markRefusalCode(orgStatusElement, null)
       }, 7000)
     }
   }
@@ -580,6 +806,9 @@ export function computersView({ initialComputer = null, navigate }) {
     clearTimeout(railDisposeTimer)
     statsPage.classList.toggle('is-active', page === statsPage)
     controlsPage.classList.toggle('is-active', page === controlsPage)
+    /* The compose panel is a page here like the other two, so exactly one of the
+       three is ever on screen and none of them has to know about the others. */
+    composePage.classList.toggle('is-active', page === composePage)
     if (page === statsPage) railDisposeTimer = setTimeout(clearBoard, 200)
   }
 
@@ -784,22 +1013,496 @@ export function computersView({ initialComputer = null, navigate }) {
     emptyPanel = null
   }
 
+  /* ==========================================================================
+     THE TREES THIS COMPUTER HOLDS, AND THE PRESS THAT GROWS ONE.
+     ==========================================================================
+
+   * THE OWNER'S FLOW, END TO END, AND WHICH FILE OWNS EACH STEP:
+   *
+   *   an empty circle is drawn        src/tree-graph.js
+   *   it is pressed                   src/tree-graph.js reports it, starts nothing
+   *   the right-side panel opens      src/agent-compose-panel.js
+   *   role and message are answered   src/agent-compose-panel.js
+   *   a DRAFT agent joins the tree    src/fleet-trees.js
+   *   a real session starts           window.mcAgent, via startAgentForNode above
+   *   the session is attached to it   src/fleet-trees.js
+   *
+   * Everything between those steps is this file, and it is deliberately nothing
+   * but joining: no structure rules, no form, no sentences. Each of those three
+   * modules is proven on its own under `node --test`; a rule copied into this
+   * view would be a second opinion that no test holds.
+   *
+   * NOTHING IN HERE RUNS ON MOUNT. The store is read when a computer is drawn,
+   * because a tree that was built yesterday has to appear today — that is a
+   * READ. The panel is built on a press, the draft is written on a submit, and
+   * the bridge is called from that submit and from nowhere else.
+   */
+
+  /* One store per computer, because a tree belongs to the machine it runs on and
+     the person switching tabs is switching machines. Rebuilt by mountGraph when
+     the computer changes; the previous one is dropped with its subscription. */
+  let treeStore = null
+  let treeStoreUnsub = null
+  let treeStoreId = null
+  /* Why the store might not exist at all: it needs an id for the computer, and a
+     browser preview with no fleet has no computer to name. That is a real state
+     and it must not be an exception on the way to first paint. The sentence goes
+     to the panel, so a press still answers. */
+  let treeStoreProblem = ''
+  let composePanel = null
+  /* Which rail page the person was reading when they pressed an empty node, so
+     closing the panel puts back what they had rather than resetting the rail. */
+  let railBeforeCompose = null
+
+  /* WHY THE EXAMPLE BOARD DOES NOT GROW TREES, and it is the same fence dd01899
+     put on this page's Dispatch control.
+     `isWriteEnabled` is a question about PERMISSION; this is a question about
+     PROVENANCE, and they are not the same question. In the packaged app the
+     example fleet has a real agent bridge on `window`, so an empty node pressed
+     on the demonstration board would start a real session on this computer from
+     a page whose own banner says nothing on it is real. The slots are therefore
+     GONE from that board rather than disabled — see mountGraph — and this
+     sentence is the belt-and-braces answer if a press reaches here anyway. */
+  const EXAMPLE_BOARD_TEXT = 'This is the example fleet, so nothing here can start a real agent. Turn the example off in Settings, under what the screens show, to build a tree on your own computer.'
+
+  /* THE ONE OUTCOME NEITHER SHARED COPY MODULE HAS A SENTENCE FOR, because it is
+     not a refusal: the agent started, and the drawing of it could not be saved.
+     src/fleet-trees.js reports it as a flag on the snapshot rather than throwing,
+     so a caller that never asks never learns — and the person would find their
+     tree empty after a reload with a real session still running behind it. */
+  const TREE_NOT_SAVED_TEXT = 'Your agent is running. This tree could not be saved on this computer, so it will be gone when you reload the page.'
+
+  function releaseTreeStore() {
+    treeStoreUnsub?.()
+    treeStoreUnsub = null
+    treeStore = null
+    treeStoreId = null
+  }
+
+  /* Open the store for the computer on screen, or make sure there is none.
+     The example board keeps no trees at all: see the fence above. */
+  function syncTreeStore() {
+    if (!liveMode || !computer) {
+      releaseTreeStore()
+      return null
+    }
+    return openTreeStore(computer.id)
+  }
+
+  /* Open the saved trees for one computer.
+   *
+   * createFleetTreeStore THROWS for bad wiring on purpose — see its header: a
+   * missing storage seam or an id that is not an id is a defect in the code, not
+   * something a person did. Caught here all the same, because the alternative is
+   * a fleet page that renders nothing at all on a machine whose id this view was
+   * handed by a fleet record it did not write. A caught throw leaves the trees
+   * unavailable and says so at the one moment it matters, which is a press. */
+  function openTreeStore(computerId) {
+    if (treeStore && treeStoreId === computerId) return treeStore
+    releaseTreeStore()
+    treeStoreProblem = ''
+    if (!computerId) {
+      treeStoreProblem = 'This page is not showing a computer yet, so there is nowhere to start an agent. Wait for your computers to load, then press again.'
+      return null
+    }
+    try {
+      treeStore = createFleetTreeStore({
+        computerId,
+        storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
+      })
+      treeStoreId = computerId
+    } catch {
+      treeStore = null
+      treeStoreId = null
+      treeStoreProblem = 'The trees saved for this computer could not be opened, so nothing can be started here. Reload this page, and if it still refuses, restart ToolsEnabled.'
+    }
+    return treeStore
+  }
+
+  /* A NAME FOR A NODE THAT NOBODY NAMED.
+     A person types a role and a job, never a name, so the first line of the job
+     is what the circle is called — it is the one string on the record that tells
+     two agents apart at a glance. A message that is all whitespace or missing
+     falls back to the role's own label rather than to an id. */
+  function treeNodeName(node) {
+    const firstLine = String(node.message || '').split('\n').map(line => line.trim()).find(Boolean) || ''
+    if (firstLine.length === 0) return roleLabel(node.role)
+    return firstLine.length > 34 ? `${firstLine.slice(0, 33).trimEnd()}…` : firstLine
+  }
+
+  /* WHAT A TREE NODE LOOKS LIKE TO THE GRAPH.
+   *
+   * src/tree-graph.js draws agents, and this is a tree node wearing exactly the
+   * shape it draws — id, name, role key, parent — with two fields that decide
+   * how honest the circle is:
+   *
+   * `bornAt` IS SET ONLY WHILE A SESSION IS REALLY OPEN. The graph binds a live
+   * clock to any node that has one, so a draft or a failed start with a bornAt
+   * would tick away on the canvas exactly like a working agent. That is the one
+   * outcome this whole lane exists to prevent, so the field is derived from the
+   * session and never from the fact that a row exists.
+   *
+   * `state` DECIDES THE WORD IN THE CIRCLE WHERE THE CLOCK WOULD BE, and the
+   * graph's vocabulary for it is the fleet's: 'disabled' means switched off in
+   * the fleet record, 'enabled' means declared and live, and anything else
+   * renders as "no signal". A draft is none of the first two — calling it
+   * disabled would tell a person their brand new agent had been switched off,
+   * which is a different and wrong story — so it is deliberately outside that
+   * vocabulary and lands on the neutral word, which is also the true one:
+   * nothing is coming from it, because nothing is running.
+   */
+  function treeAgentRecord(node) {
+    const running = node.status === 'running' || node.status === 'starting'
+    const bornAt = running && node.sessionId ? Date.parse(node.createdAt) : NaN
+    return {
+      id: node.id,
+      name: treeNodeName(node),
+      role: node.role || 'default',
+      declaredRole: node.role || 'default',
+      parentId: node.parentId || null,
+      state: running ? 'enabled' : 'not started',
+      bornAt: Number.isFinite(bornAt) ? bornAt : null,
+      stoppedAt: null,
+      tasksDone: null,
+      failRate: null,
+      provider: null,
+      model: null,
+      context: [],
+      tierRank: node.parentId ? 2 : 0,
+      cullable: Boolean(node.parentId),
+      cullRank: 0,
+      /* The graph puts this in the circle's tooltip when there is no clock. It
+         is the node's own status note — the refusal sentence, for a start that
+         did not happen — so hovering a stalled circle answers the question the
+         canvas raised. */
+      projectionUnavailableReason: node.statusNote || 'this agent has not been started yet',
+      /* The record the chip and the rail read back. Carried rather than looked
+         up so that the two can never disagree about which node they describe. */
+      treeNode: node,
+    }
+  }
+
+  const treeAgents = () => (treeStore ? treeStore.snapshot().nodes.map(treeAgentRecord) : [])
+
+  /* The computer handed to the graph: the fleet's own agents plus the ones this
+     person started. A COPY is only made when there is something to add, because
+     the simulated page relies on object identity — src/tree-graph.js subscribes
+     to sim events and compares `comp === this.computer` — and a copy handed over
+     for nothing would silently stop the example fleet animating. */
+  function graphComputer() {
+    /* The example board is left byte-for-byte as it was — see EXAMPLE_BOARD_TEXT
+       above for the fence, and note that this is the same object identity check
+       the sim relies on. */
+    if (!liveMode) return computer
+    const grown = treeAgents()
+    if (grown.length === 0) return computer
+    return { ...computer, agents: [...(computer.agents || []), ...grown] }
+  }
+
+  /* THE CHIP BESIDE A NODE THIS PERSON STARTED.
+     The fleet's own feed describes a fleet record and has nothing true to say
+     about a node this page created a second ago, so a tree node answers for
+     itself: what it is doing now, and — when it did not start — why not. The
+     status word comes first because the chip clips at about 322px, and the
+     sentence in full is in the panel and on the tooltip. */
+  /* One vocabulary for what a node is doing, read by the chip on the canvas and
+     by the rail behind it. Two sets of words for one field is how a screen ends
+     up saying "running" in one place and "starting" in another about the same
+     circle. */
+  function treeNodeStatusWord(node) {
+    if (node.status === 'running') return 'running'
+    if (node.status === 'starting') return 'starting'
+    if (node.status === 'failed') return 'did not start'
+    if (node.status === 'finished') return 'finished'
+    return 'not started yet'
+  }
+
+  function treeContextFeed(agent) {
+    const node = agent.treeNode
+    if (!node) return liveMode ? projectionMonitorContext(agent) : monitorContextFor(agent)
+    return {
+      current: treeNodeStatusWord(node),
+      previous: node.statusNote || null,
+      chat: null,
+      unavailable: node.statusNote ? null : 'nothing has run for this agent yet',
+      tasks: null,
+      failRate: null,
+      model: null,
+    }
+  }
+
+  /* Redraw from the model as it now stands. refresh() is the graph's own word
+     for it and it keeps the zoom, the pan and the drilled-in root — every one of
+     which the person set deliberately, and none of which a new agent is a reason
+     to discard. The computer object is replaced first because the graph reads
+     its agent list on every reconcile. */
+  function refreshTree() {
+    if (!graph) return
+    graph.computer = graphComputer()
+    graph.refresh()
+  }
+
+  /* ---------- the press, the panel, and the start ---------- */
+
+  function closeComposePanel() {
+    composePanel?.destroy()
+    composePanel = null
+    composePage.innerHTML = ''
+    if (railBeforeCompose) activateRail(railBeforeCompose)
+    railBeforeCompose = null
+  }
+
+  /* WHICH PARENT THE NEW AGENT REALLY HANGS UNDER.
+   *
+   * A child slot can be pressed under two very different circles: one this
+   * person started, which the tree store knows, and one that came from the
+   * fleet record or the declared organisation, which it does not. The store can
+   * only hang a node under its own, so a press under a fleet agent begins a NEW
+   * tree — and `null` is how the panel is told that, which makes it say so in
+   * its own words before anything is typed. Handing over the pressed agent's id
+   * would produce a panel promising a place in the tree that the store would
+   * then refuse, after the person had written their brief. */
+  function composeParentFor(detail) {
+    if (!treeStore || !detail || detail.kind !== 'child') return null
+    const node = treeStore.getNode(detail.parentId)
+    if (!node) return null
+    return { id: node.id, name: treeNodeName(node) }
+  }
+
+  /* WHY THE PANEL IS NEVER WITHHELD.
+     A press is a question, and every press gets an answer in the place the
+     person is looking. When there is no installed application behind this page,
+     or the saved trees could not be opened, the panel opens with its fields
+     switched off and the reason printed in it — src/agent-compose-panel.js keeps
+     Cancel alive for exactly this. Silently ignoring the press would leave a
+     person pressing a circle that does nothing, which is the state this whole
+     feature was built to end. */
+  function composeUnavailableReason() {
+    if (!liveMode) return EXAMPLE_BOARD_TEXT
+    if (treeStoreProblem) return treeStoreProblem
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.start !== 'function') return START_NEEDS_APP_TEXT
+    /* THE LIMITS ARE NOT RE-ASKED HERE. src/fleet-trees.js refuses a tree past
+       its own cap in its own words, and those words come back from addNode on
+       submit. Asking the same question early would put a second wording of one
+       rule on the screen, and the two would drift the first time only one was
+       edited. */
+    return ''
+  }
+
+  function openComposeFor(detail) {
+    if (destroyed || !computer) return
+    syncTreeStore()
+    const parent = composeParentFor(detail)
+    const unavailable = composeUnavailableReason()
+
+    if (!composePanel) {
+      railBeforeCompose = controlsPage.classList.contains('is-active') ? controlsPage : statsPage
+    }
+    composePanel?.destroy()
+    composePage.innerHTML = ''
+    composePanel = mountAgentComposePanel({
+      container: composePage,
+      parent,
+      /* NEITHER THE ROLE LIST NOR THE BUTTON'S WORDS ARE PASSED, on purpose. The
+         panel's own default is ROLE_CHOICES from src/fleet-tree-copy.js — the
+         same list this view would have handed it — and its label is that
+         module's too. Passing either from here would be a second place to change
+         when the words change, and its refusals name the button by its real
+         name. */
+      unavailableReason: unavailable,
+      onSubmit: draft => submitCompose(draft, detail),
+      onCancel: () => closeComposePanel(),
+    })
+    if (!composePanel) return
+    activateRail(composePage)
+    /* A press made with the keyboard puts the caret where the person is going
+       next; a pointer press leaves focus alone, because moving it out from under
+       a mouse is how a page steals a click. */
+    if (detail?.via === 'keyboard') composePanel.focus()
+  }
+
+  /* ONE SUBMIT, FOUR OUTCOMES, AND THE MODEL TELLS THE TRUTH IN ALL OF THEM.
+   *
+   *   the draft is refused      nothing is created; the panel says why
+   *   the start is refused      the node stays, marked as failed, with the
+   *                             reason on it. It is NOT deleted: a person who
+   *                             just described a job should not have to type it
+   *                             again to find out what went wrong.
+   *   the send is refused       a session IS open. It is attached first, so the
+   *                             node points at the real thing, and only then
+   *                             marked failed with a sentence that says the
+   *                             agent is running and the message is not.
+   *   everything worked         the session is attached, the node is running,
+   *                             and the panel closes itself.
+   *
+   * IT RETURNS THE PANEL'S OWN REFUSAL SHAPE rather than throwing. A thrown
+   * error would be replaced by the panel's fixed sentence — correctly, since an
+   * Error's words are written for whoever holds the repository — and the person
+   * would lose the specific reason their start did not happen.
+   */
+  async function submitCompose(draft, detail) {
+    const store = treeStore
+    if (!store) return { ok: false, message: treeStoreProblem || START_NEEDS_APP_TEXT }
+
+    const parent = composeParentFor(detail)
+    const added = store.addNode({
+      parentId: parent ? parent.id : null,
+      role: draft.role,
+      message: draft.message,
+    })
+    /* The store's own sentence, verbatim. It knows what it refused and why —
+       a message too long, a branch too deep, a computer already holding as many
+       trees as it keeps — and rewording any of that here would be this file
+       having a second opinion about a rule it does not own. */
+    if (!added.ok) return { ok: false, message: added.problems[0] || START_REFUSAL.noReasonGiven }
+
+    const node = added.node
+    /* The draft is on the canvas BEFORE the bridge is called. A start takes
+       seconds, and a person who pressed a circle and sees nothing appear will
+       press it again — which is how two agents get started for one job. */
+    refreshTree()
+    /* The one line on this page that survives the panel closing, in the same
+       place and the same three states the drag already reports in: busy while it
+       is in flight, green when it ran, and a refusal that STAYS until the next
+       attempt. A start crosses a background service and another program, so the
+       wait is real and a canvas that said nothing during it is where somebody
+       presses a second circle for the same job. */
+    setOrgStatus(startingLine(draft.role), 'busy', { sticky: true })
+
+    const result = await startAgentForNode({ text: draft.message, surface: 'fleet-tree' })
+    if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
+
+    if (!result.ok) {
+      /* THE SESSION COMES FIRST WHEN THERE IS ONE. A send that was refused after
+         a start that worked leaves a real agent running on this computer;
+         attaching it before the node is marked failed means the tree points at
+         the thing that exists, instead of leaving it running with nothing on
+         screen naming it. */
+      if (result.sessionId) store.attachSession(node.id, result.sessionId)
+      store.setNodeStatus(node.id, 'failed', { note: statusNote(result.sentence) })
+      refreshTree()
+      /* The identifier goes on the status line beside the sentence, never into
+         it. `result.code` is null for the no-application branch, where there is
+         no refusal to name because nothing was asked of anything. */
+      setOrgStatus(result.sentence, 'refuse', { sticky: true, code: result.code })
+      /* THE SECOND LINE OF ONE ANSWER, and only for the refusal it belongs to.
+         A person whose computer has no assistant program is being sent to a
+         terminal, and the shared copy keeps the "if you already have Node" route
+         apart so a surface can offer it quietly. This panel shows one block of
+         words, so quietly means after the sentence rather than beside it. */
+      const panelSentence = result.needsAssistantProgram
+        ? `${result.sentence} ${START_REFUSAL.assistantProgramNote}`
+        : result.sentence
+      return { ok: false, message: panelSentence }
+    }
+
+    const attached = store.attachSession(node.id, result.sessionId)
+    if (!attached.ok) {
+      /* The session is real and the tree could not record it. Saying "started"
+         would leave a person with an agent they cannot find from this page. */
+      const sentence = `${attached.problems[0] || 'This tree could not record the session that was started.'} Your agent is running. Reload this page to pick it up again.`
+      store.setNodeStatus(node.id, 'failed', { note: statusNote(sentence) })
+      refreshTree()
+      setOrgStatus(sentence, 'refuse', { sticky: true })
+      return { ok: false, message: sentence }
+    }
+    store.setNodeStatus(node.id, 'running', { note: '' })
+    refreshTree()
+    /* THE AGENT RAN AND THE TREE WAS NOT SAVED IS ITS OWN OUTCOME, and reporting
+       it as a plain success would be the worst kind of true: the session really
+       is running, and the drawing of it is on screen and nowhere else. The store
+       reports this rather than throwing, so a caller that never asked would
+       never find out. */
+    if (store.snapshot().persistenceFailed) setOrgStatus(TREE_NOT_SAVED_TEXT, 'refuse', { sticky: true })
+    else setOrgStatus(runningLine(draft.role), 'ok')
+    /* THE PANEL CLOSES ITSELF ON A SUCCESS, AND THE RAIL HAS TO COME BACK WITH
+       IT. The panel removes its own root and stops there — correctly, since it
+       does not know what was on this rail before it. Without this the person
+       would be left looking at the empty page the panel had been sitting in,
+       which reads as the rail having broken at the exact moment their agent
+       started. */
+    closeComposePanel()
+    return { ok: true }
+  }
+
+  /* The note the tree keeps beside a node is bounded by the store, and a refusal
+     sentence can be longer than that bound. Trimmed at a sentence end where
+     there is one, so the note is a whole thought rather than a cut-off clause;
+     the sentence in full is in the panel, which is where the person is reading.
+     A note the store would refuse is worse than a shortened one: the refusal
+     would leave the node with no explanation at all. */
+  function statusNote(sentence) {
+    const max = FLEET_TREE_LIMITS.maxNoteChars
+    const text = String(sentence || '').trim()
+    if (text.length <= max) return text
+    const cut = text.slice(0, max)
+    const lastStop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '))
+    return lastStop > 40 ? cut.slice(0, lastStop + 1) : `${cut.slice(0, max - 1).trimEnd()}…`
+  }
+
   function mountGraph() {
     clearMountedGraph()
     clearEmptyPanel()
-    if (!computer) return
+    closeComposePanel()
+    if (!computer) {
+      releaseTreeStore()
+      return
+    }
+    syncTreeStore()
     graphTitle.textContent = computer.name
     canvas = el('<div class="computer-tree-canvas"></div>')
     graphWrap.insertBefore(canvas, graphTitle)
     graph = new StaticTreeGraph(canvas, {
-      computer,
+      computer: graphComputer(),
       screenChips: true,
-      contextFeed: liveMode ? projectionMonitorContext : monitorContextFor,
+      contextFeed: treeContextFeed,
       edges: liveMode ? computer.graphEdges : null,
       onReparent: liveMode ? handleReparent : null,
-      onOpenControls: (agent) => { setOpenTarget(agent); showControls(agent) },
+      /* A CLICK ON AN AGENT THIS PERSON STARTED IS NOT A CLICK ON A FLEET
+         RECORD, and the rail behind this callback is written for a fleet record:
+         it prints a provider, an origin and a bridge dispatch, and it would have
+         printed this node's internal id at somebody. So a tree node is routed to
+         a rail of its own, and the "Open agent detail" button is aimed at
+         NOTHING rather than at a drill-in page that reads the fleet and would
+         not find it. */
+      onOpenControls: (agent) => {
+        if (agent?.treeNode) {
+          setOpenTarget(null)
+          showTreeNodeControls(agent.treeNode)
+          return
+        }
+        setOpenTarget(agent)
+        showControls(agent)
+      },
       onRootChange: renderCrumb,
       onOverridesChange: syncResetButton,
+      /* THE OFFER, AND ONLY WHERE IT CAN BE HONOURED. Empty nodes are drawn on
+         the board that reads this computer and are absent from the example one,
+         the same way the launch controls are — a demonstration screen that could
+         start a real session is the defect, not the feature. */
+      emptySlots: liveMode === true,
+      /* WHERE AN OFFER IS REAL, ASKED OF THE MODEL THAT OWNS THE ANSWER.
+         src/fleet-trees.js already knows every position it would accept — its
+         extensionPoints() excludes a branch at the engine's fan-out or depth cap
+         — and the graph asks rather than importing a copy of a rule that would
+         go stale. Without this a dashed circle can be drawn where the store will
+         refuse, and the person only finds that out after choosing a role and
+         writing out what they wanted done.
+         A fleet or declared agent is not in the tree store at all, so no child
+         position is offered under one. That is the honest answer rather than a
+         lost capability: the store cannot hang a node under an agent it did not
+         start, so a slot there was always an offer to do something else. */
+      canExtend: (target) => {
+        if (!treeStore) return true
+        const points = treeStore.extensionPoints()
+        if (target === null) return points.some(point => point.kind === 'tree' || point.kind === 'root')
+        return points.some(point => point.parentId === target.id)
+      },
+      /* THE PRESS. src/tree-graph.js starts nothing and decides nothing; it
+         reports which circle was pressed and hands over. Everything that happens
+         next is above. */
+      onEmptyPress: openComposeFor,
     })
     graph.onDensity = (dense) => hintElement.classList.toggle('show', dense)
     graph.updateDensity()
@@ -807,6 +1510,12 @@ export function computersView({ initialComputer = null, navigate }) {
     renderCrumb(null)
     syncEditButton()
     syncEditAvailability()
+    /* One subscription per mount, and the previous one goes first: openTreeStore
+       hands back the SAME store when the computer has not changed, so a mount
+       that only re-subscribed would leave one listener per remount attached to a
+       store that outlives them all. */
+    treeStoreUnsub?.()
+    treeStoreUnsub = treeStore ? treeStore.subscribe(() => { if (!destroyed) refreshTree() }) : null
     /* Aim the button before anything is clicked, so it is a way IN rather than a
        reward for having already found the way in. A computer with no agents at
        all leaves the target null and the button hidden. */
@@ -1255,11 +1964,11 @@ export function computersView({ initialComputer = null, navigate }) {
             ${LAUNCH_TIERS.map(tier => `
               <label class="team-member"><input type="checkbox" data-team-member="${escapeMarkup(tier.id)}"/>
                 <span>${escapeMarkup(tier.label)}</span>
-                <code>${escapeMarkup(TIER_AGENT_IDENTITY[tier.id] || '?')}</code>
+                <code>${escapeMarkup((TIER_SEAT_POOL[tier.id] || []).length === 1 ? '1 seat' : `${(TIER_SEAT_POOL[tier.id] || []).length} seats`)}</code>
               </label>`).join('')}
           </div>
         </div>
-        <div class="rail-sub" data-team="identity-note">The code beside each name is the declared agent it becomes. Two members that resolve to the same agent cannot run at once, so at most ${TEAM_BOUNDS.maxConcurrent} lanes can be live together on this computer.</div>
+        <div class="rail-sub" data-team="identity-note">Every agent needs its own seat. Some agents share a set of seats, so at most ${TEAM_BOUNDS.maxConcurrent} can run at the same time on this computer.</div>
         <div class="rail-sub" data-team="plan" role="status"></div>
         <div class="ctl-dispatch">
           <button class="ctl-btn" type="button" data-team="go"${dispatchEnabled ? '' : ' disabled'} title="${dispatchEnabled ? 'Start the lead first, then nest each member under its launch' : 'Handing out work is switched off. Turn on “Hand out work to agents” in Settings to use it.'}">Start the team</button>
@@ -1603,6 +2312,44 @@ export function computersView({ initialComputer = null, navigate }) {
     railChatUnsub = onChatboxSettingsChanged(render)
   }
 
+  /* THE RAIL FOR AN AGENT THIS PERSON STARTED FROM THE TREE.
+   *
+   * WHY IT IS NOT showProjectionControls. That panel describes a FLEET RECORD:
+   * it prints a provider, an origin, an internal id, and it mounts the Dispatch,
+   * team, loop and cloud controls onto the agent it is given. Every one of those
+   * is wrong here — a node this page started an hour ago has no fleet record, no
+   * provider on file, and no business offering to dispatch a lane nested under
+   * itself — and printing its id would put a key in front of a person, which the
+   * tree model's own contract forbids.
+   *
+   * So this says the four things that are true and stops: what it is, what it is
+   * doing, why it is not doing it when that is the case, and what was asked of
+   * it. The reason sentence is the store's own `statusNote`, which is where the
+   * refusal from a failed start was written, so this rail and the panel that
+   * reported it cannot drift apart.
+   */
+  function showTreeNodeControls(node) {
+    clearBoard()
+    const role = ROLES[node.role] || ROLES.default
+    controlsPage.style.setProperty('--rc', role.hex)
+    controlsPage.innerHTML = `
+      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet overview</button><span class="spacer"></span>Agent in your tree</div>
+      <div class="rail-scroll">
+        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
+          <div class="rail-sub">${escapeMarkup(treeNodeStatusWord(node))}</div>
+          ${node.statusNote ? `<div class="rail-sub projection-unavailable">${escapeMarkup(node.statusNote)}</div>` : ''}
+        </div>
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">What you asked for</span></div>
+          <div class="rail-sub">${escapeMarkup(node.message || '')}</div>
+        </div>
+      </div>`
+    controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
+    activateRail(controlsPage)
+  }
+
   function showControls(agent) {
     if (liveMode) {
       showProjectionControls(agent)
@@ -1852,6 +2599,11 @@ export function computersView({ initialComputer = null, navigate }) {
     clearSourceUnsubs()
     clearMountedGraph()
     clearBoard()
+    /* There is no computer on this screen any more, so there is nothing for an
+       open compose panel to start an agent ON. Leaving it would offer a form
+       whose submit could only refuse. */
+    closeComposePanel()
+    releaseTreeStore()
     liveMode = true
     liveComputers = []
     computer = null
@@ -1967,6 +2719,13 @@ export function computersView({ initialComputer = null, navigate }) {
       clearBoard()
       clearSourceUnsubs()
       clearMountedGraph()
+      /* The panel holds a submit that can still be in flight, and the store
+         holds a listener that would paint into a rail this view no longer owns.
+         A start already sent is NOT cancelled by any of this — it is a real
+         session on this computer, and closing a page is not a reason to stop it.
+         What stops here is this view's interest in the answer. */
+      closeComposePanel()
+      releaseTreeStore()
       unsubs.forEach(unsubscribe => unsubscribe())
     },
   }

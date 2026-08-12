@@ -271,6 +271,53 @@ test('the surface renders only recognised event text', () => {
   assert.equal(sessionTurnStatus({ sessionId: 'other', event: { type: 'turn_completed', status: 'x' } }, id), null)
 })
 
+/* THE COMPOSER IS THE SECOND READER OF THAT SAME STREAM, and a second reader is
+ * how one of the two comes to be wrong in private.
+ *
+ * The agent page's chat box was wired to a live session and then read the
+ * packets itself: `packet.text`, falling back to `packet.delta.text`. Neither
+ * field exists on anything this product emits -- the test above is the shape --
+ * so the condition was false for every packet and the composer rendered NOTHING
+ * back from a real, running agent. The suite above could not see it: the readers
+ * were correct and untouched; the surface that mattered simply did not use them.
+ *
+ * The second clause is the same defect from the other end. A refusal on this
+ * channel arrives as a REJECTED invoke whose message shell/main.cjs has
+ * deliberately replaced with the bare code, so `catch (error) { show(
+ * error.message) }` prints a machine identifier to a person -- the thing
+ * tools/test/refusal-copy.test.mjs exists to prevent, by the one route its scan
+ * cannot see (it looks for a code in a template, and this was an Error's own
+ * message). The sentence has to come from the copy tables, through `fail`.
+ *
+ * PINNED AS SOURCE because the listener and the catch are closures inside a view
+ * builder that no unit test can reach; comment lines are dropped first, since
+ * both notes above quote the very expressions being forbidden. */
+test('the agent page composer reads the live stream through the shared readers, and prints no Error text', () => {
+  const withoutNotes = (text) => text
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+    .join('\n')
+
+  const view = withoutNotes(read('src/views/agent.js'))
+  assert.match(
+    view,
+    /import \{[^}]*\bsessionEventText\b[^}]*\bsessionTurnStatus\b[^}]*\} from '\.\.\/agent-session-events\.js'/,
+    'the agent page must read live packets through agent-session-events.js, not a shape of its own',
+  )
+  assert.equal(
+    view.match(/\bpacket\s*\.\s*(text|delta)\b/g),
+    null,
+    'the composer must not reach into a packet directly -- that reading was false for every packet this product emits',
+  )
+
+  const chat = withoutNotes(read('src/components.js'))
+  assert.equal(
+    chat.match(/\b(error|err|reason)\s*(?:\?\.|\.)\s*message\b/g),
+    null,
+    "the chat window must not put an Error's own message on screen: on this channel that message is the machine code",
+  )
+})
+
 test('every agent channel validates its sender frame', () => {
   // These channels create and drive a real CLI child process. The shell has no
   // will-navigate or window-open guard, so the sender check is the boundary

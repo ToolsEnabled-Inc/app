@@ -36,8 +36,15 @@
  * otherwise costs real time (docs/CODEX-CLOUD-INTERFACE.md):
  *   - There is no cancel. Once the provider accepts a task it runs. No control
  *     here offers one, and the confirm step says so before the launch.
- *   - It does not apply diffs. Reading and staging a task's changes is not part
- *     of this surface, and nothing here implies a task's work has landed.
+ *   - It does not apply diffs. A finished task's changes can now be FETCHED
+ *     here -- that was the whole point of paying for the task -- but fetching is
+ *     a read. Nothing on this surface applies, stages or commits anything, and
+ *     no control offers to: putting remotely-produced changes into a tree is a
+ *     separate reviewed act, and keeping the two apart means retrieval can never
+ *     be the step that damages a tree.
+ *   - It returns a diff and nothing else. No artifacts, no agent prose, no logs:
+ *     the provider CLI exposes none of those, so nothing here is labelled
+ *     "results" or "output".
  *   - Silence is not success. A task absent from the searched window is
  *     reported unknown, never finished, and never quietly dropped from the list.
  *
@@ -55,6 +62,7 @@ import {
   createCloudTaskController,
   environmentSummary,
   findEnvironment,
+  offersDiff,
   readRemembered,
 } from './cloud-tasks-controller.js'
 import './cloud.css'
@@ -66,9 +74,18 @@ export {
   cloudAvailability,
   cloudStateView,
   createCloudTaskController,
+  diffAnswer,
+  diffRefusalMessage,
   environmentSummary,
   environmentsMessage,
+  offersDiff,
 } from './cloud-tasks-controller.js'
+
+/* The one control that gets a finished task's work back, and the label it wears
+   while it is doing it. "Get the work" is what the person came for; every
+   sentence the answer produces then says diff, because a diff is what exists. */
+const GET_WORK_LABEL = 'Get the work'
+const GET_WORK_BUSY_LABEL = 'Reading…'
 
 /* [B6] `code` is the identifier that used to lead each of these lines. It is
    still reported, on the element rather than in the sentence, so a support
@@ -83,7 +100,18 @@ function stateNode(node, tone, text, code = null) {
   else node.removeAttribute('data-refusal-code')
 }
 
-function taskRow(task) {
+/* THE ROW, AND THE ONE CONTROL ON IT.
+ *
+ * The control is offered on FINISHED rows only, and that is a rule rather than a
+ * tidiness preference: a queued or running task has produced nothing to fetch,
+ * and a button that reliably answers "there is nothing there" teaches people to
+ * ignore the one that matters. `offersDiff` decides, in the controller, so the
+ * rule can be tested without a browser.
+ *
+ * It is a control on the row rather than one control with a task picker, because
+ * the person's question is about THIS task -- the one they are looking at -- and
+ * a picker would ask them to retype an identifier that is already on screen. */
+function taskRow(task, { state = null, onGetWork = null } = {}) {
   const view = cloudStateView(task.state)
   const row = el(`<li class="cloud-task">
     <span class="cloud-task-state" data-tone=""></span>
@@ -102,7 +130,59 @@ function taskRow(task) {
   if (task.environmentLabel) meta.push(task.environmentLabel)
   if (task.updatedAt) meta.push(task.updatedAt)
   row.querySelector('.cloud-task-meta').textContent = meta.join(' · ')
+  if (offersDiff(task) && typeof onGetWork === 'function') {
+    const button = el('<button type="button" class="cloud-get" data-cloud-get></button>')
+    const reading = state?.diffPhase === 'reading'
+    button.textContent = reading && state?.diffTaskId === task.taskId ? GET_WORK_BUSY_LABEL : GET_WORK_LABEL
+    /* The row's own words, so a screen reader hears WHICH task this fetches
+       rather than the twentieth "Get the work" on the page. */
+    button.setAttribute('aria-label', `${GET_WORK_LABEL} from ${task.title || task.taskId}`)
+    button.disabled = reading
+    button.addEventListener('click', () => { onGetWork(task) })
+    row.append(button)
+  }
   return row
+}
+
+/* WHAT CAME BACK, RENDERED WHOLE OR NOT AT ALL.
+ *
+ * The sentence is written by the controller -- one rule, one wording, both
+ * mounts -- and this only decides where it sits and whether a diff sits under
+ * it. The diff itself goes in a <pre> with its own scroll: a diff reflowed to
+ * the width of a panel is not a diff any more, and the one thing a person does
+ * with this text is read it line by line or copy it out.
+ *
+ * THE SPOKEN HALF IS THE SENTENCE, NOT THE DIFF. `role="status"` sits on the one
+ * line that says what happened, and the three elements are built with the panel
+ * rather than rebuilt on every answer. Announcing the region as a whole would
+ * read two megabytes of unified diff aloud to somebody who asked what changed.
+ *
+ * `data-refusal-code` is stamped on the region for the same reason every other
+ * state node in this file carries one -- a support conversation can name the
+ * exact refusal -- and REMOVED when there is none. */
+function renderDiff(node, state) {
+  if (!node) return
+  const title = node.querySelector('.cloud-diff-title')
+  const note = node.querySelector('.cloud-diff-note')
+  const body = node.querySelector('.cloud-diff-text')
+  if (!state.diffTaskId || state.diffPhase === 'idle') {
+    node.hidden = true
+    if (title) title.textContent = ''
+    if (note) note.textContent = ''
+    if (body) { body.textContent = ''; body.hidden = true }
+    node.removeAttribute('data-refusal-code')
+    return
+  }
+  node.hidden = false
+  node.dataset.state = state.diffTone
+  if (state.diffCode) node.setAttribute('data-refusal-code', state.diffCode)
+  else node.removeAttribute('data-refusal-code')
+  if (title) title.textContent = `What came back · ${state.diffTaskId}`
+  if (note) note.textContent = state.diffMessage
+  if (body) {
+    body.textContent = state.diffText
+    body.hidden = state.diffText.length === 0
+  }
 }
 
 function accountOptions(select, accounts, defaultAccount) {
@@ -281,6 +361,7 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
         <output class="write-wide" data-cloud-list-output role="status"></output>
         <output class="write-wide" data-cloud-environments-output role="status"></output>
         <ul class="cloud-task-list write-wide" data-cloud-tasks></ul>
+        <div class="cloud-diff write-wide" data-cloud-diff hidden><span class="cloud-diff-title"></span><p class="cloud-diff-note" role="status"></p><pre class="cloud-diff-text" tabindex="0" hidden></pre></div>
       </div>
     </div>
   </section>`)
@@ -299,11 +380,19 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
   const watchNode = surface.querySelector('[data-cloud-watch]')
   const refreshButton = surface.querySelector('[data-cloud-refresh]')
   const taskList = surface.querySelector('[data-cloud-tasks]')
+  const diffNode = surface.querySelector('[data-cloud-diff]')
   const accountSelect = form.elements.account
   const environmentSelect = form.elements.environment
 
   const remembered = readRemembered()
   form.elements.branch.value = remembered.branch
+
+  /* READ AS THE ACCOUNT THE LIST WAS READ AS. A cloud task is only visible to
+     the account that made it, so asking for the diff as a different account
+     would manufacture the exact refusal this surface exists to explain. */
+  const onGetWork = task => {
+    void controller.readDiff(task.taskId, { account: controller.getState().servingAccount?.name || null })
+  }
 
   const controller = createCloudTaskController({
     postAction,
@@ -330,7 +419,8 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
          this line has to say WHY, and "not read yet", "could not be read" and
          "read, none chosen" are three different answers. */
       stateNode(bindingOutput, 'note', bindingText(findEnvironment(next, environmentSelect.value), next))
-      taskList.replaceChildren(...next.tasks.map(taskRow))
+      taskList.replaceChildren(...next.tasks.map(task => taskRow(task, { state: next, onGetWork })))
+      renderDiff(diffNode, next)
     },
   })
 
@@ -421,6 +511,7 @@ export function cloudControlsBox({ postAction = postBridgeAction } = {}) {
       </div>
       <output class="ctl-out" data-cloud="environments-out" role="status"></output>
       <ul class="cloud-task-list" data-cloud="tasks"></ul>
+      <div class="cloud-diff" data-cloud="diff" hidden><span class="cloud-diff-title"></span><p class="cloud-diff-note" role="status"></p><pre class="cloud-diff-text" tabindex="0" hidden></pre></div>
     </div>`)
 
   const field = name => box.querySelector(`[data-cloud="${name}"]`)
@@ -434,8 +525,13 @@ export function cloudControlsBox({ postAction = postBridgeAction } = {}) {
   const receiptNode = field('receipt')
   const watchNode = field('watch')
   const taskList = field('tasks')
+  const diffNode = field('diff')
   const accountSelect = field('account')
   const environmentSelect = field('environment')
+
+  const onGetWork = task => {
+    void controller.readDiff(task.taskId, { account: controller.getState().servingAccount?.name || null })
+  }
 
   field('branch').value = remembered.branch
   field('note').textContent = availability.ok
@@ -463,7 +559,8 @@ export function cloudControlsBox({ postAction = postBridgeAction } = {}) {
         applyEnvironment(next)
       }
       bindingOut.textContent = bindingText(findEnvironment(next, environmentSelect.value), next)
-      taskList.replaceChildren(...next.tasks.map(taskRow))
+      taskList.replaceChildren(...next.tasks.map(task => taskRow(task, { state: next, onGetWork })))
+      renderDiff(diffNode, next)
     },
   })
 

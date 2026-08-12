@@ -55,29 +55,44 @@ import {
   undeliveredWrite,
 } from './write-outcomes.js'
 
-/* The declared agent identity each tier resolves to.
-   Mirrors the frozen TIERS table's `targetAgentId` field at
-   capability/src/lib/mission-bridge/actions.js:53. This is NOT cosmetic: it is
-   the key the presence registry collides on. */
-export const TIER_AGENT_IDENTITY = Object.freeze({
-  luna: 'luna',
-  terra: 'terra',
-  sol: 'sol',
-  'claude-fable': 'claude',
-  'claude-sonnet': 'claude',
-  'claude-opus': 'claude',
+/* Which seats each tier can run on. Mirrors the frozen TIERS table's `seats`
+   field in capability/src/lib/mission-bridge/actions.js. This is NOT cosmetic:
+   a seat is the key the presence registry collides on.
+
+   A TIER NAMES A CAPABILITY; A SEAT IS WHERE IT RUNS. Those used to be one
+   field, and mapping all three Claude tiers onto the single identity "claude"
+   meant "run two Claude agents" was something this product could not do -- the
+   second collided (AGENT_PRESENCE_ACTIVE -> 409) whatever tier it asked for.
+   The Claude tiers now share a pool of four seats, so two of them running at
+   once is exactly what the engine supports. This file used to refuse that. */
+export const TIER_SEAT_POOL = Object.freeze({
+  luna: Object.freeze(['luna']),
+  terra: Object.freeze(['terra']),
+  sol: Object.freeze(['sol']),
+  'claude-fable': Object.freeze(['claude', 'claude-2', 'claude-3', 'claude-4']),
+  'claude-sonnet': Object.freeze(['claude', 'claude-2', 'claude-3', 'claude-4']),
+  'claude-opus': Object.freeze(['claude', 'claude-2', 'claude-3', 'claude-4']),
 })
 
-/** Every distinct identity a team could occupy, in tier order. */
+/* The seat a tier is CERTAIN to take, or null when its pool holds more than one
+   and dispatch picks a free one. Null is the honest answer rather than a
+   missing entry: asking which lane a pooled tier becomes, before it is
+   dispatched, is a question that has no answer yet. Callers that only need a
+   name for a single-seat tier still get one. */
+export const TIER_AGENT_IDENTITY = Object.freeze(Object.fromEntries(
+  Object.entries(TIER_SEAT_POOL).map(([tier, seats]) => [tier, seats.length === 1 ? seats[0] : null]),
+))
+
+/** Every distinct seat a team could occupy, in tier order. */
 export const TEAM_IDENTITIES = Object.freeze([
-  ...new Set(LAUNCH_TIERS.map(tier => TIER_AGENT_IDENTITY[tier.id])),
+  ...new Set(LAUNCH_TIERS.flatMap(tier => TIER_SEAT_POOL[tier.id] || [])),
 ])
 
 /* Mirrors capability/src/lib/controller-launch-record.js:50-51.
-   `maxConcurrent` is NOT from that file: it is the identity count above, which
-   is the smaller and therefore governing limit on this machine. Both are stated
+   `maxConcurrent` is NOT from that file: it is the seat count above, which is
+   the smaller and therefore governing limit on this machine. Both are stated
    because they fail differently -- exceeding the engine cap is
-   LAUNCH_FANOUT_EXCEEDED, exceeding the identity count is a 409 collision. */
+   LAUNCH_FANOUT_EXCEEDED, exceeding the seat count is a 409 collision. */
 export const TEAM_BOUNDS = Object.freeze({
   maxFanOut: 8,
   maxDepth: 3,
@@ -93,20 +108,34 @@ export const TEAM_BOUNDS = Object.freeze({
  * exists to prevent.
  */
 export function identityConflicts(tierIds) {
-  const seen = new Map()
-  const conflicts = []
+  /* Demand against capacity, per pool -- NOT "have I seen this before".
+     Two Claude tiers used to be a conflict because they were one identity.
+     They are now two draws on a pool of four, which is fine; five draws on
+     that same pool is not. Counting is the only version of this that stays
+     right when a pool's size changes. */
+  const demand = new Map()
   for (const tierId of tierIds) {
-    const identity = TIER_AGENT_IDENTITY[tierId]
-    if (!identity) continue
-    if (seen.has(identity)) {
-      conflicts.push(Object.freeze({
-        identity,
-        tiers: Object.freeze([seen.get(identity), tierId]),
-        reason: `${seen.get(identity)} and ${tierId} are both the declared agent "${identity}", which can only have one live lane at a time.`,
-      }))
-      continue
-    }
-    seen.set(identity, tierId)
+    const seats = TIER_SEAT_POOL[tierId]
+    if (!seats) continue
+    const key = seats.join(',')
+    if (!demand.has(key)) demand.set(key, { seats, tiers: [] })
+    demand.get(key).tiers.push(tierId)
+  }
+
+  const conflicts = []
+  for (const { seats, tiers } of demand.values()) {
+    if (tiers.length <= seats.length) continue
+    const named = [...new Set(tiers)]
+    conflicts.push(Object.freeze({
+      identity: seats[0],
+      seats: Object.freeze([...seats]),
+      tiers: Object.freeze([...tiers]),
+      reason: seats.length === 1
+        ? (named.length === 1
+          ? `This team names ${tiers.length} of ${named[0]}, and it runs as the declared agent "${seats[0]}", which can only have one live lane at a time.`
+          : `${named.join(' and ')} are both the declared agent "${seats[0]}", which can only have one live lane at a time.`)
+        : `This team names ${tiers.length} agents that share ${seats.length} seats, so ${tiers.length - seats.length} of them would have nowhere to run. Remove some, or run the rest as a second team.`,
+    }))
   }
   return Object.freeze(conflicts)
 }
@@ -115,8 +144,8 @@ export function identityConflicts(tierIds) {
  * Validate a proposed team and say exactly why it is or is not dispatchable.
  *
  * `lead` is dispatched first and every member is nested under its launch, so
- * the lead occupies one of the identities. That is why a 4-identity machine
- * yields a lead plus at most 3 members, not a lead plus 4.
+ * the lead occupies one of the seats. That is why a 7-seat machine yields a
+ * lead plus at most 6 members, not a lead plus 7.
  */
 export function planTeam({ lead = null, members = [] } = {}) {
   const problems = []
@@ -126,7 +155,10 @@ export function planTeam({ lead = null, members = [] } = {}) {
   if (members.length === 0) problems.push('A team needs at least one member besides the lead. One agent on its own is an ordinary dispatch.')
 
   for (const tier of roster) {
-    if (!TIER_AGENT_IDENTITY[tier]) problems.push(`"${tier}" is not one of the six dispatchable tiers.`)
+    /* Membership in the pool table, NOT a truthy identity: a pooled tier's
+       identity is legitimately null until dispatch picks a seat, so testing
+       the identity would reject every Claude tier as invented. */
+    if (!TIER_SEAT_POOL[tier]) problems.push(`"${tier}" is not one of the six dispatchable tiers.`)
   }
 
   const conflicts = identityConflicts(roster)
@@ -148,7 +180,11 @@ export function planTeam({ lead = null, members = [] } = {}) {
     lead,
     members: Object.freeze([...members]),
     size: roster.length,
-    identities: Object.freeze(roster.map(tier => TIER_AGENT_IDENTITY[tier]).filter(Boolean)),
+    /* The distinct seats this team could occupy -- not one entry per member.
+       A pooled member has no seat until dispatch picks one, so mapping each
+       member to an identity and dropping the nulls would silently shorten the
+       list to the Codex members alone. */
+    identities: Object.freeze([...new Set(roster.flatMap(tier => TIER_SEAT_POOL[tier] || []))]),
     conflicts,
     dispatchable: problems.length === 0,
     problems: Object.freeze(problems),

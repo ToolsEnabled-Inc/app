@@ -49,12 +49,48 @@
 //      content rather than size. Counts are printed here as information and are
 //      never compared against anything.
 //
+// THE SECOND WAY THE SAME MODULES LEAK: A SOURCE PUBLISH (`--source`).
+//
+// Everything above guards the installer PAYLOAD. The owner's ruling is that
+// people may take either road -- download the installer from the site, or take
+// the source from GitHub -- and that only the free part travels either one.
+// Guarding one road is not guarding the boundary. `git push` to a public
+// remote publishes exactly the modules this file exists to hold back, and it
+// never touches resources/capability on the way.
+//
+// `--source <repo>` asks the publish question about a git repository instead of
+// a staged directory: the same manifest, the same classify(), the same
+// fail-closed treatment of paid, excluded and unclassified. Three differences
+// are deliberate and are argued where they are implemented below:
+//
+//   * The file set comes from `git ls-files`, NOT from walking the disk. What a
+//     publish exposes is what git TRACKS. Untracked build output is not
+//     published (walking would wrongly indict it), and a tracked file deleted
+//     from the working tree still is (walking would wrongly miss it).
+//
+//   * `pending` REFUSES here, where the payload mode tolerates it. The payload
+//     mode is permissive on purpose so ordinary dev builds stay green; there is
+//     no dev build to keep green in a publish question, so source mode is the
+//     strict verdict by construction rather than by remembering a flag.
+//
+//   * HISTORY IS CHECKED, NOT JUST THE TIP. Deleting a paid module from the tip
+//     does not delete it from the repository: every clone of a public repo
+//     carries every reachable commit, and `git show <old>:<path>` reads the file
+//     straight back out. A gate that reads only the working tree while the
+//     history still carries the module is theatre -- it reports "clean" about
+//     the one copy an attacker would not bother with. Measured on this project,
+//     not assumed: all eight paid modules are reachable from refs already pushed
+//     to the engine's origin, while its tip-side story looks tidy.
+//
 // EXIT CODES, mirroring tools/check-no-owner-data.mjs so the two guards are
 // read the same way:
 //   0  every payload file is classified, and nothing paid or excluded is present
 //   1  VIOLATIONS -- the payload carries paid/excluded/unclassified files
+//      (--source: the tree or the history carries them)
 //   2  guard error -- the manifest is missing, malformed, or self-contradictory
+//      (--source: the target is not a git repository, or git is unavailable)
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { lstat, readdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -321,10 +357,281 @@ async function chooseRoots(requested) {
   return found;
 }
 
+// ---------------------------------------------------------------------------
+// SOURCE PUBLISH MODE.
+//
+// Answers "is this git repository safe to publish as source?" using the same
+// manifest and the same classify() as the payload mode above. See the header
+// for why this exists at all: the payload is one of two roads to the public,
+// and this is the other one.
+// ---------------------------------------------------------------------------
+
+// Where the capability-layer source lives is builder-specific and is
+// deliberately NOT in git -- an absolute path names the builder and their
+// machine layout. tools/pack-capability-layer.mjs already established the three
+// places it may be configured, so this mirrors them rather than inventing a
+// fourth: a second convention for the same fact is a second thing to get wrong.
+const SOURCE_SETTING_FILE = path.join(REPO_ROOT, "private", "capability-source.owner.json");
+const SOURCE_MARKER = path.join("tools", "mission-bridge.js");
+
+// How many unclassified paths to NAME before switching to a per-directory
+// rollup. This is a READING aid and nothing else -- the verdict below is taken
+// over the whole set, never over the printed excerpt (rule 3). The cap exists
+// because the honest answer for a whole repository is thousands of paths, and a
+// gate that answers with an unreadable wall gets skimmed instead of read.
+const UNCLASSIFIED_PRINT_LIMIT = 60;
+
+function git(repository, args, what) {
+  try {
+    return execFileSync("git", ["-C", repository, ...args], {
+      encoding: "utf8",
+      // History enumeration on this project's engine repo is ~1.2MB today and
+      // only grows. A truncated stdout would silently shorten the set this
+      // guard reasons over, which is the one failure mode it cannot have.
+      maxBuffer: 512 * 1024 * 1024,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new GuardError("git is not on PATH, so the source publish question cannot be answered at all.");
+    }
+    const detail = `${error?.stderr || ""}`.trim() || error?.message || "unknown git failure";
+    throw new GuardError(`${what} failed in ${repository}: ${detail}`);
+  }
+}
+
+// Resolution differs by HOW the path arrived, and that asymmetry is on purpose.
+// An explicit --source <path> is a direct instruction and is taken at its word:
+// asking whether the APP repo is publishable is a legitimate question, and the
+// app repo does not contain the engine's marker file. A path that came from
+// stored configuration is checked against that marker, because stale config is
+// how a guard ends up confidently scanning a directory nobody is publishing.
+function resolveSourceRepository(explicit) {
+  if (explicit) {
+    const resolved = path.resolve(explicit);
+    if (!existsSync(resolved)) throw new GuardError(`nothing to check: --source path does not exist: ${resolved}`);
+    return resolved;
+  }
+
+  const candidates = [];
+  if (process.env.TOOLSENABLED_SOURCE) candidates.push(process.env.TOOLSENABLED_SOURCE);
+  if (existsSync(SOURCE_SETTING_FILE)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(SOURCE_SETTING_FILE, "utf8"));
+    } catch (error) {
+      throw new GuardError(`private/capability-source.owner.json is present but unreadable: ${error.message}`);
+    }
+    if (typeof parsed?.path === "string" && parsed.path.trim()) candidates.push(parsed.path.trim());
+  }
+
+  const tried = [];
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    tried.push(resolved);
+    if (existsSync(path.join(resolved, SOURCE_MARKER))) return resolved;
+  }
+
+  throw new GuardError(
+    "nothing to check: --source was given no path and none is configured. Set it one of three ways:\n" +
+      "  --source <path>\n" +
+      "  TOOLSENABLED_SOURCE=<path>\n" +
+      '  private/capability-source.owner.json  ->  { "path": "<path>" }\n' +
+      (tried.length
+        ? `Tried, and none contained ${SOURCE_MARKER.split(path.sep).join("/")}:\n  ${tried.join("\n  ")}`
+        : "None of the three was set."),
+  );
+}
+
+// THE PUBLISH SET IS WHAT GIT TRACKS, NOT WHAT IS ON DISK.
+//
+// -z because git QUOTES paths containing spaces or non-ASCII bytes in its
+// default output. A quoted path is a different string from the real one, so it
+// would match no manifest entry -- and under rule 2 that lands in
+// `unclassified` and fails, which is at least the safe direction, but it fails
+// for a reason the operator cannot act on. -s carries the mode alongside, which
+// is the only way to tell a symlink from a regular file here.
+function trackedFiles(repository) {
+  const raw = git(repository, ["ls-files", "-s", "-z"], "git ls-files");
+  const files = [];
+  for (const record of raw.split("\0")) {
+    if (!record) continue;
+    const tab = record.indexOf("\t");
+    if (tab === -1) throw new GuardError(`git ls-files produced an unparseable record: ${JSON.stringify(record)}`);
+    const mode = record.slice(0, record.indexOf(" "));
+    const file = record.slice(tab + 1);
+    // Same reasoning as the payload walk: a symlink is a file whose real
+    // content this guard cannot classify from its name, and a repository
+    // publishes the link, so following it would classify one path while
+    // exposing another's bytes. Refusing is the only fail-closed answer.
+    if (mode === "120000") throw new GuardError(`refusing to classify a symlink in the source tree: ${file}`);
+    files.push(file);
+  }
+  return files;
+}
+
+// EVERY PATH IN EVERY REACHABLE COMMIT, which is precisely what a clone of a
+// published repository hands over.
+//
+// `rev-list --all --objects` rather than `log --name-only`: it enumerates the
+// trees themselves rather than per-commit diffs, so it cannot miss a path that
+// only ever existed on one side of a merge, and it is faster besides (measured
+// on the engine repo: 0.6s against 2.2s). --all covers refs/heads, refs/tags
+// AND refs/remotes -- deliberately wider than "what is pushed today", because a
+// local branch is one command away from being pushed and remote-tracking refs
+// show what already is.
+//
+// WHAT THIS CANNOT SEE, stated so nobody reads more into a green history line
+// than it earns: the check is by PATH. A paid module that lived in history
+// under a name the manifest does not classify, or whose body was pasted into
+// some other file, is invisible to it. It answers "were these modules ever
+// here", not "was this secret ever here".
+function historicalPaths(repository) {
+  const raw = git(repository, ["rev-list", "--all", "--objects"], "git rev-list");
+  const versions = new Map();
+  for (const line of raw.split("\n")) {
+    const space = line.indexOf(" ");
+    // A line with no space is a commit or a root tree: an object with no path.
+    if (space === -1) continue;
+    const file = line.slice(space + 1);
+    if (!file) continue;
+    versions.set(file, (versions.get(file) ?? 0) + 1);
+  }
+  return versions;
+}
+
+function rollupByDirectory(paths) {
+  const counts = new Map();
+  for (const file of paths) {
+    const slash = file.indexOf("/");
+    const bucket = slash === -1 ? "(repository root)" : file.slice(0, file.indexOf("/", slash + 1) + 1 || slash + 1);
+    counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+}
+
+function runSourceMode(boundary, options) {
+  const repository = resolveSourceRepository(options.source);
+  // Confirm it is a git repository BEFORE anything else. A plain directory
+  // would otherwise produce an empty history and a confident, wrong "no paid
+  // module is in history" -- the absence-as-emptiness defect this project keeps
+  // finding, in the place it would cost the most.
+  const inside = git(repository, ["rev-parse", "--is-inside-work-tree"], "git rev-parse").trim();
+  if (inside !== "true") throw new GuardError(`nothing to check: not a git work tree: ${repository}`);
+
+  const tracked = trackedFiles(repository);
+  if (tracked.length === 0) {
+    throw new GuardError(`nothing to check: git tracks 0 files in ${repository}`);
+  }
+
+  const found = { excluded: [], paid: [], unclassified: [], pending: [], open: [] };
+  for (const file of tracked) found[classify(file, boundary).klass].push(file);
+
+  // History is asked only about the RESTRICTIVE classes. Requiring every path
+  // that ever existed to be classified would be unmeetable -- history holds
+  // every scratch file and every renamed-away path this repo ever had -- and an
+  // unmeetable gate is a disabled gate. Unclassified fails at the tip, where it
+  // is both actionable and the thing that actually ships.
+  const history = historicalPaths(repository);
+  const historyHits = [];
+  for (const file of [...history.keys()].sort()) {
+    const verdict = classify(file, boundary);
+    if (verdict.klass !== "paid" && verdict.klass !== "excluded") continue;
+    historyHits.push({ path: file, klass: verdict.klass, rule: verdict.rule, versions: history.get(file) });
+  }
+  // A path still at the tip is already reported below; naming it twice reads as
+  // two problems. What matters here is the path that is GONE from the tip and
+  // still in history, because that is the one a working-tree-only gate misses.
+  const trackedSet = new Set(tracked);
+  const historyOnly = historyHits.filter((hit) => !trackedSet.has(hit.path));
+
+  console.log(`Source publish boundary: ${MANIFEST_RELATIVE} (status: ${boundary.status})`);
+  console.log(`Repository: ${repository}`);
+  console.log(
+    `Tracked files: ${tracked.length} (informational -- this guard asserts on named paths, never on a count).`,
+  );
+  console.log(
+    `Classified: open=${found.open.length} pending=${found.pending.length} ` +
+      `paid=${found.paid.length} excluded=${found.excluded.length} unclassified=${found.unclassified.length}`,
+  );
+  console.log(`History: ${history.size} distinct path(s) across all reachable refs.`);
+
+  const violations = found.paid.length + found.excluded.length + found.unclassified.length + found.pending.length;
+  if (violations === 0 && historyHits.length === 0) {
+    console.log("\nSource publish boundary: clean. Every tracked file is open, and no paid or excluded module is in history.");
+    return;
+  }
+
+  console.error(`\nSOURCE PUBLISH REFUSED -- ${repository}`);
+
+  for (const [label, heading] of [
+    ["excluded", "MUST NOT BE PUBLISHED AT ALL (excluded)"],
+    ["paid", "PAID -- publishing the source publishes these (paid)"],
+    [
+      "pending",
+      'PENDING -- decided, not yet removed. The payload gate tolerates these so dev builds stay green; ' +
+        "a publish cannot, because publishing is the thing they are still waiting to be removed before",
+    ],
+  ]) {
+    if (found[label].length === 0) continue;
+    console.error(`\n${heading}:`);
+    for (const file of found[label]) console.error(`  ${file}`);
+  }
+
+  if (found.unclassified.length > 0) {
+    console.error(
+      `\nUNCLASSIFIED -- ${found.unclassified.length} tracked file(s) are named nowhere in ` +
+        `${MANIFEST_RELATIVE}. This is a failure by design: an unknown file is not assumed open, ` +
+        "so a repository whose publishable set has never been classified cannot be published by silence.",
+    );
+    const named = found.unclassified.slice(0, UNCLASSIFIED_PRINT_LIMIT);
+    for (const file of named) console.error(`  ${file}`);
+    if (found.unclassified.length > named.length) {
+      console.error(
+        `  ... and ${found.unclassified.length - named.length} more. The list above is TRUNCATED FOR ` +
+          "READING ONLY -- the verdict is taken over every one of them. Where the work is:",
+      );
+      for (const [bucket, count] of rollupByDirectory(found.unclassified)) {
+        console.error(`    ${count}\t${bucket}`);
+      }
+    }
+  }
+
+  if (historyHits.length > 0) {
+    console.error(
+      `\nGIT HISTORY -- ${historyHits.length} paid/excluded path(s) are reachable from this repository's refs. ` +
+        "Publishing the repository publishes these regardless of what the tip looks like: a clone carries " +
+        "every reachable commit, and `git show <commit>:<path>` reads the file straight back out.",
+    );
+    for (const hit of historyHits) {
+      const where = trackedSet.has(hit.path) ? "at the tip and in history" : "HISTORY ONLY -- gone from the tip";
+      console.error(`  ${hit.path}   [${hit.klass}; ${hit.versions} version(s); ${where}]`);
+    }
+    if (historyOnly.length > 0) {
+      console.error(
+        `\n${historyOnly.length} of those are the dangerous kind: absent from the working tree, so every ` +
+          "tip-only check reports them clean. Deleting a file in a new commit does not remove it from " +
+          "the repository -- only rewriting history does, and that is a decision, not a fix this guard makes.",
+      );
+    }
+  }
+
+  console.error(
+    "\nThis verdict is about a SOURCE PUBLISH and says nothing about the installer payload; run this " +
+      "guard without --source for that. A red result here is fixed by classifying the tree and removing " +
+      "what must not be published -- never by widening a rule to make the colour change.",
+  );
+
+  process.exitCode = 1;
+}
+
 function parseArguments(argv) {
   const roots = [];
   let manifest = DEFAULT_MANIFEST;
   let ship = false;
+  let source = null;
+  let sourceRequested = false;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--manifest") {
       manifest = argv[index + 1];
@@ -336,15 +643,52 @@ function parseArguments(argv) {
       ship = true;
       continue;
     }
+    if (argv[index] === "--source") {
+      sourceRequested = true;
+      // The path is optional, so a following flag must not be eaten as its
+      // value: `--source --manifest x` would otherwise scan a directory named
+      // "--manifest" and report on nothing.
+      const next = argv[index + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        source = next;
+        index += 1;
+      }
+      continue;
+    }
     if (argv[index].startsWith("--")) throw new GuardError(`unknown flag ${argv[index]}`);
     roots.push(argv[index]);
   }
-  return { roots, manifest: path.resolve(manifest), ship };
+
+  // The two modes answer different questions about different things, and a run
+  // that appears to ask both would silently answer only one. Refusing is not
+  // pedantry: the wrong half of that pair is exactly the half someone believed
+  // they had checked.
+  if (sourceRequested && roots.length > 0) {
+    throw new GuardError(
+      `--source checks a git repository; the payload roots (${roots.join(", ")}) belong to a separate run without --source.`,
+    );
+  }
+  if (sourceRequested && ship) {
+    throw new GuardError(
+      "--ship is meaningless with --source. --ship upgrades the PAYLOAD run from the build verdict to the " +
+        "publish verdict; --source is already the publish verdict and refuses pending unconditionally. " +
+        "Accepting it silently would let someone believe a flag turned on a check that was never off.",
+    );
+  }
+
+  return { roots, manifest: path.resolve(manifest), ship, source, sourceRequested };
 }
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const boundary = loadManifest(options.manifest);
+
+  // Both modes load the SAME manifest before branching. That is the whole point
+  // of adding a mode here rather than writing a second guard: a source gate with
+  // its own copy of the boundary is a second boundary, and two boundaries
+  // disagree the first time only one of them is edited.
+  if (options.sourceRequested) return runSourceMode(boundary, options);
+
   const roots = await chooseRoots(options.roots);
 
   // Findings are keyed by class and always carry the path. Nothing in this

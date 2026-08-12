@@ -2,6 +2,13 @@ import { sim, fmtRuntime } from './sim.js'
 import { ROLES } from './vocab.js'
 import { el, buildChat, bindRuntime, formatInlineText } from './components.js'
 import { layoutTree, TREE_ROLE_RADII, treeNodeRadius } from './tree-layout.js'
+/* THE WORDS ON AN EMPTY SLOT ARE NOT WRITTEN HERE. src/fleet-tree-copy.js owns
+   every sentence in the start-an-agent-from-the-tree flow — the panel, the
+   refusals, the tree names and these two — and it says at length why one flow
+   rendered by six files needs one voice. A second wording invented in this file
+   would be the exact defect that module exists to prevent, and it would be the
+   one on the screen every new customer opens. */
+import { EMPTY_NODE, SECOND_TREE } from './fleet-tree-copy.js'
 
 const DENSE_AT = 12
 const STRUCTURAL_MS = 680
@@ -25,6 +32,67 @@ const PAN_KEEP = 160
 // one card-width away still scans as attached; two away does not.
 const CHIP_REACH = 380
 const HIERARCHY_TYPES = new Set(['manages', 'delegates_to', 'hierarchy'])
+
+/* ============================================================================
+   EMPTY SLOTS — the pressable holes in the tree.
+
+   THE STATE THIS EXISTS FOR. A fresh install has started nothing, so this
+   canvas has nothing to draw, and a canvas with nothing on it teaches nobody
+   what it is for. The owner's instruction: "we should essentially draw EMPTY
+   nodes, and the user just presses them to extend their existing structure."
+   So absence is drawn as an offer rather than as blankness — a dashed circle
+   hanging where the next agent would go, and one at the top for a tree that
+   does not exist yet, because a computer may hold MORE THAN ONE tree.
+
+   WHAT A SLOT IS NOT. It is not an agent, it is not in `this.nodes`, it is not
+   in the node count the performance probe publishes, it carries no runtime, no
+   role hue, no context card, and it is not a drop target in edit mode. Nothing
+   in this file starts anything when one is pressed: the press is reported and
+   that is all it does. Two other surfaces own what happens next.
+
+   AND IT IS NOT `.static-tree-node`. That class means "a running agent" to
+   nine QA harnesses on this tree — they count it, click the first one to open
+   the rail, and assert that every one of them carries a role- token whose hue
+   matches its ring (tools/page2-qa.cjs). A slot wearing that class would make
+   all nine quietly measure something that is not an agent, and the role-token
+   assertion would go red on a circle that correctly has no role. So a slot
+   shares no class, no data attribute and no map with an agent node. The only
+   thing the two share is the canvas they are positioned on.
+   ============================================================================ */
+
+/* The floor src/tree-layout.js already calls readable, which is also the
+   SMALLEST a node on this canvas is allowed to be: a slot is subordinate to
+   every agent around it by construction, and cannot be shrunk further. */
+const EMPTY_SLOT_RADIUS = 34
+/* Sorted out of a crowded rank before any agent (see keepReadable), and placed
+   after its own siblings inside its family (see orderHint). An offer is the
+   first thing a rank should drop and the last thing a family should list. */
+const EMPTY_SLOT_CULL_RANK = 9000
+const EMPTY_SLOT_ORDER_HINT = 1
+const NEW_TREE_SLOT_ID = 'empty:new-tree'
+const CHILD_SLOT_PREFIX = 'empty:child:'
+
+/* The DOM event a slot press dispatches on the graph container, bubbling, in
+   addition to the onEmptyPress callback. Two ways in because the two consumers
+   are different shapes: the view that constructs this graph has the callback,
+   and anything upstream that only has the wrap element can listen. */
+export const TREE_EMPTY_PRESS_EVENT = 'tree-empty-press'
+
+/* A SLOT DRAWS A "+" AND NO TEXT, SO ITS ACCESSIBLE NAME IS ALL IT SAYS.
+   A dashed ring with a plus is read by a sighted person in a glance and by a
+   screen reader as nothing at all, so the name is not decoration here — it is
+   the entire label of a button. Both strings below are src/fleet-tree-copy.js's
+   own, used verbatim.
+
+   The two cases are not the same sentence. "Start another tree" is true beside
+   a tree that already exists and false on a canvas where nothing has ever run,
+   where the honest reading of the one circle on screen is the same offer every
+   other slot makes: an empty spot, press it. So the top-rank slot borrows the
+   ordinary empty-spot wording until this computer has a tree to be another one
+   of. The tooltip carries the hint, which is what a hint is for. */
+const slotWords = (kind, hasTree) => kind === 'new-tree' && hasTree
+  ? { name: SECOND_TREE.action, hint: SECOND_TREE.help }
+  : { name: EMPTY_NODE.ariaLabel, hint: EMPTY_NODE.hint }
 
 const calm = () => document.body.classList.contains('reduce-motion')
   || (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -138,6 +206,9 @@ export class StaticTreeGraph {
     edges = null,
     onReparent = null,
     onOverridesChange = null,
+    emptySlots = true,
+    onEmptyPress = null,
+    canExtend = null,
   } = {}) {
     this.container = container
     this.computer = computer
@@ -150,6 +221,19 @@ export class StaticTreeGraph {
     this.declaredEdges = Array.isArray(edges) ? edges : null
     this.onReparent = typeof onReparent === 'function' ? onReparent : null
     this.onOverridesChange = typeof onOverridesChange === 'function' ? onOverridesChange : null
+    this.emptySlotsEnabled = emptySlots !== false
+    this.onEmptyPress = typeof onEmptyPress === 'function' ? onEmptyPress : null
+    /* (agent | null) => boolean — "may a child hang here?", asked of the model
+       before a slot is drawn, with null meaning "may a new tree begin?". Absent
+       on a mount that has no such rule, in which case every position is drawn.
+       See _planEmptySlots for why the rule is injected and not imported. */
+    this.canExtend = typeof canExtend === 'function' ? canExtend : null
+    /* Deliberately a second map, never merged into `this.nodes`. Everything
+       that reads `this.nodes` — the chips, the runtime bindings, the drag and
+       reparent path, the selection, the published node count — is written
+       against a record that HAS an agent. A slot has no agent, and the way to
+       keep that true is for it to be somewhere else. */
+    this.emptySlots = new Map()
     this.nodes = new Map()
     this.selectedId = null
     this.layout = 'tree'
@@ -159,6 +243,9 @@ export class StaticTreeGraph {
     this._layoutVisibleIds = new Set()
     this._culled = new Set()
     this._layoutResult = null
+    /* Density is a fact about the FLEET, so it is measured on a layout of the
+       fleet alone — see _layoutNow for the loop this closes. */
+    this._realDrillRequired = false
     this._dropRec = null
     this._dropRaw = null
     this._animationRaf = 0
@@ -603,15 +690,152 @@ export class StaticTreeGraph {
     this._renderLinks()
   }
 
+  /* WHICH SLOTS THIS TREE IS OFFERING RIGHT NOW.
+     Derived from the fleet and from a layout of the fleet ALONE, never from a
+     layout that already contains slots. That is not fastidiousness, it is the
+     one rule that makes this terminate: if the presence of slots could change
+     whether slots are offered, adding them would crowd the canvas, the crowding
+     would withdraw them, the canvas would relax, and they would come back — a
+     graph that flickers forever on a static fleet.
+
+     THE TWO OFFERS.
+     1. A NEW TREE. One slot with no parent, so the existing model puts it in
+        the top rank beside whatever roots already exist. With no agents at all
+        it is the only thing on the canvas and lands dead centre, which is the
+        first-run screen: one circle, press it. It is withheld while the view
+        is drilled into one branch, because "start a new tree" is not an offer
+        that belongs inside somebody else's tree.
+     2. A CHILD, under every agent the fleet layout actually placed. A culled
+        agent is not on the canvas, so a slot hanging off it would hang off
+        nothing.
+
+     WHY THE CHILD OFFERS STOP AT DENSE_AT. Past that count the page's own
+     verdict is already "this is too much to read, drill in" — it says so in
+     the hint updateDensity drives. Answering a canvas that is too crowded to
+     read by adding one more circle per agent helps nobody, and drilling in
+     brings every slot back for the branch actually being read.
+
+     AND WHY A SLOT CAN BE REFUSED BEFORE IT IS DRAWN. The store that accepts
+     these presses has limits of its own — a fan-out cap and a depth cap in
+     src/fleet-trees.js — so there are positions in a legal tree where a child
+     simply cannot go. A dashed circle at one of those positions is a button
+     that is guaranteed to fail, and a person only finds out after choosing a
+     role and writing out what they wanted done. Drawing an offer that cannot
+     be accepted is a rendering defect, and it is this file's defect, so the
+     answer is to not draw it.
+     The RULE, though, is not this file's to know: fan-out and depth belong to
+     whoever owns the model, and hard-wiring an import of it here would put a
+     copy of somebody else's cap inside the renderer, where it would go stale
+     the first time they changed it. So the caller injects the question as
+     `canExtend`, this file only asks it, and a mount that passes nothing keeps
+     drawing every slot exactly as before. */
+  _canExtend(target) {
+    if (!this.canExtend) return true
+    try {
+      return this.canExtend(target) !== false
+    } catch {
+      /* NOT A SILENT SWALLOW. The predicate belongs to another module and may
+         be reading a store that is mid-write; a thrown answer is "I do not
+         know", never "no". Withholding a slot on an unknown is how a person
+         loses the only way to extend their tree because something unrelated
+         glitched, so an unknown falls back to the behaviour of a mount that
+         passes no predicate at all: draw it, and let the store refuse the
+         submission in its own words if it must. */
+      return true
+    }
+  }
+
+  _planEmptySlots(agents, fleetLayout) {
+    if (!this.emptySlotsEnabled || this.editMode || this._destroyed) return []
+    const plans = []
+    const hasTree = agents.length > 0
+    const describe = (kind) => slotWords(kind, hasTree)
+    if (!this.rootId && this._canExtend(null)) {
+      plans.push({
+        id: NEW_TREE_SLOT_ID,
+        kind: 'new-tree',
+        parentId: null,
+        ...describe('new-tree'),
+      })
+    }
+    const placed = agents.filter(agent =>
+      fleetLayout.slots.has(agent.id) && !fleetLayout.culled.has(agent.id))
+    if (placed.length < DENSE_AT) {
+      for (const agent of placed) {
+        if (!this._canExtend(agent)) continue
+        plans.push({
+          id: `${CHILD_SLOT_PREFIX}${agent.id}`,
+          kind: 'child',
+          parentId: agent.id,
+          ...describe('child'),
+        })
+      }
+    }
+    return plans
+  }
+
+  /* A slot, expressed in the only vocabulary src/tree-layout.js speaks. It is
+     an ordinary node to that file: an id, a parent, an explicit radius, and the
+     two ranking fields that say "drop me first, and list me last". Nothing in
+     the layout engine knows what a slot is, which is why none of this needed
+     the layout engine to change. */
+  _emptyLayoutNode(plan) {
+    return {
+      id: plan.id,
+      name: '',
+      role: 'default',
+      parentId: plan.parentId,
+      r: EMPTY_SLOT_RADIUS,
+      cullable: true,
+      cullRank: EMPTY_SLOT_CULL_RANK,
+      orderHint: EMPTY_SLOT_ORDER_HINT,
+    }
+  }
+
+  /* A SLOT NEVER COSTS AN AGENT ITS PLACE.
+     The rank packer culls to keep what is left readable, and it is told to drop
+     slots first — but "first" is not "only". Two ranks are packed by two
+     different routines here (see packGroupedXs and packedXs in
+     src/tree-layout.js), and the cull path is entered on a count-based test
+     that slots contribute to: a rank of eight agents packs without a murmur,
+     and the same eight agents plus eight slots trip the readability test and
+     send the WHOLE rank — agents included — through the culler. An agent that
+     was on the canvas a moment ago vanishing so that an empty circle can be
+     drawn is the worst trade this feature could make, and to a person watching
+     it is indistinguishable from an agent having died.
+     So the offer is withdrawn wholesale and the fleet is drawn exactly as it
+     would have been drawn if this feature did not exist. Fewer places to press
+     is a disappointment; a disappeared agent is a lie. */
+  _slotsDisplaceAnAgent(agents, fleetLayout, withSlots) {
+    return agents.some(agent =>
+      fleetLayout.slots.has(agent.id) && !withSlots.slots.has(agent.id))
+  }
+
   _layoutNow({ preserve = new Set() } = {}) {
     if (this._destroyed) return
     const agents = this._layoutAgents()
-    const result = layoutTree({
-      nodes: agents,
-      edges: this.declaredEdges || [],
-      W: this.W,
-      H: this.H,
-    })
+    const edges = this.declaredEdges || []
+    /* THE FLEET IS LAID OUT FIRST, AND ON ITS OWN.
+       Two things are read from this pass and from nothing else: whether the
+       tree is too dense to read (the drill hint), and which agents fit. Both
+       are claims about the fleet, and a slot must not be able to make either
+       of them true. */
+    const fleetLayout = layoutTree({ nodes: agents, edges, W: this.W, H: this.H })
+    this._realDrillRequired = fleetLayout.drillRequired
+
+    let result = fleetLayout
+    let plans = this._planEmptySlots(agents, fleetLayout)
+    if (plans.length) {
+      const withSlots = layoutTree({
+        nodes: [...agents, ...plans.map(plan => this._emptyLayoutNode(plan))],
+        edges,
+        W: this.W,
+        H: this.H,
+      })
+      if (this._slotsDisplaceAnAgent(agents, fleetLayout, withSlots)) plans = []
+      else result = withSlots
+    }
+
     this._layoutResult = result
     this._culled = result.culled
     this._layoutVisibleIds = new Set(agents.map(agent => agent.id))
@@ -651,10 +875,141 @@ export class StaticTreeGraph {
       else record.el.style.removeProperty('--nn-max')
       this._positionRecord(record)
     }
+    this._syncEmptySlots(plans, result)
     this._renderLinks()
     this.updateDensity()
     this._placeChips()
     this._publishNodeCount()
+  }
+
+  /* Reconcile the drawn slots against the plan, by id, the same way
+     _reconcile does for agents. Rebuilding the elements every layout would be
+     shorter and would throw away keyboard focus on every resize — a person who
+     has tabbed to a slot and then widened the window would find the focus back
+     at the top of the page. An id that survives keeps its element. */
+  _syncEmptySlots(plans, result) {
+    const wanted = new Map(plans.map(plan => [plan.id, plan]))
+    for (const [id, slot] of [...this.emptySlots]) {
+      if (wanted.has(id)) continue
+      slot.el.remove()
+      this.emptySlots.delete(id)
+    }
+    for (const plan of plans) {
+      const slot = this.emptySlots.get(plan.id) || this._createEmptySlot(plan)
+      slot.kind = plan.kind
+      slot.parentId = plan.parentId
+      if (slot.el.getAttribute('aria-label') !== plan.name) {
+        slot.el.setAttribute('aria-label', plan.name)
+        slot.el.setAttribute('title', plan.hint)
+      }
+      const point = result?.slots.get(plan.id)
+      slot.hidden = !point || result.culled.has(plan.id)
+      slot.el.hidden = slot.hidden
+      if (slot.hidden) continue
+      /* The vertical fitter may have shrunk the whole tree; a slot is already
+         at the floor, but read the radius back rather than assume it, for the
+         same reason the agent records do — the drawn diameter, the leader
+         origin and the obstacle box all have to be the same number. */
+      const radius = result.radii?.get(plan.id)
+      slot.r = Number.isFinite(radius) ? radius : EMPTY_SLOT_RADIUS
+      slot.el.style.setProperty('--d', `${slot.r * 2}px`)
+      slot.x = clamp(point.x, slot.r + 12, this.W - slot.r - 12)
+      slot.y = clamp(point.y, slot.r + 64, this.H - slot.r - 58)
+      slot.el.style.left = `${slot.x}px`
+      slot.el.style.top = `${slot.y}px`
+    }
+  }
+
+  /* A REAL BUTTON, not a div wearing role="button".
+     The node records above are divs with role and tabindex and a hand-written
+     keydown branch for Enter and Space, because they carry a second gesture
+     (Shift+Enter opens the controls) and a drag. A slot carries one gesture and
+     nothing else, so it can be the element the platform already implements:
+     focusable in the tab order, announced as a button, activated by Enter AND
+     by Space, with no keyboard code in this file to get wrong. */
+  _createEmptySlot(plan) {
+    const button = el(`
+      <button type="button" class="tree-empty-node" data-empty-kind="${escapeMarkup(plan.kind)}">
+        <span class="tree-empty-ring" aria-hidden="true"><span class="tree-empty-mark">+</span></span>
+      </button>
+    `)
+    button.dataset.emptySlot = plan.id
+    if (plan.parentId) button.dataset.parentId = plan.parentId
+    button.style.setProperty('--d', `${EMPTY_SLOT_RADIUS * 2}px`)
+    button.setAttribute('aria-label', plan.name)
+    button.setAttribute('title', plan.hint)
+    const slot = {
+      id: plan.id,
+      kind: plan.kind,
+      parentId: plan.parentId,
+      el: button,
+      x: this.W / 2,
+      y: this.H / 2,
+      r: EMPTY_SLOT_RADIUS,
+      hidden: true,
+    }
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      /* A click synthesised by Enter or Space on a native button reports
+         detail 0; a real pointer click reports at least 1. That is the whole
+         difference, and it is worth carrying because whoever opens a panel in
+         response needs to know whether to move focus into it. */
+      this._pressEmptySlot(slot, event.detail === 0 ? 'keyboard' : 'pointer')
+    })
+    this.container.appendChild(button)
+    this.emptySlots.set(slot.id, slot)
+    return slot
+  }
+
+  /* REPORT THE PRESS. START NOTHING.
+     This file draws a tree; it does not own what an empty slot means. It says
+     which slot was pressed, under which parent, in which of this computer's
+     trees, and stops. No panel is opened here, no agent is created here, and
+     no state on this graph changes — a slot that has been pressed looks exactly
+     like a slot that has not, until whoever owns the model changes the model
+     and this graph is asked to draw it again. */
+  _pressEmptySlot(slot, via) {
+    if (this._destroyed) return
+    const parent = slot.parentId ? this._agentFor(slot.parentId) : null
+    // The parent went away between the draw and the press. Reporting a child
+    // of nothing is worse than reporting nothing.
+    if (slot.kind === 'child' && !parent) return
+    const detail = {
+      kind: slot.kind,
+      slotId: slot.id,
+      parentId: parent ? parent.id : null,
+      parent,
+      // Which of this computer's trees is being extended: the root the pressed
+      // parent hangs from. A new tree has no root yet, so it has no treeId.
+      treeId: parent ? (this.ancestryOf(parent.id)[0]?.id ?? parent.id) : null,
+      computerId: this.computer?.id ?? null,
+      via,
+    }
+    this.onEmptyPress?.(detail)
+    this.container.dispatchEvent(new CustomEvent(TREE_EMPTY_PRESS_EVENT, {
+      detail,
+      bubbles: true,
+    }))
+  }
+
+  /* Turn the offer off and on without rebuilding the graph — a mount that has
+     no way to act on a press should not draw one. */
+  setEmptySlots(on) {
+    const next = on !== false
+    if (next === this.emptySlotsEnabled) return
+    this.emptySlotsEnabled = next
+    this._layoutNow()
+  }
+
+  /* REDRAW FROM THE MODEL AS IT NOW STANDS.
+     The public name for what _reconcile already does, and the answer to "an
+     agent was just added, how do I show it": not by rebuilding the graph.
+     A rebuild would take the zoom, the pan, the drilled-in root and the
+     keyboard focus with it — every one of which the person set on purpose,
+     and none of which the new agent is a reason to discard. */
+  refresh() {
+    if (this._destroyed) return
+    this._reconcile()
   }
 
   _positionRecord(record) {
@@ -728,6 +1083,19 @@ export class StaticTreeGraph {
       pairs.add(pairKey(toId, fromId))
       links.push({ from, to, soft: true, type: edge.type || 'declared' })
     }
+    /* A slot is joined to its parent by the same orthogonal trunk its real
+       siblings use, in the same style, in a lighter dashed weight. It has to
+       be the same shape of line or the slot stops reading as part of that
+       family and starts reading as loose furniture near it; and it has to be
+       visibly lighter or it reads as a relationship that exists. Not `soft`:
+       soft is the declared-edge whisper, drawn as a straight diagonal, and a
+       diagonal here would be the only diagonal on a canvas of elbows. */
+    for (const slot of this.emptySlots.values()) {
+      if (slot.hidden || !slot.parentId) continue
+      const parent = this.nodes.get(slot.parentId)
+      if (!paintable(parent)) continue
+      links.push({ from: parent, to: slot, soft: false, empty: true, type: 'empty' })
+    }
 
     const buses = new Map()
     for (const link of links) {
@@ -743,7 +1111,7 @@ export class StaticTreeGraph {
     const segments = []
     for (const link of links) {
       const element = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      element.setAttribute('class', `tree-link link-top${link.soft ? ' link-soft' : ''}`)
+      element.setAttribute('class', `tree-link link-top${link.soft ? ' link-soft' : ''}${link.empty ? ' link-empty' : ''}`)
       const route = link.soft
         ? {
             d: `M ${link.from.x} ${link.from.y} L ${link.to.x} ${link.to.y}`,
@@ -766,7 +1134,12 @@ export class StaticTreeGraph {
   updateDensity() {
     const active = [...this.nodes.values()].filter(record =>
       this._layoutVisibleIds.has(record.id) && !this._culled.has(record.id))
-    const densityRequiresDrill = !!this._layoutResult?.drillRequired || active.length >= DENSE_AT
+    /* From the FLEET layout, never from the drawn one. The drawn layout may
+       have culled a handful of empty slots to keep a rank readable, which sets
+       its drillRequired flag; reading it here would put "this tree is too big
+       to read, drill in" on the screen of somebody whose tree fits perfectly
+       and who is only being offered fewer places to extend it. */
+    const densityRequiresDrill = !!this._realDrillRequired || active.length >= DENSE_AT
     const byParent = new Map()
     for (const record of active) {
       if (!record.agent.parentId) continue
@@ -929,6 +1302,13 @@ export class StaticTreeGraph {
     if (next) {
       this.container.dataset.editMode = 'true'
       this.screenOverlay?.setAttribute('data-edit-mode', 'true')
+      /* Edit mode is for rearranging what exists: nodes become draggable and
+         every circle becomes a possible drop target. A slot is neither — it
+         cannot be dragged and nothing can be dropped on it — so leaving it on
+         the canvas would offer a target that refuses every gesture the mode
+         has just taught. Withdrawn on the way in; _layoutNow on the way out
+         plans them again. */
+      this._syncEmptySlots([], null)
       this.resetZoom()
     } else {
       this.container.removeAttribute('data-edit-mode')
@@ -1191,6 +1571,16 @@ export class StaticTreeGraph {
         }
       }
     }
+    /* An empty slot is an obstacle exactly like a circle, because it IS a
+       circle on this canvas and it is pressable. A context card parked over
+       one would both hide it and eat its clicks. */
+    for (const slot of this.emptySlots.values()) {
+      if (slot.hidden) continue
+      const x = this.panX + slot.x * this.zoom
+      const y = this.panY + slot.y * this.zoom
+      const radius = slot.r * this.zoom
+      obstacles.push(expand({ x: x - radius, y: y - radius, w: radius * 2, h: radius * 2 }, 5, 5))
+    }
     /* The connector lanes are obstacles too. Without this the placer happily
        parked a card on top of the fan of edges and the lines ran straight
        through the text — the single ugliest thing on the page. */
@@ -1242,6 +1632,17 @@ export class StaticTreeGraph {
       y: this.panY + record.y * this.zoom,
       r: record.r * this.zoom + 4,
     }))
+    // …and a leader ruled through an empty slot misattributes the same way one
+    // ruled through an agent does, so slots join the discs a leader must clear.
+    for (const slot of this.emptySlots.values()) {
+      if (slot.hidden) continue
+      discs.push({
+        id: slot.id,
+        x: this.panX + slot.x * this.zoom,
+        y: this.panY + slot.y * this.zoom,
+        r: slot.r * this.zoom + 4,
+      })
+    }
     const labelBoxes = []
     for (const record of visibleRecords) {
       const stack = record.el.querySelector('.node-labels')
@@ -1705,6 +2106,8 @@ export class StaticTreeGraph {
       record.chipRuntimeUnsub?.()
       clearTimeout(record.clickTimer)
     }
+    for (const slot of this.emptySlots.values()) slot.el.remove()
+    this.emptySlots.clear()
     this.unsubs.forEach(unsub => unsub())
     document.removeEventListener('keydown', this._onDocumentKeydown)
     this.zoomHost.removeEventListener('wheel', this._onWheel)

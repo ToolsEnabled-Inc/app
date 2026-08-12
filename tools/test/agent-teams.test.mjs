@@ -6,10 +6,12 @@
  *      offering a team the engine now refuses. So these tests PARSE the engine's
  *      own source and compare, never the copy against itself.
  *
- *   2. THE REFUSALS ARE REAL. A team that offers Opus + Sonnet together would
- *      409 on the second member every time, because both are the declared agent
- *      `claude`. The picker has to refuse that up front, and the test has to
- *      prove the refusal names the pair.
+ *   2. THE REFUSALS ARE REAL. A tier names a capability; a seat is where it
+ *      runs. Opus + Sonnet together USED to 409 on the second member, because
+ *      both were the declared agent `claude` — the Claude tiers now share a
+ *      pool of four seats, so that pair is fine and only a FIFTH draw on that
+ *      pool is refused. The picker has to refuse the real bound up front, and
+ *      the test has to prove the refusal says which pool ran out.
  *
  *   3. FAN-OUT CANNOT WIDEN PERMISSION. This is the one that would matter most
  *      if it were wrong. A team is N dispatches; if any of them could carry a
@@ -27,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 import {
+  TIER_SEAT_POOL,
   TIER_AGENT_IDENTITY,
   TEAM_IDENTITIES,
   TEAM_BOUNDS,
@@ -48,7 +51,7 @@ const PRESENCE = 'capability/src/lib/agent-presence.js'
    1 · anti-drift against the engine's own source
    --------------------------------------------------------------- */
 
-test('every tier maps to the declared agent identity the engine resolves it to', () => {
+test('every tier draws on the seat pool the engine gives it', () => {
   const source = read(ACTIONS)
   const start = source.indexOf('const TIERS = Object.freeze({')
   assert.ok(start >= 0, 'engine TIERS table not found — this test is checking air')
@@ -56,18 +59,33 @@ test('every tier maps to the declared agent identity the engine resolves it to',
 
   const engine = new Map()
   for (const match of block.matchAll(/'?([a-z-]+)'?:\s*Object\.freeze\(\{([^}]*)\}\)/g)) {
-    const target = /targetAgentId:\s*'([a-z0-9_-]+)'/.exec(match[2])
-    if (target) engine.set(match[1], target[1])
+    const seats = /seats:\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(match[2])
+    if (seats) engine.set(match[1], [...seats[1].matchAll(/'([a-z0-9_-]+)'/g)].map(seat => seat[1]))
   }
 
+  /* If the engine ever goes back to one identity per tier, engine.size is 0 and
+     this fails LOUDLY rather than passing on an empty comparison. That is the
+     failure this suite exists for: the renderer restating a bound the engine
+     has since changed. */
   assert.equal(engine.size, LAUNCH_TIERS.length,
     `engine declares ${engine.size} tiers, the team builder knows ${LAUNCH_TIERS.length}`)
-  for (const [tier, identity] of engine) {
-    assert.equal(TIER_AGENT_IDENTITY[tier], identity,
-      `tier ${tier} resolves to engine agent "${identity}" but the team builder thinks "${TIER_AGENT_IDENTITY[tier]}"`)
+  for (const [tier, seats] of engine) {
+    assert.deepEqual([...(TIER_SEAT_POOL[tier] || [])], seats,
+      `tier ${tier} runs on engine seats [${seats}] but the team builder thinks [${TIER_SEAT_POOL[tier]}]`)
   }
-  assert.deepEqual([...new Set(engine.values())].sort(), [...TEAM_IDENTITIES].sort(),
-    'the set of distinct concurrent identities drifted from the engine')
+  assert.deepEqual([...new Set([...engine.values()].flat())].sort(), [...TEAM_IDENTITIES].sort(),
+    'the set of distinct seats drifted from the engine')
+})
+
+test('a tier is named only when its pool leaves no choice', () => {
+  /* TIER_AGENT_IDENTITY is derived, so it cannot drift from the pools; what it
+     must never do is guess. A pooled tier has no seat until dispatch picks
+     one, and null says so where seats[0] would quietly name a lane that may
+     already be busy. */
+  for (const [tier, seats] of Object.entries(TIER_SEAT_POOL)) {
+    assert.equal(TIER_AGENT_IDENTITY[tier], seats.length === 1 ? seats[0] : null,
+      `tier ${tier} has ${seats.length} seats, so its certain identity should be ${seats.length === 1 ? seats[0] : 'null'}`)
+  }
 })
 
 test('the fan-out and depth caps match the engine constants', () => {
@@ -103,31 +121,49 @@ test('the engine enforces fan-out only when a parent launch is named', () => {
    2 · the refusals name the actual conflict
    --------------------------------------------------------------- */
 
-test('two Claude tiers are refused as one identity, and the reason names both', () => {
-  const conflicts = identityConflicts(['claude-opus', 'claude-sonnet'])
+test('two Claude tiers now coexist, because they are two draws on a pool of four', () => {
+  /* This assertion is INVERTED from what it was, and deliberately so: the
+     engine's seat pools made the old refusal false. Opus + Sonnet together was
+     a 409 when all three Claude tiers were the single identity `claude`. If
+     this ever goes back to refusing, the picker is refusing a team the engine
+     would happily run. */
+  assert.deepEqual(identityConflicts(['claude-opus', 'claude-sonnet']), [])
+  assert.deepEqual(identityConflicts(['claude-opus', 'claude-sonnet', 'claude-fable']), [])
+})
+
+test('a fifth draw on the four-seat Claude pool is refused, and the reason counts them', () => {
+  const conflicts = identityConflicts(['claude-opus', 'claude-sonnet', 'claude-fable', 'claude-opus', 'claude-sonnet'])
   assert.equal(conflicts.length, 1)
-  assert.equal(conflicts[0].identity, 'claude')
-  assert.deepEqual([...conflicts[0].tiers].sort(), ['claude-opus', 'claude-sonnet'])
-  assert.match(conflicts[0].reason, /claude-opus/)
-  assert.match(conflicts[0].reason, /claude-sonnet/)
+  assert.deepEqual([...conflicts[0].seats], ['claude', 'claude-2', 'claude-3', 'claude-4'])
+  assert.equal(conflicts[0].tiers.length, 5)
+  assert.match(conflicts[0].reason, /5 agents that share 4 seats/,
+    'the refusal must say how many wanted a seat and how many exist, not just "too many"')
 })
 
 test('the three Codex tiers are distinct identities and never conflict', () => {
   assert.deepEqual(identityConflicts(['luna', 'terra', 'sol']), [])
 })
 
-test('a team of a lead plus every other distinct identity is dispatchable', () => {
-  const plan = planTeam({ lead: 'sol', members: ['luna', 'terra', 'claude-opus'] })
+test('a team of a lead plus every other seat is dispatchable', () => {
+  const plan = planTeam({
+    lead: 'sol',
+    members: ['luna', 'terra', 'claude-opus', 'claude-sonnet', 'claude-fable', 'claude-opus'],
+  })
   assert.equal(plan.dispatchable, true, plan.problems.join(' '))
   assert.equal(plan.size, TEAM_BOUNDS.maxConcurrent,
-    'the largest honest team is exactly one lane per distinct declared identity')
+    'the largest honest team is exactly one lane per seat')
+  assert.equal(plan.size, 7,
+    'three Codex seats plus a four-seat Claude pool — if this moves, the engine table moved')
 })
 
-test('adding a fifth lane to a four-identity machine is refused before anything is dispatched', () => {
-  const plan = planTeam({ lead: 'sol', members: ['luna', 'terra', 'claude-opus', 'claude-fable'] })
+test('one lane past the seat count is refused before anything is dispatched', () => {
+  const plan = planTeam({
+    lead: 'sol',
+    members: ['luna', 'terra', 'claude-opus', 'claude-sonnet', 'claude-fable', 'claude-opus', 'claude-sonnet'],
+  })
   assert.equal(plan.dispatchable, false)
-  assert.ok(plan.problems.some(problem => /claude/.test(problem)),
-    'the refusal must name the identity that collides, not just say "too many"')
+  assert.ok(plan.problems.some(problem => /share 4 seats/.test(problem)),
+    'the refusal must name the pool that ran out, not just say "too many"')
 })
 
 test('a lead with no members is not a team', () => {

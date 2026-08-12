@@ -42,8 +42,22 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createProviderDouble } from './test-mode-provider-double.mjs'
-import { SignupStore, createCheckoutProvider, createHttpHandler, createSignupService } from './subscribe-service.mjs'
-import { resolveEngineRoot } from './gen-subscription-catalog.mjs'
+import { SignupStore, createCheckoutProvider } from './subscribe-service.mjs'
+
+/* THE ENDPOINT THE APPLICATION ACTUALLY MOUNTS, not a hand-rolled copy of it.
+ *
+ * This drive used to build its own service and hand createHttpHandler straight
+ * to its site server. Everything it asserted about the page was true and it
+ * proved nothing about the product, because the shipped shell mounted no such
+ * handler at all: /v1/signup fell through to the SPA fallback and the page was
+ * told it was offline. A harness that stands up its own working version of the
+ * missing piece cannot see that the piece is missing.
+ *
+ * So it now goes through shell/subscribe-endpoint.cjs -- the same module
+ * serveDist() calls, with the same synchronous take-it-or-leave-it convention,
+ * the same per-request construction and the same shipped model file. */
+const requireShell = createRequire(import.meta.url)
+const { createSubscribeEndpoint } = requireShell('../shell/subscribe-endpoint.cjs')
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DIST = path.join(REPO_ROOT, process.env.SUB_DRIVE_DIST || 'dist')
@@ -69,10 +83,15 @@ function check(name, condition, detail = '') {
 // The site + service, on one loopback origin so the page's fetches are same-origin
 // ---------------------------------------------------------------------------
 
-async function startSite({ handler, catalogGone }) {
+async function startSite({ endpoint, catalogGone }) {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1')
-    if (url.pathname.startsWith('/v1/')) { await handler(request, response); return }
+    /* Same call shape and same order as serveDist(): the endpoint is offered
+       the pathname, takes the request or declines it, and everything it
+       declines falls through to the file server exactly as it does in the app.
+       A `/v1/` prefix test here instead would be this harness deciding the
+       routing question the product actually has to answer. */
+    if (endpoint.serve(url.pathname, request, response)) return
     if (catalogGone() && url.pathname === '/data/subscription-catalog.json') {
       response.writeHead(404, { 'content-type': 'text/plain' })
       response.end('gone')
@@ -91,14 +110,6 @@ async function startSite({ handler, catalogGone }) {
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   return { server, origin: `http://127.0.0.1:${server.address().port}` }
-}
-
-function loadEngineModel() {
-  const { entitlement } = resolveEngineRoot(process.env.TOOLSENABLED_SOURCE)
-  const require_ = createRequire(import.meta.url)
-  const model = require_(entitlement)
-  const fulfilment = require_(path.join(path.dirname(entitlement), 'entitlement-fulfilment.js'))
-  return { TIERS: model.TIERS, REQUIRED_METADATA: fulfilment.REQUIRED_METADATA }
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +217,29 @@ const MEASURE = `(() => {
   }
 })()`
 
+/* Every offered way to the subscription page on whatever screen is live, with
+   the same hit-test MEASURE applies to a control: at the centre of its own box,
+   is the element that is actually there this element? Both spellings of the
+   route are collected because src/main.js routes `#/pricing` to the same
+   surface, so a screen that used that spelling would otherwise read as a screen
+   with no door at all. */
+const DOORS = `(() => {
+  const doc = ${LIVE}
+  return [...doc.querySelectorAll('a[href="#/subscribe"], a[href="#/pricing"]')].map(node => {
+    node.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' })
+    const rect = node.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    const inView = rect.width >= 1 && rect.height >= 1 && x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight
+    const at = inView ? document.elementFromPoint(x, y) : null
+    return {
+      href: node.getAttribute('href'),
+      label: (node.textContent || '').trim().slice(0, 60),
+      hit: inView && !!at && (at === node || node.contains(at) || at.contains(node)),
+    }
+  })
+})()`
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 /* A SCREENSHOT IS A RECORD, NOT AN ASSERTION, so a compositor hiccup must not
@@ -281,18 +315,63 @@ async function run() {
   const storeFile = path.join(OUT, 'drive-signups.json')
   if (existsSync(storeFile)) writeFileSync(storeFile, JSON.stringify({ schemaVersion: 1, accounts: {}, attempts: {}, signups: {} }, null, 2))
   const store = new SignupStore(storeFile)
+  /* A REAL price map on disk, not an object handed to the constructor. The
+     endpoint reads this file itself on every request, which is the thing an
+     installed copy does and the thing that was never exercised: a deployment
+     with no price map must refuse in JSON rather than answer with a web page. */
+  const pricesFile = path.join(OUT, 'drive-prices.json')
+  writeFileSync(pricesFile, `${JSON.stringify({
+    mode: 'test',
+    prices: {
+      'operator:monthly': 'price_test_operator_monthly',
+      'operator:annual': 'price_test_operator_annual',
+      'team:monthly': 'price_test_team_monthly',
+    },
+  }, null, 2)}\n`, 'utf8')
   let siteOrigin = 'http://127.0.0.1:0'
-  const service = createSignupService({
-    engine: loadEngineModel(),
-    priceMap: { 'operator:monthly': 'price_test_operator_monthly', 'operator:annual': 'price_test_operator_annual', 'team:monthly': 'price_test_team_monthly' },
+  const endpoint = createSubscribeEndpoint({
+    storeFile,
+    pricesFile,
     provider,
-    store,
     siteOrigin: () => siteOrigin,
   })
   let catalogGone = false
-  const site = await startSite({ handler: createHttpHandler(service), catalogGone: () => catalogGone })
+  const site = await startSite({ endpoint, catalogGone: () => catalogGone })
   siteOrigin = site.origin
   console.log(`site ${site.origin} · provider double ${providerOrigin}`)
+
+  /* ---- H. THERE IS A SERVICE AT ALL --------------------------------------
+   *
+   * The measured defect, asserted before anything else because every other
+   * check on this page presupposes it. serveDist() handled two special routes
+   * and then answered EVERYTHING ELSE with index.html and a 200: the signup
+   * POST received a web page, response.json() threw, and the flow classified an
+   * unparseable reply as `offline`. So the page told a customer with a working
+   * connection that their device was offline, on the screen that takes money.
+   *
+   * The request body is deliberately malformed. A well-formed one would prove
+   * the same point only when a provider is configured; a broken one has exactly
+   * one correct answer -- a JSON refusal -- on every machine, configured or
+   * not, which is what makes this check hold in the shipped product too. */
+  {
+    const reply = await fetch(`${site.origin}/v1/signup`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{',
+    })
+    const type = reply.headers.get('content-type') || ''
+    const body = await reply.text()
+    check('H POST /v1/signup is answered by a service, not by the app shell',
+      type.includes('application/json') && !/<!doctype html|<html/i.test(body), `${reply.status} · ${type}`)
+    let parsed = null
+    try { parsed = JSON.parse(body) } catch { /* the check below reports it */ }
+    check('H an unreadable request is refused in a state the page knows',
+      parsed?.ok === false && parsed?.state === 'refused', body.slice(0, 100))
+    /* An installed copy keeps its ledger and its price map under the person's
+       own user directory, and the service's refusals name the file they could
+       not read. That sentence is right for an operator and wrong for a stranger:
+       the path carries their account name. */
+    check('H a refusal from the endpoint names no file on this computer',
+      !/[A-Za-z]:[\\/]/.test(body), body.slice(0, 100))
+  }
 
   const view = new BrowserWindow({
     width: 1440, height: 960, show: true,
@@ -335,6 +414,49 @@ async function run() {
     visit += 1
     await view.loadURL(`${site.origin}/?visit=${visit}${hash}`)
     await sleep(400)
+  }
+
+  /* ---- I. A PERSON CAN GET HERE WITHOUT TYPING THE ADDRESS ---------------
+   *
+   * The second measured defect, and the one every check below quietly assumed
+   * away. `#/subscribe` was routed and linked from NOWHERE: the router knew the
+   * address, the page rendered perfectly, and no screen in the product offered
+   * a way to it. A subscription page a customer can only reach by typing a URL
+   * into an application that has no address bar is a page with no customers.
+   *
+   * Pressed rather than counted. An anchor with the right href proves markup;
+   * what has to be true is that a person can SEE it, put a pointer on it, and
+   * arrive at the plans. So each door is hit-tested at the centre of its own
+   * box -- an overlay or a transform makes a link that greps fine and cannot be
+   * clicked -- and the home one is then actually clicked and the destination
+   * read back from the page that results. */
+  for (const [where, hash] of [['home', '#/'], ['the account screen', '#/account']]) {
+    await go(hash)
+    let doors = []
+    for (let i = 0; i < 30 && doors.length === 0; i += 1) {
+      doors = await view.webContents.executeJavaScript(DOORS)
+      if (doors.length === 0) await sleep(100)
+    }
+    check(`I ${where} offers a way to the subscription page`, doors.length > 0,
+      `${doors.length} link(s): ${doors.map(door => door.label).join(' | ') || 'none'}`)
+    check(`I the way in from ${where} is a real click target`,
+      doors.length > 0 && doors.every(door => door.hit),
+      doors.filter(door => !door.hit).map(door => door.label).join(' | '))
+    check(`I the way in from ${where} says where it goes`,
+      doors.every(door => door.label.length >= 8), doors.map(door => JSON.stringify(door.label)).join(' | '))
+  }
+  {
+    await go('#/')
+    for (let i = 0; i < 30; i += 1) {
+      const found = await view.webContents.executeJavaScript(DOORS)
+      if (found.length > 0) break
+      await sleep(100)
+    }
+    await view.webContents.executeJavaScript(`(${LIVE}).querySelector('a[href="#/subscribe"]').click()`)
+    const landed = await settle(view, s => s.planCards.length > 0, { tries: 40 })
+    check('I pressing it from home lands on the plans, not back on home',
+      landed.route.startsWith('#/subscribe') && landed.planCards.length > 0,
+      `${landed.route} with ${landed.planCards.length} plan cards`)
   }
 
   // ---- A. widths and themes -------------------------------------------------

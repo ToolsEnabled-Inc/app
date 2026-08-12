@@ -44,6 +44,7 @@ import {
   screenMarkup,
   setupAccountStepMarkup,
   signedInMarkup,
+  subscriptionMarkup,
 } from '../../src/account-markup.js'
 import { MIN_PASSWORD_LENGTH as SHELL_MIN_PASSWORD_LENGTH } from '../../shell/product-account.cjs'
 
@@ -442,6 +443,48 @@ const REGISTERED_CLAIMS = Object.freeze([
         'the shell calls the test-only store reset, which would let the signed-in identity be swapped at runtime')
       assert.ok(!/resetSharedAccountStoreForTests/.test(stripComments(PRELOAD)),
         'the preload exposes the test-only store reset to the page')
+    },
+  },
+  {
+    /* THE SUBSCRIPTION ROW, ADDED WHEN #/subscribe GAINED ITS SECOND DOOR.
+       The page that takes a subscription was routed and linked from nowhere at
+       all, so this screen now offers a way to it. The row deliberately reports
+       NO subscription state, and this is the pin that keeps that honest: this
+       build ships no licensing code -- the tier table, the licence provider and
+       the revocation store are outside the payload -- and what grants a paid
+       tier is a signed provider webhook handled on another machine entirely.
+       A row that said "no subscription" would be a claim nothing here checked,
+       on the screen that already goes to three states rather than two about a
+       card for exactly that reason. */
+    claim: 'nothing on it is switched off because you have not',
+    stillTrueBecause: 'no account module reads an entitlement, a licence or a paid tier. The subscription row is a link to the plans page and nothing else, and it branches on no state at all -- subscriptionMarkup() takes no arguments, so there is nothing it could branch on.',
+    pin() {
+      /* CODE-SHAPED PATTERNS, MATCHED AGAINST THE RAW SOURCE, and both halves
+         of that are deliberate. A bare /licen[cs]e/ over stripped source flags
+         this very comment block, so the guard would be satisfied by deleting
+         the explanation rather than by the code being right -- and a rule you
+         satisfy by saying less is not a rule. These match an IMPORT, a REQUIRE,
+         a channel name or a call: shapes prose does not have, so the scan needs
+         no comment stripper to be correct and the writing is free. */
+      const licensing = [
+        /from\s+['"][^'"]*(?:entitlement|licen[cs]e)[^'"]*['"]/i,
+        /require\(\s*['"][^'"]*(?:entitlement|licen[cs]e)[^'"]*['"]/i,
+        /mc-(?:entitlement|licen[cs]e)/i,
+        /\b(?:requiresLicense|paidTier|subscriptionState|isSubscribed|readEntitlement|entitlementFor)\b/,
+      ]
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        for (const pattern of licensing) {
+          assert.ok(!pattern.test(source),
+            `${name} consults licensing (${pattern}), so "nothing on it is switched off because you have not [paid]" is no longer a claim this screen can make`)
+        }
+      }
+      /* And the row itself still cannot be given a state to render. A parameter
+         here would be the first step to a row that reports one, which is the
+         thing this build has no evidence for. */
+      assert.equal(subscriptionMarkup.length, 0,
+        'subscriptionMarkup now takes an argument, so it can branch on a subscription state this build cannot know')
+      assert.ok(subscriptionMarkup().includes('href="#/subscribe"'),
+        'the subscription row no longer offers a way to the plans page, which is the only reason it exists')
     },
   },
   {

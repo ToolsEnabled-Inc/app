@@ -327,15 +327,29 @@ export function formatInlineText(value, { agents = [], roleKey = 'default' } = {
 }
 
 /** Build a chat window element (used inside chips, home feed, agent page). */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null }) {
+/* Text, never markup a browser parses. Each view in this app carries its own
+   copy of this rather than importing a shared one; following that convention
+   rather than introducing a shared module mid-sprint. */
+const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]
+))
+
+/* `title` USED to be product-controlled -- sim agents and fleet-record labels --
+   which is why it reached innerHTML raw for so long without anyone being wrong.
+   A tree node is now named from the first line of the person's own brief, so
+   `run <the migration>` breaks the chat head and a single `"` escapes the
+   placeholder attribute on the line below. The label stays verbatim on purpose
+   (mangling somebody's words in the one place they compare them against what
+   they typed is worse), so every sink escapes instead. */
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null }) {
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
     <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
       <div class="chat-head">
         <span class="role-dot" style="background:${role.hex}"></span>
         <div>
-          <div class="t">${title}</div>
-          ${subtitle ? `<div class="s">${subtitle}</div>` : ''}
+          <div class="t">${escapeMarkup(title)}</div>
+          ${subtitle ? `<div class="s">${escapeMarkup(subtitle)}</div>` : ''}
         </div>
         <span class="spacer"></span>
         ${onClose ? `<button class="chat-close" aria-label="Collapse">
@@ -344,7 +358,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       </div>
       <div class="chat-log"></div>
       <div class="chat-input">
-        <input type="text" placeholder="Message ${title}…" />
+        <input type="text" placeholder="Message ${escapeMarkup(title)}…" />
         <button class="chat-send" aria-label="Send">
           <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -622,6 +636,47 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     input.value = ''
     pinned = true
     const message = addMsg('me', v)
+
+    // A REAL SENDER REPLACES THE SIMULATION ENTIRELY.
+    //
+    // Without `onSend` this composer answers itself: it pushes the turn onto
+    // replyQueue and a canned reply streams back. That is right for the sample
+    // surfaces that exist to show what the product looks like, and wrong on the
+    // agent page, where the same widget made a person believe they had started
+    // work. The page's own note admitted it -- "typing in it still reaches
+    // nothing" -- which is honest about the wiring and no help at all to
+    // somebody trying to start an agent.
+    //
+    // So a caller that CAN reach a real agent passes onSend, and the fake path
+    // is not merely bypassed but unreachable: no queue push, no canned reply, no
+    // simulated latency. Anything else would leave two sources of truth about
+    // whether a turn was real.
+    //
+    // onSend owns the reply. It gets `reply` to append the agent's words and
+    // `fail` to say why nothing happened -- a sender that throws silently would
+    // reproduce the original defect in a new place.
+    if (typeof onSend === 'function') {
+      bumpChatDebug('sentTurns', 1)
+      Promise.resolve()
+        .then(() => onSend(v, {
+          reply: text => { if (!disposed) addMsg(roleKey, String(text)) },
+          fail: text => { if (!disposed) addMsg(roleKey, String(text)) }
+        }))
+        .catch(() => {
+          if (disposed) return
+          /* THE ERROR'S MESSAGE IS NOT SHOWN, and that is not caution -- on this
+             product's agent channel the message IS the machine code
+             (shell/main.cjs replaces a rejected call's error with one whose
+             message is its identifier, so that nothing path-bearing crosses).
+             Printing it here put a bare identifier in front of a person, which
+             is the one thing src/refusal-copy.js exists to prevent, by the one
+             route its scan cannot see. A sender that means to explain a refusal
+             says so through `fail`, where the sentence is written. */
+          addMsg(roleKey, 'That did not send, and this screen was not told why. Try once more; if it keeps happening, reload the page.')
+        })
+      return
+    }
+
     replyQueue.push({ prompt: v, message })
     bumpChatDebug('queuedTurns', 1)
     pumpReplies()

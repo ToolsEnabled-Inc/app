@@ -179,6 +179,83 @@
 .cloud-receipt-k { font: 11px/1.5 var(--font-mono); color: var(--ink-4); }
 .cloud-receipt-v { font: 11.5px/1.5 var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
 
+/* ---- getting a finished task's work back ----
+ *
+ * The control sits in the row's second column, under the task's own meta line,
+ * because it belongs to that task and to no other. It is deliberately quiet:
+ * it reads, it spends nothing, and a loud button next to a launch that costs
+ * money would be the wrong thing shouting.
+ */
+.cloud-get {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  font: 11.5px/1.4 var(--font-mono);
+  cursor: pointer;
+}
+
+.cloud-get:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
+.cloud-get:disabled { color: var(--ink-4); cursor: default; }
+
+/* The answer. Bordered like the receipt, because it is the same kind of thing:
+   a record of something that happened elsewhere, not a control. */
+.cloud-diff {
+  grid-column: 1 / -1;
+  margin-top: var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+
+.cloud-diff-title {
+  display: block;
+  font: 620 11px/1.4 var(--font-mono);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.cloud-diff-note {
+  margin: var(--s1) 0 0;
+  font: 11.5px/1.5 var(--font-mono);
+  color: var(--ink-4);
+  overflow-wrap: anywhere;
+}
+
+/* THE THREE ANSWERS ARE THREE COLOURS, and "changed nothing" is NOT one of the
+   loud ones: a task that changed no files is a real answer and painting it red
+   would push somebody to relaunch work that already ran. A truncated diff gets
+   the warning colour on its own, because it is the one case where the text on
+   screen looks complete and is not. */
+.cloud-diff[data-state="confirmed"] .cloud-diff-note { color: var(--s-good); }
+.cloud-diff[data-state="partial"] { border-color: var(--s-warn); }
+.cloud-diff[data-state="partial"] .cloud-diff-note { color: var(--s-warn); }
+.cloud-diff[data-state="refused"] .cloud-diff-note { color: var(--s-serious); }
+
+/* The diff itself scrolls in both directions and is never reflowed. A wrapped
+   diff is not a diff: the line a person is checking has to stay one line. */
+.cloud-diff-text {
+  margin: var(--s1) 0 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg-2, transparent);
+  color: var(--ink-2);
+  font: 11.5px/1.5 var(--font-mono);
+  white-space: pre;
+  tab-size: 4;
+}
+
+.board-cloud-box .cloud-diff-text { max-height: 220px; }
+
 /* The switch a switched-off panel offers, so the feature can be found and
    turned on from where it lives instead of only from Settings. */
 .cloud-enable {

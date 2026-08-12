@@ -194,6 +194,12 @@ export function unavailableMarkup({ state = null, reset = {}, busy = false } = {
          its account store is exactly when somebody wants their data off this
          computer, and gating removal behind a sign-in that cannot happen would
          be the product holding it hostage. -->
+    <!-- ...AND SO DOES THE WAY TO THE PLANS. This screen is what a person gets
+         when this copy cannot open its account store, and when the page is
+         opened in a browser rather than in the installed application. Neither
+         of those has anything to do with what is sold. Prices are not something
+         a broken sign-in should be able to hide. -->
+    <div class="settings-section-rows" data-account-subscription-block>${subscriptionMarkup()}</div>
     <div class="settings-section-rows">${resetMarkup({ reset, busy })}</div>
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
@@ -235,6 +241,40 @@ function dateText(atMs) {
  * vault KEY NAME, and the only thing done with it is to say a record is on file
  * -- there is no number, no expiry, no last-four and no token anywhere in this
  * function or in the object it is given. */
+/* THE SECOND DOOR TO #/subscribe, AND WHY IT IS ON THIS SCREEN.
+ *
+ * The subscription page was routed and linked from nowhere: the only way to it
+ * was to type its address. This is one of the two places it is now offered from
+ * -- the other is the home screen -- and it is here because this is the screen a
+ * person is already on when they are thinking about their account and their card.
+ *
+ * IT STATES NO SUBSCRIPTION STATE, ON PURPOSE, AND THAT IS NOT A GAP.
+ *
+ * This build ships no licensing code at all: the tier table, the licence
+ * provider and the revocation store are all outside the payload by the owner's
+ * ruling, and what grants a paid tier is a signed provider webhook handled on
+ * the operator side. So this window has no way to know whether the person in
+ * front of it pays for anything. A row reading "no subscription" would be a
+ * claim it did not check, on the same screen that goes to three states rather
+ * than two about a card for exactly that reason. It says what IS true here --
+ * that nothing is withheld from an install that has paid nothing -- and points
+ * at the page that can actually answer the rest.
+ *
+ * Exported so the suite can render it on its own; it takes no arguments because
+ * there is no state it is entitled to read.
+ */
+export function subscriptionMarkup() {
+  return `<article class="settings-row" data-account-subscription>
+    <div class="settings-copy">
+      <div class="settings-name">Subscriptions</div>
+      <div class="settings-desc">This screen does not check what you have paid for, and nothing on it is switched off because you have not. A subscription pays for the parts of the product that run on our computers instead of yours. What the plans are, and what each one costs, is on its own page.</div>
+    </div>
+    <div class="settings-control fleet-inline-control">
+      <a class="ctl-btn" href="#/subscribe" data-account-subscribe-link>See the plans and prices</a>
+    </div>
+  </article>`
+}
+
 export function belongingsMarkup({ data = null, payment = null, history = null } = {}) {
   const rows = []
 
@@ -311,6 +351,11 @@ export function belongingsMarkup({ data = null, payment = null, history = null }
       </div>
     </article>`)
   }
+
+  /* Next to the card, because the two are the same subject to the person
+     reading them, and last because it is the only row here that goes somewhere
+     rather than reporting something. */
+  rows.push(subscriptionMarkup())
 
   return rows.join('')
 }
@@ -687,6 +732,12 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
       </div>
     </form>
     ${creating ? '' : scopeMarkup()}
+    <!-- ...AND STILL ABLE TO SEE WHAT IS SOLD. The other copy of this row sits
+         in the belongings list, which only a signed-in person has. A signed-out
+         visitor is the one most likely to be looking for prices. Leaving it out
+         here would put the page behind a sign-in that has nothing to do with
+         it. -->
+    <div class="settings-section-rows" data-account-subscription-block>${subscriptionMarkup()}</div>
     <!-- SIGNED OUT, AND STILL ABLE TO LEAVE. Somebody who never made an account
          still has a vault, a permission level and a settings file on this disk,
          and somebody who has forgotten their password cannot sign in to reach a

@@ -65,6 +65,7 @@ const { createRendererPrefs } = require('./renderer-prefs.cjs')
 const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
 const { RETENTION_PREF_KEY, syncRecordedChoice } = require('./uninstall-retention.cjs')
 const { planReset, eraseLocalData } = require('./local-data-reset.cjs')
+const { createSubscribeEndpoint } = require('./subscribe-endpoint.cjs')
 
 const fatalStartup = createFatalStartupHandler({
   app,
@@ -1408,6 +1409,31 @@ function serveOwnerPurchaseList(url, request, response) {
   return true
 }
 
+/* THE SIGNUP SERVICE, BUILT ONCE THE FIRST TIME SOMEBODY ASKS FOR IT.
+ *
+ * The subscription page posts to /v1/signup. Until this existed, the fallback
+ * below answered that POST with index.html and a 200, so the page could only
+ * read it as "not answering" and told the customer they were offline. See the
+ * head of shell/subscribe-endpoint.cjs.
+ *
+ * `siteOrigin` is passed as a FUNCTION, not as a string. The provider's return
+ * URLs have to name the origin this window actually ended up on, and the port
+ * scan has not finished when this module is constructed; capturing shellOrigin
+ * at construction would bake in `null` and strand a paying customer on a dead
+ * address. Read at request time it cannot be null -- the host check at the top
+ * of serveDist refuses every request with 421 until shellOrigin is set, so
+ * nothing reaches here before there is an origin to name. */
+let subscribeEndpoint = null
+function serveSignup(url, request, response) {
+  if (!subscribeEndpoint) {
+    subscribeEndpoint = createSubscribeEndpoint({
+      dataDirectory: app.getPath('userData'),
+      siteOrigin: () => shellOrigin,
+    })
+  }
+  return subscribeEndpoint.serve(url, request, response)
+}
+
 const MIME = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -1426,6 +1452,7 @@ function serveDist() {
       const url = decodeURIComponent((req.url || '/').split('?')[0])
       if (serveOwnerPurchaseList(url, req, res)) return
       if (serveConfiguredProjection(url, req, res)) return
+      if (serveSignup(url, req, res)) return
       let file = path.normalize(path.join(DIST, url === '/' ? 'index.html' : url))
       // the hash router means every real navigation is still index.html
       if (!file.startsWith(DIST)) { res.writeHead(403); return res.end() }

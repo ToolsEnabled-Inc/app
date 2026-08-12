@@ -151,6 +151,23 @@ export const COPY = Object.freeze({
   replySending: 'Sending',
   replySent: 'Sent and recorded',
   replyRefused: 'That message was not sent. Nothing was recorded.',
+  /* THE ONLY DOOR TO THE PAGE THAT TAKES A SUBSCRIPTION.
+   *
+   * The subscribe surface was routed and linked from nowhere at all: a person
+   * could only reach it by typing the address, which nobody does. So the page
+   * that sells the hosted side of this product existed and had no customers by
+   * construction.
+   *
+   * IT IS NOT WRITTEN AS AN UPGRADE PROMPT, and that is the whole of why the
+   * wording is this flat. The product is free and stays free -- the page itself
+   * opens by saying a subscription buys infrastructure rather than unlocking
+   * anything -- so a door captioned "unlock", "upgrade" or "go pro" would
+   * contradict the page behind it before the reader arrived. It states what is
+   * through the door and makes no claim about what is on this side of it. */
+  subscribeDoor: Object.freeze({
+    label: 'See the plans and prices',
+    href: '#/subscribe',
+  }),
 })
 
 /* Everything the screen can be in. Named states rather than booleans checked in

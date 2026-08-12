@@ -31,7 +31,11 @@ import { declaredAgentsData, THIS_COMPUTER_ID, THIS_COMPUTER_LABEL } from '../de
 import { buildAgentRoster } from '../agent-roster.js'
 /* The sentences the three steering controls answer with, looked up rather than
    printed raw. See the note above `sessionResult` for what this replaced. */
-import { unavailableReason } from '../agent-availability-copy.js'
+import { refusalCode, unavailableReason } from '../agent-availability-copy.js'
+/* The readers that decide what a live session is allowed to put on screen, and
+   from which session. The composer below uses the SAME pair the Controls panel
+   uses rather than reading the packet itself -- see the note on the listener. */
+import { sessionEventText, sessionTurnStatus } from '../agent-session-events.js'
 import '../agent.css'
 
 /* Normalize the one runtime source shared by the roster and the controls ring.
@@ -641,6 +645,159 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   crumb.appendChild(el(`<span class="sep">/</span>`))
   crumb.appendChild(el(`<span><b style="color:var(--ink-2)">${agent.name}</b></span>`))
 
+  /* THE COMPOSER IS THE START CONTROL.
+   *
+   * There was no way to start an agent from this page. The chat box answered
+   * ITSELF with canned replies, and its own note admitted "typing in it still
+   * reaches nothing" -- so the most obvious affordance on the page named after
+   * agents both looked like the way to begin and was incapable of beginning.
+   * The only control wired to mcAgent.start() was RESPAWN, which by definition
+   * can only restart a session that already exists. First-start had no home.
+   *
+   * A separate "Start" button beside a dead composer would have left the dead
+   * composer. So the composer becomes the control: the first message starts a
+   * session and carries the prompt, and every later message continues it. That
+   * is the model a person already expects from a chat box, which is exactly why
+   * the fake one misled.
+   *
+   * Only on a LIVE page with a real bridge. Without one, onSend stays null and
+   * the sample behaviour is untouched -- the demo surfaces exist to show what
+   * the product looks like, and turning them into failing send attempts would
+   * trade one lie for another.
+   */
+  /* WHAT A PERSON READS WHEN THE START OR THE SEND DOES NOT HAPPEN.
+   *
+   * CORRECTED, and the correction is the whole reason these sentences reach
+   * anybody. This read `result.code` off a RESOLVED value and treated a refusal
+   * as a return. This channel does not answer that way: every refusal on
+   * mc-agent:start and mc-agent:send is a REJECTED invoke (shell/main.cjs
+   * throws through agentIpcError), so `.ok === false` was never once true and
+   * every sentence below was unreachable. What a person actually got was
+   * buildChat's catch printing `error.message` -- and shell/main.cjs makes the
+   * message BE the code on purpose, so the screen showed a bare machine
+   * identifier. That is exactly the defect B6 repaired and the one
+   * tools/test/refusal-copy.test.mjs exists to hold shut; neither suite could
+   * see it, because the interpolation was of an Error's message rather than of
+   * anything shaped like a code.
+   *
+   * So the code is RECOVERED rather than read. `error.code` does not survive
+   * Electron's rebuild of a rejected call in this window, and the message is
+   * the only thing that crosses -- a candidate is therefore accepted only when
+   * it already keys one of these tables, so no text from the host can reach the
+   * screen as itself. src/agent-availability-copy.js's refusalCode() does this
+   * for the shared table and is used for the rest of the recovery.
+   *
+   * THE PAGE'S OWN FOUR ARE TRIED FIRST, deliberately: the shared entry for a
+   * missing engine is a fragment with no next step in it, and a composer whose
+   * refusal ends on a dead end is what the plain-language ratchet is for. A
+   * sentence that lands in the shared table later makes deleting the row here
+   * the whole of the change. */
+  const START_REFUSAL_TEXT = Object.freeze({
+    AGENT_ENGINE_UNAVAILABLE: 'This copy of the app cannot start agents: the agent engine is not part of this build. Reinstalling from a full download is what fixes it.',
+    MC_AGENT_SESSION_LIMIT: 'Too many agent sessions are open already. Close one on this page, or on another agent, and send again.',
+    BRIDGE_ALL_SEATS_BUSY: 'Every seat for this kind of agent is already running something. Wait for one to finish, or stop one, then send again.',
+    BRIDGE_CLAUDE_UNAVAILABLE: 'The assistant program this agent runs on is not installed on this computer. Setup walks through installing it.',
+  })
+  /* Upper case, digits and underscores only, which no Windows path can be. */
+  const CODE_SHAPED_TOKEN = /[A-Z][A-Z0-9_]{2,63}/g
+  const startCode = (error) => {
+    if (typeof error?.code === 'string' && error.code.length > 0) return error.code
+    const message = typeof error?.message === 'string' ? error.message : ''
+    for (const candidate of message.match(CODE_SHAPED_TOKEN) || []) {
+      if (Object.hasOwn(START_REFUSAL_TEXT, candidate)) return candidate
+    }
+    return refusalCode(error)
+  }
+  const startRefusal = (error, lead) => {
+    const code = startCode(error)
+    const own = Object.hasOwn(START_REFUSAL_TEXT, code) ? START_REFUSAL_TEXT[code] : null
+    if (own) return `${lead} ${own}`
+    /* Composed the way the steering controls above compose theirs, including
+       the full stop the fragments in that table do not all carry. */
+    const why = unavailableReason(code).trim()
+    return `${lead} Why: ${/[.!?…]$/.test(why) ? why : `${why}.`}`
+  }
+
+  let chatSessionId = null
+  let chatReply = null
+  let chatTurnText = ''
+  const canStart = live && typeof window !== 'undefined' && window.mcAgent
+  /* ONE LISTENER FOR THIS MOUNT, DETACHED ON DISPOSE, AND IT READS THE SHAPE
+   * THIS PRODUCT ACTUALLY EMITS.
+   *
+   * CORRECTED. This read `packet.text` and `packet.delta.text`. A live packet
+   * is `{ sessionId, event: { type: 'assistant_text_delta', text } }` and
+   * neither of those fields exists on it, so the test was false for every
+   * packet and NO reply ever reached the screen -- a composer that took a
+   * person's message, started a real agent, and then showed them nothing back.
+   * sessionEventText()/sessionTurnStatus() are the readers the Controls panel
+   * beside this one already uses; a second reading of the same stream is how
+   * one of the two comes to be wrong without anybody noticing.
+   *
+   * A TURN IS ONE MESSAGE, NOT ONE PER TOKEN. The engine emits one delta per
+   * token (see the appender note in src/agent-session.js), and this chat's
+   * `reply` appends a NEW bubble per call -- so forwarding deltas straight
+   * through would have written tens of thousands of one-word messages into the
+   * transcript. The turn's text is accumulated here and handed over once, when
+   * the engine says the turn is done. */
+  const detachAgentEvents = canStart && typeof window.mcAgent.onEvent === 'function'
+    ? window.mcAgent.onEvent(packet => {
+      if (!chatReply || !chatSessionId) return
+      const text = sessionEventText(packet, chatSessionId)
+      if (text) {
+        chatTurnText += text
+        return
+      }
+      if (!sessionTurnStatus(packet, chatSessionId)) return
+      const spoken = chatTurnText.trim()
+      const answer = chatReply
+      chatTurnText = ''
+      chatReply = null
+      /* A turn that ends having said nothing is a real outcome and it has to be
+         readable as one; silence in a chat window reads as a product that hung. */
+      answer(spoken || 'That turn finished without any words back. Send the message again, or ask for something narrower.')
+    })
+    : null
+
+  const startOrContinue = async (text, { reply, fail }) => {
+    /* ONE TURN AT A TIME, because there is one sink for the answer. A second
+       message sent while the first is still running would take the sink with
+       it, and the running turn's words would then arrive with nowhere to go --
+       the engine refuses the overlap anyway, so refusing it here is the same
+       answer without throwing the first turn's output away. */
+    if (chatReply) {
+      fail('That agent is still working on the message before this one. Wait for its answer, or stop the turn in the Controls panel beside this one.')
+      return
+    }
+    chatReply = reply
+    chatTurnText = ''
+    /* EVERY REFUSAL ON THIS CHANNEL ARRIVES AS A REJECTION. The previous version
+       tested `.ok === false` on the resolved value, which this channel never
+       returns, and let the rejection fall through to buildChat's catch -- which
+       prints the Error's message, and on this channel the message IS the code.
+       Catching here is what keeps a machine identifier off the screen. */
+    try {
+      if (!chatSessionId) {
+        const started = await window.mcAgent.start({ surface: 'agent-page' })
+        /* A start that RESOLVES still has to carry the session id every later
+           send is addressed to. Without it there is nothing to continue, so this
+           is a refusal even though nothing threw. */
+        if (!started || typeof started.sessionId !== 'string' || !started.sessionId) {
+          chatReply = null
+          fail(startRefusal(null, 'The agent did not start.'))
+          return
+        }
+        chatSessionId = started.sessionId
+      }
+      await window.mcAgent.send({ sessionId: chatSessionId, text })
+    } catch (error) {
+      chatReply = null
+      /* The session may well be open and only the turn refused, so the two
+         states get their own sentence rather than one that covers both badly. */
+      fail(startRefusal(error, chatSessionId ? 'That message did not reach the agent.' : 'The agent did not start.'))
+    }
+  }
+
   // chat panel
   const chat = buildChat({
     title: agent.name,
@@ -648,6 +805,7 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     roleKey: agent.role,
     seed: live ? 0 : 6,
     tall: true,
+    onSend: canStart ? startOrContinue : null,
     /* TWO PANELS ON ONE SCREEN MUST NOT DISAGREE ABOUT WHETHER A SESSION EXISTS.
        This said "no observed session is mapped to this agent" unconditionally,
        which was true while nothing could be mapped. The moment the Controls
@@ -751,6 +909,11 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
     destroy() {
       destroyedView = true
       clearInterval(tick)
+      /* Detach exactly this mount's agent-event listener. Every visit would
+         otherwise leave another one attached to the channel, and a later
+         session's words would arrive in several detached transcripts at once. */
+      if (detachAgentEvents) detachAgentEvents()
+      chatReply = null
       terminateButton.removeEventListener('click', onTerminateClick)
       terminateController.destroy()
       unsubscribeSession()

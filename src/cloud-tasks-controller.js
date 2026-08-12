@@ -17,7 +17,9 @@
  *   - an environment with no single source repository cannot be launched into;
  *   - a branch is never defaulted to "main" from nothing;
  *   - UNKNOWN never ends the status watch, and the watch is bounded in both
- *     interval and count so it can never become a background job nobody started.
+ *     interval and count so it can never become a background job nobody started;
+ *   - a reply that carries no diff is a refusal, never an empty diff, because
+ *     the second one would tell somebody their finished task did nothing.
  */
 import { isWriteEnabled } from './write-flags.js'
 import { postBridgeAction } from './mission-bridge.js'
@@ -243,6 +245,161 @@ export function bindingText(environment, state = null) {
   return 'No environment chosen yet, so no source repository is bound.'
 }
 
+/* ---------------------------------------------------------------- *
+ * GETTING THE WORK BACK.
+ *
+ * THE GAP. A person launches a cloud task, pays a provider for it, and gets a
+ * task id. Until now the product could tell them the task FINISHED and could
+ * not tell them what it did. Four cloud actions, none of which returned the
+ * work. The engine's fifth tool answers exactly one question -- what changed --
+ * and this is the half of the surface that decides what its answer means.
+ *
+ * WHAT IT IS, SAID IN THE COPY RATHER THAN IN A COMMENT. It is a DIFF. Not
+ * "results", not "output", not the agent's account of what it did: the provider
+ * CLI exposes none of those, so a label promising them would describe a feature
+ * that does not exist. Every sentence below says diff, or says what changed.
+ *
+ * THE THREE ANSWERS, AND ALL THREE ARE ANSWERS.
+ *   - a diff. Shown, and stated to be a copy: nothing here applies anything.
+ *   - changedNothing. A task that only read, or that wrote findings it never
+ *     committed, really did change no files. That is a fact about the task, not
+ *     a fault in the reading, and painting it as a failure sends somebody to
+ *     relaunch work that already ran.
+ *   - truncated. The diff passed the cap and `bytes` is the TRUE size. This is
+ *     the dangerous one and it gets the loudest sentence, because a half diff
+ *     that looks whole applies cleanly and silently drops the rest of the work.
+ *
+ * AND THE FOURTH, WHICH IS THE ONE THAT COSTS MONEY WHEN IT IS MISREAD.
+ * Retrieval is scoped to the account that created the task, so a task made by
+ * another account is invisible to this one. The engine says so in its own
+ * reason -- and the bridge replaces engine messages with a generic diagnosis
+ * before they reach the glass (see ACCOUNTS_REGISTRY_MISSING in
+ * ./refusal-copy.js), so this surface has to state the account rule itself. The
+ * recurring mistake is reading that refusal as "the task is gone" and launching
+ * the same work a second time.
+ *
+ * NOTHING HERE APPLIES A DIFF, and no control offers to. Retrieval is a read;
+ * putting remotely-produced changes into a tree is a separate reviewed act, and
+ * keeping them apart means fetching can never be the step that damages a tree.
+ * ---------------------------------------------------------------- */
+
+/** Only a finished task has work to fetch. */
+export function offersDiff(task) {
+  return Boolean(task) && typeof task === 'object' && task.state === 'SUCCEEDED' && typeof task.taskId === 'string' && task.taskId.length > 0
+}
+
+/* A size a person reads, or nothing at all. An unmeasured size returns the
+   empty string so the caller can drop the clause: a placeholder like "unknown
+   size" would be a machine's shrug rendered as prose. */
+export function diffSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return ''
+  if (bytes < 1024) return `${Math.round(bytes)} bytes`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function byteLength(text) {
+  if (typeof text !== 'string' || text.length === 0) return 0
+  try { return new TextEncoder().encode(text).length }
+  catch { return text.length }
+}
+
+const READING_MESSAGE = 'Reading the changes this task made. Nothing is being applied.'
+const CHANGED_NOTHING_MESSAGE = 'This task changed no files, and that is a normal answer. Some tasks only read, and some write notes they never save. Open the task on Codex Cloud to read what it said.'
+
+/**
+ * What came back, as the sentence a person reads plus the diff itself.
+ *
+ * The three shapes are decided from the receipt's own flags rather than from
+ * the length of the text: an empty string is `changedNothing` only when the
+ * engine SAID so, because "the task changed nothing" and "the diff did not
+ * arrive" are opposite facts that look identical from an empty string.
+ */
+export function diffAnswer(receipt) {
+  const diff = typeof receipt?.diff === 'string' ? receipt.diff : ''
+  const bytes = Number.isFinite(receipt?.bytes) && receipt.bytes >= 0 ? receipt.bytes : null
+  const account = typeof receipt?.account?.name === 'string' && receipt.account.name ? receipt.account.name : null
+  const readAs = account ? ` Read as ${account}.` : ''
+  if (receipt?.changedNothing === true) {
+    return Object.freeze({
+      tone: 'note',
+      changedNothing: true,
+      truncated: false,
+      bytes: bytes === null ? 0 : bytes,
+      diff: '',
+      message: `${CHANGED_NOTHING_MESSAGE}${readAs}`,
+    })
+  }
+  if (receipt?.truncated === true) {
+    const shownBytes = byteLength(diff)
+    /* "the first 0 bytes" is a sentence no person needs. */
+    const shown = shownBytes > 0 ? diffSize(shownBytes) : ''
+    const whole = diffSize(bytes)
+    /* THE WARNING SURVIVES A MISSING MEASUREMENT. If the true size did not
+       arrive, the sentence loses the number and keeps every word that matters:
+       what is on screen is a part. Dropping the whole warning because one field
+       was absent would leave a clipped diff looking complete. */
+    let measured
+    if (shown && whole) measured = `You are seeing the first ${shown} of ${whole}.`
+    else if (shown) measured = `You are seeing the first ${shown}, and there is more.`
+    else measured = 'You are seeing part of it.'
+    return Object.freeze({
+      tone: 'partial',
+      changedNothing: false,
+      truncated: true,
+      bytes,
+      diff,
+      /* The true size first, and the instruction second. This sentence is the
+         only thing standing between a reader and a change that looks complete. */
+      message: `This change is too big to show whole. ${measured} Treat this as a part, not the whole change. Open the task on Codex Cloud for the rest.${readAs}`,
+    })
+  }
+  const size = diffSize(bytes === null ? byteLength(diff) : bytes)
+  return Object.freeze({
+    tone: 'confirmed',
+    changedNothing: false,
+    truncated: false,
+    bytes: bytes === null ? byteLength(diff) : bytes,
+    diff,
+    message: `The changes came back as a diff, ${size} in all. Nothing has been applied to your computer; this is a copy to read.${readAs}`,
+  })
+}
+
+/* THE REMEDIES THIS CONTROL KNOWS BETTER THAN THE TABLE DOES.
+   ./refusal-copy.js sends every CLOUD_ code to "nothing was launched and
+   nothing was spent, check the account and environment chosen above", which is
+   written for the launch form and is wrong here twice over: this control has no
+   environment picker, and the person is trying to READ something rather than
+   start it. So the account rule -- the whole reason a cloud task can be
+   invisible -- is stated on the one surface where it is the answer. */
+function accountScopedRemedy(account) {
+  const used = account ? ` This read used ${account}.` : ''
+  return `Nothing was read and nothing was changed. A cloud task can only be read by the account that started it.${used} If someone else started that task, ask them for its diff.`
+}
+
+const NO_ACCOUNT_REMEDY = 'Nothing was read. No Codex account on this computer can read a cloud task right now. Sign in to Codex Cloud on this machine, then try again.'
+/* The route this control posts to is not in every build that can run this
+   window. Without this sentence the reader gets the generic connection advice
+   and restarts the application, twice, for something no restart can change. */
+const NOT_IN_THIS_COPY_REMEDY = 'Nothing was read and nothing was changed. This copy of ToolsEnabled cannot fetch a cloud task\'s changes yet. Install the newest version, then try again.'
+
+export function diffRefusalMessage(result, { account = null } = {}) {
+  const code = refusalCodeOf(result)
+  /* THE ONE REFUSAL WHOSE DIAGNOSIS IS NOT ABOUT THE PERSON. This code means
+     the request never had a route to travel down, and the words that come with
+     it describe the router. Everywhere else the engine's own sentence is shown
+     verbatim, because everywhere else it is the product's honest report of what
+     it looked for; here it would put a piece of plumbing in front of somebody
+     who asked what their task changed. */
+  if (code === 'BRIDGE_ACTION_UNKNOWN') return NOT_IN_THIS_COPY_REMEDY
+  let remedy = ''
+  if (code === 'CLOUD_LAUNCH_NO_ACCOUNT_AVAILABLE') remedy = NO_ACCOUNT_REMEDY
+  else if (typeof code === 'string' && /^(CLOUD_|CODEX_CLOUD_)/.test(code)) remedy = accountScopedRemedy(account)
+  /* Everything else -- an unreachable service, a timeout, a guard -- keeps the
+     product-wide remedy, which is already right for it. */
+  return refusalSentence(result, { fallback: 'The changes did not come back.', remedy })
+}
+
 /**
  * Everything that talks to the bridge, decides what a response means, holds the
  * two-step launch, and runs the status watch.
@@ -301,6 +458,21 @@ export function createCloudTaskController({
     environmentsCode: null,
     launchCode: null,
     watchCode: null,
+    /* THE RETRIEVED DIFF, held for ONE task at a time. `diffTaskId` names which,
+       and it is set before the request goes out so a reply for a task the person
+       has already moved on from can be dropped rather than painted over the one
+       they are reading. `diffText` is never seeded with anything: an empty
+       string here means nothing has been fetched, and `diffPhase` is what tells
+       the two apart from "this task changed no files". */
+    diffTaskId: null,
+    diffPhase: 'idle',
+    diffTone: 'note',
+    diffMessage: '',
+    diffCode: null,
+    diffText: '',
+    diffBytes: null,
+    diffTruncated: false,
+    diffChangedNothing: false,
   })
 
   const publish = next => {
@@ -375,6 +547,57 @@ export function createCloudTaskController({
       listMessage: tasks.length
         ? `${tasks.length} task${tasks.length === 1 ? '' : 's'} · read as ${accountSummary(result.receipt.account)}`
         : `No tasks on this account yet · read as ${accountSummary(result.receipt.account)}`,
+    })
+    return state
+  }
+
+  /* THE RETRIEVAL. One read, one task, no second step: fetching a diff spends
+     nothing, changes nothing and cannot be undone into anything, so it does not
+     get the launch's confirm gate. It also never becomes a watch -- a diff is
+     read when a person asks for it and never on a timer. */
+  async function readDiff(taskId, { account = null, attempt = null } = {}) {
+    if (!availability.ok || destroyed || typeof taskId !== 'string' || !taskId) return state
+    publish({
+      diffTaskId: taskId,
+      diffPhase: 'reading',
+      diffTone: 'note',
+      diffMessage: READING_MESSAGE,
+      diffCode: null,
+      diffText: '',
+      diffBytes: null,
+      diffTruncated: false,
+      diffChangedNothing: false,
+    })
+    const body = { taskId }
+    if (account) body.account = String(account)
+    if (Number.isSafeInteger(attempt) && attempt > 0) body.attempt = attempt
+    let result
+    try { result = await postAction('cloud-task-diff', body) }
+    catch (error) { result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'the request for the changes did not complete' } }
+    if (destroyed || state.diffTaskId !== taskId) return state
+    /* A REPLY WITH NO `diff` FIELD IS A REFUSAL, not an empty diff. This is the
+       absence-as-answer rule the rest of this file is built on, at the one place
+       where getting it wrong would tell somebody their task did nothing. */
+    if (result?.ok !== true || typeof result.receipt?.diff !== 'string') {
+      publish({
+        diffPhase: 'refused',
+        diffTone: 'refused',
+        diffMessage: diffRefusalMessage(result, { account }),
+        diffCode: refusalCodeOf(result),
+        diffText: '',
+      })
+      return state
+    }
+    const answer = diffAnswer(result.receipt)
+    publish({
+      diffPhase: 'answered',
+      diffTone: answer.tone,
+      diffMessage: answer.message,
+      diffCode: null,
+      diffText: answer.diff,
+      diffBytes: answer.bytes,
+      diffTruncated: answer.truncated,
+      diffChangedNothing: answer.changedNothing,
     })
     return state
   }
@@ -612,6 +835,7 @@ export function createCloudTaskController({
     isWatching: () => watchTimer !== null,
     loadAccounts,
     loadTasks,
+    readDiff,
     arm,
     confirm,
     disarm,

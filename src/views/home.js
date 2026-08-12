@@ -171,6 +171,17 @@ export function homeView() {
             <div class="session-log" tabindex="0" role="log" aria-labelledby="${panelTitleId}"></div>
           </div>
           <div class="session-foot" data-panel-foot hidden></div>
+          <!-- THE DOOR TO THE SUBSCRIPTION PAGE, and the only one on this
+               screen. #/subscribe was routed and linked from nowhere, so the
+               page that takes a subscription could only be reached by typing
+               its address. It sits inside the panel rather than beside the
+               ring because the ring is what this copy is doing right now and
+               this is not that; and it is unconditional, because a door that
+               appears only in some states is one a person cannot learn. Its
+               words come from COPY like every other sentence here. -->
+          <div class="home-doors">
+            <a class="home-door" data-door-subscribe></a>
+          </div>
         </div>
         <span class="brace is-right" aria-hidden="true">${BRACE_SVG}</span>
       </div>
@@ -191,6 +202,10 @@ export function homeView() {
   const panelTitle = root.querySelector('[data-panel-title]')
   const panelBadge = root.querySelector('[data-panel-badge]')
   const panelFoot = root.querySelector('[data-panel-foot]')
+
+  const subscribeDoor = root.querySelector('[data-door-subscribe]')
+  subscribeDoor.href = COPY.subscribeDoor.href
+  subscribeDoor.textContent = COPY.subscribeDoor.label
 
   /* ------------------------------------------------------------------
      The hero ring.

@@ -35,7 +35,11 @@ const CLAIMS = 'tools/check-subscription-claims.mjs'
 const GEN = 'tools/gen-subscription-catalog.mjs'
 const READER = 'src/subscription-catalog.js'
 const FLOW = 'src/subscription-signup.js'
-const SERVICE = 'tools/subscribe-service.mjs'
+/* The service moved to shell/ so it would actually SHIP -- build.files excludes
+   tools/**, so while it lived there the packaged app had a subscription page and
+   no endpoint behind it. The mutations below are anchored on its code rather
+   than on its path, so they all still apply; only this line changed. */
+const SERVICE = 'shell/subscribe-service.cjs'
 const CATALOG = 'public/data/subscription-catalog.json'
 
 const SUITE_CATALOG = 'tools/test/subscription-catalog.test.mjs'
