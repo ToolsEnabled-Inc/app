@@ -45,3 +45,9 @@ error.log
 # same trap error.log above was added for. Anchored with a leading slash, per the
 # warning at the top of this file, so it cannot swallow a future tools/artifacts/.
 /artifacts/
+
+# QA run outputs, same class as /artifacts/ above: written by the accessibility
+# and keyboard harnesses on every run. Evidence, not source; untracked files here
+# fail require-clean-tree and block `npm run dist`.
+/reports/a11y/
+/reports/a11y-keyboard-last-run.json
