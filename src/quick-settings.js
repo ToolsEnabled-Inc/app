@@ -28,6 +28,11 @@
 
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from './live-flags.js'
 import { rangeFill } from './views/computers.js'
+/* WHAT EACH OF THESE GRANTS AND WHAT IT RISKS (owner, R1529). Both surfaces
+   show it -- this drawer and the settings page -- and both ask the same module
+   for the words, so the two can never describe one control two ways. That is
+   the same rule the live-data row's title already follows. */
+import { guidanceMarkup } from './guided-step.js'
 import {
   FONT_CHOICES,
   FONT_EVENT_ID,
@@ -103,34 +108,47 @@ function pageRows(routeName) {
   /* The title carries the same sentence the settings page uses for this flag
      (R1522 language pass wording), so the two surfaces can never describe one
      control two ways. */
+  /* The disclosure is a SIBLING of the label, never inside it. A <details>
+     nested in a <label> makes clicking the summary toggle the checkbox, so
+     reading about a setting would change it -- which on this particular row
+     would silently swap the page between your own records and the example. */
   return `<label class="set-row set-toggle" title="Show your computer's own records on this page (read from ${esc(flag.domain)}.json). Turn off to see the labelled demonstration instead.">
     <span class="set-label">Live data</span>
     <span class="toggle"><input type="checkbox" data-quick-live="${esc(flag.id)}" ${isLiveView(flag.id) ? 'checked' : ''}/><i></i></span>
-  </label>`
+  </label>
+  ${guidanceMarkup(`live_${flag.id}`, { summary: 'What this shows, and what it risks' })}`
 }
 
+/* Each drawer row names the SAME setting id the settings page uses, so both
+   surfaces resolve to one statement rather than two that drift. */
 function appRows() {
   const motion = document.body.classList.contains('reduce-motion')
+  const note = (id, section) => guidanceMarkup(id, { section, summary: 'What this changes, and what it risks' })
   return `<div class="set-row">
     <span class="set-label">Theme</span>
     ${segMarkup('theme-seg', 'theme', [['white', 'White'], ['tan', 'Tan'], ['black', 'Black']], currentTheme(), 'Theme')}
   </div>
+  ${note('theme', 'Appearance')}
   <div class="set-row">
     <span class="set-label">Font</span>
     ${segMarkup('font-seg', 'font', FONT_CHOICES.map(choice => [choice.id, choice.label, `font-family:${choice.stack}`]), currentFontChoice(), 'Font')}
   </div>
+  ${note('ui_font', 'Appearance')}
   <div class="set-row">
     <span class="set-label">Text size</span>
     ${segMarkup('text-seg', 'text', [['0.9', 'Small'], ['1', 'Default'], ['1.12', 'Large']], currentText(), 'Text size')}
   </div>
+  ${note('text_size', 'Text & Reading')}
   <label class="set-row">
     <span class="set-label">Glow intensity</span>
     <input type="range" id="set-glow" min="0" max="200" value="${currentGlow()}" />
   </label>
+  ${note('glow', 'Motion & Effects')}
   <label class="set-row set-toggle">
     <span class="set-label">Reduce motion</span>
     <span class="toggle"><input type="checkbox" id="set-motion" ${motion ? 'checked' : ''}/><i></i></span>
-  </label>`
+  </label>
+  ${note('reduce_motion', 'Motion & Effects')}`
 }
 
 function wire(body) {

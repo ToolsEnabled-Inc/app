@@ -17,6 +17,14 @@ import {
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { createLedgerArchiveController } from '../mission-bridge.js'
+/* WHAT EVERY ROW GRANTS AND WHAT IT RISKS, stated separately (owner, R1529).
+   The statements are data in src/permission-guidance.js and the markup is
+   src/guided-step.js, so this page asks for a row's explanation rather than
+   carrying ninety of them itself. A row the declarations do not cover is drawn
+   saying so, which is why nothing here needs a fallback sentence. */
+import { guidanceMarkup } from '../guided-step.js'
+import { describeSubject } from '../permission-guidance.js'
+import { CAPABILITY_PROBE_EVENT, probe, refreshCapabilityProbes } from '../capability-probes.js'
 import {
   FLEET_PROFILE_SETTING_COUNT,
   createFleetProfileSettings,
@@ -354,12 +362,21 @@ function controlMarkup(setting) {
   </div>`
 }
 
+function searchHaystack(setting) {
+  const guidance = describeSubject(setting.id, { section: setting.section })
+  return [
+    setting.name, setting.desc, setting.section,
+    guidance.whatItDoes, ...guidance.capabilities, ...guidance.risks, guidance.absenceNote,
+  ].join(' ').toLowerCase()
+}
+
 function rowMarkup(setting, searchResult = false) {
   return `<article class="settings-row ${setting.depth === 4 ? 'is-engineer' : ''}" data-setting-id="${setting.id}">
     <div class="settings-copy">
       ${searchResult ? `<div class="settings-prefix">${escapeHtml(setting.section)} · depth ${setting.depth}</div>` : ''}
       <div class="settings-name" id="setting-label-${setting.id}">${escapeHtml(setting.name)}</div>
       <div class="settings-desc" data-setting-message>${escapeHtml(setting.desc)}</div>
+      ${guidanceMarkup(setting.id, { section: setting.section, probe })}
     </div>
     <div class="settings-control">${controlMarkup(setting)}</div>
   </article>`
@@ -531,7 +548,11 @@ export function settingsView() {
 
   function renderSearch() {
     const normalized = query.trim().toLowerCase()
-    const matches = SETTINGS.filter(setting => `${setting.name} ${setting.desc} ${setting.section}`.toLowerCase().includes(normalized))
+    /* The capabilities and risks are searched too. A person who types "risk" is
+       asking the one question this lane exists to answer, and a search that
+       matched only the row's own name would send them away empty from a page
+       that has the answer on every row. */
+    const matches = SETTINGS.filter(setting => searchHaystack(setting).includes(normalized))
     const profileMatches = profileController.matches(normalized)
     const setupMatches = setupController.matches(normalized)
     const chatboxMatches = chatboxController.matches(normalized)
@@ -761,6 +782,14 @@ export function settingsView() {
   }
   window.addEventListener(QUICK_SETTING_EVENT, onQuickSetting)
 
+  /* The guided steps say whether the outside thing a setting depends on was
+     actually found. Asking costs a round trip, so the page paints first with
+     the honest "this copy could not check" and repaints once when the answer
+     arrives. Painting a cheerful default while waiting would be the same defect
+     in a different coat: a claim about a computer nobody has looked at yet. */
+  const onCapabilityProbes = () => { renderCurrent() }
+  window.addEventListener(CAPABILITY_PROBE_EVENT, onCapabilityProbes)
+
   profileController.bind(root)
   /* MEASURED, NOT ASSUMED: neither of these two was bound. `createSetupProfileSettings`
      builds its own click handler and only `bind` attaches it, so every control
@@ -771,6 +800,7 @@ export function settingsView() {
   setupController.bind(root)
   chatboxController.bind(root)
   renderSectioned()
+  void refreshCapabilityProbes()
 
   return {
     el: root,
@@ -782,6 +812,7 @@ export function settingsView() {
       chatboxController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       window.removeEventListener(QUICK_SETTING_EVENT, onQuickSetting)
+      window.removeEventListener(CAPABILITY_PROBE_EVENT, onCapabilityProbes)
     },
   }
 }

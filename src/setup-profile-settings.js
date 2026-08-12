@@ -39,6 +39,11 @@
  */
 
 import { TIER_CHOICES, TIER_IDS, noteTierRecorded, SETUP_RESOLUTION } from './setup-state.js'
+/* The same three answers this lane owes every withheld switch -- what is off,
+   what would turn it on, what that gains and risks -- reached from the place a
+   person arrives at LATER, rather than only on the walkthrough they may have
+   taken weeks ago (owner, R1529). */
+import { withheldMarkup } from './guided-step.js'
 import { LIVE_VIEW_FLAGS, setLiveView } from './live-flags.js'
 import { WRITE_ACTION_FLAGS, setWriteEnabled } from './write-flags.js'
 import {
@@ -172,6 +177,33 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     </article>`
   }
 
+  /* THE SWITCHES THIS PROFILE IS LEAVING OFF, EXPLAINED HERE TOO.
+   *
+   * The walkthrough says this at the moment of choosing; this section is where
+   * a person arrives afterwards, which is usually much later and usually
+   * because something they expected was not there. Saying it in only one of the
+   * two places is how the walkthrough came to be the only screen that knew
+   * anything, and this section the one people actually reach.
+   *
+   * Nothing here turns anything on. It states what is off, what it would give,
+   * what it would cost, that it is optional, and where the switch is. */
+  function withheldSectionMarkup(profile, currentTier) {
+    const off = WRITE_ACTION_FLAGS.filter(flag => !profile.writeFlags[flag.id])
+    if (off.length === 0) return ''
+    const tierLabel = TIER_CHOICES.find(choice => choice.tier === currentTier)?.label || currentTier
+    const refused = new Set(profile.refusedWriteFlags)
+    return `<div class="settings-section-rows" data-setup-profile-withheld>
+      ${off.map(flag => withheldMarkup(`write_${flag.id}`, {
+        label: flag.label,
+        reason: refused.has(flag.id)
+          /* Not escaped here: withheldMarkup escapes what it is given, and
+             escaping twice renders the quotation marks as their own source. */
+          ? `It is off because the “${tierLabel}” permission level does not include it. Widening the level in the first row above is what would change that.`
+          : 'It is off because nothing has asked for it. The switch itself is in Settings → Write, and the row above sets several of them together.',
+      })).join('')}
+    </div>`
+  }
+
   function markup({ searchResult = false } = {}) {
     const profile = derived()
     const currentTier = tier()
@@ -226,6 +258,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
           <div class="settings-control"><button type="button" class="ctl-btn" data-setup-profile-action="walkthrough">Open setup</button></div>
         </article>
       </div>
+      ${withheldSectionMarkup(profile, currentTier)}
       <div class="fleet-profile-status is-warn" role="status">
         <strong>What the last four rows do today.</strong>
         <span>This program records them and keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. Each is set to its cautious end unless you moved it.</span>

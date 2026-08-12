@@ -1,0 +1,464 @@
+/* THE GUIDED-STEP MECHANISM (owner, R1529).
+ *
+ * Ordered ABSENCE FIRST, deliberately. This codebase's recurring defect is
+ * absence read as consent -- a missing key that meant enabled, a skipped
+ * walkthrough that switched something on, an empty result that looked like a
+ * clean answer. So the first thing asserted about a mechanism whose whole job is
+ * to explain a setting is what it does when there is no explanation, and the
+ * required answer is "says so", never "says nothing" and never "says harmless".
+ *
+ * The declarations are read as EXPORTED VALUES, not as a regex over the source.
+ * A sentence assembled from two halves, or moved from one field to another, is
+ * still seen this way -- which is the lesson tools/test/setup-profile.test.mjs
+ * already paid for once.
+ */
+
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import {
+  ANSWER_SUBJECTS,
+  CAPABILITY_STATES,
+  EXTERNAL_CAPABILITIES,
+  RISK_PROFILES,
+  SECTION_RISK_PROFILE,
+  SUBJECTS,
+  capabilityState,
+  describeSubject,
+  explainWithheld,
+  externalCapability,
+  guidedStepFor,
+  unexplainedSettingIds,
+  validateGuidance,
+} from '../../src/permission-guidance.js'
+import { WRITE_ACTION_FLAGS } from '../../src/write-flags.js'
+import { LIVE_VIEW_FLAGS } from '../../src/live-flags.js'
+import { AUTONOMY_VALUES } from '../../src/setup-profile.js'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const read = relative => fs.readFileSync(path.join(ROOT, relative), 'utf8')
+
+/* THE SETTINGS CATALOGUE IS READ AS SOURCE, NOT IMPORTED, and that is the house
+ * pattern rather than a shortcut: src/views/settings.js imports four
+ * stylesheets, which `node --test` cannot load, so tools/test/chatbox-feed and
+ * tools/test/ledger-archive-ui read the same file the same way.
+ *
+ * The extractor tolerates the multi-line literals (uninstall_data is written
+ * across six lines) and the two GENERATED families -- the live-view rows and
+ * the write-action rows are spread from their own registers, which ARE
+ * importable, so they are added from the real lists rather than parsed out of a
+ * template string. Under-counting here would silently narrow the coverage test
+ * below into one that proves nothing, which is why it asserts a floor. */
+function settingsCatalogue() {
+  const source = read('src/views/settings.js')
+  const body = source.slice(source.indexOf('export const SETTINGS = ['), source.indexOf('\nconst byId = new Map('))
+  const rows = []
+  for (const match of body.matchAll(/id: '([a-z0-9_]+)'/g)) {
+    const after = body.slice(match.index, match.index + 400)
+    const section = after.match(/section: '([^']+)'/)
+    if (section) rows.push({ id: match[1], section: section[1] })
+  }
+  for (const flag of LIVE_VIEW_FLAGS) rows.push({ id: `live_${flag.id}`, section: 'Data & Sim' })
+  for (const flag of WRITE_ACTION_FLAGS) rows.push({ id: `write_${flag.id}`, section: 'Write' })
+  return rows
+}
+
+/* ---------- 1. ABSENCE ---------- */
+
+test('an id nothing has been written about degrades honestly, and never to "harmless"', () => {
+  for (const missing of ['no_such_setting', 'write_invented', '', '   ', null, undefined, 42, {}]) {
+    const guidance = describeSubject(missing)
+    assert.equal(guidance.declared, false, `${String(missing)} was treated as declared`)
+    assert.deepEqual(guidance.capabilities, [], 'an undeclared subject must not come back with invented capabilities')
+    assert.deepEqual(guidance.risks, [], 'an undeclared subject must not come back with invented risks')
+    assert.ok(guidance.absenceNote.length > 40, 'an undeclared subject must say that nobody has written it down')
+    assert.match(guidance.absenceNote, /unknown/i, 'the absence must read as unknown, not as nothing')
+  }
+})
+
+test('an unknown section falls through to the honest absence, not to a soothing default', () => {
+  const guidance = describeSubject('some_row', { section: 'A Section That Does Not Exist' })
+  assert.equal(guidance.declared, false)
+  assert.equal(guidance.risks.length, 0)
+})
+
+test('an undeclared WRITE flag never inherits a family statement', () => {
+  /* The families exist so ninety cosmetic rows are not reworded ninety times.
+     A write flag is not cosmetic: if one is ever added without a statement, it
+     has to be visible as unexplained rather than quietly described as a
+     harmless appearance control because it happened to sit in some section. */
+  const guidance = describeSubject('write_something_new', { section: 'Appearance' })
+  assert.equal(guidance.declared, false)
+  assert.equal(guidance.risks.length, 0)
+})
+
+test('a subject that depends on nothing outside gets null, not an empty walkthrough', () => {
+  assert.equal(guidedStepFor('theme'), null)
+  assert.equal(guidedStepFor('uninstall_data'), null)
+  assert.equal(guidedStepFor('no_such_setting'), null)
+  assert.equal(guidedStepFor(null), null)
+  assert.equal(externalCapability('no-such-capability'), null)
+  assert.equal(externalCapability(undefined), null)
+})
+
+test('a probe that cannot answer reports UNKNOWN, and never rounds to either side', () => {
+  assert.deepEqual([...CAPABILITY_STATES].sort(), ['available', 'missing', 'unknown'])
+  assert.equal(capabilityState(true), 'available')
+  assert.equal(capabilityState(false), 'missing')
+  for (const unanswerable of [undefined, null, 0, 1, '', 'true', NaN, {}]) {
+    assert.equal(capabilityState(unanswerable), 'unknown', `${String(unanswerable)} was rounded to a verdict`)
+  }
+
+  // No probe at all is the same as one that could not answer.
+  const none = guidedStepFor('write_agent-session')
+  assert.equal(none.state, 'unknown')
+  assert.match(none.headline, /could not check/)
+  assert.equal(none.showSteps, true, 'an unknown state still shows what the step would be')
+
+  // A probe that throws is a probe that could not answer, not a crash.
+  const thrown = guidedStepFor('write_agent-session', { probe: () => { throw new Error('bridge is gone') } })
+  assert.equal(thrown.state, 'unknown')
+
+  assert.equal(guidedStepFor('write_agent-session', { probe: () => true }).state, 'available')
+  assert.equal(guidedStepFor('write_agent-session', { probe: () => false }).state, 'missing')
+})
+
+test('a withheld state with no declaration still answers what it can, and admits the rest', () => {
+  const withheld = explainWithheld('write_invented', { label: 'Something new' })
+  assert.equal(withheld.declared, false)
+  assert.match(withheld.what, /Something new is switched off/)
+  assert.ok(withheld.absenceNote.length > 40)
+  assert.ok(withheld.optional.length > 20, 'even an undeclared refusal must say that leaving it off is allowed')
+  assert.deepEqual(withheld.risks, [])
+})
+
+/* ---------- 2. RESTRICTION IS REAL ---------- */
+
+test('nothing in the guidance module can turn anything on', () => {
+  /* The mechanism explains switches. If it could move one, an explanation
+     surface would be a permission surface, and reading about a setting could
+     change it. Asserted over the source because it is a statement about what
+     the file may CONTAIN, not about what one call returns. */
+  const source = read('src/permission-guidance.js') + read('src/guided-step.js')
+  for (const writer of ['setWriteEnabled', 'setLiveView', 'localStorage', 'sessionStorage', 'writeStoredProfile']) {
+    assert.doesNotMatch(source, new RegExp(`\\b${writer}\\b`), `the guidance modules reference ${writer}`)
+  }
+})
+
+test('no declaration anywhere may call itself required', () => {
+  const result = validateGuidance()
+  assert.deepEqual(result.errors, [])
+  assert.equal(result.ok, true)
+
+  for (const id of [...Object.keys(SUBJECTS), ...Object.keys(ANSWER_SUBJECTS)]) {
+    assert.equal(describeSubject(id).required, false, `${id} is not offered as optional`)
+  }
+  for (const capability of Object.values(EXTERNAL_CAPABILITIES)) {
+    assert.equal(capability.required, false, `${capability.id} makes an outside step required`)
+    assert.equal(capability.neverPerformedForYou, true, `${capability.id} does not promise we never perform it`)
+  }
+})
+
+test('every outside step says what still works without it, and how you would know it worked', () => {
+  for (const capability of Object.values(EXTERNAL_CAPABILITIES)) {
+    assert.ok(capability.withoutIt.length > 60, `${capability.id}: the partial-function sentence is too short to be honest`)
+    /* The honest partial function is a SPECIFIC claim: the setting is on and
+       saved, and the thing that needs the outside step reports it. A sentence
+       that only says "it might not work" is the vaguer refusal this lane is
+       forbidden to write. */
+    assert.match(capability.withoutIt, /stays on|still works|keeps working|is already on/i,
+      `${capability.id}: does not say the setting stays on without the step`)
+    assert.ok(capability.verify.length > 20, `${capability.id}: does not say how you would know it worked`)
+    assert.ok(capability.steps.length > 0)
+    for (const step of capability.steps) assert.ok(step.do.trim().length > 10)
+  }
+})
+
+/* ---------- 3. COVERAGE: EVERY SETTING, NOT ONLY THE INTERESTING ONES ---------- */
+
+test('every settings-page row states what it grants and what it risks', () => {
+  /* Owner, R1529 gate 8: "we also give them the capabilities and risks granted
+     from each setting of ours". Not the write flags. Each. */
+  const catalogue = settingsCatalogue()
+  assert.deepEqual(unexplainedSettingIds(catalogue), [])
+  assert.ok(catalogue.length >= 90, `only ${catalogue.length} rows were walked; the extraction broke and this test is checking nothing`)
+
+  let checked = 0
+  for (const setting of catalogue) {
+    const guidance = describeSubject(setting.id, { section: setting.section })
+    checked += 1
+    assert.equal(guidance.declared, true, `${setting.id} has no statement`)
+    assert.ok(guidance.capabilities.length > 0, `${setting.id} states no capabilities`)
+    assert.ok(guidance.risks.length > 0, `${setting.id} states no risks`)
+  }
+  assert.equal(checked, catalogue.length)
+})
+
+test('every write flag and every live flag has its own statement', () => {
+  for (const flag of WRITE_ACTION_FLAGS) {
+    const guidance = describeSubject(`write_${flag.id}`)
+    assert.equal(guidance.declared, true, `write flag ${flag.id} has no statement`)
+    assert.ok(guidance.turnOnAt.includes('Settings'), `write flag ${flag.id} does not say where its switch is`)
+    assert.ok(guidance.capabilities.length > 0 && guidance.risks.length > 0, flag.id)
+  }
+  for (const flag of LIVE_VIEW_FLAGS) {
+    assert.equal(describeSubject(`live_${flag.id}`).declared, true, `live flag ${flag.id} has no statement`)
+  }
+  for (const value of AUTONOMY_VALUES) {
+    const guidance = describeSubject(value)
+    assert.equal(guidance.declared, true, `setup answer ${value} has no statement`)
+    assert.ok(guidance.capabilities.length > 0 && guidance.risks.length > 0, value)
+  }
+})
+
+test('every section named by the settings page resolves to a statement', () => {
+  const catalogue = settingsCatalogue()
+  const sections = new Set(catalogue.map(setting => setting.section))
+  assert.ok(sections.size >= 10, `only ${sections.size} sections were found; the extraction broke`)
+  for (const section of sections) {
+    const covered = catalogue
+      .filter(setting => setting.section === section)
+      .every(setting => describeSubject(setting.id, { section }).declared)
+    assert.ok(covered, `section ${section} has rows with nothing written about them`)
+  }
+  for (const profileId of Object.values(SECTION_RISK_PROFILE)) {
+    assert.ok(RISK_PROFILES[profileId], `${profileId} is named by a section and does not exist`)
+  }
+})
+
+/* ---------- 4. THE WORDS THEMSELVES ---------- */
+
+/* Every sentence this lane puts in front of a person, walked as data. */
+function everySentenceThisLaneShows() {
+  const strings = []
+  for (const subject of [...Object.values(SUBJECTS), ...Object.values(ANSWER_SUBJECTS)]) {
+    strings.push(subject.whatItDoes, subject.turnOnAt, ...subject.capabilities, ...subject.risks)
+  }
+  for (const profile of Object.values(RISK_PROFILES)) {
+    strings.push(...profile.capabilities, ...profile.risks)
+  }
+  for (const capability of Object.values(EXTERNAL_CAPABILITIES)) {
+    strings.push(capability.name, capability.whatItDoes, capability.verify, capability.withoutIt)
+    for (const step of capability.steps) strings.push(step.do, step.why || '')
+  }
+  strings.push(describeSubject('nothing').absenceNote)
+  strings.push(explainWithheld('write_dispatch', { label: 'x' }).optional)
+  return strings.filter(value => typeof value === 'string' && value.trim().length >= 10)
+}
+
+test('no sentence this lane shows names a mechanism', () => {
+  const copy = everySentenceThisLaneShows()
+  assert.ok(copy.length >= 90, `only ${copy.length} sentences were found; the extraction broke and this test is checking nothing`)
+  /* Same rule and nearly the same pattern as tools/test/setup-profile.test.mjs.
+     A person reading a settings row has no idea what this program is made of,
+     and an internal name here is a leak rather than a style choice. `codex` and
+     `winget` are deliberately absent from this list: they are programs the
+     person installs and runs themselves, which is the opposite of an internal
+     name -- naming them is the only way the step is followable. */
+  const mechanism = /\b(localStorage|sessionStorage|IPC|ipcRenderer|preload|renderer|asar|machine\.json|workspaceRoots|mc\.write|mc\.live|mc\.set|JSON|schema|payload|boolean|null|undefined|serialise|serialize|repository|commit)\b/i
+  let checked = 0
+  for (const sentence of copy) {
+    checked += 1
+    assert.doesNotMatch(sentence, mechanism, `a user-facing sentence names a mechanism: "${sentence}"`)
+  }
+  assert.equal(checked, copy.length)
+  assert.ok(checked >= 90, `only ${checked} sentences were examined; this guard is checking air`)
+})
+
+/* THE ABSOLUTE CLAIMS, REGISTERED WITH WHAT KEEPS THEM TRUE.
+ *
+ * Copied in form from tools/test/setup-profile.test.mjs, which learned it the
+ * hard way: an absolute sentence is written when it is true and falsified by a
+ * lane that never reads it. That test walks the setup view and the setup
+ * settings section; the statements in src/permission-guidance.js are rendered
+ * through template interpolation, which its source scanner cannot see, so
+ * without this registry they would be exactly the unwatched copy its own
+ * comment warns about. */
+const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
+  {
+    match: /^None worth the word\. This changes what you see, not what this program is allowed to do/,
+    pinnedBy: 'the appearance rows write only their own value and no module reads them to decide what may be done; the settings catalogue test asserts these ids are in the Appearance section, whose rows are the theme, font and spacing controls',
+  },
+  {
+    match: /^None worth the word\. Nothing about what this program may do changes with it\.$/,
+    pinnedBy: 'the reading rows change type size and spacing only; no write-action flag and no live-view flag is in the Text & Reading section, which the section coverage test walks',
+  },
+  {
+    match: /^None worth the word\. Turning animation down hides no information/,
+    pinnedBy: 'the motion rows change transition timing and the glow custom property; every value they animate is also rendered as text, and reduce-motion is a class on the body rather than a data filter',
+  },
+  {
+    match: /^None worth the word\. It rearranges what is on screen and adds or removes nothing\.$/,
+    pinnedBy: 'the layout rows change grouping, ordering and spacing of already-rendered records; none of them is a live-view flag, so none of them decides which records are read',
+  },
+  {
+    match: /^None to your files or your privacy\. At the cheaper settings screens update more slowly/,
+    pinnedBy: 'the performance rows change frame caps, sample retention and debounce timings inside this window; none reaches the disk or the network, and none is a write-action flag',
+  },
+  {
+    match: /^None\. The example is invented data, it is labelled as an example/,
+    pinnedBy: 'the demonstration rows drive src/sim.js, whose data is generated in this window and never sent; every screen showing it renders its own sample banner, which the setup lane pins with "None of it is your data and each screen says so"',
+  },
+  {
+    match: /^None to what this program may do\. The extra detail is on your screen only/,
+    pinnedBy: 'the developer rows change diagnostic rendering; the only one that changes behaviour is mock_failures, which has its own statement and is not covered by this one',
+  },
+  {
+    match: /^None to your computer\. The only cost is confusion, and the product spends it for you/,
+    pinnedBy: 'the live-view flags choose which of two already-present data sources a screen reads, and a screen reading the sample renders its own labelled banner; asserted by the setup lane’s "the other answer reaches every screen"',
+  },
+  {
+    match: /Nothing on this computer will be able to start an assistant while this is the answer/,
+    pinnedBy: 'AUTONOMY_WRITE_FLAGS.observe is the empty array so the answer requests no start flag, and src/agent-session.js mounts no Start control without it; the setup lane pins the same sentence to autonomyStartsAgents() rather than to the label',
+  },
+  {
+    match: /Nothing runs until you press something, and approving, closing queue items and replying stay off\./,
+    pinnedBy: 'the assisted answer requests report-read, agent-session, dispatch and cloud-launch, every one of which is a control a person presses; the setup lane’s recommended-answer test fails if decision, queue or thread-reply are ever switched on by it',
+  },
+  {
+    match: /Turning this on starts nothing by itself\. It puts the control there; you decide what to run\./,
+    pinnedBy: 'setWriteEnabled writes one switch and dispatches an event; src/agent-session.js mounts the Start control from that switch and starts a session only from the Start button’s own handler',
+  },
+  {
+    match: /Each launch still asks you for approval first, so nothing starts without a second press\./,
+    pinnedBy: 'src/write-flags.js states the same for cloud-launch and src/cloud-tasks-controller.js posts a launch only from the form’s submit handler; pinned by tools/test/cloud-launch-binding.test.mjs',
+  },
+  {
+    match: /This reads a file in your chosen folder and changes nothing\./,
+    pinnedBy: 'the report-read action posts to one read-only route in src/mission-bridge.js and its receipt carries the file’s bytes back; there is no write in that path, and the route’s own name is the whole of what it may do',
+  },
+  {
+    match: /Nothing else stops working while it is off, and you can turn it on later/,
+    pinnedBy: 'every write-action flag gates only its own surface, and each surface returns a no-op mount when its flag is off; asserted by tools/test/write-flags-fail-closed.test.mjs, which reads each flag independently',
+  },
+  {
+    match: /A control that starts an assistant exists\. Without this there is none anywhere in the program\./,
+    pinnedBy: 'START_CONTROL_FLAG in src/setup-profile.js names agent-session as the single definition of "is there a way to start an agent", and src/agent-session.js mounts the switched-off surface instead of Start whenever it is false; the setup lane asserts the same identity through profileCanStartAnAgent',
+  },
+  {
+    match: /The first press only shows you what would move; nothing moves until you press again/,
+    pinnedBy: 'the ledger archive control is a two-phase button whose first press requests a preview and whose second press submits exactly that preview; asserted by tools/test/ledger-archive-ui.test.mjs',
+  },
+  {
+    match: /Switches on nothing that acts\. Every screen still reads and reports\.$/,
+    pinnedBy: 'AUTONOMY_WRITE_FLAGS.observe is the empty array, so the answer requests no write-action flag; the setup lane asserts the equivalent through "skipping applies exactly the state of a machine that never ran setup"',
+  },
+  {
+    match: /Nothing fails quietly and nothing is switched back off behind you\./,
+    pinnedBy: 'setWriteEnabled is called only from a control a person pressed, and no code path in this lane calls it at all — asserted directly by "nothing in the guidance module can turn anything on" above; the Start control reports a refusal code from src/agent-availability-copy.js rather than reverting the switch',
+  },
+  {
+    match: /The sign-in stays inside Codex\. This product never sees or stores that account\./,
+    pinnedBy: 'the sign-in is a command the person runs in their own terminal; no setup or settings surface collects a provider credential, which the setup lane asserts by discovering the collected fields rather than listing them',
+  },
+  {
+    match: /This product never asks for that password and never holds it\./,
+    pinnedBy: 'same mechanism as the sentence above: the Codex sign-in happens in the person’s own terminal and this product has no field that collects it',
+  },
+  {
+    match: /It runs on this computer and is not reachable from anywhere else\./,
+    pinnedBy: 'src/mission-bridge.js resolves only http://127.0.0.1 on the declared port range and refuses any other origin at the URL check, so the connection has no address off this machine',
+  },
+  {
+    match: /Nothing outside this computer is involved, so there is nothing to sign in to\./,
+    pinnedBy: 'same mechanism: the audited connection is loopback-only by construction in src/mission-bridge.js',
+  },
+  {
+    match: /Nothing is sent and nothing is recorded until the connection answers\./,
+    pinnedBy: 'src/write-surfaces.js disables every control in a surface until prepareSurface resolves, and each action posts only from its own submit handler',
+  },
+  {
+    match: /It is not silently retried somewhere else\./,
+    pinnedBy: 'src/cloud-tasks-controller.js posts one launch to one route and reports its refusal code; there is no second provider in that path',
+  },
+  {
+    /* One pin, because it is one statement. Two pins over one sentence would
+       make the registry larger than the set of claims and turn the "the
+       detector has gone inert" floor below into a false alarm. */
+    match: /On "remove everything", it is gone\. There is no undo and no copy kept anywhere else\./,
+    pinnedBy: 'shell/uninstall-retention.cjs removes the named directories on the remove-everything answer and this product writes no backup of them; the retention suite asserts what each answer removes',
+  },
+  {
+    match: /^Nobody has written down yet what this one grants and what it risks/,
+    pinnedBy: 'this is the sentence shown INSTEAD of a statement, and the absence tests above assert it is what an undeclared id returns; it makes no claim about the product beyond that nobody has written one',
+  },
+])
+
+test('every absolute claim this lane shows is registered with the reason it is true', () => {
+  const absolute = /\b(never|nothing|no one|anywhere|always|none)\b/i
+  const claims = everySentenceThisLaneShows().filter(sentence => absolute.test(sentence))
+  /* The detector must find something. A pattern that has gone inert reports a
+     clean scan over copy full of promises, which is the exact shape of a green
+     test proving nothing. */
+  assert.ok(
+    claims.length >= PINNED_ABSOLUTE_CLAIMS.length,
+    `the detector found ${claims.length} absolute sentences but ${PINNED_ABSOLUTE_CLAIMS.length} are registered; the pattern has gone inert`,
+  )
+  for (const claim of claims) {
+    const pin = PINNED_ABSOLUTE_CLAIMS.find(entry => entry.match.test(claim))
+    assert.ok(pin, `this sentence promises something absolute and nothing pins it true:\n    "${claim}"\n  Register it with the reason, or soften it.`)
+    assert.ok(pin.pinnedBy.length > 40, 'a pinned claim needs a real reason, not a placeholder')
+  }
+  for (const entry of PINNED_ABSOLUTE_CLAIMS) {
+    assert.ok(
+      claims.some(claim => entry.match.test(claim)),
+      `a claim is pinned here but no longer appears: ${entry.match}. Remove the pin, or restore the sentence.`,
+    )
+  }
+})
+
+test('no risk statement is boilerplate reused across unrelated subjects', () => {
+  /* A family sharing ONE declaration is honest -- the appearance rows really do
+     share a risk. The same sentence written twice into two different subjects
+     is not: it means one of them was filled in rather than thought about. */
+  const seen = new Map()
+  for (const [id, subject] of [...Object.entries(SUBJECTS), ...Object.entries(ANSWER_SUBJECTS)]) {
+    for (const statement of [...subject.capabilities, ...subject.risks]) {
+      const previous = seen.get(statement)
+      assert.equal(previous, undefined, `${id} repeats a statement verbatim from ${previous}`)
+      seen.set(statement, id)
+    }
+  }
+  assert.ok(seen.size >= 30, `only ${seen.size} statements were compared; the walk went inert`)
+})
+
+/* ---------- 5. THE SURFACES ASK, RATHER THAN AUTHORING THEIR OWN ---------- */
+
+test('the surfaces that show a withheld state get their words from the one module', () => {
+  for (const [name, relative] of [
+    ['the settings page', 'src/views/settings.js'],
+    ['the quick-settings drawer', 'src/quick-settings.js'],
+    ['the setup walkthrough', 'src/views/setup.js'],
+    ['the settings setup section', 'src/setup-profile-settings.js'],
+    ['the agent page', 'src/agent-session.js'],
+  ]) {
+    assert.match(read(relative), /from '\.\.?\/guided-step\.js'/, `${name} does not use the shared guidance`)
+  }
+})
+
+test('the setup review explains every switch it left off, and does not switch any on', () => {
+  const view = read('src/views/setup.js')
+  assert.match(view, /function withheldSectionMarkup/, 'the review no longer explains what it withheld')
+  assert.match(view, /Left off, and what each one would have given you/)
+  /* The repair is guidance. The one thing it must not have done is widen what
+     the recommended answers grant, so the derivation is asserted untouched by
+     name: this lane changed no flag table. */
+  const profile = read('src/setup-profile.js')
+  assert.match(profile, /observe: Object\.freeze\(\[\]\)/, 'the observe answer no longer requests nothing')
+  assert.match(profile, /assisted: Object\.freeze\(\['report-read', 'agent-session', 'dispatch', 'cloud-launch'\]\)/,
+    'the recommended answer’s granted flags changed; this lane may not widen a default')
+  assert.match(profile, /guided: Object\.freeze\(\{\s*writeFlags: Object\.freeze\(\['report-read', 'agent-session'\]\)/,
+    'the guided ceiling changed; this lane may not widen a default')
+})
+
+test('the drawer disclosure is a sibling of its row, never inside the label', () => {
+  /* A <details> nested in a <label> toggles the label's own control when the
+     summary is clicked, so reading about the live-data switch would flip it. */
+  const drawer = read('src/quick-settings.js')
+  const liveRow = drawer.slice(drawer.indexOf('function pageRows'), drawer.indexOf('function appRows'))
+  assert.ok(liveRow.indexOf('</label>') < liveRow.indexOf('guidanceMarkup'),
+    'the drawer disclosure sits inside the label, so reading it would change the setting')
+})

@@ -11,6 +11,12 @@ import '@fontsource-variable/space-grotesk'
 import '@fontsource-variable/jetbrains-mono'
 import './glow.css'
 import './styles.css'
+/* The capabilities-and-risks disclosure (owner, R1529). Global rather than
+   view-scoped because the quick-settings drawer draws it on every page, so the
+   rules must exist before any view has been visited; and because the module
+   that emits the markup is reached from a module `node --test` imports, which a
+   stylesheet import inside it would break. */
+import './guided-step.css'
 
 import { fmtRuntime } from './sim.js'
 import { tickRuntimes, takeViewMorph } from './components.js'

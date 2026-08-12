@@ -98,6 +98,11 @@ import {
    page all tell a person how to get Codex working; three hand-written copies of
    a command line is three chances to ship one that does not run. */
 import { CODEX_SETUP_COMMANDS, unavailableReason } from '../agent-availability-copy.js'
+/* WHAT EACH SWITCH GRANTS, WHAT IT RISKS, AND WHAT WAS WITHHELD (owner, R1529).
+   The statements are data in src/permission-guidance.js so this screen, the
+   settings page and the drawer cannot describe one switch three ways. */
+import { guidanceMarkup, withheldMarkup } from '../guided-step.js'
+import { probe, refreshCapabilityProbes } from '../capability-probes.js'
 
 import '../settings.css'
 import '../fleet-profile-settings.css'
@@ -693,6 +698,44 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       </div>`
   }
 
+  /* WHAT THE RECOMMENDED PATH WITHHELD, SAID OUT LOUD (owner, R1529).
+   *
+   * This block used to be one line -- "Off is the shipped default for every one
+   * of these" -- under a list of names. That is a true sentence and it is not an
+   * answer: a person who took both Recommended answers arrived here, read that
+   * their permission level "does not include" four switches, and had no way to
+   * learn what any of them would have done, what it would have cost, whether
+   * they were supposed to go and get it, or where the switch is. It is the same
+   * shape as the defect this walkthrough already fixed once, one level in: an
+   * absence a person has to diagnose.
+   *
+   * So every withheld switch now answers the three questions the directive
+   * names -- what is off, what would turn it on, what that gains and risks --
+   * and says in as many words that turning it on is optional.
+   *
+   * IT DOES NOT SWITCH ANYTHING ON, and that is the half worth stating. The
+   * recommended answers grant exactly what they granted before this block
+   * existed. The repair is guidance; a repair that closed the gap by granting
+   * more by default would be the thing the directive forbids.
+   *
+   * THE REASON IS PER SWITCH, not per section. "Your level does not include it"
+   * and "the answer you chose does not ask for it" are different facts with
+   * different remedies -- one is changed at the permission question, the other
+   * at this one -- and a person given the wrong one goes to the wrong screen. */
+  function withheldSectionMarkup(profile, off) {
+    if (off.length === 0) return ''
+    const tierLabel = TIER_CHOICES.find(choice => choice.tier === profile.tier)?.label || profile.tier
+    const refused = new Set(profile.refusedWriteFlags)
+    return `<h2 class="setup-subtitle">Left off, and what each one would have given you</h2>
+      <p class="setup-lede">None of these is required. This program works as it is; each one is an offer, with what it costs stated beside what it gives.</p>
+      ${off.map(flag => withheldMarkup(`write_${flag.id}`, {
+        label: flag.label,
+        reason: refused.has(flag.id)
+          ? `It is off because the “${tierLabel}” permission level does not include it. Choosing a wider level at the permission question is what would change that.`
+          : 'It is off because the answer you chose does not ask for it. Changing that answer, or the switch itself in Settings, is what would turn it on.',
+      })).join('')}`
+  }
+
   function reviewMarkup() {
     const profile = derived()
     const tierChoice = TIER_CHOICES.find(choice => choice.tier === profile.tier)
@@ -733,23 +776,21 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
       <h2 class="setup-subtitle">Switches this turned on</h2>
       <div class="settings-section-rows">
-        <article class="settings-row setup-choice">
+        ${on.length ? on.map(flag => `<article class="settings-row setup-choice">
           <div class="settings-copy">
-            <div class="settings-name">${on.length ? esc(on.map(flag => flag.label).join(' · ')) : 'None'}</div>
-            <div class="settings-desc">${on.length
-              ? 'These are the controls this program will offer you. Every one of them is also a switch in Settings → Write.'
-              : 'Nothing that acts is switched on. Every screen still reads and reports; turn on what you want when you want it, here or in Settings → Write.'}</div>
+            <div class="settings-name">${esc(flag.label)}</div>
+            <div class="settings-desc">This is a control this program will now offer you. The same switch is in Settings → Write.</div>
+            ${guidanceMarkup(`write_${flag.id}`, { probe, summary: 'What this lets happen, and what it risks' })}
           </div>
-        </article>
-        ${off.length ? `<article class="settings-row setup-choice">
+        </article>`).join('') : `<article class="settings-row setup-choice">
           <div class="settings-copy">
-            <div class="settings-name">Left off — ${esc(off.map(flag => flag.label).join(' · '))}</div>
-            <div class="settings-desc">${profile.refusedWriteFlags.length
-              ? 'Some of these are off because your permission level does not include them.'
-              : 'Off is the shipped default for every one of these.'}</div>
+            <div class="settings-name">None</div>
+            <div class="settings-desc">Nothing that acts is switched on. Every screen still reads and reports; turn on what you want when you want it, here or in Settings → Write.</div>
           </div>
-        </article>` : ''}
+        </article>`}
       </div>
+
+      ${withheldSectionMarkup(profile, off)}
 
       <h2 class="setup-subtitle">Decided for you, and changeable</h2>
       <div class="settings-section-rows">
@@ -831,6 +872,12 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     agentReadiness = reply && typeof reply === 'object' && typeof reply.ok === 'boolean'
       ? { known: true, ok: reply.ok === true, code: typeof reply.code === 'string' ? reply.code : '' }
       : { known: false }
+    paint()
+    /* The guided steps on this screen ask the same question of a few more
+       outside things. Same rule as above: an answer that cannot be got stays
+       unanswered and the step says it could not check. */
+    await refreshCapabilityProbes()
+    if (destroyed) return
     paint()
   }
 

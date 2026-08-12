@@ -17,6 +17,9 @@ import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
 import { publishLiveSession } from './agent-session-registry.js'
 import { autonomyChoice, readStoredProfile } from './setup-profile.js'
+/* What turning this on would grant and what it would risk, from the one place
+   those statements live (owner, R1529). */
+import { withheldMarkup } from './guided-step.js'
 
 /* WHAT THIS CONTROL SAYS ABOUT THE SESSION IT IS ABOUT TO START.
  *
@@ -135,6 +138,17 @@ function mountSessionSwitchedOff(root, remount) {
         <span class="write-form-title">Running agents is switched off</span>
         <output data-action-output role="status"></output>
         <button type="button" data-session-enable>Turn on running agents</button>
+        ${/* WHAT IT WOULD GIVE AND WHAT IT WOULD COST, beside the button that
+              gives it (owner, R1529). This surface already said what is off and
+              where the switch is; a person deciding whether to press it was
+              still missing the other half, and a switch offered with only its
+              benefit named is the kind of nudge this directive is against. The
+              same statement is used on the settings page and in the setup
+              review, from src/permission-guidance.js. */''}
+        ${withheldMarkup('write_agent-session', {
+          label: 'Running an agent session',
+          reason: 'Turning it on starts nothing by itself. It puts the Start control here, and you decide what to run.',
+        })}
       </div>
     </div>
   </section>`)

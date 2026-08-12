@@ -598,6 +598,26 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     pinnedBy: 'AUTONOMY_WRITE_FLAGS.observe is the empty array so the answer requests no start flag, and src/agent-session.js mounts no Start control without it; asserted by "an answer that leaves no way to start an agent says so at the point of choice", which pins this sentence to autonomyStartsAgents() rather than to the label',
   },
   {
+    /* Not a new sentence: it has been on the review since the block existed,
+       but it sat inside a ternary, and the scanner cannot see copy assembled
+       through an interpolation -- the known bound stated at renderedCopy(). The
+       R1529 rewrite of that block split the branches into literals, which is
+       what brought it into view. It is registered rather than reworded because
+       it is true and because a sentence becoming VISIBLE to the guard is the
+       guard working. */
+    match: /Nothing that acts is switched on\. Every screen still reads and reports/,
+    kind: 'pinned',
+    pinnedBy: 'rendered only when the derived profile leaves every write-action flag false, computed from the same value the row list is built from, so the sentence and the state it describes cannot disagree; the skip-equivalence test asserts that state is exactly a machine that never ran setup',
+  },
+  {
+    /* R1529. The lede over the block that explains every switch the answers
+       left off. It is the sentence that makes the block guidance rather than a
+       nudge, so it is the one sentence in that block that must be true. */
+    match: /None of these is required\. This program works as it is/,
+    kind: 'pinned',
+    pinnedBy: 'no write-action flag is a precondition for any other surface: each one gates only its own mount and every mount returns a no-op when its flag is off, which tools/test/write-flags-fail-closed.test.mjs asserts flag by flag. The guidance module that supplies the rest of the block is asserted to contain no writer at all, so nothing it renders can switch anything on -- see "nothing in the guidance module can turn anything on" in tools/test/permission-guidance.test.mjs',
+  },
+  {
     match: /Nothing runs until you press start/,
     kind: 'pinned',
     pinnedBy: 'the recommended answer requests report-read, agent-session, dispatch and cloud-launch, and every one of those is a control a person presses; asserted by the recommended-answer test, which fails if decision, queue or thread-reply are ever switched on by it',
