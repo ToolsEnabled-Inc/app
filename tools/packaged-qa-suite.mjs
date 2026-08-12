@@ -126,6 +126,17 @@ const SETTINGS = new Map([
   ['recommended-path-packaged-qa.mjs', { runner: 'node', timeoutMs: 900_000 }],
   ['stranger-onboarding-qa.mjs', { runner: 'node', timeoutMs: 1_200_000 }],
   ['first-run-contract-qa.mjs', { runner: 'node', timeoutMs: 1_200_000 }],
+  /* CAN A PERSON START AN AGENT AT ALL? Drives the fleet page on a fresh
+     profile and presses the empty node, the panel and the send control, then
+     rebuilds three versions of the defect and requires itself to go red against
+     each. Measured at 16.7s end to end (staging a packaged copy, re-staging the
+     capability payload, one window, five view builds), so the ceiling is
+     deliberately close rather than the 900s default: this one running long
+     means the app did not come up, and waiting a quarter of an hour to be told
+     that helps nobody. It spends no provider budget by construction -- PATH is
+     cut to the Windows system directories and the profile directories are
+     empty, so the start travels the whole way and stops at the last gate. */
+  ['agent-start-flow-qa.mjs', { runner: 'node', timeoutMs: 300_000 }],
   /* The only driver here that opens no window: it starts the shipped payload's
      own capability layer and POSTs real dispatches to it. Measured at ~102s
      (twelve audited dispatches plus a second bridge for the negative control),
