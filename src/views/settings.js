@@ -6,6 +6,14 @@ import { el, attachSeg } from '../components.js'
 import { rangeFill } from './computers.js'
 import { sim } from '../sim.js'
 import { QUICK_SETTING_EVENT } from '../quick-settings.js'
+import {
+  FONT_CHOICES,
+  FONT_STORAGE_KEY,
+  applyFontChoice,
+  currentFontChoice,
+  fontStack,
+  normalizeFontId,
+} from '../font-choice.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { createLedgerArchiveController } from '../mission-bridge.js'
@@ -99,6 +107,9 @@ export const SETTINGS = [
   },
 
   { id: 'theme', section: 'Appearance', name: 'Theme', desc: 'Choose the app’s look: a white, tan, or black background.', depth: 1, type: 'seg', options: [['white', 'White'], ['tan', 'Tan'], ['black', 'Black']], def: 'white' },
+  /* The choices live in src/font-choice.js (owner, R1523); each option's
+     button is written in the font it applies, here and in the drawer. */
+  { id: 'ui_font', section: 'Appearance', name: 'Font', desc: 'Choose the app’s lettering. Each option is written in its own font, so what you see on the button is what you get everywhere.', depth: 1, type: 'seg', options: FONT_CHOICES.map(choice => [choice.id, choice.label]), def: 'plex' },
   { id: 'display_density', section: 'Appearance', name: 'Display density', desc: 'How tightly packed busy screens are. Comfortable gives everything more room; compact fits more on screen.', depth: 1, type: 'seg', options: ['comfortable', 'compact'], def: 'comfortable' },
   { id: 'contrast_curve', section: 'Appearance', name: 'Contrast curve', desc: 'Make the lighter, secondary text darker and easier to read, without changing the theme.', depth: 1, type: 'seg', options: ['standard', 'strong'], def: 'standard' },
   { id: 'role_hue_emphasis', section: 'Appearance', name: 'Emphasize role colors', desc: 'Make each agent role’s color stand out a little more.', depth: 1, type: 'toggle', def: false },
@@ -253,6 +264,9 @@ function readValue(setting) {
     const current = document.documentElement.dataset.theme
     return current === 'tan' || current === 'black' ? current : 'white'
   }
+  /* Like theme: the applied state on the root element is the truth, not a
+     stored copy (src/font-choice.js reads the inline --font-ui property). */
+  if (setting.id === 'ui_font') return currentFontChoice()
   if (setting.id === 'text_size') {
     const zoom = parseFloat(document.body.style.zoom)
     return zoom === 0.9 || zoom === 1.12 ? String(zoom) : '1'
@@ -316,8 +330,13 @@ function controlMarkup(setting) {
   const value = readValue(setting)
 
   if (setting.type === 'seg') {
+    /* The font row's options preview themselves: each button is set in the
+       stack it would apply (R1523). Other segs carry no per-option style. */
+    const optionStyle = option => setting.id === 'ui_font'
+      ? ` style="font-family:${escapeHtml(fontStack(option.value))}"`
+      : ''
     return `<div class="seg settings-seg" role="group" aria-labelledby="${labelId}">
-      ${optionRecords(setting).map(option => `<button type="button" data-setting-value="${escapeHtml(option.value)}" aria-pressed="${sameValue(option.value, value)}" class="${sameValue(option.value, value) ? 'on' : ''}">${escapeHtml(option.label)}</button>`).join('')}
+      ${optionRecords(setting).map(option => `<button type="button" data-setting-value="${escapeHtml(option.value)}"${optionStyle(option)} aria-pressed="${sameValue(option.value, value)}" class="${sameValue(option.value, value) ? 'on' : ''}">${escapeHtml(option.label)}</button>`).join('')}
     </div>`
   }
   if (setting.type === 'toggle') {
@@ -569,6 +588,10 @@ export function settingsView() {
       try { localStorage.setItem('mc.theme', String(value)) } catch {}
       document.documentElement.dataset.theme = String(value)
       setDrawerSegment('#theme-seg', 'theme', value)
+    } else if (setting.id === 'ui_font') {
+      value = applyFontChoice(normalizeFontId(String(value)))
+      try { localStorage.setItem(FONT_STORAGE_KEY, value) } catch {}
+      setDrawerSegment('#font-seg', 'font', value)
     } else if (setting.id === 'text_size') {
       try { localStorage.setItem('mc.text', String(value)) } catch {}
       const number = Number(value)

@@ -1,7 +1,13 @@
 // Shell: hash router with smooth view morphs (native View Transitions where
 // the browser has them), settings drawer, central clock.
 
-import '@fontsource-variable/inter'
+/* Bundled fonts — every face the font setting can apply ships in the build
+   (no network font loading; the app works offline). Inter left with R1523:
+   the owner declined it as the default, no remaining choice uses it, and an
+   unimported font is dead bytes in the payload. JetBrains Mono serves both
+   the data accents (--font-mono) and the all-mono interface choice. */
+import '@fontsource-variable/ibm-plex-sans'
+import '@fontsource-variable/space-grotesk'
 import '@fontsource-variable/jetbrains-mono'
 import './glow.css'
 import './styles.css'

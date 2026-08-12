@@ -28,6 +28,13 @@
 
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from './live-flags.js'
 import { rangeFill } from './views/computers.js'
+import {
+  FONT_CHOICES,
+  FONT_EVENT_ID,
+  FONT_STORAGE_KEY,
+  applyFontChoice,
+  currentFontChoice,
+} from './font-choice.js'
 
 /* Announced after this drawer applies a value, so an open settings PAGE can
    re-sync its own copy of the same control. detail: { settingId, value },
@@ -73,9 +80,12 @@ function announce(settingId, value) {
   }))
 }
 
+/* Options are [value, text] tuples; an optional third member is an inline
+   style for that one segment. The font row uses it to write every option in
+   the font it would apply — the control is its own preview (R1523). */
 function segMarkup(id, dataName, options, current, label) {
   return `<div class="theme-seg" id="${id}" role="group" aria-label="${esc(label)}">
-    ${options.map(([value, text]) => `<button type="button" data-${dataName}="${esc(value)}" class="${value === current ? 'on' : ''}" aria-pressed="${value === current ? 'true' : 'false'}">${esc(text)}</button>`).join('')}
+    ${options.map(([value, text, style]) => `<button type="button" data-${dataName}="${esc(value)}"${style ? ` style="${esc(style)}"` : ''} class="${value === current ? 'on' : ''}" aria-pressed="${value === current ? 'true' : 'false'}">${esc(text)}</button>`).join('')}
   </div>`
 }
 
@@ -106,6 +116,10 @@ function appRows() {
     ${segMarkup('theme-seg', 'theme', [['white', 'White'], ['tan', 'Tan'], ['black', 'Black']], currentTheme(), 'Theme')}
   </div>
   <div class="set-row">
+    <span class="set-label">Font</span>
+    ${segMarkup('font-seg', 'font', FONT_CHOICES.map(choice => [choice.id, choice.label, `font-family:${choice.stack}`]), currentFontChoice(), 'Font')}
+  </div>
+  <div class="set-row">
     <span class="set-label">Text size</span>
     ${segMarkup('text-seg', 'text', [['0.9', 'Small'], ['1', 'Default'], ['1.12', 'Large']], currentText(), 'Text size')}
   </div>
@@ -133,6 +147,20 @@ function wire(body) {
       btn.setAttribute('aria-pressed', on ? 'true' : 'false')
     }
     announce('theme', t)
+  })
+
+  const fontSeg = body.querySelector('#font-seg')
+  fontSeg?.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-font]')
+    if (!b) return
+    const id = applyFontChoice(b.dataset.font)
+    try { localStorage.setItem(FONT_STORAGE_KEY, id) } catch {}
+    for (const btn of fontSeg.querySelectorAll('button')) {
+      const on = btn.dataset.font === id
+      btn.classList.toggle('on', on)
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+    }
+    announce(FONT_EVENT_ID, id)
   })
 
   const textSeg = body.querySelector('#text-seg')

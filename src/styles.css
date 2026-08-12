@@ -215,7 +215,17 @@
   --page-max: 1240px;
   --page-gutter: 16px;
 
-  --font-ui: "Inter Variable", system-ui, sans-serif;
+  /* THE INTERFACE FONT IS A USER SETTING (owner, R1523: "the default font is
+     not my most favorite"). This declaration is only the DEFAULT — IBM Plex
+     Sans, the typeface of the same Carbon system the severity palette above
+     already borrows from. The live value is the inline --font-ui property the
+     chooser sets on <html> (src/font-choice.js, the single register of the
+     choices); index.html re-applies the stored choice before first paint.
+     Keep this stack byte-identical to the `plex` entry in font-choice.js —
+     currentFontChoice() relies on stack equality to read the applied state.
+     --font-mono is NOT a choice: data accents keep their mono voice under
+     every interface font. */
+  --font-ui: "IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
 
   --ease: cubic-bezier(0.22, 0.9, 0.26, 1);

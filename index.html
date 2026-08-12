@@ -25,12 +25,27 @@
   <script src="/durable-storage.js"></script>
   <!-- theme before first paint: /src/main.js is a module (deferred), so
        reading the stored theme there alone flashed the white page at every
-       tan/black user. Same key and same guarded read as main.js. -->
+       tan/black user. Same key and same guarded read as main.js.
+       The font choice (mc.font, owner R1523) rides the same pre-paint script
+       for the same reason. The stacks are a deliberate copy of the register
+       in src/font-choice.js — a classic script cannot import a module, and
+       the theme line above accepts the identical duplication for the
+       identical reason. Keep the two in step. -->
   <script>
     try {
       var t = localStorage.getItem('mc.theme')
       document.documentElement.dataset.theme = (t === 'tan' || t === 'black') ? t : 'white'
     } catch (e) { document.documentElement.dataset.theme = 'white' }
+    try {
+      var fontStacks = {
+        plex: '"IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI Variable", system-ui, sans-serif',
+        system: '"Segoe UI Variable", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        grotesk: '"Space Grotesk Variable", "Space Grotesk", "Segoe UI Variable", system-ui, sans-serif',
+        mono: '"JetBrains Mono Variable", ui-monospace, "Cascadia Mono", Consolas, monospace'
+      }
+      var f = localStorage.getItem('mc.font')
+      if (fontStacks[f]) document.documentElement.style.setProperty('--font-ui', fontStacks[f])
+    } catch (e) {}
   </script>
 </head>
 <body>
