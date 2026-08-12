@@ -160,6 +160,17 @@ const PRODUCT_STATE_ENTRIES = Object.freeze([
      other name here is: the next rename must carry it, and a missed name is
      invisible until a customer loses the thing it named. */
   'capability',
+  /* The person's answer to "what happens to my data when I uninstall", written
+     by shell/uninstall-retention.cjs as the one token build/installer.nsh can
+     read. It carries across a rename for the same reason everything else here
+     does, and for one sharper one: this file is the only place that answer
+     exists in a form the uninstaller sees, and the resolution treats its
+     absence as "never asked". Dropping it in a migration would therefore not
+     lose a setting quietly -- it would silently convert a recorded
+     "remove everything" back into an unanswered question, so a person who had
+     already decided would be asked again, or on a silent uninstall would have
+     their data kept after asking for it to be removed. */
+  'uninstall-data-policy.txt',
 ])
 
 /* Chromium's localStorage partition. It is best-effort rather than required,

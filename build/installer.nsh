@@ -114,3 +114,165 @@
     !insertmacro RescueLegacyInstallDirState
   ${EndIf}
 !macroend
+
+# =============================================================================
+# UNINSTALL DATA RETENTION
+# =============================================================================
+#
+# WHAT THIS UNINSTALLER USED TO DO WITH THE PERSON'S DATA: nothing, and never
+# said so. `RMDir /r $INSTDIR` removes the program. %APPDATA%\<PRODUCT_NAME> was
+# never touched, never mentioned and never configurable. Measured on a live
+# install 2026-08-11: 92 files, 11.87 MB survived an uninstall, including the
+# credential vault (capability\vault\secrets.json), the signed audit ledger
+# (capability\state\audit.sqlite3, 457 KB), the action log, the linked-accounts
+# file and the key that signs agent run records.
+#
+# Retention is not the wrong answer. Deleting somebody's credentials and history
+# because they removed a program is irreversible and frequently NOT what they
+# want. Retention WITHOUT A DECISION is the defect: "nobody was asked" was being
+# read as "they chose to keep it", which is this codebase's absence-as-consent
+# shape applied to the most sensitive data it holds.
+#
+# THE DECISION TABLE. shell/uninstall-retention.cjs is the source of truth for
+# the token strings and resolves them identically; tools/test/uninstall-retention.test.mjs
+# fails if this file and that module ever disagree, because a renamed token on
+# one side only would stop matching here and silently take the `ask` branch --
+# which would look like correct behaviour while meaning the control had broken.
+#
+#   recorded "remove-everything"  ->  remove the data. They asked.
+#   recorded "keep-my-data"       ->  keep it, say nothing. They asked.
+#   anything else                 ->  NOT A DEFAULT. See below.
+#
+# "Anything else" is every absence: no file, empty file, unreadable file, a
+# token from a newer build, a hand-edit. It splits on whether there is anyone to
+# ask:
+#
+#   interactive  ->  ASK, with both options stated plainly and neither preselected
+#                    as "recommended". /SD IDNO is set so that if this dialog is
+#                    ever reached non-interactively despite the ${Silent} guard
+#                    below, the answer is KEEP -- the non-destructive direction.
+#   silent (/S)  ->  keep, and WRITE DATA-KEPT-AFTER-UNINSTALL.txt into the
+#                    directory naming what was kept and where. The bytes on disk
+#                    are the same as the old behaviour; the difference is that
+#                    the person can find out. That is the whole fix.
+#
+# A silent uninstall must never open a dialog. This build already has a defect
+# where the uninstaller ignores /S, opens a modal and blocks forever while
+# returning success to its caller; putting an unguarded MessageBox here would
+# deepen exactly that. ${Silent} is checked before any UI.
+#
+# AND THIS NEVER RUNS DURING AN UPGRADE. ${isUpdated} is checked first: an
+# update runs the uninstaller as an implementation detail, and a person clicking
+# "install the new version" has not asked to be questioned about their data, let
+# alone to lose it.
+
+!macro TE_RemoveAllUserData Root Legacy
+  RMDir /r "${Root}"
+  # The pre-rename directory. shell/userdata-adoption.cjs declares
+  # %APPDATA%\Mission Control to be THIS product's earlier userData and adopts
+  # from it, so leaving it behind would make "remove everything" untrue by
+  # 23.71 MB. Guarded on existence so a fresh install removes nothing extra.
+  ${If} ${FileExists} "${Legacy}\*.*"
+    RMDir /r "${Legacy}"
+  ${EndIf}
+!macroend
+
+!macro TE_DeclareRetention Root
+  ${If} ${FileExists} "${Root}\*.*"
+    ClearErrors
+    FileOpen $R4 "${Root}\DATA-KEPT-AFTER-UNINSTALL.txt" w
+    ${IfNot} ${Errors}
+      FileWrite $R4 "YOUR DATA IS STILL ON THIS COMPUTER$\r$\n$\r$\n"
+      FileWrite $R4 "ToolsEnabled has been uninstalled. The program files were removed.$\r$\n"
+      FileWrite $R4 "The data in this folder was NOT removed, and this file exists to tell$\r$\n"
+      FileWrite $R4 "you so.$\r$\n$\r$\n"
+      FileWrite $R4 "Why it was kept: this was a silent uninstall and no choice had been$\r$\n"
+      FileWrite $R4 "recorded, so there was nobody to ask. Deleting data nobody asked us to$\r$\n"
+      FileWrite $R4 "delete cannot be undone, so it was kept.$\r$\n$\r$\n"
+      FileWrite $R4 "Where it is: ${Root}$\r$\n$\r$\n"
+      FileWrite $R4 "It includes your saved credentials, the signed record of every action$\r$\n"
+      FileWrite $R4 "taken, the action log, your linked accounts, and your settings.$\r$\n$\r$\n"
+      FileWrite $R4 "To remove it, delete the folder named above. Nothing else on this$\r$\n"
+      FileWrite $R4 "computer depends on it.$\r$\n$\r$\n"
+      FileWrite $R4 "If you reinstall ToolsEnabled, this data is picked up again and your$\r$\n"
+      FileWrite $R4 "settings, credentials and history will be exactly as you left them.$\r$\n"
+      FileClose $R4
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+!macro customUnInstall
+  ${IfNot} ${isUpdated}
+    Push $R0
+    Push $R1
+    Push $R2
+    Push $R3
+    Push $R4
+
+    StrCpy $R0 "$APPDATA\${PRODUCT_NAME}"
+    StrCpy $R1 "$APPDATA\Mission Control"
+    StrCpy $R2 ""
+
+    # Read the recorded choice, if there is one. A failure to open leaves $R2
+    # empty, which falls through to the ask/declare branch -- an unreadable
+    # choice is treated as no choice, never as consent to keep.
+    ClearErrors
+    FileOpen $R3 "$R0\uninstall-data-policy.txt" r
+    ${IfNot} ${Errors}
+      FileRead $R3 $R2
+      FileClose $R3
+    ${EndIf}
+
+    # Trim trailing newline and whitespace. The file is written with a trailing
+    # newline, and a CRLF round trip must not change what the token means.
+    ${Do}
+      StrCpy $R3 $R2 1 -1
+      ${If} $R3 == "$\r"
+      ${OrIf} $R3 == "$\n"
+      ${OrIf} $R3 == " "
+      ${OrIf} $R3 == "$\t"
+        StrCpy $R2 $R2 -1
+      ${Else}
+        ${ExitDo}
+      ${EndIf}
+    ${Loop}
+
+    # Exact match only. A differently-cased or unrecognised token resolves to
+    # the ask/declare branch, which is the safe direction: the worst outcome of
+    # a mismatch is that a person is asked a question they already answered,
+    # not that their vault is deleted or silently retained.
+    ${If} $R2 == "remove-everything"
+      !insertmacro TE_RemoveAllUserData "$R0" "$R1"
+    ${ElseIf} $R2 == "keep-my-data"
+      # An informed choice to keep. Nothing to do and nothing to announce.
+    ${Else}
+      ${If} ${Silent}
+        !insertmacro TE_DeclareRetention "$R0"
+      ${Else}
+        MessageBox MB_YESNO|MB_ICONQUESTION \
+          "Remove your saved ToolsEnabled data from this computer?$\r$\n$\r$\n\
+          This includes your saved credentials, the signed record of every action taken, your linked accounts, your agent history and your settings.$\r$\n$\r$\n\
+          Yes  -  delete it permanently. This cannot be undone.$\r$\n\
+          No   -  keep it. Reinstalling restores everything as you left it." \
+          /SD IDNO IDYES te_remove_user_data IDNO te_keep_user_data
+
+        te_remove_user_data:
+          !insertmacro TE_RemoveAllUserData "$R0" "$R1"
+          Goto te_user_data_done
+
+        te_keep_user_data:
+          # They were asked and said keep. That is a decision, so no declaration
+          # file is written -- a person who just chose "keep" does not need a
+          # note telling them their data was kept.
+
+        te_user_data_done:
+      ${EndIf}
+    ${EndIf}
+
+    Pop $R4
+    Pop $R3
+    Pop $R2
+    Pop $R1
+    Pop $R0
+  ${EndIf}
+!macroend

@@ -29,15 +29,35 @@ import {
   CHATBOX_SETTING_COUNT,
   createChatboxSettings,
 } from '../chatbox-settings.js'
+/* WHY A SECTION ON THIS PAGE NEEDS A SENTENCE ABOVE ITS SWITCHES.
+ *
+ * LEGACY-ONB-001, re-measured on a sterile profile: a person whose fleet graph
+ * and comms board both say "No local agent fleet host detected on this machine"
+ * comes here looking for the switch that fixes it. Under Data and Sim they find
+ * six toggles reading "<screen> live data", every one of them already ON, and
+ * nothing anywhere on the page telling them that turning them on was never the
+ * problem. There is no switch for the thing they are looking for, and the most
+ * useful thing this page can do is say so and point at the page that explains it
+ * -- otherwise the search ends in them flipping live sources off and concluding
+ * the product is fake data. */
+import { GUIDE_HREF } from '../first-run-needs.js'
 import '../settings.css'
 import '../chatbox-settings.css'
 import '../fleet-profile-settings.css'
 import '../setup.css'
+import '../guide.css'
 
 const SECTIONS = [
   CHATBOX_SECTION,
   'System',
   'Setup',
+  /* HIGH IN THE LIST ON PURPOSE. This section holds one question -- what happens
+     to the person's data when they uninstall -- and until 2026-08-11 the product
+     had no answer to it anywhere: uninstalling left 92 files and 11.87 MB,
+     including the credential vault and the signed audit ledger, with nothing
+     asked and nothing said. A control for that buried below the simulation
+     knobs would be a control nobody finds, which is the same outcome. */
+  'Data & Privacy',
   'Appearance',
   'Text & Reading',
   'Motion & Effects',
@@ -53,6 +73,42 @@ const SECTIONS = [
 ]
 
 export const SETTINGS = [
+  /* THE DEFAULT IS "ASK ME", AND THAT IS THE WHOLE POINT OF THIS ENTRY.
+   *
+   * Uninstalling used to keep everything and say nothing. Setting the default
+   * here to "Keep my data" would leave that behaviour exactly as it is and add a
+   * control nobody had to touch -- the same silent retention, now with a setting
+   * page that appears to have consented on the person's behalf. The default has
+   * to be the QUESTION.
+   *
+   * It also has to be "ask" for a mechanical reason worth stating: setValue()
+   * REMOVES the stored key when the chosen value equals `def` (see the
+   * localStorage.removeItem branch below), so "ask" is the one value that is
+   * indistinguishable from never having chosen. Making it the default aligns the
+   * storage model with shell/uninstall-retention.cjs, where absence and `ask`
+   * deliberately resolve to the same thing. Any other default would make
+   * "never chose" and "chose the default" mean different things to the
+   * uninstaller while looking identical on disk.
+   *
+   * NEITHER REAL OPTION IS MARKED RECOMMENDED. This product has already shipped
+   * a setup screen with both answers labelled "Recommended", which is how it
+   * ended up with no Start control anywhere. There is no correct answer here --
+   * it depends on whether the person is reinstalling or leaving -- and a hint
+   * would be this file deciding for them. */
+  {
+    id: 'uninstall_data',
+    section: 'Data & Privacy',
+    name: 'When I uninstall ToolsEnabled',
+    desc: 'Uninstalling removes the program. It does not remove your saved credentials, '
+      + 'your linked accounts, the signed record of every action taken, your agent history '
+      + 'or your settings — those stay on this computer so a reinstall picks up where you '
+      + 'left off. Choose what should happen to them.',
+    depth: 1,
+    type: 'seg',
+    options: [['ask', 'Ask me then'], ['keep-my-data', 'Keep my data'], ['remove-everything', 'Remove everything']],
+    def: 'ask',
+  },
+
   { id: 'theme', section: 'Appearance', name: 'Theme', desc: 'Set the page surface and ink palette.', depth: 1, type: 'seg', options: [['white', 'White'], ['tan', 'Tan'], ['black', 'Black']], def: 'white' },
   { id: 'display_density', section: 'Appearance', name: 'Display density', desc: 'Choose the default spacing rhythm for information-heavy views.', depth: 1, type: 'seg', options: ['comfortable', 'compact'], def: 'comfortable' },
   { id: 'contrast_curve', section: 'Appearance', name: 'Contrast curve', desc: 'Strengthen secondary ink without changing the theme.', depth: 1, type: 'seg', options: ['standard', 'strong'], def: 'standard' },
@@ -314,6 +370,29 @@ function tierMarkup(section, depth, content, open) {
   return `<div class="settings-tier settings-tier-${depth} ${open ? 'is-open' : ''}" id="settings-tier-${SECTIONS.indexOf(section)}-${depth}" data-tier-depth="${depth}" aria-hidden="${open ? 'false' : 'true'}" ${open ? '' : 'inert'}><div class="settings-tier-inner">${content}</div></div>`
 }
 
+/* A sentence under a section title, for the two sections whose switches a person
+   arrives at with the wrong question. Data, not markup in the render, so the
+   words are visible in one place and a third section can be added without
+   touching the renderer. A section with no note gets no element at all rather
+   than an empty one. */
+const SECTION_NOTES = Object.freeze({
+  'Data & Sim': Object.freeze({
+    text: 'These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that.',
+    link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
+  }),
+  Write: Object.freeze({
+    text: 'Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear.',
+    link: Object.freeze({ label: 'What this copy needs', href: GUIDE_HREF }),
+  }),
+})
+
+function sectionNoteMarkup(section) {
+  const note = SECTION_NOTES[section]
+  if (!note) return ''
+  return `<p class="settings-section-note host-absent-body" data-section-note="${escapeHtml(section)}">${escapeHtml(note.text)}
+    <a class="host-absent-action" href="${escapeHtml(note.link.href)}">${escapeHtml(note.link.label)}</a></p>`
+}
+
 function sectionMarkup(section, level) {
   const items = SETTINGS.filter(setting => setting.section === section)
   const at = depth => items.filter(setting => setting.depth === depth)
@@ -334,6 +413,7 @@ function sectionMarkup(section, level) {
 
   return `<section class="settings-section" data-settings-section="${escapeHtml(section)}">
     <h2 class="settings-section-title">${escapeHtml(section)}</h2>
+    ${sectionNoteMarkup(section)}
     <div class="settings-section-rows">${at(1).map(setting => rowMarkup(setting)).join('')}</div>
     ${revealMarkup(section, 2, hidden, '', level >= 2)}
     ${depth2}

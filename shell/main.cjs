@@ -61,6 +61,7 @@ const {
 } = require('./port-scan.cjs')
 const { createRendererPrefs } = require('./renderer-prefs.cjs')
 const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
+const { RETENTION_PREF_KEY, syncRecordedChoice } = require('./uninstall-retention.cjs')
 
 const fatalStartup = createFatalStartupHandler({
   app,
@@ -1613,19 +1614,56 @@ ipcMain.on('mc-prefs:drain', (event, request) => {
   }
 })
 
+/* THE UNINSTALL CHOICE HAS TO REACH SOMETHING NSIS CAN READ.
+ *
+ * The person makes this choice on the settings page, so it lands in
+ * renderer-prefs.json like every other setting. The uninstaller cannot read
+ * that: it is NSIS, with no JSON parser and no Node. So every write that could
+ * have changed the choice re-renders it as the one-token file
+ * shell/uninstall-retention.cjs owns, which build/installer.nsh reads.
+ *
+ * MIRRORED ON EVERY PATH THAT CAN CHANGE IT, including remove and clear. A
+ * mirror wired only to `set` would leave a stale `remove-everything` on disk
+ * after the person switched back to "ask me" or reset their settings -- and
+ * that stale token deletes their data at uninstall on a decision they had
+ * already withdrawn. The destructive direction is the one that must not be
+ * reachable by forgetting a branch.
+ *
+ * Failures are deliberately NOT surfaced as a refusal of the settings write.
+ * The preference itself saved correctly; what failed is a derived file. Turning
+ * that into "your setting could not be saved" would be a lie about the thing
+ * the person actually did, and would make an unrelated disk problem look like a
+ * broken settings page. */
+function mirrorUninstallRetention() {
+  const snapshot = rendererPrefs.snapshot()
+  const value = snapshot && snapshot.values ? snapshot.values[RETENTION_PREF_KEY] : undefined
+  return syncRecordedChoice({ userDataDir: app.getPath('userData'), value })
+}
+
+function mirrorUninstallRetentionIfRelevant(key) {
+  if (key !== RETENTION_PREF_KEY) return
+  mirrorUninstallRetention()
+}
+
 ipcMain.on('mc-prefs:write', (event, request) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('save'); return }
   event.returnValue = rendererPrefs.set(request && request.key, request && request.value)
+  mirrorUninstallRetentionIfRelevant(request && request.key)
 })
 
 ipcMain.on('mc-prefs:remove', (event, request) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('removal'); return }
   event.returnValue = rendererPrefs.remove(request && request.key)
+  mirrorUninstallRetentionIfRelevant(request && request.key)
 })
 
 ipcMain.on('mc-prefs:clear', (event) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('reset'); return }
   event.returnValue = rendererPrefs.clear()
+  /* A reset clears the choice along with everything else, so the mirror runs
+     unconditionally rather than on a key comparison there is no longer a key
+     for. */
+  mirrorUninstallRetention()
 })
 
 /* ---------- first run: the permission level ----------
