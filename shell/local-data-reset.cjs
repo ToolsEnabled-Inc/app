@@ -122,11 +122,20 @@ function wellKnownRoots({ env = process.env, homedir = os.homedir } = {}) {
  * turns a refusal off, because the only caller that would ever want one is a
  * caller that has already made the mistake.
  *
- * The ancestry check is the half that matters. `C:\Users\me\AppData\Roaming` is
- * caught by name; `C:\Users\me` is caught by name; but a caller that passed
- * `C:\Users` -- one segment up, one typo away -- would be refused only because
- * it CONTAINS the home directory. Both directions are checked for the same
- * reason: a path that is an ancestor of a well-known folder deletes it too.
+ * The ancestry check is the half that matters. The home directory itself is
+ * caught by name, and so is the roaming-app-data folder inside it; but a caller
+ * that passed the USERS ROOT -- one segment above a home directory, one typo
+ * away -- would be refused only because it CONTAINS the home directory. Both
+ * directions are checked for the same reason: a path that is an ancestor of a
+ * well-known folder deletes it too.
+ *
+ * (Written without literal example paths on purpose. This file ships inside
+ * app.asar, and tools/check-no-owner-data.mjs scans the built artifact for the
+ * users-root prefix as an owner-data pattern. It refused a build over the three
+ * placeholder paths that used to be in this paragraph -- the placeholders were
+ * harmless, but the guard cannot tell a placeholder from a real home directory
+ * and MUST NOT be taught to, because "it looked like an example" is exactly the
+ * excuse a real leak would wear. Describe the shape; do not spell one out.)
  */
 function guardRoot(directory, { env = process.env, homedir = os.homedir } = {}) {
   if (typeof directory !== 'string' || directory.trim().length === 0) {
