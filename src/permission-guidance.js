@@ -74,12 +74,41 @@
  * engine's own catalogue, where they are declared in the same shape. Inventing
  * an app-side one to make this list look complete would be claiming a capability
  * that does not exist. */
+/* HOW OFTEN THIS ASKS SOMETHING OF YOU (owner, R1536).
+ *
+ *   "It should be labeled as typically requires a user step, rarely, sometimes
+ *    etc so they know."
+ *
+ * Four words and no fifth, so the label can be a badge rather than another
+ * sentence to read, and so the vocabulary cannot drift into "occasionally",
+ * "may", or "in some cases" -- the words a product reaches for when it would
+ * rather not commit to anything.
+ *
+ * THE LABEL IS A CLAIM ABOUT COMPUTERS IN GENERAL, AND EVERY ONE HAS TO SHOW
+ * ITS WORKING. `frequencyBecause` is required beside it so a later reader can
+ * ARGUE with the claim instead of inheriting it. That is not ceremony. The
+ * finding this lane corrects -- "no setting here needs administrator rights" --
+ * was true only of one machine, whose Windows approval prompt is switched off,
+ * and it went unchallenged for exactly as long as nobody had written down what
+ * it rested on. A label reasoned from "it never asked me" is the same mistake
+ * wearing a badge, and being made to write the sentence is what exposes it. */
+export const FREQUENCIES = Object.freeze(['typically', 'sometimes', 'rarely', 'never'])
+
+export const FREQUENCY_WORDING = Object.freeze({
+  typically: 'Typically needs a step from you',
+  sometimes: 'Sometimes needs a step from you',
+  rarely: 'Rarely needs a step from you',
+  never: 'Needs nothing from you',
+})
+
 export const EXTERNAL_CAPABILITIES = Object.freeze({
   'codex-installed': Object.freeze({
     id: 'codex-installed',
     name: 'Codex installed and signed in on this computer',
     whatItDoes: 'Codex is a separate free program from OpenAI. It is the thing that actually runs an assistant; this product drives it.',
     elevation: false,
+    frequency: 'typically',
+    frequencyBecause: 'Codex is a separate program that Windows does not ship, so a computer that has never had it installed does not have it. Almost everybody meets this step once. It installs under your own account and needs no administrator, which is a different question from how often it comes up.',
     required: false,
     neverPerformedForYou: true,
     steps: Object.freeze([
@@ -100,6 +129,8 @@ export const EXTERNAL_CAPABILITIES = Object.freeze({
     name: 'A Codex Cloud account this computer can reach',
     whatItDoes: 'Codex Cloud runs a task on OpenAI’s computers instead of yours. It needs an account there and a working internet connection.',
     elevation: false,
+    frequency: 'typically',
+    frequencyBecause: 'Signing in to a service is something the service requires of everybody once, and a Codex Cloud account is not created by installing anything on this computer. Nobody reaches this feature already signed in unless they signed in for another reason first.',
     required: false,
     neverPerformedForYou: true,
     steps: Object.freeze([
@@ -116,6 +147,8 @@ export const EXTERNAL_CAPABILITIES = Object.freeze({
     name: 'The audited connection on this computer',
     whatItDoes: 'The audited connection is the part of this product that carries out an action and writes the permanent record of it. It runs on this computer and is not reachable from anywhere else.',
     elevation: false,
+    frequency: 'rarely',
+    frequencyBecause: 'This is part of this program rather than something separate to install, and it starts with it. The only time it needs anything from you is when it has not finished starting, or has stopped, which is the exception rather than the ordinary case.',
     required: false,
     neverPerformedForYou: true,
     steps: Object.freeze([
@@ -148,6 +181,79 @@ export function capabilityState(probeResult) {
 
 export function externalCapability(id) {
   return EXTERNAL_CAPABILITIES[id] || null
+}
+
+/* ---------- what will happen on THIS computer (owner, R1536 tier 1) ---------- */
+
+/* The owner, R1536: "if we can grab their settings then just tell them and let
+ * them choose to change their settings right there or if we cant grab them then
+ * direct them how to".
+ *
+ * So there are three tiers and they are in preference order:
+ *
+ *   TIER 1  we read their actual computer and say what IT will do. No generic
+ *           likelihood at all -- telling somebody what will happen on their
+ *           machine beats telling them what usually happens on machines.
+ *   TIER 2  we could not read it, so we say so and walk them through it rather
+ *           than guessing on their behalf.
+ *   TIER 3  the general label, which every capability carries either way.
+ *
+ * THE READING IS PASSED IN, NOT TAKEN. This module has no registry and no
+ * child processes by design (see the header: it has to run in `node --test`
+ * without a browser, and it decides what a stranger is told about their own
+ * computer). The engine reads the posture -- src/lib/uac-posture.js, which
+ * never writes -- and hands the answer here. A surface with no reading passes
+ * nothing and lands in tier 2, which is a real answer and not a failure.
+ *
+ * AND THE HARD LINE FROM R1529 IS NOT BLURRED BY "RIGHT THERE". Where the thing
+ * to change is one of OUR settings, the control is on the screen and we change
+ * it when they choose. Where it is a Windows setting, the choice and the
+ * walkthrough are presented in the same place at the same moment -- and the
+ * product still does not perform it. Same screen, their hands. */
+const POSTURE_LABELS = Object.freeze({
+  silent: 'On your computer: runs without asking you',
+  consent: 'On your computer: asks you to approve it',
+  credentials: 'On your computer: asks for a password',
+  refused: 'On your computer: cannot run without the step below',
+  allowed: 'On your computer: nothing is needed from you',
+})
+
+/**
+ * The label to show for one capability, with a real reading allowed to overrule.
+ *
+ * @param capability  an EXTERNAL_CAPABILITIES entry.
+ * @param posture     optional { outcome, sentence } from the engine's reader.
+ *                    An outcome outside the set above, or none, is tier 2.
+ */
+export function frequencyFor(capability, posture = null) {
+  const declared = capability && FREQUENCIES.includes(capability.frequency) ? capability.frequency : null
+  const general = declared ? FREQUENCY_WORDING[declared] : ''
+  const outcome = posture && typeof posture.outcome === 'string' ? posture.outcome : ''
+  const specific = Object.prototype.hasOwnProperty.call(POSTURE_LABELS, outcome) ? POSTURE_LABELS[outcome] : ''
+  if (!specific) {
+    return Object.freeze({
+      tier: 2,
+      source: 'general',
+      label: general,
+      /* SAID OUT LOUD RATHER THAN LEFT AS A GAP. A person who is being told
+         what usually happens, rather than what will happen to them, is owed the
+         difference -- otherwise a general statement reads as a specific one. */
+      detail: posture && typeof posture.sentence === 'string' && posture.sentence !== ''
+        ? posture.sentence
+        : 'This copy could not check your computer’s own settings, so this is what is usually true rather than what is true here.',
+      declared,
+    })
+  }
+  return Object.freeze({
+    tier: 1,
+    source: 'measured',
+    label: specific,
+    detail: typeof posture.sentence === 'string' ? posture.sentence : '',
+    /* The general claim is kept beside the specific one rather than replaced by
+       it, so a reader can still see what was asserted about computers in
+       general and disagree with it. */
+    declared,
+  })
 }
 
 /* ---------- what a family of settings grants and risks ---------- */
@@ -453,7 +559,7 @@ export function describeSubject(id, { section = null } = {}) {
  * Returns null when the subject depends on nothing outside this product, so a
  * caller cannot render an empty walkthrough by accident.
  */
-export function guidedStepFor(id, { probe = null } = {}) {
+export function guidedStepFor(id, { probe = null, posture = null } = {}) {
   const guidance = describeSubject(id)
   if (!guidance.declared || !guidance.externalCapability) return null
   const capability = externalCapability(guidance.externalCapability)
@@ -486,6 +592,10 @@ export function guidedStepFor(id, { probe = null } = {}) {
        states is that the step is not what decides it. */
     optionalNote: 'You do not have to do this for the setting to be on. The setting turns on and saves either way; this is what would make it work fully.',
     neverPerformedForYou: capability.neverPerformedForYou,
+    /* R1536. Present on every step, at every state, because a person deciding
+       whether to open the disclosure at all is asking "is this going to want
+       something from me" before they are asking anything else. */
+    frequency: frequencyFor(capability, posture),
   })
 }
 
@@ -571,6 +681,17 @@ export function validateGuidance() {
     if (capability.required !== false) errors.push(`${id}: an outside step may never be required`)
     if (capability.neverPerformedForYou !== true) errors.push(`${id}: must declare that this product never performs the step`)
     if (typeof capability.elevation !== 'boolean') errors.push(`${id}: must say whether the step needs an administrator`)
+    /* R1536. The label is required of every outside capability, and the
+       reasoning behind it is required beside it -- a claim nobody has to
+       justify is a claim nobody can argue with, which is precisely how the
+       wrong finding survived. `elevation: true` is called out separately
+       because that is the case the owner named, and a future entry that needs
+       an administrator must not be able to arrive without one. */
+    if (!FREQUENCIES.includes(capability.frequency)) errors.push(`${id}: frequency must be one of ${FREQUENCIES.join(', ')}`)
+    if (!text(capability.frequencyBecause)) errors.push(`${id}: must record how its frequency label was derived, so a reader can challenge it`)
+    if (capability.elevation === true && !FREQUENCIES.includes(capability.frequency)) {
+      errors.push(`${id}: a step that can need an administrator must say how often it asks something of you`)
+    }
     if (!text(capability.withoutIt)) errors.push(`${id}: must say what still works without the step`)
     if (!text(capability.verify)) errors.push(`${id}: must say how the person knows it worked`)
     if (!Array.isArray(capability.steps) || capability.steps.length === 0) errors.push(`${id}: needs at least one step`)

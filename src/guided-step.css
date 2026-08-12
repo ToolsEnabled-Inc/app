@@ -128,3 +128,35 @@
 .drawer-body .guided-note { margin: 0 0 var(--s2); }
 .drawer-body .guided-summary { font-size: 11.5px; }
 .drawer-body .guided-body { gap: var(--s1); }
+
+/* HOW OFTEN THIS WANTS SOMETHING FROM YOU (owner, R1536).
+
+   First line of the block, and deliberately quiet. The question it answers --
+   "is this going to ask me for something?" -- comes before every other question
+   on the row, so it has to be readable at a glance; but a loud badge on a line
+   whose whole point is that the step is OPTIONAL would read as a warning, which
+   is the pressure this mechanism exists to avoid. Weight and spacing, no panel,
+   no colour that means alarm.
+
+   The two tiers look the same on purpose. A person should not have to learn
+   that a differently-coloured badge means "we actually read your computer";
+   the sentence underneath already says which it is, in words. */
+.guided-frequency {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 var(--s1);
+}
+
+.guided-frequency-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+}
+
+.guided-frequency-detail {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}

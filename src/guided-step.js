@@ -51,11 +51,35 @@ function group(label, items) {
  * argument: what it would do, what it gains against what it costs, that you do
  * not have to, and only then how. A list of commands above the sentence saying
  * they are optional is a list of commands a person feels they have to run. */
+/* THE LINE THAT SAYS WHETHER THIS WILL WANT ANYTHING FROM YOU (owner, R1536).
+ *
+ * It sits above everything else in the block, because "is this going to ask me
+ * for something" is the question a person has before any of the others, and
+ * because a badge answered at a glance is what stops somebody skipping the
+ * paragraph underneath it.
+ *
+ * TIER 1 REPLACES THE GENERAL CLAIM RATHER THAN SITTING NEXT TO IT. Where the
+ * engine handed us a reading of this actual computer, the badge says what THIS
+ * machine will do; the general "typically / sometimes / rarely" is still
+ * carried in a data attribute so a surface, a test, or a person with the
+ * inspector open can see what was claimed in general and challenge it. Where
+ * there is no reading, the general label is shown and the sentence underneath
+ * says plainly that it could not be checked here -- which is tier 2, and is an
+ * answer rather than a gap. */
+function frequencyMarkup(frequency) {
+  if (!frequency || (!frequency.label && !frequency.detail)) return ''
+  return `<p class="guided-frequency" data-guided-frequency-tier="${esc(frequency.tier)}" data-guided-frequency-source="${esc(frequency.source)}" data-guided-frequency-declared="${esc(frequency.declared || '')}">
+    ${frequency.label ? `<span class="guided-frequency-label">${esc(frequency.label)}</span>` : ''}
+    ${frequency.detail ? `<span class="guided-frequency-detail">${esc(frequency.detail)}</span>` : ''}
+  </p>`
+}
+
 function stepMarkup(step) {
   if (!step) return ''
   const { capability, state } = step
   return `<div class="guided-step" data-guided-step="${esc(capability.id)}" data-guided-state="${esc(state)}">
     <span class="guided-label">${esc(step.headline)}</span>
+    ${frequencyMarkup(step.frequency)}
     <p class="settings-desc">${esc(capability.whatItDoes)}</p>
     ${state === 'unknown' ? `<p class="settings-desc guided-unknown">This copy could not check whether this is set up, so it will not tell you either way. The steps below are what it would take if it is not.</p>` : ''}
     ${step.showSteps ? `
@@ -83,9 +107,14 @@ function stepMarkup(step) {
  * @param options.section  the row's section, for the shared family statement.
  * @param options.probe    (capabilityId) -> true | false | anything else, where
  *                         anything else means "could not check" and is said so.
+ * @param options.posture  optional { outcome, sentence } read from this actual
+ *                         computer by the engine, which turns the general
+ *                         "usually needs a step" into "on your computer this
+ *                         will ask you to approve it". Absent is tier 2 and is
+ *                         said out loud rather than guessed around.
  * @param options.summary  the summary line, when a surface wants its own.
  */
-export function guidanceMarkup(id, { section = null, probe = null, summary = 'What this does, and what it risks' } = {}) {
+export function guidanceMarkup(id, { section = null, probe = null, posture = null, summary = 'What this does, and what it risks' } = {}) {
   const guidance = describeSubject(id, { section })
   if (!guidance.declared) {
     /* THE ABSENCE, SHOWN RATHER THAN SWALLOWED. A row with no statement gets
@@ -98,7 +127,7 @@ export function guidanceMarkup(id, { section = null, probe = null, summary = 'Wh
       </div>
     </details>`
   }
-  const step = guidedStepFor(id, { probe })
+  const step = guidedStepFor(id, { probe, posture })
   return `<details class="guided-note" data-guided-for="${esc(id)}" data-guided-declared="true">
     <summary class="guided-summary">${esc(summary)}</summary>
     <div class="guided-body">
