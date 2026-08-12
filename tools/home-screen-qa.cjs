@@ -39,8 +39,34 @@ const os = require('node:os')
 const path = require('node:path')
 
 const APP_EXE = 'ToolsEnabled.exe'
-const CDP_PORT = 9411
+/* THE DEBUG PORT IS ASSIGNED BY THE OS, NOT BY THIS FILE.
+ *
+ * It was the literal 9411. Two runs at once -- this harness against one build
+ * while any other CDP-driven harness or a second unpacked copy ran against
+ * another -- both asked Chromium for 9411. The second launch gets the port
+ * refused, exposes no page, and this file's launch loop then times out with
+ * "the application did not present a home screen within 60000ms", which reads
+ * as a STARTUP CRASH IN THE PRODUCT. It is not: it is two harnesses fighting
+ * over one number. The setup-walkthrough harness removed the same pattern after
+ * measuring a 1-in-4 flake from it.
+ *
+ * `--remote-debugging-port=0` makes Chromium bind an ephemeral port and write
+ * the real one as the first line of DevToolsActivePort inside the user-data-dir
+ * -- which is already per-run (mkdtemp), so two runs cannot collide on it
+ * either. The port is therefore read back rather than assumed, and a run that
+ * cannot read it says so instead of blaming the application.
+ */
+const CDP_PORT_REQUEST = 0
 const LAUNCH_TIMEOUT_MS = 60_000
+let cdpPort = null
+
+function readDevToolsPort(profileDir) {
+  try {
+    const first = fs.readFileSync(path.join(profileDir, 'DevToolsActivePort'), 'utf8').split('\n')[0].trim()
+    const port = Number(first)
+    return Number.isInteger(port) && port > 0 ? port : null
+  } catch { return null }
+}
 
 const unpacked = path.resolve(process.argv[2] || path.join(__dirname, '..', 'release', 'win-unpacked'))
 const exe = path.join(unpacked, APP_EXE)
@@ -71,7 +97,8 @@ function instancesOfThisExecutable() {
 }
 
 async function evaluate(expression) {
-  const list = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()
+  if (!cdpPort) throw new Error('the application has not published a DevTools port yet')
+  const list = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json()
   const page = list.find((target) => target.type === 'page' && !String(target.url).startsWith('devtools://'))
   if (!page) throw new Error('the application exposed no page to inspect')
   const socket = new WebSocket(page.webSocketDebuggerUrl)
@@ -172,7 +199,7 @@ async function main() {
   delete environment.ELECTRON_RUN_AS_NODE
   delete environment.ELECTRON_NO_ATTACH_CONSOLE
 
-  const child = spawn(exe, [`--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`], {
+  const child = spawn(exe, [`--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT_REQUEST}`], {
     /* windowsHide suppresses the CONSOLE window only; the BrowserWindow is
        hidden by MC_SMOKE_HEADLESS=1 in the inherited environment (see
        shell/window-options.cjs), which tools/packaged-qa-suite.mjs sets. It was
@@ -184,8 +211,13 @@ async function main() {
   try {
     const deadline = Date.now() + LAUNCH_TIMEOUT_MS
     for (;;) {
-      if (Date.now() > deadline) throw new Error(`the application did not present a home screen within ${LAUNCH_TIMEOUT_MS}ms`)
+      if (Date.now() > deadline) {
+        throw new Error(cdpPort
+          ? `the application did not present a home screen within ${LAUNCH_TIMEOUT_MS}ms (DevTools port ${cdpPort})`
+          : `the application never wrote DevToolsActivePort into ${profile} within ${LAUNCH_TIMEOUT_MS}ms, so this run never inspected it`)
+      }
       await delay(700)
+      if (!cdpPort) cdpPort = readDevToolsPort(profile)
       try {
         const reading = await evaluate(READ_HOME)
         /* Wait for the first-paint gate: the screen deliberately renders

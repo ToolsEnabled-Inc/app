@@ -81,11 +81,34 @@ async function run() {
 
   step('the real app window loaded', true, await js('document.title'))
 
-  // 1. The bridge exists in the renderer at all.
+  /* 1. The bridge exists in the renderer at all, and is still BOUNDED.
+   *
+   * This was one frozen list compared with `===`, and it had gone stale: the
+   * preload has exposed `confinement` and `history` since the tier screen and
+   * the home screen's local-history panel landed, so the assertion was RED on a
+   * healthy product and stayed red -- a guard that cries wolf is a guard nobody
+   * reads. Widening it to "at least these" would have been the other error,
+   * because the property this step is named for is that the surface is BOUNDED:
+   * a method appearing on window.mcAgent is a new way into the main process
+   * from the page, and it must be a decision somebody made rather than
+   * something that arrived by silence. That is the absence-as-consent shape
+   * this codebase keeps producing.
+   *
+   * So both directions are checked and both are named in the failure: REQUIRED
+   * is what this smoke actually drives and cannot lose; RECOGNISED is the whole
+   * reviewed vocabulary, and anything outside it fails until someone adds it
+   * here deliberately. */
+  const REQUIRED = ['availability', 'close', 'interrupt', 'onEvent', 'send', 'start']
+  const RECOGNISED = [...REQUIRED, 'confinement', 'history']
   const surface = await js('JSON.stringify(Object.keys(window.mcAgent || {}).sort())')
   const keys = JSON.parse(surface)
-  const expected = ['availability', 'close', 'interrupt', 'onEvent', 'send', 'start']
-  step('window.mcAgent exposes the bounded surface', JSON.stringify(keys) === JSON.stringify(expected), surface)
+  const missing = REQUIRED.filter(key => !keys.includes(key))
+  const unreviewed = keys.filter(key => !RECOGNISED.includes(key))
+  step(
+    'window.mcAgent exposes the bounded surface',
+    missing.length === 0 && unreviewed.length === 0,
+    `missing=${JSON.stringify(missing)} unreviewed=${JSON.stringify(unreviewed)} actual=${surface}`,
+  )
 
   // 2. Availability answers, and answers without a path.
   const availability = await js('window.mcAgent.availability().then(JSON.stringify)')

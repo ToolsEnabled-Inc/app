@@ -57,6 +57,142 @@ async function waitFor(webContents, expression, timeout = 6000) {
   throw new Error(`Timed out waiting for ${expression}`)
 }
 
+/* WHAT IS STILL MOVING, NAMED.
+   This used to be an inline `.map(a => ({ target: a.effect.target.className }))`,
+   and on an SVG element `className` is an SVGAnimatedString, which
+   JSON.stringify renders as `{}`. The intermittent red this harness was known
+   for therefore reported
+     [{"target":{},"animationName":"none","type":"CSSTransition"}]
+   -- a failure message that names nothing, on a check whose whole job is to say
+   what has not settled. A check that cannot name its own defect is not a check.
+   `getAttribute('class')` reads the same string on HTML and SVG alike. */
+/* ONE ROUND TRIP, THREE WAYS FOR THE PAGE TO STILL BE MOVING.
+   Animations and frame callbacks are not the only ones. A ResizeObserver on the
+   graph container calls resize() -> _layoutNow() -> _placeChips(), and in a
+   window that has never been shown the container's measured size arrives late,
+   so the chip placement can run AFTER a settle window that only watched
+   animations. That is what made "flat context labels do not collide" red on an
+   unchanged tree: the chips were measured mid-placement, not overlapping.
+   The geometry fingerprint below closes that: a layout that is still moving is
+   not settled, whatever mechanism is moving it. */
+const SETTLE_SAMPLE = `(() => {
+  const describe = (element) => {
+    if (!(element instanceof Element)) return String(element);
+    const classes = (element.getAttribute('class') || '').trim();
+    return element.tagName.toLowerCase() + (classes ? '.' + classes.split(/\\s+/).join('.') : '');
+  };
+  const box = (element) => {
+    const rect = element.getBoundingClientRect();
+    return [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)].join(',');
+  };
+  const layout = [
+    ...document.querySelectorAll('.static-tree-node'),
+    ...document.querySelectorAll('.static-tree-chip'),
+    ...document.querySelectorAll('.static-tree-links .tree-link'),
+  ].map(element => describe(element) + '@' + box(element)).join('|');
+  const animations = document.getAnimations()
+    .filter(animation => {
+      const target = animation.effect && animation.effect.target;
+      return target instanceof Element
+        && typeof target.closest === 'function'
+        && Boolean(target.closest('.computers'))
+        && !target.closest('.tree-node-adding, .tree-node-removing');
+    })
+    /* PENDING COUNTS AS UNSETTLED. A transition that has been created but has
+       not been given a start time yet reports playState 'running' with
+       currentTime 0, and this window is deliberately hidden, so it can sit
+       there for seconds. Treating it as settled would be reading "no frame has
+       been produced" as "nothing is moving". */
+    .filter(animation => animation.playState === 'running' || animation.pending === true)
+    .map(animation => {
+      const timing = (animation.effect.getComputedTiming && animation.effect.getComputedTiming()) || {};
+      return {
+        type: animation.constructor.name,
+        property: animation.transitionProperty || animation.animationName || null,
+        target: describe(animation.effect.target),
+        playState: animation.playState,
+        pending: animation.pending === true,
+        currentTime: Math.round(Number(animation.currentTime) || 0),
+        duration: timing.duration,
+        iterations: timing.iterations,
+        perpetual: timing.iterations === Infinity || timing.duration === Infinity,
+      };
+    });
+  /* DIAGNOSTIC ONLY, asserted on by nothing: when the page will not settle, the
+     first question is always "what is moving", and the answer is unhelpful if
+     the only list shown has already been narrowed to the subtree under test. */
+  const everything = document.getAnimations()
+    .filter(animation => animation.playState === 'running' || animation.pending === true)
+    .slice(0, 12)
+    .map(animation => {
+      const target = animation.effect && animation.effect.target;
+      const timing = (animation.effect && animation.effect.getComputedTiming && animation.effect.getComputedTiming()) || {};
+      return describe(target) + ' ' + animation.constructor.name
+        + ' ' + (animation.transitionProperty || animation.animationName || '')
+        + (timing.iterations === Infinity ? ' [perpetual]' : '');
+    });
+  return { raf: window.__qaRafCount, animations, layout, everything };
+})()`
+
+/* SETTLE, DO NOT SAMPLE AT A FIXED OFFSET.
+   The two checks below ("no idle requestAnimationFrame callbacks", "no settled
+   Page 2 CSS animation") used to read `await delay(900)` and then take ONE
+   reading. That measures "was the page quiet at t=900ms", which is a property
+   of the machine's load, not of the software: a 120ms transition that starts at
+   t=850 is indistinguishable at a single instant from a transition that never
+   ends. Measured on an unchanged tree, five concurrent runs at a time: 14/15
+   green, and the one red was a real 120ms CSSTransition on an SVG chip-leader
+   dot that had merely started late.
+
+   So the invariant is stated as what it always meant: the page REACHES an idle
+   state, and once idle it STAYS idle. A perpetual animation or a self-renewing
+   requestAnimationFrame loop -- the defects these checks exist to catch -- never
+   reaches the idle state at all and still fails, on any machine, at any load.
+   Nothing is loosened: the settled reading must still be exactly zero on both
+   counts, and the frame counter is reset before the final quiet window so a
+   loop that starts late cannot hide behind frames that were legitimate during
+   mount. */
+async function settlePage2(webContents, { deadlineMs = 12000, quietMs = 400 } = {}) {
+  const started = Date.now()
+  let quietSince = Date.now()
+  let previous = { raf: -1, layout: null }
+  let sample = { raf: 0, animations: [], layout: '' }
+  while (Date.now() - started < deadlineMs) {
+    sample = await webContents.executeJavaScript(SETTLE_SAMPLE)
+    const quiet = sample.animations.length === 0
+      && sample.raf === previous.raf
+      && sample.layout === previous.layout
+    previous = sample
+    if (!quiet) {
+      quietSince = Date.now()
+      await delay(80)
+      continue
+    }
+    if (Date.now() - quietSince >= quietMs) {
+      await webContents.executeJavaScript('window.__qaRafCount = 0')
+      await delay(quietMs)
+      const after = await webContents.executeJavaScript(SETTLE_SAMPLE)
+      return {
+        settled: true,
+        settleMs: Date.now() - started,
+        idleRafCallbacks: after.raf,
+        runningAnimations: after.animations,
+        layoutMovedWhileIdle: after.layout !== sample.layout,
+        anythingStillRunning: after.everything,
+      }
+    }
+    await delay(80)
+  }
+  return {
+    settled: false,
+    settleMs: Date.now() - started,
+    idleRafCallbacks: sample.raf,
+    runningAnimations: sample.animations,
+    layoutMovedWhileIdle: true,
+    anythingStillRunning: sample.everything,
+  }
+}
+
 async function drag(webContents, from, to) {
   webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(from.x), y: Math.round(from.y) })
   await delay(60)
@@ -138,7 +274,21 @@ async function run() {
     window.requestAnimationFrame = callback => setTimeout(() => { window.__qaRafCount += 1; callback(performance.now()) }, 16);
     window.cancelAnimationFrame = handle => clearTimeout(handle);
   })()`)
-  await delay(900)
+  /* STATED LIMIT OF THIS COUNTER, so nobody quotes it for more than it measures.
+     It is installed AFTER the page has mounted, and this window is hidden, so a
+     frame loop that was started during mount and is still parked on the NATIVE
+     requestAnimationFrame never fires and is never counted -- a hidden window
+     produces almost no native frames. Mutation-checked: a native rAF loop
+     planted in the graph constructor SURVIVES this harness, and survived it
+     before this change too, so it is a pre-existing property of the
+     instrument rather than a regression. What it does catch, and what was
+     proven by planting it, is any loop that keeps scheduling frames through the
+     page's own window.requestAnimationFrame once the harness is watching --
+     including one that starts AFTER the page has settled, which the previous
+     fixed 900ms window could not see at all. Closing the remaining gap needs
+     the counter installed at document-start, which needs a preload, which needs
+     contextIsolation off -- i.e. it would change the environment under test. */
+  const settle = await settlePage2(webContents)
 
   const initial = await webContents.executeJavaScript(`(() => {
     const graph = window.__mcGraph;
@@ -174,7 +324,6 @@ async function run() {
       dataLayout: graph.container.dataset.layout,
       nodes: graph.nodes.size,
       frameMs: window.__graphFrameMs,
-      idleRafCallbacks: window.__qaRafCount,
       nodeCount: window.__graphNodeCount,
       physicsControl: Boolean(document.querySelector('.graph-layout-seg')),
       resetVisible: !document.querySelector('.graph-reset-btn').hidden
@@ -199,14 +348,6 @@ async function run() {
         + nodeRects.filter(other => intersects(rect, other)).length, 0),
       roleTokenMatch,
       sections,
-      runningAnimations: document.getAnimations().filter(animation => animation.playState === 'running'
-        && animation.effect?.target instanceof Element
-        && animation.effect.target.closest?.('.computers')
-        && !animation.effect.target.closest('.tree-node-adding, .tree-node-removing')).map(animation => ({
-          target: animation.effect.target.className,
-          animationName: getComputedStyle(animation.effect.target).animationName,
-          type: animation.constructor.name,
-        })),
     };
   })()`)
   check('StaticTreeGraph mounted', initial.staticApi, JSON.stringify(initial))
@@ -263,13 +404,82 @@ async function run() {
     labels.nodeCount > 0 && labels.unlabelled.length === 0,
     JSON.stringify(labels.unlabelled))
   check('settled graph probe starts idle', initial.frameMs === 0)
-  check('no idle requestAnimationFrame callbacks', initial.idleRafCallbacks === 0, String(initial.idleRafCallbacks))
-  check('no settled Page 2 CSS animation', initial.runningAnimations.length === 0, JSON.stringify(initial.runningAnimations))
+  check('Page 2 reaches an idle state at all', settle.settled && !settle.layoutMovedWhileIdle,
+    `still moving after ${settle.settleMs}ms: animations=${JSON.stringify(settle.runningAnimations)}`
+    + ` rAF=${settle.idleRafCallbacks} layoutMovedWhileIdle=${settle.layoutMovedWhileIdle}`
+    + ` anywhereOnThePage=${JSON.stringify(settle.anythingStillRunning)}`)
+  check('no idle requestAnimationFrame callbacks', settle.idleRafCallbacks === 0, String(settle.idleRafCallbacks))
+  check('no settled Page 2 CSS animation', settle.runningAnimations.length === 0, JSON.stringify(settle.runningAnimations))
+
+  /* THE REDUCED-MOTION CONTROL MUST REMOVE MOTION, NOT MANUFACTURE IT.
+     A control that exists to prevent a thing and instead causes it is a
+     software failure, not a cosmetic one, and this one was live: both
+     reduced-motion blocks in src/styles.css clamped `transition-duration` on
+     `*` without touching `transition-property`, whose initial value is `all`.
+     An element that declared no transition therefore resolved to
+     `all / 0.12s`, so every reposition of the SVG chip-leader dot's `cx`/`cy`
+     -- and of `.tree-link` -- started a real 120ms CSSTransition. A reader who
+     asked Windows for less motion got MORE of it on this page than a reader who
+     did not, and it is also what made this harness intermittently red.
+
+     Asserted BEHAVIOURALLY and on the in-app toggle rather than on the OS
+     preference, so it measures the same CSS on any machine instead of passing
+     silently wherever the OS preference is off: turn `reduce-motion` on, move a
+     property nothing declared a transition for, and require that no transition
+     was created at all. */
+  const reduceMotion = await webContents.executeJavaScript(`(() => {
+    const dot = document.querySelector('.graph-chip-leader-dot');
+    if (!dot) return { probed: false };
+    const wasOn = document.body.classList.contains('reduce-motion');
+    document.body.classList.add('reduce-motion');
+    const style = getComputedStyle(dot);
+    const resolved = { property: style.transitionProperty, duration: style.transitionDuration };
+    const cx = dot.getAttribute('cx');
+    dot.setAttribute('cx', String(Number(cx || 0) + 40));
+    const manufactured = document.getAnimations()
+      .filter(animation => animation.effect && animation.effect.target === dot)
+      .map(animation => animation.transitionProperty || animation.animationName || 'unknown');
+    dot.setAttribute('cx', cx === null ? '0' : cx);
+    for (const animation of document.getAnimations()) {
+      if (animation.effect && animation.effect.target === dot) animation.cancel();
+    }
+    if (!wasOn) document.body.classList.remove('reduce-motion');
+    return { probed: true, resolved, manufactured };
+  })()`)
+  check('reduced motion removes motion rather than manufacturing it',
+    reduceMotion.probed === true
+    && reduceMotion.resolved.property === 'none'
+    && reduceMotion.manufactured.length === 0,
+    JSON.stringify(reduceMotion))
 
   // Theme screenshots: the requested tan-first order is load-bearing.
   window.setPosition(80, 80)
   window.showInactive()
   await delay(500)
+  /* MEASURED LIMIT OF THIS HARNESS, recorded because it changes what any
+     motion check here can mean, and because the alternative was shipping a
+     check that has never gone red.
+
+     1. This Chromium reports prefers-reduced-motion: reduce, so the app's own
+        clamp caps EVERY CSS animation at 0.001ms with one iteration and every
+        transition at 120ms. A page-2 CSS motion defect is therefore short-lived
+        by construction here: `no settled Page 2 CSS animation` can catch a
+        transition that is genuinely still running, which is what the settle
+        loop above now waits out, but a long or perpetual CSS animation cannot
+        be planted in this environment at all.
+     2. In a window that has never been composited, an animation created by
+        element.animate() parks at `playState: 'running', pending: true,
+        currentTime: 0` and document.getAnimations() DOES NOT RETURN IT --
+        measured directly: element.getAnimations() gave 0 and the document gave
+        6, none of them it. A perpetual WAAPI animation is invisible to this
+        harness, and was equally invisible to the check that preceded this one.
+
+     A second settle reading taken with the window shown was tried and removed:
+     it could not be made to fail for any defect the readings above do not
+     already catch, and a check that cannot go red is decoration. What guards
+     Page 2's motion here is the pair that IS mutation-proven -- the idle-frame
+     checks above, and `reduced motion removes motion rather than manufacturing
+     it`. */
   for (const theme of ['tan', 'white', 'black']) {
     await webContents.executeJavaScript(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}; localStorage.setItem('mc.theme', ${JSON.stringify(theme)});`)
     await delay(760)
@@ -313,6 +523,7 @@ async function run() {
   }
   await webContents.executeJavaScript(`document.documentElement.dataset.theme = 'tan'; localStorage.setItem('mc.theme', 'tan');`)
   await delay(760)
+
   window.hide()
 
   // Chip ↔ chat remains functional and is the only context-label size motion.
@@ -601,8 +812,47 @@ async function run() {
   window.setPosition(-2400, -1400)
   window.showInactive()
   await delay(120)
-  const drillId = await webContents.executeJavaScript(`document.querySelector('.static-tree-node.focusable').dataset.agentId`)
-  await webContents.executeJavaScript(`document.querySelector('.static-tree-node.focusable').click()`)
+  /* RE-ESTABLISH THE PRECONDITION AFTER THE ACTION THAT INVALIDATES IT.
+     Showing and moving the window gives the graph container a real measured
+     size for the first time in this run, which re-runs the layout: culling and
+     `_layoutVisibleIds` change, so `updateDensity()` recomputes `active`,
+     `candidates` and `deepest` and can take the `focusable` class off every
+     node for a moment. The old code waited for `.focusable` BEFORE the show and
+     then read it AFTER, so it depended on a fact the intervening action was
+     free to invalidate -- measured as a null querySelector on 1 run in 15 under
+     five-way concurrency. Waiting again here asserts the state at the moment it
+     is used. */
+  await waitFor(webContents, `document.querySelector('.static-tree-node.focusable')`)
+  /* READ THE NODE AND CLICK IT IN ONE EVALUATION.
+     These were two separate executeJavaScript round-trips, each running its own
+     `document.querySelector('.static-tree-node.focusable')`. Between them the
+     simulated fleet can tick: updateDensity() re-toggles the `focusable` class
+     and _removeRecord() clears a node's pending click timer, so the id that was
+     read and the node that was clicked were not required to be the same node --
+     and if the clicked one was re-rendered inside the 260ms single-click timer,
+     no click landed at all. Either way the wait below timed out with
+     "Timed out waiting for window.__mcGraph.rootId === ..." and nothing said
+     why. One evaluation makes the id and the gesture the same node by
+     construction, which is a fix to the race rather than a retry around it. */
+  const drill = await webContents.executeJavaScript(`(() => {
+    const node = document.querySelector('.static-tree-node.focusable');
+    const graph = window.__mcGraph;
+    /* Diagnostics either way: a null here used to surface as a bare TypeError
+       on .dataset, or as a rootId timeout with nothing said about density. */
+    const state = {
+      nodes: graph.nodes.size,
+      agents: graph.computer.agents.length,
+      focusableCount: document.querySelectorAll('.static-tree-node.focusable').length,
+      drillRequired: Boolean(graph._layoutResult && graph._layoutResult.drillRequired),
+      rootId: graph.rootId,
+    };
+    if (!node) return { id: null, state };
+    const id = node.dataset.agentId;
+    node.click();
+    return { id, state };
+  })()`)
+  const drillId = drill.id
+  check('the dense fleet offers a focusable node to drill into', Boolean(drillId), JSON.stringify(drill.state))
   await waitFor(webContents, `window.__mcGraph.rootId === ${JSON.stringify(drillId)}`)
   await delay(760)
   const drillState = await webContents.executeJavaScript(`({

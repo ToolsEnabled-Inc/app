@@ -550,6 +550,43 @@ const AVAILABILITY_CODES = Object.freeze([
   'AGENT_HOST_INVALID_ARGUMENT',
 ])
 
+/* THE REFUSALS THE PROBE NEVER ANSWERS, AND THEREFORE NOTHING REQUIRED COPY FOR.
+ *
+ * Both surfaces that show a refusal -- src/agent-availability-copy.js for the
+ * Start control and ENGINE_REASON in src/local-activity.js for the home screen
+ * -- have their coverage walked from an EXPORTED vocabulary:
+ * AVAILABILITY_CODES here and RECORD_AVAILABILITY_CODES in shell/spawn-record.cjs.
+ * Four codes reach a person as a refusal and appear in neither list, so nothing
+ * required either table to have a sentence for them:
+ *
+ *   AGENT_HOST_CLOSED           raised by fail() below, on a call that arrives
+ *                               while the host is being torn down.
+ *   MC_AGENT_INVALID_PAYLOAD    raised by the agent IPC frame validator in
+ *                               shell/main.cjs before this module is reached.
+ *   CODEX_CLI_NOT_FOUND         raised by the ENGINE at start time
+ *   CODEX_VERSION_DETECTION_FAILED  (detectCodexVersion in the payload's
+ *                               codex-process.js). codexCommandIsMissing()
+ *                               answers PRESENCE without spawning anything, so
+ *                               a `codex` that resolves on PATH and cannot
+ *                               execute passes readiness and fails on the press.
+ *
+ * Without copy, unavailableReason() falls through to `String(code)` and the
+ * page shows the bare identifier, while the home screen's fallback shows "not
+ * set up to run agents yet" -- confidently wrong about an installation whose
+ * engine resolved. That is the unlabelled refusal a customer already met once
+ * as a bare AGENT_SESSION_FAILED, and it is why this list exists rather than
+ * living as four unremarkable keys in a copy table nobody walks.
+ *
+ * They are NOT availability codes and must not be added to AVAILABILITY_CODES:
+ * that list is checked both ways against what availability() can return, so a
+ * start-only code in it would fail this module's own classification test. */
+const START_REFUSAL_CODES = Object.freeze([
+  'AGENT_HOST_CLOSED',
+  'MC_AGENT_INVALID_PAYLOAD',
+  'CODEX_CLI_NOT_FOUND',
+  'CODEX_VERSION_DETECTION_FAILED',
+])
+
 function normalizeSessionId(value) {
   return boundedString(value, 'sessionId', 128)
 }
@@ -943,4 +980,4 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
  * it. A precedence test written against engineAvailability() therefore passes
  * whichever way round the candidates are, which is exactly what a planted
  * swap proved before this was exported. */
-module.exports = { AVAILABILITY_CODES, createAgentHost, engineAvailability, engineCandidates }
+module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, createAgentHost, engineAvailability, engineCandidates }

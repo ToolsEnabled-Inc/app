@@ -2270,6 +2270,23 @@ input[type="range"]:active::-webkit-slider-thumb {
    --dur-1 and override it. */
 body.reduce-motion .node.enter::before { animation: none !important; }  /* frostIn — pseudo animations need their own opt-out */
 body.reduce-motion * { animation-duration: 0.001s !important; transition-duration: 0.12s !important; }
+/* A DURATION CLAMP MUST SHORTEN MOTION, NEVER MANUFACTURE IT.
+   `transition-duration` is only half of a transition: the other half,
+   `transition-property`, has the initial value `all`. So clamping duration on
+   `*` hands a 120ms tween on EVERY animatable property to every element that
+   declared no transition at all — the accessibility control adding motion for
+   the reader who asked for less of it. Measured on page 2: an SVG chip-leader
+   dot with no transition anywhere in its rules resolved to
+   `transition-property: all; transition-duration: 0.12s`, and every reposition
+   of `cx`/`cy` started a real CSSTransition. The same applied to `.tree-link`.
+   The property is therefore pinned back to `none` at ZERO specificity, so any
+   author declaration (a class rule, an inline style, the shorthand `transition:`)
+   still wins and is still clamped, while "nothing was declared" stays nothing.
+   `:where()` contributes no specificity, which is what keeps this rule below
+   even a single-class author rule. */
+:where(body.reduce-motion) * { transition-property: none; }
+:where(body.reduce-motion) *::before,
+:where(body.reduce-motion) *::after { transition-property: none; }
 
 /* ---------- theme selector (settings drawer) ---------- */
 .theme-seg {
@@ -2353,6 +2370,15 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
     animation-iteration-count: 1 !important;
     transition-duration: 0.12s !important;
     scroll-behavior: auto !important;
+    /* SAME DEFECT AS THE SETTINGS TOGGLE ABOVE, and worse here because this is
+       the block that fires for a reader who set the preference at the OS level
+       and never opened Settings at all. `transition-duration` alone cannot
+       shorten a transition that was never declared -- it CREATES one, because
+       `transition-property` initially resolves to `all`. Pinning the property
+       to `none` at this selector's own zero specificity keeps every declared
+       transition (any author rule outranks `*`) and clamps it, while an element
+       that asked for no motion keeps none. */
+    transition-property: none;
   }
 }
 
