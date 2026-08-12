@@ -173,6 +173,27 @@ function main() {
           }
         }
       }
+
+      // ---- Rule 4: THE OFFER MUST BE THE DECLARED FILE.
+      // Rules 2 and 3 only prove the declaration is internally sound and that
+      // ITS OWN bytes verify. Nothing above ever compared the file the PAGE
+      // OFFERS against the file the declaration DESCRIBES, so a page offering
+      // any other .exe passed as long as some valid declaration existed
+      // elsewhere in the bundle -- the declaration authorised a download it had
+      // never seen. That is this codebase's recurring defect exactly: the LINK
+      // between offer and declaration was absent, and absence was read as
+      // consent. The guard's stated rule is "driven by a DECLARATION, never by
+      // a PATH"; without this rule an undeclared PATH is precisely what shipped.
+      const declaredName = String(manifest.filename || '').trim().toLowerCase()
+      for (const o of offers) {
+        if (o.kind !== 'installer-link') continue
+        // Compare on the last path segment: the declaration names a file, the
+        // page may serve it from any directory or CDN prefix.
+        const offered = String(o.value).split(/[?#]/)[0].split(/[\\/]/).pop().toLowerCase()
+        if (!declaredName || offered !== declaredName) {
+          violations.push(`OFFER DOES NOT MATCH THE DECLARATION: page offers "${o.value}" (file "${offered}") in ${o.file}, but the declaration describes "${manifest.filename}". A declaration authorises exactly one file.`)
+        }
+      }
     }
   }
 

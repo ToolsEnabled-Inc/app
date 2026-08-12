@@ -272,3 +272,88 @@ test('does NOT cry wolf at the blob-export idiom already in this bundle', () => 
     assert.match(r.out, /installer offers found: 0/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+// ---------------------------------------------------------------------------
+// R1260 t5b-xverify — RULE 4: THE OFFER MUST BE THE DECLARED FILE
+//
+// Found by adversarial probe: rules 2 and 3 prove the declaration is internally
+// sound and that ITS OWN bytes verify, but nothing compared the file the PAGE
+// OFFERS against the file the declaration DESCRIBES. A page offering any other
+// .exe passed as long as some valid declaration existed in the bundle, so the
+// declaration authorised a download it had never seen.
+//
+// This is the codebase's recurring defect in its purest form: the LINK between
+// offer and declaration was ABSENT, and the absence was read as consent. It is
+// latent today only because no declaration exists at all; it opens the moment
+// the wire is finally connected, which is exactly when it matters.
+// ---------------------------------------------------------------------------
+
+/* A built site whose installer link is whatever the caller says, so the offer
+ * and the declaration can be made to disagree. */
+function makeDistOffering(root, href) {
+  const dist = join(root, 'dist')
+  mkdirSync(join(dist, 'assets'), { recursive: true })
+  writeFileSync(join(dist, 'index.html'), '<!doctype html><title>ToolsEnabled</title><body></body>')
+  writeFileSync(join(dist, 'assets', 'index-abc.js'),
+    `const a=\`<a href="${href}">Download</a>\`;`)
+  return dist
+}
+
+test('REFUSES a page that offers a file the declaration does NOT describe', () => {
+  const root = scratch()
+  try {
+    // Declaration is complete and its bytes verify -- every other rule is happy.
+    const dist = makeDistOffering(root, '/downloads/TotallyNotTheDeclaredFile.exe')
+    writeManifest(dist, VALID)
+    const cand = makeCandidate(root, VALID.filename)
+    const r = run([dist, '--candidate-root', cand])
+    assert.equal(r.status, 1, `a valid declaration must not authorise an undeclared file:\n${r.out}`)
+    assert.match(r.out, /OFFER DOES NOT MATCH THE DECLARATION/)
+    assert.match(r.out, /TotallyNotTheDeclaredFile\.exe/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('REFUSES an undeclared offer even when a SECOND, valid offer is also present', () => {
+  const root = scratch()
+  try {
+    // The declared file IS offered -- but so is another one. Catching only the
+    // first hit, or passing because "a" matching offer exists, would miss this.
+    const dist = join(root, 'dist')
+    mkdirSync(join(dist, 'assets'), { recursive: true })
+    writeFileSync(join(dist, 'index.html'), '<!doctype html><body></body>')
+    writeFileSync(join(dist, 'assets', 'index-abc.js'),
+      `const a=\`<a href="/d/${VALID.filename}">Get</a>\`;` +
+      `const b=\`<a href="/d/Backdoor Setup 9.9.9.exe">Also</a>\`;`)
+    writeManifest(dist, VALID)
+    const cand = makeCandidate(root, VALID.filename)
+    const r = run([dist, '--candidate-root', cand])
+    assert.equal(r.status, 1, `a second undeclared offer must still refuse:\n${r.out}`)
+    assert.match(r.out, /OFFER DOES NOT MATCH THE DECLARATION/)
+    assert.match(r.out, /Backdoor Setup 9\.9\.9\.exe/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('REFUSES an offer when the declaration filename is EMPTY (absence is not consent)', () => {
+  const root = scratch()
+  try {
+    const dist = makeDistOffering(root, '/downloads/Anything.exe')
+    writeManifest(dist, { ...VALID, filename: '   ' })
+    const r = run([dist])
+    assert.equal(r.status, 1, `an empty declared filename must never authorise an offer:\n${r.out}`)
+    assert.match(r.out, /OFFER DOES NOT MATCH THE DECLARATION/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('does NOT cry wolf when the declared file is served from another directory or CDN', () => {
+  const root = scratch()
+  try {
+    // Same file, different prefix, plus a query string. This must PASS, or the
+    // rule would forbid serving the installer from anywhere but the site root.
+    const dist = makeDistOffering(root, `https://cdn.example.com/rel/v1/${VALID.filename}?t=1`)
+    writeManifest(dist, VALID)
+    const cand = makeCandidate(root, VALID.filename)
+    const r = run([dist, '--candidate-root', cand])
+    assert.equal(r.status, 0, `a matching file served from a CDN path must pass:\n${r.out}`)
+    assert.match(r.out, /backed by a complete, verified declaration/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
