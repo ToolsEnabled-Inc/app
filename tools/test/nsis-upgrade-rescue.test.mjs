@@ -8,10 +8,37 @@
  * runs (check-install-dir-immutable phase D documents exactly this and names
  * this file's customInit as the fix).
  *
- * A FULL ROUND-TRIP -- electron-builder + makensis producing a real installer,
- * then an actual install/upgrade on Windows -- is not runnable in this
- * environment: makensis is not installed and there is no electron-builder NSIS
- * cache. So this suite proves the logic two ways that do not need it:
+ * THE FULL ROUND-TRIP HAS NOW BEEN RUN, and this header used to say it could
+ * not be. It claimed "makensis is not installed and there is no electron-builder
+ * NSIS cache". Both halves were false when checked on 2026-08-11: the cache holds
+ * nsis-3.0.4.1 and nsis-resources-3.4.1, and makensis.exe sits in its Bin/
+ * directory. Nobody had looked. The claim was then quoted downstream as a known
+ * limitation, which is how an unrun test becomes a documented one.
+ *
+ * What the round trip proved, on real bytes, with real installers built by
+ * electron-builder + makensis from this tree (see tools/nsis-upgrade-roundtrip.ps1,
+ * which is how to re-run it):
+ *
+ *   - makensis compiles build/installer.nsh: no typo'd macro, no undefined symbol.
+ *   - Seeded vault, signed ledger and a NESTED file all survived a genuine
+ *     upgrade byte-identical, with the old install directory confirmed deleted
+ *     by the old uninstaller's `RMDir /r $INSTDIR`.
+ *   - MUTATION PROOF: rebuilt with customInit's body removed, the same round trip
+ *     lost all three files. The rescue is what saves them, not the ordering.
+ *   - The never-overwrite guard holds on real bytes: a stale install-dir vault
+ *     did not overwrite a current one already in the state root.
+ *   - ${PRODUCT_NAME} resolves to the folder Electron uses for userData -- the
+ *     rescue landed in %APPDATA%\<productName>\capability\.
+ *   - The shell-var context is `current` at customInit, so $APPDATA is the user's.
+ *   - CopyFiles/SHFileOperation really does recurse: the nested file came across.
+ *
+ * The round trip runs under a DISTINCT product identity by design, so it can
+ * never aim `RMDir /r` at the real product's state root; that harness refuses
+ * the shipping product name outright.
+ *
+ * This suite remains the fast, always-run guard. It proves the logic two ways
+ * that need no toolchain, so a regression is caught in the ordinary test run
+ * rather than only by a build:
  *
  *   1. It reads the REAL build/installer.nsh and asserts the load-bearing
  *      invariants are present in it -- the exact source and destination paths,
@@ -27,13 +54,12 @@
  *      RMDir of the whole install directory -- and asserts a seeded vault file
  *      survives, byte for byte, in the state root.
  *
- * WHAT A REAL ROUND-TRIP WOULD STILL ADD, and only it can: that makensis
- * actually compiles installer.nsh (no typo'd macro, no undefined symbol); that
- * ${PRODUCT_NAME} expands to the same folder Electron uses for userData; that
- * the shell-var context is `current` at customInit so $APPDATA is the user's;
- * and that CopyFiles/SHFileOperation copies subdirectories the way this model
- * assumes. Those are asserted here by construction and by reading the template
- * flow, not executed.
+ * WHAT THIS SUITE STILL CANNOT SEE, and the round trip can: everything in the
+ * list above depends on a compiler and an installed product, so it is asserted
+ * here by construction and by reading the template flow, not executed. Run
+ * tools/nsis-upgrade-roundtrip.ps1 before shipping a change to build/installer.nsh
+ * or to RUNTIME_STATE_DIRECTORIES -- a green run here is necessary and not
+ * sufficient.
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'

@@ -38,10 +38,26 @@
 // one thing that must never be possible here is removing a dependency without
 // replacing the module that depended on it.
 //
-// WHERE IT GOES IN THE CHAIN. AFTER electron-builder, BEFORE the post-build
-// boundary gate. After, so electron-builder's own copy cannot re-introduce
-// anything; before the gate, so the gate still gets the last word on the bytes
-// that actually ship.
+// WHERE IT GOES IN THE CHAIN: BEFORE electron-builder. This paragraph used to
+// say AFTER, and following it would ship a stale .exe.
+//
+// The reason is that ONE `electron-builder --win nsis` invocation does both
+// jobs: it materialises release/win-unpacked AND packs the installer from it.
+// So by the time that command returns, the .exe has already been built out of
+// whatever win-unpacked contained -- the union described above, stale files
+// included. A sync that runs afterwards cleans win-unpacked and therefore
+// cleans every gate that inspects win-unpacked, while the artifact a customer
+// actually downloads still carries the stale payload. That is worse than not
+// syncing at all, because the gates then certify a directory that is no longer
+// what shipped.
+//
+// Running BEFORE is what works, and nothing is lost by it: this tool makes
+// win-unpacked's payload equal to the staged one, and electron-builder's only
+// write to that directory is copying the SAME staged payload on top as an
+// extraResource. It re-introduces nothing, because there is nowhere for it to
+// re-introduce anything from -- extraResources are copied from `capability/`,
+// which the packer rebuilds as a set. package.json's `dist` chain has it in
+// this position; keep it there.
 //
 // EXIT CODES
 //   0  the packed payload now equals the staged payload
@@ -146,9 +162,51 @@ function removeEmptyParents(fromFile, root) {
   }
 }
 
+// THE FIRST BUILD IN A TREE IS NOT A STALE ARTIFACT.
+//
+// `npm run dist` runs this step, and `release/` is gitignored, so ANY checkout
+// that has never built -- a fresh clone, and every isolated worktree
+// tools/release-packager/cut-release-candidate.mjs cuts to build a release
+// candidate -- reaches here with no packed payload at all. readPayload() then
+// refuses with exit 2 and takes the whole ship chain down with it. Measured:
+// the documented one-command release path (docs/REPRODUCIBLE-BUILD.md §1)
+// cannot complete, because it builds in a `git worktree add --detach` checkout
+// by design.
+//
+// WHY THIS IS SAFE, AND WHY IT IS NARROW. The refusal above exists because an
+// absent or empty STAGED payload would make "delete every packed file not in
+// the staged set" delete the entire shipped payload. That reasoning is about
+// the staged side, and it still stands: `staged` is read, and proven present
+// and non-empty, BEFORE this returns. An absent PACKED side carries no such
+// risk -- there is nothing to prune, nothing to overwrite, and nothing to get
+// wrong. electron-builder then creates it by copying the staged payload, so
+// the two agree by construction.
+//
+// ABSENT IS NOT THE SAME AS EMPTY, and only absent is excused. A packed root
+// that EXISTS but holds no files is a half-built or half-deleted artifact --
+// genuinely suspicious -- and still falls through to readPayload's refusal.
+// `--check` also still refuses, because --check is an assertion ABOUT an
+// artifact, and an artifact that does not exist cannot satisfy one; a check
+// that passes over nothing is the exact "absence read as consent" defect this
+// file's own header warns about.
+function firstBuildNoPackedPayload(options, staged) {
+  if (options.check) return false;
+  if (existsSync(options.packed)) return false;
+  console.log(`staged: ${options.staged}  (${staged.size} files)`);
+  console.log(`packed: ${options.packed}  (does not exist)`);
+  console.log(
+    "\nFIRST BUILD: there is no packed payload in this tree yet, so there is nothing to prune and\n" +
+      "nothing to reconcile. The staged payload above is present and non-empty; electron-builder\n" +
+      "creates the packed payload by copying it, so the two agree by construction. Nothing was\n" +
+      "changed, and no file was deleted.",
+  );
+  return true;
+}
+
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const staged = readPayload(options.staged, "staged");
+  if (firstBuildNoPackedPayload(options, staged)) return;
   const packed = readPayload(options.packed, "packed");
 
   const stale = [...packed.keys()].filter((relative) => !staged.has(relative)).sort();
