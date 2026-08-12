@@ -177,6 +177,54 @@ function offSwitch() {
 }
 
 /* ---------------------------------------------------------------- *
+ * WHAT THE AGENT PAGE SHOWS WHILE THE FEATURE IS OFF.
+ *
+ * THE SAME SHAPE AS ITS NEIGHBOUR, DELIBERATELY. `mountSessionSwitchedOff` in
+ * agent-session.js draws the identical statement for the identical situation --
+ * a write surface whose flag is off -- and the two panels sit one above the
+ * other on this page. A second composition for the second one is a difference
+ * with no meaning behind it, so this borrows that one exactly: header, one
+ * column, the reason, the switch.
+ *
+ * WHAT IT DOES NOT DRAW, AND WHY THAT IS THE FIX. It used to draw the whole
+ * launcher dead: an environment picker with nothing in it, a branch field, an
+ * account picker, an attempts picker, a prompt box, a disabled Launch, and
+ * beside them a "Tasks on Codex Cloud" column holding a disabled Refresh and
+ * two more copies of the switched-off sentence. Measured on the packaged build
+ * at 1440px, that was a 420px panel in which every control was inert and one
+ * fact was stated three times. A form nobody can submit is not information
+ * about the feature, it is furniture in front of it.
+ *
+ * WHAT IS UNCHANGED, and this is the half that matters. The panel is still
+ * DRAWN rather than removed -- that is the whole point of the flag-off case
+ * (see cloudAvailability in cloud-tasks-controller.js: a person cannot turn on
+ * a switch they have never been shown). It still names the state in the header,
+ * still carries the reason verbatim, still says nothing is contacted, and still
+ * offers the switch on the panel itself. Nothing was softened; one fact is
+ * simply said once.
+ * ---------------------------------------------------------------- */
+function mountCloudSwitchedOff(root, anchor, availability) {
+  const surface = el(`<section class="write-surface cloud-surface" data-cloud-off aria-label="Codex Cloud">
+    <header><strong>Codex Cloud</strong><span data-cloud-status role="status">off · this computer cannot start a cloud task</span></header>
+    <div class="write-surface-grid">
+      <div class="write-form">
+        <span class="write-form-title">Launching cloud tasks is switched off</span>
+        <output class="write-wide" data-cloud-off-reason role="status"></output>
+      </div>
+    </div>
+  </section>`)
+  /* The reason is the availability note verbatim. It is written by the rule
+     that decided the state, so the panel cannot drift into describing a
+     situation the gate is not actually in. */
+  stateNode(surface.querySelector('[data-cloud-off-reason]'), 'note', availability.note)
+  if (availability.code === 'CLOUD_LAUNCH_SWITCHED_OFF') {
+    surface.querySelector('.write-form').append(offSwitch())
+  }
+  root.querySelector(anchor)?.insertAdjacentElement('afterend', surface)
+  return () => { surface.remove() }
+}
+
+/* ---------------------------------------------------------------- *
  * The agent-page surface. Built from the existing write-surface markup so it
  * reads as one of the audited actions rather than a bolted-on panel.
  * ---------------------------------------------------------------- */
@@ -190,6 +238,12 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
   if (live !== true) return () => {}
 
   const availability = cloudAvailability()
+  /* THE GATE IS READ ONCE AND BRANCHES ONCE. Everything below this line is the
+     surface for an installation that CAN launch; the other one is its own
+     function, so a control that only makes sense when the feature is on cannot
+     be reached, disabled, from a state where it is off. */
+  if (!availability.ok) return mountCloudSwitchedOff(root, anchor, availability)
+
   const surface = el(`<section class="write-surface cloud-surface" aria-label="Codex Cloud">
     <header><strong>Codex Cloud</strong><span data-cloud-status role="status">checking…</span></header>
     <div class="write-surface-grid">
@@ -207,10 +261,17 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
         <div class="cloud-receipt write-wide" data-cloud-receipt hidden></div>
         <output class="cloud-watch write-wide" data-cloud-watch role="status"></output>
       </form>
-      <div class="write-form" data-cloud-list>
-        <span class="write-form-title">Tasks on Codex Cloud</span>
-        <button type="button" data-cloud-refresh>Refresh</button>
-        <output data-cloud-list-output role="status"></output>
+      <!-- THE READING COLUMN, COMPOSED AS ONE BLOCK. Refresh used to sit on a
+           row of its own below the title, in the left half of a two-column
+           grid, which is how this column came to read as a heading, a lone
+           button and then a lot of nothing. It belongs on the title row: it is
+           the verb for the thing the title names. -->
+      <div class="write-form cloud-list" data-cloud-list>
+        <div class="cloud-list-head">
+          <span class="write-form-title">Tasks on Codex Cloud</span>
+          <button type="button" data-cloud-refresh>Refresh</button>
+        </div>
+        <output class="write-wide" data-cloud-list-output role="status"></output>
         <output class="write-wide" data-cloud-environments-output role="status"></output>
         <ul class="cloud-task-list write-wide" data-cloud-tasks></ul>
       </div>
@@ -248,9 +309,9 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
       renderReceipt(receiptNode, next.receipt)
       launchButton.textContent = next.launchLabel
       launchButton.classList.toggle('is-confirming', next.phase === 'armed')
-      launchButton.disabled = next.phase === 'launching' || !availability.ok
+      launchButton.disabled = next.phase === 'launching'
       cancelButton.hidden = next.phase !== 'armed'
-      refreshButton.disabled = next.phase === 'launching' || !availability.ok
+      refreshButton.disabled = next.phase === 'launching'
       accountOptions(accountSelect, next.accounts, next.defaultAccount)
       environmentOptions(environmentSelect, next)
       if (!environmentSelect.value && remembered.environment
@@ -258,7 +319,10 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
         environmentSelect.value = remembered.environment
         applyEnvironment(next)
       }
-      stateNode(bindingOutput, 'note', bindingText(findEnvironment(next, environmentSelect.value)))
+      /* The whole state, not just the chosen environment: with nothing chosen
+         this line has to say WHY, and "not read yet", "could not be read" and
+         "read, none chosen" are three different answers. */
+      stateNode(bindingOutput, 'note', bindingText(findEnvironment(next, environmentSelect.value), next))
       taskList.replaceChildren(...next.tasks.map(taskRow))
     },
   })
@@ -271,17 +335,10 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
      reads. */
   function applyEnvironment(state = controller.getState()) {
     const chosen = findEnvironment(state, environmentSelect.value)
-    stateNode(bindingOutput, 'note', bindingText(chosen))
+    stateNode(bindingOutput, 'note', bindingText(chosen, state))
     form.elements.branch.value = chosen?.defaultBranch || ''
   }
 
-  if (!availability.ok) {
-    stateNode(status, 'unavailable', availability.note)
-    for (const control of form.querySelectorAll('input, select, textarea, button')) control.disabled = true
-    refreshButton.disabled = true
-    if (availability.code === 'CLOUD_LAUNCH_SWITCHED_OFF') surface.querySelector('header').append(offSwitch())
-    return () => { controller.destroy() }
-  }
   stateNode(status, 'ready', 'Codex Cloud ready · every launch asks for approval')
 
   void controller.loadAccounts()
@@ -398,14 +455,14 @@ export function cloudControlsBox({ postAction = postBridgeAction } = {}) {
         environmentSelect.value = remembered.environment
         applyEnvironment(next)
       }
-      bindingOut.textContent = bindingText(findEnvironment(next, environmentSelect.value))
+      bindingOut.textContent = bindingText(findEnvironment(next, environmentSelect.value), next)
       taskList.replaceChildren(...next.tasks.map(taskRow))
     },
   })
 
   function applyEnvironment(state = controller.getState()) {
     const chosen = findEnvironment(state, environmentSelect.value)
-    bindingOut.textContent = bindingText(chosen)
+    bindingOut.textContent = bindingText(chosen, state)
     field('branch').value = chosen?.defaultBranch || ''
   }
 

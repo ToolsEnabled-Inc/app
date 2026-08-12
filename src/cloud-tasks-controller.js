@@ -174,15 +174,62 @@ export function findEnvironment(state, environmentId) {
   return state.environments.find(environment => environment.environmentId === environmentId) || null
 }
 
+/* THE TASK LIST AND THE ENVIRONMENT LIST, WHEN NEITHER CAN BE READ.
+ *
+ * Both of these used to be seeded with `availability.note` -- the whole
+ * switched-off paragraph -- so one panel printed one fact three times: once in
+ * its header and once in each of these two lines. The owner's word for the
+ * result was "messy" (R1528), and he was describing repetition, not the
+ * refusal: the refusal is correct and stays, stated exactly once by the surface
+ * that owns it.
+ *
+ * So these two say only what THEY know, which is that they hold nothing, and
+ * why. They are per-code rather than one string because "switched off" and "not
+ * in the desktop app" are different situations and a reader who is told the
+ * wrong one goes looking for the wrong switch.
+ */
+export function emptyListMessage(availability) {
+  return availability?.code === 'CLOUD_LAUNCH_SWITCHED_OFF'
+    ? 'No tasks to show while launching is switched off.'
+    : 'No tasks to show here.'
+}
+
+export function emptyEnvironmentsMessage(availability) {
+  return availability?.code === 'CLOUD_LAUNCH_SWITCHED_OFF'
+    ? 'Not read while launching is switched off.'
+    : 'Not read here.'
+}
+
 /* The binding line: what a task launched right now would land in. Written from
    the discovered environment rather than from anything typed, and explicit when
-   there is nothing to bind to. */
-export function bindingText(environment) {
-  if (!environment) return 'No environment chosen, so no source repository is bound.'
-  if (typeof environment.repository !== 'string' || !environment.repository) {
-    return environment.reason || 'This environment reports no single source repository.'
+   there is nothing to bind to.
+ *
+ * FOUR STATES, NOT TWO, and conflating them is what made this line wrong.
+ * It answered "No environment chosen, so no source repository is bound." for
+ * every case with no environment in hand -- including the two where nobody has
+ * been offered a choice yet, because the list was never read. On the panel the
+ * owner screenshotted, with launching switched off and therefore nothing ever
+ * asked of the provider, that sentence diagnosed the person ("you did not
+ * choose") for a state the product had put itself in. A read that was REFUSED
+ * is a third thing again, and it is the one a person must not read as "empty".
+ * `state` is optional so a caller that has only an environment still gets the
+ * bound/unbound half it always got. */
+export function bindingText(environment, state = null) {
+  if (environment) {
+    if (typeof environment.repository !== 'string' || !environment.repository) {
+      return environment.reason || 'This environment reports no single source repository.'
+    }
+    return `Bound to ${environment.repository}${environment.defaultBranch ? ` · default branch ${environment.defaultBranch}` : ' · the provider states no default branch'}${environment.visibility ? ` · ${environment.visibility}` : ''}`
   }
-  return `Bound to ${environment.repository}${environment.defaultBranch ? ` · default branch ${environment.defaultBranch}` : ' · the provider states no default branch'}${environment.visibility ? ` · ${environment.visibility}` : ''}`
+  if (state && state.environmentsLoaded !== true) {
+    if (state.environmentsTone === 'refused') {
+      return 'Nothing is bound. The environments could not be read, so where a task would land is unknown.'
+    }
+    return state.phase === 'unavailable'
+      ? 'Nothing is bound. The environments have not been read, because launching is switched off.'
+      : 'Nothing is bound yet. The environments have not been read.'
+  }
+  return 'No environment chosen yet, so no source repository is bound.'
 }
 
 /**
@@ -212,10 +259,10 @@ export function createCloudTaskController({
     environmentsLoaded: false,
     environmentsReadAt: null,
     environmentsTone: 'note',
-    environmentsMessage: availability.ok ? 'Environments not read yet.' : availability.note,
+    environmentsMessage: availability.ok ? 'Environments not read yet.' : emptyEnvironmentsMessage(availability),
     tasks: Object.freeze([]),
     servingAccount: null,
-    listMessage: availability.ok ? 'Not loaded yet.' : availability.note,
+    listMessage: availability.ok ? 'Not loaded yet.' : emptyListMessage(availability),
     listTone: 'note',
     launchMessage: '',
     launchTone: 'note',

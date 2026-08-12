@@ -12,6 +12,49 @@
  * confirmed local action read the same, and nothing here needs a per-theme rule.
  */
 
+/* ---- the reading column, and where its dead space came from ----
+ *
+ * MEASURED, not guessed. `.write-surface-grid` stretches both of its children
+ * to the height of the taller one, so the task column is as tall as the launch
+ * form whether or not it has anything in it. Its own rows are auto-sized, and a
+ * grid whose `align-content` is left at `normal` STRETCHES auto rows to fill the
+ * box — so every one of those four rows absorbed a quarter of the surplus. At
+ * 1920 that put ~80px between a heading, a button and two status lines that
+ * together need about 90px, which is the "large dead gaps" in the owner's
+ * screenshot. `align-content: start` is the whole fix: the column keeps its
+ * height, the rows keep theirs, and the difference is left at the bottom where
+ * empty space belongs.
+ *
+ * It is also NOT A FORM — a heading, a status line and a list — so it does not
+ * inherit the launch form's two-column, bottom-aligned track either. */
+.cloud-surface .cloud-list {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  align-content: start;
+  gap: var(--s2);
+}
+
+/* Refresh belongs ON the title row: it is the verb for the thing the title
+   names. Below it, in the left half of a two-column grid, it read as a lone
+   button in an empty column. */
+.cloud-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.cloud-surface .cloud-list-head button { flex: none; }
+
+/* The switched-off panel states one thing, so it is one column of text at a
+   readable measure rather than a half-width block with an empty half beside it.
+   Same treatment its neighbour on this page already has. */
+.cloud-surface[data-cloud-off] .write-form { align-content: start; }
+.cloud-surface[data-cloud-off] [data-cloud-off-reason] { max-width: 68ch; }
+/* `margin-left: auto` is right for the board box's header row and wrong inside
+   a grid cell, where it pushes the switch to the far edge of the column. */
+.cloud-surface[data-cloud-off] .cloud-enable { margin-left: 0; justify-self: start; }
+
 .cloud-task-list {
   grid-column: 1 / -1;
   max-height: 260px;

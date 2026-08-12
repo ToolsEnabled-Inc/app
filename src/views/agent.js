@@ -130,8 +130,17 @@ function declaredAgentProjection(compId, agentId, data) {
   const computer = {
     id: compId,
     /* The machine this copy runs on has a name a person recognises; a route
-       segment is not it. Everything else keeps the id it arrived with. */
-    name: `${compId === THIS_COMPUTER_ID ? THIS_COMPUTER_LABEL : compId} · as recorded here`,
+       segment is not it. Everything else keeps the id it arrived with.
+     *
+     * `· as recorded here` USED TO BE APPENDED, and it was the same sentence
+     * twice. The breadcrumb read "This computer · as recorded here" while the
+     * provenance line beside it — in the same 40px band — read "Read from the
+     * team record saved on this computer." One fact, two wordings, side by side
+     * (owner R1528). The provenance line is the one that keeps it: it is the
+     * element that also carries the example-data notice, so it is where a reader
+     * already looks to find out what they are looking at, and it says it in a
+     * full sentence rather than in a suffix bolted to a machine's name. */
+    name: compId === THIS_COMPUTER_ID ? THIS_COMPUTER_LABEL : compId,
     agents: [agent, ...relatedIds.map(id => asGraphAgent(declaredById.get(id), agent.id))],
   }
   return {
@@ -520,20 +529,29 @@ function buildAgentView({ compId, agentId, navigate }, projection = null) {
   if (live) {
     root.classList.add('data-live-mode')
     root.dataset.liveMode = 'live'
+    /* THE SAME FOUR FACTS, ONCE.
+     *
+     * Live, this strip printed `Controller · controller · none · enabled` three
+     * lines under a roster card that had already printed the same agent's name,
+     * the same role, and `On record · enabled · none` — the identical record,
+     * twice, in two different word orders. The owner's word for the page was
+     * "messy" (R1528) and this was the clearest instance of it.
+     *
+     * THE CARD IS THE SURFACE THAT SURVIVES, because it carries what the strip
+     * cannot: the role dial, the runtime row, the activity line, and the
+     * selection mark that says which agent the route opened. The strip carries
+     * one thing the card does not, and it is not a fact — it is the ANCHOR the
+     * three write surfaces below are inserted after (write-surfaces.js,
+     * agent-session.js, cloud-tasks.js all mount `afterend` of it). So it stays
+     * in the DOM, empty, and renders nothing.
+     *
+     * THE DEMONSTRATION PAGE KEEPS ITS STRIP, and that is not an oversight:
+     * there the strip reads `name · role · pool · model`, and `pool` and `model`
+     * appear nowhere on that page's cards. Duplication is what is being removed,
+     * not the strip. */
     const strip = root.querySelector('.agent-strip')
     strip.replaceChildren()
-    for (const text of [agent.name, declaredRole, agent.model, agent.state === 'active' ? 'enabled' : 'disabled']) {
-      if (strip.childElementCount) {
-        const sep = document.createElement('span')
-        sep.className = 'as-sep'
-        sep.textContent = '·'
-        strip.appendChild(sep)
-      }
-      const field = document.createElement('span')
-      if (!strip.childElementCount) field.className = 'as-name'
-      field.textContent = text
-      strip.appendChild(field)
-    }
+    strip.hidden = true
 
     const rail = root.querySelector('.ctl-panel .rail-scroll')
     rail.replaceChildren()

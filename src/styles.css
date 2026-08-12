@@ -406,19 +406,28 @@
   border-block: 1px solid var(--line-2);
   color: var(--ink-2);
 }
-.write-surface::before,
-.write-surface::after {
-  position: absolute;
-  top: 50%;
-  translate: 0 -50%;
-  color: var(--ink-4);
-  font-family: var(--font-mono);
-  font-size: 30px;
-  font-weight: 300;
-  line-height: 1;
-}
-.write-surface::before { content: "{"; left: 0; }
-.write-surface::after { content: "}"; right: 0; }
+/* THE BRACES ARE GONE, AND THE HOUSE BRACE IS WHY.
+ *
+ * These were two typed glyphs — `{` and `}` at a fixed 30px, absolutely
+ * positioned at the panel's left and right edges and centred on its height.
+ * MEASURED on the agent page at 1440x900: a 420px panel with a 30px `{`
+ * floating at x=108 and a 30px `}` at x=1320, each touching nothing, aligned
+ * with nothing, roughly two hundred pixels from the top and bottom of the thing
+ * they were supposed to be bracketing. Three write surfaces stack on that page,
+ * so six of them. The owner read the result as rendering garbage, and that is a
+ * fair reading of a bracket that does not bracket anything.
+ *
+ * This product HAS braces and they are part of its identity — but the real ones
+ * (BRACE_SVG in views/home.js) are drawn as three SVG pieces joined by arms
+ * with `preserveAspectRatio: none`, precisely so they STRETCH to the height of
+ * the block they enclose. home.css records the same finding in its own words:
+ * a glyph "can never do this job", because it paints a fixed shape at whatever
+ * size the font gives it while the content beside it is any height at all.
+ *
+ * So the ornament is dropped rather than reproduced badly. The panel is already
+ * framed, by the `border-block` rules above — the same hairline every other
+ * bounded region in this app is framed with. */
+
 .write-surface > header {
   display: flex;
   align-items: baseline;

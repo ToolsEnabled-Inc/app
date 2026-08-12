@@ -337,6 +337,12 @@ body[data-route="agent"] .fleet-profile-notice:not(.is-serious) { display: none;
 }
 .agent-strip .as-name { color: var(--ink-2); font-weight: 650; }
 .agent-strip .as-sep { color: var(--ink-4); }
+/* On the LIVE page this strip repeated the selected roster card word for word,
+   so it renders nothing there and stays only as the anchor the three write
+   surfaces mount after (see views/agent.js). `[hidden]` on its own would lose
+   to the `display: flex` above — the same trap this stylesheet's sibling
+   records for the rail's buttons — so it is stated. */
+.agent-strip[hidden] { display: none; }
 
 /* ============================================================
    Chat and Controls, side by side.
