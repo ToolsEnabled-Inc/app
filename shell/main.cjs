@@ -24,6 +24,7 @@ const { vaultRecordPresence: readVaultRecordPresence } = require('./vault-presen
 const { readBridgeProof } = require('./bridge-proof.cjs')
 const { resolveEnvBridgeProof, recordEnvProofRefusal } = require('./bridge-env-path.cjs')
 const {
+  guiEnvironment,
   readCapabilityProof,
   resolveCapabilityRoot,
   startCapabilityLayer,
@@ -2236,9 +2237,26 @@ function startSupervisedCapabilityLayer() {
       stateRoot: CAPABILITY_STATE_ROOT,
       /* The spawn seam capability-layer.cjs already exposes, used for the one
          thing this shell needs that its resolved value cannot give: a handle to
-         the child BEFORE it has announced itself. See capabilityLayerChild. */
+         the child BEFORE it has announced itself. See capabilityLayerChild.
+
+         THE CHILD'S ENVIRONMENT IS NEVER INHERITED BLIND. The command this seam
+         is handed is process.execPath -- packaged, the ToolsEnabled executable
+         itself. The layer composes that child's env explicitly (childEnvironment
+         in capability-layer.cjs, where ELECTRON_RUN_AS_NODE='1' is deliberate:
+         the engine reuses this binary as its Node runtime), and an explicit env
+         passes through here untouched. But if any future caller reaches this
+         seam WITHOUT one, Node would fall back to this process's full
+         process.env -- and under an agent harness that inherits
+         ELECTRON_RUN_AS_NODE=1, a GUI launch of the packaged exe becomes plain
+         node: read stdin, EOF, exit 0, no window, indistinguishable from a
+         crash (it broke two harness runs on 2026-08-11 alone). So the absent-env
+         case gets guiEnvironment(process.env) -- the shared strip from
+         capability-layer.cjs -- instead of the raw inheritance. */
       spawn: (command, args, options) => {
-        const child = spawnChildProcess(command, args, options)
+        const child = spawnChildProcess(command, args, {
+          ...options,
+          env: options && options.env ? options.env : guiEnvironment(process.env),
+        })
         capabilityLayerChild = child
         return child
       },

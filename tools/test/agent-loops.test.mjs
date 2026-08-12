@@ -164,7 +164,13 @@ test('the run cap named in the loop copy really does kill the process tree', () 
      is the case where an orphaned tree compounds. */
   const source = read(LANE_DISPATCH)
   assert.match(source, /taskkill\.exe/, 'the cap no longer reaches taskkill')
-  const killer = /function killLaneTree\(([\s\S]{0,1200}?)\n\}/.exec(source)
+  /* Lazy to the function's own column-0 closing brace, with NO length bound.
+     This match previously carried `{0,1200}` and went red the day an engine
+     commit grew the function past 1200 characters — a stale length is not the
+     property. The property is that the /T and /F flags live INSIDE killLaneTree,
+     which the capture group still scopes exactly: the first `\n}` after a
+     top-level `function` declaration is that function's own end. */
+  const killer = /function killLaneTree\(([\s\S]*?)\n\}/.exec(source)
   assert.ok(killer, 'killLaneTree not found — this test is checking air')
   assert.match(killer[1], /'\/T'/, 'the cap kill no longer walks the tree (/T)')
   assert.match(killer[1], /'\/F'/, 'the cap kill is no longer forced (/F)')

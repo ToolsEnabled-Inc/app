@@ -69,7 +69,7 @@
  *
  * 4. EVERY RUN IS BOUNDED EVEN IF NOBODY IS WATCHING.
  *    Each run carries `cap.capMs`, and the cap now kills the lane's PROCESS TREE
- *    (`taskkill /PID <pid> /T /F`) at agent-lane-dispatch.js:272-296. Before
+ *    (`taskkill /PID <pid> /T /F`) at agent-lane-dispatch.js:273-304. Before
  *    2026-08-11 it was a bare `child.kill()` against the direct child, which
  *    orphaned everything the agent's CLI had started while the record said the
  *    lane had stopped. For a single dispatch that was a leak; for a loop it
@@ -116,7 +116,7 @@ export const LOOP_OVERRUN = Object.freeze({
 /** The run cap, restated here only to name the bound and its address. */
 export const LOOP_RUN_CAP = Object.freeze({
   sentence: "Each run stops at its own cap, and the cap kills that run's whole process tree.",
-  evidence: 'capability/src/lib/mission-bridge/agent-lane-dispatch.js:272',
+  evidence: 'capability/src/lib/mission-bridge/agent-lane-dispatch.js:273',
 })
 
 /* Same absent-is-not-zero rule as clampCapMs in ./orchestration-controls.js:113.

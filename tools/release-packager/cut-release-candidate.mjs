@@ -293,6 +293,31 @@ async function main() {
 
     const privateInputs = await copyPrivateInputs(repo, worktreePath, { log: console.log })
 
+    // STAGE THE CAPABILITY PAYLOAD BEFORE `npm run dist` RUNS ITS VERIFY GATE.
+    //
+    // This script always builds in a fresh detached worktree, and capability/ is
+    // gitignored -- a checkout never materialises it. The dist chain's verify
+    // gate runs first (ship-path.test.mjs pins that ordering on purpose), and
+    // verify now contains payload-reading tests that FAIL CLOSED when no payload
+    // root exists, printing `run node tools/pack-capability-layer.mjs first` as
+    // their own remedy. Found on the 2026-08-11 cut attempt: 34 such tests went
+    // red in a clean worktree that the day-to-day tree sailed through on a stale
+    // leftover payload, so THE ONE COMMAND could not cut any tip anywhere, by
+    // construction. Staging here -- right after the private inputs the packer's
+    // source-tree setting lives in -- is that remedy, run by the repo's own tool
+    // in the same worktree the build will use. capability/ is gitignored, so the
+    // clean checks before and inside the build are not perturbed, and the
+    // packer's own fail-closed guards stand: no engine source, or owner data in
+    // the staged payload, aborts the cut loudly before anything is built.
+    console.log('[cut-release-candidate] staging the capability payload (pack-capability-layer.mjs) before the dist verify gate ...')
+    const pack = await runCapturing('node', ['tools/pack-capability-layer.mjs'], { cwd: worktreePath, windowsHide: true })
+    if (pack.code !== 0) {
+      throw new Error(
+        `pack-capability-layer.mjs failed (exit ${pack.code}) in ${worktreePath}, so the payload-reading verify ` +
+          `gates would have nothing real to check. Nothing was built. The worktree was left in place for postmortem: ${worktreePath}`,
+      )
+    }
+
     const packageJsonPath = path.join(worktreePath, 'package.json')
     await writePackageVersion(packageJsonPath, version)
 
