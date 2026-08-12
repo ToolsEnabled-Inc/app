@@ -33,6 +33,7 @@ import { settingsView, applyStoredSimPace } from './views/settings.js'
 import { renderQuickSettings } from './quick-settings.js'
 import { setupView } from './views/setup.js'
 import { accountView } from './views/account.js'
+import { guideView } from './views/guide.js'
 import { subscribeView } from './views/subscribe.js'
 import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
@@ -127,6 +128,12 @@ function parse() {
   if (parts[0] === 'settings') return { name: 'settings' }
   if (parts[0] === 'setup') return { name: 'setup' }
   if (parts[0] === 'account') return { name: 'account' }
+  /* The one address every empty screen's door points at. It is a real stop in
+     the router rather than an anchor on an existing page because six screens
+     link to it: an unrouted `#/guide` resolves to home, which turns every one
+     of those doors into a control that silently throws the reader back where
+     they started -- the dead end the guide exists to close, wearing a link. */
+  if (parts[0] === 'guide') return { name: 'guide' }
   /* `pricing` is what a stranger types; `subscribe` is what the product calls
      the surface. Both reach it rather than one of them reaching home, because a
      404 on the page that takes payment is a lost customer, not a typo. */
@@ -148,6 +155,11 @@ const RING_EXIT = {
      tour. Both arrows return home so a visitor who arrives on it from a link
      can always get out. */
   subscribe: { back: 'home', next: 'home' },
+  /* Off the ring, and src/views/guide.js says why in full: the chevrons walk the
+     product, and a page about the product's PREREQUISITES is not a stop on that
+     tour. Both arrows return home so a reader who arrived from any of the six
+     doors can always get out. */
+  guide: { back: 'home', next: 'home' },
 }
 
 /* A hash naming a stop this copy does not offer is not an error and must not be
@@ -173,6 +185,7 @@ function makeView(route) {
     case 'settings': return settingsView()
     case 'setup': return setupView({ navigate })
     case 'account': return accountView({ navigate })
+    case 'guide': return guideView()
     case 'subscribe': return subscribeView({ query: route.query })
     default: return homeView()
   }
@@ -192,6 +205,7 @@ function crumbFor(route) {
     case 'settings': return `${base} / settings`
     case 'setup': return `${base} / setup`
     case 'account': return `${base} / account`
+    case 'guide': return `${base} / guide`
     case 'subscribe': return `${base} / subscribe`
     default: return `${base} / home`
   }

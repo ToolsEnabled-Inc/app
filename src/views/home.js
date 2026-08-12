@@ -37,6 +37,16 @@
 import { el, uptimeRing } from '../components.js'
 import { fetchStatus, fetchCoordinator } from '../live-status.js'
 import { ownerPromptSnapshot } from '../mission-bridge.js'
+/* A decision the owner made on #/approvals whose answer arrived after he had
+   already left that screen. The approvals design nominated this screen as its
+   one signal channel ("the only signal that anything is waiting is a count on
+   the home view's existing readouts"), so it is also the screen that has to
+   carry the case where a decision he made did not land. */
+import {
+  APPROVAL_OUTCOME_EVENT,
+  reconcileUndeliveredDecisions,
+  undeliveredDecisionCount,
+} from '../approval-outcomes.js'
 import { isLiveView } from '../live-flags.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { bridgeStatus, postBridgeAction } from '../mission-bridge.js'
@@ -115,6 +125,10 @@ function makeBag(items) {
 
 const BRACE_SVG = `<svg width="22" height="26" viewBox="0 0 22 26"><path d="M20.5 1.5 C13 1.5 8 3.6 8 10.8 L8 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="56" viewBox="0 0 22 56"><path d="M8 0 L8 16 C8 24 5.6 26.4 1.5 28 C5.6 29.6 8 32 8 40 L8 56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="brace-arm" viewBox="0 0 22 10" preserveAspectRatio="none"><rect x="7.25" y="0" width="1.5" height="10" fill="currentColor"/></svg><svg width="22" height="26" viewBox="0 0 22 26"><path d="M8 0 L8 15.2 C8 22.4 13 24.5 20.5 24.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
 
+/* One per mounted home view, so the panel heading's id is unique even while the
+   router briefly holds two of them. */
+let panelInstances = 0
+
 export function homeView() {
   /* A person chose the demonstration in Settings, or they did not. This is the
      ONLY thing that puts sample content on this screen, and it is the only
@@ -124,6 +138,25 @@ export function homeView() {
   const writeReplyEnabled = !sample && isWriteEnabled('thread-reply')
   const composerTarget = FLEET.composerTarget || 'coordinator'
 
+  /* THE PANEL'S OWN TITLE IS THE PANEL'S ACCESSIBLE NAME.
+   *
+   * The log is a tab stop (it scrolls, so a keyboard user has to be able to
+   * reach it) and it is a live region, and it had no name at all: measured with
+   * Tab on the packaged build, Chromium's accessibility tree gave it role "log"
+   * and name "" -- Narrator announces that as the word "log" and nothing else,
+   * on the one panel this screen is mostly made of.
+   *
+   * It is `aria-labelledby` pointing at the heading already above it, not a
+   * hand-written aria-label, because that heading is REWRITTEN on every render
+   * ("No agents have run here yet", "This box is set to show nothing", the
+   * conversation's own title...). A second copy of that sentence in an
+   * attribute would be the version that goes stale.
+   *
+   * The id is per-instance. The router can have two home views mounted at once
+   * during a transition -- src/views/setup.js records that measurement -- and
+   * two elements sharing one id makes the reference ambiguous exactly when a
+   * screen reader is most likely to be reading it. */
+  const panelTitleId = `home-panel-title-${panelInstances += 1}`
   const root = el(`
     <div class="home" data-mode="loading">
       <div class="home-ring-wrap"></div>
@@ -131,11 +164,11 @@ export function homeView() {
         <span class="brace" aria-hidden="true">${BRACE_SVG}</span>
         <div class="home-feed">
           <div class="session-head">
-            <span data-panel-title></span>
+            <span data-panel-title id="${panelTitleId}"></span>
             <span class="panel-badge" data-panel-badge hidden></span>
           </div>
           <div class="session-view">
-            <div class="session-log" tabindex="0" role="log"></div>
+            <div class="session-log" tabindex="0" role="log" aria-labelledby="${panelTitleId}"></div>
           </div>
           <div class="session-foot" data-panel-foot hidden></div>
         </div>
@@ -788,7 +821,18 @@ export function homeView() {
     try { raw = await ownerPromptSnapshot() } catch { raw = null }
     if (destroyed) return
     const readable = raw?.ok === true && Array.isArray(raw.prompts)
-    state.approvals = readable ? { readable: true, count: raw.prompts.length } : { readable: false, count: 0 }
+    /* Reconciled ONLY against a queue this call genuinely read. An unreadable
+       snapshot prunes nothing and claims nothing: not knowing what is pending is
+       not the same as knowing nothing is, and treating it as the latter would
+       erase the record of a refused decision on the strength of a failed
+       request. */
+    state.approvals = readable
+      ? {
+        readable: true,
+        count: raw.prompts.length,
+        undelivered: reconcileUndeliveredDecisions(raw.prompts.map(prompt => prompt.id)),
+      }
+      : { readable: false, count: 0, undelivered: 0 }
     apply()
     approvalsTimer = setTimeout(() => { void loadApprovals() }, readable ? APPROVALS_POLL_MS : APPROVALS_RETRY_MS)
   }
@@ -819,6 +863,21 @@ export function homeView() {
   }
   window.addEventListener(CHATBOX_FEED_EVENT, onChatboxSettings)
 
+  /* The case this exists for: he pressed Submit on #/approvals, pressed the
+     arrow, and landed HERE — and only then did the bridge refuse. Waiting out
+     this screen's own 20s poll before saying so would leave him looking at a
+     screen that knows his decision did not land and is not telling him.
+     Clamped to the count this screen actually read, so it can never report
+     more failures than there are requests waiting. */
+  const onApprovalOutcome = () => {
+    if (destroyed || !state.approvals?.readable) return
+    const undelivered = Math.min(undeliveredDecisionCount(), state.approvals.count)
+    if (undelivered === state.approvals.undelivered) return
+    state.approvals = { ...state.approvals, undelivered }
+    apply()
+  }
+  window.addEventListener(APPROVAL_OUTCOME_EVENT, onApprovalOutcome)
+
   void loadEngine()
   void loadSessions(true)
   void loadApprovals()
@@ -841,6 +900,7 @@ export function homeView() {
       cancelAnimationFrame(firstPinFrame)
       cancelAnimationFrame(settledPinFrame)
       window.removeEventListener(CHATBOX_FEED_EVENT, onChatboxSettings)
+      window.removeEventListener(APPROVAL_OUTCOME_EVENT, onApprovalOutcome)
       document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     },
   }

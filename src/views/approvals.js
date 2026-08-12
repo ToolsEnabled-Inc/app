@@ -32,6 +32,23 @@
 // the card is on his screen; making him click a card before its buttons work
 // would be a gate the engine never asked for. Whatever focus actually is at
 // the moment of measurement is reported honestly either way.
+//
+// AN ANSWER THIS SCREEN ASKED FOR IS NEVER THROWN AWAY
+//
+// submit() awaits an audited bridge call with a 30-second budget, and the
+// router destroys this view the instant the owner presses an arrow (a view
+// transition retires the outgoing view at the swap, not after it). So the
+// answer regularly arrives at an instance that no longer has a screen. It used
+// to be dropped there: `if (destroyed) return` sat above the branch that reads
+// `result.ok`, so a REFUSAL — the message whose only job is to say nothing was
+// recorded and nothing was approved — became byte-for-byte identical to a
+// success. On the surface where consent is the product, silence must never be
+// the shape of "it did not work".
+//
+// The outcome is therefore filed in src/approval-outcomes.js BEFORE this file
+// asks whether its own view is still alive. The record outlives the instance,
+// this screen restates it the next time it is mounted, and home counts it
+// meanwhile — home being the one signal channel this design already nominated.
 
 import { el } from '../components.js'
 import {
@@ -46,6 +63,12 @@ import {
   markOwnerPromptPresented,
   ownerPromptSnapshot,
 } from '../mission-bridge.js'
+import {
+  clearUndeliveredDecision,
+  recordUndeliveredDecision,
+  reconcileUndeliveredDecisions,
+  undeliveredDecision,
+} from '../approval-outcomes.js'
 import '../ledger.css'
 import '../owner-popup.css'
 
@@ -121,13 +144,27 @@ export function approvalsView() {
     cards.clear()
     waitingValue.textContent = '—'
     purchasesValue.textContent = '—'
+    /* THE NOTE UNDER THE DASH HAS TO GO WITH IT. Both tiles fall back to "—"
+       here, and the purchases tile kept its resting caption -- "· approving
+       records the decision, it does not spend" -- which describes an action
+       this screen cannot currently offer, printed under a value it could not
+       read. Measured with the capability layer killed mid-session
+       (tools/offline-routes-qa.mjs, state layer-killed). */
+    purchaseNote.textContent = '· the queue could not be read, so nothing can be approved from here'
     countNote.textContent = 'The queue could not be read, so nothing here is a decision.'
   }
 
   function setCardStatus(card, text, kind = 'status') {
     card.rendered.status.textContent = text
     card.rendered.status.dataset.state = kind
-    card.rendered.status.setAttribute('role', kind === 'unavailable' ? 'alert' : 'status')
+    const failing = kind === 'unavailable'
+    card.rendered.status.setAttribute('role', failing ? 'alert' : 'status')
+    /* The element is rendered with aria-live="polite", and an explicit
+       aria-live OUTRANKS the implicit assertive that role="alert" carries. So
+       switching the role alone left "nothing was approved" queued behind
+       whatever else the page had to say. Moved with the role, not left behind
+       it. */
+    card.rendered.status.setAttribute('aria-live', failing ? 'assertive' : 'polite')
   }
 
   function setCardEnabled(card, enabled) {
@@ -140,6 +177,32 @@ export function approvalsView() {
       : prompt.kind === 'confirmation' ? 'Ready for your decision.' : 'Ready to acknowledge.'
   }
 
+  /** Said while the card that was submitted is still the card on screen. */
+  function notRecordedText(reason) {
+    return `${reason || 'The decision could not be recorded.'} Nothing was approved; you can try again.`
+  }
+
+  /**
+   * Said when this screen is showing a request whose earlier decision was
+   * refused while the screen was gone. It states three things, in the order a
+   * person needs them: it did not go through, why, and that the request is
+   * still here to decide.
+   *
+   * "Nothing was approved" is safe to assert without qualification here, and
+   * only here, because this text is only ever attached to a card the engine is
+   * still reporting as PENDING in the snapshot being rendered — a decision that
+   * had landed would have taken the request out of the queue.
+   */
+  function earlierNotRecordedText(entry) {
+    return `The decision you submitted was not recorded: ${entry.reason} This request is still waiting, so nothing was approved. You can decide it again below.`
+  }
+
+  function markUndelivered(card, entry) {
+    card.failed = true
+    card.wrapper.dataset.decisionUndelivered = 'true'
+    setCardStatus(card, earlierNotRecordedText(entry), 'unavailable')
+  }
+
   async function submit(card, body) {
     if (destroyed || card.submitting) return
     card.submitting = true
@@ -148,16 +211,28 @@ export function approvalsView() {
     let result
     try { result = await decideOwnerPrompt(body) }
     catch { result = { ok: false } }
-    if (destroyed) return
     card.submitting = false
+
+    /* THE OUTCOME IS FILED BEFORE THIS FUNCTION ASKS WHETHER ITS SCREEN IS
+       STILL THERE. `destroyed` says this view instance has no DOM left to write
+       to; it says nothing whatever about whether the owner's decision landed,
+       and reading it first is what made a refusal indistinguishable from a
+       success. Filing first means the next mount of this screen — and home in
+       the meantime — can still tell him. */
     if (result?.ok !== true) {
+      card.failed = true
+      recordUndeliveredDecision(card.prompt.id, result?.reason)
+      if (destroyed) return
+      card.wrapper.dataset.decisionUndelivered = 'true'
       // Nothing was recorded, so nothing was approved. Say that plainly and
       // let him try again rather than leaving a dead card behind.
-      card.failed = true
-      setCardStatus(card, `${result?.reason || 'The decision could not be recorded.'} Nothing was approved; you can try again.`, 'unavailable')
+      setCardStatus(card, notRecordedText(result?.reason), 'unavailable')
       setCardEnabled(card, true)
       return
     }
+    clearUndeliveredDecision(card.prompt.id)
+    if (destroyed) return
+    delete card.wrapper.dataset.decisionUndelivered
     setCardStatus(card, 'Decision recorded.')
     setCardEnabled(card, false)
     void poll()
@@ -179,7 +254,12 @@ export function approvalsView() {
     }
     card.presented = true
     setCardEnabled(card, true)
-    setCardStatus(card, readyText(card.prompt))
+    /* A restated refusal is not overwritten with "Ready for review". Both
+       sentences are true; only one of them is news, and the ready-text would
+       quietly bury the fact that a decision he already made did not land. */
+    const earlier = undeliveredDecision(card.prompt.id)
+    if (earlier) markUndelivered(card, earlier)
+    else setCardStatus(card, readyText(card.prompt))
   }
 
   function addCard(prompt) {
@@ -194,13 +274,26 @@ export function approvalsView() {
     list.append(wrapper)
     // measuredPresentationEvidence checks that the container is connected and
     // contains the card, which is what the modal's overlay did for it.
-    cards.set(prompt.id, {
+    const card = {
       wrapper, prompt, rendered: { ...rendered, overlay: wrapper }, presented: false, presenting: false, submitting: false, failed: false,
-    })
+    }
+    cards.set(prompt.id, card)
+    /* A refusal a previous instance of this screen received and never got to
+       say, because the owner had already navigated away. This is the moment it
+       reaches him. Stated at mount rather than after presentation is
+       re-confirmed, so it is on the glass even if the presentation handshake
+       is slow or fails. */
+    const earlier = undeliveredDecision(prompt.id)
+    if (earlier) markUndelivered(card, earlier)
   }
 
   function reconcile(prompts) {
     const live = new Set(prompts.map(prompt => prompt.id))
+    /* Only reachable from poll(), and only after a snapshot that genuinely
+       parsed — which is what makes this a real reading of the queue rather than
+       an assumption that it is empty. Records for requests that are no longer
+       pending are dropped: see src/approval-outcomes.js. */
+    reconcileUndeliveredDecisions([...live])
     for (const [id, card] of [...cards]) {
       if (!live.has(id)) { card.wrapper.remove(); cards.delete(id) }
     }
@@ -233,9 +326,15 @@ export function approvalsView() {
       purchasesValue.textContent = String(carts.length)
       purchaseNote.textContent = '· mixed currencies, shown as a count rather than a converted total'
     }
-    countNote.textContent = prompts.length === 0
+    const waiting = prompts.length === 0
       ? 'Queue empty.'
       : `${prompts.length} request${prompts.length === 1 ? '' : 's'} waiting for your decision.`
+    /* Counted over the prompts actually being rendered, so this line can never
+       report a failure against a request that is no longer in the queue. */
+    const undelivered = prompts.filter(prompt => undeliveredDecision(prompt.id)).length
+    countNote.textContent = undelivered === 0
+      ? waiting
+      : `${waiting} ${undelivered} decision${undelivered === 1 ? '' : 's'} you submitted ${undelivered === 1 ? 'was' : 'were'} not recorded, so ${undelivered === 1 ? 'it is' : 'they are'} still here.`
   }
 
   async function poll() {

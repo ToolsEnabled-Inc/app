@@ -237,6 +237,28 @@ contextBridge.exposeInMainWorld('mcAccount', Object.freeze({
   paymentPresence: () => ipcRenderer.invoke('mc-account:payment-presence'),
 }))
 
+/* REMOVING THIS COMPUTER'S DATA.
+ *
+ * TWO METHODS, AND NEITHER TAKES A PATH. Which directories are swept is decided
+ * in the main process from `app.getPath('userData')` and the payload's own
+ * installation root; a page that could name the directory would be a page that
+ * could delete any folder on the computer, which is a remote-code-execution
+ * primitive dressed as a settings control.
+ *
+ * `plan` is a READ. It measures and names what is there and destroys nothing, so
+ * the screen can show a person what they are about to lose before they can lose
+ * it. `erase` is the act. They are separate channels for that reason and must
+ * stay separate: one call that measured and deleted would make the first press
+ * the destructive one.
+ *
+ * NOTHING HERE RETURNS A SECRET. The replies are counts, directory paths, entry
+ * names and outcomes. No file content is read, and the vault is named by its
+ * path and never opened. */
+contextBridge.exposeInMainWorld('mcLocalData', Object.freeze({
+  plan: () => ipcRenderer.invoke('mc-reset:plan'),
+  erase: () => ipcRenderer.invoke('mc-reset:erase'),
+}))
+
 function rgbToHex(rgb) {
   const match = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)
   if (!match) return '#fdfdfd'

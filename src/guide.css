@@ -1,0 +1,302 @@
+/* GUIDE — the page the empty screens point at.
+ *
+ * It is a reading page, so it is set like one: a single measure, generous
+ * leading, hairlines for hierarchy and no boxes. Every colour, space and radius
+ * comes from the shared theme tokens, so black and tan follow with no rules of
+ * their own -- which is also why nothing here hardcodes an rgba(): a literal
+ * navy shadow is invisible ink on the black theme.
+ *
+ * The one deliberate emphasis is the state tag on each section. A person has to
+ * be able to tell "you can fix this" from "there is nothing to turn on" without
+ * reading the paragraph, because the second one is what stops them hunting
+ * through Settings for a switch this product does not have. */
+
+.guide-page { scrollbar-gutter: stable; }
+
+.guide-shell {
+  width: min(78ch, 100%);
+  margin-inline: auto;
+  padding-top: var(--s3);
+  padding-bottom: var(--s5);
+}
+
+.guide-mast {
+  padding-bottom: var(--s5);
+  border-bottom: 1px solid var(--line-2);
+}
+.guide-eyebrow {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+.guide-mast h1 {
+  margin: var(--s2) 0 0;
+  color: var(--ink);
+  font-size: clamp(30px, 3.6vw, 44px);
+  font-weight: 610;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+.guide-lede {
+  margin: var(--s4) 0 0;
+  color: var(--ink-2);
+  font-size: 14.5px;
+  line-height: 1.62;
+}
+
+.guide-need {
+  padding: var(--s5) 0;
+  border-bottom: 1px solid var(--line);
+}
+.guide-need-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+.guide-need-head h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.guide-need-tag {
+  margin: 0;
+  flex: none;
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.guide-need[data-fix="self"] .guide-need-tag { color: var(--s-good); }
+/* NOT a warning colour. Nothing is wrong when there is nothing to turn on, and
+   painting it amber would tell a person to go looking for the fault. */
+.guide-need[data-fix="none"] .guide-need-tag { color: var(--ink-3); }
+
+.guide-need-body {
+  margin: var(--s3) 0 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.66;
+}
+
+/* The sentence the person actually saw on another screen, quoted so they can
+   recognise it. A left rule marks it as quoted rather than as our own voice --
+   the same device the research page uses for curated context. */
+.guide-quote {
+  margin: var(--s4) 0 0;
+  padding-left: var(--s4);
+  border-left: 2px solid var(--line-2);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.guide-quote q { color: var(--ink-2); font-family: var(--font-mono); font-size: 12.5px; }
+
+.guide-steps {
+  margin: var(--s4) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s3);
+}
+.guide-step {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+}
+.guide-command,
+.guide-step-do {
+  grid-column: 1;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+}
+.guide-command {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  /* Selectable and obviously so: this line exists to be copied into a
+     terminal. */
+  user-select: all;
+  padding: 2px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  justify-self: start;
+}
+.guide-step-note {
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.guide-step-link {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--accent-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+.guide-step-link:hover { color: var(--ink); }
+
+.guide-works-list {
+  margin: var(--s4) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s3);
+}
+.guide-works-list li {
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding-left: var(--s4);
+  position: relative;
+}
+.guide-works-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-good);
+}
+
+.guide-foot {
+  display: flex;
+  gap: var(--s5);
+  padding-top: var(--s5);
+}
+.guide-foot-link {
+  color: var(--accent-2);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.guide-foot-link:hover { color: var(--ink); }
+
+@media (max-width: 720px) {
+  .guide-step { grid-template-columns: 1fr; }
+  .guide-step-link { grid-column: 1; grid-row: auto; justify-self: start; }
+  .guide-need-head { flex-direction: column; align-items: flex-start; gap: var(--s1); }
+}
+
+/* The empty-state door that the fleet graph and the comms board draw. It lives
+   here rather than in each view's sheet so the two cannot drift into looking
+   like two different products. */
+.host-absent {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  max-width: 64ch;
+}
+.host-absent-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.host-absent-body {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.host-absent-reason {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.host-absent-action {
+  margin-top: var(--s2);
+  color: var(--accent-2);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.host-absent-action:hover { color: var(--ink); }
+
+/* THE COMMS BOARD'S CHIP PREVIEW is a small scrolling box, so the same notice
+   has to sit down inside one without pushing the chip out of shape. The words do
+   not change; the measure and the leading do. */
+.comms .chip-preview .host-absent,
+.comms .chat-log .host-absent {
+  max-width: none;
+  gap: var(--s1);
+  padding: var(--s2) 0;
+}
+/* THE PREVIEW IS A TWO-COLUMN GRID whose first track is `max-content` -- it is a
+   name rail, so every message line's sender aligns down the pane. A block
+   dropped into it lands in that track and is sized to its longest line, which is
+   why the first version of this notice ran off the right edge behind a
+   horizontal scrollbar with the explanation half-read ("No agent host has
+   repo"). Span both tracks and allow the text to wrap. Caught by looking at a
+   screenshot; every text assertion in the driver passed while it was broken,
+   because the words WERE on the page. */
+.comms .chip-preview .host-absent {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.comms .chip-preview .host-absent > *,
+.comms .chat-log .host-absent > * {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.comms .chip-preview .host-absent-title { font-size: 13px; }
+.comms .chip-preview .host-absent-body,
+.comms .chat-log .host-absent-body { font-size: 12px; line-height: 1.55; }
+.comms .chip-preview .host-absent-reason,
+.comms .chat-log .host-absent-reason { font-size: 11.5px; }
+
+/* Inside the fleet graph's empty panel, which centres its children. */
+.computers .graph-empty .host-absent {
+  justify-items: center;
+  text-align: center;
+}
+/* And inside the graph's narrow stats rail, where the same notice has to fit a
+   sidebar rather than a page. */
+.computers .rail-sub .host-absent.is-compact { max-width: none; gap: 3px; }
+.computers .rail-sub .host-absent-title { font-size: 12.5px; }
+.computers .rail-sub .host-absent-body { font-size: 11.5px; line-height: 1.5; }
+.computers .rail-sub .host-absent-reason { font-size: 11px; }
+.computers .rail-sub .host-absent-action { font-size: 11.5px; margin-top: var(--s1); }
+
+/* Settings section notes sit under a title in a dense list, so the link runs on
+   after the sentence rather than sitting on its own line. */
+.settings-section-note {
+  margin: var(--s2) 0 var(--s4);
+  max-width: 72ch;
+}
+.settings-section-note .host-absent-action { margin-left: 6px; }
+
+/* THE FLOATING NOTICE IS SUPPRESSED ON THIS ROUTE, and the reason is the same
+   one that suppresses it on home, the agent page and the first-run walkthrough
+   (home.css:532, agent.css:87, setup.css:186). It reads "Some screens show
+   example data until you connect your own computers", which is a two-line
+   version of the paragraph this whole page exists to give properly -- and it
+   floats over the reading column while doing it. One sentence, twice, in one
+   viewport is the defect the home screen was rebuilt to stop.
+
+   `:not(.is-serious)` is load-bearing and is not a stylistic copy of the
+   neighbouring rules. A SERIOUS notice means the person's own saved profile
+   could not be loaded, which is a fact about their machine that this page has
+   no answer for and no right to hide. Three other rules in this product carry
+   the same qualifier for the same reason; the one that did not (settings.css:38)
+   is scoped to a modal drawer, where nothing may float at all. */
+body[data-route="guide"] .fleet-profile-notice:not(.is-serious) { display: none; }

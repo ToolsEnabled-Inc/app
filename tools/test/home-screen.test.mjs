@@ -162,12 +162,27 @@ const PEER_INPUTS = [
   ['reachable', { reachable: true, name: 'the studio machine', atMs: NOW - minutes(9) }],
 ]
 
+/* The last five carry `undelivered`: decisions the owner already made whose
+   answer came back refused after he had navigated off #/approvals (see
+   src/approval-outcomes.js). They are in the reachable matrix, not in a test of
+   their own, because that row has to satisfy the SAME rules as every other row
+   on this screen -- no contradiction, no near-duplicate, no fourth line under
+   the ring, and the plain register -- and a state that only a bespoke test ever
+   visits is a state those rules never actually policed. The absence cases are
+   here on purpose: a missing field, and a count that outruns the queue it is
+   supposed to be a subset of. */
 const APPROVAL_INPUTS = [
   ['not asked', null],
   ['unreadable', { readable: false, count: 0 }],
   ['none waiting', { readable: true, count: 0 }],
   ['one waiting', { readable: true, count: 1 }],
   ['several waiting', { readable: true, count: 5 }],
+  ['one waiting, its decision not recorded', { readable: true, count: 1, undelivered: 1 }],
+  ['several waiting, one decision not recorded', { readable: true, count: 5, undelivered: 1 }],
+  ['several waiting, three decisions not recorded', { readable: true, count: 5, undelivered: 3 }],
+  ['a failure count that outruns the queue', { readable: true, count: 1, undelivered: 4 }],
+  ['nothing waiting but a failure count left over', { readable: true, count: 0, undelivered: 2 }],
+  ['unreadable, with a failure count left over', { readable: false, count: 0, undelivered: 2 }],
 ]
 
 function everyReachableInput() {
@@ -727,4 +742,69 @@ test('home suppresses the floating notice that produced the contradictory pair',
     /body\[data-route="home"\][^{]*\.fleet-profile-notice\s*\{/,
     'but a serious one is never hidden, so the rule must carry :not(.is-serious)',
   )
+})
+
+/* ------------------------------------------------------------------
+   4. A state that says the product cannot do something leads somewhere.
+      (LEGACY-ONB-001)
+   ------------------------------------------------------------------ */
+
+/* THE MEASURED DEAD END, kept as a test. On a sterile profile the panel read
+ * "No agents have run here yet" over "When this copy can run agents, every run
+ * will show up here" and offered NO control -- on the exact screen where the
+ * person had just been told their computer cannot run one. The screen was
+ * correct and terminal, which is the shape of every part of this finding.
+ *
+ * The words are not what is asserted here; the DOOR is. Home is barred from
+ * carrying the explanation by the vocabulary and fact-cap rules above, both
+ * rightly, and that is exactly why it owes a way to the page that can. */
+test('a screen that cannot run agents offers a way to find out what it needs', () => {
+  const blocked = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions({ ok: true, total: 0, verified: true, entries: [] }),
+    engine: readAgentEngine({ ok: false, code: 'AGENT_CODEX_CLI_NOT_INSTALLED' }),
+    nowMs: NOW,
+  })
+  assert.equal(blocked.panel.empty.action?.href, '#/guide',
+    'the empty panel on a blocked machine leads nowhere')
+
+  /* The other two branches are unchanged and must stay that way: a ready engine
+     with sessions switched off is told where the switch is, and a ready engine
+     with sessions already on is told nothing, because a button repeating what
+     the person just did is clutter. */
+  const readySwitchOff = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions({ ok: true, total: 0, verified: true, entries: [] }),
+    engine: readAgentEngine({ ok: true }, false),
+    nowMs: NOW,
+  })
+  assert.equal(readySwitchOff.panel.empty.action?.href, '#/settings')
+  const readySwitchOn = describeHome({
+    fleetConfigured: false,
+    sessions: readLocalSessions({ ok: true, total: 0, verified: true, entries: [] }),
+    engine: readAgentEngine({ ok: true }, true),
+    nowMs: NOW,
+  })
+  assert.equal(readySwitchOn.panel.empty.action, null)
+})
+
+test('the sentence about other computers is a link, in every state where it is a dead end', () => {
+  /* "This is the only computer connected" and "Nothing has been heard from them
+     recently" were both terminal statements: true, unexplained, and with nowhere
+     to take them. The wording does not change -- it was right -- but the row
+     leads somewhere now. A reachable state that says one of these and carries no
+     href is the defect coming back. */
+  let checked = 0
+  for (const { label, input } of ALL) {
+    const { facts } = describeHome(input)
+    for (const fact of facts) {
+      if (fact.id !== 'peer') continue
+      if (!/only computer connected|nothing has been heard from them/i.test(fact.text)) continue
+      assert.equal(fact.href, '#/guide', `a terminal statement with no way out, with ${label}`)
+      checked += 1
+    }
+  }
+  /* A loop that matched nothing would pass silently, which is the same as not
+     having written it. */
+  assert.ok(checked > 0, 'the matrix never reached the state this test is about')
 })

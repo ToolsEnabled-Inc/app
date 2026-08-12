@@ -86,6 +86,36 @@
    for the same reason. */
 body[data-route="agent"] .fleet-profile-notice:not(.is-serious) { display: none; }
 
+/* THE LIVE PAGE HAS ONE MORE BOX AROUND IT THAN THE DEMONSTRATION DOES, AND
+   THAT BOX HAD NO HEIGHT.
+   `.agentv` is `height: 100%` and is designed as a bounded flex column whose
+   panels carry their own scrollers -- that is the whole mechanism the roster
+   bound below depends on. It works when `.agentv` is mounted straight into
+   `.view`, which is what the demonstration and `/example` routes do.
+   The LIVE route -- the one every customer is on -- does not: agentView()
+   returns a `.data-live-mode` wrapper first and swaps the built page into it
+   once the projection resolves, so `height: 100%` resolves against a parent
+   with an indefinite height, falls back to auto, and the column grows to its
+   content instead of to the window. `.view` is `overflow: hidden`, so the rest
+   of the page is not merely below the fold; it is cut off with nothing to
+   scroll.
+   MEASURED, on the packaged build, on a sterile profile, in a really-resized
+   window (tools/window-size-sweep-qa.mjs): at 1024x768 the lowest text on the
+   page -- "No session started from this app is running for this agent" -- sat
+   1019px below the bottom of the view, and twelve real mouse-wheel notches over
+   the middle of the window moved it 44px (an inner panel absorbing the wheel),
+   leaving it 975px out of reach. The same at all five swept widths: 1019px at
+   1024, 950 at 1280, 850 at 1440, 805 at 1600, 725 at 1920. It is a height
+   defect, so a wider window does not fix it.
+   The wrapper is created in src/views/agent.js, which is fenced to another lane
+   this wave, so the missing height is restored here rather than by giving that
+   element a class of its own. Scoped to the route so the same generic
+   `.data-live-mode` class on the comms page is untouched. */
+body[data-route="agent"] #stage > .view > .data-live-mode {
+  height: 100%;
+  min-height: 0;
+}
+
 /* ---------- the roster ---------- */
 /* THE ROSTER IS BOUNDED, and that is what keeps Chat and Controls on screen.
    `.agentv` is a fixed-height flex column, so an unbounded roster simply pushes

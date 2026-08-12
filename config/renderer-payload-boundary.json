@@ -44,7 +44,6 @@
     ],
     "paths": [
       "brand-icon.svg",
-      "durable-storage.js",
       "data/agents.json",
       "data/coordinator.json",
       "data/fleet.json",
@@ -53,8 +52,6 @@
       "data/ops.json",
       "data/research-queue.json",
       "data/research.json",
-      "data/status.json",
-      "data/subscription-catalog.json",
       "data/schema/agents.schema.json",
       "data/schema/coordinator.schema.json",
       "data/schema/fleet.schema.json",
@@ -66,14 +63,17 @@
       "data/schema/research.schema.json",
       "data/schema/status.schema.json",
       "data/schema/subscription-catalog.schema.json",
-
-      "preview/index.html",
-      "preview/preview.css",
-      "preview/main.js",
+      "data/status.json",
+      "data/subscription-catalog.json",
+      "durable-storage.js",
+      "help/getting-started.html",
+      "preview/exits.js",
       "preview/honesty.js",
+      "preview/index.html",
+      "preview/main.js",
+      "preview/preview.css",
       "preview/sim-data.js",
-      "preview/surfaces.js",
-      "preview/exits.js"
+      "preview/surfaces.js"
     ],
     "$commentPreview": [
       "preview/* is the website's embedded product simulation (R1268 lane W1). It is a",

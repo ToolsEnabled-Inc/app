@@ -2566,3 +2566,74 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
   right: 346px;
   width: auto;
 }
+
+/* ============================================================================
+   WINDOWS HIGH CONTRAST (forced colors), and specifically the ONE indicator a
+   keyboard user has.
+
+   THE DEFECT, MEASURED, not reasoned about. This design system draws focus as a
+   box-shadow with `outline: none` beside it -- the shared recipe above, the
+   `.seg > button` recipe, the theme seg, the computers tabs. In forced-colors
+   mode the user agent DISCARDS box-shadow entirely (CSS Color Adjust 1: box
+   shadows are not repainted in a forced-colors palette), so that pairing does
+   not dim there, it disappears. Driven with real Tab presses on the packaged
+   build under `forced-colors: active` (tools/a11y-keyboard-qa.mjs): all four
+   controls of the first-run permission question, and seven of the controls on
+   the agent surface, computed to outline-style `none` and box-shadow `none`
+   with `:focus-visible` true. A person in High Contrast tabbing through the
+   walkthrough could not see where they were, at any step.
+
+   `!important` IS REQUIRED HERE AND IS NOT A SHORTCUT. The rules being
+   corrected are `.ctl-btn:focus-visible`, `.seg > button:focus-visible` and
+   friends -- one class plus a pseudo-class each -- so no bare `:focus-visible`
+   rule can outrank them, and a media query adds no specificity. Restating every
+   one of those selectors here would mean a new focus recipe ANYWHERE silently
+   opting itself out of high contrast; this cannot be opted out of.
+
+   THE SYSTEM COLOURS ARE THE POINT. `Highlight` is the palette the person
+   themselves chose, so the ring is guaranteed to contrast with their own
+   background rather than with the one we assumed.
+   ========================================================================= */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+
+  /* WHICH ANSWER IS CHOSEN, when colour can no longer say so.
+     Selection in this set is drawn with a background: the seg's sliding sheet,
+     the tab's tinted fill, the choice row's left rule. Forced colors flattens
+     every one of those to the same system pair, so all three options of the
+     first-run question read as unselected -- measured: the chosen tier button
+     had no outline, no underline and no border in forced colors, and
+     `aria-pressed` was the only remaining difference, which is a promise to a
+     screen reader and nothing at all to a person who can see. An underline is
+     text decoration, so it survives the palette and costs no layout. */
+  .seg > button.on,
+  .seg > button[aria-pressed='true'],
+  .theme-seg button.on,
+  .tab.active,
+  .computers .tab.active {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
+  /* The sliding indicator is a painted sheet with no text and no border; in
+     forced colors it is an invisible box that still animates. The underline
+     above carries its meaning, so it is stood down rather than left as a lie. */
+  .seg-ind { display: none; }
+
+  /* The first-run choice rows mark the current option with a 2px left rule and
+     leave `transparent` on the others. That does NOT survive here: photographed
+     under emulated forced colors, all four blocks on the permission question
+     carried an identical black rule, because the palette is applied to the
+     transparent border too. So the mark is re-made with something forced colors
+     cannot flatten -- a rule of the person's own highlight colour, and a box
+     around the row that the unselected rows do not have. */
+  .setup-choice[aria-current='true'] {
+    border-left-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}

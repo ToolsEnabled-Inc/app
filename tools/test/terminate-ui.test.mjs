@@ -174,7 +174,11 @@ test('mismatched and incomplete receipts are rejected and retry reuses the same 
     await value.click()
     await value.click()
     assert.equal(value.getState().phase, 'retry')
-    assert.match(value.getState().message, /BRIDGE_TERMINATE_RECEIPT_INVALID/)
+    /* [B6] was `assert.match(..., /BRIDGE_TERMINATE_RECEIPT_INVALID/)` -- the
+       identifier is now on the state rather than in the sentence. */
+    assert.equal(value.getState().code, 'BRIDGE_TERMINATE_RECEIPT_INVALID')
+    assert.doesNotMatch(value.getState().message, /[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/,
+      `a bare identifier reached the terminate control: ${value.getState().message}`)
     assert.match(value.getState().message, /No stop has been confirmed/)
     assert.equal(keys, 1)
 
@@ -219,8 +223,15 @@ test('typed bridge refusal is visible and stale target is not retryable', async 
   await value.click()
   assert.equal(value.getState().phase, 'refused')
   assert.equal(value.getState().enabled, false)
-  assert.match(value.getState().message, /BRIDGE_TERMINATE_STALE_PID/)
+  /* [B6] The refusal is still TYPED -- that is what this test is named for --
+     it is just typed on the state object instead of in the person's sentence. */
+  assert.equal(value.getState().code, 'BRIDGE_TERMINATE_STALE_PID')
+  assert.doesNotMatch(value.getState().message, /[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/,
+    `a bare identifier reached the terminate control: ${value.getState().message}`)
+  assert.match(value.getState().message, /The target PID no longer matches the fenced request/,
+    'the engine’s own sentence must survive verbatim')
   assert.match(value.getState().message, /No stop has been confirmed/)
+  assert.match(value.getState().message, /Refresh this page/, 'a refusal must say what to do next')
   assert.equal(states.at(-1).message, value.getState().message)
 })
 

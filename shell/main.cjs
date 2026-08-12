@@ -63,6 +63,7 @@ const {
 const { createRendererPrefs } = require('./renderer-prefs.cjs')
 const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
 const { RETENTION_PREF_KEY, syncRecordedChoice } = require('./uninstall-retention.cjs')
+const { planReset, eraseLocalData } = require('./local-data-reset.cjs')
 
 const fatalStartup = createFatalStartupHandler({
   app,
@@ -816,7 +817,17 @@ function readState() {
     return {}
   }
 }
+/* SET ONCE, BY THE RESET CHANNEL, AND NEVER CLEARED.
+ *
+ * After a person has removed this computer's data, this process must stop
+ * writing into the directory it just emptied. Closing the window normally saves
+ * its position there, which would recreate the folder and leave a file in it --
+ * so the screen's "it is gone" would be false within a second of being read,
+ * and the person would find the folder still there. See `mc-reset:erase`. */
+let localDataErased = false
+
 function writeState(patch) {
+  if (localDataErased) return
   try {
     fs.writeFileSync(STATE_FILE(), JSON.stringify({ ...readState(), ...patch }))
   } catch { /* state is comfort, not correctness */ }
@@ -1597,6 +1608,10 @@ ipcMain.on('mc-prefs:bootstrap', (event) => {
 
 ipcMain.on('mc-prefs:drain', (event, request) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('migration'); return }
+  /* The same fence as the three writers below, and it belongs here too: a
+     migration is a write, and a browser copy rescued into a directory the person
+     just emptied would put their old settings back. */
+  if (localDataErased) { event.returnValue = prefsErasedRefusal('migration'); return }
   const drained = rendererPrefs.drain(shellOrigin, request && request.entries)
   if (!drained.ok) { event.returnValue = drained; return }
   event.returnValue = {
@@ -1646,20 +1661,35 @@ function mirrorUninstallRetentionIfRelevant(key) {
   mirrorUninstallRetention()
 }
 
+/* WRITING A SETTING BACK INTO A DIRECTORY SOMEBODY JUST EMPTIED.
+ *
+ * Every one of these writes recreates userData and puts a file in it. After
+ * `mc-reset:erase` the page is still alive -- it has to be, to show what
+ * happened -- and an ordinary repaint that touches the theme would restore
+ * renderer-prefs.json under a screen saying the data is gone. Refused with a
+ * sentence rather than silently dropped, so a caller can tell the difference
+ * between "saved" and "we are not writing here any more". */
+function prefsErasedRefusal(what) {
+  return { ok: false, error: { code: 'MC_PREFS_DATA_ERASED', message: `Settings ${what} is refused: this computer’s data was removed, and nothing is written back into that folder.` } }
+}
+
 ipcMain.on('mc-prefs:write', (event, request) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('save'); return }
+  if (localDataErased) { event.returnValue = prefsErasedRefusal('save'); return }
   event.returnValue = rendererPrefs.set(request && request.key, request && request.value)
   mirrorUninstallRetentionIfRelevant(request && request.key)
 })
 
 ipcMain.on('mc-prefs:remove', (event, request) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('removal'); return }
+  if (localDataErased) { event.returnValue = prefsErasedRefusal('removal'); return }
   event.returnValue = rendererPrefs.remove(request && request.key)
   mirrorUninstallRetentionIfRelevant(request && request.key)
 })
 
 ipcMain.on('mc-prefs:clear', (event) => {
   if (!trustedFleetProfileSender(event)) { event.returnValue = prefsRefusal('reset'); return }
+  if (localDataErased) { event.returnValue = prefsErasedRefusal('reset'); return }
   event.returnValue = rendererPrefs.clear()
   /* A reset clears the choice along with everything else, so the mirror runs
      unconditionally rather than on a key comparison there is no longer a key
@@ -2116,6 +2146,124 @@ ipcMain.handle('mc-account:google-cancel', event =>
     try { googleSignInAttempt.cancel() } catch { /* already finished */ }
     googleSignInAttempt = null
     return { ok: true, cancelled: true }
+  }))
+
+/**
+ * The two directories this installation owns, and the folders it must not touch.
+ *
+ * THE INSTALLATION ROOT IS ASKED FOR, NEVER DERIVED HERE. `%LOCALAPPDATA%\ToolsEnabled`
+ * is the payload's answer (src/lib/setup/machine-record.js resolveServicesRoot),
+ * and shell/agent-org-record.cjs already states the rule this follows: the shell
+ * does not get a second opinion about where an installation lives. A copy with
+ * no payload therefore reports that root as UNKNOWN rather than guessing at it,
+ * and the screen says it was not removed -- an unmeasured folder reported as
+ * deleted is the failure mode this whole lane exists to prevent.
+ *
+ * `require` is local rather than at the top of the file because this is the only
+ * caller, and because loading a payload module at startup for a screen almost
+ * nobody opens would put a disk read on every launch.
+ */
+function localDataResetPlan() {
+  let servicesRoot = null
+  try {
+    const modules = require('./setup-record.cjs').loadSetupModules()
+    if (modules.ok) servicesRoot = modules.machineRecord.resolveServicesRoot({})
+  } catch { servicesRoot = null }
+
+  let workspaceRoots = []
+  try {
+    const workspace = readWorkspaceState()
+    if (Array.isArray(workspace?.roots)) workspaceRoots = workspace.roots.slice()
+  } catch { workspaceRoots = [] }
+
+  return planReset({
+    userDataDir: app.getPath('userData'),
+    servicesRoot,
+    workspaceRoots,
+    /* Where the program itself is installed. Named so the screen can say the
+       program is still there and how to remove it, and never swept. */
+    installDir: app.isPackaged && typeof process.resourcesPath === 'string'
+      ? path.dirname(process.resourcesPath)
+      : null,
+  })
+}
+
+/* ---------- removing this product's data, from inside this product ----------
+ *
+ * WHY THIS IS HERE AND NOT IN THE PAGE. A renderer can clear its own settings
+ * and nothing else. The credential vault, the signed audit ledger, the accounts
+ * file, the sealed session and the permission-level record are all outside the
+ * page's reach by design -- that is most of the point of the account boundary
+ * above. So "delete my data" is either a main-process act or it is a button
+ * that lies about what it did.
+ *
+ * TWO CHANNELS, NOT ONE, AND THE ORDER IS THE SAFETY. `plan` only measures; it
+ * is what the screen shows before anything is destroyed. `erase` is the act.
+ * A single channel that measured and deleted in one call would mean the first
+ * press was the destructive one, and there would be no moment at which the
+ * person had seen what they were about to lose.
+ *
+ * WHAT ERASE DOES FIRST, AND WHY THAT ORDER. The sign-in is revoked EVERYWHERE
+ * before a byte is deleted, because deleting the accounts file alone leaves any
+ * copy of the sealed session taken earlier still replayable -- deleting a lock
+ * is not the same as changing it. Advancing the epoch is what actually ends
+ * those sessions (shell/product-account.cjs), and it has to happen while the
+ * file still exists. Then the capability layer is stopped, because it is a
+ * child process holding the ledger's sqlite handles open and a file Windows
+ * holds open is a file that does not get deleted.
+ *
+ * NOTHING HERE REPORTS SUCCESS IT DID NOT MEASURE. The reply is the per-entry
+ * outcome from shell/local-data-reset.cjs, which re-stats every entry after
+ * removing it. */
+ipcMain.handle('mc-reset:plan', event =>
+  withFleetProfileSender(event, () => localDataResetPlan()))
+
+ipcMain.handle('mc-reset:erase', event =>
+  withFleetProfileSender(event, async () => {
+    const plan = localDataResetPlan()
+
+    /* Revoked before anything is deleted. A refusal is reported rather than
+       thrown: a damaged accounts file must not be able to stop a person
+       removing their data, and the screen says which half happened. */
+    let revoked = { ok: false, reason: 'The sign-in could not be ended.' }
+    try { revoked = getAccountStore().signOutEverywhere() } catch (error) {
+      revoked = { ok: false, reason: error?.message || 'The sign-in could not be ended.' }
+    }
+
+    /* The layer holds the ledger and the vault open. It is stopped here rather
+       than at quit, because quit is after the deletion. */
+    const child = capabilityLayer?.child || capabilityLayerChild
+    capabilityLayer = null
+    capabilityLayerChild = null
+    capabilityLayerStarting = null
+    capabilityLayerStatus = { ok: false, code: 'CAPABILITY_STOPPED_FOR_RESET', reason: 'The capability layer was stopped so this computer’s data could be removed.' }
+    try { child?.kill() } catch { /* the awaited stop escalates */ }
+    try { await stopCapabilityLayer(child) } catch { /* a layer that never started needs no stop */ }
+
+    /* ONLY WHAT THE MEASUREMENT FOUND, AND ONLY WHAT THIS BUILD WOULD LOOK AT.
+       A root the module refused to guard, or one that is not there, is not swept
+       -- and the screen has already said so about each of them by name. */
+    const sweepRoots = plan.roots.filter(root => root.guarded === true && root.present === true)
+
+    /* NO FURTHER SHELL STATE IS WRITTEN FROM HERE, and the flag is set BEFORE
+       the sweep rather than after it. Sweeping two directory trees takes a
+       second or two, the window is still alive and painting throughout, and a
+       theme write landing in that gap would recreate the directory mid-removal.
+       It is set only when there is something to sweep: flipping it on a run that
+       deleted nothing would silently stop saving a person's settings for the
+       rest of the session. */
+    if (sweepRoots.length > 0) localDataErased = true
+
+    const swept = eraseLocalData({
+      roots: sweepRoots,
+      /* The person's own data first, the browser's scratch last. See the note
+         on `priority` in shell/local-data-reset.cjs. */
+      priority: ['capability', 'product-accounts.json', 'product-session.enc', 'agent-spawn-key.enc',
+        'agent-spawn-records.jsonl', 'purchase-catalog.json', 'fleet-profile.json', 'renderer-prefs.json',
+        'uninstall-data-policy.txt', 'workspace', 'Local Storage', 'shell-state.json'],
+    })
+
+    return { ok: true, plan, revoked: { ok: revoked.ok === true, revokedSessions: revoked.revoked === true }, swept }
   }))
 
 /* Two ways to get the bootstrap proof, and the order matters.

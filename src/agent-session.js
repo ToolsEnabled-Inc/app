@@ -68,6 +68,10 @@ const CONFINEMENT_PENDING = 'Checking what a session here would be allowed to do
 
 const BRIDGE_ABSENT = 'the desktop shell is required; this surface is inert in a browser'
 
+/* One per mounted session surface, so the status row's id stays unique while a
+   rebuilt agent page and its predecessor are both briefly in the document. */
+let sessionSurfaces = 0
+
 function actionState(node, kind, text) {
   node.dataset.state = kind
   node.textContent = text
@@ -235,14 +239,34 @@ function mountSessionControls(root, {
    * to, which is why Pause, Respawn and Terminate could only ever refuse. The
    * association is recorded at the one moment it is certain: a person pressing
    * Start on a named agent's page. See src/agent-session-registry.js. */
+  /* THE STATUS ROW IS THE START BUTTON'S OWN DESCRIPTION, not merely a sentence
+   * near it.
+   *
+   * The row already carries every reason this control can be refused --
+   * "unavailable · Codex is installed on this computer but nobody is signed in
+   * to it...", the bridge-absent line, the confinement refusals -- and the
+   * comment below is right that a disabled control with a reason beats an
+   * enabled one with a warning beside it. But the association was VISUAL only.
+   * Measured with Tab on the packaged build from a sterile profile: a disabled
+   * button is not in the tab order at all, so a keyboard-only person walks the
+   * whole agent page (17 stops) and never meets Start, and a screen reader that
+   * does reach it in scan mode was told "Start, button, dimmed" with the reason
+   * an unrelated sentence somewhere above.
+   *
+   * aria-describedby ties the two together, so the reason is read out AS PART OF
+   * the control, in every mode, without a second copy of the sentence existing.
+   * The id is per-mount: the agent page can be rebuilt while an old copy is
+   * still on screen, and two elements sharing one id is an ambiguous reference
+   * exactly when it matters. */
+  const statusId = `agent-session-status-${sessionSurfaces += 1}`
   const surface = el(`<section class="write-surface agent-session-surface" aria-label="Agent session">
-    <header><strong>Agent session</strong><span data-session-status role="status">checking…</span></header>
+    <header><strong>Agent session</strong><span data-session-status id="${statusId}" role="status">checking…</span></header>
     <div class="write-surface-grid">
       <form class="write-form" data-session-form>
         <span class="write-form-title">Start an agent</span>
         <label class="write-wide">Prompt<textarea name="text" maxlength="16000" rows="2" required></textarea></label>
-        <button type="submit" data-session-start disabled>Start</button>
-        <button type="button" data-session-stop disabled>Stop</button>
+        <button type="submit" data-session-start aria-describedby="${statusId}" disabled>Start</button>
+        <button type="button" data-session-stop aria-describedby="${statusId}" disabled>Stop</button>
         <!-- THE SIGN-IN PRECONDITION IS NOT RESTATED HERE, and that is a
              decision rather than an omission. This lane built a second notice
              for it, and while it was being built a peer lane repaired the

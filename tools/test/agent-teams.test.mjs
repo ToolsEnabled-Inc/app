@@ -249,7 +249,13 @@ test('a refused member does not abort the team, and is named with its reason', a
   const luna = state.members.find(member => member.tier === 'luna')
   const terra = state.members.find(member => member.tier === 'terra')
   assert.equal(luna.phase, 'refused')
-  assert.match(luna.detail, /BRIDGE_AGENT_LANE_COLLISION/)
+  /* [B6] was `assert.match(luna.detail, /BRIDGE_AGENT_LANE_COLLISION/)`, which
+     required the identifier to be in the text a person reads. It is now on the
+     member record, and the row reads as a sentence with a remedy. */
+  assert.equal(luna.code, 'BRIDGE_AGENT_LANE_COLLISION', 'the refusal must still be identifiable')
+  assert.doesNotMatch(luna.detail, /[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/, `a bare identifier reached the member row: ${luna.detail}`)
+  assert.match(luna.detail, /already has a living presence record/, 'the engine’s own sentence must survive verbatim')
+  assert.match(luna.detail, /Stop the one that is running|pick a different agent/i, 'a refused member must be told what to do')
   assert.equal(terra.phase, 'started', 'a refused member must not stop the members after it')
   assert.equal(state.phase, 'partial')
 })
@@ -282,8 +288,10 @@ test('a shaped success with an unverifiable receipt is its own outcome, never "r
   })
   const state = await controller.run()
   const luna = state.members.find(member => member.tier === 'luna')
-  assert.match(luna.detail, /BRIDGE_DISPATCH_RECEIPT_INVALID/)
-  assert.match(luna.detail, /may be running/,
+  /* [B6] was `assert.match(luna.detail, /BRIDGE_DISPATCH_RECEIPT_INVALID/)`. */
+  assert.equal(luna.code, 'BRIDGE_DISPATCH_RECEIPT_INVALID', 'the refusal must still be identifiable')
+  assert.doesNotMatch(luna.detail, /[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/, `a bare identifier reached the member row: ${luna.detail}`)
+  assert.match(luna.detail, /may already be running/,
     'a lane that may be running must not be reported as refused; dispatch has no idempotency key and a retry would start a second one')
 })
 

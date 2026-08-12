@@ -457,7 +457,15 @@ test('a shaped success with an unverifiable receipt is its own code, never a sil
   await controller.start()
   const first = controller.getState().runs.find(run => run.index === 1)
   assert.equal(first.phase, 'refused')
-  assert.match(first.detail, /BRIDGE_DISPATCH_RECEIPT_INVALID/)
+  /* [B6] THIS ASSERTION USED TO BE `assert.match(first.detail, /BRIDGE_DISPATCH_RECEIPT_INVALID/)`
+     -- it required the bare identifier to be in the text a person reads, which
+     is the defect B6 was sent to remove. The identifier has not been dropped;
+     it moved to the machine field, and the assertion moved with it. The
+     REPLACEMENT is stronger than the original: it pins the code exactly rather
+     than by substring, AND holds the copy rule the original could not see. */
+  assert.equal(first.code, 'BRIDGE_DISPATCH_RECEIPT_INVALID', 'the refusal must still be identifiable')
+  assert.doesNotMatch(first.detail, /[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/, `a bare identifier reached the run row: ${first.detail}`)
+  assert.match(first.detail, /may already be running/i, 'the row must say the lane may be running rather than inviting a retry')
   assert.equal(controller.getState().started, 0, 'an unverifiable receipt must not count as a started run')
 })
 
@@ -549,7 +557,12 @@ test('an unverified terminate is reported as NOT stopped, and still names the re
   const state = controller.getState()
   assert.equal(state.stopReport.terminated, false, 'an unverified terminate must never read as a stop')
   assert.match(state.message, /NOT confirmed stopped/)
-  assert.match(state.message, /BRIDGE_TERMINATE_STALE_PID/)
+  /* [B6] was `assert.match(state.message, /BRIDGE_TERMINATE_STALE_PID/)`. The
+     code is still reported, on stopReport where it belongs; what a person reads
+     is the engine's sentence and the remaining bound. */
+  assert.equal(state.stopReport.code, 'BRIDGE_TERMINATE_STALE_PID', 'the refusal must still be identifiable')
+  assert.doesNotMatch(state.message, /[A-Z][A-Z0-9]*(_[A-Z0-9]+)+/, `a bare identifier reached the stop message: ${state.message}`)
+  assert.match(state.message, /pid moved on/, 'the engine’s own sentence must survive verbatim')
   /* The schedule still stopped, which is the promise that CAN always be kept. */
   assert.equal(state.stopReport.scheduleStopped, true)
 })

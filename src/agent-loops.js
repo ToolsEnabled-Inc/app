@@ -90,6 +90,16 @@
 
 import { LAUNCH_TIERS, CAP_BOUNDS } from './orchestration-controls.js'
 import { TIER_AGENT_IDENTITY } from './agent-teams.js'
+/* [B6] A refused run used to be reported as `${code}: ${reason}`. The code now
+   travels on the run record and the row reads as a sentence. */
+import { refusalSentence } from './refusal-copy.js'
+import {
+  WRITE_OUTCOME_KEYS,
+  clearUndeliveredWrite,
+  recordUndeliveredWrite,
+  restatedMessage,
+  undeliveredWrite,
+} from './write-outcomes.js'
 
 /* Mirrors capability/src/lib/controller-launch-record.js:50-51.
    `maxIterations` is deliberately EQUAL to maxFanOut rather than maxFanOut + 1
@@ -116,7 +126,7 @@ export const LOOP_OVERRUN = Object.freeze({
 /** The run cap, restated here only to name the bound and its address. */
 export const LOOP_RUN_CAP = Object.freeze({
   sentence: "Each run stops at its own cap, and the cap kills that run's whole process tree.",
-  evidence: 'capability/src/lib/mission-bridge/agent-lane-dispatch.js:273',
+  evidence: 'capability/src/lib/mission-bridge/agent-lane-dispatch.js:272',
 })
 
 /* Same absent-is-not-zero rule as clampCapMs in ./orchestration-controls.js:113.
@@ -192,8 +202,11 @@ export function verifiedLoopReceipt(result, expectedTier) {
     && /^[a-f0-9]{64}$/.test(String(receipt.auditEventHash || ''))
 }
 
-function runState(index, phase, detail, receipt = null) {
-  return Object.freeze({ index, phase, detail, receipt })
+/* `code` is the identifier a support conversation needs and a reader does not.
+   It defaults to null, never '', so "there is no code" cannot be mistaken for
+   "the code is blank" by anything that tests truthiness on it. */
+function runState(index, phase, detail, receipt = null, code = null) {
+  return Object.freeze({ index, phase, detail, receipt, code })
 }
 
 /**
@@ -223,6 +236,7 @@ export function createLoopController({
   let timerHandle = null
   let anchorLaunchId = null
   let attempts = 0
+  const missedStop = undeliveredWrite(WRITE_OUTCOME_KEYS.LOOP_STOP)
 
   let state = Object.freeze({
     phase: plan?.runnable ? 'idle' : 'unavailable',
@@ -237,9 +251,17 @@ export function createLoopController({
     anchorLaunchId: null,
     runs: Object.freeze([]),
     stopReport: null,
-    message: plan?.runnable
-      ? `Run ${plan.tier} ${plan.iterations} times, every ${Math.round(plan.intervalMs / 60_000)} minutes. ${plan.overrun.sentence}`
-      : (plan?.problems || ['No loop is configured.']).join(' '),
+    /* A STOP THIS PANEL ALREADY SENT AND NEVER GOT TO REPORT. `stop()` sends a
+       terminate against a real PID; its receipt is the only thing that separates
+       "the run is gone, with its process tree" from "it was NOT confirmed
+       stopped". Both used to vanish together when the view was retired mid-call,
+       and vanishing reads as the reassuring one. Filed in ./write-outcomes.js
+       before the destroyed check, restated here on the next mount. */
+    message: missedStop
+      ? restatedMessage(missedStop)
+      : (plan?.runnable
+        ? `Run ${plan.tier} ${plan.iterations} times, every ${Math.round(plan.intervalMs / 60_000)} minutes. ${plan.overrun.sentence}`
+        : (plan?.problems || ['No loop is configured.']).join(' ')),
   })
 
   const publish = next => {
@@ -249,6 +271,20 @@ export function createLoopController({
   publish(state)
 
   const patch = fields => publish(Object.freeze({ ...state, ...fields }))
+
+  /* Every settled branch of a stop that ACTUALLY SENT A TERMINATE goes through
+     here. It always updates this controller's state, paints only when a panel is
+     listening, and when there is none it files the sentence where the next mount
+     of this panel will restate it. The branches that send nothing (no run in
+     flight, no idempotency key) do not come through here: nothing happened, so
+     there is no outcome to carry. */
+  const settleStop = (stopReport, tone, message) => {
+    patch({ phase: 'stopped', enabled: true, stoppable: false, stopReport, message })
+    if (destroyed) recordUndeliveredWrite(WRITE_OUTCOME_KEYS.LOOP_STOP, { tone, message })
+    else clearUndeliveredWrite(WRITE_OUTCOME_KEYS.LOOP_STOP)
+    return state
+  }
+
   const appendRun = next => Object.freeze([...state.runs, next])
   const replaceRun = (index, next) => Object.freeze(
     state.runs.map(run => (run.index === index ? next : run)),
@@ -280,8 +316,12 @@ export function createLoopController({
       ok: false,
       skipped: false,
       code: shapedSuccess ? 'BRIDGE_DISPATCH_RECEIPT_INVALID' : (result?.code || 'BRIDGE_REQUEST_FAILED'),
+      /* [B6] This used to carry its own remedy ("check the fleet before
+         starting the loop again"), because nothing downstream supplied one.
+         The table now does, in stronger words, and leaving both in printed the
+         same instruction twice in one line. This is the DIAGNOSIS only. */
       reason: shapedSuccess
-        ? 'The dispatch response was incomplete or named a different tier. This run may be going; check the fleet before starting the loop again.'
+        ? 'The dispatch response was incomplete or named a different tier.'
         : (result?.reason || 'The dispatch was refused with no receipt.'),
     }
   }
@@ -322,7 +362,16 @@ export function createLoopController({
       })
     } else {
       patch({
-        runs: replaceRun(index, runState(index, 'refused', `${result.code}: ${result.reason}`)),
+        runs: replaceRun(index, runState(index, 'refused',
+          /* The table's remedy is NOT overridden here, and that is deliberate:
+             for BRIDGE_DISPATCH_RECEIPT_INVALID it says "this may already be
+             running, do not start another", which is the one instruction a
+             loop must not overwrite. The loop's own fact is added AFTER it, as
+             a fact rather than a second instruction -- a reader who has just
+             been told not to start another needs to know that this panel will,
+             on its own, at the next interval. */
+          `${refusalSentence(result, { fallback: 'The dispatch was refused with no receipt.' })} Run ${index} did not start; runs already started are unaffected, and this loop tries again at its next interval unless you press Stop.`,
+          null, result.code || null)),
       })
     }
 
@@ -421,7 +470,9 @@ export function createLoopController({
       let result
       try { result = await postAction('terminate', body) }
       catch (error) { result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'terminate request failed' } }
-      if (destroyed) return state
+      /* NO `if (destroyed) return` ABOVE THIS LINE. A terminate has been sent at
+         a real PID. Whether this panel still exists decides where the answer is
+         written, never whether there is an answer. */
 
       const receipt = result?.receipt
       const verified = result?.ok === true
@@ -434,25 +485,26 @@ export function createLoopController({
         && receipt.verifiedGone === true
 
       if (verified) {
-        patch({
-          phase: 'stopped',
-          enabled: true,
-          stoppable: false,
-          stopReport: Object.freeze({ scheduleStopped: true, terminated: true, code: null, pid: receipt.pid, runId: receipt.runId }),
-          message: `${scheduleStopped} Run ${receipt.runId} is ${receipt.terminalStatus} and PID ${receipt.pid} is gone, with its process tree.`,
-        })
-        return state
+        return settleStop(
+          Object.freeze({ scheduleStopped: true, terminated: true, code: null, pid: receipt.pid, runId: receipt.runId }),
+          'confirmed',
+          `${scheduleStopped} Run ${receipt.runId} is ${receipt.terminalStatus} and PID ${receipt.pid} is gone, with its process tree.`,
+        )
       }
 
       const code = result?.ok === true ? 'BRIDGE_TERMINATE_RECEIPT_INVALID' : (result?.code || 'BRIDGE_REQUEST_FAILED')
-      patch({
-        phase: 'stopped',
-        enabled: true,
-        stoppable: false,
-        stopReport: Object.freeze({ scheduleStopped: true, terminated: false, code }),
-        message: `${scheduleStopped} Run ${target.runId} was NOT confirmed stopped (${code}). It is still bounded: ${LOOP_RUN_CAP.sentence}`,
-      })
-      return state
+      return settleStop(
+        Object.freeze({ scheduleStopped: true, terminated: false, code }),
+        'refused',
+        /* [B6] `(${code})` used to sit in the middle of this sentence. The cap
+           sentence is passed as the REMEDY rather than appended, because it is
+           the answer to "so what do I do" here: a run this panel could not
+           confirm stopped is still bounded by something that will stop it. */
+        `${scheduleStopped} Run ${target.runId} was NOT confirmed stopped. ${refusalSentence({ code, reason: result?.reason }, {
+          fallback: 'The stop request came back without a receipt this panel could verify.',
+          remedy: `Look at the fleet page to see whether it is still running before pressing stop again. It is bounded either way: ${LOOP_RUN_CAP.sentence}`,
+        })}`,
+      )
     },
   })
 }

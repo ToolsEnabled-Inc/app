@@ -31,6 +31,10 @@ import { pick, ROLES } from '../vocab.js'
 import { FLEET } from '../fleet-profile.js'
 import { isLiveView } from '../live-flags.js'
 import { fetchOps } from '../live-status.js'
+/* The shared empty-state notice — see projectionUnavailableEl below for why this
+   board does not write its own. src/guide.css carries the two placements this
+   page needs (`.comms .chip-preview .host-absent`, `.comms .chat-log .host-absent`). */
+import { hostAbsentMarkup } from '../first-run-needs.js'
 import '../comms.css'
 
 const H = 3600e3
@@ -362,7 +366,40 @@ function msgEl(m, fresh = false) {
 }
 
 const dividerEl = (dk) => el(`<div class="day-div"><span>${dayLabel(dk)}</span></div>`)
-const projectionUnavailableEl = (reason) => el(`<div class="projection-unavailable" data-projection-unavailable="true">unavailable — ${esc(reason)}</div>`)
+
+/* The sentence this board shows while the read is still IN FLIGHT. It is named
+   because two places set it and one place below has to recognise it: a read
+   that has not answered yet is not a machine with no agent host, and the two
+   states must not print the same notice. */
+const LIVE_COMMS_LOADING = 'still reading the live comms data'
+
+/* WHAT AN EMPTY BOARD SAYS, and why the words are not this file's.
+ *
+ * This branch is the shipping state — `dist/data/*.json` are build-time outputs
+ * and no process on a customer machine writes them — and the whole of what it
+ * used to say was "unavailable — No local agent fleet host detected on this
+ * machine." True, and not an explanation: it names a mechanism the reader has
+ * never heard of and offers no door. src/first-run-needs.js owns that
+ * explanation now, and home, the fleet graph and Settings read the same module,
+ * so one condition is described once rather than four ways.
+ *
+ * THE LOADING CASE KEEPS THE TERSE LINE ON PURPOSE. "Nothing is reporting to
+ * this copy yet" is a claim about the person's machine; while the read is still
+ * going nobody knows that yet, and printing it early would be a wrong answer
+ * that silently corrects itself — which reads as the product changing its mind.
+ * An unanswered read is not an absent host.
+ *
+ * A MISSING reason falls to the full notice, not to the terse line: "we could
+ * not read it and cannot say why" is exactly when a person is most lost, so
+ * absence removes only the quoted sentence, never the explanation or the door. */
+const projectionUnavailableEl = (reason) => {
+  if (reason === LIVE_COMMS_LOADING) {
+    return el(`<div class="projection-unavailable" data-projection-unavailable="true">unavailable — ${esc(reason)}</div>`)
+  }
+  const node = el(hostAbsentMarkup(reason, { compact: true }))
+  node.dataset.projectionUnavailable = 'true'
+  return node
+}
 const projectionNoticeEl = (note) => el(`<div class="projection-state" data-projection-state="true">${esc(note)}</div>`)
 
 function liveMsgEl(m) {
@@ -467,9 +504,9 @@ export function commsView() {
   const history = liveMode ? {} : seedHistory()
   const compose = liveMode ? null : makeComposer()
   let channelDefs = liveMode
-    ? [{ id: 'ops-projection', name: 'live comms', key: 'ops', mach: 'live', topic: 'Reading this computer’s live comms data.', unavailable: 'still reading the live comms data' }]
+    ? [{ id: 'ops-projection', name: 'live comms', key: 'ops', mach: 'live', topic: 'Reading this computer’s live comms data.', unavailable: LIVE_COMMS_LOADING }]
     : CHANNELS
-  let liveMessagesReason = liveMode ? 'still reading the live comms data' : null
+  let liveMessagesReason = liveMode ? LIVE_COMMS_LOADING : null
   let destroyed = false
   /* The opening channel used to be the id 'directive', which only existed
      because the channel list was a literal in this file. A profile names its

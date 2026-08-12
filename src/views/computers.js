@@ -25,6 +25,18 @@ import { planNodeChatbox, channelCaption, onChatboxSettingsChanged } from '../no
    are hidden" would let page 1 and page 2 describe the same setting
    differently. src/local-activity.js is the shared owner of both. */
 import { COPY, readLocalSessions } from '../local-activity.js'
+/* THE EMPTY-STATE NOTICE AND ITS DOOR, borrowed for the same reason COPY above
+   is. This page's empty state is the state EVERY fresh install opens on, and
+   home, the comms board and Settings are all saying something about the same
+   absent agent host at the same time. A second wording here would let four
+   screens describe one condition four ways, and the person who reads two of
+   them would have to work out whether they are the same problem.
+   src/first-run-needs.js owns the sentences; src/guide.css styles this page's
+   copy of them (`.computers .graph-empty .host-absent`). */
+import { GUIDE_ACTION, hostAbsentMarkup } from '../first-run-needs.js'
+/* No bare identifier reaches a person from this page's controls; the code is
+   carried as `data-refusal-code` instead. See src/refusal-copy.js. */
+import { markRefusalCode, refusalCodeOf, refusalSentence } from '../refusal-copy.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
@@ -888,7 +900,8 @@ export function computersView({ initialComputer = null, navigate }) {
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agents on record</span></div>
         <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
-        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">The live fleet data could not be read · ${escapeMarkup(declaredOnlyReason)} These are the agents this computer has on record, not agents seen running.</div>` : ''}
+        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">The live fleet data could not be read · ${escapeMarkup(declaredOnlyReason)} These are the agents this computer has on record, not agents seen running.</div>
+        <a class="rail-sub host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>` : ''}
         <div class="rail-sec">Services</div>
         <div class="task-list projection-state">
           ${services.length ? services.map(service => {
@@ -1191,9 +1204,14 @@ export function computersView({ initialComputer = null, navigate }) {
         })
         if (!box.isConnected) return
         dispatchButton.disabled = false
+        /* The identifier goes on the node, not into the sentence — see
+           src/refusal-copy.js. It is resolved once so the remedy lookup and the
+           machine channel cannot disagree about which refusal this was. */
+        const refusal = result.ok ? null : { code: refusalCodeOf(result) || 'BRIDGE_REFUSED', reason: result.reason }
         output.textContent = result.ok
           ? `started · ${result.receipt.launchId}`
-          : `refused · ${result.code || 'BRIDGE_REFUSED'} · ${result.reason}`
+          : `refused · ${refusalSentence(refusal, { fallback: 'The dispatch was refused with no receipt.' })}`
+        markRefusalCode(output, refusal)
       })
     }
     return box
@@ -1860,11 +1878,14 @@ export function computersView({ initialComputer = null, navigate }) {
 
     clearEmptyPanel()
     if (loading) return
+    /* The words are src/first-run-needs.js's, not this file's — see the import.
+       `reasonClass` keeps `.graph-empty-reason`, which tools/agent-route-reachability.mjs
+       reads: dropping the class would not fail that probe, it would make the
+       probe quietly record an empty string, which is worse. The reason itself
+       is still the projection's own sentence, verbatim. */
     emptyPanel = el(`
       <div class="graph-empty" data-projection-state="unavailable">
-        <div class="graph-empty-h">No computers are reporting to this copy</div>
-        <div class="graph-empty-reason">The live fleet data could not be read · ${escapeMarkup(reason)}</div>
-        <div class="graph-empty-body">This page draws the agents running on each computer in your fleet, and opens any one of them in a detail page with its own chat, runtime and controls. It fills in on its own once a computer here is running an agent host this copy can read.</div>
+        ${hostAbsentMarkup(`The live fleet data could not be read · ${reason}`, { reasonClass: 'graph-empty-reason' })}
         ${emptyStateExample()}
       </div>`)
     graphWrap.insertBefore(emptyPanel, graphTitle)

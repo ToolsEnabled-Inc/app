@@ -21,6 +21,17 @@
  */
 import { isWriteEnabled } from './write-flags.js'
 import { postBridgeAction } from './mission-bridge.js'
+/* [B6] Five lines on this panel used to open with a bare identifier. On the one
+   surface in the product that can spend money, the first thing the eye landed
+   on was the one token that meant nothing to the person spending it. */
+import { refusalCodeOf, refusalSentence } from './refusal-copy.js'
+import {
+  WRITE_OUTCOME_KEYS,
+  clearUndeliveredWrite,
+  recordUndeliveredWrite,
+  restatedMessage,
+  undeliveredWrite,
+} from './write-outcomes.js'
 
 /* THE STATE VOCABULARY THE PERSON READS.
  *
@@ -249,6 +260,15 @@ export function createCloudTaskController({
   let armed = null
   let watchTimer = null
   let checksLeft = 0
+  /* A LAUNCH THIS PAGE ALREADY SENT AND NEVER GOT TO REPORT.
+     A cloud launch is real, billable, remote work that cannot be cancelled once
+     accepted, and its answer arrives on a 30-second budget from a screen the
+     router will retire the instant an arrow is pressed. When that happened the
+     answer -- including the task id, the only handle the person has on work they
+     are paying for -- was dropped in silence. It is now filed in
+     ./write-outcomes.js before the destroyed check, and restated here, on the
+     surface that sent it, the next time that surface is built. */
+  const missedLaunch = undeliveredWrite(WRITE_OUTCOME_KEYS.CLOUD_LAUNCH)
   let state = Object.freeze({
     phase: availability.ok ? 'idle' : 'unavailable',
     note: availability.note,
@@ -264,13 +284,23 @@ export function createCloudTaskController({
     servingAccount: null,
     listMessage: availability.ok ? 'Not loaded yet.' : emptyListMessage(availability),
     listTone: 'note',
-    launchMessage: '',
-    launchTone: 'note',
+    launchMessage: missedLaunch ? restatedMessage(missedLaunch) : '',
+    launchTone: missedLaunch ? missedLaunch.tone : 'note',
     launchLabel: 'Launch on Codex Cloud',
     receipt: null,
     watchTaskId: null,
     watchTone: 'note',
     watchMessage: '',
+    /* [B6] THE IDENTIFIER, KEPT — just not in the sentence. Removing the code
+       from the four messages above without putting it anywhere would have
+       traded one real loss (a customer facing a grep term) for another (a
+       support conversation with nothing to name). Each of these is null, never
+       '', so "no refusal" cannot be mistaken for "a refusal with a blank code".
+       src/cloud-tasks.js stamps them as data-refusal-code. */
+    listCode: null,
+    environmentsCode: null,
+    launchCode: null,
+    watchCode: null,
   })
 
   const publish = next => {
@@ -279,7 +309,11 @@ export function createCloudTaskController({
   }
   publish({})
 
-  const refusal = result => `${result?.code || 'BRIDGE_REFUSED'} · ${result?.reason || 'The request did not complete.'}`
+  /* The one place this panel turns a refusal into words. `fallback` is the
+     sentence for a reply that carried no reason at all -- an absence that
+     really arrives here, because a cloud call can fail before the layer has
+     anything to say about it. */
+  const refusal = result => refusalSentence(result, { fallback: 'The request did not complete.' })
   const clock = () => new Date().toLocaleTimeString()
 
   /* ACCOUNTS AND ENVIRONMENTS ARRIVE TOGETHER, because on this provider they
@@ -295,10 +329,12 @@ export function createCloudTaskController({
         defaultAccount: null,
         listTone: 'refused',
         listMessage: `Accounts unavailable · ${refusal(result)}`,
+        listCode: refusalCodeOf(result),
         /* NOT "no environments": a refused read says nothing about what exists.
            environmentsLoaded stays false so the launch path keeps refusing. */
         environmentsTone: 'refused',
         environmentsMessage: `Environments unavailable · ${refusal(result)}`,
+        environmentsCode: refusalCodeOf(result),
       })
       return state
     }
@@ -328,7 +364,7 @@ export function createCloudTaskController({
     const result = await postAction('cloud-tasks', body)
     if (destroyed) return state
     if (result?.ok !== true || !Array.isArray(result.receipt?.tasks)) {
-      publish({ listTone: 'refused', listMessage: `Tasks unavailable · ${refusal(result)}` })
+      publish({ listTone: 'refused', listMessage: `Tasks unavailable · ${refusal(result)}`, listCode: refusalCodeOf(result) })
       return state
     }
     const tasks = result.receipt.tasks.map(task => Object.freeze({ ...task }))
@@ -410,6 +446,21 @@ export function createCloudTaskController({
     return state
   }
 
+  /* THE OUTCOME IS SAID BEFORE THIS FUNCTION ASKS WHETHER ITS SCREEN IS STILL
+     THERE. `destroyed` means this controller has no panel to write into; it says
+     nothing about whether a task was created on Codex Cloud, and reading it first
+     is what made "your task is running as <id>" and "a task may or may not exist"
+     both come out as silence. Every settled branch of confirm() goes through
+     here: it always updates this controller's own state, it paints only when
+     there is something to paint on, and when there is not, the sentence is filed
+     where the next mount of this panel will restate it. */
+  const settleLaunch = (fields, tone, message) => {
+    publish({ ...fields, launchTone: tone, launchMessage: message })
+    if (destroyed) recordUndeliveredWrite(WRITE_OUTCOME_KEYS.CLOUD_LAUNCH, { tone, message })
+    else clearUndeliveredWrite(WRITE_OUTCOME_KEYS.CLOUD_LAUNCH)
+    return state
+  }
+
   async function confirm() {
     if (!armed || destroyed) return state
     const request = armed
@@ -418,10 +469,22 @@ export function createCloudTaskController({
     let result
     try { result = await postAction('cloud-launch', request) }
     catch (error) { result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'the launch request failed' } }
-    if (destroyed) return state
     if (result?.ok !== true || !result.receipt) {
-      publish({ phase: 'idle', launchTone: 'refused', launchLabel: 'Launch on Codex Cloud', launchMessage: `Not launched · ${refusal(result)}` })
-      return state
+      return settleLaunch(
+        { phase: 'idle', launchLabel: 'Launch on Codex Cloud', launchCode: refusalCodeOf(result) },
+        'refused',
+        /* The launch gets its own remedy rather than the table's, and it
+           deliberately does NOT say "nothing was created". This branch is
+           reached by a timeout as well as by a refusal, and a request that
+           timed out on the way out can still have made a real, billable task.
+           The table's generic advice is "try once more", which on the one
+           control in this product that spends money is the expensive mistake.
+           So this one says LOOK first, every time, whatever refused it. */
+        `Not launched · ${refusalSentence(result, {
+          fallback: 'The request did not complete.',
+          remedy: 'Refresh the task list above before pressing Launch again: a request that failed on its way out can still have created a task, and a second press would create a second one.',
+        })}`,
+      )
     }
     const receipt = result.receipt
     if (receipt.launched !== true || typeof receipt.taskId !== 'string') {
@@ -430,38 +493,46 @@ export function createCloudTaskController({
          task nor proved it failed to make one. Saying "failed" here would
          invite a retry that could create a SECOND real task, so the wording
          names the uncertainty and points at the list, which is the only thing
-         that can settle it. */
-      publish({
-        phase: 'idle',
-        launchTone: 'refused',
-        launchLabel: 'Launch on Codex Cloud',
-        launchMessage: `${receipt.state || 'UNKNOWN'} · ${receipt.message || 'The launch did not confirm a task id.'} A task may or may not have been created — refresh the list before trying again rather than launching a second time.`,
-      })
-      return state
+         that can settle it.
+
+         THIS IS THE BRANCH THAT MUST SURVIVE THE SCREEN. Dropped, it leaves a
+         person who comes back to an idle panel with no reason not to launch a
+         second time -- which is how one press becomes two real cloud tasks. */
+      return settleLaunch(
+        { phase: 'idle', launchLabel: 'Launch on Codex Cloud' },
+        'refused',
+        `${receipt.state || 'UNKNOWN'} · ${receipt.message || 'The launch did not confirm a task id.'} A task may or may not have been created — refresh the list before trying again rather than launching a second time.`,
+      )
     }
     /* THE RECEIPT IS THE PROVIDER'S ANSWER, NOT THIS PAGE'S MEMORY OF THE FORM.
        Every field is copied from what came back, and it is frozen: the status
        watch below writes to its own fields and can never edit the record of what
        was submitted. */
-    publish({
-      phase: 'idle',
-      launchTone: 'confirmed',
-      launchLabel: 'Launch on Codex Cloud',
-      receipt: Object.freeze({
-        taskId: receipt.taskId,
-        taskUrl: receipt.taskUrl || null,
-        environment: receipt.environment || null,
-        environmentLabel: receipt.environmentLabel || null,
-        repository: receipt.repository || null,
-        branch: receipt.branch || null,
-        state: receipt.state || 'UNKNOWN',
-        account: receipt.account || null,
-        submittedAt: receipt.submittedAt || null,
-        bindingReadAt: receipt.bindingReadAt || null,
-        approvalRequired: receipt.approvalRequired === true,
-      }),
-      launchMessage: `${cloudStateView(receipt.state).label} · task ${receipt.taskId} on ${accountSummary(receipt.account)}${receipt.accountsConsidered?.length > 1 ? ` (after trying ${receipt.accountsConsidered.slice(0, -1).join(', ')})` : ''}.`,
-    })
+    settleLaunch(
+      {
+        phase: 'idle',
+        launchLabel: 'Launch on Codex Cloud',
+        receipt: Object.freeze({
+          taskId: receipt.taskId,
+          taskUrl: receipt.taskUrl || null,
+          environment: receipt.environment || null,
+          environmentLabel: receipt.environmentLabel || null,
+          repository: receipt.repository || null,
+          branch: receipt.branch || null,
+          state: receipt.state || 'UNKNOWN',
+          account: receipt.account || null,
+          submittedAt: receipt.submittedAt || null,
+          bindingReadAt: receipt.bindingReadAt || null,
+          approvalRequired: receipt.approvalRequired === true,
+        }),
+      },
+      'confirmed',
+      `${cloudStateView(receipt.state).label} · task ${receipt.taskId} on ${accountSummary(receipt.account)}${receipt.accountsConsidered?.length > 1 ? ` (after trying ${receipt.accountsConsidered.slice(0, -1).join(', ')})` : ''}.`,
+    )
+    /* Only NOW does being torn down matter. The launch is recorded either way;
+       what a dead controller must not do is start a status watch nothing will
+       read or send another bridge read after its own teardown. */
+    if (destroyed) return state
     watch(receipt.taskId, { environment: receipt.environment || request.environment, account: receipt.account?.name || request.account || null })
     await loadTasks({ environment: request.environment })
     return state
@@ -501,7 +572,7 @@ export function createCloudTaskController({
     if (result?.ok !== true || typeof result.receipt?.state !== 'string') {
       /* A failed READING is not a failed TASK. Say which one happened, and keep
          watching: the next check may well answer. */
-      publish({ watchTone: 'refused', watchMessage: `Could not read the status at ${clock()} · ${refusal(result)}. The task itself is unaffected.` })
+      publish({ watchTone: 'refused', watchMessage: `Could not read the status at ${clock()} · ${refusal(result)}. The task itself is unaffected.`, watchCode: refusalCodeOf(result) })
     } else {
       const receipt = result.receipt
       const view = cloudStateView(receipt.state)

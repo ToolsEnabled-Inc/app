@@ -2,6 +2,9 @@ import { el } from './components.js'
 import { bridgeStatus, bridgeReachable, postBridgeAction } from './mission-bridge.js'
 import { retryWhileUnavailable } from './bridge-retry.js'
 import { isWriteEnabled } from './write-flags.js'
+/* The identifier goes on the node as `data-refusal-code`, never into the
+   sentence — see ./refusal-copy.js. */
+import { markRefusalCode, refusalCodeOf, refusalSentence } from './refusal-copy.js'
 
 const esc = value => String(value)
   .replace(/&/g, '&amp;')
@@ -162,9 +165,14 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
     })
     if (destroyed) return
     setBusy(dispatchForm, false)
+    /* The code is resolved ONCE and used for both channels. Resolving it matters
+       on the sentence side too: an unresolved code falls to the generic remedy,
+       and `BRIDGE_REFUSED` has a curated one. */
+    const refusal = result.ok ? null : { code: refusalCodeOf(result) || 'BRIDGE_REFUSED', reason: result.reason }
     actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
       ? `confirmed · ${result.receipt.launchId}`
-      : `refused · ${result.code || 'BRIDGE_REFUSED'} · ${result.reason}`)
+      : `refused · ${refusalSentence(refusal, { fallback: 'The dispatch was refused with no receipt.' })}`)
+    markRefusalCode(output, refusal)
   })
 
   const reportForm = surface.querySelector('[data-report-form]')

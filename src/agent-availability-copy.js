@@ -25,6 +25,11 @@
  * silence.
  */
 
+/* One direction only: this reads the shared remedy table, and that module
+   imports nothing. See the note at the head of src/refusal-copy.js for why the
+   dependency is not mutual. */
+import { refusalRemedy } from './refusal-copy.js'
+
 /* The two commands that clear the two blockers a person can actually clear,
    written once so the disabled control, the home screen and the setup screen
    cannot drift into giving three different instructions.
@@ -154,13 +159,63 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      It gets a sentence anyway, because the one thing this table must never do
      again is put a bare constant in front of a person. */
   AGENT_SESSION_FAILED: 'the session did not start and this copy could not work out why, which is itself a fault worth reporting; try once more, and if it repeats, reinstall ToolsEnabled from a complete build',
+
+  /* THE FIFTH HALF: THE THREE STEERING CONTROLS, which refuse in their own
+     vocabulary and had a sentence for none of it.
+     [B6]
+     Every code below is raised by control.pause / control.respawn /
+     control.terminate in src/agent-session.js, and src/views/agent.js renders
+     that refusal as `${id} did not happen · ${result?.code}` -- the bare
+     identifier, on the same page and beside the same session the Start control
+     was repaired for. Two of them (AGENT_TURN_NONE, AGENT_SESSION_UNKNOWN) are
+     not faults at all: they mean the button was pressed for something that had
+     already stopped, so those sentences say that rather than apologising.
+     The rest are raised by shell/agent-host.cjs and are classified start-only
+     in tools/test/agent-session-surface.test.mjs -- start-only means the
+     readiness probe cannot resolve them, NOT that nobody reads them.
+
+     They are here rather than in src/refusal-copy.js because refusalCode()
+     below recovers a code from a rejected IPC message by testing membership of
+     THIS table: a session code with its sentence in another module would be
+     rejected as unrecognised and fall back to AGENT_SESSION_FAILED, which is
+     the exact bug the note above this table describes. */
+  AGENT_TURN_NONE: 'there was nothing running to stop -- the session is open and idle, so a prompt is what it is waiting for',
+  AGENT_TURN_ACTIVE: 'this session is already working on a turn; stop that one first, or wait for it to finish',
+  AGENT_SESSION_UNKNOWN: 'there is no open session on this screen to act on, so nothing was changed; start one first',
+  AGENT_SESSION_EXISTS: 'a session for this agent is already open, so a second was not started; use the one that is running or stop it first',
+  AGENT_SESSION_NOT_READY: 'this screen is not in a state where that can be done -- either a session is already open or this copy is not ready to start one; reload the page and look at what it says before pressing it again',
+  AGENT_SESSION_NO_PROMPT: 'nothing was sent because there was nothing to send; type what you want the agent to do and start it again',
+  AGENT_SESSION_NO_ID: 'this copy could not generate the secure identifier a session is tracked by, so none was started; close ToolsEnabled and open it again',
+  AGENT_SESSION_VIEW_CLOSED: 'this screen was closed while that was in flight, so it was not completed; nothing is running from it',
+  AGENT_SESSION_START_CANCELLED: 'the start was called off before the session opened, so nothing is running; start it again when you are ready',
+  AGENT_ENGINE_INVALID_SESSION: 'the session this screen was acting on is no longer one the agent engine knows about, so nothing was changed; reload the page and start again',
+  AGENT_ENGINE_INVALID_TURN: 'the piece of work this was acting on is no longer one the agent engine knows about, so nothing was changed; reload the page and look at what the session is doing',
 })
 
-/* An unknown code is shown verbatim -- codes are short, fixed identifiers,
-   never paths. It is a copy gap, not a reason to enable anything: the caller
-   branches on `ok`, never on whether this returned a sentence. */
+/* THE ONE DOOR THIS MODULE LEFT OPEN, AND B6 CLOSED IT.
+ *
+ * This used to end `|| String(code || 'unavailable')`: an unknown code was
+ * shown VERBATIM, defended on the grounds that codes are short identifiers and
+ * never paths. Both halves of that are true and neither is the point. The
+ * reason a bare code must not be shown is not that it might be a path, it is
+ * that it tells the person nothing and gives them nothing to do -- so a table
+ * that answers "the code you have no sentence for" by printing the code is
+ * exactly the defect it exists to prevent, kept alive at the one place it is
+ * hardest to notice.
+ *
+ * It is reachable in the shipped product. src/agent-session.js builds
+ * `{ ok: false, code: error?.code }` from a rejected availability call, and a
+ * platform rejection can carry a `code` of its own (ERR_IPC_CHANNEL_CLOSED and
+ * friends) that is in no table here.
+ *
+ * The code still goes UNSHOWN rather than unused -- callers keep it on the
+ * state object -- and an unrecognised one now leaves with the same kind of
+ * sentence a recognised one does. It is a copy gap either way, and still not a
+ * reason to enable anything: the caller branches on `ok`, never on whether this
+ * returned a sentence. */
 export function unavailableReason(code) {
-  return UNAVAILABLE_TEXT[code] || String(code || 'unavailable')
+  if (Object.prototype.hasOwnProperty.call(UNAVAILABLE_TEXT, code)) return UNAVAILABLE_TEXT[code]
+  return `this copy could not work out why, which is itself a fault worth reporting. ${refusalRemedy(code)}`
 }
 
 /* Recover the code from a rejected IPC call, because the property does not

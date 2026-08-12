@@ -1,3 +1,22 @@
+/* WHAT A REFUSAL ON THIS MODULE'S TWO CONTROLS SAYS. The identifier is kept as
+   a machine field on the state object and never put in front of a person — see
+   ./refusal-copy.js for why, and for the family floor that stops a code the
+   engine adds next month reaching a customer bare. */
+import { refusalCodeOf, refusalSentence } from './refusal-copy.js'
+/* AND WHERE THE ANSWER GOES WHEN THE SCREEN IS ALREADY GONE. The archive
+   control moves requests between two DURABLE ledgers; that is a real write, and
+   `if (destroyed) return` above the line that reads the receipt threw its answer
+   away whenever the person walked off the page mid-call. Filed here before the
+   destroyed check and restated on the next mount — the pattern
+   ./approval-outcomes.js set on #/approvals and ./agent-loops.js follows. */
+import {
+  WRITE_OUTCOME_KEYS,
+  clearUndeliveredWrite,
+  recordUndeliveredWrite,
+  restatedMessage,
+  undeliveredWrite,
+} from './write-outcomes.js'
+
 const ACTION_ROUTES = Object.freeze({
   dispatch: '/v1/actions/dispatch',
   'report-read': '/v1/actions/report-read',
@@ -361,8 +380,14 @@ export function verifiedLedgerArchiveReceipt(result, dryRun) {
     && validAuditReceipt(receipt.intentAudit)
 }
 
-function archiveControlState(phase, enabled, label, note, message) {
-  return Object.freeze({ phase, enabled, label, note, message })
+/* `code` is the MACHINE channel and is the reason the identifier can leave the
+   sentence without leaving the product: a support conversation, a driver and
+   `markRefusalCode()` all still name the exact refusal. It is absent rather than
+   empty on the paths that did not refuse — `code: ''` reads as "there is a code
+   and it is blank", which is the absence-as-value mistake this codebase keeps
+   making and which a probe asserting on presence would pass on. */
+function archiveControlState(phase, enabled, label, note, message, code = null) {
+  return Object.freeze(code ? { phase, enabled, label, note, message, code } : { phase, enabled, label, note, message })
 }
 
 function archivePreviewMessage(receipt) {
@@ -385,18 +410,45 @@ export function createLedgerArchiveController({
 } = {}) {
   let destroyed = false
   let preview = null
-  let state = archiveControlState(
-    'idle',
-    true,
-    'Preview cleanup',
-    'Owner-gated',
-    'Preview completed or fully superseded R requests. Nothing moves on the first click.',
-  )
+  /* A MOVE THIS CONTROL ALREADY MADE AND NEVER GOT TO REPORT. Read at
+     construction, not at render, so the first state this controller ever
+     publishes already carries it — a surface that painted the ordinary idle
+     sentence first and corrected itself afterwards would show "nothing has
+     happened" about a move that did. */
+  const missedArchive = undeliveredWrite(WRITE_OUTCOME_KEYS.LEDGER_ARCHIVE)
+  let state = missedArchive
+    ? archiveControlState(
+      'idle',
+      true,
+      'Preview cleanup',
+      'Result you did not see',
+      restatedMessage(missedArchive),
+    )
+    : archiveControlState(
+      'idle',
+      true,
+      'Preview cleanup',
+      'Owner-gated',
+      'Preview completed or fully superseded R requests. Nothing moves on the first click.',
+    )
   const publish = next => {
     state = next
     if (!destroyed) onState(state)
   }
   publish(state)
+
+  /* EVERY SETTLED BRANCH OF A REAL MOVE GOES THROUGH HERE, and the order of the
+     two lines below is the whole repair: the outcome is filed BEFORE this asks
+     whether its own screen survived. Both branches matter — "archived" and "not
+     confirmed" vanished together before, and vanishing reads as the reassuring
+     one. The dry run does not come through here: a preview moved nothing, so
+     there is nothing to carry. */
+  const settleMove = (next, tone) => {
+    publish(next)
+    if (destroyed) recordUndeliveredWrite(WRITE_OUTCOME_KEYS.LEDGER_ARCHIVE, { tone, message: next.message })
+    else clearUndeliveredWrite(WRITE_OUTCOME_KEYS.LEDGER_ARCHIVE)
+    return state
+  }
 
   const runPreview = async () => {
     preview = null
@@ -411,9 +463,15 @@ export function createLedgerArchiveController({
     }
     if (destroyed) return state
     if (!verifiedLedgerArchiveReceipt(result, true)) {
+      /* A reply this control could not verify carries no code of its own, so the
+         code is RESOLVED before the sentence is composed rather than after: an
+         unresolved code falls to the generic remedy ("try once more"), which is
+         the wrong advice about a two-step owner-gated move. */
+      const code = refusalCodeOf(result) || 'BRIDGE_LEDGER_ARCHIVE_PREVIEW_INVALID'
       publish(archiveControlState(
         'idle', true, 'Preview again', 'No move confirmed',
-        `${result?.code || 'BRIDGE_LEDGER_ARCHIVE_PREVIEW_INVALID'}: ${result?.reason || 'The preview receipt was incomplete.'} Nothing moved.`,
+        `Nothing moved. ${refusalSentence({ code, reason: result?.reason }, { fallback: 'The preview receipt was incomplete.' })}`,
+        code,
       ))
       return state
     }
@@ -443,24 +501,35 @@ export function createLedgerArchiveController({
     catch (error) {
       result = { ok: false, code: 'BRIDGE_REQUEST_FAILED', reason: error?.message || 'archive request failed' }
     }
-    if (destroyed) return state
+    /* THERE IS NO `if (destroyed) return` HERE, and its absence is the fix. This
+       is the real move: by the time this line runs, requests have either changed
+       durable ledgers or they have not, and which of the two it was is the only
+       thing the person needs. Returning early here made those two outcomes
+       byte-for-byte identical on screen. */
     const exactPreview = verifiedLedgerArchiveReceipt(result, false)
       && result.receipt.planSha256 === submittedPreview?.planSha256
       && JSON.stringify(result.receipt.candidates) === JSON.stringify(submittedPreview?.candidates)
     preview = null
     if (!exactPreview) {
-      publish(archiveControlState(
+      const code = refusalCodeOf(result) || 'BRIDGE_LEDGER_ARCHIVE_RECEIPT_INVALID'
+      /* The remedy is written here rather than taken from the table because this
+         control knows something the table cannot: a mismatched receipt means
+         what moved is NOT KNOWN from this screen, so the next act is to look,
+         not to retry. */
+      return settleMove(archiveControlState(
         'idle', true, 'Preview current state', 'No move confirmed',
-        `${result?.code || 'BRIDGE_LEDGER_ARCHIVE_RECEIPT_INVALID'}: ${result?.reason || 'The archive result did not match the confirmed preview.'} Preview again before any retry.`,
-      ))
-      return state
+        refusalSentence({ code, reason: result?.reason }, {
+          fallback: 'The archive result did not match the confirmed preview.',
+          remedy: 'Nothing is confirmed moved and what did move is not known from this screen. Preview again before any retry, and read that preview before confirming it.',
+        }),
+        code,
+      ), 'refused')
     }
     const ids = result.receipt.movedIds.join(', ')
-    publish(archiveControlState(
+    return settleMove(archiveControlState(
       'success', true, 'Preview cleanup', 'Archived',
       `Archive verified for ${ids || 'no requests'}. The durable active and archive ledgers match the confirmed preview.`,
-    ))
-    return state
+    ), 'confirmed')
   }
 
   return Object.freeze({
@@ -570,8 +639,12 @@ function freshTerminateIdempotencyKey() {
   return key
 }
 
-function frozenControlState(phase, enabled, label, note, message) {
-  return Object.freeze({ phase, enabled, label, note, message })
+/* `code` is the machine channel — see archiveControlState above for why it is
+   absent rather than blank on the paths that did not refuse. A refusal that
+   loses its code is a real defect: it is what a support conversation and
+   tools/test/terminate-ui.test.mjs name the exact refusal by. */
+function frozenControlState(phase, enabled, label, note, message, code = null) {
+  return Object.freeze(code ? { phase, enabled, label, note, message, code } : { phase, enabled, label, note, message })
 }
 
 /**
@@ -646,12 +719,22 @@ export function createTerminateController({
       ? 'The terminate response was incomplete or did not match the requested agent, run, and PID.'
       : (result?.reason || 'The terminate request failed without a verified receipt.')
     const retrySameIntent = responseWasShapedSuccess || SAME_INTENT_RETRY_CODES.has(code)
+    /* The engine's own sentence survives verbatim as the diagnosis; the remedy
+       is this control's, because only this control knows whether the retry it is
+       about to offer reuses the same request. "No stop has been confirmed" leads
+       both, and it is the half a person acts on: a stop that half-worked and a
+       stop that did nothing look the same from here. */
     publish(frozenControlState(
       retrySameIntent ? 'retry' : 'refused',
       retrySameIntent,
       retrySameIntent ? 'Retry terminate' : 'Terminate',
       retrySameIntent ? 'Same intent' : 'Unavailable',
-      `${code}: ${reason} No stop has been confirmed.${retrySameIntent ? ' Retry reuses the same request.' : ' Reload this page before trying again.'}`,
+      refusalSentence({ code, reason }, {
+        remedy: retrySameIntent
+          ? 'No stop has been confirmed. Retry sends exactly the same request rather than a second one, so pressing it cannot stop anything twice.'
+          : 'No stop has been confirmed. Refresh this page and look at whether it is still running before pressing stop again.',
+      }),
+      code,
     ))
     return state
   }
@@ -675,12 +758,23 @@ export function createTerminateController({
         let idempotencyKey
         try { idempotencyKey = createIdempotencyKey() }
         catch (error) {
+          /* Written as a LITERAL identifier rather than interpolated, which is
+             why the `${...code...}` scan in tools/test/refusal-copy.test.mjs
+             never saw it. It is the same defect: an identifier in front of a
+             person. The code stays, on the state, where a driver can read it. */
           publish(frozenControlState(
             'idle',
             true,
             'Terminate',
             'Available',
-            `BRIDGE_IDEMPOTENCY_UNAVAILABLE: ${error?.message || 'A fresh one-time request key could not be created.'} No request was sent.`,
+            refusalSentence(
+              { code: 'BRIDGE_IDEMPOTENCY_UNAVAILABLE', reason: error?.message },
+              {
+                fallback: 'A fresh one-time request key could not be created.',
+                remedy: 'No request was sent and nothing has been stopped. Close ToolsEnabled and open it again before pressing stop a second time.',
+              },
+            ),
+            'BRIDGE_IDEMPOTENCY_UNAVAILABLE',
           ))
           return Promise.resolve(state)
         }

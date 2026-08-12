@@ -23,6 +23,7 @@
  * control with no backend attached. */
 
 import { el } from './components.js'
+import { refusalSentence } from './refusal-copy.js'
 
 const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -85,9 +86,14 @@ export async function readOrg() {
  * show, because a bare code with no sentence is worse than a long sentence.
  */
 export function failureSentence(result, fallback = 'The change was refused.') {
-  if (typeof result?.reason === 'string' && result.reason.trim()) return result.reason.trim()
-  if (typeof result?.code === 'string' && result.code.trim()) return `${fallback} (${result.code.trim()})`
-  return fallback
+  /* [B6] `${fallback} (${code})` used to be this function's middle branch, so a
+     refusal that carried a code and no reason put the identifier in brackets in
+     front of a person -- and the bottom branch returned a fallback with nothing
+     to do in it. Both now go through the shared composer, which never shows the
+     identifier and always ends with an action. The engine's own `reason` is
+     still preferred and still shown verbatim; that judgement was right and is
+     unchanged, it just no longer stops there. */
+  return refusalSentence(result, { fallback })
 }
 
 /** Whether a refusal means "your window is out of date", which has its own cure. */

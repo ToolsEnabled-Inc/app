@@ -31,6 +31,25 @@
   box-shadow: none;
 }
 
+/* ...BUT THE FOCUS RING IN THIS DESIGN SYSTEM IS A BOX-SHADOW, and flattening
+   the tabs above took the keyboard's only indicator with it.
+   MEASURED with Tab on the packaged build (tools/a11y-keyboard-qa.mjs, sterile
+   profile): on `.computers .tab.active` the browser matched `box-shadow: none`
+   from the two rules above AND `outline: none` from the shared focus recipe in
+   styles.css, computing to outline-style `none` and box-shadow `none` while
+   `:focus-visible` was true. The computer tab is the FIRST stop inside the page
+   a keyboard user crosses to reach an agent, and it lit up in no way at all.
+   Only :focus-visible is restored, so the flat resting skin this sheet exists
+   for is untouched; the recipe is the site one, repeated here rather than
+   re-invented, because it has to keep looking like every other focused control
+   on the page. */
+.computers .tab:focus-visible,
+.computers .tab.active:focus-visible {
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, calc(0.95 * var(--wa))),
+    0 0 0 3.5px var(--focus-ring);
+}
+
 .computers .graph-title {
   position: absolute;
   top: 17px;

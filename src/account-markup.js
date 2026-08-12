@@ -36,6 +36,22 @@ import {
   GOOGLE_SIGNIN_SCOPE_NOTE,
   MIN_PASSWORD_LENGTH,
 } from './account-state.js'
+import {
+  BACKUP_NOTICE,
+  DELETE_BUTTON,
+  DELETE_CANCEL_BUTTON,
+  DELETE_CLOSE_BUTTON,
+  DELETE_CONFIRM_BUTTON,
+  NO_BRIDGE_DETAIL,
+  NO_BRIDGE_TITLE,
+  RESET_LEAD,
+  RESET_TITLE,
+  SIGN_OUT_LIMITS,
+  SURVIVES,
+  outcomeLines,
+  planLines,
+  rootLabel,
+} from './account-reset-copy.js'
 
 export const esc = value => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -168,12 +184,17 @@ export function loadingMarkup() {
   return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1><p class="setup-subtitle">Reading this computer’s accounts…</p>`
 }
 
-export function unavailableMarkup({ state = null } = {}) {
+export function unavailableMarkup({ state = null, reset = {}, busy = false } = {}) {
   return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
     <div class="fleet-profile-status is-serious" role="alert">
       <strong>There is no account on this page to sign in to.</strong>
       <span>${esc(state?.reason || 'The application did not say why.')}</span>
     </div>
+    <!-- THE WAY OUT SURVIVES THE WAY IN BEING BROKEN. A copy that cannot open
+         its account store is exactly when somebody wants their data off this
+         computer, and gating removal behind a sign-in that cannot happen would
+         be the product holding it hostage. -->
+    <div class="settings-section-rows">${resetMarkup({ reset, busy })}</div>
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
       <button type="button" class="ctl-btn" data-account-home>Back to ToolsEnabled</button>
@@ -335,7 +356,142 @@ export function shownAsMarkup({ state, busy = false } = {}) {
     </article>`
 }
 
-export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null } = {}) {
+/* REMOVING EVERYTHING, AS A PLACE ON THE SCREEN.
+ *
+ * IT IS RENDERED WHETHER OR NOT SOMEBODY IS SIGNED IN, and that is the whole
+ * reason it lives on this screen rather than inside the signed-in block. A
+ * person who never made an account still has a vault, an audit ledger, a
+ * permission level and a settings file on their disk; a person who has forgotten
+ * their password cannot sign in to reach a control that removes their data, and
+ * "sign in before you may delete your data" is a sentence no product should be
+ * able to say. It is rendered on the unavailable screen too: an account store
+ * this copy cannot open is exactly when somebody wants out.
+ *
+ * FOUR STATES, AND THE SECOND ONE IS THE POINT. `idle` offers to LOOK. `confirm`
+ * shows what was measured a moment ago and what survives, and only that state
+ * carries a button that destroys anything. So the first press cannot delete, and
+ * the second press cannot happen before the person has seen the list.
+ *
+ * THE RESULT STATE NAMES WHAT STAYED. Not "done" -- what stayed, by file name,
+ * with the folder it is in, because on Windows something usually does.
+ */
+export function resetMarkup({ reset = {}, busy = false } = {}) {
+  const phase = typeof reset.phase === 'string' ? reset.phase : 'idle'
+  const head = `<div class="settings-name">${esc(RESET_TITLE)}</div>`
+
+  if (phase === 'unavailable') {
+    return `<article class="settings-row" data-reset data-reset-phase="unavailable">
+      <div class="settings-copy">
+        ${head}
+        <div class="settings-desc"><strong>${esc(NO_BRIDGE_TITLE)}</strong> ${esc(NO_BRIDGE_DETAIL)}</div>
+      </div>
+    </article>`
+  }
+
+  if (phase === 'measuring' || phase === 'working') {
+    return `<article class="settings-row" data-reset data-reset-phase="${phase}">
+      <div class="settings-copy">
+        ${head}
+        <div class="settings-desc">${phase === 'measuring'
+          ? 'Measuring what is on this computer right now. Nothing has been deleted.'
+          : 'Deleting. Leave this window open until it finishes — it says what was removed and what was not.'}</div>
+      </div>
+    </article>`
+  }
+
+  if (phase === 'confirm') {
+    const plan = reset.plan || { available: false, roots: [], untouched: [], totals: { files: 0, bytes: 0 } }
+    if (!plan.available) {
+      return `<article class="settings-row" data-reset data-reset-phase="confirm" data-reset-plan-state="unavailable">
+        <div class="settings-copy">
+          ${head}
+          <div class="settings-desc"><strong>Nothing was measured, so nothing is offered.</strong> ${esc(plan.reason || 'This copy did not say why.')} Your data is exactly as it was.</div>
+        </div>
+        <div class="settings-control fleet-inline-control">
+          <button type="button" class="ctl-btn" data-reset-cancel>${esc(DELETE_CANCEL_BUTTON)}</button>
+        </div>
+      </article>`
+    }
+    /* Built OUTSIDE the template rather than as a ternary inside it. The guard
+       in tools/test/refusal-copy.test.mjs reads a `${...}` expression containing
+       the word "code" as a refusal code interpolated into a sentence, and an
+       inline `<code>` tag inside the braces looks exactly like one. Hoisting it
+       keeps the scanner's job easy, which is the right trade against a scanner
+       whose false negatives cost a customer a machine code on their screen. */
+    const monospace = value => `<code>${esc(value)}</code>`
+    const measured = planLines(plan).map(line => {
+      const where = line.directory ? ` ${monospace(line.directory)}` : ''
+      return `<div class="settings-desc" data-reset-line data-reset-tone="${line.tone}">
+        <strong>${esc(line.title)}</strong> — ${esc(line.detail)}${where}
+      </div>`
+    }).join('')
+    const yours = plan.untouched.filter(entry => entry.kind === 'workspace')
+    const survives = SURVIVES.map(entry => {
+      const named = entry.title === 'Your own files' && yours.length > 0
+        ? ` ${yours.map(folder => monospace(folder.directory)).join(' ')}`
+        : ''
+      return `<div class="settings-desc" data-reset-survives><strong>${esc(entry.title)}</strong> — ${esc(entry.detail)}${named}</div>`
+    }).join('')
+    /* THE ONE CASE WHERE THE SURVIVOR SENTENCE ABOVE WOULD BE FALSE, said
+       immediately under it rather than left to be discovered afterwards. A
+       folder the person chose for their own work can sit inside the directory
+       this is about to empty, and then it goes with it. */
+    const conflicts = (plan.conflicts || []).length > 0
+      ? `<div class="fleet-profile-status is-serious" role="alert" data-reset-conflict>
+          <strong>One folder you chose for your own work is inside what would be deleted.</strong>
+          <span>${plan.conflicts.map(entry => esc(entry.directory)).join(', ')} — it would be deleted too, work and all. Move it somewhere else before you press this if you want to keep it.</span>
+        </div>`
+      : ''
+    return `<article class="settings-row" data-reset data-reset-phase="confirm" data-reset-plan-state="measured">
+      <div class="settings-copy">
+        ${head}
+        <div class="settings-desc" data-reset-total>Measured just now: ${esc(String(plan.totals.files))} file${plan.totals.files === 1 ? '' : 's'} would be deleted.</div>
+        ${measured}
+        <div class="settings-name" data-reset-survives-head>What this does NOT delete</div>
+        ${survives}
+        ${conflicts}
+        <div class="settings-desc" data-reset-backup><strong>${esc(BACKUP_NOTICE)}</strong></div>
+      </div>
+      <div class="settings-control fleet-inline-control">
+        <button type="button" class="ctl-btn" data-reset-cancel ${busy ? 'disabled' : ''}>${esc(DELETE_CANCEL_BUTTON)}</button>
+        <button type="button" class="ctl-btn" data-reset-confirm ${busy ? 'disabled' : ''}>${esc(DELETE_CONFIRM_BUTTON)}</button>
+      </div>
+    </article>`
+  }
+
+  if (phase === 'done') {
+    const sweep = reset.sweep || { ran: false, complete: false, roots: [] }
+    const outcome = outcomeLines(sweep)
+    const kept = (sweep.roots || []).filter(root => root.kept.length > 0).map(root => `<div class="settings-desc" data-reset-kept>
+        <strong>${esc(rootLabel(root.kind))}</strong> — still on this computer in <code>${esc(root.directory)}</code>: ${esc(root.kept.map(entry => entry.name).join(', '))}.
+      </div>`).join('')
+    return `<article class="settings-row" data-reset data-reset-phase="done" data-reset-outcome="${outcome.tone}">
+      <div class="settings-copy">
+        ${head}
+        <div class="fleet-profile-status ${outcome.tone === 'good' ? 'is-good' : outcome.tone === 'warn' ? 'is-warn' : 'is-serious'}" role="${outcome.tone === 'good' ? 'status' : 'alert'}">
+          <strong>${esc(outcome.title)}</strong>
+          <span>${esc(outcome.detail)}</span>
+        </div>
+        ${kept}
+      </div>
+      <div class="settings-control fleet-inline-control">
+        <button type="button" class="ctl-btn" data-reset-close>${esc(DELETE_CLOSE_BUTTON)}</button>
+      </div>
+    </article>`
+  }
+
+  return `<article class="settings-row" data-reset data-reset-phase="idle">
+    <div class="settings-copy">
+      ${head}
+      <div class="settings-desc">${esc(RESET_LEAD)}</div>
+    </div>
+    <div class="settings-control fleet-inline-control">
+      <button type="button" class="ctl-btn" data-reset-plan ${busy ? 'disabled' : ''}>${esc(DELETE_BUTTON)}</button>
+    </div>
+  </article>`
+}
+
+export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, reset = {} } = {}) {
   return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
     ${statusMarkup({ notice, state })}
     <div class="settings-section-rows">
@@ -379,12 +535,18 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
         <div class="settings-copy">
           <div class="settings-name">Sign out</div>
           <div class="settings-desc">“Sign out” ends this sign-in on this computer. “Sign out everywhere” also refuses any saved sign-in taken from this computer earlier — use it if you think a copy of it exists.</div>
+          <!-- WHAT SIGNING OUT DOES NOT DO. Both buttons above are reversible and
+               neither deletes anything, and until this line existed the screen
+               left somebody to guess which -- next to a "delete everything" that
+               is genuinely permanent, guessing is not acceptable. -->
+          <div class="settings-desc" data-account-sign-out-limits>${esc(SIGN_OUT_LIMITS)}</div>
         </div>
         <div class="settings-control fleet-inline-control">
           <button type="button" class="ctl-btn" data-account-sign-out ${busy ? 'disabled' : ''}>${busy ? 'Working…' : 'Sign out'}</button>
           <button type="button" class="ctl-btn" data-account-sign-out-everywhere ${busy ? 'disabled' : ''}>Sign out everywhere</button>
         </div>
       </article>
+      ${resetMarkup({ reset, busy })}
     </div>
     <div class="setup-actions">
       <div class="setup-actions-spacer"></div>
@@ -471,7 +633,7 @@ export function changeDisplayNameMarkup({ state, busy = false, notice = null } =
     </form>`
 }
 
-export function formMarkup({ mode = 'sign-in', busy = false, notice = null, state = null, google = null } = {}) {
+export function formMarkup({ mode = 'sign-in', busy = false, notice = null, state = null, google = null, reset = {} } = {}) {
   const creating = mode === 'create'
   return `<h1 class="setup-title">${esc(ACCOUNT_QUESTION)}</h1>
     <p class="setup-subtitle">${esc(ACCOUNT_QUESTION_SUB)}</p>
@@ -524,7 +686,12 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
         <button type="submit" class="ctl-btn" ${busy ? 'disabled' : ''}>${busy ? 'Working…' : creating ? 'Create account' : 'Sign in'}</button>
       </div>
     </form>
-    ${creating ? '' : scopeMarkup()}`
+    ${creating ? '' : scopeMarkup()}
+    <!-- SIGNED OUT, AND STILL ABLE TO LEAVE. Somebody who never made an account
+         still has a vault, a permission level and a settings file on this disk,
+         and somebody who has forgotten their password cannot sign in to reach a
+         control at all -- there is no password reset here. -->
+    <div class="settings-section-rows" data-reset-block>${resetMarkup({ reset, busy })}</div>`
 }
 
 /* The one place that decides which of the above a given state paints.
@@ -533,15 +700,18 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
  * dispatcher inside the view can only be checked by reading it, and reading is
  * what missed the last two defects. This one is called by the tests with each
  * state in turn. */
-export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, google = null } = {}) {
+export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, google = null, reset = {} } = {}) {
   if (state === null) return loadingMarkup()
-  if (!state.available) return unavailableMarkup({ state })
+  if (!state.available) return unavailableMarkup({ state, reset, busy })
   if (state.signedIn) {
+    /* The two sub-forms deliberately do NOT carry the removal control. A person
+       halfway through typing a new password is not deciding about deletion, and
+       a destructive button under a form is a mis-click. */
     if (mode === 'change-password') return changePasswordMarkup({ state, busy, notice })
     if (mode === 'display-name') return changeDisplayNameMarkup({ state, busy, notice })
-    return signedInMarkup({ state, busy, notice, now, data, payment, history })
+    return signedInMarkup({ state, busy, notice, now, data, payment, history, reset })
   }
-  return formMarkup({ mode, busy, notice, state, google })
+  return formMarkup({ mode, busy, notice, state, google, reset })
 }
 
 /* ---- the first-run step ----

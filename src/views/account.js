@@ -40,6 +40,7 @@ import {
   readActionResult,
   readGoogleSignInResult,
 } from '../account-state.js'
+import { readPlan, readSweep } from '../account-reset-copy.js'
 
 import '../settings.css'
 import '../fleet-profile-settings.css'
@@ -89,7 +90,17 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
      milliseconds, and they would act on it. */
   let google = null
 
-  const view = () => ({ state, mode, busy, notice, data, payment, history, google })
+  /* REMOVING THIS COMPUTER'S DATA lives in its own piece of state, deliberately
+     NOT in `mode`. `mode` is which sign-in form is showing and is reset by every
+     refresh(); a person who has just been shown a measured list of what is about
+     to be deleted must not lose it because the account state happened to
+     re-read. `phase` only ever moves from this file's own buttons.
+     `plan` is the measurement, and it is DROPPED on cancel rather than kept for
+     a later press: a list measured five minutes ago is a claim about a disk that
+     has changed since. */
+  let reset = { phase: 'idle', plan: null, sweep: null }
+
+  const view = () => ({ state, mode, busy, notice, data, payment, history, google, reset })
 
   function paint() {
     if (destroyed) return
@@ -445,7 +456,75 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
     paint()
   }
 
+  /* ---------- removing this computer's data ----------
+   *
+   * TWO PRESSES, AND THE FIRST ONE CANNOT DELETE. The first asks the shell to
+   * MEASURE and paints what it found; only the second calls erase(). That is not
+   * a confirmation dialog for politeness -- it is the only moment at which the
+   * person has been told what they are about to lose, measured on their disk
+   * rather than described in general.
+   *
+   * A MISSING BRIDGE IS SAID, NOT HIDDEN. In a plain browser, or a build without
+   * the channel, the row renders `unavailable` with a sentence. Hiding it would
+   * leave somebody hunting for a control they had been told about; a button that
+   * silently did nothing would be worse than both. */
+  function resetBridge() {
+    const bridge = globalThis.mcLocalData
+    return bridge && typeof bridge.plan === 'function' && typeof bridge.erase === 'function' ? bridge : null
+  }
+
+  async function startResetPlan() {
+    if (busy) return
+    const bridge = resetBridge()
+    if (!bridge) { reset = { phase: 'unavailable', plan: null, sweep: null }; paint(); return }
+    busy = true
+    reset = { phase: 'measuring', plan: null, sweep: null }
+    paint()
+    let reply
+    try { reply = await bridge.plan() } catch { reply = null }
+    if (destroyed) return
+    busy = false
+    reset = { phase: 'confirm', plan: readPlan(reply), sweep: null }
+    paint()
+  }
+
+  async function runReset() {
+    if (busy) return
+    const bridge = resetBridge()
+    if (!bridge) { reset = { phase: 'unavailable', plan: null, sweep: null }; paint(); return }
+    busy = true
+    reset = { ...reset, phase: 'working' }
+    paint()
+    let reply
+    try { reply = await bridge.erase() } catch (error) { reply = { ok: false, reason: error?.message || '' } }
+    if (destroyed) return
+    busy = false
+    reset = { phase: 'done', plan: reset.plan, sweep: readSweep(reply) }
+    /* The account state is re-read because the erase revoked every sign-in
+       before it deleted anything: the header above must not still say "Signed in
+       as" over a deleted account. It is read AFTER the outcome is stored, and
+       refresh() cannot clear it -- `reset` is not part of what refresh() owns. */
+    await refresh()
+    if (destroyed) return
+    paint()
+  }
+
   function onClick(event) {
+    if (event.target.closest('[data-reset-plan]')) { startResetPlan(); return }
+    if (event.target.closest('[data-reset-cancel]')) {
+      reset = { phase: 'idle', plan: null, sweep: null }
+      paint()
+      return
+    }
+    if (event.target.closest('[data-reset-confirm]')) { runReset(); return }
+    if (event.target.closest('[data-reset-close]')) {
+      /* The window's own close, the same act as pressing the X. Nothing else is
+         offered afterwards: this program's state on this computer is gone, and a
+         session that keeps running would start writing a new one. */
+      try { globalThis.close() } catch { /* a browser tab may refuse; the sentence above still stands */ }
+      return
+    }
+
     if (event.target.closest('[data-account-home]')) { navigate('#/'); return }
 
     if (event.target.closest('[data-google-signin-start]')) { startGoogleSignIn(); return }

@@ -40,6 +40,15 @@ import {
    always the one nobody is looking at. That module is pure data and a lookup
    with no imports of its own, so this costs the home screen no module graph. */
 import { CODEX_SETUP_COMMANDS } from './agent-availability-copy.js'
+/* THE DOOR OUT OF THE TWO DEAD ENDS ON THIS SCREEN, imported for the same
+   reason the commands above are: the fleet graph, the comms board and Settings
+   offer the same door, and four hand-written labels pointing at one page is four
+   things to get wrong. The page behind it carries the explanation this screen is
+   not allowed to print -- home's vocabulary rules ban the phrase "fleet host"
+   and the fact row under the ring is capped at three, both correctly, and
+   neither is a reason to leave a person holding a statement with nowhere to take
+   it. */
+import { GUIDE_ACTION, GUIDE_HREF } from './first-run-needs.js'
 
 /* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
  *
@@ -338,7 +347,7 @@ const countOf = (n, one, many) => `${n} ${n === 1 ? one : many}`
  * @param {object|null} input.peer         {reachable, name, atMs}
  * @param {object} input.sessions          from readLocalSessions
  * @param {object} input.engine            from readAgentEngine
- * @param {object|null} input.approvals    {readable, count}
+ * @param {object|null} input.approvals    {readable, count, undelivered}
  * @param {object} input.chatbox           {runsMode, selection, agentsInSource}
  * @param {number} input.nowMs
  *
@@ -432,12 +441,18 @@ export function describeHome(input) {
          above it. The link's own freshness is a detail for the computers page,
          not a headline claim on home. */
     } else if (mode === HOME_MODES.FLEET_UNREACHABLE) {
-      facts.push({ id: 'peer', tone: 'warn', text: 'Nothing has been heard from them recently' })
+      facts.push({ id: 'peer', tone: 'warn', href: GUIDE_HREF, text: 'Nothing has been heard from them recently' })
     } else {
       /* The one true thing to say when there is no fleet. NOT "no fleet host
          was detected", which describes a search this product performed and
-         reads as a fault; and never beside a claim that it works here. */
-      facts.push({ id: 'peer', tone: 'neutral', text: 'This is the only computer connected' })
+         reads as a fault; and never beside a claim that it works here.
+
+         IT NOW LEADS SOMEWHERE, and that is the whole of LEGACY-ONB-001 as it
+         lands on this screen. The sentence was correct and terminal: a person
+         who wanted to know what a second computer would add, or whether they had
+         missed a step, had nowhere in the product to find out. The words do not
+         change -- they were right -- but the row is a link now. */
+      facts.push({ id: 'peer', tone: 'neutral', href: GUIDE_HREF, text: 'This is the only computer connected' })
     }
 
     /* Decisions waiting. Omitted entirely when the count could not be read: a
@@ -446,9 +461,37 @@ export function describeHome(input) {
        say. Zero is stated positively, because "nothing needs you" is
        information a person wants. */
     if (approvals?.readable) {
-      facts.push(approvals.count > 0
-        ? { id: 'approvals', tone: 'warn', href: '#/approvals', text: `${countOf(approvals.count, 'decision', 'decisions')} waiting for you` }
-        : { id: 'approvals', tone: 'good', text: 'Nothing is waiting for your approval' })
+      /* Decisions he ALREADY MADE that did not land -- src/approval-outcomes.js.
+         Absence reads as zero, which is the only reading of a missing field that
+         cannot invent a failure, and it is clamped to the pending count so this
+         row can never claim more failures than there are requests left to fail.
+         That clamp is also what makes "nothing was approved" corroborated rather
+         than asserted: a decision that HAD landed would have taken its request
+         out of the queue, so a failure that is still counted here is a failure
+         the engine is still confirming by keeping the request pending. */
+      const undelivered = Number.isSafeInteger(approvals.undelivered) && approvals.undelivered > 0
+        ? Math.min(approvals.undelivered, approvals.count)
+        : 0
+
+      /* ONE row, not two. The cap under the ring is three facts and it is a real
+         cap (tools/test/home-screen.test.mjs), because five notices in a
+         viewport is what made this screen unreadable. So when a decision he made
+         did not land, that DISPLACES the waiting count rather than joining it:
+         both are true, the failed request is itself one of the waiting ones, and
+         only one of them corrects something he currently believes. The count is
+         one click away on the screen this row links to. */
+      facts.push(
+        undelivered > 0
+          ? {
+            id: 'approvals',
+            tone: 'warn',
+            href: '#/approvals',
+            text: `${countOf(undelivered, 'decision', 'decisions')} you made ${undelivered === 1 ? 'was' : 'were'} not recorded, so nothing was approved`,
+          }
+          : approvals.count > 0
+            ? { id: 'approvals', tone: 'warn', href: '#/approvals', text: `${countOf(approvals.count, 'decision', 'decisions')} waiting for you` }
+            : { id: 'approvals', tone: 'good', text: 'Nothing is waiting for your approval' },
+      )
     }
   }
 
@@ -583,10 +626,19 @@ function describePanel(mode, sessions, engine, chatbox) {
            where the switch is. An installation that has is told nothing here,
            because a button that repeats what the person already did is
            clutter, and a button pointing at a screen that cannot help them is
-           worse than clutter. */
-        action: engine.ready && !engine.sessionsEnabled
-          ? { label: 'Turn on agent sessions in Settings', href: '#/settings' }
-          : null,
+           worse than clutter.
+
+           THE THIRD BRANCH IS THE ONE THAT WAS MISSING, and it is the branch a
+           stranger lands on. An engine that is NOT ready got `null` here: the
+           box said "When this copy can run agents, every run will show up here"
+           and offered nothing, on the exact screen where the person has just
+           been told their computer cannot run one. The fact row above already
+           names the cause and gives the command; this control leads to the page
+           that says what the whole product needs, which is the question a person
+           in that state is actually asking. */
+        action: engine.ready
+          ? (engine.sessionsEnabled ? null : { label: 'Turn on agent sessions in Settings', href: '#/settings' })
+          : { ...GUIDE_ACTION },
       }
     } else {
       panel.footer = recordFooter(sessions)

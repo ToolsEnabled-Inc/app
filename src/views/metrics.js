@@ -29,6 +29,11 @@ import { createCharts, createLiveUsageSankey } from '../metrics-charts.js'
 import { createMetricsLayout } from '../metrics-layout.js'
 import { isLiveView, setLiveView } from '../live-flags.js'
 import { fetchMetrics } from '../live-status.js'
+/* Metrics is one of the four screens src/first-run-needs.js names as
+   permanently empty on a copy with no agent host. The label and the address of
+   the page that explains why are imported, never retyped: six screens offer
+   this door and six hand-written labels is six things to get wrong. */
+import { GUIDE_ACTION } from '../first-run-needs.js'
 
 const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'M' : n + 'k'
 
@@ -1881,9 +1886,20 @@ export function metricsView() {
     metricsSurface.dataset.liveMode = 'live'
     root.dataset.projectionState = projection?.ok ? 'aggregate' : 'unavailable'
     metricsSurface.dataset.projectionState = root.dataset.projectionState
-    root.querySelector('#mf-note').textContent = projection?.ok
-      ? 'live totals from this computer'
-      : `the live totals could not be read · ${projection?.reason || 'no reason given'}`
+    /* Built with DOM calls rather than innerHTML because `projection.reason` is
+       read off a file on disk: it is the only untrusted string on this line, and
+       a textContent assignment cannot carry markup into the page. */
+    const note = root.querySelector('#mf-note')
+    if (projection?.ok) {
+      note.textContent = 'live totals from this computer'
+    } else {
+      note.textContent = `the live totals could not be read · ${projection?.reason || 'no reason given'} `
+      const door = document.createElement('a')
+      door.className = 'host-absent-action'
+      door.href = GUIDE_ACTION.href
+      door.textContent = GUIDE_ACTION.label
+      note.appendChild(door)
+    }
     applyLiveTiles()
 
     applyLiveSankey()

@@ -5,6 +5,9 @@
 
 import { el } from '../components.js'
 import { fetchResearch } from '../live-status.js'
+/* The one door every empty screen in this product offers, imported rather than
+   written again here — see src/first-run-needs.js. */
+import { GUIDE_ACTION } from '../first-run-needs.js'
 import '../research.css'
 
 const RESEARCH_QUEUE_URL = '/data/research-queue.json'
@@ -254,6 +257,7 @@ export function researchView() {
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
         <strong>Your research could not be loaded</strong>
         <span>${esc(reason || 'The app was not told why.')}</span>
+        <a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a>
       </section>`)
   }
 

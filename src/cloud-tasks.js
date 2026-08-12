@@ -70,10 +70,17 @@ export {
   environmentsMessage,
 } from './cloud-tasks-controller.js'
 
-function stateNode(node, tone, text) {
+/* [B6] `code` is the identifier that used to lead each of these lines. It is
+   still reported, on the element rather than in the sentence, so a support
+   conversation can name the exact refusal a customer hit. It is REMOVED rather
+   than blanked when there is none: `data-refusal-code=""` reads as "there is a
+   code and it is empty" to anything testing for presence. */
+function stateNode(node, tone, text, code = null) {
   if (!node) return
   node.dataset.state = tone
   node.textContent = text
+  if (typeof code === 'string' && code.length > 0) node.setAttribute('data-refusal-code', code)
+  else node.removeAttribute('data-refusal-code')
 }
 
 function taskRow(task) {
@@ -302,10 +309,10 @@ export function mountCloudTaskSurface(root, { live = false, anchor = '.agent-str
     postAction,
     availability,
     onState: next => {
-      stateNode(listOutput, next.listTone, next.listMessage)
-      stateNode(environmentsOutput, next.environmentsTone, next.environmentsMessage)
-      stateNode(launchOutput, next.launchTone, next.launchMessage)
-      stateNode(watchNode, next.watchTone, next.watchMessage)
+      stateNode(listOutput, next.listTone, next.listMessage, next.listCode)
+      stateNode(environmentsOutput, next.environmentsTone, next.environmentsMessage, next.environmentsCode)
+      stateNode(launchOutput, next.launchTone, next.launchMessage, next.launchCode)
+      stateNode(watchNode, next.watchTone, next.watchMessage, next.watchCode)
       renderReceipt(receiptNode, next.receipt)
       launchButton.textContent = next.launchLabel
       launchButton.classList.toggle('is-confirming', next.phase === 'armed')
@@ -439,10 +446,10 @@ export function cloudControlsBox({ postAction = postBridgeAction } = {}) {
     postAction,
     availability,
     onState: next => {
-      stateNode(out, next.launchTone, next.launchMessage)
-      stateNode(listOut, next.listTone, next.listMessage)
-      stateNode(environmentsOut, next.environmentsTone, next.environmentsMessage)
-      stateNode(watchNode, next.watchTone, next.watchMessage)
+      stateNode(out, next.launchTone, next.launchMessage, next.launchCode)
+      stateNode(listOut, next.listTone, next.listMessage, next.listCode)
+      stateNode(environmentsOut, next.environmentsTone, next.environmentsMessage, next.environmentsCode)
+      stateNode(watchNode, next.watchTone, next.watchMessage, next.watchCode)
       renderReceipt(receiptNode, next.receipt)
       goButton.textContent = next.launchLabel
       goButton.disabled = next.phase === 'launching' || !availability.ok

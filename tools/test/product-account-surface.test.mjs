@@ -387,6 +387,11 @@ const SHIPPED_COPY = [
   VIEW,
   read('shell/product-account.cjs'),
   read('src/account-markup.js'),
+  /* The words on the removal surface. It is a separate module for the same
+     reason src/account-markup.js is -- so a test can CALL the copy rather than
+     search for it -- and it is named account-* so the discovery above picks it
+     up without anybody remembering to add it. */
+  read('src/account-reset-copy.js'),
 ].join('\n')
 
 const REGISTERED_CLAIMS = Object.freeze([
@@ -771,6 +776,104 @@ const REGISTERED_CLAIMS = Object.freeze([
       assert.ok(/await refresh\(\)/.test(failure), 'a failed Google sign-in no longer re-reads the account state')
     },
   },
+
+  /* ---- removing this computer's data ----
+   *
+   * These four are the strongest sentences on the whole surface, because the act
+   * they describe is the only irreversible one the product offers. Each is
+   * pinned to a mechanical fact in shell/local-data-reset.cjs, which is the
+   * module that does the deleting; the behavioural half -- that the sweep really
+   * removes what it says and really reports what it could not -- is
+   * tools/test/local-data-reset.test.mjs, and the packaged half is
+   * tools/uninstall-reset-packaged-qa.mjs. */
+  {
+    claim: 'Nothing has been deleted.',
+    stillTrueBecause: 'the measuring step and the deleting step are two separate IPC channels. mc-reset:plan reaches planReset(), which reads and stats and nothing else -- there is no rm, unlink, rmdir or truncate anywhere in the plan path -- so the first press cannot destroy anything.',
+    pin() {
+      const module = stripComments(read('shell/local-data-reset.cjs'))
+      const plan = module.slice(module.indexOf('function planReset'), module.indexOf('function eraseDirectory'))
+      assert.ok(plan.length > 400, 'planReset is gone, so the sentence shown while measuring is about nothing')
+      assert.ok(!/\b(?:rmSync|unlinkSync|rmdirSync|truncateSync|writeFileSync|renameSync)\b/.test(plan),
+        'the measuring path now writes or deletes, so "Nothing has been deleted" is no longer true')
+      /* And the two channels must still be two. */
+      const main = stripComments(MAIN)
+      assert.ok(main.includes("ipcMain.handle('mc-reset:plan'") && main.includes("ipcMain.handle('mc-reset:erase'"),
+        'the measure and the act are no longer separate channels')
+      const planHandler = main.slice(main.indexOf("ipcMain.handle('mc-reset:plan'"), main.indexOf("ipcMain.handle('mc-reset:erase'"))
+      assert.ok(!/eraseLocalData|eraseDirectory/.test(planHandler), 'the measuring channel now deletes')
+    },
+  },
+  {
+    claim: 'It cannot be undone, and it does not uninstall the program.',
+    stillTrueBecause: 'the module keeps no copy of what it removes -- no copy, no rename, no archive, no recycle bin -- so there is nothing to restore from; and it starts no process, so it cannot run the uninstaller either. Both halves are absences in the same file.',
+    pin() {
+      const module = stripComments(read('shell/local-data-reset.cjs'))
+      assert.ok(!/\b(?:copyFileSync|cpSync|renameSync|createWriteStream|archive|backup)\b/i.test(module),
+        'the reset now keeps a copy somewhere, so "it cannot be undone" needs re-checking')
+      /* Narrow on purpose: requiring shell/uninstall-retention.cjs for its
+         measurement is exactly what this module is supposed to do, so the
+         pattern names ways of STARTING something rather than the word
+         "uninstall". */
+      assert.ok(!/child_process|spawnSync|spawn\(|exec(?:File)?Sync|\.exe\b|shell\.openPath|app\.relaunch/i.test(module),
+        'the reset now starts a process, so "it does not uninstall the program" needs re-checking')
+    },
+  },
+  {
+    claim: 'There is no undo and no copy anywhere else.',
+    stillTrueBecause: 'the same absence as above, said where it matters most -- immediately above the button that destroys the data. Nothing in the reset path writes a copy of anything it deletes.',
+    pin() {
+      const module = stripComments(read('shell/local-data-reset.cjs'))
+      assert.ok(!/\b(?:copyFileSync|cpSync|renameSync|createWriteStream)\b/.test(module),
+        'something in the reset path now copies data before deleting it')
+    },
+  },
+  {
+    claim: 'Nothing in them is opened, moved or deleted here',
+    stillTrueBecause: 'a folder the person chose for their own work is put in the plan\'s `untouched` list, which the erase path never reads -- and if it happens to sit INSIDE a directory being swept, it goes in `conflicts` instead and the screen says so in a serious notice. The sentence therefore cannot be silently false for the one person it would be false for.',
+    pin() {
+      const module = stripComments(read('shell/local-data-reset.cjs'))
+      assert.ok(/untouched\.push\(\{ kind: 'workspace'/.test(module),
+        'workspace roots are no longer recorded as untouched')
+      assert.ok(/conflicts\.push\(\{ kind: 'workspace'/.test(module),
+        'a chosen folder inside the swept directory is no longer detected, so this promise can now be quietly false')
+      const plan = module.slice(module.indexOf('function planReset'), module.indexOf('function eraseDirectory'))
+      assert.ok(!/roots\.push\([^)]*workspace/i.test(plan), 'a workspace root can now reach the list of things to delete')
+      /* The screen must SAY it, not merely compute it. */
+      const markup = stripComments(read('src/account-markup.js'))
+      assert.ok(/data-reset-conflict/.test(markup) && /plan\.conflicts/.test(markup),
+        'the confirm screen no longer renders the conflicting-folder warning')
+      const main = stripComments(MAIN)
+      const erase = main.slice(main.indexOf("ipcMain.handle('mc-reset:erase'"))
+      assert.ok(/const sweepRoots = plan\.roots\.filter\(/.test(erase) && /roots: sweepRoots/.test(erase),
+        'the erase channel no longer takes its directories from the measured plan')
+      assert.ok(!/plan\.untouched|plan\.conflicts/.test(erase),
+        'the erase channel now reads the list of folders it is supposed to leave alone')
+    },
+  },
+  {
+    claim: 'deleting here cannot reach any of it and does not undo it',
+    stillTrueBecause: 'the reset path has no network access of any kind -- no fetch, no socket, no node networking module -- so it cannot reach a service, a mailbox or a Google account to undo anything that already left this computer.',
+    pin() {
+      const network = /\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|require\(\s*['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]\s*\)|from\s+['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]/
+      assert.ok(!network.test(stripComments(read('shell/local-data-reset.cjs'))),
+        'the reset module can now reach the network, so what it claims it cannot reach needs re-checking')
+    },
+  },
+  {
+    claim: 'There is no server involved',
+    stillTrueBecause: 'the same fact the sign-in copy already rests on: no account module can reach the network, so an account and its sessions exist on this computer and nowhere else. Signing out everywhere is therefore complete by construction rather than by a service being asked.',
+    pin() {
+      const network = /\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|require\(\s*['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]\s*\)|from\s+['"](?:node:)?(?:http|https|net|dns|tls|dgram)['"]/
+      for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
+        assert.ok(!network.test(source), `${name} can reach the network, so "There is no server involved" is no longer true`)
+      }
+      /* And the revocation is still the epoch bump rather than a file delete,
+         which is what makes it reach a copy taken off this computer. */
+      const store = stripComments(read('shell/product-account.cjs'))
+      const revoke = store.slice(store.indexOf('function signOutEverywhere'), store.indexOf('function signOutEverywhere') + 900)
+      assert.ok(/epoch: entry\.epoch \+ 1/.test(revoke), 'sign-out-everywhere no longer advances the epoch')
+    },
+  },
 ])
 
 for (const entry of REGISTERED_CLAIMS) {
@@ -879,6 +982,9 @@ const REPORTED_STATE = Object.freeze([
   ['This copy cannot sign in with Google', 'reports that this build has no Google sign-in channel on its bridge. A fact about the build, said instead of showing a button that would fail.'],
   ['This copy cannot change the name it shows', 'reports that this build has no rename channel on its bridge -- the same shape as the Google line above. It is said instead of a Save that appears to work and changes nothing, which is the failure the sentence exists to refuse.'],
   ['there is no account whose data this would be', 'reports that nobody is signed in. It is the partition refusing to answer rather than answering with somebody else\'s data, which is the behaviour the isolation tests pin.'],
+  ['Nothing was measured, so nothing is offered', 'reports that the measurement itself failed, and it is the branch that exists so an unreadable answer cannot render as "there is nothing here to delete" -- which would be a claim about somebody\'s vault made from ignorance.'],
+  ['This page cannot delete anything', 'reports that this build has no removal channel on its bridge -- the same shape as the Google and rename lines above. Said instead of a button that would appear to work.'],
+  ['There is no installed application here to remove data from', 'reports where the page is running: in a browser there is no shell, no userData directory and nothing to sweep.'],
 ])
 
 test('every absolute-shaped sentence in the account copy is classified', () => {

@@ -7,6 +7,12 @@ import { R_ITEMS, Q_ITEMS, liveAgeMs, formatLedgerAge } from '../ledger-data.js'
 import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
 import { fetchLedger } from '../live-status.js'
 import { mountLedgerWriteSurface } from '../write-surfaces.js'
+/* THE DOOR OUT OF THIS SCREEN'S REFUSAL. The ledger is one of the four screens
+   src/first-run-needs.js names as permanently empty on a copy with no agent
+   host, and "the ledger could not be read yet" is true without being an answer.
+   The label and the address are imported rather than retyped so this screen and
+   the other five point at one page under one name. */
+import { GUIDE_ACTION } from '../first-run-needs.js'
 import '../ledger.css'
 
 const MODE_KEY = 'mc.ledger.mode'
@@ -281,7 +287,14 @@ export function ledgerView() {
       renderSummary([], { unavailable: true, live: true })
       register.removeAttribute('role')
       register.setAttribute('aria-label', 'The ledger could not be read')
-      register.innerHTML = `<p class="ledger-empty projection-unavailable">the ledger could not be read yet · ${esc(reason)}</p>`
+      /* The door is offered only once the read has ANSWERED. While it is still
+         in flight nothing is known to be missing, and a "what this copy needs"
+         link under a spinner invites a person to go solve a problem they may
+         not have. */
+      const door = source.kind === 'unavailable'
+        ? `<p class="ledger-empty"><a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a></p>`
+        : ''
+      register.innerHTML = `<p class="ledger-empty projection-unavailable">the ledger could not be read yet · ${esc(reason)}</p>${door}`
       root.querySelector('[data-visible-count]').textContent = source.kind === 'loading' ? 'reading…' : 'could not be read'
       root.dataset.projectionState = source.kind
       return

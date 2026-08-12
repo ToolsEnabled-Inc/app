@@ -45,6 +45,15 @@
  */
 
 import { LAUNCH_TIERS } from './orchestration-controls.js'
+/* [B6] A refused lead or member used to read `${code}: ${reason}`. */
+import { refusalSentence } from './refusal-copy.js'
+import {
+  WRITE_OUTCOME_KEYS,
+  clearUndeliveredWrite,
+  recordUndeliveredWrite,
+  restatedMessage,
+  undeliveredWrite,
+} from './write-outcomes.js'
 
 /* The declared agent identity each tier resolves to.
    Mirrors the frozen TIERS table's `targetAgentId` field at
@@ -156,8 +165,9 @@ export function verifiedDispatchReceipt(result, expectedTier) {
     && /^[a-f0-9]{64}$/.test(String(receipt.auditEventHash || ''))
 }
 
-function memberState(tier, phase, detail, receipt = null) {
-  return Object.freeze({ tier, identity: TIER_AGENT_IDENTITY[tier] || null, phase, detail, receipt })
+/* `code` defaults to null, never '': absence is not a blank value. */
+function memberState(tier, phase, detail, receipt = null, code = null) {
+  return Object.freeze({ tier, identity: TIER_AGENT_IDENTITY[tier] || null, phase, detail, receipt, code })
 }
 
 /**
@@ -187,14 +197,20 @@ export function createTeamController({
   onState = () => {},
 } = {}) {
   let destroyed = false
+  /* A TEAM RUN THAT FINISHED AFTER ITS PANEL CLOSED. Restated here on the next
+     mount, because the launch ids it names are the only handle on lanes that are
+     still running. */
+  const missedTeam = undeliveredWrite(WRITE_OUTCOME_KEYS.TEAM_DISPATCH)
   let state = Object.freeze({
     phase: plan?.dispatchable ? 'idle' : 'unavailable',
     enabled: Boolean(plan?.dispatchable),
     lead: plan?.lead ? memberState(plan.lead, 'idle', 'Not dispatched.') : null,
     members: Object.freeze((plan?.members || []).map(tier => memberState(tier, 'idle', 'Not dispatched.'))),
-    message: plan?.dispatchable
-      ? `Dispatch ${plan.lead} as lead with ${plan.members.length} member${plan.members.length === 1 ? '' : 's'} nested under it.`
-      : (plan?.problems || ['No team is selected.']).join(' '),
+    message: missedTeam
+      ? restatedMessage(missedTeam)
+      : (plan?.dispatchable
+        ? `Dispatch ${plan.lead} as lead with ${plan.members.length} member${plan.members.length === 1 ? '' : 's'} nested under it.`
+        : (plan?.problems || ['No team is selected.']).join(' ')),
   })
 
   const publish = next => {
@@ -204,6 +220,16 @@ export function createTeamController({
   publish(state)
 
   const patch = fields => publish(Object.freeze({ ...state, ...fields }))
+
+  /* Where a finished team run says what it did. Always updates this controller's
+     state; paints when a panel is listening; files the sentence for the next
+     mount of the panel when there is none. */
+  const settleTeam = (fields, tone, message) => {
+    patch({ ...fields, message })
+    if (destroyed) recordUndeliveredWrite(WRITE_OUTCOME_KEYS.TEAM_DISPATCH, { tone, message })
+    else clearUndeliveredWrite(WRITE_OUTCOME_KEYS.TEAM_DISPATCH)
+    return state
+  }
 
   const withMember = (tier, next) => Object.freeze(
     state.members.map(member => (member.tier === tier ? next : member)),
@@ -231,8 +257,11 @@ export function createTeamController({
     return {
       ok: false,
       code: shapedSuccess ? 'BRIDGE_DISPATCH_RECEIPT_INVALID' : (result?.code || 'BRIDGE_REQUEST_FAILED'),
+      /* [B6] The remedy that used to be tacked on here ("this lane may be
+         running; check the fleet before retrying") is now the table's, and
+         said more plainly. Keeping both printed the instruction twice. */
       reason: shapedSuccess
-        ? 'The dispatch response was incomplete or named a different tier. This lane may be running; check the fleet before retrying.'
+        ? 'The dispatch response was incomplete or named a different tier.'
         : (result?.reason || 'The dispatch was refused with no receipt.'),
     }
   }
@@ -249,16 +278,26 @@ export function createTeamController({
         message: 'Dispatching the lead. No member has been started yet.',
       })
 
+      /* NO `if (destroyed) return` BETWEEN A DISPATCH AND ITS RECEIPT. Each
+         send() starts a REAL agent lane and answers with a launch id that
+         nothing else on this machine will tell you. Losing this panel is a
+         reason to write the answer somewhere else, never a reason to have no
+         answer -- a started lane nobody is told about keeps running. */
       const leadResult = await send(plan.lead, dispatchBody?.parentLaunchId || null)
-      if (destroyed) return state
       if (!leadResult.ok) {
-        patch({
-          phase: 'failed',
-          enabled: true,
-          lead: memberState(plan.lead, 'refused', `${leadResult.code}: ${leadResult.reason}`),
-          message: 'The lead was not started, so no member was dispatched. Nothing is running from this team.',
-        })
-        return state
+        /* Nothing was spent and nothing is running, so this one is filed too but
+           it is the only branch here that costs the person nothing to miss. */
+        return settleTeam(
+          {
+            phase: 'failed',
+            enabled: true,
+            lead: memberState(plan.lead, 'refused',
+              refusalSentence(leadResult, { fallback: 'The dispatch was refused with no receipt.' }),
+              null, leadResult.code || null),
+          },
+          'refused',
+          'The lead was not started, so no member was dispatched. Nothing is running from this team.',
+        )
       }
 
       const parentLaunchId = leadResult.receipt.launchId
@@ -267,30 +306,36 @@ export function createTeamController({
         message: `Lead started. Nesting ${plan.members.length} member${plan.members.length === 1 ? '' : 's'} under launch ${parentLaunchId}.`,
       })
 
+      /* Being torn down stops the team from dispatching ANOTHER member -- that
+         is the right call and it is kept. What it must not do is abandon the run
+         with no summary, because the lead, and every member already sent, are
+         running whether or not this panel survived. */
+      let unattempted = 0
       for (const tier of plan.members) {
-        if (destroyed) return state
+        if (destroyed) { unattempted += 1; continue }
         patch({ members: withMember(tier, memberState(tier, 'pending', 'Dispatching.')) })
         const result = await send(tier, parentLaunchId)
-        if (destroyed) return state
         patch({
           members: withMember(tier, result.ok
             ? memberState(tier, 'started', `Running as launch ${result.receipt.launchId}, nested under ${parentLaunchId}.`, result.receipt)
-            : memberState(tier, 'refused', `${result.code}: ${result.reason}`)),
+            : memberState(tier, 'refused',
+              refusalSentence(result, { fallback: 'The dispatch was refused with no receipt.' }),
+              null, result.code || null)),
         })
       }
 
       const started = state.members.filter(member => member.phase === 'started').length
       const refused = state.members.filter(member => member.phase === 'refused').length
-      patch({
-        phase: refused === 0 ? 'started' : 'partial',
-        enabled: true,
-        message: [
+      return settleTeam(
+        { phase: refused === 0 && unattempted === 0 ? 'started' : 'partial', enabled: true },
+        refused === 0 && unattempted === 0 ? 'confirmed' : 'refused',
+        [
           `Lead ${plan.lead} and ${started} of ${plan.members.length} member${plan.members.length === 1 ? '' : 's'} started under launch ${parentLaunchId}.`,
           refused > 0 ? ` ${refused} refused; each is named above with its reason.` : '',
+          unattempted > 0 ? ` ${unattempted} ${unattempted === 1 ? 'was' : 'were'} never dispatched because this panel closed first.` : '',
           ' Started means the process is running, not that it has answered: a dispatch returns no result.',
         ].join(''),
-      })
-      return state
+      )
     },
   })
 }

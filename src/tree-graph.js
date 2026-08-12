@@ -32,6 +32,29 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[char]))
+/* A NUMBER SOMEBODY MEASURED, OR NOTHING. NEVER ZERO FOR "NOBODY SAID".
+ *
+ * `Number(null)` is 0 and `Number('')` is 0, and the chip preview used to run
+ * both of those through `Number()`. src/declared-fleet.js deliberately omits
+ * tasksDone and failRate -- a declared organisation says what is CONFIGURED,
+ * not what has run -- and projectedComputer() normalises that absence to null.
+ * The coercion then turned it into a measurement, so the one node on the fleet
+ * graph of a copy with no agent host read "0 tasks · 0% fail" beside a rail
+ * saying "runtime, load, tasks, and messages unavailable · not provided by
+ * fleet projection". Measured in the packaged window on a sterile profile
+ * (tools/offline-routes-qa.mjs, artifacts/b7/connected-computers.png).
+ *
+ * A numeric string is still accepted, because a projection is JSON written by
+ * something else and "12" is a number somebody wrote down. An empty string is
+ * not: it is the same absence with a different spelling. */
+const measuredNumber = (value) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : NaN
+  }
+  return NaN
+}
 const overlap = (a, b) => {
   const width = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
   const height = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
@@ -1007,8 +1030,8 @@ export class StaticTreeGraph {
       previous: clean(supplied?.previous ?? values.at(-2)),
       chat: clean(supplied?.chat?.text ?? supplied?.recentChat?.text ?? supplied?.chat ?? supplied?.recentChat),
       unavailable: clean(supplied?.unavailable),
-      tasks: Number(supplied?.tasks ?? record.agent.tasksDone),
-      failRate: Number(supplied?.failRate ?? record.agent.failRate),
+      tasks: measuredNumber(supplied?.tasks ?? record.agent.tasksDone),
+      failRate: measuredNumber(supplied?.failRate ?? record.agent.failRate),
       model: clean(supplied?.model ?? record.agent.model),
     }
   }
@@ -1026,10 +1049,25 @@ export class StaticTreeGraph {
     })
     const tasks = Number.isFinite(feed.tasks) ? `${Math.max(0, Math.round(feed.tasks))} tasks` : ''
     const failure = Number.isFinite(feed.failRate) ? `${Math.max(0, feed.failRate)}% fail` : ''
-    const facts = [tasks, failure, feed.model].filter(Boolean).join(' · ')
+    /* THE MODEL RIDES WITH THE TELEMETRY; IT DOES NOT STAND IN FOR IT.
+       `[tasks, failure, model].filter(Boolean)` meant one declared attribute --
+       the provider, which is "none" in the shipped organisation -- was enough to
+       make `facts` truthy, so the "telemetry unavailable" line below could never
+       be reached on the copy that needs it. Whether this chip has a MEASUREMENT
+       is now decided by the measurements alone. */
+    const measured = [tasks, failure].filter(Boolean)
+    const facts = measured.length ? [...measured, feed.model].filter(Boolean).join(' · ') : ''
     preview.innerHTML = `
       <div class="cl cl-name"><b>${formattedName}</b><span class="chip-runtime"></span></div>
-      ${facts ? `<div class="cl cl-facts">${escapeMarkup(facts)}</div>` : '<div class="cl cl-facts">telemetry unavailable · fleet projection</div>'}
+      ${/* THREE WORDS, NOT FIVE. This fallback was unreachable until the line
+            above stopped letting the provider stand in for a measurement, so
+            nobody had ever seen it rendered: "telemetry unavailable · fleet
+            projection" overran the 322px chip and clipped mid-word to
+            "TELEMETRY UNAVAILABLE · FLEET PROJECT…". The dropped half is on the
+            same screen twice already -- the rail says "not provided by fleet
+            projection" in full -- and the chip's own last line says "no
+            activity observed". Caught in artifacts/b7, not by an assertion. */''}
+      ${facts ? `<div class="cl cl-facts">${escapeMarkup(facts)}</div>` : '<div class="cl cl-facts">telemetry unavailable</div>'}
       ${feed.current ? `<div class="cl cl-current">${escapeMarkup(feed.current)}</div>` : ''}
       ${feed.previous ? `<div class="cl cl-previous">${escapeMarkup(feed.previous)}</div>` : ''}
       ${feed.chat ? `<div class="cl cl-chat">› ${escapeMarkup(feed.chat)}</div>` : ''}

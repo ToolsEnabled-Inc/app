@@ -1,0 +1,1590 @@
+{
+  "connected": {
+    "records": [
+      {
+        "name": "home",
+        "label": "home",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 26000,
+        "screenAfterDwell": {
+          "hash": "#/",
+          "route": "home",
+          "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+          "views": 1,
+          "livePills": [],
+          "exits": [
+            {
+              "text": "This is the only computer connected",
+              "href": "#/guide"
+            },
+            {
+              "text": "What this copy needs",
+              "href": "#/guide"
+            },
+            {
+              "text": "all settings →",
+              "href": "#/settings"
+            }
+          ]
+        },
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5085
+      },
+      {
+        "name": "computers",
+        "label": "computers",
+        "hash": "#/computers",
+        "route": "computers",
+        "screen": "This computer 0 services ENABLED NO RUNTIME Controller COORDINATOR This computer Select a node to focus its branch − 1.00× + Open agent detail Edit Controller TELEMETRY UNAVAILABLE enabled no activity observed FLEET PROJECTION 1 Declared graph nodes This computer · declared source · graph revision 1 Nothing is reporting to this copy yet No local agent fleet host detected on this machine. These are the agents this copy declares, not agents observed running. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs SERVICES No services declared by fleet projection DECLARED GRAPH 0 declared relationships · runtime, load, tasks, and messages unavailable · not provided by fleet projection Showing the organisation this build ships. Nothing has been changed on this computer yet. Revision 1. ROLES ROLE LIBRARY every role that can be assigned on this computer, and what each one is enforced to mean Controller can reserve work shipped Shadow manager cannot reserve work shipped Planner cannot reserve work shipped Manager can reserve work shipped Coordinator assistant cannot reserve work shipped Builder can reserve work shipped Reviewer cannot reserve work shipped Worker can reserve work shipped Observer cannot reserve work shipped Create a role new",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "computers",
+            "state": "declared",
+            "text": "This computer0 services enabledno runtime Controller Coordinator This computer Select a node to focus its branch − 1.00×"
+          },
+          {
+            "cls": "rail-scroll",
+            "state": "available",
+            "text": "1Declared graph nodes This computer · declared source · graph revision 1 Nothing is reporting to this copy yetNo local a"
+          },
+          {
+            "cls": "rail-sub",
+            "state": "declared",
+            "text": "Nothing is reporting to this copy yetNo local agent fleet host detected on this machine. These are the agents this copy "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5112
+      },
+      {
+        "name": "metrics",
+        "label": "metrics",
+        "hash": "#/metrics",
+        "route": "metrics",
+        "screen": "RANGE 24h 7d 30d MACHINE All Computer 1 Computer 2 live projection unavailable · No local agent fleet host detected on this machine. What this copy needs Edit layout CODEX SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. CLAUDE SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. SERVICES — unavailable unavailable · No local agent fleet host detected on this machine. REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. OPEN REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. QUEUE — unavailable unavailable · No local agent fleet host detected on this machine. TOKEN ROUTING pools → providers → roles · unavailable — LIVE OBSERVATION UNAVAILABLE Live token routing is unavailable because No local agent fleet host detected on this machine.. View simulated TOKEN FLOW unavailable · No local agent fleet host detected on this machine. WINDOW TOTALS Codex — Claude — Gemini — Local — unavailable · No local agent fleet host detected on this machine. FAILURE % SAME WINDOW · CROSSHAIR SYNCED unavailable · No local agent fleet host detected on this machine. FLEET ACTIVITY unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. REVIEW VERDICTS audit unavailable · No local agent fleet host detected on this machine. audit unavailable · No local agent fleet host detected on this machine. FAILURE BY LANE unavailable · No local agent fleet host detected on this machine. < 2% 2–5% > 5% unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. AGENTS unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine.",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          },
+          {
+            "cls": "metrics",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5114
+      },
+      {
+        "name": "research",
+        "label": "research",
+        "hash": "#/research",
+        "route": "research",
+        "screen": "OWNER-SCOPED CORPUS Research source unavailable RESEARCH QUEUE Owner observations awaiting research, with state and provenance kept explicit. No research items are queued. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad research-page",
+            "state": "unavailable",
+            "text": "owner-scoped corpus Research source unavailable Research queue Owner observations awaiting research, with state and prov"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5090
+      },
+      {
+        "name": "comms",
+        "label": "comms",
+        "hash": "#/comms",
+        "route": "comms",
+        "screen": "watch board ops projection · unavailable S M L Watch Channels unavailable — projection projection ↔ projection ops projection Live ops projection is unavailable. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "comms",
+            "state": "unavailable",
+            "text": "# ops projection · unavailable watch board ops projection · unavailable S M L Watch Channels unavailable — projection pr"
+          },
+          {
+            "cls": "head-live",
+            "state": "",
+            "text": "unavailable"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5086
+      },
+      {
+        "name": "ledger",
+        "label": "ledger",
+        "hash": "#/ledger",
+        "route": "ledger",
+        "screen": "Ledger — OPEN · UNAVAILABLE — IN PROGRESS · UNAVAILABLE — GATED · UNAVAILABLE — DONE · UNAVAILABLE — BLOCKED · UNAVAILABLE R items Q items source unavailable Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad ledger-page",
+            "state": "unavailable",
+            "text": "Ledger — Open · unavailable — In progress · unavailable — Gated · unavailable — Done · unavailable — Blocked · unavailab"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5079
+      },
+      {
+        "name": "approvals",
+        "label": "approvals",
+        "hash": "#/approvals",
+        "route": "approvals",
+        "screen": "Approvals 0 WAITING FOR YOU · NOTHING IS APPROVED UNLESS YOU APPROVE IT 0 PURCHASES TO REVIEW · NO PURCHASES ARE WAITING Queue empty. Nothing is waiting for you Requests that need your decision appear here. Nothing acts on your behalf while this is empty.",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5083
+      },
+      {
+        "name": "home",
+        "label": "home-again",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5088
+      },
+      {
+        "name": "settings",
+        "label": "settings",
+        "hash": "#/settings",
+        "route": "settings",
+        "screen": "SETTINGS Search all settings HOME SCREEN SYSTEM SETUP APPEARANCE TEXT & READING MOTION & EFFECTS FLEET GRAPH METRICS CHAT & THREADS COMMS BOARD LEDGER PERFORMANCE DATA & SIM WRITE DEVELOPER HOME SCREEN Which agents you see Everything every agent says appears here, including agents you add later. Every agent Only the ones I pick The agents No agents have appeared on this computer yet. When one does it will be listed here, and the box on the first page will show it. Nothing to choose from yet. Agent runs in that box The box shows what your agents are saying and, under it, the record of every agent run on this computer. Show them too Hide them Show only runs SYSTEM No fleet profile saved — showing sample data Everything on screen right now is the labelled sample demonstration, not your machines. ToolsEnabled already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another. Profile name A local label for this system. It is exported with the profile; it is not who you are signed in as. Sign-in is the row below, and this name is not it. Your account Sign in with Google, or with an account you make here — then sign out or change your password. Your account lives on this computer and nowhere else; signing in with Google means Google checks who you are, and no Google password or token is kept here. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them. Open sign-in Machine roster ToolsEnabled already runs on this one computer with nothing added here. Add a machine only if you want to connect another — it stays optional. An address without a port can be resolved, but it cannot honestly be called reachable. No machines added. Saving is blocked until the roster contains at least one named address. Add machine Transport endpoints Relay and tool-lane endpoints stay “not configured” until you provide them. Saved and reachable are separate states. RELAY Use a URL or host:port. Credentials do not belong in this field. TOOL LANE Use a URL or host:port. Credentials do not belong in this field. Local projection directory The desktop shell serves status.json and each domain projection from this folder. Missing or malformed files fail visibly; they never fall through to bundled data. Choose folder Clear Installed desktop source · bundled schemas remain the validation authority. Profile file Load validates before replacing anything. Export preserves the profile's unknown and owner-specific fields. Reset is confirmed twice and returns to the explicit sample demonstration. Load profile Export profile Reset Apply configuration The fleet is constructed once during startup. Saving reloads the app so every view changes together instead of mixing old and new data. Check connections Save & reload Reachability not checked yet Connection state is separate from saved configuration. SETUP Setup was completed on this computer Every row below is what you chose, and every row below is still yours to move. Permission level The assistant works inside one folder that you pick, and cannot reach anything else on this computer. I’m new to this I’ve used AI coding tools before I run agents with permissions bypassed Working folders The folders an assistant may read and change. Everything outside them is off limits at the level recorded above. C:\\Users\\joshp\\AppData\\Local\\Temp\\offline-routes-Ic5WIW\\profile-connected\\home\\Documents\\AI Workspace Choose a different folder… Acting on its own You start an assistant and it works; it stops and asks you whenever it needs permission for something. Nothing runs until you press start, and approving, closing queue items and replying stay off. Switched on now: Read agent reports, Run an agent session. Nothing yet — let me look around first Act when I start it Act on its own and tell me after What the screens show Every screen reads this computer’s own records. On a new installation most of them are empty until you run something, and they say so rather than filling the gap. My own activity A labelled demonstration When it needs permission What an assistant does when it reaches something it needs permission for. Recorded, not yet acted on. Stop and ask me Work on something else while it waits Use its own judgement Attaching to a session already open in your editor Taking over means your editor stops being the one driving that session. Recorded, not yet acted on. Watch it only Continue it in a copy Take it over Sessions found in your editor Whether assistant sessions running in a code editor are listed here. Recorded, not yet acted on. Do not bring any in Ask me each time Bring in everything it finds If an account runs out The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup; you sign in to those inside their own programs. Recorded, not yet acted on. Stop and let me switch Switch to another account automatically Walk through setup again The same three questions, ending on a page that shows everything they set. Nothing is written until you finish it, and leaving partway changes nothing. Open setup What the last four rows do today. This program records them and keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. Each is set to its cautious end unless you moved it. No subscription, key, or password for Claude, ChatGPT or Google is asked for on this screen or stored by this program — those stay in their own programs. The account for this computer is its own setting, not one of these. APPEARANCE Theme Set the page surface and ink palette. White Tan Black Display density Choose the default spacing rhythm for information-heavy views. Comfortable Compact Contrast curve Strengthen secondary ink without changing the theme. Standard Strong Emphasize role hues Give role marks slightly more visual priority. 4 more⌄ Chrome edge weight Tune the presence of control and surface hairlines. 42% Settings drawer width Set the preferred width of the quick settings drawer. < 320px > advanced · 2 more⌄ Surface frost retention Balance glass diffusion against bare-page clarity. 58% everything · 1 more⌄ Brace stroke width Set the signature brace rail stroke at subpixel precision. < 1.25px > TEXT & READING Text size Scale the complete interface while preserving its layout. Small Default Large Mono numeric values Use the data face for changing values and machine identifiers. Reading line height Adjust the vertical rhythm of descriptions and messages. Tight Standard Open 4 more⌄ Timestamp verbosity Choose how much date context accompanies live time. < Relative > Reading measure Limit long-form line length for sustained scanning. < 72 ch > advanced · 2 more⌄ Micro-cap tracking Adjust spacing in uppercase navigational labels. 12% everything · 1 more⌄ Tabular baseline nudge Offset aligned numeric runs against adjacent interface text. < 0px > MOTION & EFFECTS Reduce motion Snap structural movement and suppress ambient animation. Glow intensity Set the shared intensity of illuminated status marks. 100% View transitions Crossfade between routes when motion is available. 4 more⌄ Entry response Settle newly revealed structures over a shorter or longer interval. 420 ms Hover response Choose the response curve for quiet interactive ink shifts. < Clinical > advanced · 2 more⌄ Checkpoint halo decay Control how long a checkpoint pulse remains perceptible. 800 ms everything · 1 more⌄ View-morph snapshot bias Weight route morph timing toward the outgoing or incoming frame. 0% FLEET GRAPH Graph layout Select the default spatial register for the fleet hierarchy. Balanced Compact Wide Agent labels Keep agent identity labels visible at the resting zoom. Group by machine Preserve machine ownership as the graph primary grouping. Link detail Choose the resting amount of relationship annotation. Quiet Full 4 more⌄ Edge tension Adjust the curvature applied to graph relationships. 54% Collision padding Reserve additional separation between adjacent agent nodes. < 16px > advanced · 2 more⌄ Tier vertical gain Scale the distance between successive hierarchy levels. 100% everything · 1 more⌄ Leader-line elbow radius Set the turn radius where context leaders change axis. < 6px > METRICS Default time window Set the first interval shown by aggregate metric views. 1 h 24 h 7 d Auto refresh Advance charts as new simulated observations arrive. Zero baselines Anchor quantitative plots to zero when their scale permits. 4 more⌄ Unit mode Choose adaptive, absolute, or normalized value labels. < Adaptive > Anomaly sensitivity Tune the threshold for highlighting unusual readings. 62% advanced · 2 more⌄ Sankey node gap Set the vertical separation of token-routing nodes. < 14px > everything · 1 more⌄ Heartbeat trace persistence Retain completed heartbeat samples in the rolling trace. 30 s CHAT & THREADS Thread order Set the default ordering for active conversation threads. Recent Priority Enter to send Send a composed line with Enter and use Shift+Enter for a break. Collapse resolved threads Reduce completed conversations to a quiet summary line. 4 more⌄ Thread preview lines Choose how much recent context appears before opening a thread. < 3 lines > Message timestamps Select relative or fixed time labels inside a conversation. < Relative > advanced · 2 more⌄ Thread memory span Set the simulated context window retained per thread. 64 k everything · 1 more⌄ Chat stream cadence jitter Vary the interval between simulated streamed text batches. 40 ms COMMS BOARD Default board mode Open communications as a timeline or a channel board. Timeline Channels Pin owner messages Keep owner-authored directives visually anchored in the stream. Machine tags Show the originating machine beside routed messages. 4 more⌄ Channel density Set the spacing of channel rows in the left register. Calm Dense Packet arrival highlight Briefly mark a communication packet as it enters the board. advanced · 2 more⌄ Lane arrival hold Hold new lane activity before returning it to resting ink. 450 ms everything · 1 more⌄ Comms queue fairness coefficient Bias simulated packet selection across equally active lanes. 50% LEDGER Default register Open the ledger on owner requests or owner questions. R items Q items Expand evidence Show evidence lines when a ledger record is first opened. Show completed items Include completed requests in the default register view. Clean up old R Preview completed or fully superseded R requests. Nothing moves on the first click. Preview cleanup 4 more⌄ Age format Choose concise elapsed time or exact claimed timestamps. < Elapsed > Root rollups Summarize descendant state on decomposed request roots. advanced · 2 more⌄ Gate signal hold Retain the gated-state emphasis after a state transition. 4 h everything · 1 more⌄ Collision-row hysteresis Delay row reflow when adjacent metadata columns approach collision. 8px PERFORMANCE Power profile Balance responsiveness against background resource use. Balanced Quiet Chart quality Choose the default rendering detail for metric canvases. Standard High Background updates Allow inactive views to retain their simulated data clock. 4 more⌄ Graph frame cap Limit hierarchy animation to a fixed frame budget. < Adaptive > In-memory history Set the simulated sample history retained by active charts. 30 min advanced · 2 more⌄ Reflow debounce Delay non-critical layout fitting during rapid size changes. < 40 ms > everything · 1 more⌄ Layer-promotion threshold Set the moving-element count that promotes a composited layer. < 12 nodes > DATA & SIM These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that. What this copy needs Scenario tick rate Set the cadence of simulated operational observations. 100% Seed mode Choose stable sessions or varied simulated histories. Stable Varied Retain samples on navigation Keep simulated view data when moving around the route ring. Offline fallback Use the local simulation when a live source is unavailable. Home / coordinator live data Read coordinator.json on this surface; turn off for the preserved simulation. Computers graph live data Read fleet.json on this surface; turn off for the preserved simulation. Agent drill-in live data Read agents.json on this surface; turn off for the preserved simulation. Metrics panel live data Read metrics.json on this surface; turn off for the preserved simulation. Ops-channel board live data Read ops.json on this surface; turn off for the preserved simulation. R/Q ledger live data Read ledger.json on this surface; turn off for the preserved simulation. 4 more⌄ Event variance Adjust the spread of simulated workload arrivals. 35% Synthetic failure rate Set the background rate of recoverable simulated failures. 3% advanced · 2 more⌄ Sample bucket width Aggregate raw simulation ticks into wider time buckets. < 5 s > everything · 1 more⌄ Sim worker tick bias Offset worker scheduling toward freshness or batch efficiency. 0% WRITE Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear. What this copy needs Dispatch agent lanes Show the audited Codex and Claude dispatch form. Off is the shipped default until live review. Read agent reports Show the bounded report reader on agent drill-in. Off is the shipped default until live review. 5 more⌄ Approve or decline Show durable decision controls in the ledger. Off is the shipped default until live review. Claim or close queue Show strict BUILD-QUEUE claim and close controls. Off is the shipped default until live review. Coordinator replies Enable the durable coordinator-thread composer. Off is the shipped default until live review. Run an agent session Start, watch, and stop a live agent session from the agent page. Off is the shipped default until live review. Launch Codex Cloud tasks Launch a task on Codex Cloud and watch it from the agent page. Each launch still asks for approval. Off is the shipped default until live review. advanced · 0 more⌄ everything · 0 more⌄ DEVELOPER Diagnostic labels Expose bounded component identifiers beside live surfaces. Console detail Set the simulated diagnostic detail written by the client. Quiet Normal Verbose Copy stable identifiers Prefer stable IDs when copying rows, agents, or channels. 4 more⌄ Expose render timings Append measured render duration to development-only readouts. Permit mock failures Allow simulated error states in otherwise healthy surfaces. advanced · 2 more⌄ Observer callback budget Set the soft ceiling for one resize or mutation callback. < 8 ms > everything · 1 more⌄ Tier-guide hairline alpha Set the compositing weight of hierarchy guide hairlines. 7% 110 settings · 61 shown · search reaches all depths",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open sign-in",
+            "href": "#/account"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5170
+      },
+      {
+        "name": "guide",
+        "label": "guide",
+        "hash": "#/guide",
+        "route": "guide",
+        "screen": "FIRST RUN What this copy needs ToolsEnabled works on one computer on its own. Some of its screens read reports that a group of computers writes, and on a fresh install nothing has written one yet. Here is what is missing, what you can do about it, and what is already working. Running an agent on this computer YOU CAN DO THIS NOW ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session and every run is written down on this computer before it begins. winget install OpenAI.Codex in Windows Terminal. If you already have Node, \"npm install -g @openai/codex\" does the same thing. codex login in the same window, once the install finishes. Turn on \"Run an agent session\" in Settings, under Write. Every action that writes anything ships switched off. Open Settings Why the fleet graph, comms board, metrics and ledger are empty NOTHING TO TURN ON Those screens read a report written by an agent host, and this copy of ToolsEnabled does not include one. There is no setting that connects one and no command that installs one, so nothing you do will fill those screens today. They say so rather than showing numbers that are not yours. This is the honest state of the product, not a fault on your computer. If you saw this on another screen, this is what it meant: No local agent fleet host detected on this machine. To see what one of those screens looks like with data in it, turn its live source off in Settings, under Data and Sim. Each screen then shows a worked example, labelled as an example. Open Settings Sending a message to a coordinator YOU CAN DO THIS NOW The box on the first page has no place to type because sending replies is switched off, and because there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready, and it will stay quiet until an agent host reports here. Turn on \"Coordinator replies\" in Settings, under Write. Open Settings What already works here NO SETUP Every agent run started from this window is written down on this computer, signed, and listed on the first page. The fleet graph draws the organisation this copy declares, and each agent on it opens a page of its own. The permission level you chose during setup is what a session is built from, and it can be changed in Settings. All settings Back to the first page",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "All settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Back to the first page",
+            "href": "#/"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5102
+      },
+      {
+        "name": "account",
+        "label": "account",
+        "hash": "#/account",
+        "route": "account",
+        "screen": "Who is using this copy? SIGN IN SO THE RECORD OF WHAT YOUR ASSISTANT DOES SAYS WHO ASKED FOR IT. Sign in with Google — not available on this copy This copy has not been given a Google sign-in application id yet, so signing in with Google is not available. Making an account on this computer works now and does the same job. Sign in with Google USE AN ACCOUNT ON THIS COMPUTER. Name Letters, numbers, and . _ - between them. This is what the record of your assistant’s work will name. Shown as Optional. How the program greets you. Leave it blank to be greeted by the name above. Password At least 12 characters. Length is what makes a password hard to guess — a few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager. What this account is, before you make one. It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one. Signing in with Google instead puts the verified email address from your Google account on the record, and Google is what checks it rather than this computer. Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy. It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it. I already have an account Not now Create account",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5068
+      }
+    ],
+    "endpoint": "{\"ok\":true,\"source\":\"supervised\",\"baseUrl\":\"http://127.0.0.1:4611\",\"pid\":56516,\"envProofRefused\":false}",
+    "offlineProof": "reached the internet: type opaque in 34ms"
+  },
+  "offline": {
+    "records": [
+      {
+        "name": "home",
+        "label": "home",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 26000,
+        "screenAfterDwell": {
+          "hash": "#/",
+          "route": "home",
+          "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+          "views": 1,
+          "livePills": [],
+          "exits": [
+            {
+              "text": "This is the only computer connected",
+              "href": "#/guide"
+            },
+            {
+              "text": "What this copy needs",
+              "href": "#/guide"
+            },
+            {
+              "text": "all settings →",
+              "href": "#/settings"
+            }
+          ]
+        },
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5115
+      },
+      {
+        "name": "computers",
+        "label": "computers",
+        "hash": "#/computers",
+        "route": "computers",
+        "screen": "This computer 0 services ENABLED NO RUNTIME Controller COORDINATOR This computer Select a node to focus its branch − 1.00× + Open agent detail Edit Controller TELEMETRY UNAVAILABLE enabled no activity observed FLEET PROJECTION 1 Declared graph nodes This computer · declared source · graph revision 1 Nothing is reporting to this copy yet No local agent fleet host detected on this machine. These are the agents this copy declares, not agents observed running. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs SERVICES No services declared by fleet projection DECLARED GRAPH 0 declared relationships · runtime, load, tasks, and messages unavailable · not provided by fleet projection Showing the organisation this build ships. Nothing has been changed on this computer yet. Revision 1. ROLES ROLE LIBRARY every role that can be assigned on this computer, and what each one is enforced to mean Controller can reserve work shipped Shadow manager cannot reserve work shipped Planner cannot reserve work shipped Manager can reserve work shipped Coordinator assistant cannot reserve work shipped Builder can reserve work shipped Reviewer cannot reserve work shipped Worker can reserve work shipped Observer cannot reserve work shipped Create a role new",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "computers",
+            "state": "declared",
+            "text": "This computer0 services enabledno runtime Controller Coordinator This computer Select a node to focus its branch − 1.00×"
+          },
+          {
+            "cls": "rail-scroll",
+            "state": "available",
+            "text": "1Declared graph nodes This computer · declared source · graph revision 1 Nothing is reporting to this copy yetNo local a"
+          },
+          {
+            "cls": "rail-sub",
+            "state": "declared",
+            "text": "Nothing is reporting to this copy yetNo local agent fleet host detected on this machine. These are the agents this copy "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5118
+      },
+      {
+        "name": "metrics",
+        "label": "metrics",
+        "hash": "#/metrics",
+        "route": "metrics",
+        "screen": "RANGE 24h 7d 30d MACHINE All Computer 1 Computer 2 live projection unavailable · No local agent fleet host detected on this machine. What this copy needs Edit layout CODEX SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. CLAUDE SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. SERVICES — unavailable unavailable · No local agent fleet host detected on this machine. REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. OPEN REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. QUEUE — unavailable unavailable · No local agent fleet host detected on this machine. TOKEN ROUTING pools → providers → roles · unavailable — LIVE OBSERVATION UNAVAILABLE Live token routing is unavailable because No local agent fleet host detected on this machine.. View simulated TOKEN FLOW unavailable · No local agent fleet host detected on this machine. WINDOW TOTALS Codex — Claude — Gemini — Local — unavailable · No local agent fleet host detected on this machine. FAILURE % SAME WINDOW · CROSSHAIR SYNCED unavailable · No local agent fleet host detected on this machine. FLEET ACTIVITY unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. REVIEW VERDICTS audit unavailable · No local agent fleet host detected on this machine. audit unavailable · No local agent fleet host detected on this machine. FAILURE BY LANE unavailable · No local agent fleet host detected on this machine. < 2% 2–5% > 5% unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. AGENTS unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine.",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          },
+          {
+            "cls": "metrics",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5080
+      },
+      {
+        "name": "research",
+        "label": "research",
+        "hash": "#/research",
+        "route": "research",
+        "screen": "OWNER-SCOPED CORPUS Research source unavailable RESEARCH QUEUE Owner observations awaiting research, with state and provenance kept explicit. No research items are queued. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad research-page",
+            "state": "unavailable",
+            "text": "owner-scoped corpus Research source unavailable Research queue Owner observations awaiting research, with state and prov"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5088
+      },
+      {
+        "name": "comms",
+        "label": "comms",
+        "hash": "#/comms",
+        "route": "comms",
+        "screen": "watch board ops projection · unavailable S M L Watch Channels unavailable — projection projection ↔ projection ops projection Live ops projection is unavailable. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "comms",
+            "state": "unavailable",
+            "text": "# ops projection · unavailable watch board ops projection · unavailable S M L Watch Channels unavailable — projection pr"
+          },
+          {
+            "cls": "head-live",
+            "state": "",
+            "text": "unavailable"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5076
+      },
+      {
+        "name": "ledger",
+        "label": "ledger",
+        "hash": "#/ledger",
+        "route": "ledger",
+        "screen": "Ledger — OPEN · UNAVAILABLE — IN PROGRESS · UNAVAILABLE — GATED · UNAVAILABLE — DONE · UNAVAILABLE — BLOCKED · UNAVAILABLE R items Q items source unavailable Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad ledger-page",
+            "state": "unavailable",
+            "text": "Ledger — Open · unavailable — In progress · unavailable — Gated · unavailable — Done · unavailable — Blocked · unavailab"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5080
+      },
+      {
+        "name": "approvals",
+        "label": "approvals",
+        "hash": "#/approvals",
+        "route": "approvals",
+        "screen": "Approvals 0 WAITING FOR YOU · NOTHING IS APPROVED UNLESS YOU APPROVE IT 0 PURCHASES TO REVIEW · NO PURCHASES ARE WAITING Queue empty. Nothing is waiting for you Requests that need your decision appear here. Nothing acts on your behalf while this is empty.",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5096
+      },
+      {
+        "name": "home",
+        "label": "home-again",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5061
+      },
+      {
+        "name": "settings",
+        "label": "settings",
+        "hash": "#/settings",
+        "route": "settings",
+        "screen": "SETTINGS Search all settings HOME SCREEN SYSTEM SETUP APPEARANCE TEXT & READING MOTION & EFFECTS FLEET GRAPH METRICS CHAT & THREADS COMMS BOARD LEDGER PERFORMANCE DATA & SIM WRITE DEVELOPER HOME SCREEN Which agents you see Everything every agent says appears here, including agents you add later. Every agent Only the ones I pick The agents No agents have appeared on this computer yet. When one does it will be listed here, and the box on the first page will show it. Nothing to choose from yet. Agent runs in that box The box shows what your agents are saying and, under it, the record of every agent run on this computer. Show them too Hide them Show only runs SYSTEM No fleet profile saved — showing sample data Everything on screen right now is the labelled sample demonstration, not your machines. ToolsEnabled already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another. Profile name A local label for this system. It is exported with the profile; it is not who you are signed in as. Sign-in is the row below, and this name is not it. Your account Sign in with Google, or with an account you make here — then sign out or change your password. Your account lives on this computer and nowhere else; signing in with Google means Google checks who you are, and no Google password or token is kept here. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them. Open sign-in Machine roster ToolsEnabled already runs on this one computer with nothing added here. Add a machine only if you want to connect another — it stays optional. An address without a port can be resolved, but it cannot honestly be called reachable. No machines added. Saving is blocked until the roster contains at least one named address. Add machine Transport endpoints Relay and tool-lane endpoints stay “not configured” until you provide them. Saved and reachable are separate states. RELAY Use a URL or host:port. Credentials do not belong in this field. TOOL LANE Use a URL or host:port. Credentials do not belong in this field. Local projection directory The desktop shell serves status.json and each domain projection from this folder. Missing or malformed files fail visibly; they never fall through to bundled data. Choose folder Clear Installed desktop source · bundled schemas remain the validation authority. Profile file Load validates before replacing anything. Export preserves the profile's unknown and owner-specific fields. Reset is confirmed twice and returns to the explicit sample demonstration. Load profile Export profile Reset Apply configuration The fleet is constructed once during startup. Saving reloads the app so every view changes together instead of mixing old and new data. Check connections Save & reload Reachability not checked yet Connection state is separate from saved configuration. SETUP Setup was completed on this computer Every row below is what you chose, and every row below is still yours to move. Permission level The assistant works inside one folder that you pick, and cannot reach anything else on this computer. I’m new to this I’ve used AI coding tools before I run agents with permissions bypassed Working folders The folders an assistant may read and change. Everything outside them is off limits at the level recorded above. C:\\Users\\joshp\\AppData\\Local\\Temp\\offline-routes-Ic5WIW\\profile-offline\\home\\Documents\\AI Workspace Choose a different folder… Acting on its own You start an assistant and it works; it stops and asks you whenever it needs permission for something. Nothing runs until you press start, and approving, closing queue items and replying stay off. Switched on now: Read agent reports, Run an agent session. Nothing yet — let me look around first Act when I start it Act on its own and tell me after What the screens show Every screen reads this computer’s own records. On a new installation most of them are empty until you run something, and they say so rather than filling the gap. My own activity A labelled demonstration When it needs permission What an assistant does when it reaches something it needs permission for. Recorded, not yet acted on. Stop and ask me Work on something else while it waits Use its own judgement Attaching to a session already open in your editor Taking over means your editor stops being the one driving that session. Recorded, not yet acted on. Watch it only Continue it in a copy Take it over Sessions found in your editor Whether assistant sessions running in a code editor are listed here. Recorded, not yet acted on. Do not bring any in Ask me each time Bring in everything it finds If an account runs out The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup; you sign in to those inside their own programs. Recorded, not yet acted on. Stop and let me switch Switch to another account automatically Walk through setup again The same three questions, ending on a page that shows everything they set. Nothing is written until you finish it, and leaving partway changes nothing. Open setup What the last four rows do today. This program records them and keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. Each is set to its cautious end unless you moved it. No subscription, key, or password for Claude, ChatGPT or Google is asked for on this screen or stored by this program — those stay in their own programs. The account for this computer is its own setting, not one of these. APPEARANCE Theme Set the page surface and ink palette. White Tan Black Display density Choose the default spacing rhythm for information-heavy views. Comfortable Compact Contrast curve Strengthen secondary ink without changing the theme. Standard Strong Emphasize role hues Give role marks slightly more visual priority. 4 more⌄ Chrome edge weight Tune the presence of control and surface hairlines. 42% Settings drawer width Set the preferred width of the quick settings drawer. < 320px > advanced · 2 more⌄ Surface frost retention Balance glass diffusion against bare-page clarity. 58% everything · 1 more⌄ Brace stroke width Set the signature brace rail stroke at subpixel precision. < 1.25px > TEXT & READING Text size Scale the complete interface while preserving its layout. Small Default Large Mono numeric values Use the data face for changing values and machine identifiers. Reading line height Adjust the vertical rhythm of descriptions and messages. Tight Standard Open 4 more⌄ Timestamp verbosity Choose how much date context accompanies live time. < Relative > Reading measure Limit long-form line length for sustained scanning. < 72 ch > advanced · 2 more⌄ Micro-cap tracking Adjust spacing in uppercase navigational labels. 12% everything · 1 more⌄ Tabular baseline nudge Offset aligned numeric runs against adjacent interface text. < 0px > MOTION & EFFECTS Reduce motion Snap structural movement and suppress ambient animation. Glow intensity Set the shared intensity of illuminated status marks. 100% View transitions Crossfade between routes when motion is available. 4 more⌄ Entry response Settle newly revealed structures over a shorter or longer interval. 420 ms Hover response Choose the response curve for quiet interactive ink shifts. < Clinical > advanced · 2 more⌄ Checkpoint halo decay Control how long a checkpoint pulse remains perceptible. 800 ms everything · 1 more⌄ View-morph snapshot bias Weight route morph timing toward the outgoing or incoming frame. 0% FLEET GRAPH Graph layout Select the default spatial register for the fleet hierarchy. Balanced Compact Wide Agent labels Keep agent identity labels visible at the resting zoom. Group by machine Preserve machine ownership as the graph primary grouping. Link detail Choose the resting amount of relationship annotation. Quiet Full 4 more⌄ Edge tension Adjust the curvature applied to graph relationships. 54% Collision padding Reserve additional separation between adjacent agent nodes. < 16px > advanced · 2 more⌄ Tier vertical gain Scale the distance between successive hierarchy levels. 100% everything · 1 more⌄ Leader-line elbow radius Set the turn radius where context leaders change axis. < 6px > METRICS Default time window Set the first interval shown by aggregate metric views. 1 h 24 h 7 d Auto refresh Advance charts as new simulated observations arrive. Zero baselines Anchor quantitative plots to zero when their scale permits. 4 more⌄ Unit mode Choose adaptive, absolute, or normalized value labels. < Adaptive > Anomaly sensitivity Tune the threshold for highlighting unusual readings. 62% advanced · 2 more⌄ Sankey node gap Set the vertical separation of token-routing nodes. < 14px > everything · 1 more⌄ Heartbeat trace persistence Retain completed heartbeat samples in the rolling trace. 30 s CHAT & THREADS Thread order Set the default ordering for active conversation threads. Recent Priority Enter to send Send a composed line with Enter and use Shift+Enter for a break. Collapse resolved threads Reduce completed conversations to a quiet summary line. 4 more⌄ Thread preview lines Choose how much recent context appears before opening a thread. < 3 lines > Message timestamps Select relative or fixed time labels inside a conversation. < Relative > advanced · 2 more⌄ Thread memory span Set the simulated context window retained per thread. 64 k everything · 1 more⌄ Chat stream cadence jitter Vary the interval between simulated streamed text batches. 40 ms COMMS BOARD Default board mode Open communications as a timeline or a channel board. Timeline Channels Pin owner messages Keep owner-authored directives visually anchored in the stream. Machine tags Show the originating machine beside routed messages. 4 more⌄ Channel density Set the spacing of channel rows in the left register. Calm Dense Packet arrival highlight Briefly mark a communication packet as it enters the board. advanced · 2 more⌄ Lane arrival hold Hold new lane activity before returning it to resting ink. 450 ms everything · 1 more⌄ Comms queue fairness coefficient Bias simulated packet selection across equally active lanes. 50% LEDGER Default register Open the ledger on owner requests or owner questions. R items Q items Expand evidence Show evidence lines when a ledger record is first opened. Show completed items Include completed requests in the default register view. Clean up old R Preview completed or fully superseded R requests. Nothing moves on the first click. Preview cleanup 4 more⌄ Age format Choose concise elapsed time or exact claimed timestamps. < Elapsed > Root rollups Summarize descendant state on decomposed request roots. advanced · 2 more⌄ Gate signal hold Retain the gated-state emphasis after a state transition. 4 h everything · 1 more⌄ Collision-row hysteresis Delay row reflow when adjacent metadata columns approach collision. 8px PERFORMANCE Power profile Balance responsiveness against background resource use. Balanced Quiet Chart quality Choose the default rendering detail for metric canvases. Standard High Background updates Allow inactive views to retain their simulated data clock. 4 more⌄ Graph frame cap Limit hierarchy animation to a fixed frame budget. < Adaptive > In-memory history Set the simulated sample history retained by active charts. 30 min advanced · 2 more⌄ Reflow debounce Delay non-critical layout fitting during rapid size changes. < 40 ms > everything · 1 more⌄ Layer-promotion threshold Set the moving-element count that promotes a composited layer. < 12 nodes > DATA & SIM These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that. What this copy needs Scenario tick rate Set the cadence of simulated operational observations. 100% Seed mode Choose stable sessions or varied simulated histories. Stable Varied Retain samples on navigation Keep simulated view data when moving around the route ring. Offline fallback Use the local simulation when a live source is unavailable. Home / coordinator live data Read coordinator.json on this surface; turn off for the preserved simulation. Computers graph live data Read fleet.json on this surface; turn off for the preserved simulation. Agent drill-in live data Read agents.json on this surface; turn off for the preserved simulation. Metrics panel live data Read metrics.json on this surface; turn off for the preserved simulation. Ops-channel board live data Read ops.json on this surface; turn off for the preserved simulation. R/Q ledger live data Read ledger.json on this surface; turn off for the preserved simulation. 4 more⌄ Event variance Adjust the spread of simulated workload arrivals. 35% Synthetic failure rate Set the background rate of recoverable simulated failures. 3% advanced · 2 more⌄ Sample bucket width Aggregate raw simulation ticks into wider time buckets. < 5 s > everything · 1 more⌄ Sim worker tick bias Offset worker scheduling toward freshness or batch efficiency. 0% WRITE Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear. What this copy needs Dispatch agent lanes Show the audited Codex and Claude dispatch form. Off is the shipped default until live review. Read agent reports Show the bounded report reader on agent drill-in. Off is the shipped default until live review. 5 more⌄ Approve or decline Show durable decision controls in the ledger. Off is the shipped default until live review. Claim or close queue Show strict BUILD-QUEUE claim and close controls. Off is the shipped default until live review. Coordinator replies Enable the durable coordinator-thread composer. Off is the shipped default until live review. Run an agent session Start, watch, and stop a live agent session from the agent page. Off is the shipped default until live review. Launch Codex Cloud tasks Launch a task on Codex Cloud and watch it from the agent page. Each launch still asks for approval. Off is the shipped default until live review. advanced · 0 more⌄ everything · 0 more⌄ DEVELOPER Diagnostic labels Expose bounded component identifiers beside live surfaces. Console detail Set the simulated diagnostic detail written by the client. Quiet Normal Verbose Copy stable identifiers Prefer stable IDs when copying rows, agents, or channels. 4 more⌄ Expose render timings Append measured render duration to development-only readouts. Permit mock failures Allow simulated error states in otherwise healthy surfaces. advanced · 2 more⌄ Observer callback budget Set the soft ceiling for one resize or mutation callback. < 8 ms > everything · 1 more⌄ Tier-guide hairline alpha Set the compositing weight of hierarchy guide hairlines. 7% 110 settings · 61 shown · search reaches all depths",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open sign-in",
+            "href": "#/account"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5137
+      },
+      {
+        "name": "guide",
+        "label": "guide",
+        "hash": "#/guide",
+        "route": "guide",
+        "screen": "FIRST RUN What this copy needs ToolsEnabled works on one computer on its own. Some of its screens read reports that a group of computers writes, and on a fresh install nothing has written one yet. Here is what is missing, what you can do about it, and what is already working. Running an agent on this computer YOU CAN DO THIS NOW ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session and every run is written down on this computer before it begins. winget install OpenAI.Codex in Windows Terminal. If you already have Node, \"npm install -g @openai/codex\" does the same thing. codex login in the same window, once the install finishes. Turn on \"Run an agent session\" in Settings, under Write. Every action that writes anything ships switched off. Open Settings Why the fleet graph, comms board, metrics and ledger are empty NOTHING TO TURN ON Those screens read a report written by an agent host, and this copy of ToolsEnabled does not include one. There is no setting that connects one and no command that installs one, so nothing you do will fill those screens today. They say so rather than showing numbers that are not yours. This is the honest state of the product, not a fault on your computer. If you saw this on another screen, this is what it meant: No local agent fleet host detected on this machine. To see what one of those screens looks like with data in it, turn its live source off in Settings, under Data and Sim. Each screen then shows a worked example, labelled as an example. Open Settings Sending a message to a coordinator YOU CAN DO THIS NOW The box on the first page has no place to type because sending replies is switched off, and because there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready, and it will stay quiet until an agent host reports here. Turn on \"Coordinator replies\" in Settings, under Write. Open Settings What already works here NO SETUP Every agent run started from this window is written down on this computer, signed, and listed on the first page. The fleet graph draws the organisation this copy declares, and each agent on it opens a page of its own. The permission level you chose during setup is what a session is built from, and it can be changed in Settings. All settings Back to the first page",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "All settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Back to the first page",
+            "href": "#/"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5103
+      },
+      {
+        "name": "account",
+        "label": "account",
+        "hash": "#/account",
+        "route": "account",
+        "screen": "Who is using this copy? SIGN IN SO THE RECORD OF WHAT YOUR ASSISTANT DOES SAYS WHO ASKED FOR IT. Sign in with Google — not available on this copy This copy has not been given a Google sign-in application id yet, so signing in with Google is not available. Making an account on this computer works now and does the same job. Sign in with Google USE AN ACCOUNT ON THIS COMPUTER. Name Letters, numbers, and . _ - between them. This is what the record of your assistant’s work will name. Shown as Optional. How the program greets you. Leave it blank to be greeted by the name above. Password At least 12 characters. Length is what makes a password hard to guess — a few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager. What this account is, before you make one. It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one. Signing in with Google instead puts the verified email address from your Google account on the record, and Google is what checks it rather than this computer. Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy. It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it. I already have an account Not now Create account",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5082
+      }
+    ],
+    "endpoint": "{\"ok\":true,\"source\":\"supervised\",\"baseUrl\":\"http://127.0.0.1:4611\",\"pid\":58424,\"envProofRefused\":false}",
+    "offlineProof": "no route off this machine: TypeError Failed to fetch in 2032ms"
+  },
+  "nothing": {
+    "records": [
+      {
+        "name": "home",
+        "label": "home",
+        "hash": "",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet This copy is not set up to run agents yet This is the only computer connected Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 26000,
+        "screenAfterDwell": {
+          "hash": "",
+          "route": "home",
+          "screen": "THIS COMPUTER Not ready yet This copy is not set up to run agents yet This is the only computer connected Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+          "views": 1,
+          "livePills": [],
+          "exits": [
+            {
+              "text": "This is the only computer connected",
+              "href": "#/guide"
+            },
+            {
+              "text": "What this copy needs",
+              "href": "#/guide"
+            },
+            {
+              "text": "all settings →",
+              "href": "#/settings"
+            }
+          ]
+        },
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5103
+      },
+      {
+        "name": "computers",
+        "label": "computers",
+        "hash": "#/computers",
+        "route": "computers",
+        "screen": "No computers are reporting to this copy This page draws the agents running on each computer in your fleet, and opens any one of them in a detail page with its own chat, runtime and controls. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs See an example agent Demonstration data. Nothing in it is running on this computer. Select a node to focus its branch Edit Fleet projection unavailable No capability payload is present, so this copy has no organisation to read or edit. Nothing was changed. Reload this page and look at the current hierarchy before making the change again. ROLE LIBRARY every role that can be assigned on this computer, and what each one is enforced to mean No capability payload is present, so this copy has no organisation to read or edit. Nothing was changed. Reload this page and look at the current hierarchy before making the change again. No capability payload is present, so this copy has no organisation to read or edit. Nothing was changed. Reload this page and look at the current hierarchy before making the change again.",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "computers",
+            "state": "unavailable",
+            "text": "No computers are reporting to this copy This page draws the agents running on each computer in your fleet, and opens any"
+          },
+          {
+            "cls": "graph-empty",
+            "state": "unavailable",
+            "text": "No computers are reporting to this copy This page draws the agents running on each computer in your fleet, and opens any"
+          },
+          {
+            "cls": "projection-unavailable",
+            "state": "unavailable",
+            "text": "Fleet projection unavailable"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "See an example agent",
+            "href": "#/agent/c1/codex/example"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5097
+      },
+      {
+        "name": "metrics",
+        "label": "metrics",
+        "hash": "#/metrics",
+        "route": "metrics",
+        "screen": "RANGE 24h 7d 30d MACHINE All Computer 1 Computer 2 live projection unavailable · No local agent fleet host detected on this machine. What this copy needs Edit layout CODEX SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. CLAUDE SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. SERVICES — unavailable unavailable · No local agent fleet host detected on this machine. REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. OPEN REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. QUEUE — unavailable unavailable · No local agent fleet host detected on this machine. TOKEN ROUTING pools → providers → roles · unavailable — LIVE OBSERVATION UNAVAILABLE Live token routing is unavailable because No local agent fleet host detected on this machine.. View simulated TOKEN FLOW unavailable · No local agent fleet host detected on this machine. WINDOW TOTALS Codex — Claude — Gemini — Local — unavailable · No local agent fleet host detected on this machine. FAILURE % SAME WINDOW · CROSSHAIR SYNCED unavailable · No local agent fleet host detected on this machine. FLEET ACTIVITY unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. REVIEW VERDICTS audit unavailable · No local agent fleet host detected on this machine. audit unavailable · No local agent fleet host detected on this machine. FAILURE BY LANE unavailable · No local agent fleet host detected on this machine. < 2% 2–5% > 5% unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. AGENTS unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine.",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          },
+          {
+            "cls": "metrics",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5079
+      },
+      {
+        "name": "research",
+        "label": "research",
+        "hash": "#/research",
+        "route": "research",
+        "screen": "OWNER-SCOPED CORPUS Research source unavailable RESEARCH QUEUE Owner observations awaiting research, with state and provenance kept explicit. No research items are queued. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad research-page",
+            "state": "unavailable",
+            "text": "owner-scoped corpus Research source unavailable Research queue Owner observations awaiting research, with state and prov"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5097
+      },
+      {
+        "name": "comms",
+        "label": "comms",
+        "hash": "#/comms",
+        "route": "comms",
+        "screen": "watch board ops projection · unavailable S M L Watch Channels unavailable — projection projection ↔ projection ops projection Live ops projection is unavailable. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "comms",
+            "state": "unavailable",
+            "text": "# ops projection · unavailable watch board ops projection · unavailable S M L Watch Channels unavailable — projection pr"
+          },
+          {
+            "cls": "head-live",
+            "state": "",
+            "text": "unavailable"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5091
+      },
+      {
+        "name": "ledger",
+        "label": "ledger",
+        "hash": "#/ledger",
+        "route": "ledger",
+        "screen": "Ledger — OPEN · UNAVAILABLE — IN PROGRESS · UNAVAILABLE — GATED · UNAVAILABLE — DONE · UNAVAILABLE — BLOCKED · UNAVAILABLE R items Q items source unavailable Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad ledger-page",
+            "state": "unavailable",
+            "text": "Ledger — Open · unavailable — In progress · unavailable — Gated · unavailable — Done · unavailable — Blocked · unavailab"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5101
+      },
+      {
+        "name": "approvals",
+        "label": "approvals",
+        "hash": "#/approvals",
+        "route": "approvals",
+        "screen": "Approvals — WAITING FOR YOU · NOTHING IS APPROVED UNLESS YOU APPROVE IT — PURCHASES TO REVIEW · THE QUEUE COULD NOT BE READ, SO NOTHING CAN BE APPROVED FROM HERE The queue could not be read, so nothing here is a decision. The approvals service is unavailable No capability payload is present. A build that ships the viewer alone cannot reach its own capability layer; run `npm run pack:capability` before packaging. Nothing here is a decision, and nothing has been approved.",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5085
+      },
+      {
+        "name": "home",
+        "label": "home-again",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet This copy is not set up to run agents yet This is the only computer connected Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5085
+      },
+      {
+        "name": "settings",
+        "label": "settings",
+        "hash": "#/settings",
+        "route": "settings",
+        "screen": "SETTINGS Search all settings HOME SCREEN SYSTEM SETUP APPEARANCE TEXT & READING MOTION & EFFECTS FLEET GRAPH METRICS CHAT & THREADS COMMS BOARD LEDGER PERFORMANCE DATA & SIM WRITE DEVELOPER HOME SCREEN Which agents you see Everything every agent says appears here, including agents you add later. Every agent Only the ones I pick The agents No agents have appeared on this computer yet. When one does it will be listed here, and the box on the first page will show it. Nothing to choose from yet. Agent runs in that box The box shows what your agents are saying and, under it, the record of every agent run on this computer. Show them too Hide them Show only runs SYSTEM No fleet profile saved — showing sample data Everything on screen right now is the labelled sample demonstration, not your machines. ToolsEnabled already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another. Profile name A local label for this system. It is exported with the profile; it is not who you are signed in as. Sign-in is the row below, and this name is not it. Your account Sign in with Google, or with an account you make here — then sign out or change your password. Your account lives on this computer and nowhere else; signing in with Google means Google checks who you are, and no Google password or token is kept here. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them. Open sign-in Machine roster ToolsEnabled already runs on this one computer with nothing added here. Add a machine only if you want to connect another — it stays optional. An address without a port can be resolved, but it cannot honestly be called reachable. No machines added. Saving is blocked until the roster contains at least one named address. Add machine Transport endpoints Relay and tool-lane endpoints stay “not configured” until you provide them. Saved and reachable are separate states. RELAY Use a URL or host:port. Credentials do not belong in this field. TOOL LANE Use a URL or host:port. Credentials do not belong in this field. Local projection directory The desktop shell serves status.json and each domain projection from this folder. Missing or malformed files fail visibly; they never fall through to bundled data. Choose folder Clear Installed desktop source · bundled schemas remain the validation authority. Profile file Load validates before replacing anything. Export preserves the profile's unknown and owner-specific fields. Reset is confirmed twice and returns to the explicit sample demonstration. Load profile Export profile Reset Apply configuration The fleet is constructed once during startup. Saving reloads the app so every view changes together instead of mixing old and new data. Check connections Save & reload Reachability not checked yet Connection state is separate from saved configuration. SETUP Setup has not been walked through on this computer These are the shipped defaults: nothing that acts is switched on. Walking through setup asks three questions and sets all of this together. Permission level How much of this computer an assistant may reach. This is the ceiling for everything below it. not recorded on this computer Working folders No capability payload is present, so this copy has no setup code to record a permission level with. unavailable Acting on its own Every screen still reads and reports, and nothing at all is switched on that acts: no assistant starts, nothing is approved, nothing is replied to. This is exactly what a computer that was never set up already does. Switched on now: nothing that acts. Nothing on this computer will be able to start an assistant while this is the answer — the agent page shows no Start control, because there is nothing switched on for it to start. The agent page says so and turns it on in one click when you want it, and Settings has the same switch. Nothing yet — let me look around first Act when I start it Act on its own and tell me after What the screens show Every screen reads this computer’s own records. On a new installation most of them are empty until you run something, and they say so rather than filling the gap. My own activity A labelled demonstration When it needs permission What an assistant does when it reaches something it needs permission for. Recorded, not yet acted on. Stop and ask me Work on something else while it waits Use its own judgement Attaching to a session already open in your editor Taking over means your editor stops being the one driving that session. Recorded, not yet acted on. Watch it only Continue it in a copy Take it over Sessions found in your editor Whether assistant sessions running in a code editor are listed here. Recorded, not yet acted on. Do not bring any in Ask me each time Bring in everything it finds If an account runs out The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup; you sign in to those inside their own programs. Recorded, not yet acted on. Stop and let me switch Switch to another account automatically Walk through setup again The same three questions, ending on a page that shows everything they set. Nothing is written until you finish it, and leaving partway changes nothing. Open setup What the last four rows do today. This program records them and keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. Each is set to its cautious end unless you moved it. No subscription, key, or password for Claude, ChatGPT or Google is asked for on this screen or stored by this program — those stay in their own programs. The account for this computer is its own setting, not one of these. APPEARANCE Theme Set the page surface and ink palette. White Tan Black Display density Choose the default spacing rhythm for information-heavy views. Comfortable Compact Contrast curve Strengthen secondary ink without changing the theme. Standard Strong Emphasize role hues Give role marks slightly more visual priority. 4 more⌄ Chrome edge weight Tune the presence of control and surface hairlines. 42% Settings drawer width Set the preferred width of the quick settings drawer. < 320px > advanced · 2 more⌄ Surface frost retention Balance glass diffusion against bare-page clarity. 58% everything · 1 more⌄ Brace stroke width Set the signature brace rail stroke at subpixel precision. < 1.25px > TEXT & READING Text size Scale the complete interface while preserving its layout. Small Default Large Mono numeric values Use the data face for changing values and machine identifiers. Reading line height Adjust the vertical rhythm of descriptions and messages. Tight Standard Open 4 more⌄ Timestamp verbosity Choose how much date context accompanies live time. < Relative > Reading measure Limit long-form line length for sustained scanning. < 72 ch > advanced · 2 more⌄ Micro-cap tracking Adjust spacing in uppercase navigational labels. 12% everything · 1 more⌄ Tabular baseline nudge Offset aligned numeric runs against adjacent interface text. < 0px > MOTION & EFFECTS Reduce motion Snap structural movement and suppress ambient animation. Glow intensity Set the shared intensity of illuminated status marks. 100% View transitions Crossfade between routes when motion is available. 4 more⌄ Entry response Settle newly revealed structures over a shorter or longer interval. 420 ms Hover response Choose the response curve for quiet interactive ink shifts. < Clinical > advanced · 2 more⌄ Checkpoint halo decay Control how long a checkpoint pulse remains perceptible. 800 ms everything · 1 more⌄ View-morph snapshot bias Weight route morph timing toward the outgoing or incoming frame. 0% FLEET GRAPH Graph layout Select the default spatial register for the fleet hierarchy. Balanced Compact Wide Agent labels Keep agent identity labels visible at the resting zoom. Group by machine Preserve machine ownership as the graph primary grouping. Link detail Choose the resting amount of relationship annotation. Quiet Full 4 more⌄ Edge tension Adjust the curvature applied to graph relationships. 54% Collision padding Reserve additional separation between adjacent agent nodes. < 16px > advanced · 2 more⌄ Tier vertical gain Scale the distance between successive hierarchy levels. 100% everything · 1 more⌄ Leader-line elbow radius Set the turn radius where context leaders change axis. < 6px > METRICS Default time window Set the first interval shown by aggregate metric views. 1 h 24 h 7 d Auto refresh Advance charts as new simulated observations arrive. Zero baselines Anchor quantitative plots to zero when their scale permits. 4 more⌄ Unit mode Choose adaptive, absolute, or normalized value labels. < Adaptive > Anomaly sensitivity Tune the threshold for highlighting unusual readings. 62% advanced · 2 more⌄ Sankey node gap Set the vertical separation of token-routing nodes. < 14px > everything · 1 more⌄ Heartbeat trace persistence Retain completed heartbeat samples in the rolling trace. 30 s CHAT & THREADS Thread order Set the default ordering for active conversation threads. Recent Priority Enter to send Send a composed line with Enter and use Shift+Enter for a break. Collapse resolved threads Reduce completed conversations to a quiet summary line. 4 more⌄ Thread preview lines Choose how much recent context appears before opening a thread. < 3 lines > Message timestamps Select relative or fixed time labels inside a conversation. < Relative > advanced · 2 more⌄ Thread memory span Set the simulated context window retained per thread. 64 k everything · 1 more⌄ Chat stream cadence jitter Vary the interval between simulated streamed text batches. 40 ms COMMS BOARD Default board mode Open communications as a timeline or a channel board. Timeline Channels Pin owner messages Keep owner-authored directives visually anchored in the stream. Machine tags Show the originating machine beside routed messages. 4 more⌄ Channel density Set the spacing of channel rows in the left register. Calm Dense Packet arrival highlight Briefly mark a communication packet as it enters the board. advanced · 2 more⌄ Lane arrival hold Hold new lane activity before returning it to resting ink. 450 ms everything · 1 more⌄ Comms queue fairness coefficient Bias simulated packet selection across equally active lanes. 50% LEDGER Default register Open the ledger on owner requests or owner questions. R items Q items Expand evidence Show evidence lines when a ledger record is first opened. Show completed items Include completed requests in the default register view. Clean up old R Preview completed or fully superseded R requests. Nothing moves on the first click. Preview cleanup 4 more⌄ Age format Choose concise elapsed time or exact claimed timestamps. < Elapsed > Root rollups Summarize descendant state on decomposed request roots. advanced · 2 more⌄ Gate signal hold Retain the gated-state emphasis after a state transition. 4 h everything · 1 more⌄ Collision-row hysteresis Delay row reflow when adjacent metadata columns approach collision. 8px PERFORMANCE Power profile Balance responsiveness against background resource use. Balanced Quiet Chart quality Choose the default rendering detail for metric canvases. Standard High Background updates Allow inactive views to retain their simulated data clock. 4 more⌄ Graph frame cap Limit hierarchy animation to a fixed frame budget. < Adaptive > In-memory history Set the simulated sample history retained by active charts. 30 min advanced · 2 more⌄ Reflow debounce Delay non-critical layout fitting during rapid size changes. < 40 ms > everything · 1 more⌄ Layer-promotion threshold Set the moving-element count that promotes a composited layer. < 12 nodes > DATA & SIM These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that. What this copy needs Scenario tick rate Set the cadence of simulated operational observations. 100% Seed mode Choose stable sessions or varied simulated histories. Stable Varied Retain samples on navigation Keep simulated view data when moving around the route ring. Offline fallback Use the local simulation when a live source is unavailable. Home / coordinator live data Read coordinator.json on this surface; turn off for the preserved simulation. Computers graph live data Read fleet.json on this surface; turn off for the preserved simulation. Agent drill-in live data Read agents.json on this surface; turn off for the preserved simulation. Metrics panel live data Read metrics.json on this surface; turn off for the preserved simulation. Ops-channel board live data Read ops.json on this surface; turn off for the preserved simulation. R/Q ledger live data Read ledger.json on this surface; turn off for the preserved simulation. 4 more⌄ Event variance Adjust the spread of simulated workload arrivals. 35% Synthetic failure rate Set the background rate of recoverable simulated failures. 3% advanced · 2 more⌄ Sample bucket width Aggregate raw simulation ticks into wider time buckets. < 5 s > everything · 1 more⌄ Sim worker tick bias Offset worker scheduling toward freshness or batch efficiency. 0% WRITE Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear. What this copy needs Dispatch agent lanes Show the audited Codex and Claude dispatch form. Off is the shipped default until live review. Read agent reports Show the bounded report reader on agent drill-in. Off is the shipped default until live review. 5 more⌄ Approve or decline Show durable decision controls in the ledger. Off is the shipped default until live review. Claim or close queue Show strict BUILD-QUEUE claim and close controls. Off is the shipped default until live review. Coordinator replies Enable the durable coordinator-thread composer. Off is the shipped default until live review. Run an agent session Start, watch, and stop a live agent session from the agent page. Off is the shipped default until live review. Launch Codex Cloud tasks Launch a task on Codex Cloud and watch it from the agent page. Each launch still asks for approval. Off is the shipped default until live review. advanced · 0 more⌄ everything · 0 more⌄ DEVELOPER Diagnostic labels Expose bounded component identifiers beside live surfaces. Console detail Set the simulated diagnostic detail written by the client. Quiet Normal Verbose Copy stable identifiers Prefer stable IDs when copying rows, agents, or channels. 4 more⌄ Expose render timings Append measured render duration to development-only readouts. Permit mock failures Allow simulated error states in otherwise healthy surfaces. advanced · 2 more⌄ Observer callback budget Set the soft ceiling for one resize or mutation callback. < 8 ms > everything · 1 more⌄ Tier-guide hairline alpha Set the compositing weight of hierarchy guide hairlines. 7% 110 settings · 61 shown · search reaches all depths",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open sign-in",
+            "href": "#/account"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5131
+      },
+      {
+        "name": "guide",
+        "label": "guide",
+        "hash": "#/guide",
+        "route": "guide",
+        "screen": "FIRST RUN What this copy needs ToolsEnabled works on one computer on its own. Some of its screens read reports that a group of computers writes, and on a fresh install nothing has written one yet. Here is what is missing, what you can do about it, and what is already working. Running an agent on this computer YOU CAN DO THIS NOW ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session and every run is written down on this computer before it begins. winget install OpenAI.Codex in Windows Terminal. If you already have Node, \"npm install -g @openai/codex\" does the same thing. codex login in the same window, once the install finishes. Turn on \"Run an agent session\" in Settings, under Write. Every action that writes anything ships switched off. Open Settings Why the fleet graph, comms board, metrics and ledger are empty NOTHING TO TURN ON Those screens read a report written by an agent host, and this copy of ToolsEnabled does not include one. There is no setting that connects one and no command that installs one, so nothing you do will fill those screens today. They say so rather than showing numbers that are not yours. This is the honest state of the product, not a fault on your computer. If you saw this on another screen, this is what it meant: No local agent fleet host detected on this machine. To see what one of those screens looks like with data in it, turn its live source off in Settings, under Data and Sim. Each screen then shows a worked example, labelled as an example. Open Settings Sending a message to a coordinator YOU CAN DO THIS NOW The box on the first page has no place to type because sending replies is switched off, and because there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready, and it will stay quiet until an agent host reports here. Turn on \"Coordinator replies\" in Settings, under Write. Open Settings What already works here NO SETUP Every agent run started from this window is written down on this computer, signed, and listed on the first page. The fleet graph draws the organisation this copy declares, and each agent on it opens a page of its own. The permission level you chose during setup is what a session is built from, and it can be changed in Settings. All settings Back to the first page",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "All settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Back to the first page",
+            "href": "#/"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5079
+      },
+      {
+        "name": "account",
+        "label": "account",
+        "hash": "#/account",
+        "route": "account",
+        "screen": "Who is using this copy? SIGN IN SO THE RECORD OF WHAT YOUR ASSISTANT DOES SAYS WHO ASKED FOR IT. Sign in with Google — not available on this copy This copy has not been given a Google sign-in application id yet, so signing in with Google is not available. Making an account on this computer works now and does the same job. Sign in with Google USE AN ACCOUNT ON THIS COMPUTER. Name Letters, numbers, and . _ - between them. This is what the record of your assistant’s work will name. Shown as Optional. How the program greets you. Leave it blank to be greeted by the name above. Password At least 12 characters. Length is what makes a password hard to guess — a few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager. What this account is, before you make one. It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one. Signing in with Google instead puts the verified email address from your Google account on the record, and Google is what checks it rather than this computer. Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy. It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it. I already have an account Not now Create account",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5122
+      }
+    ],
+    "endpoint": "{\"ok\":false,\"source\":\"none\",\"reason\":\"No capability payload is present. A build that ships the viewer alone cannot reach its own capability layer; run `npm run pack:capability` before packaging.\",\"envProofRefused\":false}",
+    "offlineProof": "no route off this machine: TypeError Failed to fetch in 2014ms"
+  },
+  "layer-killed": {
+    "records": [
+      {
+        "name": "home",
+        "label": "home",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Nothing is waiting for your approval Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 26000,
+        "screenAfterDwell": {
+          "hash": "#/",
+          "route": "home",
+          "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+          "views": 1,
+          "livePills": [],
+          "exits": [
+            {
+              "text": "This is the only computer connected",
+              "href": "#/guide"
+            },
+            {
+              "text": "What this copy needs",
+              "href": "#/guide"
+            },
+            {
+              "text": "all settings →",
+              "href": "#/settings"
+            }
+          ]
+        },
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5107
+      },
+      {
+        "name": "computers",
+        "label": "computers",
+        "hash": "#/computers",
+        "route": "computers",
+        "screen": "This computer 0 services ENABLED NO RUNTIME Controller COORDINATOR This computer Select a node to focus its branch − 1.00× + Open agent detail Edit Controller TELEMETRY UNAVAILABLE enabled no activity observed FLEET PROJECTION 1 Declared graph nodes This computer · declared source · graph revision 1 Nothing is reporting to this copy yet No local agent fleet host detected on this machine. These are the agents this copy declares, not agents observed running. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs SERVICES No services declared by fleet projection DECLARED GRAPH 0 declared relationships · runtime, load, tasks, and messages unavailable · not provided by fleet projection Showing the organisation this build ships. Nothing has been changed on this computer yet. Revision 1. ROLES ROLE LIBRARY every role that can be assigned on this computer, and what each one is enforced to mean Controller can reserve work shipped Shadow manager cannot reserve work shipped Planner cannot reserve work shipped Manager can reserve work shipped Coordinator assistant cannot reserve work shipped Builder can reserve work shipped Reviewer cannot reserve work shipped Worker can reserve work shipped Observer cannot reserve work shipped Create a role new",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "computers",
+            "state": "declared",
+            "text": "This computer0 services enabledno runtime Controller Coordinator This computer Select a node to focus its branch − 1.00×"
+          },
+          {
+            "cls": "rail-scroll",
+            "state": "available",
+            "text": "1Declared graph nodes This computer · declared source · graph revision 1 Nothing is reporting to this copy yetNo local a"
+          },
+          {
+            "cls": "rail-sub",
+            "state": "declared",
+            "text": "Nothing is reporting to this copy yetNo local agent fleet host detected on this machine. These are the agents this copy "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5408
+      },
+      {
+        "name": "metrics",
+        "label": "metrics",
+        "hash": "#/metrics",
+        "route": "metrics",
+        "screen": "RANGE 24h 7d 30d MACHINE All Computer 1 Computer 2 live projection unavailable · No local agent fleet host detected on this machine. What this copy needs Edit layout CODEX SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. CLAUDE SESSIONS — unavailable unavailable · No local agent fleet host detected on this machine. SERVICES — unavailable unavailable · No local agent fleet host detected on this machine. REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. OPEN REQUESTS — unavailable unavailable · No local agent fleet host detected on this machine. QUEUE — unavailable unavailable · No local agent fleet host detected on this machine. TOKEN ROUTING pools → providers → roles · unavailable — LIVE OBSERVATION UNAVAILABLE Live token routing is unavailable because No local agent fleet host detected on this machine.. View simulated TOKEN FLOW unavailable · No local agent fleet host detected on this machine. WINDOW TOTALS Codex — Claude — Gemini — Local — unavailable · No local agent fleet host detected on this machine. FAILURE % SAME WINDOW · CROSSHAIR SYNCED unavailable · No local agent fleet host detected on this machine. FLEET ACTIVITY unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. REVIEW VERDICTS audit unavailable · No local agent fleet host detected on this machine. audit unavailable · No local agent fleet host detected on this machine. FAILURE BY LANE unavailable · No local agent fleet host detected on this machine. < 2% 2–5% > 5% unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine. AGENTS unavailable · No local agent fleet host detected on this machine. unavailable · No local agent fleet host detected on this machine.",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          },
+          {
+            "cls": "metrics",
+            "state": "unavailable",
+            "text": "Range 24h7d30d Machine AllComputer 1Computer 2 live projection unavailable · No local agent fleet host detected on this "
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5054
+      },
+      {
+        "name": "research",
+        "label": "research",
+        "hash": "#/research",
+        "route": "research",
+        "screen": "OWNER-SCOPED CORPUS Research source unavailable RESEARCH QUEUE Owner observations awaiting research, with state and provenance kept explicit. No research items are queued. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad research-page",
+            "state": "unavailable",
+            "text": "owner-scoped corpus Research source unavailable Research queue Owner observations awaiting research, with state and prov"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5060
+      },
+      {
+        "name": "comms",
+        "label": "comms",
+        "hash": "#/comms",
+        "route": "comms",
+        "screen": "watch board ops projection · unavailable S M L Watch Channels unavailable — projection projection ↔ projection ops projection Live ops projection is unavailable. Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "comms",
+            "state": "unavailable",
+            "text": "# ops projection · unavailable watch board ops projection · unavailable S M L Watch Channels unavailable — projection pr"
+          },
+          {
+            "cls": "head-live",
+            "state": "",
+            "text": "unavailable"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5100
+      },
+      {
+        "name": "ledger",
+        "label": "ledger",
+        "hash": "#/ledger",
+        "route": "ledger",
+        "screen": "Ledger — OPEN · UNAVAILABLE — IN PROGRESS · UNAVAILABLE — GATED · UNAVAILABLE — DONE · UNAVAILABLE — BLOCKED · UNAVAILABLE R items Q items source unavailable Nothing is reporting to this copy yet No local agent fleet host detected on this machine. This screen draws a report written by an agent host: a program that watches the agents running on a group of computers and writes down what they are doing. No agent host has reported to this copy, so there is nothing here to draw. Nothing on this computer is broken, and nothing is missing from the install. What this copy needs",
+        "views": 1,
+        "livePills": [
+          {
+            "cls": "view-pad ledger-page",
+            "state": "unavailable",
+            "text": "Ledger — Open · unavailable — In progress · unavailable — Gated · unavailable — Done · unavailable — Blocked · unavailab"
+          }
+        ],
+        "exits": [
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5037
+      },
+      {
+        "name": "approvals",
+        "label": "approvals",
+        "hash": "#/approvals",
+        "route": "approvals",
+        "screen": "Approvals — WAITING FOR YOU · NOTHING IS APPROVED UNLESS YOU APPROVE IT — PURCHASES TO REVIEW · THE QUEUE COULD NOT BE READ, SO NOTHING CAN BE APPROVED FROM HERE The queue could not be read, so nothing here is a decision. The approvals service is unavailable The capability layer exited with code 1. Nothing here is a decision, and nothing has been approved.",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5074
+      },
+      {
+        "name": "home",
+        "label": "home-again",
+        "hash": "#/",
+        "route": "home",
+        "screen": "THIS COMPUTER Not ready yet Codex is not installed on this computer, and it is the program that runs an agent. Run \"winget install OpenAI.Codex\" in Windows Terminal, then \"codex login\" This is the only computer connected Activity on this computer No agents have run here yet When this copy can run agents, every run will show up here. What this copy needs",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "This is the only computer connected",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5087
+      },
+      {
+        "name": "settings",
+        "label": "settings",
+        "hash": "#/settings",
+        "route": "settings",
+        "screen": "SETTINGS Search all settings HOME SCREEN SYSTEM SETUP APPEARANCE TEXT & READING MOTION & EFFECTS FLEET GRAPH METRICS CHAT & THREADS COMMS BOARD LEDGER PERFORMANCE DATA & SIM WRITE DEVELOPER HOME SCREEN Which agents you see Everything every agent says appears here, including agents you add later. Every agent Only the ones I pick The agents No agents have appeared on this computer yet. When one does it will be listed here, and the box on the first page will show it. Nothing to choose from yet. Agent runs in that box The box shows what your agents are saying and, under it, the record of every agent run on this computer. Show them too Hide them Show only runs SYSTEM No fleet profile saved — showing sample data Everything on screen right now is the labelled sample demonstration, not your machines. ToolsEnabled already works fully on this one computer with nothing configured here; add a machine below only if you also want to connect another. Profile name A local label for this system. It is exported with the profile; it is not who you are signed in as. Sign-in is the row below, and this name is not it. Your account Sign in with Google, or with an account you make here — then sign out or change your password. Your account lives on this computer and nowhere else; signing in with Google means Google checks who you are, and no Google password or token is kept here. It is not a login to Claude or ChatGPT, it carries no subscription, and there is no licence check — those programs keep their own sign-ins and this one never asks for them. Open sign-in Machine roster ToolsEnabled already runs on this one computer with nothing added here. Add a machine only if you want to connect another — it stays optional. An address without a port can be resolved, but it cannot honestly be called reachable. No machines added. Saving is blocked until the roster contains at least one named address. Add machine Transport endpoints Relay and tool-lane endpoints stay “not configured” until you provide them. Saved and reachable are separate states. RELAY Use a URL or host:port. Credentials do not belong in this field. TOOL LANE Use a URL or host:port. Credentials do not belong in this field. Local projection directory The desktop shell serves status.json and each domain projection from this folder. Missing or malformed files fail visibly; they never fall through to bundled data. Choose folder Clear Installed desktop source · bundled schemas remain the validation authority. Profile file Load validates before replacing anything. Export preserves the profile's unknown and owner-specific fields. Reset is confirmed twice and returns to the explicit sample demonstration. Load profile Export profile Reset Apply configuration The fleet is constructed once during startup. Saving reloads the app so every view changes together instead of mixing old and new data. Check connections Save & reload Reachability not checked yet Connection state is separate from saved configuration. SETUP Setup was completed on this computer Every row below is what you chose, and every row below is still yours to move. Permission level The assistant works inside one folder that you pick, and cannot reach anything else on this computer. I’m new to this I’ve used AI coding tools before I run agents with permissions bypassed Working folders The folders an assistant may read and change. Everything outside them is off limits at the level recorded above. C:\\Users\\joshp\\AppData\\Local\\Temp\\offline-routes-Ic5WIW\\profile-layer-killed\\home\\Documents\\AI Workspace Choose a different folder… Acting on its own You start an assistant and it works; it stops and asks you whenever it needs permission for something. Nothing runs until you press start, and approving, closing queue items and replying stay off. Switched on now: Read agent reports, Run an agent session. Nothing yet — let me look around first Act when I start it Act on its own and tell me after What the screens show Every screen reads this computer’s own records. On a new installation most of them are empty until you run something, and they say so rather than filling the gap. My own activity A labelled demonstration When it needs permission What an assistant does when it reaches something it needs permission for. Recorded, not yet acted on. Stop and ask me Work on something else while it waits Use its own judgement Attaching to a session already open in your editor Taking over means your editor stops being the one driving that session. Recorded, not yet acted on. Watch it only Continue it in a copy Take it over Sessions found in your editor Whether assistant sessions running in a code editor are listed here. Recorded, not yet acted on. Do not bring any in Ask me each time Bring in everything it finds If an account runs out The account setup asks for is an account on this computer, not a provider sign-in. No Claude, ChatGPT or Google subscription, key, or password is asked for anywhere in setup; you sign in to those inside their own programs. Recorded, not yet acted on. Stop and let me switch Switch to another account automatically Walk through setup again The same three questions, ending on a page that shows everything they set. Nothing is written until you finish it, and leaving partway changes nothing. Open setup What the last four rows do today. This program records them and keeps them; the parts of it that would act on them are still being built, so today they change what is remembered rather than what happens. Each is set to its cautious end unless you moved it. No subscription, key, or password for Claude, ChatGPT or Google is asked for on this screen or stored by this program — those stay in their own programs. The account for this computer is its own setting, not one of these. APPEARANCE Theme Set the page surface and ink palette. White Tan Black Display density Choose the default spacing rhythm for information-heavy views. Comfortable Compact Contrast curve Strengthen secondary ink without changing the theme. Standard Strong Emphasize role hues Give role marks slightly more visual priority. 4 more⌄ Chrome edge weight Tune the presence of control and surface hairlines. 42% Settings drawer width Set the preferred width of the quick settings drawer. < 320px > advanced · 2 more⌄ Surface frost retention Balance glass diffusion against bare-page clarity. 58% everything · 1 more⌄ Brace stroke width Set the signature brace rail stroke at subpixel precision. < 1.25px > TEXT & READING Text size Scale the complete interface while preserving its layout. Small Default Large Mono numeric values Use the data face for changing values and machine identifiers. Reading line height Adjust the vertical rhythm of descriptions and messages. Tight Standard Open 4 more⌄ Timestamp verbosity Choose how much date context accompanies live time. < Relative > Reading measure Limit long-form line length for sustained scanning. < 72 ch > advanced · 2 more⌄ Micro-cap tracking Adjust spacing in uppercase navigational labels. 12% everything · 1 more⌄ Tabular baseline nudge Offset aligned numeric runs against adjacent interface text. < 0px > MOTION & EFFECTS Reduce motion Snap structural movement and suppress ambient animation. Glow intensity Set the shared intensity of illuminated status marks. 100% View transitions Crossfade between routes when motion is available. 4 more⌄ Entry response Settle newly revealed structures over a shorter or longer interval. 420 ms Hover response Choose the response curve for quiet interactive ink shifts. < Clinical > advanced · 2 more⌄ Checkpoint halo decay Control how long a checkpoint pulse remains perceptible. 800 ms everything · 1 more⌄ View-morph snapshot bias Weight route morph timing toward the outgoing or incoming frame. 0% FLEET GRAPH Graph layout Select the default spatial register for the fleet hierarchy. Balanced Compact Wide Agent labels Keep agent identity labels visible at the resting zoom. Group by machine Preserve machine ownership as the graph primary grouping. Link detail Choose the resting amount of relationship annotation. Quiet Full 4 more⌄ Edge tension Adjust the curvature applied to graph relationships. 54% Collision padding Reserve additional separation between adjacent agent nodes. < 16px > advanced · 2 more⌄ Tier vertical gain Scale the distance between successive hierarchy levels. 100% everything · 1 more⌄ Leader-line elbow radius Set the turn radius where context leaders change axis. < 6px > METRICS Default time window Set the first interval shown by aggregate metric views. 1 h 24 h 7 d Auto refresh Advance charts as new simulated observations arrive. Zero baselines Anchor quantitative plots to zero when their scale permits. 4 more⌄ Unit mode Choose adaptive, absolute, or normalized value labels. < Adaptive > Anomaly sensitivity Tune the threshold for highlighting unusual readings. 62% advanced · 2 more⌄ Sankey node gap Set the vertical separation of token-routing nodes. < 14px > everything · 1 more⌄ Heartbeat trace persistence Retain completed heartbeat samples in the rolling trace. 30 s CHAT & THREADS Thread order Set the default ordering for active conversation threads. Recent Priority Enter to send Send a composed line with Enter and use Shift+Enter for a break. Collapse resolved threads Reduce completed conversations to a quiet summary line. 4 more⌄ Thread preview lines Choose how much recent context appears before opening a thread. < 3 lines > Message timestamps Select relative or fixed time labels inside a conversation. < Relative > advanced · 2 more⌄ Thread memory span Set the simulated context window retained per thread. 64 k everything · 1 more⌄ Chat stream cadence jitter Vary the interval between simulated streamed text batches. 40 ms COMMS BOARD Default board mode Open communications as a timeline or a channel board. Timeline Channels Pin owner messages Keep owner-authored directives visually anchored in the stream. Machine tags Show the originating machine beside routed messages. 4 more⌄ Channel density Set the spacing of channel rows in the left register. Calm Dense Packet arrival highlight Briefly mark a communication packet as it enters the board. advanced · 2 more⌄ Lane arrival hold Hold new lane activity before returning it to resting ink. 450 ms everything · 1 more⌄ Comms queue fairness coefficient Bias simulated packet selection across equally active lanes. 50% LEDGER Default register Open the ledger on owner requests or owner questions. R items Q items Expand evidence Show evidence lines when a ledger record is first opened. Show completed items Include completed requests in the default register view. Clean up old R Preview completed or fully superseded R requests. Nothing moves on the first click. Preview cleanup 4 more⌄ Age format Choose concise elapsed time or exact claimed timestamps. < Elapsed > Root rollups Summarize descendant state on decomposed request roots. advanced · 2 more⌄ Gate signal hold Retain the gated-state emphasis after a state transition. 4 h everything · 1 more⌄ Collision-row hysteresis Delay row reflow when adjacent metadata columns approach collision. 8px PERFORMANCE Power profile Balance responsiveness against background resource use. Balanced Quiet Chart quality Choose the default rendering detail for metric canvases. Standard High Background updates Allow inactive views to retain their simulated data clock. 4 more⌄ Graph frame cap Limit hierarchy animation to a fixed frame budget. < Adaptive > In-memory history Set the simulated sample history retained by active charts. 30 min advanced · 2 more⌄ Reflow debounce Delay non-critical layout fitting during rapid size changes. < 40 ms > everything · 1 more⌄ Layer-promotion threshold Set the moving-element count that promotes a composited layer. < 12 nodes > DATA & SIM These switches choose between the live reading and a worked example, one screen at a time. They do not connect anything: on a fresh install the live readings are empty because nothing has reported to this copy yet, and no switch on this page changes that. What this copy needs Scenario tick rate Set the cadence of simulated operational observations. 100% Seed mode Choose stable sessions or varied simulated histories. Stable Varied Retain samples on navigation Keep simulated view data when moving around the route ring. Offline fallback Use the local simulation when a live source is unavailable. Home / coordinator live data Read coordinator.json on this surface; turn off for the preserved simulation. Computers graph live data Read fleet.json on this surface; turn off for the preserved simulation. Agent drill-in live data Read agents.json on this surface; turn off for the preserved simulation. Metrics panel live data Read metrics.json on this surface; turn off for the preserved simulation. Ops-channel board live data Read ops.json on this surface; turn off for the preserved simulation. R/Q ledger live data Read ledger.json on this surface; turn off for the preserved simulation. 4 more⌄ Event variance Adjust the spread of simulated workload arrivals. 35% Synthetic failure rate Set the background rate of recoverable simulated failures. 3% advanced · 2 more⌄ Sample bucket width Aggregate raw simulation ticks into wider time buckets. < 5 s > everything · 1 more⌄ Sim worker tick bias Offset worker scheduling toward freshness or batch efficiency. 0% WRITE Every action that writes anything ships switched off, so a copy nobody has configured cannot send, start or approve anything by accident. Turning one on here is what makes its control appear. What this copy needs Dispatch agent lanes Show the audited Codex and Claude dispatch form. Off is the shipped default until live review. Read agent reports Show the bounded report reader on agent drill-in. Off is the shipped default until live review. 5 more⌄ Approve or decline Show durable decision controls in the ledger. Off is the shipped default until live review. Claim or close queue Show strict BUILD-QUEUE claim and close controls. Off is the shipped default until live review. Coordinator replies Enable the durable coordinator-thread composer. Off is the shipped default until live review. Run an agent session Start, watch, and stop a live agent session from the agent page. Off is the shipped default until live review. Launch Codex Cloud tasks Launch a task on Codex Cloud and watch it from the agent page. Each launch still asks for approval. Off is the shipped default until live review. advanced · 0 more⌄ everything · 0 more⌄ DEVELOPER Diagnostic labels Expose bounded component identifiers beside live surfaces. Console detail Set the simulated diagnostic detail written by the client. Quiet Normal Verbose Copy stable identifiers Prefer stable IDs when copying rows, agents, or channels. 4 more⌄ Expose render timings Append measured render duration to development-only readouts. Permit mock failures Allow simulated error states in otherwise healthy surfaces. advanced · 2 more⌄ Observer callback budget Set the soft ceiling for one resize or mutation callback. < 8 ms > everything · 1 more⌄ Tier-guide hairline alpha Set the compositing weight of hierarchy guide hairlines. 7% 110 settings · 61 shown · search reaches all depths",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open sign-in",
+            "href": "#/account"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "What this copy needs",
+            "href": "#/guide"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5156
+      },
+      {
+        "name": "guide",
+        "label": "guide",
+        "hash": "#/guide",
+        "route": "guide",
+        "screen": "FIRST RUN What this copy needs ToolsEnabled works on one computer on its own. Some of its screens read reports that a group of computers writes, and on a fresh install nothing has written one yet. Here is what is missing, what you can do about it, and what is already working. Running an agent on this computer YOU CAN DO THIS NOW ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session and every run is written down on this computer before it begins. winget install OpenAI.Codex in Windows Terminal. If you already have Node, \"npm install -g @openai/codex\" does the same thing. codex login in the same window, once the install finishes. Turn on \"Run an agent session\" in Settings, under Write. Every action that writes anything ships switched off. Open Settings Why the fleet graph, comms board, metrics and ledger are empty NOTHING TO TURN ON Those screens read a report written by an agent host, and this copy of ToolsEnabled does not include one. There is no setting that connects one and no command that installs one, so nothing you do will fill those screens today. They say so rather than showing numbers that are not yours. This is the honest state of the product, not a fault on your computer. If you saw this on another screen, this is what it meant: No local agent fleet host detected on this machine. To see what one of those screens looks like with data in it, turn its live source off in Settings, under Data and Sim. Each screen then shows a worked example, labelled as an example. Open Settings Sending a message to a coordinator YOU CAN DO THIS NOW The box on the first page has no place to type because sending replies is switched off, and because there is no coordinator on this computer to send one to. Turning the switch on is worth doing so the box is ready, and it will stay quiet until an agent host reports here. Turn on \"Coordinator replies\" in Settings, under Write. Open Settings What already works here NO SETUP Every agent run started from this window is written down on this computer, signed, and listed on the first page. The fleet graph draws the organisation this copy declares, and each agent on it opens a page of its own. The permission level you chose during setup is what a session is built from, and it can be changed in Settings. All settings Back to the first page",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Open Settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "All settings",
+            "href": "#/settings"
+          },
+          {
+            "text": "Back to the first page",
+            "href": "#/"
+          },
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5116
+      },
+      {
+        "name": "account",
+        "label": "account",
+        "hash": "#/account",
+        "route": "account",
+        "screen": "Who is using this copy? SIGN IN SO THE RECORD OF WHAT YOUR ASSISTANT DOES SAYS WHO ASKED FOR IT. Sign in with Google — not available on this copy This copy has not been given a Google sign-in application id yet, so signing in with Google is not available. Making an account on this computer works now and does the same job. Sign in with Google USE AN ACCOUNT ON THIS COMPUTER. Name Letters, numbers, and . _ - between them. This is what the record of your assistant’s work will name. Shown as Optional. How the program greets you. Leave it blank to be greeted by the name above. Password At least 12 characters. Length is what makes a password hard to guess — a few unrelated words beat a short one with symbols in it. There is no reset, so use your password manager. What this account is, before you make one. It is an account on this computer. Nothing is sent anywhere, no email address is asked for, and no server holds it — so there is also no password reset. If you forget it, the account cannot be recovered and you make a new one. Signing in with Google instead puts the verified email address from your Google account on the record, and Google is what checks it rather than this computer. Either way it is not a login to Claude or ChatGPT, and it does not carry a subscription. Those stay in their own programs; this one only answers who is using this copy. It records who asked for a piece of work. It is not a lock on this computer: anyone already signed in to Windows as you can remove it. I already have an account Not now Create account",
+        "views": 1,
+        "livePills": [],
+        "exits": [
+          {
+            "text": "all settings →",
+            "href": "#/settings"
+          },
+          {
+            "text": "Some screens show example data until you connect your own computers. Open Settings →",
+            "href": "#/settings"
+          }
+        ],
+        "dwellMs": 0,
+        "screenAfterDwell": null,
+        "pendingSeen": [],
+        "pendingLast": [],
+        "settleMs": 5067
+      }
+    ],
+    "endpoint": "{\"ok\":true,\"source\":\"supervised\",\"baseUrl\":\"http://127.0.0.1:4611\",\"pid\":24808,\"envProofRefused\":false}",
+    "offlineProof": "reached the internet: type opaque in 49ms"
+  }
+}
