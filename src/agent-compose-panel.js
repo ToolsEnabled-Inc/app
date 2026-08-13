@@ -61,10 +61,12 @@
  */
 
 import {
+  DEFAULT_TIER,
   FIRST_ROLE_SUGGESTION,
   ROLE_CHOICES,
   START_PANEL,
   START_REFUSAL,
+  TIER_CHOICES,
   roleLabel,
   startingLine,
 } from './fleet-tree-copy.js'
@@ -276,6 +278,40 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   roleField.appendChild(roleProblem)
   root.appendChild(roleField)
 
+  /* THE MODEL MENU. Unlike the role menu it arrives ANSWERED -- the engine has
+     a default, so the default is preselected and there is no placeholder row
+     and no problem line: every row is a valid answer, and the three Claude
+     rows answer with a refusal sentence from the shell when pressed, which is
+     the honest version of a model this build cannot start. */
+  const tierField = doc.createElement('div')
+  tierField.className = 'agent-compose-field'
+  const tierLabelNode = doc.createElement('label')
+  tierLabelNode.className = 'cl'
+  tierLabelNode.setAttribute('for', `${id}-tier`)
+  tierLabelNode.textContent = START_PANEL.tierLabel
+  const tierHint = doc.createElement('p')
+  tierHint.className = 'agent-compose-hint'
+  tierHint.setAttribute('id', `${id}-tier-hint`)
+  tierHint.textContent = START_PANEL.tierHelp
+  const tierSelect = doc.createElement('select')
+  tierSelect.className = 'agent-compose-select'
+  tierSelect.setAttribute('id', `${id}-tier`)
+  tierSelect.setAttribute('data-compose-field', 'tier')
+  tierSelect.setAttribute('aria-describedby', `${id}-tier-hint`)
+  for (const choice of TIER_CHOICES) {
+    const option = doc.createElement('option')
+    /* Same split as the role menu: the id rides on the value, the label is the
+       only part with a reader. */
+    option.value = choice.id
+    option.textContent = choice.label
+    tierSelect.appendChild(option)
+  }
+  tierSelect.value = DEFAULT_TIER
+  tierField.appendChild(tierLabelNode)
+  tierField.appendChild(tierHint)
+  tierField.appendChild(tierSelect)
+  root.appendChild(tierField)
+
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
   const messageLabel = doc.createElement('label')
@@ -336,7 +372,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   status.setAttribute('hidden', 'hidden')
   root.appendChild(status)
 
-  return { root, roleSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
+  return { root, roleSelect, tierSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
 }
 
 /**
@@ -362,7 +398,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
  *                           gets the sentence written for that case, never a
  *                           blank line.
  * @param roles              the assignable roles. Defaults to the product's own.
- * @param onSubmit           called with `{ role, message, parentId }` when the
+ * @param onSubmit           called with `{ role, tier, message, parentId }` when the
  *                           draft is complete. May return nothing, or
  *                           `{ ok: false, message }` to refuse, or a promise of
  *                           either. While a promise is in flight the panel is
@@ -456,6 +492,7 @@ export function mountAgentComposePanel({
     const stopped = current.unavailableReason ? true : working
     nodes.submit.disabled = stopped
     nodes.roleSelect.disabled = stopped
+    nodes.tierSelect.disabled = stopped
     nodes.messageInput.disabled = stopped
     /* Cancel goes dead ONLY while a handover is in flight. The caller is part
        way through starting something; a cancel here would discard the draft
@@ -469,6 +506,11 @@ export function mountAgentComposePanel({
 
   const currentDraft = () => ({
     role: asTrimmed(nodes?.roleSelect?.value),
+    /* Always a real row: the menu preselects DEFAULT_TIER and has no empty
+       first row. The fallback below is for a hand-broken DOM only, and it
+       falls back to the same default the engine would apply, never to
+       nothing. */
+    tier: asTrimmed(nodes?.tierSelect?.value) || DEFAULT_TIER,
     message: asText(nodes?.messageInput?.value).trim(),
     parentId: isRecord(current.parent) ? asTrimmed(current.parent.id) || null : null,
   })

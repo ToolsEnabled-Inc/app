@@ -274,9 +274,12 @@ section exists so he can weigh it rather than discover it.**
 
 Every agent started from this page runs in **one shared folder**, and no tree owns one.
 
-- `shell/main.cjs` `parseAgentStart()` accepts an optional `cwd`.
-- Every caller in `src/` passes only `sessionId` or `surface` — in `src/agent-session.js`,
-  `src/views/agent.js` and `src/views/computers.js`. **None passes a `cwd`.**
+- `shell/main.cjs` `parseAgentStart()` accepts an optional `cwd` — and, since the
+  provider/model channel landed (4204332), an optional `tier`. The tier chooses a
+  model; it says nothing about folders.
+- Every caller in `src/` passes only `sessionId`, `surface` or `tier` — in
+  `src/agent-session.js`, `src/views/agent.js` and `src/views/computers.js`.
+  **None passes a `cwd`.**
 - So every session falls back to `getAgentHost()`'s `defaultCwd`, which is the single
   `WORKSPACE_ROOT` prepared by `ensureWorkspaceRoot()`.
 

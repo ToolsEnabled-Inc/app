@@ -40,10 +40,12 @@ import { findingsInText } from '../check-plain-language.mjs'
 import { visibleTextFrom, withoutComments } from '../lib/user-visible-strings.mjs'
 import { ROLES } from '../../src/vocab.js'
 import {
+  DEFAULT_TIER,
   FIRST_ROLE_SUGGESTION,
   ROLE_CHOICES,
   START_PANEL,
   START_REFUSAL,
+  TIER_CHOICES,
   roleLabel,
   startingLine,
 } from '../../src/fleet-tree-copy.js'
@@ -79,6 +81,7 @@ const APPROVED_WORDS = new Set([
   ...ROLE_CHOICES.map(choice => choice.label),
   ...ROLE_CHOICES.map(choice => choice.summary),
   ...ROLE_CHOICES.map(choice => startingLine(choice.role)),
+  ...TIER_CHOICES.map(choice => choice.label),
 ])
 
 class FakeElement {
@@ -186,8 +189,9 @@ const noticeLine = handle => handle.element().find(node => node.getAttribute('da
 const statusLine = handle => handle.element().find(node => node.getAttribute('data-compose-status') === 'panel')
 const summaryLine = handle => handle.element().find(node => node.getAttribute('data-compose-summary') === 'role')
 
-function fill(handle, { role, message }) {
+function fill(handle, { role, tier, message }) {
   if (role !== undefined) fieldNamed(handle, 'role').value = role
+  if (tier !== undefined) fieldNamed(handle, 'tier').value = tier
   if (message !== undefined) fieldNamed(handle, 'message').value = message
 }
 
@@ -269,12 +273,14 @@ test('every choice on screen is a label, and no role key is anywhere in the pane
   const { handle } = open()
   const options = handle.element().findAll(node => node.tagName === 'OPTION')
 
-  assert.equal(options.length, ROLE_CHOICES.length + 1, 'every role, plus the prompt row')
-  assert.equal(options[0].textContent, START_PANEL.rolePrompt)
-  assert.equal(options[0].value, '', 'the panel opens with nothing chosen, so a press cannot pass a role nobody picked')
-  assert.deepEqual(options.slice(1).map(option => option.textContent), ROLE_CHOICES.map(choice => choice.label))
+  assert.equal(options.length, ROLE_CHOICES.length + 1 + TIER_CHOICES.length,
+    'every role plus the prompt row, and every tier')
+  const roleOptions = fieldNamed(handle, 'role').children
+  assert.equal(roleOptions[0].textContent, START_PANEL.rolePrompt)
+  assert.equal(roleOptions[0].value, '', 'the panel opens with nothing chosen, so a press cannot pass a role nobody picked')
+  assert.deepEqual(roleOptions.slice(1).map(option => option.textContent), ROLE_CHOICES.map(choice => choice.label))
   // The key travels on the value, where only the program reads it.
-  assert.deepEqual(options.slice(1).map(option => option.value), ROLE_CHOICES.map(choice => choice.role))
+  assert.deepEqual(roleOptions.slice(1).map(option => option.value), ROLE_CHOICES.map(choice => choice.role))
 
   /* KEY-AS-A-WORD IS NOT KEY-AS-A-KEY, and the difference decides this test.
      The suggestion line reads "A coordinator sits at the top of a tree" -- that
@@ -283,6 +289,7 @@ test('every choice on screen is a label, and no role key is anywhere in the pane
      STANDING IN FOR A LABEL, which is a whole piece of text that IS the key. */
   for (const words of wordsOnScreen(handle)) {
     assert.ok(!Object.keys(ROLES).includes(words), `the key ${words} is standing where a label should be`)
+    assert.ok(!TIER_CHOICES.some(choice => choice.id === words), `the tier id ${words} is standing where a label should be`)
   }
 })
 
@@ -338,7 +345,7 @@ test('the pressed node’s id travels in the draft and is never rendered', () =>
 
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [{ role: 'manager', message: 'Take the packaging work.', parentId: 'node-17' }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, message: 'Take the packaging work.', parentId: 'node-17' }])
 })
 
 test('a node’s name is put on the page as text, never as markup', () => {
@@ -364,7 +371,7 @@ test('no parent at all means this begins a new tree, and the draft carries no pa
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [{ role: 'manager', message: 'Take the packaging work.', parentId: null }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, message: 'Take the packaging work.', parentId: null }])
 })
 
 /* ---------- handing the draft back ---------- */
@@ -376,10 +383,34 @@ test('a complete draft is handed to the caller as role, message and parent', () 
 
   assert.deepEqual(calls.submitted, [{
     role: 'shadow',
+    /* The tier the person did not touch is the default, stated -- never absent.
+       An absent tier would make the model choice fall to whatever the engine
+       happens to be set to, silently, which is the pre-4204332 defect. */
+    tier: DEFAULT_TIER,
     // Trimmed at the ends and nowhere else: the line break is the person's.
     message: 'Watch the release branch.\nReport twice a day.',
     parentId: 'node-17',
   }])
+})
+
+test('a picked model rides in the draft, Claude rows included', () => {
+  /* The three Claude rows are offered so a chosen model can never quietly
+     become Codex; the shell refuses them by name (AGENT_TIER_NO_LAUNCHER) and
+     the refusal only exists if the picked id actually reaches the draft. */
+  const { handle, calls } = open({ parent: { id: 'node-17' } })
+  fill(handle, { role: 'manager', tier: 'claude-fable', message: 'Take the packaging work.' })
+  actionNamed(handle, 'submit').dispatch('click')
+
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: 'claude-fable', message: 'Take the packaging work.', parentId: 'node-17' }])
+})
+
+test('the model menu preselects the default and offers the six tiers by label', () => {
+  const { handle } = open()
+  const menu = fieldNamed(handle, 'tier')
+  assert.equal(menu.value, DEFAULT_TIER)
+  const options = menu.children
+  assert.deepEqual(options.map(option => option.value), TIER_CHOICES.map(choice => choice.id))
+  assert.deepEqual(options.map(option => option.textContent), TIER_CHOICES.map(choice => choice.label))
 })
 
 test('a complete draft closes the panel, so the same work cannot be handed over twice', () => {
@@ -396,11 +427,13 @@ test('re-opening over another node starts from an empty draft', () => {
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
 
   handle.open({ parent: { id: 'node-18' } })
-  assert.deepEqual(handle.draft(), { role: '', message: '', parentId: 'node-18' })
+  /* Empty means unanswered questions are unanswered again; the model question
+     arrives answered by the product default, so the default IS its empty. */
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, message: '', parentId: 'node-18' })
 
   fill(handle, { role: 'helper', message: 'Second brief.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [{ role: 'helper', message: 'Second brief.', parentId: 'node-18' }])
+  assert.deepEqual(calls.submitted, [{ role: 'helper', tier: DEFAULT_TIER, message: 'Second brief.', parentId: 'node-18' }])
 })
 
 /* ---------- refusing an incomplete draft ---------- */
@@ -486,7 +519,7 @@ test('cancel discards the draft, takes the panel off the page and tells the call
   assert.equal(container.children.length, 0)
 
   handle.open({ parent: { id: 'node-17' } })
-  assert.deepEqual(handle.draft(), { role: '', message: '', parentId: 'node-17' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, message: '', parentId: 'node-17' })
 })
 
 test('Escape from inside the panel discards the draft the same way', () => {
@@ -553,7 +586,7 @@ test('a caller that refuses puts its own refusal sentence on the panel and keeps
   assert.equal(noticeLine(handle).textContent, START_REFUSAL.everyAgentBusy)
   assert.equal(noticeLine(handle).getAttribute('role'), 'alert')
   assert.equal(actionNamed(handle, 'submit').disabled, false)
-  assert.deepEqual(handle.draft(), { role: 'manager', message: 'Take the packaging work.', parentId: null })
+  assert.deepEqual(handle.draft(), { role: 'manager', tier: DEFAULT_TIER, message: 'Take the packaging work.', parentId: null })
 })
 
 test('a refusal that arrives with no words still gets the flow’s sentence', async () => {
@@ -658,7 +691,7 @@ test('a late answer about a node the person has moved on from is dropped', async
   // A refusal about the previous node, painted onto a panel the person has
   // since opened over a different one, is a sentence about the wrong tree.
   assert.equal(noticeLine(handle).textContent, '')
-  assert.deepEqual(handle.draft(), { role: '', message: '', parentId: 'node-18' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, message: '', parentId: 'node-18' })
 })
 
 /* ---------- stated absences ---------- */

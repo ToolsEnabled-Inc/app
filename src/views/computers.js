@@ -538,7 +538,7 @@ function sendRefusalSentence(result) {
  * a second one. So the name comes back, the node keeps it, and the sentence says
  * plainly that the agent is running and the message is not.
  */
-async function startAgentForNode({ text, surface }) {
+async function startAgentForNode({ text, surface, tier }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -553,7 +553,15 @@ async function startAgentForNode({ text, surface }) {
 
   let started = null
   try {
-    started = await bridge.start({ surface })
+    /* The tier rides only when the panel supplied one: agent.js's page start
+       sends none and keeps its old shape, and parseAgentStart treats an absent
+       tier as the engine's own default rather than a refusal. Two literal
+       calls rather than one built object, because the fleet-trees suite
+       measures every `.start({...})` in this file mechanically and a request
+       assembled elsewhere is a call it cannot read. */
+    started = tier
+      ? await bridge.start({ surface, tier })
+      : await bridge.start({ surface })
   } catch (error) {
     /* A REJECTION IS A REFUSAL WITH ITS CODE IN THE MESSAGE. Electron rebuilds a
        rejected call in this window from the error's name and message; own
@@ -1370,7 +1378,7 @@ export function computersView({ initialComputer = null, navigate }) {
        presses a second circle for the same job. */
     setOrgStatus(startingLine(draft.role), 'busy', { sticky: true })
 
-    const result = await startAgentForNode({ text: draft.message, surface: 'fleet-tree' })
+    const result = await startAgentForNode({ text: draft.message, surface: 'fleet-tree', tier: draft.tier })
     if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
 
     if (!result.ok) {
@@ -2328,34 +2336,18 @@ export function computersView({ initialComputer = null, navigate }) {
    * which is where the refusal from a failed start was written, so this rail and
    * the panel that reported it cannot drift apart.
    */
-  /* WHAT IT RUNS ON, AND WHY THAT IS A STATEMENT RATHER THAN A MENU.
-   *
-   * The owner, looking at exactly this rail: "its broken. i cant even choose the
-   * provider or model". He is right that there is nothing to choose, and the
-   * reason is not on this page.
-   *
-   * An agent started from the tree travels submitCompose() -> startAgentForNode()
-   * -> window.mcAgent.start({ surface }). shell/main.cjs parseAgentStart() accepts
-   * exactly three fields -- sessionId, cwd, surface -- and agentPayload() above it
-   * REFUSES any other key with MC_AGENT_INVALID_PAYLOAD. shell/agent-host.cjs then
-   * calls the engine's startCodexSession() with no model argument at all. So no
-   * renderer code can send a provider or a model down that path today, whatever
-   * control is drawn over it, and adding a `tier` field here would be refused by
-   * the shell before it reached anything.
-   *
-   * A SELECT HERE WOULD THEREFORE BE THE TEMPERATURE SLIDER AGAIN -- "dont lie
-   * like we cant control temperature", the class of defect f1ce3ec removed from
-   * the agent page, where three sliders moved and changed nothing. The Engine &
-   * effort select in launchControlsBox() is NOT that: it feeds the audited
-   * connection's dispatch, which is a different mechanism from mcAgent.start()
-   * and really does carry the tier. It is not moved here, because it would then
-   * sit on a rail whose Start does not read it.
-   *
-   * So this box carries the two facts that are true and no control: which engine
-   * really started the session, and that nothing on this screen changes it yet.
-   * Nothing in it is focusable. */
+  /* WHAT IT RUNS ON. This used to be a statement instead of a menu, because the
+   * channel had no tier parameter and a select here would have been the
+   * temperature slider again (f1ce3ec) -- a control that moves and changes
+   * nothing. The channel now carries `tier` end to end (parseAgentStart ->
+   * startSession -> resolveStartTier), and the CHOICE lives where the start
+   * lives: the compose panel's model menu, whose value rides in the draft and
+   * onto mcAgent.start(). This rail keeps only the fact: sessions started from
+   * this tree run on Codex -- a picked Claude row refuses by name at start
+   * (AGENT_TIER_NO_LAUNCHER) rather than quietly becoming Codex, so a RUNNING
+   * session here is always a Codex one. Nothing in this box is focusable. */
   const TREE_ENGINE_LABEL = 'Codex'
-  const TREE_ENGINE_NOTE = 'Agents you start from this tree run on Codex, using whichever model Codex is set to use on this computer. Nothing in this app chooses one yet, so there is no provider or model to pick here.'
+  const TREE_ENGINE_NOTE = 'Agents you start from this tree run on Codex. You pick the model in the start panel; the Claude choices are listed there and say so when they cannot start yet.'
 
   function showTreeNodeControls(node) {
     clearBoard()

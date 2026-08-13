@@ -57,6 +57,7 @@
 
 import { CODEX_SETUP_COMMANDS, UNAVAILABLE_TEXT, unavailableReason } from './agent-availability-copy.js'
 import { GENERIC_REMEDY, isBareIdentifier, refusalCodeOf, refusalRemedy, refusalSentence } from './refusal-copy.js'
+import { LAUNCH_TIERS } from './orchestration-controls.js'
 import { ROLES } from './vocab.js'
 
 /* ---------------------------------------------------------------
@@ -175,6 +176,15 @@ export const START_PANEL = Object.freeze({
      same job for a screen reader, which reads the label, and would read as a
      rendering fault to everybody else. */
   rolePrompt: 'Choose a role',
+  /* THE MODEL QUESTION, and it is worded as one. "Tier" is what the wire calls
+     it; a person is being asked what their agent runs on. Unlike the role menu
+     this one arrives answered: the product has a default engine, so the menu
+     preselects it (DEFAULT_TIER below) instead of asking a question the
+     product already has an answer to. The Claude rows are offered on purpose
+     and refuse by name when picked -- hiding them would make a chosen model
+     quietly become Codex, the exact defect the tier channel closed. */
+  tierLabel: 'What does it run on?',
+  tierHelp: 'Luna is a good default. The Claude choices are listed so you can see them, and picking one tells you it cannot start yet.',
   messageLabel: 'What do you want it to do?',
   messageHelp: 'Write it the way you would ask a person. One clear job is enough to start.',
   messagePlaceholder: 'Read the notes in my documents folder and list what is unfinished.',
@@ -185,6 +195,21 @@ export const START_PANEL = Object.freeze({
   needRole: 'Pick a role first, then press Start.',
   needMessage: 'Say what you want done first, then press Start.',
 })
+
+/* THE TIER MENU'S ROWS, derived from the one table the dispatch API actually
+   honours (src/orchestration-controls.js LAUNCH_TIERS, which the
+   orchestration-controls suite pins against the engine). The label names the
+   model and what it runs on; the id rides on the option value where only the
+   program reads it, the same split the role menu keeps. */
+const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude' })
+export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze({
+  id: tier.id,
+  label: `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider}`,
+})))
+
+/* Preselected, not prompted: the engine has a default, so the menu states it.
+   An empty first row here would be a question the product already answers. */
+export const DEFAULT_TIER = 'luna'
 
 /* ---------------------------------------------------------------
    Starting, and running.
