@@ -2322,12 +2322,41 @@ export function computersView({ initialComputer = null, navigate }) {
    * itself — and printing its id would put a key in front of a person, which the
    * tree model's own contract forbids.
    *
-   * So this says the four things that are true and stops: what it is, what it is
-   * doing, why it is not doing it when that is the case, and what was asked of
-   * it. The reason sentence is the store's own `statusNote`, which is where the
-   * refusal from a failed start was written, so this rail and the panel that
-   * reported it cannot drift apart.
+   * So this says the things that are true and stops: what it is, what it is
+   * doing, why it is not doing it when that is the case, what was asked of it,
+   * and what it runs on. The reason sentence is the store's own `statusNote`,
+   * which is where the refusal from a failed start was written, so this rail and
+   * the panel that reported it cannot drift apart.
    */
+  /* WHAT IT RUNS ON, AND WHY THAT IS A STATEMENT RATHER THAN A MENU.
+   *
+   * The owner, looking at exactly this rail: "its broken. i cant even choose the
+   * provider or model". He is right that there is nothing to choose, and the
+   * reason is not on this page.
+   *
+   * An agent started from the tree travels submitCompose() -> startAgentForNode()
+   * -> window.mcAgent.start({ surface }). shell/main.cjs parseAgentStart() accepts
+   * exactly three fields -- sessionId, cwd, surface -- and agentPayload() above it
+   * REFUSES any other key with MC_AGENT_INVALID_PAYLOAD. shell/agent-host.cjs then
+   * calls the engine's startCodexSession() with no model argument at all. So no
+   * renderer code can send a provider or a model down that path today, whatever
+   * control is drawn over it, and adding a `tier` field here would be refused by
+   * the shell before it reached anything.
+   *
+   * A SELECT HERE WOULD THEREFORE BE THE TEMPERATURE SLIDER AGAIN -- "dont lie
+   * like we cant control temperature", the class of defect f1ce3ec removed from
+   * the agent page, where three sliders moved and changed nothing. The Engine &
+   * effort select in launchControlsBox() is NOT that: it feeds the audited
+   * connection's dispatch, which is a different mechanism from mcAgent.start()
+   * and really does carry the tier. It is not moved here, because it would then
+   * sit on a rail whose Start does not read it.
+   *
+   * So this box carries the two facts that are true and no control: which engine
+   * really started the session, and that nothing on this screen changes it yet.
+   * Nothing in it is focusable. */
+  const TREE_ENGINE_LABEL = 'Codex'
+  const TREE_ENGINE_NOTE = 'Agents you start from this tree run on Codex, using whichever model Codex is set to use on this computer. Nothing in this app chooses one yet, so there is no provider or model to pick here.'
+
   function showTreeNodeControls(node) {
     clearBoard()
     const role = ROLES[node.role] || ROLES.default
@@ -2344,6 +2373,11 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What you asked for</span></div>
           <div class="rail-sub">${escapeMarkup(node.message || '')}</div>
+        </div>
+        <div class="board-box board-ctl-box board-ctl-absent">
+          <div class="board-box-h"><span class="bh-t">What it runs on</span></div>
+          <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
+          <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>
         </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)

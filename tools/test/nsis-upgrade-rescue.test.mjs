@@ -147,6 +147,113 @@ test('the installer rescues exactly the directories the app treats as state', ()
 })
 
 // --------------------------------------------------------------------------
+// 1b. THE FILE IS ONLY A FIX IF THE BUILD ACTUALLY COMPILES IT IN.
+//
+// Everything above reads build/installer.nsh and proves the macro is right.
+// None of it proves electron-builder ever LOADS that file. It does so purely by
+// convention: NsisTarget.js:600 calls getResource(nsis.include, "installer.nsh"),
+// and platformPackager.js:584 takes the `custom === undefined` branch, which
+// looks for a file literally named installer.nsh in buildResourcesDir --
+// defaulting to `build` (util/config/config.js:185 buildResources: "build").
+//
+// So the entire fix hangs on two things NOTHING in this repo stated: that
+// directories.buildResources is left at its default, and that nsis.include is
+// left unset. Adding `buildResources: "assets"` -- an ordinary, harmless-looking
+// refactor -- would silently stop compiling the rescue in, the worst data-loss
+// defect this product has would come back on the next upgrade, and every test
+// here would still be green, because they all read the file directly rather
+// than asking whether the build reads it. These tests close that.
+
+const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'))
+const BUILD_CONFIG = PACKAGE_JSON.build ?? {}
+
+test('electron-builder still resolves build/installer.nsh as the NSIS custom include', () => {
+  // No competing top-level config file: electron-builder prefers electron-builder.{yml,json,js,ts}
+  // over the package.json `build` key, so one appearing would make everything
+  // asserted here describe a config that is no longer in effect.
+  const competing = ['electron-builder.yml', 'electron-builder.yaml', 'electron-builder.json', 'electron-builder.json5', 'electron-builder.js', 'electron-builder.cjs', 'electron-builder.mjs', 'electron-builder.ts']
+    .filter((name) => fs.existsSync(path.join(REPO_ROOT, name)))
+  assert.deepEqual(competing, [], 'a top-level electron-builder config would override the package.json build key asserted below')
+
+  // getResource's `custom === undefined` branch is the one that finds the file
+  // by name. Any non-empty nsis.include takes a different branch entirely.
+  assert.equal(
+    BUILD_CONFIG.nsis?.include,
+    undefined,
+    'nsis.include must stay unset: the auto-discovery branch is what picks up build/installer.nsh',
+  )
+
+  // nsis.script replaces the WHOLE generated installer script, discarding the
+  // templates that insert customInit and run uninstallOldVersion in the order
+  // the rescue depends on.
+  assert.equal(BUILD_CONFIG.nsis?.script, undefined, 'nsis.script would replace the generated script and drop customInit')
+
+  // buildResourcesDir = resolve(projectDir, directories.buildResources ?? "build").
+  const buildResourcesDir = path.resolve(REPO_ROOT, BUILD_CONFIG.directories?.buildResources ?? 'build')
+  assert.ok(
+    fs.readdirSync(buildResourcesDir).includes('installer.nsh'),
+    `buildResources dir ${buildResourcesDir} must contain installer.nsh, or the rescue is never compiled in`,
+  )
+  assert.equal(
+    path.resolve(buildResourcesDir, 'installer.nsh'),
+    path.resolve(INSTALLER_NSH),
+    'the file the build picks up must be the same file these tests assert against',
+  )
+})
+
+test('the rescue source path matches where the payload is actually staged', () => {
+  // $R4 is "$INSTDIR\resources\capability\<dir>". `resources` is Electron's own
+  // layout, but `capability` is this config's choice: extraResources[].to. Change
+  // that destination and the rescue reads an empty path and silently saves nothing.
+  const capability = (BUILD_CONFIG.extraResources ?? []).find((entry) => entry?.from === 'capability')
+  assert.ok(capability, 'extraResources must still stage the capability payload')
+  assert.equal(
+    capability.to,
+    'capability',
+    'extraResources capability.to must stay "capability": installer.nsh reads $INSTDIR\\resources\\capability',
+  )
+})
+
+test('the rescue destination matches the folder Electron uses for userData', () => {
+  // $R5 is "$APPDATA\${PRODUCT_NAME}\capability\<dir>". PRODUCT_NAME is
+  // appInfo.productName (NsisTarget.js:164) and Electron derives userData from
+  // the same productName, so the two track each other. What does NOT track is
+  // PRODUCT_DIRECTORY in runtime-state-root.js, which is hard-coded and is the
+  // root a payload falls back to when TOOLSENABLED_STATE_ROOT is unset. A rename
+  // of productName alone would leave the installer rescuing into one directory
+  // and an unshelled payload reading from another.
+  const productName = BUILD_CONFIG.productName ?? PACKAGE_JSON.productName
+  assert.ok(productName, 'productName must be set: PRODUCT_NAME is half the rescue destination')
+  const stateRootSrc = fs.readFileSync(STATE_ROOT_MODULE, 'utf8')
+  const declared = stateRootSrc.match(/PRODUCT_DIRECTORY\s*=\s*'([^']+)'/)
+  assert.ok(declared, 'PRODUCT_DIRECTORY not found in runtime-state-root.js')
+  assert.equal(
+    declared[1],
+    productName,
+    'PRODUCT_DIRECTORY must equal productName; a rename of one alone splits the state root in two',
+  )
+  const stateDir = stateRootSrc.match(/PAYLOAD_STATE_DIRECTORY\s*=\s*'([^']+)'/)
+  assert.ok(stateDir, 'PAYLOAD_STATE_DIRECTORY not found in runtime-state-root.js')
+  assert.ok(
+    NSH.includes(`$APPDATA\\\${PRODUCT_NAME}\\${stateDir[1]}\\`),
+    `installer.nsh must rescue into the "${stateDir[1]}" subdirectory the app reads from`,
+  )
+})
+
+test('the uninstaller is not configured to delete user data behind the retention decision', () => {
+  // deleteAppDataOnUninstall defines DELETE_APP_DATA_ON_UNINSTALL, which makes
+  // templates/nsis/uninstaller.nsh:237 `RMDir /r "$APPDATA\${APP_FILENAME}"` run.
+  // That is gated ${ifNot} ${isUpdated}, so it is not an upgrade defect -- but it
+  // would delete the vault on a plain uninstall without ever asking, which is the
+  // decision customUnInstall exists to put in the person's hands.
+  assert.notEqual(
+    BUILD_CONFIG.nsis?.deleteAppDataOnUninstall,
+    true,
+    'deleteAppDataOnUninstall would delete the vault on uninstall, bypassing the recorded retention choice',
+  )
+})
+
+// --------------------------------------------------------------------------
 // 2. A faithful model of the macro, run end to end across the real sequence.
 
 const RESCUED_DIRS = rescuedDirsFromNsh(NSH)

@@ -187,15 +187,15 @@
       "which is already paid here. A file that requires a paid module cannot be open."
     ],
     "paths": [
-      "src/lib/providers/hosted-relay-entitlement.js",
       "src/lib/entitlement-fulfilment.js",
-      "src/lib/entitlement.js",
-      "src/lib/providers/license.js",
-      "src/lib/license-store.js",
       "src/lib/entitlement-grant.js",
+      "src/lib/entitlement.js",
+      "src/lib/license-store.js",
+      "src/lib/providers/hosted-relay-entitlement.js",
+      "src/lib/providers/license.js",
       "src/lib/providers/paid-surface-entitlement.js",
-      "tools/entitlement-webhook.js",
       "src/lib/tool-packs/vendor-license-issuance.js",
+      "tools/entitlement-webhook.js",
       "tools/entitlement.js"
     ],
     "prefixes": []
@@ -401,6 +401,7 @@
       "src/lib/owner-request-scope-store.js",
       "src/lib/owner-request-scope.js",
       "src/lib/owner-steps.js",
+      "src/lib/paddle-environment.js",
       "src/lib/permission-tier-policy.js",
       "src/lib/policy-authorizations.js",
       "src/lib/policy-evaluator.js",
@@ -505,7 +506,9 @@
       "tools/ledger-archive.js",
       "tools/lib/vault-acl.ps1",
       "tools/mission-bridge.js",
+      "tools/owner-capture-audit.js",
       "tools/owner-capture.js",
+      "tools/owner-ingress-spool.js",
       "tools/owner-prompt-queue.ps1",
       "tools/owner-prompt-theme.ps1",
       "tools/playwright-call.js",
