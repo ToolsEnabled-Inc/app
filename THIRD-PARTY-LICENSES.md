@@ -1,8 +1,7 @@
 # Third-party licenses
 
-ToolsEnabled is licensed under the GNU Affero General Public License, version 3 or
-later; that grant is made by [`LICENSE`](LICENSE) and is not affected by anything in
-this file.
+ToolsEnabled is licensed under the MIT License; that grant is made by
+[`LICENSE`](LICENSE) and is not affected by anything in this file.
 
 This file exists to satisfy the *other* direction: the components below are
 redistributed inside the ToolsEnabled application payload, and their licenses require
@@ -51,9 +50,9 @@ is named here rather than omitted, because a reader comparing this file against
 ### Compatibility
 
 Every license above is Apache-2.0, OFL-1.1, ISC, BSD-3-Clause or 0BSD. Each of these
-permits inclusion in a work distributed under the AGPLv3, so combining them with the
-AGPL grant on ToolsEnabled raises no license conflict. The obligations they do impose
-are notice obligations, which is what this file discharges.
+permits inclusion in a work distributed under the MIT License, so combining them with
+the MIT grant on ToolsEnabled raises no license conflict. The obligations they do
+impose are notice obligations, which is what this file discharges.
 
 Two conditions are worth naming explicitly rather than leaving inside the wall of text
 below, because they bind anyone who redistributes a modified build:

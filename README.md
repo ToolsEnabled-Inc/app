@@ -44,7 +44,7 @@ machines.
 **ToolsEnabled Anywhere** is a separate, optional, paid service for the one problem the
 free product deliberately does not solve: reaching your machines when you are *not* on the
 same network. It provides managed non-LAN connectivity, device enrollment, the relay,
-monitoring, recovery and support. Planned pricing is approximately $19.99/month.
+monitoring, recovery and support. Planned pricing is $19/month, or $190/year.
 
 Anywhere is a hosted service, not a feature unlock. Nothing in this repository is disabled
 to sell it. The free product launches first; Anywhere follows as an invite-only beta.
@@ -60,9 +60,9 @@ build. A fork is your own; it is not the official product and must not present i
 the official build or as published by ToolsEnabled, Inc.
 
 That last limit is a trademark one, not a restriction on the code: your rights in the code
-are the AGPL's in full, and renaming a fork is always enough to satisfy it. The distinction
-is drawn out in [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md), which also covers who
-actually needs a commercial license — most users do not.
+are MIT's in full, and renaming a fork is always enough to satisfy it. The distinction
+is drawn out in [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md), which also covers what
+is actually paid for — which is us operating a server, not any licence to the code.
 
 Cloud infrastructure, billing, provisioning, security operations and internal development
 tooling are developed separately and are not intended to be part of this repository.
@@ -96,24 +96,25 @@ Stated plainly, because a public repository is a dated, permanent record:
   interface software) and one held by BMC Software. "ToolsEnabled" returned no hits, live
   or dead. The name was changed before launch rather than after, because once a name is
   in forks, package registries and third-party redistributions it cannot be recalled.
-- **The license is in force.** This, the free product, is released under the **GNU Affero
-  General Public License, version 3 or later**. The grant is made by [`LICENSE`](LICENSE),
-  which holds the unmodified text as published by the Free Software Foundation; if
-  anything here disagrees with that file, that file controls. ToolsEnabled Anywhere is a
-  separate, commercially licensed product and is not covered by this grant; its terms and
-  the governance of the official build are in [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md).
+- **The license is in force.** This, the free product, is released under the **MIT
+  License**. The grant is made by [`LICENSE`](LICENSE); if anything here disagrees with
+  that file, that file controls. You may use, modify, redistribute and sell it, including
+  inside a closed-source product, provided the copyright and permission notices travel
+  with the copies you hand on. What is paid for is us *operating a server* — the hosted
+  relay, the secure phone path, the hosted vault — and connecting to your own server
+  instead costs nothing. The governance of the official build is in
+  [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md).
 - **Bundled third-party components keep their own licenses.** Their notices and full texts
   are reproduced in [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md), which ships with
   the installer because the SIL Open Font, Apache-2.0 and BSD-3-Clause terms require the
   notices to travel with the binary rather than merely be listed in a manifest.
 
-  Dual licensing stays available because Joshua Pinckard is the sole copyright holder and
-  is therefore not bound by his own AGPL grant — but that holds **only while copyright
-  stays unfragmented.** Merging an outside contribution without a contributor agreement
-  leaves that contributor holding copyright in their part, after which no commercial
-  license can be granted over the whole work without asking every one of them. That has to
-  be settled before the first outside pull request is merged, not after. See
-  [`LICENSING.md`](LICENSING.md) and [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
+  Outside contributions are open, under the Developer Certificate of Origin: sign off each
+  commit with `git commit -s` and your change is contributed under the same MIT terms.
+  There is no copyright assignment and nothing to sign. Why a DCO rather than a CLA — and
+  what a DCO does *not* give the project — is set out in
+  [`CONTRIBUTING.md`](CONTRIBUTING.md). See also [`LICENSING.md`](LICENSING.md) for why the
+  project moved from AGPL to MIT, and [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
 
   None of this has been reviewed by a lawyer.
 

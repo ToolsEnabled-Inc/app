@@ -1,5 +1,5 @@
 ToolsEnabled
-Copyright © 2026 Joshua Pinckard
+Copyright (c) 2026 Joshua Pinckard
 
 ToolsEnabled was founded and created by Joshua Pinckard. The original platform was
 developed by directing autonomous AI-agent fleets through the system's own evolving
@@ -9,6 +9,46 @@ Sole founder and creator : Joshua Pinckard
 Official product         : ToolsEnabled
 Official publisher       : ToolsEnabled, Inc. (in formation)
 Copyright holder         : Joshua Pinckard
+
+This repository holds the DESKTOP INTERFACE. The local runtime -- the agent engine
+and the capability layer it exposes through MCP -- is built in a separate
+repository. Both are the same product and carry the same grant.
+
+-------------------------------------------------------------------------------
+LICENSE
+-------------------------------------------------------------------------------
+
+This software is licensed under the MIT License. The grant is made by the
+LICENSE file in the root of this repository. That file controls; nothing in this
+NOTICE alters, adds to, or narrows it.
+
+MIT was chosen deliberately over a copyleft license. The software you install and
+run on your own machines is free, and it is meant to stay free in the sense that
+costs you nothing and asks you nothing: no network-service source obligation, no
+share-alike condition on what you build with it, and no policy review at
+organisations that refuse copyleft. You may use, modify, redistribute and sell
+this software, including inside closed-source products, provided the copyright
+notice and the permission notice travel with the copies you hand on.
+
+The MIT License grants copyright permissions. It does not contain an express
+patent grant.
+
+-------------------------------------------------------------------------------
+WHAT IS FREE AND WHAT IS PAID
+-------------------------------------------------------------------------------
+
+Everything in this repository is free and open under the MIT License. There is no
+paid tier of this source, no feature withheld behind a license key in it, and no
+obligation to buy anything in order to run it. Connect the application to a server
+you run yourself and you pay nothing, forever.
+
+What ToolsEnabled sells is OPERATING a server, not the right to any code. That
+paid service is called ToolsEnabled Anywhere: the managed connectivity service
+and the relay we host, the secure phone path and mobile access through the
+website to your own agent systems, the hosted vault storage service, and the
+account, billing and entitlement services. None of that is in this repository.
+Running your own server for these capabilities is free; the reason to pay is
+that you would rather we ran one for you.
 
 -------------------------------------------------------------------------------
 LEGAL STATUS
@@ -27,19 +67,20 @@ before launch: a USPTO search returned 17 live marks for it in the relevant
 classes, including Apple Inc. (Reg. 4240125, IC 009) and BMC Software.
 "ToolsEnabled" returned no hits, live or dead.
 
-This, the free product, is licensed under the GNU Affero General Public License,
-version 3 or later. The grant is made by the LICENSE file in the root of this
-repository, which holds the unmodified text as published by the Free Software
-Foundation. That file controls; nothing in this NOTICE alters, adds to, or
-narrows it.
+None of this has been reviewed by a lawyer.
 
-ToolsEnabled Anywhere is a separate, commercially licensed product and is not
-covered by that grant.
+-------------------------------------------------------------------------------
+CONTRIBUTIONS
+-------------------------------------------------------------------------------
 
-Dual licensing remains available because Joshua Pinckard is the sole copyright
-holder, and only while copyright stays unfragmented. See LICENSING.md for why
-that choice was made, and COMMERCIAL-LICENSE.md for the commercial terms and
-the governance of the official build.
+Outside contributions are accepted under the Developer Certificate of Origin,
+version 1.1. Each commit carries a Signed-off-by line, which is the contributor's
+statement that they wrote the change or otherwise have the right to submit it
+under this project's license. There is no copyright assignment and no separate
+agreement to sign: contributors keep the copyright in what they write, and it is
+contributed under the same MIT terms the rest of the project uses.
+
+CONTRIBUTING.md states the certificate in full and explains how to sign off.
 
 -------------------------------------------------------------------------------
 CONTRIBUTORS

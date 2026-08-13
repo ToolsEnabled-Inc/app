@@ -1,154 +1,120 @@
-# Commercial licensing
+# What is paid for
 
 ToolsEnabled was founded and created by Joshua Pinckard. The original platform was
 developed by directing autonomous AI-agent fleets through the system's own evolving
 coordination architecture.
 
-Copyright © 2026 Joshua Pinckard. Published by ToolsEnabled, Inc. (in formation).
+Copyright (c) 2026 Joshua Pinckard. Published by ToolsEnabled, Inc. (in formation).
 
 ---
 
-## What this document is
+## Nobody needs to buy a licence
 
-ToolsEnabled is released under two arrangements at once:
+This file used to describe one. Until 2026-08-12 ToolsEnabled was AGPL-3.0-or-later
+and sold a commercial licence to anyone who could not accept copyleft terms.
+**That product no longer exists, because under the MIT License there is nothing left
+to sell you.**
 
-1. **The free product** — everything in this repository — is free software under the GNU
-   Affero General Public License, version 3 or later. The grant is made by
-   [`LICENSE`](LICENSE), which holds the unmodified text as published by the Free Software
-   Foundation.
-2. **The commercial arrangements** — a separate license for people who cannot accept the
-   AGPL's terms, and **ToolsEnabled Anywhere**, a paid hosted service — are described here.
+MIT already lets you run this software, modify it, redistribute it, embed it in a
+closed-source product and sell that product, without asking anyone and without
+owing anyone anything. The one condition is that the copyright notice and the
+permission notice travel with the copies you hand on. The grant is made by
+[`LICENSE`](LICENSE), and that file controls: if any sentence here appears to
+narrow, condition or add a requirement to the rights it gives you, that file wins
+and this one is wrong.
 
-This document describes the commercial side. **It is a description of the terms on offer,
-not the contract itself.** No commercial license comes into existence by reading this file,
-by downloading the software, or by paying for anything; it exists only when a signed
-agreement says it does. Where this description and an executed agreement differ, the
-executed agreement governs.
+So if you are here because you assumed a project like this must have a catch for
+commercial use — there isn't one. Use it.
 
-**Nothing in this document takes anything away from the AGPL grant.** If any sentence here
-appears to narrow, condition or add a requirement to the rights `LICENSE` gives you, that
-file wins and this one is wrong. That is stated first, and deliberately, because a
-commercial-licensing page sitting next to a copyleft license is exactly where an accidental
-extra restriction would hide.
+## What is actually sold
 
-## Why a commercial license can be offered at all
+**Operating a server.** Not code, not a feature unlock, not a licence key.
 
-The AGPL binds people who *receive* the software. It does not bind the copyright holder.
-Copyright in ToolsEnabled vests in one person, Joshua Pinckard, so he remains free to
-license the same work on other terms to anyone who asks.
+The software you install reaches your machines when it is on the same network as
+them. Reaching them when you are somewhere else needs a server sitting in the
+middle, and someone has to run that server, keep it up, and answer for it when it
+breaks. That is the paid product, and it is called **ToolsEnabled Anywhere**:
 
-This depends on a condition that is easy to lose and impossible to quietly recover: **it
-works only while copyright stays unfragmented.** If an outside contribution is merged
-without a contributor agreement that assigns rights or grants a license broad enough to
-relicense, that contributor holds copyright in their part, and from then on no commercial
-license can be granted over the whole work without asking every one of them individually.
-
-That has to be settled before the first outside pull request is merged, not after. See
-[`LICENSING.md`](LICENSING.md) and [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
-
-## Who needs a commercial license
-
-Most people do not. If you run ToolsEnabled for yourself, inside your company, on your own
-machines, or you modify it and keep the modifications to yourself, **the AGPL already
-allows that and you owe nothing.** Running the software is not what triggers the AGPL's
-obligations.
-
-A commercial license is for the cases where the AGPL's conditions are genuinely
-unacceptable to you:
-
-- You want to **offer a modified ToolsEnabled to others over a network** without publishing
-  your modified source, which AGPL section 13 would otherwise require.
-- You want to **embed ToolsEnabled in a proprietary product** you distribute without that
-  product inheriting the AGPL's terms.
-- Your organisation **refuses AGPL software by policy** and you need different terms to
-  adopt it at all.
-
-If none of those describe you, use the free product; that is what it is for.
-
-To ask about commercial terms, open an issue in the official repository, or use the contact
-route published there. Pricing and terms are negotiated per agreement and are not listed
-here.
-
-## ToolsEnabled Anywhere
-
-**ToolsEnabled Anywhere** is a separate, optional, paid service. It solves the one problem
-the free product deliberately does not: reaching your machines when you are not on the same
-network. It provides managed non-LAN connectivity, device enrollment, the relay, monitoring,
-recovery and support.
+- managed connectivity and the relay we host and run;
+- the secure phone path, and mobile access through the website to your own agent
+  systems;
+- the hosted vault storage service;
+- the account, billing and entitlement services.
 
 Three things about it are worth stating plainly, because paid tiers built alongside
 open-source projects are routinely suspected of the opposite:
 
-- **Anywhere is a hosted service, not a feature unlock.** Nothing in this repository is
-  disabled, crippled or time-limited in order to sell it.
-- **The free product is complete for anyone who can reach their own machines.** Local
-  operation, your own LAN, and self-hosting are all fully supported by the free product and
-  require no account with us.
-- **Anywhere's server-side implementation is not part of this repository** and is not
-  covered by the AGPL grant. It is separate work under separate terms.
+- **It is a service, not a feature unlock.** Nothing in this repository is disabled,
+  crippled or time-limited in order to sell it.
+- **The free product is complete for anyone who can reach their own machines.**
+  Local operation, your own LAN, and self-hosting are fully supported and require
+  no account with us. **Connect your own server and you pay nothing, forever.**
+- **The server-side implementation is not in this repository.** It is separate work
+  under separate terms, and running your own server instead is a supported,
+  first-class way to use this software rather than a workaround.
 
-Anywhere is licensed to subscribers under its own service terms, which accompany the
-service and are not reproduced in this file. It is not licensed under the AGPL.
+The service is provided to subscribers under its own service terms, which accompany
+the service and are not reproduced in this file. Those terms govern the service.
+They do not, and cannot, take anything away from the MIT grant on the software.
 
 ## Governance of the official build
 
-The official project lives under the ToolsEnabled GitHub organization. ToolsEnabled, Inc.
-controls:
+The official project lives under the ToolsEnabled GitHub organization.
+ToolsEnabled, Inc. controls:
 
 - the **official repository** and what is merged into it;
 - the **official releases** and the **signed installers** published under its name;
-- the **project's names and marks**, including "ToolsEnabled" and "ToolsEnabled Anywhere".
+- the **project's names and marks**, including "ToolsEnabled".
 
-Anyone may fork this project and propose changes. **Only company-approved code enters the
-official build.** Proposals are accepted or refused at the company's discretion, and no
-contribution carries a right to be merged.
+Anyone may fork this project and propose changes. **Only company-approved code
+enters the official build.** Proposals are accepted or refused at the company's
+discretion, and no contribution carries a right to be merged. Contributions are
+accepted under the Developer Certificate of Origin; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ### What that does and does not restrict
 
 This distinction matters, so it is drawn explicitly rather than left to be inferred:
 
-- **Your rights in the code are the AGPL's, in full.** You may fork, modify, run,
-  distribute and offer over a network, subject only to the AGPL's own conditions. The
-  company's control over the official build is not a restriction on your copy and cannot
-  be used as one.
-- **What is reserved is identity, not code.** A fork is yours; it is not the official
-  product. It must not present itself as the official build, as published or endorsed by
-  ToolsEnabled, Inc., or under the project's names and marks in a way that would mislead
-  someone about where it came from. That is a trademark limit, which is a separate body of
-  law from the copyright license and is expressly preserved by AGPL section 7(e).
-- **Renaming a fork is always sufficient.** The AGPL requires modified versions to carry
-  notice of modification, and distributing your fork under its own name satisfies
-  everything asked of you here.
+- **Your rights in the code are MIT's, in full.** You may fork, modify, run,
+  distribute, sell and offer over a network. The company's control over the
+  official build is not a restriction on your copy and cannot be used as one.
+- **What is reserved is identity, not code.** A fork is yours; it is not the
+  official product. It must not present itself as the official build, as published
+  or endorsed by ToolsEnabled, Inc., or under the project's names and marks in a way
+  that would mislead someone about where it came from. The MIT License grants
+  copyright permissions and says nothing about trademarks, so this limit rests on
+  trademark law and takes nothing from the licence.
+- **Renaming a fork is always sufficient.** Distributing your fork under its own
+  name satisfies everything asked of you here.
 
-Cloud infrastructure, billing, provisioning, security operations and internal development
-tooling are developed separately and are not intended to be part of this repository. What
-the official build actually redistributes is not left to that sentence to enforce: it is
-declared in `config/payload-boundary.json` and checked by a gate on every release build.
+Cloud infrastructure, billing, provisioning, security operations and internal
+development tooling are developed separately and are not intended to be part of this
+repository. What the official build actually redistributes is not left to that
+sentence to enforce: it is declared in `config/payload-boundary.json` and checked by
+a gate on every release build.
 
 ## Third-party components
 
-ToolsEnabled bundles third-party open-source components, each under its own license. Those
-licenses are unaffected by anything in this document, and a commercial license granted over
-ToolsEnabled does not and cannot relicense them. Their notices and full texts are in
-[`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
+ToolsEnabled bundles third-party open-source components, each under its own license.
+Those licenses are unaffected by anything in this document. Their notices and full
+texts are in [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
 
 ## Legal status
 
 Stated plainly, because a public repository is a dated, permanent record:
 
-- **ToolsEnabled, Inc. does not exist yet.** Incorporation has not been filed. It is named
-  as the intended publisher and marked *(in formation)*. Copyright is held personally by
-  Joshua Pinckard until the entity exists and the rights are assigned to it. Until then, a
-  commercial license can only be granted by him personally, and any agreement should name
-  him rather than the company.
-- **No trademark application has been filed** for "ToolsEnabled". The name is not claimed
-  here as a registered mark. The trademark limit described above rests on unregistered
-  rights, which are narrower than registered ones.
-- **None of this has been reviewed by a lawyer.** It is a statement of intent written to be
-  honest about what has and has not been decided, and it should be reviewed before it is
-  relied on in an actual negotiation.
+- **ToolsEnabled, Inc. does not exist yet.** Incorporation has not been filed. It is
+  named as the intended publisher and marked *(in formation)*. Copyright is held
+  personally by Joshua Pinckard until the entity exists and the rights are assigned
+  to it.
+- **No trademark application has been filed** for "ToolsEnabled". The name is not
+  claimed here as a registered mark. The trademark limit described above rests on
+  unregistered rights, which are narrower than registered ones.
+- **None of this has been reviewed by a lawyer.** It is a statement of intent
+  written to be honest about what has and has not been decided.
 
 ---
 
 *ToolsEnabled — created by Joshua Pinckard, sole founder.
-Published by ToolsEnabled, Inc. (in formation). Copyright © 2026 Joshua Pinckard.*
+Published by ToolsEnabled, Inc. (in formation). Copyright (c) 2026 Joshua Pinckard.*

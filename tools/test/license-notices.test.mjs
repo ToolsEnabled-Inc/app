@@ -159,16 +159,50 @@ test('gate fails when the packaged root has no resources directory at all', () =
   }
 });
 
-test('LICENSE is the unmodified GNU AGPLv3', () => {
-  // Verified on 2026-08-11 byte-for-byte against
-  // https://www.gnu.org/licenses/agpl-3.0.txt (34523 bytes, LF).
-  const AGPL = '0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0';
+test('LICENSE is the standard MIT License', () => {
+  // Relicensed from AGPL-3.0-or-later to MIT on 2026-08-12 by owner directive.
+  //
+  // The body is hashed WITHOUT the copyright line, because MIT embeds that line
+  // -- and therefore the year -- inside the grant. Pinning the whole file would
+  // fail this test every January on a file nobody edited. The copyright line is
+  // asserted separately below, so nothing is left unchecked.
+  const MIT_BODY = 'c9b7c49cdeb4ccab2f2cb69e67f3405518e4bcf611bd3b01de101b070659d11d';
   // Normalised, matching the gate: core.autocrlf=true with no .gitattributes
   // means a fresh clone has a CRLF LICENSE whose raw digest differs while the
   // licence text is identical.
-  const text = readFileSync(join(REPO, 'LICENSE'), 'utf8').replace(/\r\n/g, '\n');
-  const got = createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
-  assert.equal(got, AGPL, 'the AGPL must ship verbatim; put custom wording in NOTICE');
+  const lines = readFileSync(join(REPO, 'LICENSE'), 'utf8').replace(/\r\n/g, '\n').split('\n');
+  const body = lines.filter((line) => !/^Copyright \(c\)/.test(line)).join('\n');
+  const got = createHash('sha256').update(Buffer.from(body, 'utf8')).digest('hex');
+  assert.equal(got, MIT_BODY, 'the MIT body must be the standard wording; put custom wording in NOTICE');
+
+  const copyright = lines.find((line) => /^Copyright \(c\)/.test(line));
+  assert.ok(copyright, 'LICENSE has no copyright line; the MIT grant would name nobody');
+  assert.match(copyright, /^Copyright \(c\) \d{4} Joshua Pinckard$/);
+});
+
+test('the engine half declares the same licence', () => {
+  // One product in two repositories. The engine half pins the same body digest
+  // from its own side; this is the check from this side, so a relicence that
+  // touches only one repository is caught from whichever half is on the machine.
+  const engine = join(REPO, '..', 'toolsenabled-current');
+  if (!existsSync(join(engine, 'package.json'))) {
+    // Not a silent pass: say that nothing was compared, because "no counterpart
+    // checkout" reported as a tick is how a cross-repository check quietly stops
+    // checking.
+    console.log(`  (skipped: no engine checkout at ${engine}; compared nothing)`);
+    return;
+  }
+  const pkg = JSON.parse(readFileSync(join(engine, 'package.json'), 'utf8'));
+  assert.equal(pkg.license, 'MIT', 'the two halves are one product and cannot be under two licences');
+});
+
+test('contribution terms exist, so the relicensing option survives a first outside merge', () => {
+  // MIT can be relicensed today only because one person holds copyright in every
+  // line. CONTRIBUTING.md is what keeps that statable once other people
+  // contribute; its absence is a licence defect, not a documentation one.
+  const contributing = readFileSync(join(REPO, 'CONTRIBUTING.md'), 'utf8');
+  assert.match(contributing, /Developer Certificate of Origin/);
+  assert.match(contributing, /Signed-off-by/);
 });
 
 test('the free product does not claim all rights reserved', () => {
@@ -178,7 +212,7 @@ test('the free product does not claim all rights reserved', () => {
     const text = readFileSync(join(REPO, doc), 'utf8');
     assert.ok(
       !/all rights reserved/i.test(text),
-      `${doc} still reserves all rights, which contradicts the AGPL grant`
+      `${doc} still reserves all rights, which contradicts the MIT grant`
     );
   }
 });

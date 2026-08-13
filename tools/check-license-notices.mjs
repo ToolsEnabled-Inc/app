@@ -28,9 +28,25 @@ import { fileURLToPath } from 'node:url';
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const packagedRoot = process.argv[2] || null;
 
-// sha256 of the unmodified GNU AGPLv3 as published at
-// https://www.gnu.org/licenses/agpl-3.0.txt (34523 bytes, LF endings).
-const AGPL_SHA256 = '0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0';
+// THE MIT TEXT IS PINNED IN TWO PARTS, and the split is the point.
+//
+// This project was AGPL-3.0-or-later until 2026-08-12, when the owner relicensed
+// both halves to MIT. The AGPL is a fixed document that could be pinned by a
+// single digest of the whole file; MIT is not, because it embeds the copyright
+// line -- and therefore the YEAR -- inside the grant itself. Pinning the whole
+// file would turn this gate red every January on a file nobody touched, and a
+// gate that cries wolf on a correct file is a gate somebody deletes.
+//
+// So the normative body is hashed (a changed WORD of the permission or warranty
+// text is caught) and the copyright line is checked by shape (the year may
+// advance; the holder is still asserted).
+//
+// This digest is independently pinned by the engine half's own gate
+// (tests/source-license-drift.test.js there). That duplication is deliberate:
+// two halves asserting one constant is what makes them checkable against each
+// other even when only one of them is on the machine.
+const MIT_BODY_SHA256 = 'c9b7c49cdeb4ccab2f2cb69e67f3405518e4bcf611bd3b01de101b070659d11d';
+const COPYRIGHT_LINE = /^Copyright \(c\) (\d{4}) Joshua Pinckard$/;
 
 // Production packages that are resolved but NOT redistributed in the payload.
 // Anything here must also be explained in THIRD-PARTY-LICENSES.md.
@@ -117,16 +133,58 @@ for (const doc of REQUIRED_DOCS) {
 }
 
 if (existsSync(join(REPO, 'LICENSE'))) {
-  const got = sha256Text(join(REPO, 'LICENSE'));
-  if (got !== AGPL_SHA256) {
+  const lines = readFileSync(join(REPO, 'LICENSE'), 'utf8').replace(/\r\n/g, '\n').split('\n');
+  const isCopyright = (line) => /^Copyright \(c\)/.test(line);
+  const body = lines.filter((line) => !isCopyright(line)).join('\n');
+  const got = sha256(Buffer.from(body, 'utf8'));
+
+  if (got !== MIT_BODY_SHA256) {
     fail(
-      'LICENSE is not the unmodified GNU AGPLv3.\n' +
-        `      expected sha256 ${AGPL_SHA256}\n` +
-        `      actual   sha256 ${got}\n` +
-        '      The AGPL must be shipped verbatim; put project-specific wording in ' +
-        'NOTICE or LICENSING.md instead.'
+      'LICENSE is not the standard MIT License text.\n' +
+        `      expected body sha256 ${MIT_BODY_SHA256}\n` +
+        `      actual   body sha256 ${got}\n` +
+        '      The licence body must be the standard wording; put project-specific ' +
+        'wording in NOTICE or LICENSING.md instead.'
     );
   }
+
+  const copyright = lines.find(isCopyright);
+  if (!copyright) {
+    fail(
+      'LICENSE has no "Copyright (c) <year> <holder>" line. MIT places the copyright ' +
+        'notice inside the grant; without it the grant names nobody.'
+    );
+  } else {
+    const match = COPYRIGHT_LINE.exec(copyright);
+    if (!match) {
+      fail(
+        `LICENSE copyright line reads "${copyright}", which does not match ` +
+          '"Copyright (c) <year> Joshua Pinckard".'
+      );
+    } else {
+      const year = Number(match[1]);
+      const now = new Date().getUTCFullYear();
+      if (year < 2026 || year > now) {
+        fail(`LICENSE claims copyright year ${year}; expected between 2026 and ${now}.`);
+      }
+    }
+  }
+}
+
+// The MIT grant is only relicensable while the project can state where every
+// line came from. CONTRIBUTING.md is what collects that statement, so its
+// absence is a licence defect rather than a documentation one.
+//
+// It is checked here and NOT added to REQUIRED_DOCS on purpose: REQUIRED_DOCS
+// must also reach the packaged product under resources/, and contribution terms
+// are for people reading the repository, not for people running the installer.
+if (!existsSync(join(REPO, 'CONTRIBUTING.md'))) {
+  fail(
+    'CONTRIBUTING.md is missing from the repository root. It states the terms ' +
+      'inbound contributions arrive under (Developer Certificate of Origin 1.1); ' +
+      'without it, the first outside merge leaves the project unable to say what ' +
+      'licence that code was offered under -- which is not fixable afterwards.'
+  );
 }
 
 // A NOTICE THAT SAYS THE SAME THING TWICE HAS BEEN APPENDED TO WITHOUT BEING READ.

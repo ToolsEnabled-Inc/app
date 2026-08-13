@@ -37,40 +37,46 @@ is part of a normal pull request.
 
 *(none yet)*
 
-## Outside code contributions are not open yet
+## Outside code contributions are open
 
-**Not because they are unwelcome — because merging one today would quietly cost the
-project something it cannot get back.**
+They were closed until 2026-08-12, and the reason they are open now is worth stating,
+because it is not that the risk went away — it is that the licence changed and the risk
+changed with it.
 
-ToolsEnabled is AGPLv3, and ToolsEnabled Anywhere is offered under separate commercial
-terms. That arrangement is only possible because copyright in this work is held by one
-person, and the AGPL binds people who receive the software rather than the copyright
-holder. It **stops** being possible the moment copyright fragments: a contributor who
-signs nothing keeps copyright in their part, and from then on no commercial license can be
-granted over the whole work without going back to every contributor individually and
-getting each one to agree.
+While ToolsEnabled was AGPLv3, the business model was dual licensing: the same code given
+away under copyleft and sold under separate commercial terms. That only works while one
+person holds all the copyright, because the AGPL binds people who *receive* the software
+rather than the copyright holder. One contributor who signed nothing would have kept
+copyright in their part, and from then on no commercial licence could be granted over the
+whole work without going back to each of them individually. Merging a single pull request
+would have cost something that could not be got back, so nothing was merged.
 
-**There is no contributor agreement yet.** Until there is, this project cannot accept
-outside code, because the first merge is the irreversible step — it is a decision to be
-made before the first pull request is merged, not after. `LICENSING.md` explains the
-mechanism in full.
+Under **MIT** that dependency is gone. What is sold is *operating a server* — the paid
+service **ToolsEnabled Anywhere** — not the code;
+running a paid service does not require owning the copyright in a client that anyone may
+already copy, modify and sell. And MIT permits sublicensing, so a contribution received
+under it can be redistributed by this project under other terms as long as the
+contributor's notice travels with it. The headroom a contributor agreement existed to
+preserve is largely in the inbound licence itself.
 
-That agreement is a real decision with real trade-offs, not a formality: assignment and a
-broad license grant are different things, and some contributors decline both on principle.
-It is owed a proper choice rather than a template pasted in under time pressure.
+**So the requirement is a sign-off, not a signature.** This project uses the Developer
+Certificate of Origin 1.1: you add a `Signed-off-by` line to each commit with
+`git commit -s`, certifying that you wrote the change or otherwise have the right to submit
+it under the MIT License. There is no copyright assignment, nothing to email, and you keep
+the copyright in what you write.
 
-**Not blocked, and genuinely wanted right now:** bug reports, reproductions, documentation
-of behaviour you found confusing, security reports, and design feedback. None of those
-create a copyright interest in the codebase, and all of them are worth crediting — open an
-issue.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the full certificate text, the reasoning behind
+choosing a DCO over a CLA, and — stated there rather than buried — what a DCO does *not*
+give the project.
 
-### When it does open
+**Also wanted, and never requiring any of the above:** bug reports, reproductions,
+documentation of behaviour you found confusing, security reports, and design feedback. None
+of those create a copyright interest in the codebase, and all of them are worth crediting.
 
-The steps will be:
+### How to contribute code
 
-1. Complete whatever contributor agreement the project settles on.
-2. Open a pull request with your change.
-3. In the same pull request, add yourself to the **Contributors** list above:
+1. Open a pull request with your change, with every commit signed off (`git commit -s`).
+2. In the same pull request, add yourself to the **Contributors** list above:
    `- Name (@github-handle) — what you contributed`
 
 Use whatever name you want to be credited under; a handle alone is fine. If you would
