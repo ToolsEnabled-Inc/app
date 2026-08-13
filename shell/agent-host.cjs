@@ -734,8 +734,48 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return session
   }
 
-  function startSession({ sessionId, cwd } = {}) {
+  /* THE SIX DISPATCHABLE TIERS, mirrored from src/orchestration-controls.js.
+   *
+   * Duplicated rather than imported because that file is ESM and this is CJS in
+   * the Electron main process. tools/test/orchestration-controls.test.mjs
+   * already parses the ENGINE table and fails when the renderer table drifts
+   * from it; the same test now covers this one, so three copies cannot disagree
+   * silently.
+   *
+   * `startCodexSession()` is the only start path here, so the three claude tiers
+   * have NO LAUNCHER on this channel. They are listed anyway, and refused BY
+   * NAME with a reason, because the alternative -- omitting them -- makes a
+   * chosen model quietly become Codex, which is exactly the defect the owner
+   * hit: "i cant even choose the provider or model", while every agent silently
+   * ran on Codex. A refusal that says why is worth more than a success that
+   * lies. */
+  const START_TIERS = Object.freeze({
+    luna: { provider: 'codex', model: 'gpt-5.6-luna', effort: 'medium' },
+    terra: { provider: 'codex', model: 'gpt-5.6-terra', effort: 'high' },
+    sol: { provider: 'codex', model: 'gpt-5.6-sol', effort: 'xhigh' },
+    'claude-fable': { provider: 'claude', model: 'claude/fable' },
+    'claude-sonnet': { provider: 'claude', model: 'claude/sonnet' },
+    'claude-opus': { provider: 'claude', model: 'claude/opus' },
+  })
+
+  function resolveStartTier(tier) {
+    if (tier === undefined || tier === null || tier === '') return null
+    const row = START_TIERS[tier]
+    if (!row) {
+      fail('AGENT_TIER_UNKNOWN',
+        `Unknown tier "${tier}". Available: ${Object.keys(START_TIERS).join(', ')}.`)
+    }
+    if (row.provider !== 'codex') {
+      fail('AGENT_TIER_NO_LAUNCHER',
+        `The ${tier} tier runs on ${row.provider}, and this app can only start Codex agents today. `
+        + `Codex tiers: ${Object.keys(START_TIERS).filter(id => START_TIERS[id].provider === 'codex').join(', ')}.`)
+    }
+    return row
+  }
+
+  function startSession({ sessionId, cwd, tier } = {}) {
     assertOpen()
+    const startTier = resolveStartTier(tier)
     const id = normalizeSessionId(sessionId)
     if (sessions.has(id)) fail('AGENT_SESSION_EXISTS', `Session already exists: ${id}`)
     const sessionCwd = normalizeCwd(cwd, fallbackCwd)
@@ -803,7 +843,14 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
           clientInfo: CLIENT_INFO,
           // What the OS enforces on the agent process itself. MEASURED against a
           // user config that says danger-full-access: the thread option wins.
-          threadOptions: plan.threadOptions,
+          // The chosen model rides in threadOptions, which the adapter already
+          // forwards (`['cwd', 'approvalPolicy', 'model', 'serviceTier']`) --
+          // no argv change, and `codex app-server` gets told directly. Spread
+          // FIRST so the confinement plan always wins: a tier must never be
+          // able to widen what the level allows.
+          threadOptions: startTier
+            ? { ...plan.threadOptions, model: startTier.model }
+            : plan.threadOptions,
           // What bounds the agent AROUND the process. MCP servers are separate
           // children that no sandbox applied to the agent covers, so a confined
           // level points Codex at a home this installation owns and the user's

@@ -13,10 +13,11 @@ const net = require('net')
 const dns = require('dns')
 const path = require('path')
 const fs = require('fs')
-const { randomBytes, randomUUID } = require('crypto')
+const { randomBytes, randomUUID, createHash } = require('crypto')
 const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
 const { readAgentConfinement } = require('./agent-confinement-read.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
+const { recordCanonical: recordCanonicalIn } = require('./canonical-audit.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { createGoogleSignIn } = require('./google-signin.cjs')
 const { resolveGoogleSignInConfig } = require('./google-signin-config.cjs')
@@ -365,7 +366,20 @@ function boundedAgentString(value, name, maxLength) {
 }
 
 function parseAgentStart(value) {
-  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface'])
+  // `tier` IS ACCEPTED HERE BECAUSE WITHOUT IT NOBODY CAN CHOOSE A MODEL.
+  //
+  // Owner, 2026-08-13: "i cant even choose the provider or model". He was right
+  // in the most literal way -- this allowlist held exactly three keys and
+  // agentPayload() THROWS on anything else, so a renderer that sent a tier was
+  // refused before it reached the host. Below it, startSession() had no model
+  // parameter and the engine module was a hardcoded constant. The choice did not
+  // exist anywhere on this channel; it was not disabled, it was absent.
+  //
+  // Adding the key here is only the first of three edits -- see agent-host.cjs
+  // startSession(), which resolves it, and the compose panel, which must offer
+  // it. Shipping any one of them alone leaves a control that looks real and is
+  // not, which is the defect f1ce3ec removed three sliders for.
+  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier'])
   const sessionId = Object.prototype.hasOwnProperty.call(payload, 'sessionId')
     ? payload.sessionId
     : `chat-${randomUUID()}`
@@ -377,6 +391,13 @@ function parseAgentStart(value) {
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'surface')) {
     boundedAgentString(payload.surface, 'surface', MAX_SURFACE_LENGTH)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'tier')) {
+    // Validated here rather than in the host so an unknown id is refused at the
+    // boundary with a message naming what IS available, instead of silently
+    // starting the default engine and reporting success -- which is how the app
+    // came to run every agent on Codex while appearing to offer a choice.
+    result.tier = boundedAgentString(payload.tier, 'tier', 64)
   }
   return result
 }
@@ -532,14 +553,139 @@ function accountPrincipal() {
   }
 }
 
+/* ---------- the account channels, in the signed ledger ----------
+ *
+ * Creating an account and signing in are external mutations: they write durable
+ * state and they change who this installation acts as. Until now they wrote
+ * NOTHING to the ledger -- measured 2026-08-12, an account creation, a saved
+ * decision and a refused sign-in produced zero rows -- which made the product's
+ * second sentence ("a tamper-evident ledger records what happened") false for
+ * the whole `mc-account:*` surface. shell/canonical-audit.cjs explains why the
+ * writer was reachable all along.
+ *
+ * WHO THE RECORD NAMES, AND WHAT IT REFUSES TO NAME. The target is a stable
+ * digest of the normalized username, never the username itself and never the
+ * password, verifier, salt or session token. That is enough to correlate an
+ * intent with its outcome and to count attempts against one account, and it is
+ * not a copy of somebody's personal data sitting in a file that is designed to
+ * be impossible to edit afterwards. Where the account id is already known the
+ * ledger carries the same `account:<id>` principal the spawn record uses, so
+ * the two agree about who acted. */
+/* WHICH installation's ledger, stated once. CAPABILITY_STATE_ROOT is the same
+   value handed to shell/capability-layer.cjs, so the window and the layer
+   cannot end up writing two different chains. Passed explicitly rather than
+   left to the environment: the environment is already correct here, and a
+   recorder that silently addresses whatever root it happens to find is how a
+   packaged build ends up logging into its own read-only install directory. */
+function recordCanonical(action, target, details) {
+  return recordCanonicalIn(action, target, details, { stateRoot: CAPABILITY_STATE_ROOT })
+}
+
+function accountSubject(username) {
+  const normalized = typeof username === 'string' ? username.trim().toLowerCase() : ''
+  if (!normalized) return 'account:anonymous'
+  return `account:${createHash('sha256').update(normalized, 'utf8').digest('hex').slice(0, 32)}`
+}
+
+/* INTENT FIRST, THEN THE MUTATION, THEN THE OUTCOME.
+ *
+ * This is the shape the capability layer already uses for every bridge action
+ * (durableReceipt() in the payload's src/lib/mission-bridge/actions.js) and the
+ * reason it is that shape is the product's first sentence: the decision is
+ * recorded BEFORE the thing happens, so an action that could not be recorded is
+ * an action that did not happen. If the intent cannot be appended and anchored,
+ * `run` is never called and the screen is told plainly.
+ *
+ * THE OUTCOME IS RECORDED EVEN WHEN IT IS A REFUSAL, and especially then: a
+ * ledger that holds only successes cannot answer "who kept trying to get in",
+ * which is most of what an account ledger is for. A failed sign-in is a fact.
+ *
+ * The outcome append is best-effort BY DESIGN. The mutation has already
+ * happened by then, and throwing an error at somebody whose account was in fact
+ * created would report a false failure -- the intent record already proves the
+ * attempt, and a missing outcome next to a present intent is itself visible. */
+async function auditedAccountAction({ action, username, run }) {
+  const target = accountSubject(username)
+  const intent = recordCanonical(`${action}.intent`, target, { surface: 'app.ipc' })
+  /* ABSENT IS NOT FAILED -- the same distinction recordSpawnIntent draws, and
+     for the same reason. A copy with no capability payload has no ledger to be
+     missing from, and refusing every sign-in on a missing optional file would
+     lock a person out of their own computer to protect a record that does not
+     exist there. That case proceeds, and it is a real stated limit of such an
+     install rather than something this code pretends away.
+
+     A ledger that is PRESENT and refused is the case the product's first
+     sentence is about, and it stops here. */
+  if (!intent.ok && intent.code !== 'AUDIT_PAYLOAD_ABSENT') {
+    return {
+      ok: false,
+      code: 'ACCOUNT_AUDIT_UNAVAILABLE',
+      reason: 'This action was not recorded in the signed ledger, so it was not carried out.',
+    }
+  }
+  const result = await run()
+  const outcome = result && result.ok === true
+  recordCanonical(action, target, {
+    surface: 'app.ipc',
+    outcome: outcome ? 'ok' : 'refused',
+    /* The store's own typed refusal code -- never its prose, which can quote a
+       value the person typed. */
+    code: outcome ? null : (typeof result?.code === 'string' ? result.code : 'UNKNOWN'),
+    principal: outcome && typeof result?.account?.id === 'string' ? `account:${result.account.id}` : null,
+    intentSequence: intent.ok ? intent.sequence : null,
+  })
+  return result
+}
+
 /* Starting an agent is an external mutation: it creates a process. The audited
    dispatch action refuses without a durable receipt, and this path now behaves
-   the same way, against this app's OWN signed local ledger rather than the
-   canonical chain -- which the shipped app cannot reach (no vault) and which
-   has been observed in an anchor-integrity alarm. Recording FIRST and refusing
-   on failure is the whole point: a session that could not be recorded is a
-   session that does not start. */
+   the same way. It writes BOTH records: the canonical signed chain first, and
+   this app's own keystore-backed chain (shell/spawn-record.cjs) as well.
+
+   THE CANONICAL ONE IS NEW HERE AND THE REASON IS THAT ITS STATED BLOCKER WAS
+   FALSE. spawn-record.cjs was built as a separate chain because "the shipped
+   payload has no vault (AUDIT_SIGNING_KEY_UNAVAILABLE)". The installed vault
+   holds toolsenabled_audit_signing_key_v1 and toolsenabled_audit_head_v1 -- the
+   capability layer creates them on first boot -- so the canonical writer was
+   reachable. The app-local chain is KEPT rather than replaced: it needs only the
+   OS keystore, so it still records on an installation whose payload is missing,
+   which is exactly when the canonical one cannot.
+
+   Recording FIRST and refusing on failure is the whole point: a session that
+   could not be recorded is a session that does not start. */
 function recordSpawnIntent(request) {
+  /* The canonical chain first, and it is a GATE, exactly like the app-local one
+     below: this is the record the product's claim is about, and a launch that
+     is missing from it is the defect being fixed. `controller.agent.launch` is
+     the action the rest of the system already reads for this -- see the
+     payload's src/lib/controller-launch-record.js and the attribution
+     projection that correlates sessions against it -- so an agent started from
+     this window lands in the same place as one started by the controller
+     instead of in a shape only this window writes. */
+  const canonical = recordCanonical('controller.agent.launch', request.sessionId, {
+    surface: 'app.ipc',
+    principal: accountPrincipal(),
+    cwd: request.cwd === undefined ? null : request.cwd,
+  })
+  /* ABSENT IS NOT THE SAME AS FAILED, and collapsing the two would brick the
+     installation this fallback was built for.
+
+     No payload means this copy has no canonical writer AT ALL -- there is no
+     ledger here to be missing from, and the app-local chain below is the whole
+     record by design. Refusing here would mean an install without the payload
+     could no longer start an agent, which is a regression this change has no
+     business causing.
+
+     A payload that is present and REFUSED is the opposite: there is a ledger,
+     it declined to record, and starting anyway is exactly the silent gap being
+     fixed. That one refuses. */
+  if (!canonical.ok && canonical.code !== 'AUDIT_PAYLOAD_ABSENT') {
+    agentIpcError(
+      'MC_AGENT_RECORD_UNAVAILABLE',
+      'The agent session was not started because it could not be recorded: '
+        + (typeof canonical.code === 'string' ? canonical.code : 'AUDIT_UNAVAILABLE'),
+    )
+  }
   let receipt
   try {
     receipt = getSpawnRecorder().record({
@@ -1920,20 +2066,43 @@ ipcMain.handle('mc-account:current', event =>
   withFleetProfileSender(event, () => getAccountStore().currentForRenderer()))
 
 ipcMain.handle('mc-account:create', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().createAccount({
+  withFleetProfileSender(event, () => auditedAccountAction({
+    action: 'account.create',
     username: typeof value?.username === 'string' ? value.username : '',
-    displayName: typeof value?.displayName === 'string' ? value.displayName : '',
-    password: typeof value?.password === 'string' ? value.password : '',
+    run: () => getAccountStore().createAccount({
+      username: typeof value?.username === 'string' ? value.username : '',
+      displayName: typeof value?.displayName === 'string' ? value.displayName : '',
+      password: typeof value?.password === 'string' ? value.password : '',
+    }),
   })))
 
+/* A REFUSED SIGN-IN IS RECORDED TOO. `signIn` answers a wrong password and an
+   account that does not exist with the identical refusal, on purpose, so that a
+   stranger cannot enumerate the account list; the ledger inherits that -- it
+   holds the digest of what was typed and the store's refusal code, which is the
+   same code either way. It can therefore show that somebody tried repeatedly
+   without telling a reader which names exist. */
 ipcMain.handle('mc-account:sign-in', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().signIn({
+  withFleetProfileSender(event, () => auditedAccountAction({
+    action: 'account.sign_in',
     username: typeof value?.username === 'string' ? value.username : '',
-    password: typeof value?.password === 'string' ? value.password : '',
+    run: () => getAccountStore().signIn({
+      username: typeof value?.username === 'string' ? value.username : '',
+      password: typeof value?.password === 'string' ? value.password : '',
+    }),
   })))
 
+/* Signing out names the session that ENDS, which is known before it ends and
+   unknowable after, so the principal is read first. */
 ipcMain.handle('mc-account:sign-out', event =>
-  withFleetProfileSender(event, () => getAccountStore().signOut()))
+  withFleetProfileSender(event, () => {
+    const principal = accountPrincipal()
+    return auditedAccountAction({
+      action: 'account.sign_out',
+      username: principal,
+      run: () => getAccountStore().signOut(),
+    })
+  }))
 
 ipcMain.handle('mc-account:sign-out-everywhere', event =>
   withFleetProfileSender(event, () => getAccountStore().signOutEverywhere()))
