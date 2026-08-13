@@ -73,6 +73,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require_ = createRequire(import.meta.url)
@@ -110,6 +111,11 @@ function appExecutable(appRoot) {
    junction for three separate lanes in one day. Nothing under release/ is
    written. */
 async function stage(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
   const asar = require_(path.join(REPO_ROOT, 'node_modules', '@electron', 'asar'))
   const app = path.join(scratch, 'app')
   const unpacked = path.join(scratch, 'asar-stage')
@@ -124,6 +130,12 @@ async function stage(scratch) {
     rmSync(path.join(unpacked, directory), { recursive: true, force: true })
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(unpacked, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   await asar.createPackage(unpacked, path.join(app, 'resources', 'app.asar'))
   return appExecutable(app)
@@ -258,6 +270,12 @@ const READ_PAGE = `(() => {
     present: Boolean(document.querySelector('.agentv')),
     liveMode: document.querySelector('.agentv') ? document.querySelector('.agentv').dataset.liveMode : null,
     banner: text(document.querySelector('.agent-provenance')),
+    /* WHICH BANNER, asked of the mark the product sets rather than of the
+       sentence it prints. src/views/agent.js writes data-kind="declared" on the
+       live branch and data-kind="example" on the other, and those two words are
+       the whole fact this suite needs. See the check below for what pinning the
+       prose instead cost. */
+    bannerKind: (document.querySelector('.agent-provenance') || {}).dataset?.kind || null,
     sessionSurface: Boolean(document.querySelector('.agent-session-surface')),
     startPresent: Boolean(start),
     startShown: shown(start),
@@ -420,9 +438,14 @@ try {
   console.log('EXAMPLE mode -- the page that says nothing on it is real')
   const { page: example, board: exampleBoard } = await drive(executable, scratch, { live: false })
   check('the page is in simulated mode', example.liveMode === 'simulated', `liveMode=${example.liveMode}`)
+  /* The example half keeps its sentence AS WELL as its kind, and deliberately:
+     this exact wording is the promise the fence below is measured against, so a
+     rewrite of it should stop this suite and be re-read, not pass quietly. */
   check('the example banner is the one on screen',
-    typeof example.banner === 'string' && example.banner.includes('no control on this page reaches a real session'),
-    JSON.stringify(example.banner))
+    example.bannerKind === 'example'
+      && typeof example.banner === 'string'
+      && example.banner.includes('no control on this page reaches a real session'),
+    `kind=${JSON.stringify(example.bannerKind)} ${JSON.stringify(example.banner)}`)
   check('the desktop agent bridge is reachable from this page',
     example.bridgeIsReal === true,
     'if this is false the fence below proves nothing, because nothing could have started a session anyway')
@@ -459,9 +482,26 @@ try {
   console.log('\nLIVE mode -- the same page backed by a real projection')
   const { page: liveView, board: liveBoard } = await drive(executable, scratch, { live: true })
   check('the page is in live mode', liveView.liveMode === 'live', `liveMode=${liveView.liveMode}`)
+  /* THE LIVE PAGE CARRIES THE LIVE BANNER, ASKED BY KIND AND NOT BY SENTENCE.
+   *
+   * This required the exact words "Declared topology read from this computer".
+   * Commit cf0aaf2 -- the pass that made every rendered word beginner-readable
+   * -- rewrote that line to "Read from the team record saved on this computer."
+   * six hours after this file was written, and this check has been red ever
+   * since on a page that is behaving exactly as it should. A fence suite that
+   * goes red when the product's English improves teaches the next reader to
+   * ignore it, and an ignored fence is how the control it guards comes back.
+   *
+   * The fact being fenced is WHICH BANNER, and the product already states that
+   * in a form no copy pass will touch: data-kind, "declared" or "example". The
+   * sentence is still printed as the evidence, and the negative half below is
+   * what actually holds the line -- the live page must not be wearing the
+   * example banner, which is the confusion this suite exists to catch. */
   check('the live banner is the one on screen',
-    typeof liveView.banner === 'string' && liveView.banner.includes('Declared topology read from this computer'),
-    JSON.stringify(liveView.banner))
+    liveView.bannerKind === 'declared'
+      && typeof liveView.banner === 'string'
+      && !/no control on this page reaches a real session/i.test(liveView.banner),
+    `kind=${JSON.stringify(liveView.bannerKind)} ${JSON.stringify(liveView.banner)}`)
   check('the agent-session surface IS mounted', liveView.sessionSurface === true)
   check('the Start control EXISTS', liveView.startPresent === true)
   check('the Start control is ENABLED', liveView.startDisabled === false,

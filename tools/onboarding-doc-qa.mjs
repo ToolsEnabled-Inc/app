@@ -54,6 +54,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
@@ -142,6 +143,11 @@ function documentText(html) {
  * The archive claim is checked separately and by a different means -- see the
  * `packs into the build` check in main(). */
 function staged(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
   const app = path.join(scratch, 'app')
   const archive = path.join(app, 'resources', 'app.asar')
   if (!existsSync(path.join(RELEASE, 'resources', 'app.asar'))) {
@@ -156,6 +162,12 @@ function staged(scratch) {
     }
     cpSync(from, path.join(payload, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(payload, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(payload, 'package.json'))
   /* Only ever inside the copy. Removing this from the real release directory
      would destroy the artifact the rest of the pipeline is measuring. */

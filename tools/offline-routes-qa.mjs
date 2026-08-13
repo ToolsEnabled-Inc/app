@@ -71,6 +71,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
@@ -122,6 +123,11 @@ function auditSelf() {
  * resources/app.asar.filelist.txt), so the unpacked form is the same program
  * with one less tool between this harness and the thing it measures. */
 async function stage(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
   const app = path.join(scratch, 'app')
   if (!existsSync(path.join(RELEASE, 'resources', 'app.asar'))) {
     throw new Error(`no packaged build at ${RELEASE}. Run \`npm run dist\` first, or pass --release <dir>.`)
@@ -134,6 +140,12 @@ async function stage(scratch) {
     if (!existsSync(from)) throw new Error(`${directory}/ is missing; run \`npm run build\` first`)
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(unpacked, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   rmSync(path.join(app, 'resources', 'app.asar'), { force: true })
   rmSync(path.join(app, 'resources', 'app.asar.filelist.txt'), { force: true })

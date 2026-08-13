@@ -182,6 +182,9 @@ import { IDENTIFIER_RE } from '../src/refusal-copy.js'
    any of these here would create a second vocabulary that goes stale silently
    -- which is the exact failure this file exists to catch, one layer up. */
 import { EMPTY_NODE, EMPTY_TREE, ROLE_CHOICES, SECOND_TREE, START_PANEL } from '../src/fleet-tree-copy.js'
+/* THE SHARED STAGING GUARD, extracted from this file so the other twenty-five
+   dist/-staging harnesses cannot drift from it. */
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const execFile = promisify(execFileCallback)
 const require_ = createRequire(import.meta.url)
@@ -455,7 +458,7 @@ async function stageFromBuild(scratch) {
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
-  assertRendererConsistent(path.join(unpacked, 'dist'))
+  assertStagedRendererConsistent({ stagedDist: path.join(unpacked, 'dist'), sourceDist: path.join(REPO_ROOT, 'dist') })
   await asar.createPackage(unpacked, path.join(root, 'resources', 'app.asar'))
   return { root, origin: `the packaged build at ${RELEASE}, with this tree's dist/ and shell/ swapped in` }
 }
@@ -493,7 +496,7 @@ function stageFromElectron(scratch, complete) {
     cpSync(from, path.join(appDirectory, directory), { recursive: true })
   }
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(appDirectory, 'package.json'))
-  assertRendererConsistent(path.join(appDirectory, 'dist'))
+  assertStagedRendererConsistent({ stagedDist: path.join(appDirectory, 'dist'), sourceDist: path.join(REPO_ROOT, 'dist') })
   return {
     root,
     origin: `THE INSTALLED ELECTRON RUNTIME, because ${complete.release} is not a runnable build`
@@ -538,79 +541,19 @@ async function stagePayload(scratch, app) {
   }
 }
 
-/* DID THE RENDERER COPY ARRIVE IN ONE PIECE?
+/* THE TWO GUARDS THAT USED TO LIVE HERE NOW LIVE IN tools/lib/staged-renderer.mjs.
  *
- * MEASURED, and it cost three runs to find. `vite build` writes a fresh
- * index.html naming a content-hashed bundle and deletes the previous one, so a
- * copy taken while another lane is building gets an index.html pointing at a
- * bundle that is not beside it. The shell's static server answers an unknown
- * path with index.html and a `text/html` content type -- correct SPA behaviour
- * -- and the browser then REFUSES the module on the MIME check and runs no
- * script at all. What that looks like from here is a window with a title, a
- * settings drawer, an empty <main id="stage">, and NO exception anywhere: the
- * page did not crash, it was never given any code. That is indistinguishable
- * from "the fleet page does not exist" unless somebody checks this, and it
- * would have been reported as the product failing to offer a way to start an
- * agent. So it is checked, and it is a HARNESS failure with the missing file
- * named, not a verdict about the product. */
-function assertRendererConsistent(distRoot) {
-  const indexPath = path.join(distRoot, 'index.html')
-  if (!existsSync(indexPath)) throw new HarnessError(`the staged renderer has no index.html at ${indexPath}`)
-  const html = readFileSync(indexPath, 'utf8')
-  const referenced = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match => match[1])
-  const missing = referenced.filter(reference => !existsSync(path.join(distRoot, ...reference.split('/').filter(Boolean))))
-  if (missing.length > 0) {
-    throw new HarnessError(
-      `the staged renderer is inconsistent: dist/index.html names ${missing.join(', ')}, which is not in the copy.`
-      + '\n  dist/ was almost certainly rebuilt while this driver was copying it. Run `npm run build` and try again.',
-    )
-  }
-  if (referenced.length === 0) {
-    throw new HarnessError('the staged renderer\'s index.html references no built asset at all; run `npm run build`')
-  }
-}
-
-/* IS THE RENDERER THIS DRIVER IS ABOUT TO MEASURE THE ONE THE SOURCE SAYS?
+ * They were written here first -- "is the bundle newer than the source it is
+ * built from" and "did the copy of it arrive in one piece" -- and then TWENTY-FIVE
+ * other harnesses in this directory turned out to stage dist/ exactly the same
+ * way and to be exposed to exactly the same two failures. Copying the pair into
+ * each of them would have produced twenty-six guards that drift apart, so they
+ * were extracted verbatim and every stager now calls the same module. Read that
+ * file's header for the two measured incidents behind them.
  *
- * MEASURED, and it nearly published a false verdict. A lane fixed a real defect
- * in src/views/computers.js at 13:01; dist/index.html had been built at 12:53.
- * This driver stages dist/, so it would have run the fix's own acceptance test
- * against a bundle compiled eight minutes before the fix existed, found the
- * defect still there, and reported that the fix did not work. That is worse than
- * a missing test: it is a test that contradicts a correct change, and the repair
- * a hurried session reaches for is to undo the fix.
- *
- * SO IT REFUSES, in the same class as an inconsistent copy: exit 2, a harness
- * problem with an instruction, never a verdict about the product. `npm run dist`
- * builds before it packages and the packaged suite runs after, so a fresh dist/
- * is the normal state and this fires only when somebody is measuring by hand
- * mid-edit -- which is exactly when it matters. */
-function assertRendererCurrent() {
-  const built = statSync(path.join(REPO_ROOT, 'dist', 'index.html')).mtimeMs
-  let newest = { at: 0, file: null }
-  const walk = directory => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
-      const full = path.join(directory, entry.name)
-      if (entry.isDirectory()) { walk(full); continue }
-      if (!/\.(js|mjs|css|json|html)$/.test(entry.name)) continue
-      const at = statSync(full).mtimeMs
-      if (at > newest.at) newest = { at, file: full }
-    }
-  }
-  walk(path.join(REPO_ROOT, 'src'))
-  if (newest.at > built) {
-    throw new HarnessError(
-      `dist/ is older than the source it is built from, so this run would measure a renderer that no longer exists.`
-      + `\n  ${path.relative(REPO_ROOT, newest.file)} changed at ${new Date(newest.at).toISOString()}`
-      + `\n  dist/index.html was built at ${new Date(built).toISOString()}`
-      + '\n  Run `npm run build` and try again. A verdict about a stale bundle is worse than no verdict:'
-      + '\n  it contradicts whatever was just fixed, and reads like the fix failing.',
-    )
-  }
-  return { builtAt: new Date(built).toISOString(), newestSource: path.relative(REPO_ROOT, newest.file) }
-}
-
+ * The behaviour a reader of this file needs to know: both refuse with exit 2 and
+ * print under HARNESS REFUSAL, which is the same class this driver's own
+ * HarnessError maps to. Neither can ever produce a verdict about the product. */
 /* FIND THE BINARY, DO NOT NAME IT. The product has been renamed once already
    and a hardcoded name is guaranteed to be wrong for somebody. The launcher is
    the only executable directly in the app root. */
@@ -1534,7 +1477,7 @@ async function main() {
   let app = null
   try {
     /* ---------- 0. the artifact under test ---------- */
-    const current = assertRendererCurrent()
+    const current = assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
     const staged = await stage(scratch)
     console.log(`built:   dist/ at ${current.builtAt} (newest source: ${current.newestSource})`)
     console.log(`app:     ${staged.executable}`)
@@ -1800,12 +1743,38 @@ async function main() {
     }
 
     /* THE BRIDGE MUST NOT HAVE BEEN INVOLVED. This flow goes through
-       mcAgent.start(), not through the mission bridge's dispatch; a
-       controller.agent.launch line would mean the wiring regressed onto the old
-       path, which is the one that cannot start an agent for a person. */
-    const launches = bridgeLaunchLines(profile)
+       mcAgent.start(), not through the mission bridge's dispatch; a launch
+       recorded by the BRIDGE would mean the wiring regressed onto the old path,
+       which is the one that cannot start an agent for a person.
+
+       WHY THIS IS NO LONGER "COUNT controller.agent.launch AND REQUIRE ZERO",
+       and the correction is a correction of THIS FILE rather than of the shell.
+       When this check was written, the only writer of `controller.agent.launch`
+       was the mission bridge, so the action name alone was the whole answer.
+       shell/main.cjs recordSpawnIntent() now writes that SAME action name from
+       the agent-host path on purpose -- so that a session started from this
+       window lands in the canonical chain beside one started by the controller
+       instead of in a shape only this window writes, which is what the
+       attribution projection reads. Counting the name therefore went red on the
+       very wiring it exists to prove is present, and tools/agent-dispatch-packaged-qa.mjs
+       reads the same action as its POSITIVE evidence: two harnesses in this tree
+       cannot go on disagreeing about what the name means.
+
+       So the discriminator is the RECORD SHAPE, which is what actually differs.
+       The agent host stamps `details.surface = 'app.ipc'` (recordCanonical in
+       shell/main.cjs). The bridge stamps `details.record`, the object
+       createLaunch() builds after resolving a lane from the declared
+       organisation -- see launchRecords() in tools/agent-dispatch-packaged-qa.mjs,
+       which reads exactly that field. A launch carrying the bridge's shape is
+       the regression; a launch carrying `app.ipc` is the fix, and it is now
+       required rather than merely tolerated: zero launches of EITHER shape used
+       to pass this check, which would have let the canonical record silently
+       stop being written. */
+    const launches = launchLinesByOrigin(profile)
     check('the start went through the agent host, not the mission bridge\'s dispatch',
-      launches === 0, `${launches} controller.agent.launch line(s) under this profile`)
+      launches.bridge === 0 && launches.agentHost > 0,
+      `${launches.agentHost} agent-host (surface=app.ipc) and ${launches.bridge} bridge-shaped `
+        + `controller.agent.launch line(s) under this profile`)
 
     /* ---------- 4. ATTACHMENT ---------- */
     const stubSession = `qa-session-${Math.random().toString(36).slice(2, 10)}`
@@ -1905,13 +1874,20 @@ async function runControl(app, source) {
   }
 }
 
-/* THE MISSION BRIDGE'S OWN AUDIT CHAIN, if this profile produced one. Searched
-   rather than computed from a path this file would have to keep in agreement
-   with shell/capability-layer.cjs -- a second copy of "where state lives" is a
-   second thing to be wrong about. Bounded to a shallow walk of the scratch
-   profile, which is the only place this run writes. */
-function bridgeLaunchLines(profile, depth = 6) {
-  let total = 0
+/* THE CANONICAL AUDIT CHAIN THIS PROFILE PRODUCED, split by WHO WROTE EACH
+   LAUNCH. Searched rather than computed from a path this file would have to keep
+   in agreement with shell/capability-layer.cjs -- a second copy of "where state
+   lives" is a second thing to be wrong about. Bounded to a shallow walk of the
+   scratch profile, which is the only place this run writes.
+
+   Both writers use the action name `controller.agent.launch`; they are told
+   apart by the details they stamp, and a line that is neither shape is counted
+   as the BRIDGE's. An unrecognised launch is the case a reader has to look at,
+   and defaulting it to the benign side is how a real regression gets a green
+   tick. Parsed as JSON rather than string-matched, because the field that
+   decides this is a value and not a substring. */
+function launchLinesByOrigin(profile, depth = 6) {
+  const tally = { agentHost: 0, bridge: 0 }
   const walk = (directory, level) => {
     if (level > depth) return
     let entries
@@ -1922,14 +1898,19 @@ function bridgeLaunchLines(profile, depth = 6) {
       if (entry.name !== 'actions.jsonl') continue
       try {
         if (statSync(full).size > 8_000_000) continue
-        total += readFileSync(full, 'utf8')
-          .split('\n')
-          .filter(line => line.includes('"controller.agent.launch"')).length
+        for (const line of readFileSync(full, 'utf8').split('\n')) {
+          if (!line.includes('"controller.agent.launch"')) continue
+          let event = null
+          try { event = JSON.parse(line) } catch { /* an unparseable line is not a shape */ }
+          if (!event || event.action !== 'controller.agent.launch') continue
+          if (event.details && event.details.surface === 'app.ipc' && event.details.record === undefined) tally.agentHost += 1
+          else tally.bridge += 1
+        }
       } catch { /* unreadable is not a launch */ }
     }
   }
   walk(profile, 0)
-  return total
+  return tally
 }
 
 main().then(

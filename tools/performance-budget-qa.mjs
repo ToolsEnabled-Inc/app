@@ -72,6 +72,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const execFile = promisify(execFileCallback)
 const SELF = fileURLToPath(import.meta.url)
@@ -154,6 +155,11 @@ const note = (line) => process.stdout.write(`  ..    ${line}\n`)
  * The 350MB copy is the slow part and only the asar changes between rounds, so
  * --stage lets a before/after pair share one copy. */
 async function stageApp(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.resolve(argument('--dist', path.join(REPO_ROOT, 'dist'))) })
   const asar = require_(path.join(REPO_ROOT, 'node_modules', '@electron', 'asar'))
   const app = REUSE_STAGE ? path.resolve(REUSE_STAGE) : path.join(scratch, 'app')
   const unpacked = path.join(scratch, 'asar-stage')
@@ -181,6 +187,12 @@ async function stageApp(scratch) {
     rmSync(path.join(unpacked, directory), { recursive: true, force: true })
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(unpacked, 'dist'),
+    sourceDist: path.resolve(argument('--dist', path.join(REPO_ROOT, 'dist'))),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   await asar.createPackage(unpacked, path.join(app, 'resources', 'app.asar'))
   rmSync(unpacked, { recursive: true, force: true })

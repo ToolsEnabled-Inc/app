@@ -46,12 +46,18 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const require_ = createRequire(import.meta.url)
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
 const RELEASE = path.join(REPO_ROOT, 'release', 'win-unpacked')
 const OPERATOR_CATALOG = path.join(REPO_ROOT, 'private', 'purchase-catalog.owner.json')
+/* Presses of the forward chevron: comfortably more than the ring is long, so a
+   walk sees every stop the build offers whatever order they are in. Deliberately
+   NOT the RING array from src/main.js -- a harness that imports the list it is
+   checking cannot notice a stop going missing from it. */
+const RING_STOPS = 10
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 /* The strings this defect was made of. Every one was read off the packaged window
@@ -93,6 +99,11 @@ function appExecutable(appRoot) {
  * archive keeps the artifact real -- asar, resources/capability, the same exe -- while
  * carrying the change under test. */
 async function stage(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
   const asar = require_(path.join(REPO_ROOT, 'node_modules', '@electron', 'asar'))
   const app = path.join(scratch, 'app')
   const unpacked = path.join(scratch, 'asar-stage')
@@ -107,6 +118,12 @@ async function stage(scratch) {
     rmSync(path.join(unpacked, directory), { recursive: true, force: true })
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(unpacked, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   await asar.createPackage(unpacked, path.join(app, 'resources', 'app.asar'))
   return { executable: appExecutable(app), archive: path.join(app, 'resources', 'app.asar') }
@@ -371,7 +388,7 @@ async function main() {
     const backMarkers = await markersOnScreen(window)
     check('and nothing of the operator\'s list is on that screen', backMarkers.length === 0, backMarkers.join(', '))
 
-    const ring = await walkRing(window, 10)
+    const ring = await walkRing(window, RING_STOPS)
     check('walking the whole ring forward never reaches the purchase list',
       ring.clicked === 'clicked' && !ring.visited.includes('checkout'), ring.visited.join(' -> '))
 
@@ -407,11 +424,38 @@ async function main() {
       writeFileSync(path.join(userData, 'purchase-catalog.json'), readFileSync(OPERATOR_CATALOG))
 
       window = await openWindow(executable, operatorProfile)
-      const toCheckout = await window.clickVisible('#nav-back')
-      await delay(700)
-      const route = await window.evaluate('document.body.dataset.route')
-      check('with a list installed, one click back from home opens the checkout again',
-        toCheckout === 'clicked' && route === 'checkout', `${toCheckout} route=${route}`)
+      /* REACHED BY WALKING THE RING, NOT BY COUNTING CLICKS FROM HOME.
+       *
+       * This used to press `#nav-back` once and require `checkout`, because when
+       * it was written `checkout` was the LAST stop on the ring and one click
+       * back from home therefore landed on it -- the very shape of the leak.
+       * `settings` was appended after the ring in src/main.js (commit 101ebb1),
+       * so back-from-home is `settings` now and this went red on a product that
+       * is behaving correctly, while saying nothing at all about the claim it
+       * was written for.
+       *
+       * The claim is REACHABILITY, and the claim's negative half above already
+       * asks it the right way: walk the whole ring by pressing the chevron a
+       * person presses, and look at what is on it. So this asks the identical
+       * question in the identical way and requires the opposite answer. It stays
+       * honest across any future reordering of the ring, and it still fails --
+       * as the whole point of this half demands -- if the screen is deleted
+       * rather than fixed. */
+      const ring = await walkRing(window, RING_STOPS)
+      check('with a list installed, walking the ring reaches the checkout again',
+        ring.clicked === 'clicked' && ring.visited.includes('checkout'), ring.visited.join(' -> '))
+
+      /* The walk wraps past the stop; stand ON it before reading the screen.
+         Bounded by the same number of presses, so a ring that never offers it
+         ends the loop rather than spinning. */
+      let route = await window.evaluate('document.body.dataset.route')
+      for (let step = 0; step < RING_STOPS && route !== 'checkout'; step += 1) {
+        if (await window.clickVisible('#nav-next') !== 'clicked') break
+        await delay(350)
+        route = await window.evaluate('document.body.dataset.route')
+      }
+      check('and it can be stood on, which is where the screen itself is measured',
+        route === 'checkout', `route=${route}`)
 
       const surface = await window.evaluate(`(() => ({
         title: document.querySelector('.checkout-title')?.textContent || null,

@@ -55,6 +55,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
@@ -220,6 +221,11 @@ function appExecutable(appRoot) {
    that runs a stale artifact reports the state of last week's build. Same exe,
    same resources, same asar; only the payload is this tree's. */
 async function stage(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
   const asar = createRequire(import.meta.url)(path.join(REPO_ROOT, 'node_modules', '@electron', 'asar'))
   const app = path.join(scratch, 'app')
   const unpacked = path.join(scratch, 'asar-stage')
@@ -234,6 +240,12 @@ async function stage(scratch) {
     rmSync(path.join(unpacked, directory), { recursive: true, force: true })
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(unpacked, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   await asar.createPackage(unpacked, path.join(app, 'resources', 'app.asar'))
   return { executable: appExecutable(app), app }

@@ -67,6 +67,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
@@ -99,6 +100,28 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 const SIZES = (argument('--widths', '1024,1280,1440,1600,1920'))
   .split(',').map(part => Number(part.trim())).filter(Boolean)
   .map(width => ({ width, height: width <= 1024 ? 768 : width <= 1280 ? 800 : width <= 1440 ? 900 : width <= 1600 ? 1000 : 1080 }))
+
+/* EVERY WAY THIS PRODUCT OFFERS OF GETTING FROM THE FLEET PAGE TO THE AGENT
+   PAGE, in the order they are tried below. Named here so that a run which finds
+   none of them can PRINT the list with a count beside each, which is the one
+   piece of evidence that tells a renamed class apart from a missing door.
+     .graph-empty-action  the empty fleet state's "See an example agent" anchor
+                          (src/views/computers.js emptyStateExample), offered
+                          only when the simulator has an agent to show
+     .static-tree-node    an agent bubble on the canvas (src/tree-graph.js);
+                          selecting one is what reveals the named door
+     .graph-open-btn      "Open agent detail" in the named-controls strip
+                          (src/views/computers.js), `hidden` until a selection
+     .node                the bubble's other class, kept because the wait
+                          predicate has always used it
+     .tree-empty-node     NOT a door -- an empty slot opens the compose panel.
+                          Listed only so its count appears in the diagnostic: a
+                          page showing empty slots and no bubbles is the state
+                          this went red in, and seeing that in the line saves
+                          the next reader a run. */
+const DOOR_SELECTORS = Object.freeze([
+  '.graph-empty-action', '.static-tree-node', '.graph-open-btn', '.node', '.tree-empty-node',
+])
 
 class HarnessError extends Error {}
 
@@ -140,6 +163,11 @@ function widestDisplay() {
  * place mutates the artifact. dist/ and shell/ come from the working tree so
  * this measures what is actually here. */
 async function stage(scratch) {
+  /* THE RENDERER THIS RUN IS ABOUT TO MEASURE MUST BE THE ONE THE SOURCE SAYS.
+     Shared with every other dist/-staging harness (tools/lib/staged-renderer.mjs);
+     refuses with exit 2 and both timestamps rather than reporting a stale bundle
+     as a defect in the product. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
   const app = path.join(scratch, 'app')
   if (!existsSync(path.join(RELEASE, 'resources', 'app.asar'))) {
     throw new Error(`no packaged build at ${RELEASE}. Run \`npm run dist\` first, or pass --release <dir>.`)
@@ -152,6 +180,12 @@ async function stage(scratch) {
     if (!existsSync(from)) throw new Error(`${directory}/ is missing; run \`npm run build\` first`)
     cpSync(from, path.join(unpacked, directory), { recursive: true })
   }
+  /* ...and the COPY of it must have arrived whole; see the module header for the
+     blank-stage, no-exception symptom a torn copy produces. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(unpacked, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   rmSync(path.join(app, 'resources', 'app.asar'), { force: true })
   rmSync(path.join(app, 'resources', 'app.asar.filelist.txt'), { force: true })
@@ -1201,7 +1235,30 @@ async function main() {
           await delay(1200)
           await visit('agent', index += 1)
         } else {
-          note('no example-agent link on the fleet graph at this size; the agent surface was not measured')
+          /* A NOTE HERE WAS THE WORST THING THIS FILE EVER DID, so it is a check
+             now. Measured on 2026-08-13: this printed `..` at all five sizes and
+             the run exited 0 with "256/256 checks passed", while the screen the
+             product exists for -- the one the owner had independently reported
+             as an empty session surface, and the one an earlier revision of this
+             sweep measured with ELEVEN checks per size -- was never looked at.
+             Fifty-five findings did not go green: they stopped existing, and the
+             harness said PASS in their place. A suite that reports a clean sweep
+             of a screen it could not open is worse than one that never opened
+             it, because the clean sweep is what gets read.
+
+             It is a CHECK rather than a refusal (exit 2) because the fleet page
+             offering no way into the agent page is a fact about the PRODUCT and
+             not about this instrument: `tools/first-run-contract-qa.mjs` reaches
+             the same page down the recommended path and measures the same thing
+             from the other side ("the door into the agent page can be pressed --
+             zero-size"). The selectors tried are printed so that the next person
+             can tell a renamed class from a missing door in one reading, which
+             is the distinction this file got wrong twice already. */
+          const doors = await app.evaluate(`(() => ${JSON.stringify(DOOR_SELECTORS)}
+            .map(selector => selector + '=' + document.querySelectorAll(selector).length)
+            .join(' '))()`)
+          check(`[${size.width} agent] the fleet page offers a way into the agent page`,
+            false, `no door was pressable at this size; in the DOM: ${doors}`)
         }
       }
 
