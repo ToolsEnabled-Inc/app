@@ -41,10 +41,30 @@ import {
   readGoogleSignInResult,
 } from '../account-state.js'
 import { readPlan, readSweep } from '../account-reset-copy.js'
+import { normalizeOwnerPromptSnapshot } from '../owner-popup.js'
+import { ownerPromptSnapshot } from '../mission-bridge.js'
+import { cartSummary } from '../purchase-cart-view.js'
+import { withDeadline } from '../read-deadline.js'
 
 import '../settings.css'
 import '../fleet-profile-settings.css'
 import '../setup.css'
+
+/* HOW LONG THE PURCHASE-LIST ROW MAY SAY IT IS STILL READING.
+ *
+ * Two numbers rather than one, because they answer different questions. The
+ * READ deadline bounds the wire call; the ROW deadline bounds the STATE, and
+ * fires even when no call was ever made -- which is the failure that shipped.
+ * The row's is the longer of the two so that an answer arriving at the edge of
+ * its own budget still gets to be the answer, rather than racing the refusal it
+ * was about to make unnecessary.
+ *
+ * Eight seconds is not a guess about the network. It is what a person will sit
+ * in front of a sentence that says something is being read before they decide
+ * the program is broken -- and about this product's money surface, on which
+ * doing nothing is a denial, being thought broken is the expensive outcome. */
+const CART_READ_DEADLINE_MS = 8_000
+const CART_ROW_DEADLINE_MS = 10_000
 
 export function accountView({ navigate = hash => { location.hash = hash } } = {}) {
   const root = el(`<main class="view-pad setup-page">
@@ -83,6 +103,14 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
   let data = null
   let payment = null
   let history = null
+  /* WHAT IS WAITING TO BE BOUGHT. `null` means "not asked yet", exactly like
+     `state`; a reply that could not be read comes back with readable false, and
+     the row draws those two differently. See cartMarkup in account-markup.js. */
+  let cart = null
+  /* The handle for the row's own deadline. Held so it can be re-armed on each
+     refresh and cleared on teardown; a timer that paints a destroyed view is
+     how a "fixed" loading state becomes a console error instead. */
+  let cartDeadline = null
   /* `null` means "not asked yet", exactly like `state`. It is NOT the same as
      "unavailable", and the markup renders the two differently -- a screen that
      showed "Google sign-in is not available on this copy" while it was still
@@ -100,7 +128,7 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
      has changed since. */
   let reset = { phase: 'idle', plan: null, sweep: null }
 
-  const view = () => ({ state, mode, busy, notice, data, payment, history, google, reset })
+  const view = () => ({ state, mode, busy, notice, data, payment, history, cart, google, reset })
 
   function paint() {
     if (destroyed) return
@@ -132,6 +160,78 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
     return { mine, total }
   }
 
+  /* WHAT IS WAITING TO BE BOUGHT, READ FROM THE ONE LIST THAT HOLDS IT.
+   *
+   * The owner asked for his purchase list to be in front of him inside his
+   * signed-in account, so this screen reads the same queue #/approvals reads,
+   * over the same audited connection, and hands it to the same counting code.
+   * NOTHING is stored here and nothing is totalled here: a second copy of his
+   * buy list, held by a screen, is precisely the drift this design forbids.
+   *
+   * IT NEVER THROWS AND NEVER BLOCKS THE REST OF THE SCREEN. A queue this build
+   * cannot reach comes back readable:false and the row says so in a sentence,
+   * because "I could not look" and "nothing is waiting" are different facts and
+   * only one of them would let him relax. It also DECIDES NOTHING and cannot:
+   * this is the read route, and a decision needs measured evidence that a card
+   * was on the glass, which this screen does not draw. */
+  async function loadCart() {
+    if (!state?.signedIn) return null
+    let raw
+    /* THE READ IS BOUNDED, AND THAT IS NOT BELT-AND-BRACES. Every hop under
+       ownerPromptSnapshot() carries its own 30s budget -- wait for the shell to
+       settle its capability layer, confirm the pinned origin, exchange the
+       bootstrap proof, then the request itself -- and those budgets ADD. Four of
+       them in a row is a worst case near two minutes, during which this row says
+       only that it is reading. Nobody waits two minutes at a sentence; they
+       conclude the product is broken, and on the evidence available to them they
+       are right. So the row takes its own deadline and reports a refusal it can
+       act on rather than inheriting a sum of timeouts nobody chose. */
+    try { raw = await withDeadline(ownerPromptSnapshot(), CART_READ_DEADLINE_MS, 'your purchase list') } catch { raw = null }
+    if (raw?.ok !== true) return { readable: false }
+    try {
+      return cartSummary(normalizeOwnerPromptSnapshot(raw).prompts, Date.now())
+    } catch {
+      /* A queue that did not match its expected shape, or a total that is not
+         the sum of its own lines. Not shown wrongly rather than not shown. */
+      return { readable: false }
+    }
+  }
+
+  /* THE ROW RESOLVES EVEN IF NOTHING EVER READS IT. THIS IS THE DEFECT ITSELF.
+   *
+   * WHAT SHIPPED IN 1.0.6, read out of the packaged bundle rather than guessed:
+   * cartMarkup() was in the build and loadCart() was not. The renderer declared
+   * the cart variable, passed it through view(), rendered the "not asked yet"
+   * branch from it -- and never assigned it. So the row printed "Reading what is
+   * waiting for you to decide…" on every paint, for as long as the window was
+   * open, having never attempted a read. That is why the report of it carried no
+   * console error, no network error and no exception: there was nothing to fail.
+   * Measured on that build, the row was still identical after 120 seconds while
+   * every channel it would have used answered in under 3ms.
+   *
+   * WHY A TIMER AND NOT JUST THE MISSING CALL. Adding loadCart() back repairs
+   * this instance and leaves the shape intact: a "loading" state whose only exit
+   * is a caller remembering to assign it. The next refactor that drops the
+   * assignment reproduces it exactly, silently, and nothing fails. So the
+   * loading state is given a DEADLINE OF ITS OWN. If the row is still on "not
+   * asked yet" when the deadline passes, it stops claiming to be busy and states
+   * a refusal a person can act on -- Open your purchase list -- whatever the
+   * reason it was never answered.
+   *
+   * IT NEVER OVERWRITES A REAL ANSWER, and a real answer that lands later still
+   * wins: the guard is `cart === null`, and refresh() assigns straight over the
+   * refusal when the read comes back. A surface that gave up and then refused to
+   * accept the truth would be a second defect wearing the fix's clothes. */
+  function armCartDeadline() {
+    if (cartDeadline !== null) clearTimeout(cartDeadline)
+    cartDeadline = setTimeout(() => {
+      cartDeadline = null
+      if (destroyed || cart !== null || !state?.signedIn) return
+      cart = { readable: false }
+      paint()
+    }, CART_ROW_DEADLINE_MS)
+  }
+
   async function refresh() {
     state = await loadAccountState()
     if (destroyed) return
@@ -155,6 +255,10 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
       data = null
       payment = null
       history = null
+      cart = null
+      /* The row is not on this screen, so nothing is waiting on a deadline. A
+         timer left running here would fire against a signed-out view. */
+      if (cartDeadline !== null) { clearTimeout(cartDeadline); cartDeadline = null }
       paint()
       /* Read AFTER the first paint, so the screen appears immediately and the
          Google row fills in. Only while signed out: it is the sign-out screen
@@ -164,6 +268,12 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
       paint()
       return
     }
+    /* ARMED BEFORE THE FIRST AWAIT, not beside the read it guards. Every line
+       below this one can fail to be reached -- an earlier channel that never
+       settles, an early return added later, or the read simply not being wired
+       at all, which is what shipped. The deadline has to be older than all of
+       them or it guards only the case somebody already thought of. */
+    armCartDeadline()
     paint()
     const belongings = await loadAccountBelongings()
     if (destroyed) return
@@ -172,6 +282,10 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
     paint()
     history = await loadHistory()
     if (destroyed) return
+    paint()
+    cart = await loadCart()
+    if (destroyed) return
+    if (cartDeadline !== null) { clearTimeout(cartDeadline); cartDeadline = null }
     paint()
   }
 
@@ -578,6 +692,10 @@ export function accountView({ navigate = hash => { location.hash = hash } } = {}
       destroyed = true
       section.removeEventListener('click', onClick)
       section.removeEventListener('submit', onSubmit)
+      /* The purchase-list row's deadline, dropped with the view. `destroyed`
+         already stops it painting, but a timer left armed on every visit to this
+         screen is a leak the next reader has to reason about. */
+      if (cartDeadline !== null) { clearTimeout(cartDeadline); cartDeadline = null }
       /* The last thing this view does is clear any password still in a field.
          A destroyed view's nodes can outlive it in a morph snapshot. */
       clearPasswords()

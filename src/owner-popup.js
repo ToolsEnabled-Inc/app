@@ -3,6 +3,16 @@ import {
   markOwnerPromptPresented,
   ownerPromptSnapshot,
 } from './mission-bridge.js'
+import { formatExactAmount } from './exact-amount.js'
+import {
+  RENEWAL_NOT_RECORDED,
+  YEAR_COST_UNKNOWN,
+  deadlineDateText,
+  deadlineText,
+  doNothingText,
+  expiryOf,
+  readProvenance,
+} from './purchase-cart-view.js'
 
 const PROMPT_KINDS = new Set(['purchase_batch', 'confirmation', 'notice'])
 const THEME_NAMES = new Set(['white', 'tan', 'black'])
@@ -215,20 +225,10 @@ export function normalizeOwnerPromptSnapshot(value) {
   return Object.freeze({ theme, prompts: Object.freeze(prompts) })
 }
 
-function currencyDigits(currency) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits
-}
-
-/** Format an exact integer minor-unit amount, including zero-decimal currencies. */
-export function formatExactAmount(amountCents, currency) {
-  if (!Number.isSafeInteger(amountCents) || amountCents < 0 || !CURRENCY_RE.test(String(currency || ''))) {
-    throw new Error('amount is malformed')
-  }
-  const digits = currencyDigits(currency)
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits,
-  }).format(amountCents / (10 ** digits))
-}
+/* Money formatting moved to src/exact-amount.js so src/purchase-cart-view.js can
+   use the same one without importing this module, which reaches the audited
+   connection. Passed straight through, so every existing import still works. */
+export { formatExactAmount } from './exact-amount.js'
 
 export function purchaseDecisionBody(prompt, decisions) {
   const chosen = []
@@ -274,15 +274,32 @@ function renderPurchase(documentRef, prompt, callbacks, surface) {
     const row = element(documentRef, 'section', 'owner-popup-item')
     row.dataset.itemId = item.id
     row.dataset.decision = 'undecided'
-    setAttributes(row, { 'aria-label': `${item.description}, ${formatExactAmount(item.amountCents, item.currency)}` })
+    /* THE REFERENCE NUMBER COMES OFF BEFORE THE NAME GOES ON THE SCREEN.
+       The engine stamps provenance onto the front of the description as text --
+       "[From your words: R1234] " -- and this row used to print the whole string.
+       That put one of our own record numbers on the surface where he decides
+       about money. The FACT is worth keeping and gets its own row below in
+       words; the number is not his to have to read. */
+    const from = readProvenance(item.description)
+    row.dataset.provenance = from.provenance
+    setAttributes(row, { 'aria-label': `${from.text}, ${formatExactAmount(item.amountCents, item.currency)}` })
 
     const details = element(documentRef, 'div', 'owner-popup-item-details')
-    details.append(element(documentRef, 'strong', 'owner-popup-item-name', item.description))
+    details.append(element(documentRef, 'strong', 'owner-popup-item-name', from.text))
     const merchant = element(documentRef, 'div', 'owner-popup-item-meta')
     merchant.append(element(documentRef, 'span', 'owner-popup-meta-label', 'Merchant'), element(documentRef, 'span', '', item.merchant))
     const purpose = element(documentRef, 'div', 'owner-popup-item-meta')
     purpose.append(element(documentRef, 'span', 'owner-popup-meta-label', 'Purpose'), element(documentRef, 'span', '', item.purpose))
-    details.append(merchant, purpose)
+    /* WHOSE IDEA THIS LINE WAS, in words. One of the twenty lines on his real
+       cart today is stamped as nobody's idea, and until now that stamp was
+       buried inside the description text at the front of the item name. */
+    const origin = element(documentRef, 'div', 'owner-popup-item-meta owner-popup-item-origin')
+    origin.append(element(documentRef, 'span', 'owner-popup-meta-label', 'Whose idea'), element(documentRef, 'span', '', from.label))
+    /* WHAT IT COSTS THE SECOND TIME, which no line can say. A stated absence,
+       never a blank and never a guessed figure. The reason is under the total. */
+    const renewal = element(documentRef, 'div', 'owner-popup-item-meta owner-popup-item-renewal')
+    renewal.append(element(documentRef, 'span', 'owner-popup-meta-label', 'Repeats'), element(documentRef, 'span', '', RENEWAL_NOT_RECORDED))
+    details.append(merchant, purpose, origin, renewal)
 
     const amount = element(documentRef, 'div', 'owner-popup-item-amount', formatExactAmount(item.amountCents, item.currency))
     const controls = setAttributes(element(documentRef, 'div', 'owner-popup-item-actions'), {
@@ -308,6 +325,13 @@ function renderPurchase(documentRef, prompt, callbacks, surface) {
   total.append(element(documentRef, 'span', '', `${prompt.items.length} line${prompt.items.length === 1 ? '' : 's'} total`))
   total.append(element(documentRef, 'strong', '', formatExactAmount(prompt.totalCents, prompt.currency)))
   body.append(total)
+
+  /* WHY THERE IS NO TWELVE-MONTH FIGURE UNDER THAT TOTAL. Several of these
+     renew and not one line on the wire carries a renewal amount, so a year
+     figure would be a guess printed next to an exact one. Said once, here,
+     rather than sixteen times up the list. */
+  const yearNote = setAttributes(element(documentRef, 'p', 'owner-popup-year-note', YEAR_COST_UNKNOWN), { role: 'note' })
+  body.append(yearNote)
 
   const defaultRule = setAttributes(element(documentRef, 'p', 'owner-popup-default-rule'), { role: 'note' })
   defaultRule.append(element(documentRef, 'strong', '', 'Default deny. '))
@@ -366,6 +390,9 @@ function renderNotice(documentRef, prompt, callbacks) {
  */
 export function renderOwnerPrompt(documentRef, prompt, callbacks, options = {}) {
   const surface = options.surface === 'screen' ? 'screen' : 'popup'
+  /* `options.now` is injected so a screen and its test agree on the clock
+     instead of racing it. Every caller in the product leaves it out. */
+  const nowMs = Number.isSafeInteger(options.now) ? options.now : Date.now()
   const overlay = element(documentRef, 'div', 'owner-popup-overlay')
   overlay.dataset.promptId = prompt.id
   const dialog = setAttributes(element(documentRef, 'section', 'owner-popup-dialog'), surface === 'screen'
@@ -386,6 +413,25 @@ export function renderOwnerPrompt(documentRef, prompt, callbacks, options = {}) 
   if (prompt.kind === 'purchase_batch' && prompt.message) {
     heading.append(element(documentRef, 'p', 'owner-popup-heading-message', prompt.message))
   }
+  /* WHEN THIS DIES, AND THAT DYING IS A REFUSAL.
+   *
+   * `expiresAt` has been on every request since the beginning. This module
+   * validated it and drew it nowhere, so both of the owner's live shopping
+   * lists could reach their date with nothing on any screen having said the
+   * date existed. The engine drops a request the moment its expiry passes and
+   * files it with the default decision, and the default decision is deny. So
+   * silence is not neutral, and the second sentence here says which way it
+   * falls. It is on every kind of request, not only on the shopping lists:
+   * the two that expire soonest on his real queue are questions, not carts. */
+  const expiry = expiryOf(prompt, nowMs)
+  const deadline = setAttributes(element(documentRef, 'div', 'owner-popup-deadline'), { role: 'note' })
+  deadline.dataset.expired = String(expiry.expired)
+  deadline.dataset.remainingDays = String(expiry.remainingDays)
+  const spelled = deadlineDateText(expiry)
+  deadline.append(element(documentRef, 'strong', 'owner-popup-deadline-when',
+    spelled ? `${deadlineText(expiry)} (${spelled})` : deadlineText(expiry)))
+  deadline.append(element(documentRef, 'span', 'owner-popup-deadline-consequence', doNothingText(prompt.kind)))
+  heading.append(deadline)
   const close = surface === 'screen'
     ? null
     : setAttributes(actionButton(documentRef, '×', 'owner-popup-close', callbacks.dismiss), { 'aria-label': 'Close and refuse' })

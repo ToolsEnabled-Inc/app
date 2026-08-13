@@ -356,3 +356,117 @@
   flex-direction: column;
   gap: var(--op-space4);
 }
+
+/* ---------------------------------------------------------------------------
+   THE DEADLINE, AND WHAT THE DEADLINE DOES.
+
+   Directly under the title, above everything a person would scroll past, and
+   not in the footer: the whole defect this repairs is that both of the owner's
+   live shopping lists have a date on which every line is refused, and no
+   surface in the product had ever drawn it. A fact that decides his money by
+   default does not belong below the fold.
+
+   It borrows the default-rule's serious accent rather than inventing a colour,
+   because it is the same class of statement: something the product will do if
+   he does not act. No new colour, type scale or spacing value is introduced.
+   --------------------------------------------------------------------------- */
+.owner-popup-deadline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-space1);
+  max-width: 68ch;
+  margin: var(--op-space3) 0 0;
+  padding: var(--op-space2) var(--op-space3);
+  border-left: 2px solid var(--op-serious);
+  background: color-mix(in oklab, var(--op-serious) 5%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.owner-popup-deadline-when {
+  color: var(--op-serious);
+  font-weight: 650;
+}
+.owner-popup-deadline-consequence { color: var(--op-ink-2); }
+
+/* Already past. Stated calmly rather than in alarm colours: there is nothing
+   left to decide, so shouting about it would be noise. */
+.owner-popup-deadline[data-expired="true"] {
+  border-left-color: var(--op-line-2);
+  background: none;
+}
+.owner-popup-deadline[data-expired="true"] .owner-popup-deadline-when { color: var(--op-ink-25); }
+
+/* Why there is no twelve-month figure under the total. Quiet, because it is an
+   absence being named rather than a warning being given. */
+.owner-popup-year-note {
+  max-width: 68ch;
+  margin: var(--op-space2) 0 0;
+  padding: 0 10px;
+  color: var(--op-ink-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* A line nobody asked for. The engine already knows which lines are traceable
+   to the owner's own words and which are not; until now that was buried in the
+   text at the front of the item name. One of the twenty lines on his real cart
+   is in this state. */
+.owner-popup-item[data-provenance="agent"] .owner-popup-item-origin,
+.owner-popup-item[data-provenance="unknown"] .owner-popup-item-origin {
+  color: var(--op-serious);
+}
+
+/* The queue page carries three figures, not the ledger's five, and the grid it
+   borrows is fixed at five columns -- so before this the tiles sat in the left
+   two-fifths with three empty columns beside them. Scoped to this page so the
+   ledger's own strip is untouched. */
+.approvals-page .ledger-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* ---------------------------------------------------------------------------
+   WHAT CHANGED WHILE HE WAS LOOKING.
+
+   Quiet by construction. It sits between the figures and the requests, it is
+   hidden entirely when there is nothing to say, and it never uses the serious
+   colour: a line being added to a list is news, not an alarm, and spending the
+   alarm colour on news is how an alarm stops working.
+   --------------------------------------------------------------------------- */
+.approvals-changes {
+  margin: 0 0 var(--op-space4);
+  padding: var(--op-space3) 0 0;
+}
+.approvals-changes[hidden] { display: none; }
+.approvals-changes-head {
+  margin: 0 0 var(--op-space2);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 640;
+  letter-spacing: var(--track-caps, 0.11em);
+  text-transform: uppercase;
+  color: var(--op-ink-25);
+}
+.approvals-changes-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-space1);
+}
+.approvals-change {
+  max-width: 78ch;
+  padding-left: var(--op-space3);
+  border-left: 2px solid var(--op-line-2);
+  color: var(--op-ink-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.approvals-change[data-tone="warn"] { border-left-color: var(--op-accent, var(--op-ink-25)); }
+.approvals-change[data-tone="good"] { border-left-color: var(--op-good); }
+.approvals-changes-note {
+  margin: var(--op-space2) 0 0;
+  color: var(--op-ink-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}

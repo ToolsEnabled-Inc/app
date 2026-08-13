@@ -69,6 +69,8 @@ import {
   reconcileUndeliveredDecisions,
   undeliveredDecision,
 } from '../approval-outcomes.js'
+import { cartSummary } from '../purchase-cart-view.js'
+import { cartChanges, recordCartReading } from '../purchase-cart-changes.js'
 import '../ledger.css'
 import '../owner-popup.css'
 
@@ -107,13 +109,32 @@ export function approvalsView() {
           <div class="ledger-stat" data-state="gated">
             <span class="ledger-stat-value" data-summary="purchases">—</span>
             <span class="ledger-stat-label">Purchases to review</span>
-            <span class="ledger-stat-note" data-purchase-note>· approving records the decision, it does not spend</span>
+            <span class="ledger-stat-note" data-purchase-note>· approving records the decision, it does not spend.</span>
+          </div>
+          <!-- THE THIRD TILE, AND THE ONE THAT WAS MISSING. Both of the owner's
+               shopping lists have a date on which every line is refused, and the
+               two requests that reach their date first are not carts at all. A
+               screen that showed a total and no clock let the clock win. -->
+          <div class="ledger-stat" data-state="open">
+            <span class="ledger-stat-value" data-summary="deadline">—</span>
+            <span class="ledger-stat-label">Soonest deadline</span>
+            <span class="ledger-stat-note" data-deadline-note>· checking what runs out first.</span>
           </div>
         </section>
 
         <div class="ledger-toolbar">
           <p class="ledger-register-note" aria-live="polite"><span data-visible-count>Checking the queue…</span></p>
         </div>
+
+        <!-- WHAT CHANGED, not just a new total. This screen re-reads the queue
+             every two seconds and used to reconcile in silence, so the only
+             visible trace of a line appearing or an amount moving was that the
+             tile above held a different number than it had a moment before. -->
+        <section class="approvals-changes" data-changes hidden aria-live="polite">
+          <h2 class="approvals-changes-head">What changed since you opened the program</h2>
+          <ul class="approvals-changes-list" data-changes-list></ul>
+          <p class="approvals-changes-note" data-changes-note></p>
+        </section>
 
         <section class="ledger-register approvals-list owner-popup-root" aria-live="polite"></section>
       </div>
@@ -124,6 +145,11 @@ export function approvalsView() {
   const purchasesValue = root.querySelector('[data-summary="purchases"]')
   const purchaseNote = root.querySelector('[data-purchase-note]')
   const countNote = root.querySelector('[data-visible-count]')
+  const deadlineValue = root.querySelector('[data-summary="deadline"]')
+  const deadlineNote = root.querySelector('[data-deadline-note]')
+  const changesBlock = root.querySelector('[data-changes]')
+  const changesList = root.querySelector('[data-changes-list]')
+  const changesNote = root.querySelector('[data-changes-note]')
 
   // promptId -> { wrapper, rendered, prompt, presented, submitting, failed }
   const cards = new Map()
@@ -152,6 +178,12 @@ export function approvalsView() {
        (tools/offline-routes-qa.mjs, state layer-killed). */
     purchaseNote.textContent = '· the queue could not be read, so nothing can be approved from here'
     countNote.textContent = 'The queue could not be read, so nothing here is a decision.'
+    deadlineValue.textContent = '—'
+    deadlineNote.textContent = '· the queue could not be read, so no date is claimed here'
+    /* NOTHING IS FILED AS A CHANGE HERE, and that is the important half. A read
+       that failed is not a queue that emptied. Comparing an unreadable answer
+       against the last good one would print "no longer waiting for you" against
+       every list he has, which is the one wrong thing this strip could say. */
   }
 
   function setCardStatus(card, text, kind = 'status') {
@@ -337,6 +369,47 @@ export function approvalsView() {
       : `${waiting} ${undelivered} decision${undelivered === 1 ? '' : 's'} you submitted ${undelivered === 1 ? 'was' : 'were'} not recorded, so ${undelivered === 1 ? 'it is' : 'they are'} still here.`
   }
 
+  /* THE CLOCK TILE. Read from the same snapshot the cards are drawn from, so it
+     can never name a deadline for a request that is not on the screen. */
+  function paintDeadline(summary) {
+    if (summary.soonest === null) {
+      deadlineValue.textContent = '—'
+      deadlineNote.textContent = '· nothing is waiting, so nothing runs out'
+      return
+    }
+    deadlineValue.textContent = summary.soonest.remainingDays === 0
+      ? 'Today'
+      : `${summary.soonest.remainingDays}d`
+    deadlineNote.textContent = `· ${summary.soonest.title} — ${summary.soonest.deadline}`
+  }
+
+  /* WHAT CHANGED, drawn from the record in src/purchase-cart-changes.js so it
+     survives this view being destroyed and rebuilt while he walks the ring. */
+  function paintChanges(reading) {
+    const entries = cartChanges()
+    if (entries.length === 0) {
+      changesBlock.hidden = true
+      changesList.replaceChildren()
+      changesNote.textContent = ''
+      return
+    }
+    changesBlock.hidden = false
+    changesList.replaceChildren(...entries.map(entry => {
+      const item = document.createElement('li')
+      item.className = 'approvals-change'
+      item.dataset.tone = entry.tone
+      item.textContent = entry.text
+      return item
+    }))
+    /* THE LIMIT OF THIS RECORD, said on the screen rather than left to be
+       found out. It is this window's memory, so it starts empty every time the
+       program is opened, and the list of requests below is always the whole
+       truth whatever this strip happens to remember. */
+    changesNote.textContent = reading.firstReading
+      ? 'This list starts again each time you open the program. The requests below are always complete.'
+      : 'Changes since you opened the program. This list starts again each time you open it.'
+  }
+
   async function poll() {
     if (destroyed || polling) return
     polling = true
@@ -366,6 +439,23 @@ export function approvalsView() {
     }
     reconcile(snapshot.prompts)
     paintSummary(snapshot.prompts)
+    /* ONE READING, USED THREE TIMES. The tile, the change strip and the cards
+       all come from this same snapshot, so the screen cannot say one thing at
+       the top and a different thing six inches lower. A reading is only ever
+       filed AFTER the snapshot has genuinely parsed -- see setUnavailable. */
+    let summary
+    try { summary = cartSummary(snapshot.prompts, Date.now()) }
+    catch {
+      /* A total that is not the sum of its own lines, or an expiry that is not
+         a date. The cards above are already drawn and are the engine's own
+         answer; what is refused here is the derived layer, not the queue. */
+      deadlineValue.textContent = '—'
+      deadlineNote.textContent = '· one request did not add up, so no date is claimed here'
+      for (const card of cards.values()) void confirmPresented(card)
+      return
+    }
+    paintChanges(recordCartReading(summary.prompts, Date.now()))
+    paintDeadline(summary)
     for (const card of cards.values()) void confirmPresented(card)
   }
 

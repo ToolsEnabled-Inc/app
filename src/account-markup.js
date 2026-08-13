@@ -275,7 +275,108 @@ export function subscriptionMarkup() {
   </article>`
 }
 
-export function belongingsMarkup({ data = null, payment = null, history = null } = {}) {
+/* YOUR PURCHASE LIST, ON THE SCREEN THAT IS ABOUT YOU.
+ *
+ * WHY IT IS HERE AND NOT ONLY ON THE QUEUE PAGE. The owner asked for his cart
+ * to be in front of him inside his signed-in account. It sits directly under
+ * the card row because those two are one subject to the person reading them:
+ * what is about to be spent, and what it would be spent with.
+ *
+ * IT HOLDS NOTHING. Every value arrives already counted and already formatted
+ * by src/purchase-cart-view.js, from the one list the engine serves. This
+ * function adds no total, no date arithmetic and no line of its own, which is
+ * the entire rule that keeps two surfaces from disagreeing about his money.
+ *
+ * FOUR STATES, AND THE FIRST TWO ARE THE POINT. "Not asked yet" and "could not
+ * be read" are different from "nothing is waiting", and this product's rule is
+ * that an absence is never rendered as though somebody had chosen it. A row
+ * that said "nothing waiting" over an unread queue would tell him his money
+ * decisions were settled on the day four of them expire.
+ */
+export function cartMarkup({ cart = null } = {}) {
+  const head = '<div class="settings-name">Your purchase list</div>'
+  const open = '<div class="settings-control fleet-inline-control"><a class="ctl-btn" href="#/approvals" data-account-cart-link>Open your purchase list</a></div>'
+
+  if (cart === null) {
+    return `<article class="settings-row" data-account-cart data-cart-state="reading">
+      <div class="settings-copy">${head}
+        <div class="settings-desc">Reading what is waiting for you to decide…</div>
+      </div>${open}
+    </article>`
+  }
+
+  if (cart.readable !== true) {
+    return `<article class="settings-row" data-account-cart data-cart-state="unread">
+      <div class="settings-copy">${head}
+        <div class="settings-desc">This screen could not read your list just now, so it does not say what is on it. That is not the same as the list being empty. Open it to look again.</div>
+      </div>${open}
+    </article>`
+  }
+
+  /* EMPTY IS SCOPED, BECAUSE THIS SCREEN CAN ONLY SEE ONE INSTALLATION.
+   *
+   * WHAT THIS COPY READS, MEASURED. The running app pins to the capability layer
+   * its own shell started, and that layer's state root is <userData>/capability
+   * -- set in shell/main.cjs, and set there for a load-bearing reason: derived
+   * any other way it landed in the INSTALL directory, where a measured session
+   * left a live bearer token, the signed audit ledger and the customer's
+   * credential vault in a folder the next update deletes. So the queue this row
+   * reads is THIS INSTALLATION'S queue, and there is no supported way for it to
+   * be any other -- the renderer deliberately does not scan for local bridges,
+   * because discovery-by-guess is how this boot's bootstrap proof gets handed to
+   * whatever squats a lower port.
+   *
+   * WHY THE SENTENCE CHANGED. Unqualified, "Nothing is waiting to be bought" is
+   * a claim about the reader's affairs, and this screen is not in a position to
+   * make it. Measured on this machine while that sentence was being written: the
+   * app's own store held 0 prompts and the engine's store held 10, including 2
+   * shopping lists whose lines are denied by the calendar on 2026-08-18. The row
+   * would have told him his money decisions were settled six days before four of
+   * them expired -- which is the exact failure the "not asked yet" state above
+   * exists to prevent, arriving through the other door.
+   *
+   * IT IS NOT A HEDGE AND IT IS NOT AN APOLOGY. For somebody with one copy it
+   * reads as a plain true statement and costs them a clause. For somebody whose
+   * list is somewhere else it is the difference between being told nothing is
+   * wrong and being told where to look. Both readers get a sentence that is
+   * true, which is the only version worth shipping on a money surface. */
+  if (cart.cartCount === 0) {
+    const others = cart.waitingCount > 0
+      ? ` ${esc(String(cart.waitingCount))} other request${cart.waitingCount === 1 ? '' : 's'} still ${cart.waitingCount === 1 ? 'wants' : 'want'} an answer from you.`
+      : ''
+    return `<article class="settings-row" data-account-cart data-cart-state="empty">
+      <div class="settings-copy">${head}
+        <div class="settings-desc">Nothing is waiting to be bought on this copy of ToolsEnabled.${others}</div>
+        <div class="settings-desc" data-account-cart-scope>This screen reads the list this installation holds, and no other. A purchase list raised on a different copy is not on this one, and would not appear here.</div>
+      </div>${open}
+    </article>`
+  }
+
+  /* THE TOTAL, OR THE REASON THERE IS NOT ONE. Two currencies get no invented
+     exchange rate, so the sentence changes shape rather than showing a number
+     that was arrived at by guessing. */
+  const money = cart.totalText === null
+    ? `${esc(String(cart.cartCount))} list${cart.cartCount === 1 ? '' : 's'}, priced in more than one currency, so no single total is shown here.`
+    : `${esc(String(cart.lineCount))} line${cart.lineCount === 1 ? '' : 's'} across ${esc(String(cart.cartCount))} list${cart.cartCount === 1 ? '' : 's'}, ${esc(cart.totalText)} if you approve every one.`
+
+  /* THE DATE, AND WHAT THE DATE DOES. Four of the things waiting on his real
+     queue are refused by the calendar rather than by him, and no surface in
+     this product said so until now. */
+  const clock = cart.soonest === null ? '' : `<div class="settings-desc" data-account-cart-deadline>
+        <strong>${esc(cart.soonest.deadline)}</strong> ${esc(cart.soonest.title)}${cart.soonest.deadlineDate ? ` — ${esc(cart.soonest.deadlineDate)}` : ''}
+      </div>
+      <div class="settings-desc" data-account-cart-consequence>${esc(cart.soonest.doNothing)}</div>`
+
+  return `<article class="settings-row" data-account-cart data-cart-state="waiting">
+    <div class="settings-copy">${head}
+      <div class="settings-desc" data-account-cart-total>${money}</div>
+      ${clock}
+      <div class="settings-desc" data-account-cart-spend>${esc(cart.spendNotice)}</div>
+    </div>${open}
+  </article>`
+}
+
+export function belongingsMarkup({ data = null, payment = null, history = null, cart = null } = {}) {
   const rows = []
 
   if (data && data.ok === true) {
@@ -351,6 +452,10 @@ export function belongingsMarkup({ data = null, payment = null, history = null }
       </div>
     </article>`)
   }
+
+  /* Directly under the card, because what is about to be spent and what it
+     would be spent with are one subject to the person reading them. */
+  rows.push(cartMarkup({ cart }))
 
   /* Next to the card, because the two are the same subject to the person
      reading them, and last because it is the only row here that goes somewhere
@@ -536,7 +641,7 @@ export function resetMarkup({ reset = {}, busy = false } = {}) {
   </article>`
 }
 
-export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, reset = {} } = {}) {
+export function signedInMarkup({ state, busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, cart = null, reset = {} } = {}) {
   return `<h1 class="setup-title">Signed in as ${esc(state.displayName)}</h1>
     ${statusMarkup({ notice, state })}
     <div class="settings-section-rows">
@@ -554,7 +659,7 @@ export function signedInMarkup({ state, busy = false, notice = null, now = Date.
         </div>
       </article>
       ${shownAsMarkup({ state, busy })}
-      ${belongingsMarkup({ data, payment, history })}
+      ${belongingsMarkup({ data, payment, history, cart })}
       ${state.signInMethod === 'google'
         /* A GOOGLE ACCOUNT IS NOT OFFERED A PASSWORD CHANGE, because it has no
            password on this computer to change. Showing the control and refusing
@@ -751,7 +856,7 @@ export function formMarkup({ mode = 'sign-in', busy = false, notice = null, stat
  * dispatcher inside the view can only be checked by reading it, and reading is
  * what missed the last two defects. This one is called by the tests with each
  * state in turn. */
-export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, google = null, reset = {} } = {}) {
+export function screenMarkup({ state = null, mode = 'sign-in', busy = false, notice = null, now = Date.now(), data = null, payment = null, history = null, cart = null, google = null, reset = {} } = {}) {
   if (state === null) return loadingMarkup()
   if (!state.available) return unavailableMarkup({ state, reset, busy })
   if (state.signedIn) {
@@ -760,7 +865,7 @@ export function screenMarkup({ state = null, mode = 'sign-in', busy = false, not
        a destructive button under a form is a mis-click. */
     if (mode === 'change-password') return changePasswordMarkup({ state, busy, notice })
     if (mode === 'display-name') return changeDisplayNameMarkup({ state, busy, notice })
-    return signedInMarkup({ state, busy, notice, now, data, payment, history, reset })
+    return signedInMarkup({ state, busy, notice, now, data, payment, history, cart, reset })
   }
   return formMarkup({ mode, busy, notice, state, google, reset })
 }
