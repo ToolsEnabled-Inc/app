@@ -764,6 +764,8 @@ test('every refusal the probe never answers still reaches a person as a sentence
     'AGENT_HOST_CLOSED is listed as a start refusal but the host no longer raises it')
   assert.ok(read('shell/main.cjs').includes("'MC_AGENT_INVALID_PAYLOAD'"),
     'MC_AGENT_INVALID_PAYLOAD is listed as a start refusal but the agent IPC frame validator no longer raises it')
+  assert.ok(read('shell/agent-host.cjs').includes("fail('AGENT_TIER_NO_LAUNCHER'"),
+    'AGENT_TIER_NO_LAUNCHER is listed as a start refusal but resolveStartTier() no longer raises it')
   assert.equal(new Set(START_REFUSAL_CODES).size, START_REFUSAL_CODES.length, 'the start-refusal vocabulary repeats a code')
   for (const code of START_REFUSAL_CODES) {
     assert.equal(AVAILABILITY_CODES.includes(code), false,
@@ -852,6 +854,15 @@ test('every refusal code in the agent host is classified as reachable from the p
     'AGENT_SESSION_START_CANCELLED',
     'AGENT_TURN_ACTIVE',
     'AGENT_TURN_NONE',
+    /* Raised by resolveStartTier() only for a tier name outside START_TIERS.
+       The tier menu is built from the same six names the host holds (the
+       orchestration-controls suite pins the two tables together), so no click
+       can produce an unknown tier -- only renderer/host drift or a hand-built
+       payload can, which is MC_AGENT_INVALID_PAYLOAD's family: a malformed
+       request, not a state a readiness probe could resolve or a person could
+       choose. Its sibling AGENT_TIER_NO_LAUNCHER is one click away for a real
+       person and therefore lives in START_REFUSAL_CODES with copy instead. */
+    'AGENT_TIER_UNKNOWN',
   ])
   const source = read('shell/agent-host.cjs')
   const found = new Set()

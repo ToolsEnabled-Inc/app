@@ -585,6 +585,13 @@ const START_REFUSAL_CODES = Object.freeze([
   'MC_AGENT_INVALID_PAYLOAD',
   'CODEX_CLI_NOT_FOUND',
   'CODEX_VERSION_DETECTION_FAILED',
+  /* Raised by resolveStartTier() when a person picks one of the three Claude
+     tiers: listed by name in START_TIERS, refused by name here, because
+     omitting them would make a chosen model quietly become Codex -- the exact
+     defect the tier channel exists to close. A real user reaches this with one
+     click, so it carries copy on both surfaces like every other start
+     refusal. */
+  'AGENT_TIER_NO_LAUNCHER',
 ])
 
 function normalizeSessionId(value) {

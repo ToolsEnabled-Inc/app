@@ -108,6 +108,11 @@ export const UNAVAILABLE_TEXT = Object.freeze({
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not work out whether an agent can run here, because the question itself was refused. Close ToolsEnabled and open it again',
   AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down, so nothing new will be started. Open it again when you want to start an agent',
   MC_AGENT_INVALID_PAYLOAD: 'ToolsEnabled could not work out whether an agent can run here, because the question itself was refused. Close ToolsEnabled and open it again, and if it keeps refusing, reinstall from a complete build',
+  /* The three Claude rows in the tier menu are offered so a person can see
+     they exist, and refused honestly when picked -- silently starting Codex
+     instead of a chosen Claude model is the defect this code closed. The
+     sentence names what to pick instead, never a module or a path. */
+  AGENT_TIER_NO_LAUNCHER: 'that agent type runs on Claude, and this version can only start Codex agents. Pick Luna, Terra or Sol and it will start now',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not

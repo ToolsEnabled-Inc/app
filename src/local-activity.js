@@ -319,6 +319,7 @@ export const ENGINE_REASON = Object.freeze({
   AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not check whether an agent can run here',
   AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down',
+  AGENT_TIER_NO_LAUNCHER: 'A Claude agent type was chosen, and this version will not start Claude agents -- the Codex agent types are the ones that run today',
   SPAWN_RECORD_NO_KEYSTORE: 'This copy cannot reach the Windows keystore that protects the record of what runs here, so it will not start an agent',
   SPAWN_RECORD_NO_DIRECTORY: 'ToolsEnabled has nowhere to keep its record of what runs here, so it will not start an agent',
   SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let ToolsEnabled protect its record of what runs here, so it will not start an agent',
