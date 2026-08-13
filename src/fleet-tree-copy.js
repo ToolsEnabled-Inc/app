@@ -215,6 +215,19 @@ export const DEFAULT_TIER = 'luna'
    Starting, and running.
    --------------------------------------------------------------- */
 
+/* THE ANSWER, ON THE SAME PAGE THE QUESTION WAS ASKED. Measured 2026-08-13 on
+   the installed 1.0.7: a tree-started agent ran, the engine answered, and no
+   surface on the tree page rendered a word of it -- the person read "starting"
+   forever and concluded agents do not respond. The agent page repaired this
+   exact defect once already (see the CORRECTED note beside its onEvent
+   listener); this is the same repair for the tree rail, with its own register.
+   The empty-turn sentence follows rule 3: it ends with something to do. */
+export const SAID_PANEL = Object.freeze({
+  title: 'What it said',
+  waiting: 'No answer yet. This box fills in by itself when the agent finishes.',
+  emptyTurn: 'The turn finished without any words back. Ask again, or ask for something smaller.',
+})
+
 /* THE WAIT IS THE PART PEOPLE DISTRUST. A start crosses a background service
    and a program that is not this one, so it is not instant; a spinner with no
    words beside it is where somebody presses the button a second time. These say

@@ -47,9 +47,14 @@ import { refusalCode } from '../agent-availability-copy.js'
    the lane that owns the words. Nothing in this file rewords a refusal: it hands
    the whole bridge result over and shows what comes back. */
 import {
+  SAID_PANEL,
   START_REFUSAL,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
 } from '../fleet-tree-copy.js'
+/* The two readers that decide what a session event is allowed to put on a
+   screen. Same pair the agent page uses; a second reading of the same stream
+   is how one surface comes to be wrong without anybody noticing. */
+import { sessionEventText, sessionTurnStatus } from '../agent-session-events.js'
 /* THE TREE A PERSON BUILDS, and the panel they build it in. Neither is this
    file's to own: src/fleet-trees.js holds the structure and its rules, and
    src/agent-compose-panel.js holds the form and its refusals. This view is the
@@ -1052,6 +1057,16 @@ export function computersView({ initialComputer = null, navigate }) {
   let treeStore = null
   let treeStoreUnsub = null
   let treeStoreId = null
+  /* WHOSE ANSWER IS WHOSE. One event stream carries every open session, so the
+     tree keeps its own map from session to node, written at the one place a
+     session is born (submitCompose), and a per-session turn buffer -- the
+     engine emits one delta per token, and a reply is one message, not one
+     message per token (the agent page's CORRECTED note is the measured version
+     of why). nodeReplies is what the rail renders under "What it said". */
+  const sessionNodeIds = new Map()
+  const sessionTurnText = new Map()
+  const nodeReplies = new Map()
+  let currentRailTreeNode = null
   /* Why the store might not exist at all: it needs an id for the computer, and a
      browser preview with no fleet has no computer to name. That is a real state
      and it must not be an exception on the way to first paint. The sentence goes
@@ -1405,6 +1420,7 @@ export function computersView({ initialComputer = null, navigate }) {
       return { ok: false, message: panelSentence }
     }
 
+    sessionNodeIds.set(result.sessionId, node.id)
     const attached = store.attachSession(node.id, result.sessionId)
     if (!attached.ok) {
       /* The session is real and the tree could not record it. Saying "started"
@@ -2351,6 +2367,7 @@ export function computersView({ initialComputer = null, navigate }) {
 
   function showTreeNodeControls(node) {
     clearBoard()
+    currentRailTreeNode = node
     const role = ROLES[node.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
     controlsPage.innerHTML = `
@@ -2366,6 +2383,11 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="board-box-h"><span class="bh-t">What you asked for</span></div>
           <div class="rail-sub">${escapeMarkup(node.message || '')}</div>
         </div>
+        ${node.sessionId ? `
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
+          <div class="rail-sub">${escapeMarkup(nodeReplies.get(node.id) || SAID_PANEL.waiting)}</div>
+        </div>` : ''}
         <div class="board-box board-ctl-box board-ctl-absent">
           <div class="board-box-h"><span class="bh-t">What it runs on</span></div>
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
@@ -2732,6 +2754,42 @@ export function computersView({ initialComputer = null, navigate }) {
   unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
 
   loadRailRuns()
+  /* THE TREE'S OWN EAR ON THE SESSION STREAM. Without this, a tree-started
+     agent answered into a void: computers.js subscribed to nothing, the rail
+     stayed on "starting", and the person concluded agents do not respond --
+     measured 2026-08-13 on the installed 1.0.7 while a live codex app-server
+     child ran the session. Reads only through sessionEventText/sessionTurnStatus
+     (the same pair the agent page uses), touches only sessions this tree
+     started (sessionNodeIds), and detaches with the view via unsubs. */
+  if (typeof window !== 'undefined' && window.mcAgent && typeof window.mcAgent.onEvent === 'function') {
+    unsubs.push(window.mcAgent.onEvent(packet => {
+      if (destroyed) return
+      const sessionId = packet && typeof packet.sessionId === 'string' ? packet.sessionId : ''
+      if (!sessionId || !sessionNodeIds.has(sessionId)) return
+      const text = sessionEventText(packet, sessionId)
+      if (text) {
+        sessionTurnText.set(sessionId, (sessionTurnText.get(sessionId) || '') + text)
+        return
+      }
+      const status = sessionTurnStatus(packet, sessionId)
+      if (!status) return
+      const nodeId = sessionNodeIds.get(sessionId)
+      const spoken = (sessionTurnText.get(sessionId) || '').trim()
+      sessionTurnText.delete(sessionId)
+      /* A turn that ends having said nothing is a real outcome and must read
+         as one; silence in this box would read as the product hanging. */
+      nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
+      const finished = status === 'completed' ? 'finished' : 'failed'
+      if (treeStore) {
+        treeStore.setNodeStatus(nodeId, finished, { note: '' })
+        refreshTree()
+      }
+      if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
+        showTreeNodeControls({ ...currentRailTreeNode, status: finished })
+      }
+    }))
+  }
+
   if (liveMode) loadProjection()
   else mountSimulation()
 
