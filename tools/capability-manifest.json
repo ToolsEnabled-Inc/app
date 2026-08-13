@@ -204,20 +204,18 @@
       "resolvesTo": [
         "config/agent-org.json"
       ]
-    },
-    {
-      "from": "src/lib/agent-onboarding.js",
-      "expression": "path.join(runtimeRoot, 'src', 'lib', 'capability-features.js'",
-      "resolvesTo": [
-        "src/lib/capability-features.js"
-      ]
-    },
-    {
-      "from": "src/lib/agent-onboarding.js",
-      "expression": "path.join(runtimeRoot, 'src', 'lib', 'tool-registry.js'",
-      "resolvesTo": [
-        "src/lib/tool-registry.js"
-      ]
     }
+  ],
+  "$comment_pinnedSource": [
+    "The 1.0.7 payload is staged from engine ref bbbcb3b (2026-08-12 09:40,",
+    "the seat-pools commit) -- the last ref whose tier tables match the ones",
+    "this app's renderer, shell and QA suites are validated against. Engine",
+    "HEAD adds the local-GPU tier (478da30) and the onboarding",
+    "capability-features/tool-registry dynamic requires (48536bb); adopting",
+    "that payload means syncing LAUNCH_TIERS, the seat pools, the shell's",
+    "START_TIERS and a local-tier launcher IN THE SAME CHANGE, and restoring",
+    "the two dynamicRequires rows this pin removed. The packer's refusal on",
+    "undeclared computed requires will stop a half-done adoption here, which",
+    "is exactly what it is for."
   ]
 }
