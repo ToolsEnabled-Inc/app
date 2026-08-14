@@ -81,7 +81,7 @@ import { createTranscriptAppender } from '../agent-session-transcript.js'
    src/agent-compose-panel.js holds the form and its refusals. This view is the
    join between them and the agent bridge — a press goes in one end and a running
    session comes out the other. */
-import { createFleetTreeStore, FLEET_TREE_LIMITS, safeTreeStorage } from '../fleet-trees.js'
+import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, safeTreeStorage } from '../fleet-trees.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
@@ -564,7 +564,11 @@ function sendRefusalSentence(result) {
  * a second one. So the name comes back, the node keeps it, and the sentence says
  * plainly that the agent is running and the message is not.
  */
-async function startAgentForNode({ text, surface, tier }) {
+/* Exported for the research workbench's dispatcher: an experiment worker is
+   started through THIS function — the same contract, the same refusal
+   sentences, the same four outcome shapes — so a worker node on the tree is
+   indistinguishable from one the compose panel started. */
+export async function startAgentForNode({ text, surface, tier }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -1102,6 +1106,10 @@ export function computersView({ initialComputer = null, navigate }) {
      the computer changes; the previous one is dropped with its subscription. */
   let treeStore = null
   let treeStoreUnsub = null
+  /* Registered while this view's store instance is live, so the research
+     dispatcher's module-level listener never opens a second instance beside
+     it — see markTreeStoreLive in src/fleet-trees.js. */
+  let treeStoreLiveRelease = null
   let treeStoreId = null
   /* WHOSE ANSWER IS WHOSE. One event stream carries every open session, so the
      tree keeps its own map from session to node, written at the one place a
@@ -1178,6 +1186,8 @@ export function computersView({ initialComputer = null, navigate }) {
   function releaseTreeStore() {
     treeStoreUnsub?.()
     treeStoreUnsub = null
+    treeStoreLiveRelease?.()
+    treeStoreLiveRelease = null
     treeStore = null
     treeStoreId = null
   }
@@ -1214,6 +1224,7 @@ export function computersView({ initialComputer = null, navigate }) {
         storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
       })
       treeStoreId = computerId
+      treeStoreLiveRelease = markTreeStoreLive(computerId)
       /* RE-LEARN WHOSE ANSWER IS WHOSE. sessionNodeIds used to be written at
          exactly one line, inside submitCompose -- so leaving this view and
          coming back orphaned every session this window still owned: the

@@ -76,7 +76,7 @@ test('the workbench mounts the metrics layout engine with its own keys', () => {
   const view = read('src/views/research.js')
   assert.match(view, /storageKey: 'mc\.research\.layout'/, 'the arrangement key left the plan')
   assert.match(view, /createResearchRegistry\(/, 'the registry is not wired')
-  for (const id of ['queue', 'library', 'methods', 'worklists']) {
+  for (const id of ['designer', 'runboard', 'results', 'queue', 'library', 'methods', 'worklists']) {
     assert.match(view, new RegExp(`data-mc="${id}"`), `module ${id} lost its engine hook`)
   }
   assert.match(view, /data-modules-btn/, 'the Modules button is gone')

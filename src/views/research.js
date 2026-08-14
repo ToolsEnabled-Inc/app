@@ -24,6 +24,9 @@ import { createResearchRegistry } from '../research-modules.js'
    this module with every `^import` LINE stripped, so a wrapped import would
    leave its tail behind as garbage. */
 import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
+import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments } from '../research-experiments.js'
+import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
+import { startAgentForNode } from './computers.js'
 import { isLiveView } from '../live-flags.js'
 import '../research.css'
 
@@ -279,6 +282,21 @@ const SAMPLE_PROJECTION = Object.freeze({
   openQuestions: { ok: true, value: [{ question: 'Does temperature zero flatten judge disagreement in this example set?', methodToClose: 'Re-run the borderline set at temperature zero and compare.' }] },
 })
 
+const SAMPLE_EXPERIMENT = Object.freeze({
+  id: 'sample-experiment',
+  name: 'Example sweep — two tiers, two runs',
+  promptTemplate: 'Summarize the dataset at {dataset} in three sentences.',
+  datasetPath: 'C:\\examples\\dataset.jsonl',
+  createdAtMs: 0,
+  treeId: null,
+  cells: [
+    { tier: 'luna', run: 1, status: 'finished', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 41000, replyExcerpt: 'The example dataset holds 200 rows of paired prompts and answers.' },
+    { tier: 'luna', run: 2, status: 'finished', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 38000, replyExcerpt: 'A second pass reads the same 200 rows and agrees with the first.' },
+    { tier: 'terra', run: 1, status: 'failed', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 12000, replyExcerpt: 'This example cell shows what a refused start looks like.' },
+    { tier: 'terra', run: 2, status: 'running', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
+  ],
+})
+
 /* ---------- the workbench ---------- */
 
 export function researchView() {
@@ -296,6 +314,36 @@ export function researchView() {
         </header>
 
         <div class="research-modules" data-research-modules>
+          <section class="research-section" aria-labelledby="research-designer-title" data-mc="designer">
+            <div class="research-section-head">
+              <h2 id="research-designer-title">Experiment designer</h2>
+              <p>Define a run: the task each worker gets, the dataset path they read, the model tiers, and runs per tier. Workers start as nodes on the computers page.</p>
+            </div>
+            <div data-research-designer aria-live="polite">
+              <p class="research-observed-empty">Reading your experiments.</p>
+            </div>
+          </section>
+
+          <section class="research-section" aria-labelledby="research-runboard-title" data-mc="runboard">
+            <div class="research-section-head">
+              <h2 id="research-runboard-title">Run board</h2>
+              <p>Every cell of a running experiment, with its live state. The workers themselves stream on the computers page.</p>
+            </div>
+            <div data-research-runboard aria-live="polite">
+              <p class="research-observed-empty">Nothing is running yet.</p>
+            </div>
+          </section>
+
+          <section class="research-section" aria-labelledby="research-results-title" data-mc="results">
+            <div class="research-section-head">
+              <h2 id="research-results-title">Results</h2>
+              <p>What each cell answered, with timings. Copy a table out as CSV or JSON when you want it elsewhere.</p>
+            </div>
+            <div data-research-results aria-live="polite">
+              <p class="research-observed-empty">No results have arrived yet.</p>
+            </div>
+          </section>
+
           <section class="research-section" aria-labelledby="research-queue-title" data-mc="queue" data-research-queue-section>
             <div class="research-section-head">
               <h2 id="research-queue-title">Research queue</h2>
@@ -376,12 +424,16 @@ export function researchView() {
   /* ---------- module registry ---------- */
 
   const MODULES = [
+    { id: 'designer', title: 'Experiment designer', size: 'full', el: root.querySelector('[data-mc="designer"]') },
+    { id: 'runboard', title: 'Run board', size: 'full', el: root.querySelector('[data-mc="runboard"]') },
+    { id: 'results', title: 'Results', size: 'full', el: root.querySelector('[data-mc="results"]') },
     { id: 'queue', title: 'Research queue', size: 'full', el: root.querySelector('[data-mc="queue"]') },
     { id: 'library', title: 'Report library', size: 'full', el: root.querySelector('[data-mc="library"]') },
     { id: 'methods', title: 'Method notes', size: 'full', el: root.querySelector('[data-mc="methods"]') },
     { id: 'worklists', title: 'Working lists', size: 'full', el: root.querySelector('[data-mc="worklists"]') },
   ]
-  const STANDARD = [['queue'], ['library'], ['methods'], ['worklists']]
+  const STANDARD = [['designer'], ['runboard'], ['results'], ['queue'], ['library'], ['methods'], ['worklists']]
+  const moduleEl = id => MODULES.find(module => module.id === id).el
 
   const registry = createResearchRegistry({
     modules: MODULES,
@@ -466,7 +518,7 @@ export function researchView() {
      on shows the data that already arrived instead of a stuck loading line. */
 
   function renderResearchQueue(result) {
-    const host = root.querySelector('[data-research-queue]') || MODULES[0].el.querySelector('[data-research-queue]')
+    const host = root.querySelector('[data-research-queue]') || moduleEl('queue').querySelector('[data-research-queue]')
     if (!host) return
     host.dataset.queueState = result?.ok ? 'ready' : 'unavailable'
     host.setAttribute('aria-busy', 'false')
@@ -534,7 +586,7 @@ export function researchView() {
   }
 
   function renderQueueModuleLive() {
-    const host = MODULES[0].el.querySelector('[data-research-queue]')
+    const host = moduleEl('queue').querySelector('[data-research-queue]')
     if (!host) return
     const authoredItems = authoredQueue?.ok ? authoredQueue.items : []
     const rejected = authoredQueue?.ok ? authoredQueue.rejected : []
@@ -560,7 +612,7 @@ export function researchView() {
     host.innerHTML = `${queueFormMarkup()}${damagedNote}${shippedNote}${rejectionNote}${list}`
   }
 
-  MODULES[0].el.addEventListener('submit', async event => {
+  moduleEl('queue').addEventListener('submit', async event => {
     if (!event.target?.hasAttribute?.('data-queue-form')) return
     event.preventDefault()
     const form = event.target
@@ -577,7 +629,7 @@ export function researchView() {
     renderQueueModuleLive()
   })
 
-  MODULES[0].el.addEventListener('click', async event => {
+  moduleEl('queue').addEventListener('click', async event => {
     const advanceId = event.target?.dataset?.queueAdvance
     const removeId = event.target?.dataset?.queueRemove
     if (!advanceId && !removeId) return
@@ -596,7 +648,7 @@ export function researchView() {
   })
 
   function renderLibrary(catalog) {
-    const host = MODULES[1].el.querySelector('[data-research-library]')
+    const host = moduleEl('library').querySelector('[data-research-library]')
     host.innerHTML = !catalog?.ok
       ? unavailableMarkup('Corpus catalog', catalog?.reason)
       : !Array.isArray(catalog.value) || catalog.value.length === 0
@@ -607,7 +659,7 @@ export function researchView() {
   }
 
   function renderMethods(notes) {
-    const host = MODULES[2].el.querySelector('[data-research-methods]')
+    const host = moduleEl('methods').querySelector('[data-research-methods]')
     host.innerHTML = !notes?.ok
       ? unavailableMarkup('Method notes', notes?.reason)
       : !Array.isArray(notes.value) || notes.value.length === 0
@@ -620,7 +672,7 @@ export function researchView() {
   }
 
   function renderWorklists(data) {
-    const host = MODULES[3].el.querySelector('[data-research-worklists]')
+    const host = moduleEl('worklists').querySelector('[data-research-worklists]')
     host.innerHTML = `
       <div class="research-register-row">
         <h3>Findings</h3>
@@ -660,6 +712,230 @@ export function researchView() {
     renderWorklists(data)
   }
 
+  /* ---------- the experiment bench ----------
+     Specs and results live in the research_experiments account row through
+     src/research-experiments.js, which also owns the dispatcher and the
+     module-level results listener. This view only renders snapshots and
+     forwards presses; nothing here holds worker state of its own. */
+
+  let experimentsSignedOut = false
+
+  async function readExperimentsRow() {
+    if (!account?.getSetting) { experimentsSignedOut = true; seedExperiments({ experiments: [], damaged: false }); return }
+    let read = null
+    try { read = await account.getSetting(RESEARCH_EXPERIMENTS_ROW_KEY) } catch {}
+    if (!read || read.ok !== true) {
+      experimentsSignedOut = true
+      seedExperiments({ experiments: [], damaged: false })
+      return
+    }
+    experimentsSignedOut = false
+    seedExperiments(parseExperimentsRow(typeof read.value === 'string' ? read.value : null))
+  }
+
+  async function persistExperiments(serialized) {
+    if (!account?.putSetting) return { ok: false, sentence: 'Sign in to keep experiments — they belong to your account.' }
+    let result = null
+    try { result = await account.putSetting(RESEARCH_EXPERIMENTS_ROW_KEY, serialized) } catch {}
+    if (!result || result.ok !== true) return { ok: false, sentence: 'That was not saved. Sign in, then try it again.' }
+    return { ok: true }
+  }
+
+  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed' })
+
+  function cellDuration(cell) {
+    if (!Number.isFinite(cell.startedAtMs) || !Number.isFinite(cell.endedAtMs)) return ''
+    const seconds = Math.max(0, Math.round((cell.endedAtMs - cell.startedAtMs) / 1000))
+    return `${seconds}s`
+  }
+
+  function tierWord(id) {
+    return TIER_CHOICES.find(choice => choice.id === id)?.label || id
+  }
+
+  function renderDesigner() {
+    const host = moduleEl('designer').querySelector('[data-research-designer]')
+    if (!host) return
+    if (experimentsSignedOut) {
+      host.innerHTML = '<p class="research-observed-empty">Sign in to design experiments — they are kept with your account.</p>'
+      return
+    }
+    const { experiments, damaged } = experimentsSnapshot()
+    const damagedNote = damaged
+      ? '<p class="research-unavailable projection-unavailable">Your saved experiments could not be read. New ones will overwrite the unreadable record.</p>'
+      : ''
+    const list = experiments.length === 0
+      ? '<p class="research-observed-empty">No experiments are designed yet.</p>'
+      : `<ol class="research-catalog">${experiments.map(experiment => `
+          <li class="research-report" data-research-experiment="${esc(experiment.id)}">
+            <div class="research-report-body">
+              <div class="research-report-head">
+                <h3>${esc(experiment.name)}</h3>
+                <dl class="research-report-meta">
+                  <div><dt>cells</dt><dd>${experiment.cells.length}</dd></div>
+                  <div><dt>tiers</dt><dd>${esc([...new Set(experiment.cells.map(cell => cell.tier))].join(', '))}</dd></div>
+                </dl>
+              </div>
+              <div class="research-context"><p>${esc(experiment.promptTemplate.slice(0, 200))}</p></div>
+              ${experiment.datasetPath ? `<p class="research-authorization"><strong>Dataset:</strong> ${esc(experiment.datasetPath)}</p>` : ''}
+              <div class="research-queue-controls">
+                <button type="button" data-exp-run="${esc(experiment.id)}">Run on the tree</button>
+                <button type="button" data-exp-remove="${esc(experiment.id)}">Remove</button>
+              </div>
+            </div>
+          </li>`).join('')}</ol>`
+    host.innerHTML = `
+      <form class="research-queue-form" data-exp-form>
+        <input name="name" maxlength="120" placeholder="Name this experiment." aria-label="Experiment name"/>
+        <textarea name="promptTemplate" maxlength="2000" rows="3" placeholder="The task each worker runs. Write {dataset} where the dataset path belongs." aria-label="Task template"></textarea>
+        <input name="datasetPath" maxlength="400" placeholder="Dataset path on this computer, if the task reads one. Workers read it under their own permissions." aria-label="Dataset path"/>
+        <div class="research-designer-tiers" role="group" aria-label="Model tiers">
+          ${TIER_CHOICES.map(choice => `
+            <label class="research-popover-row"><input type="checkbox" name="tier" value="${esc(choice.id)}" ${choice.id === DEFAULT_TIER ? 'checked' : ''}/><span>${esc(choice.label)}</span></label>`).join('')}
+        </div>
+        <div class="research-queue-form-row">
+          <label class="research-popover-row">Runs per tier
+            <select name="runsPerTier"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+          </label>
+          <button type="submit">Save the experiment</button>
+          <span class="research-queue-form-status" data-exp-form-status role="status"></span>
+        </div>
+      </form>
+      ${damagedNote}${list}`
+  }
+
+  function renderRunBoard() {
+    const host = moduleEl('runboard').querySelector('[data-research-runboard]')
+    if (!host) return
+    const { experiments } = experimentsSnapshot()
+    const active = experiments.filter(experiment => experiment.cells.some(cell => cell.status !== 'designed'))
+    if (active.length === 0) {
+      host.innerHTML = '<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>'
+      return
+    }
+    host.innerHTML = active.map(experiment => `
+      <div class="research-runboard-exp" data-runboard-exp="${esc(experiment.id)}">
+        <h3>${esc(experiment.name)}</h3>
+        <div class="research-runboard-cells">
+          ${experiment.cells.map(cell => `
+            <span class="research-cell is-${esc(cell.status)}">${esc(tierWord(cell.tier))} · run ${cell.run} · ${esc(CELL_WORD[cell.status] || cell.status)}${cellDuration(cell) ? ` · ${cellDuration(cell)}` : ''}</span>`).join('')}
+        </div>
+        <p class="research-observed-empty">The workers are nodes on the computers page — watch them stream there.</p>
+      </div>`).join('')
+  }
+
+  function renderResults() {
+    const host = moduleEl('results').querySelector('[data-research-results]')
+    if (!host) return
+    const { experiments } = experimentsSnapshot()
+    const finished = experiments.filter(experiment => experiment.cells.some(cell => cell.status === 'finished' || cell.status === 'failed'))
+    if (finished.length === 0) {
+      host.innerHTML = '<p class="research-observed-empty">No results have arrived yet.</p>'
+      return
+    }
+    host.innerHTML = finished.map(experiment => `
+      <div class="research-results-exp" data-results-exp="${esc(experiment.id)}">
+        <div class="research-report-head">
+          <h3>${esc(experiment.name)}</h3>
+          <div class="research-queue-controls">
+            <button type="button" data-results-csv="${esc(experiment.id)}">Copy as CSV</button>
+            <button type="button" data-results-json="${esc(experiment.id)}">Copy as JSON</button>
+          </div>
+        </div>
+        <div class="research-results-scroll"><table class="research-results-table">
+          <thead><tr><th>tier</th><th>run</th><th>state</th><th>took</th><th>answer</th></tr></thead>
+          <tbody>
+            ${experiment.cells.map(cell => `
+              <tr><td>${esc(cell.tier)}</td><td>${cell.run}</td><td>${esc(cell.status)}</td><td>${esc(cellDuration(cell) || '—')}</td><td>${esc(cell.replyExcerpt || '—')}</td></tr>`).join('')}
+          </tbody>
+        </table></div>
+        <p class="research-queue-form-status" data-results-status="${esc(experiment.id)}" role="status"></p>
+      </div>`).join('')
+  }
+
+  function experimentExport(experiment, format) {
+    if (format === 'json') {
+      return JSON.stringify({ name: experiment.name, cells: experiment.cells.map(cell => ({ tier: cell.tier, run: cell.run, status: cell.status, startedAtMs: cell.startedAtMs, endedAtMs: cell.endedAtMs, reply: cell.replyExcerpt })) }, null, 2)
+    }
+    const escape = value => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const rows = [['tier', 'run', 'status', 'startedAtMs', 'endedAtMs', 'reply']]
+    for (const cell of experiment.cells) rows.push([cell.tier, cell.run, cell.status, cell.startedAtMs, cell.endedAtMs, cell.replyExcerpt])
+    return rows.map(row => row.map(escape).join(',')).join('\n')
+  }
+
+  function renderExperimentModules() {
+    renderDesigner()
+    renderRunBoard()
+    renderResults()
+  }
+
+  moduleEl('designer').addEventListener('submit', async event => {
+    if (!event.target?.hasAttribute?.('data-exp-form')) return
+    event.preventDefault()
+    const form = event.target
+    const status = form.querySelector('[data-exp-form-status]')
+    const built = buildExperiment({
+      name: form.elements.name.value,
+      promptTemplate: form.elements.promptTemplate.value,
+      datasetPath: form.elements.datasetPath.value,
+      tiers: [...form.querySelectorAll('input[name="tier"]:checked')].map(input => input.value),
+      runsPerTier: Number(form.elements.runsPerTier.value),
+    }, experimentsSnapshot())
+    if (!built.ok) { if (status) status.textContent = built.sentence; return }
+    const saved = await persistExperiments(built.serialized)
+    if (!saved.ok) { if (status) status.textContent = saved.sentence; return }
+    seedExperiments({ experiments: built.next.experiments, damaged: false })
+    renderExperimentModules()
+  })
+
+  moduleEl('designer').addEventListener('click', async event => {
+    const runId = event.target?.dataset?.expRun
+    const removeId = event.target?.dataset?.expRemove
+    if (runId) {
+      event.target.disabled = true
+      event.target.textContent = 'Starting the workers…'
+      const outcome = await dispatchExperiment(runId, {
+        agent: typeof window === 'undefined' ? null : window.mcAgent,
+        persist: serialized => account.putSetting(RESEARCH_EXPERIMENTS_ROW_KEY, serialized),
+        startAgent: startAgentForNode,
+      })
+      if (!outcome.ok) {
+        event.target.disabled = false
+        event.target.textContent = outcome.sentence
+        return
+      }
+      renderExperimentModules()
+      return
+    }
+    if (removeId) {
+      const result = removeExperiment(experimentsSnapshot(), removeId)
+      if (!result.ok) { event.target.textContent = result.sentence; return }
+      const saved = await persistExperiments(result.serialized)
+      if (!saved.ok) { event.target.textContent = saved.sentence; return }
+      seedExperiments({ experiments: result.next.experiments, damaged: false })
+      renderExperimentModules()
+    }
+  })
+
+  moduleEl('results').addEventListener('click', async event => {
+    const csvId = event.target?.dataset?.resultsCsv
+    const jsonId = event.target?.dataset?.resultsJson
+    if (!csvId && !jsonId) return
+    const id = csvId || jsonId
+    const experiment = experimentsSnapshot().experiments.find(candidate => candidate.id === id)
+    if (!experiment) return
+    const status = moduleEl('results').querySelector(`[data-results-status="${id}"]`)
+    try {
+      await navigator.clipboard.writeText(experimentExport(experiment, csvId ? 'csv' : 'json'))
+      if (status) status.textContent = 'Copied. Paste it where you need it.'
+    } catch {
+      if (status) status.textContent = 'Select the table and copy it by hand — the clipboard refused this copy.'
+    }
+  })
+
+  const onExperimentsChanged = () => { if (!destroyed) renderExperimentModules() }
+  window.addEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)
+
   /* ---------- boot ---------- */
 
   mountLayout()
@@ -674,6 +950,10 @@ export function researchView() {
       renderQueueModuleLive()
     })
 
+    readExperimentsRow().then(() => {
+      if (!destroyed) renderExperimentModules()
+    })
+
     fetchResearch().then(result => {
       if (destroyed) return
       if (!result.ok) { renderUnavailable(result.reason); return }
@@ -684,6 +964,11 @@ export function researchView() {
   } else {
     renderResearchQueue(SAMPLE_QUEUE)
     renderProjection({ data: SAMPLE_PROJECTION })
+    seedExperiments({ experiments: [SAMPLE_EXPERIMENT], damaged: false })
+    renderRunBoard()
+    renderResults()
+    const designerHost = moduleEl('designer').querySelector('[data-research-designer]')
+    if (designerHost) designerHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to design experiments of your own.</p>'
     root.dataset.projectionState = 'simulated'
     root.setAttribute('aria-busy', 'false')
   }
@@ -694,6 +979,7 @@ export function researchView() {
       destroyed = true
       document.removeEventListener('pointerdown', onDocPointer)
       document.removeEventListener('keydown', onDocKey)
+      window.removeEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)
       layout?.destroy()
     },
   }

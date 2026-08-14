@@ -69,6 +69,37 @@ export const FLEET_TREES_RECORD_VERSION = 1
 const STORAGE_KEY_BASE = 'mc.fleet.trees.v1'
 export const fleetTreesStorageKey = computerId => `${STORAGE_KEY_BASE}:${computerId}`
 
+/* WHO HOLDS A LIVE STORE, so nobody else writes beside it.
+ *
+ * A store instance persists the WHOLE record on every mutation. Two live
+ * instances over one computer id therefore clobber each other's writes blob
+ * for blob — the second writer silently discards everything the first added
+ * since it loaded. Views never overlap (one route is mounted at a time), but
+ * the research dispatcher's module-level results listener outlives every view
+ * and files worker outcomes whenever a turn completes. This registry is how
+ * it knows whether a view's instance is live: if one is, the listener leaves
+ * the tree to that view's own event wiring; if none is, the listener may open
+ * a transient instance, write, and drop it. */
+const liveStores = new Map()
+
+export function markTreeStoreLive(computerId) {
+  const id = typeof computerId === 'string' ? computerId : ''
+  if (!id) return () => {}
+  liveStores.set(id, (liveStores.get(id) || 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const count = liveStores.get(id) || 0
+    if (count <= 1) liveStores.delete(id)
+    else liveStores.set(id, count - 1)
+  }
+}
+
+export function isTreeStoreLive(computerId) {
+  return liveStores.has(typeof computerId === 'string' ? computerId : '')
+}
+
 /* THE FIVE STATES, AND WHY THERE ARE FIVE.
  *
  *   draft      created by pressing a placeholder, and given a role and a

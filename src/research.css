@@ -381,3 +381,60 @@
   cursor: pointer;
 }
 .research-queue-controls button:hover { color: var(--ink); border-color: var(--ink-3); }
+
+/* ---------- the experiment bench: designer tiers, run board, results ---------- */
+.research-designer-tiers { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.research-designer-tiers .research-popover-row { font-size: 12.5px; }
+.research-queue-form select {
+  margin-left: 6px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  padding: 3px 6px;
+}
+.research-runboard-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
+.research-runboard-exp:first-child { border-top: none; }
+.research-runboard-exp h3 { margin: 0 0 8px; color: var(--ink); font-size: 14px; font-weight: 610; }
+.research-runboard-cells { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.research-cell {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.research-cell.is-running { border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent); }
+.research-cell.is-finished { color: var(--ink); }
+.research-cell.is-failed { border-style: dashed; color: var(--ink-3); }
+.research-results-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
+.research-results-exp:first-child { border-top: none; }
+.research-results-exp h3 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 610; }
+.research-results-scroll { overflow-x: auto; margin-top: 8px; }
+.research-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.research-results-table th {
+  text-align: left;
+  padding: 4px 10px 4px 0;
+  color: var(--ink-25);
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line-2);
+}
+.research-results-table td {
+  padding: 6px 10px 6px 0;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.research-results-table td:last-child { color: var(--ink-3); max-width: 48ch; }
