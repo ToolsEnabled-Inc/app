@@ -20,6 +20,10 @@ import { fetchResearch } from '../live-status.js'
 import { GUIDE_ACTION } from '../first-run-needs.js'
 import { createMetricsLayout } from '../metrics-layout.js'
 import { createResearchRegistry } from '../research-modules.js'
+/* Single-line on purpose: research-queue-degradation.test.mjs re-evaluates
+   this module with every `^import` LINE stripped, so a wrapped import would
+   leave its tail behind as garbage. */
+import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
 import { isLiveView } from '../live-flags.js'
 import '../research.css'
 
@@ -158,7 +162,7 @@ async function fetchResearchQueue({ fetchImpl = fetch } = {}) {
   return { ok: true, items, rejected }
 }
 
-function queueItemMarkup(item) {
+function queueItemMarkup(item, controls = '') {
   const status = item.status === 'in-progress' ? 'in progress' : item.status
   const provenance = item.provenance.replace(/-/g, ' ')
   return `
@@ -174,7 +178,7 @@ function queueItemMarkup(item) {
         <div class="research-context">
           <p>${esc(item.observation)}</p>
         </div>
-        <p class="research-authorization"><strong>Research:</strong> ${esc(item.researchQuestion)}</p>
+        <p class="research-authorization"><strong>Research:</strong> ${esc(item.researchQuestion)}</p>${controls}
       </div>
     </li>`
 }
@@ -469,6 +473,128 @@ export function researchView() {
     host.innerHTML = researchQueueMarkup(result)
   }
 
+  /* ---------- the writable queue (live mode) ----------
+     The shipped catalog renders read-only; the researcher's own notes and the
+     status overrides for shipped items live in ONE account row
+     (research_queue, src/research-queue-store.js). The two halves fail
+     independently: a broken shipped file still shows your notes, and a
+     signed-out session still shows the shipped catalog with a sentence in
+     place of the form. */
+
+  const account = typeof window === 'undefined' ? null : window.mcAccount
+  let queueRow = { items: [], statusOverrides: {}, damaged: false }
+  let queueSignedOut = false
+  let authoredQueue = null
+
+  async function readQueueRow() {
+    if (!account?.getSetting) { queueSignedOut = true; return }
+    let read = null
+    try { read = await account.getSetting(RESEARCH_QUEUE_ROW_KEY) } catch {}
+    if (!read || read.ok !== true) {
+      queueSignedOut = true
+      return
+    }
+    queueSignedOut = false
+    queueRow = parseQueueRow(typeof read.value === 'string' ? read.value : null)
+  }
+
+  async function persistQueueRow(serialized) {
+    if (!account?.putSetting) return { ok: false, sentence: 'Sign in to keep notes — they belong to your account.' }
+    let result = null
+    try { result = await account.putSetting(RESEARCH_QUEUE_ROW_KEY, serialized) } catch {}
+    if (!result || result.ok !== true) {
+      return { ok: false, sentence: 'That was not saved. Sign in, then try it again.' }
+    }
+    return { ok: true }
+  }
+
+  function queueControlsMarkup(item) {
+    const to = nextStatus(item.status)
+    return `
+      <div class="research-queue-controls">
+        ${to ? `<button type="button" data-queue-advance="${esc(item.id)}" data-queue-status="${esc(item.status)}" data-queue-own="${item.own ? 'true' : 'false'}">Move to ${esc(to === 'in-progress' ? 'in progress' : to)}</button>` : ''}
+        ${item.own ? `<button type="button" data-queue-remove="${esc(item.id)}">Remove</button>` : ''}
+      </div>`
+  }
+
+  function queueFormMarkup() {
+    if (queueSignedOut) {
+      return '<p class="research-observed-empty">Sign in to write notes here — they are kept with your account.</p>'
+    }
+    return `
+      <form class="research-queue-form" data-queue-form>
+        <input name="title" maxlength="240" placeholder="What did you notice? A short title." aria-label="Title"/>
+        <textarea name="observation" maxlength="2000" rows="2" placeholder="The observation, in your words." aria-label="Observation"></textarea>
+        <textarea name="researchQuestion" maxlength="1000" rows="2" placeholder="The question that would settle it." aria-label="Research question"></textarea>
+        <div class="research-queue-form-row">
+          <button type="submit">Add to the queue</button>
+          <span class="research-queue-form-status" data-queue-form-status role="status"></span>
+        </div>
+      </form>`
+  }
+
+  function renderQueueModuleLive() {
+    const host = MODULES[0].el.querySelector('[data-research-queue]')
+    if (!host) return
+    const authoredItems = authoredQueue?.ok ? authoredQueue.items : []
+    const rejected = authoredQueue?.ok ? authoredQueue.rejected : []
+    const merged = mergeQueueForRender(authoredItems, queueRow)
+    const shippedNote = authoredQueue && !authoredQueue.ok
+      ? unavailableMarkup('The shipped research queue', authoredQueue.reason)
+      : ''
+    const rejectionNote = rejected.length === 0 ? '' : `
+      <aside class="research-unavailable research-queue-rejections" data-research-queue-rejections role="status">
+        <p><strong>${esc(`${rejected.length} shipped queue ${rejected.length === 1 ? 'item was' : 'items were'} rejected.`)}</strong></p>
+        <ol>${rejected.map(item => `
+          <li>Source index ${esc(item?.index)}${typeof item?.id === 'string' ? ` · id ${esc(item.id)}` : ''}: ${esc(item?.reason || 'invalid queue item')}</li>`).join('')}
+        </ol>
+      </aside>`
+    const damagedNote = queueRow.damaged
+      ? '<p class="research-unavailable projection-unavailable">Your saved notes could not be read, so only the shipped queue is shown. New notes will overwrite the unreadable ones.</p>'
+      : ''
+    const list = merged.length === 0
+      ? '<p class="research-observed-empty">No research items are queued.</p>'
+      : `<ol class="research-catalog" data-research-queue-list>${merged.map(item => queueItemMarkup(item, queueControlsMarkup(item))).join('')}</ol>`
+    host.dataset.queueState = 'ready'
+    host.setAttribute('aria-busy', 'false')
+    host.innerHTML = `${queueFormMarkup()}${damagedNote}${shippedNote}${rejectionNote}${list}`
+  }
+
+  MODULES[0].el.addEventListener('submit', async event => {
+    if (!event.target?.hasAttribute?.('data-queue-form')) return
+    event.preventDefault()
+    const form = event.target
+    const status = form.querySelector('[data-queue-form-status]')
+    const built = buildOwnItem({
+      title: form.elements.title.value,
+      observation: form.elements.observation.value,
+      researchQuestion: form.elements.researchQuestion.value,
+    }, queueRow)
+    if (!built.ok) { if (status) status.textContent = built.sentence; return }
+    const saved = await persistQueueRow(built.serialized)
+    if (!saved.ok) { if (status) status.textContent = saved.sentence; return }
+    queueRow = { ...built.next, damaged: false }
+    renderQueueModuleLive()
+  })
+
+  MODULES[0].el.addEventListener('click', async event => {
+    const advanceId = event.target?.dataset?.queueAdvance
+    const removeId = event.target?.dataset?.queueRemove
+    if (!advanceId && !removeId) return
+    const result = advanceId
+      ? advanceItem(queueRow, {
+          id: advanceId,
+          own: event.target.dataset.queueOwn === 'true',
+          currentStatus: event.target.dataset.queueStatus,
+        })
+      : removeOwnItem(queueRow, removeId)
+    if (!result.ok) { event.target.textContent = result.sentence; return }
+    const saved = await persistQueueRow(result.serialized)
+    if (!saved.ok) { event.target.textContent = saved.sentence; return }
+    queueRow = { ...result.next, damaged: false }
+    renderQueueModuleLive()
+  })
+
   function renderLibrary(catalog) {
     const host = MODULES[1].el.querySelector('[data-research-library]')
     host.innerHTML = !catalog?.ok
@@ -539,10 +665,13 @@ export function researchView() {
   mountLayout()
 
   if (liveMode) {
-    fetchResearchQueue().then(result => {
-      if (!destroyed) renderResearchQueue(result)
-    }, error => {
-      if (!destroyed) renderResearchQueue({ ok: false, reason: error?.message || String(error) })
+    Promise.all([
+      fetchResearchQueue().catch(error => ({ ok: false, reason: error?.message || String(error) })),
+      readQueueRow(),
+    ]).then(([authored]) => {
+      if (destroyed) return
+      authoredQueue = authored
+      renderQueueModuleLive()
     })
 
     fetchResearch().then(result => {

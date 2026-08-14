@@ -331,3 +331,53 @@
 /* the engine tucks its tray under the bar's hairline (margin-top: -20px in
    metrics-layout.css); the bar's 12px bottom padding keeps that overlap in
    the hairline zone rather than over the buttons */
+
+/* ---------- the writable queue: form and item controls ---------- */
+.research-queue-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: var(--s3);
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.research-queue-form input,
+.research-queue-form textarea {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+.research-queue-form input:focus-visible,
+.research-queue-form textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.research-queue-form-row { display: flex; align-items: center; gap: 10px; }
+.research-queue-form-row button {
+  padding: 4px 12px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 640;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-queue-form-row button:hover { color: var(--ink); border-color: var(--ink-3); }
+.research-queue-form-status { font-size: 12.5px; color: var(--ink-3); }
+.research-queue-controls { display: flex; gap: 8px; margin-top: 8px; }
+.research-queue-controls button {
+  padding: 2px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-3);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-queue-controls button:hover { color: var(--ink); border-color: var(--ink-3); }
