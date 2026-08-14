@@ -8,17 +8,20 @@
   right: var(--s4);
   bottom: var(--s4);
   z-index: 190;
-  max-width: min(560px, calc(100vw - var(--s5) * 2));
+  max-width: min(420px, calc(100vw - var(--s5) * 2));
   padding: var(--s2) var(--s3);
   border: 1px solid var(--line-2);
   border-left: 3px solid var(--s-warn);
-  background: color-mix(in oklab, var(--bg) 94%, transparent);
+  /* OPAQUE, deliberately. The 94%-mix let 6% of whatever body copy sat under
+     this fixed panel bleed through the blur — which read not as a toast over a
+     page but as two pieces of text printed on each other (owner screenshot,
+     2026-08-13). A floating notice earns its float by covering cleanly. */
+  background: var(--bg);
   box-shadow: var(--elev-1);
   color: var(--ink-2);
   font-size: 12.5px;
   line-height: 1.45;
   text-decoration: none;
-  backdrop-filter: blur(12px);
 }
 
 .fleet-profile-notice.is-serious { border-left-color: var(--s-serious); }

@@ -208,7 +208,13 @@ export const SETTINGS = [
   { id: 'scenario_tick_rate', section: 'Data & Sim', name: 'Demonstration speed', desc: 'How fast the demonstration fleet generates new activity (its scenario tick rate).', depth: 1, type: 'range', min: 30, max: 300, step: 5, unit: '%', def: 100 },
   { id: 'seed_mode', section: 'Data & Sim', name: 'Seed mode', desc: 'Whether the demonstration replays the same history every time (stable) or varies it (varied).', depth: 1, type: 'seg', options: ['stable', 'varied'], def: 'stable' },
   { id: 'retain_samples', section: 'Data & Sim', name: 'Retain samples on navigation', desc: 'Keep a page’s demonstration data when you navigate away and come back.', depth: 1, type: 'toggle', def: true },
-  { id: 'offline_fallback', section: 'Data & Sim', name: 'Offline fallback', desc: 'When live data cannot be read, show the built-in demonstration instead.', depth: 1, type: 'toggle', def: true },
+  /* 'offline_fallback' was removed 2026-08-13 rather than left as a row: it was
+     declared here and read by NOTHING in the tree, so the toggle moved and
+     changed no behavior — a control that looks real and is not, the exact
+     defect class the owner has ruled on ("a user setting needs registry,
+     enforcement, and a control, or it's a lie"). If a demonstration fallback
+     for unreadable live data is ever wanted, it gets built first and its row
+     returns with a reader. */
   ...LIVE_VIEW_FLAGS.map(flag => ({
     id: `live_${flag.id}`,
     section: 'Data & Sim',

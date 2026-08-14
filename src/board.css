@@ -764,3 +764,14 @@
    genuine profile failure is never hidden, on any surface. */
 body[data-route="computers"]:has(.computers[data-live-mode="simulated"])
   .fleet-profile-notice:not(.is-serious) { display: none; }
+
+/* AND ON A LIVE BOARD WITH REAL NODES ON IT. The rule above assumed a live
+   board could only be showing absent projection data, where the notice earns
+   its place. Measured 2026-08-13 (owner screenshot): the live board was full
+   of the person's OWN agents — a real session, a real reply — under a banner
+   asserting "some screens show example data", which read as the product
+   calling its own real work fake. A populated live board is the person's own
+   data by construction; the notice stays only for the empty live board, the
+   one state where pointing at Settings still helps. */
+body[data-route="computers"]:has(.computers[data-live-mode="live"] .static-tree-node)
+  .fleet-profile-notice:not(.is-serious) { display: none; }

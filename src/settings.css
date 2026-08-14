@@ -66,6 +66,14 @@
    restyled. */
 body:has(#drawer.open) .fleet-profile-notice { display: none; }
 
+/* AND NOT ON TOP OF THE SETTINGS PAGE EITHER — the notice's own href points at
+   #/settings, so on that route it is a nag standing on its own destination.
+   Measured 2026-08-13 (owner screenshot): it painted over the System section's
+   "Your account" row, semi-transparent, swallowing the row's clicks. Same
+   remedy as the drawer above, same reasoning: on this route it has nothing to
+   add that the page it covers is not already saying. */
+body[data-route="settings"] .fleet-profile-notice { display: none; }
+
 .settings-shell {
   width: 100%;
   max-width: var(--page-max);
