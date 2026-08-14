@@ -67,7 +67,10 @@ const DEFAULT_REPO = path.resolve(HERE, '..', '..') // wt-installer
 // The literal that used to be here named the owner in this file's own source,
 // which is the leak this lane exists to close one step further upstream: a
 // hardcoded home path is owner data in the tool as well as in what it emits.
-const DEFAULT_STAGING_ROOT = path.join(os.homedir(), 'Desktop', 'MACHINE-A-INSTALLER-CANDIDATE')
+// Under Desktop\agentwork because the 2026-08-14 Desktop reorganization moved
+// the candidates there and emptied the old bare-Desktop folder; the old
+// default silently recreated a stray Desktop root on the next cut.
+export const DEFAULT_STAGING_ROOT = path.join(os.homedir(), 'Desktop', 'agentwork', 'MACHINE-A-INSTALLER-CANDIDATE')
 const DEFAULT_TEST_STAGING_ROOT = path.join(os.tmpdir(), 'release-packager-test-candidates')
 
 function parseArgs(argv) {

@@ -6,6 +6,7 @@
   "main": "shell/main.cjs",
   "author": "ToolsEnabled, Inc. in formation",
   "scripts": {
+    "doctor": "node tools/check-environment.mjs",
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
     "test": "node tools/check-test-inputs.mjs && node tools/check-suites-discovered.mjs && npm run test:data",
     "test:data": "node --test --test-concurrency=1 tools/test/*.test.mjs",

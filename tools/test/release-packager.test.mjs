@@ -534,3 +534,22 @@ test("assertStagingFree throws on an occupied slot on disk and passes on a fresh
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+// THE STAGING DEFAULT MUST NEVER AGAIN BE A BARE DESKTOP CHILD.
+//
+// The 2026-08-14 Desktop reorganization moved the installer candidates into
+// Desktop\agentwork and emptied the old bare-Desktop folder; the old default
+// then silently recreated a stray Desktop root on the next cut. This pins the
+// corrected default so a future edit cannot drift it back without failing here.
+test("the default staging root lives under Desktop\agentwork, not as a bare Desktop child", async () => {
+  const { DEFAULT_STAGING_ROOT } = await import("../release-packager/cut-release-candidate.mjs");
+  const parts = DEFAULT_STAGING_ROOT.split(path.sep);
+  const desktopAt = parts.findIndex((p) => p.toLowerCase() === "desktop");
+  assert.notEqual(desktopAt, -1, "staging default should live under the user's Desktop");
+  assert.equal(
+    parts[desktopAt + 1].toLowerCase(),
+    "agentwork",
+    `staging default must sit under Desktop\agentwork; got ${DEFAULT_STAGING_ROOT}`,
+  );
+  assert.equal(parts[parts.length - 1], "MACHINE-A-INSTALLER-CANDIDATE");
+});

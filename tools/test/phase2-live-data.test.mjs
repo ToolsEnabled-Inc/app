@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -19,6 +19,7 @@ import {
   loadAgentProjectionTelemetry,
   projectAgentRelationships,
 } from '../gen-projection-lib.mjs'
+import { canonicalRootForTests } from '../canonical-root.mjs'
 
 // WHERE THE REAL FIXTURE READER COMES FROM.
 //
@@ -28,12 +29,10 @@ import {
 // owner-data rules exist for. tools/test/generator-failures.test.mjs and
 // tools/test/agent-control-target.test.mjs already removed exactly this
 // default and explain the reasoning at length; this file was missed. Resolved
-// the same way they do: the two checkouts are siblings in the normal layout,
-// and MC_CANONICAL_ROOT still wins for a machine that arranges them otherwise.
-// On this machine both forms name the same directory, so nothing about what
-// these tests measure changes.
-const REAL_CANONICAL =
-  process.env.MC_CANONICAL_ROOT?.trim() || resolve(PROJECT_ROOT, '..', 'toolsenabled-current')
+// the same way they now are: tools/canonical-root.mjs discovers the engine by
+// probing the known layouts for a real marker file, and MC_CANONICAL_ROOT
+// still wins for a machine that arranges them otherwise.
+const REAL_CANONICAL = canonicalRootForTests()
 const FIXED_NOW = '2026-08-06T12:00:00.000Z'
 const SENSITIVE_MARKER = 'fixture-sensitive-marker-abcdefghijklmnopqrstuvwxyz123456'
 

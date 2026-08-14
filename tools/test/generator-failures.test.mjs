@@ -9,11 +9,12 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 import { PROJECT_ROOT, readSchema } from '../gen-projection-lib.mjs'
+import { canonicalRootForTests } from '../canonical-root.mjs'
 import { fetchProjection } from '../../src/live-status.js'
 
 // WHERE THE REAL FIXTURE READER COMES FROM, AND WHY THIS IS NOT CANONICAL_ROOT.
@@ -27,11 +28,13 @@ import { fetchProjection } from '../../src/live-status.js'
 // Borrowing that value as a test-fixture location would couple the tests to generator
 // configuration and undo the removal of one developer's Desktop default.
 //
-// So the real fixture checkout is resolved RELATIVELY: the two trees are siblings in a
-// normal layout and no account name is embedded here. MC_CANONICAL_ROOT still wins for
-// machines that arrange the checkouts differently.
-const REAL_CANONICAL =
-  process.env.MC_CANONICAL_ROOT?.trim() || resolve(PROJECT_ROOT, '..', 'toolsenabled-current')
+// So the real fixture checkout is DISCOVERED, not defaulted: tools/canonical-root.mjs
+// probes the known layouts (sibling, then the post-reorg bucket, then the well-known
+// Desktop location) for a real engine marker file, and MC_CANONICAL_ROOT still wins for
+// machines that arrange the checkouts differently. The 2026-08-14 reorg proved why the
+// bare sibling default was not enough: the repo moved, the engine did not, and these
+// suites silently skipped while two of their survivors failed like fresh regressions.
+const REAL_CANONICAL = canonicalRootForTests()
 
 // A SKIP MUST BE LOUD, AND MUST NOT BE THE NORMAL CASE.
 //

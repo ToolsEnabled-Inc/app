@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -19,6 +19,7 @@ import {
   readSchema,
   validateAgainstSchema,
 } from '../gen-projection-lib.mjs'
+import { canonicalRootForTests } from '../canonical-root.mjs'
 
 // WHERE THE FIXTURE READERS COME FROM, AND WHY IT IS NOT CANONICAL_ROOT.
 //
@@ -32,12 +33,13 @@ import {
 // read one person's Desktop. Borrowing it as a test-fixture location coupled a test to
 // the generator's configuration and broke the moment that default was removed.
 //
-// So this resolves the checkout independently, and RELATIVELY: the two trees are
-// siblings, which is true of any clone laid out the normal way and mentions nobody's
-// account. MC_CANONICAL_ROOT still wins when set, for a machine that arranges them
-// differently.
-const CANONICAL_FIXTURE_SOURCE =
-  process.env.MC_CANONICAL_ROOT?.trim() || resolve(PROJECT_ROOT, '..', 'toolsenabled-current')
+// So this resolves the checkout independently, via DISCOVERY: tools/canonical-root.mjs
+// probes the known layouts (sibling, post-reorg bucket, well-known Desktop location) for
+// a real engine marker, mentions nobody's account, and MC_CANONICAL_ROOT still wins when
+// set, for a machine that arranges them differently. The 2026-08-14 reorg is why probing
+// replaced the bare sibling default: the repo moved, the engine did not, and this suite
+// half-skipped while its survivors failed like fresh regressions.
+const CANONICAL_FIXTURE_SOURCE = canonicalRootForTests()
 
 // A SKIP MUST BE LOUD, AND MUST NOT BE THE NORMAL CASE.
 //
