@@ -921,29 +921,46 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
   }
 })
 
+/* The same boundary discipline as mc-agent:start, and it was missing here:
+   without the wrap, a send to a session this run does not hold arrived in the
+   renderer as raw prose ("Unknown sessionId: chat-…"), the code stayed behind
+   as a stripped own-property, and the surface fell back to AGENT_SESSION_FAILED
+   -- which tells the person to try again, the one thing that cannot work. */
 ipcMain.handle('mc-agent:send', async (event, value) => {
   assertTrustedAgentSender(event)
-  const request = parseAgentSend(value)
-  ownedAgentSession(event.sender, request.sessionId)
-  return agentHost.sendTurn(request)
+  try {
+    const request = parseAgentSend(value)
+    ownedAgentSession(event.sender, request.sessionId)
+    return await agentHost.sendTurn(request)
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
 })
 
 ipcMain.handle('mc-agent:interrupt', async (event, value) => {
   assertTrustedAgentSender(event)
-  const request = parseAgentSessionCommand(value)
-  ownedAgentSession(event.sender, request.sessionId)
-  return agentHost.interrupt(request)
+  try {
+    const request = parseAgentSessionCommand(value)
+    ownedAgentSession(event.sender, request.sessionId)
+    return await agentHost.interrupt(request)
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
 })
 
 ipcMain.handle('mc-agent:close', async (event, value) => {
   assertTrustedAgentSender(event)
-  const request = parseAgentSessionCommand(value)
-  const session = ownedAgentSession(event.sender, request.sessionId)
-  const result = await agentHost.closeSession(request)
-  if (agentSessions.get(request.sessionId) === session) {
-    agentSessions.delete(request.sessionId)
+  try {
+    const request = parseAgentSessionCommand(value)
+    const session = ownedAgentSession(event.sender, request.sessionId)
+    const result = await agentHost.closeSession(request)
+    if (agentSessions.get(request.sessionId) === session) {
+      agentSessions.delete(request.sessionId)
+    }
+    return result
+  } catch (error) {
+    throw rendererSafeAgentError(error)
   }
-  return result
 })
 
 /* Boot theme for the first frame: the renderer reports live colours the

@@ -11,6 +11,8 @@ import {
   requeueFront,
   takeNext,
 } from '../../src/session-outbox.js'
+import { refusalCode } from '../../src/agent-availability-copy.js'
+import { startRefusalSentence } from '../../src/fleet-tree-copy.js'
 
 /* The owner's queue: messages written while the agent is busy. The store is
    renderer memory modeled on write-outcomes.js; these pin its contract, and
@@ -105,6 +107,29 @@ test('the compact card is real-sourced or absent, never the simulator', () => {
   const turn = view.slice(view.indexOf('unsubs.push(window.mcAgent.onEvent'))
   assert.ok(turn.indexOf('cardReplies.get(sessionId)') < turn.indexOf('outboxTakeNext(sessionId)'),
     'the card reply is delivered after the drain — the queued send would steal the turn')
+})
+
+test('a send to a session from an earlier run refuses truthfully, not with a retry', () => {
+  const ROOT = resolve(import.meta.dirname, '..', '..')
+  /* Trees are saved on this computer; sessions die with the app. A card send
+     to a node from an earlier run must not say "Try once more" -- retrying a
+     dead session is the one move that can never work. That takes two links:
+     the shell must throw its CODE as the message (own properties are stripped
+     at the IPC boundary), and the tree copy must own a sentence for it. */
+  const shell = readFileSync(resolve(ROOT, 'shell/main.cjs'), 'utf8')
+  for (const channel of ['mc-agent:send', 'mc-agent:interrupt', 'mc-agent:close']) {
+    const handler = shell.slice(shell.indexOf(`ipcMain.handle('${channel}'`))
+    const body = handler.slice(0, handler.indexOf('})'))
+    assert.match(body, /rendererSafeAgentError/,
+      `${channel} throws raw errors across the IPC boundary -- the code is stripped and the message may name paths`)
+  }
+  /* The renderer round-trip, run for real: the code survives extraction and
+     lands on the sentence that says what actually happened. */
+  const code = refusalCode(new Error('MC_AGENT_UNKNOWN_SESSION'))
+  assert.equal(code, 'MC_AGENT_UNKNOWN_SESSION', 'the code no longer survives the message-is-the-code channel')
+  const sentence = startRefusalSentence({ ok: false, code })
+  assert.match(sentence, /Start a new agent/, 'the dead-session refusal lost its next move')
+  assert.ok(!/[Tt]ry once more|[Tt]ry again/.test(sentence), 'the dead-session refusal advises a retry that cannot work')
 })
 
 test('the view drains one message per completed turn, and requeues on refusal', () => {

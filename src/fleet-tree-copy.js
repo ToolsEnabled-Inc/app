@@ -384,6 +384,13 @@ export const START_REFUSAL = Object.freeze({
      wrong costs a person their window and lands them back here. */
   noReasonGiven: 'Nothing was started, and this copy was not told why. Try once more. If it refuses again, close ToolsEnabled, open it, and start from this panel.',
 
+  /* A NODE THAT OUTLIVED ITS SESSION. The tree is saved on this computer and
+     survives closing ToolsEnabled; the agent sessions behind it do not. So a
+     spot from an earlier run still shows its ask and its last reply, and a
+     message written to it reaches a session this run does not hold. Retrying
+     can never deliver it -- the truthful next move is a fresh agent. */
+  sessionGone: 'Start a new agent for this spot. The one it was talking to ended when ToolsEnabled closed, so this message was not sent. Sending again cannot reach it.',
+
   /* A PANEL WIRED TO NOTHING, AND WHY IT MUST NOT BORROW THE SENTENCE ABOVE.
      noReasonGiven says "Try once more", which is right for a start that failed
      once and might not fail twice. This is the other thing: the panel has no
@@ -411,6 +418,7 @@ const REFUSAL_BY_CODE = Object.freeze({
   BRIDGE_ALL_SEATS_BUSY: START_REFUSAL.everyAgentBusy,
   LAUNCH_FANOUT_EXCEEDED: START_REFUSAL.everyAgentBusy,
   AGENT_SESSION_FAILED: START_REFUSAL.noReasonGiven,
+  MC_AGENT_UNKNOWN_SESSION: START_REFUSAL.sessionGone,
 })
 
 /** True when the panel should also offer the Node line beside the sentence. */

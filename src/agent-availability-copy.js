@@ -108,6 +108,13 @@ export const UNAVAILABLE_TEXT = Object.freeze({
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not work out whether an agent can run here, because the question itself was refused. Close ToolsEnabled and open it again',
   AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down, so nothing new will be started. Open it again when you want to start an agent',
   MC_AGENT_INVALID_PAYLOAD: 'ToolsEnabled could not work out whether an agent can run here, because the question itself was refused. Close ToolsEnabled and open it again, and if it keeps refusing, reinstall from a complete build',
+  /* Raised by the shell when a send, interrupt or close names a session this
+     RUN of the app does not hold. The common way to reach it is honest and
+     ordinary: a tree node saved from an earlier run still shows on the canvas,
+     but the session behind it ended when ToolsEnabled closed. "Try once more"
+     was the old fallback here, and retrying is the one thing that can never
+     work -- the truthful move is a fresh agent. */
+  MC_AGENT_UNKNOWN_SESSION: 'the session this was meant for is not open in this copy. Sessions end when ToolsEnabled closes, so nothing was delivered. Start a new agent and ask there',
   /* The three Claude rows in the tier menu are offered so a person can see
      they exist, and refused honestly when picked -- silently starting Codex
      instead of a chosen Claude model is the defect this code closed. The
