@@ -148,7 +148,10 @@ test('the other answer reaches every screen', () => {
   const demonstration = derive({ screens: 'demonstration' }, 'unrestricted')
   assert.deepEqual(Object.values(live.liveFlags), LIVE_IDS.map(() => true))
   assert.deepEqual(Object.values(demonstration.liveFlags), LIVE_IDS.map(() => false))
-  assert.equal(LIVE_IDS.length, 6)
+  /* The canary: 7 = home, computers, agent, metrics, comms, ledger, research.
+     A new screen must raise this ON PURPOSE, here, so a register edit cannot
+     silently widen what one setup answer switches. */
+  assert.equal(LIVE_IDS.length, 7)
 })
 
 /* A typo in the derivation's flag list would leave one flag off at the most

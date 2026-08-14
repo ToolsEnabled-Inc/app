@@ -56,6 +56,7 @@ const PAGE_LIVE_FLAG = Object.freeze({
   metrics: 'metrics',
   comms: 'comms',
   ledger: 'ledger',
+  research: 'research',
 })
 
 const esc = value => String(value ?? '')

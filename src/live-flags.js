@@ -17,6 +17,7 @@ export const LIVE_VIEW_FLAGS = Object.freeze([
   Object.freeze({ id: 'metrics', label: 'Metrics page', domain: 'metrics' }),
   Object.freeze({ id: 'comms', label: 'Comms page', domain: 'ops' }),
   Object.freeze({ id: 'ledger', label: 'Ledger page', domain: 'ledger' }),
+  Object.freeze({ id: 'research', label: 'Research page', domain: 'research' }),
 ])
 
 const IDS = new Set(LIVE_VIEW_FLAGS.map(flag => flag.id))

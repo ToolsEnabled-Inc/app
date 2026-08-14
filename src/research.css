@@ -261,3 +261,73 @@
 @media (prefers-reduced-motion: reduce) {
   .research-page *, .research-page *::before, .research-page *::after { scroll-behavior: auto !important; }
 }
+
+/* ============================================================
+   WORKBENCH CHROME — the modules bar, the Modules popover, and the
+   none-enabled state. Layout edit-mode chrome (tray, grips, ghost) is the
+   engine's own: src/metrics-layout.css.
+   ============================================================ */
+
+.research-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0 12px;
+  border-bottom: 1px solid var(--line-2);
+}
+.research-bar .spacer { flex: 1; }
+
+.research-popover {
+  position: absolute;
+  z-index: 40;
+  margin-top: 4px;
+  min-width: 260px;
+  padding: 12px 14px;
+  background: var(--sheet);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  box-shadow: 0 26px 60px -20px color-mix(in oklab, var(--ink) 34%, transparent);
+}
+.research-popover h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-25);
+  font-weight: 650;
+}
+.research-popover-list { display: flex; flex-direction: column; gap: 6px; }
+.research-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.research-popover-row:hover { color: var(--ink); }
+.research-popover-all {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+}
+.research-popover-all button {
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.research-popover-all button:hover { color: var(--ink); border-color: var(--ink-3); }
+
+.research-none-enabled { padding: var(--s5) 0; }
+
+/* the engine tucks its tray under the bar's hairline (margin-top: -20px in
+   metrics-layout.css); the bar's 12px bottom padding keeps that overlap in
+   the hairline zone rather than over the buttons */

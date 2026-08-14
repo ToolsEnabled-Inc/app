@@ -32,6 +32,7 @@
 // rebuild.
 
 import { el } from './components.js'
+import './metrics-layout.css'
 
 const GRIP = `<svg viewBox="0 0 10 14" aria-hidden="true"><circle cx="3" cy="2.5" r="1.2"/><circle cx="7" cy="2.5" r="1.2"/><circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="3" cy="11.5" r="1.2"/><circle cx="7" cy="11.5" r="1.2"/></svg>`
 
