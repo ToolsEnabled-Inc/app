@@ -737,3 +737,64 @@ test('what a caller reads back cannot be edited under the store', () => {
   assert.throws(() => { current.nodes[0].status = 'running' })
   assert.throws(() => { store.listTrees().push({}) })
 })
+
+/* ---------- detachToNewTree: the drag OUT of a tree, as a verb ---------- */
+
+test('detaching a branch mints a tree and takes the whole branch along', () => {
+  const store = storeOf()
+  const root = store.addNode({ role: 'coordinator', message: 'run the fleet' }).node
+  const mid = store.addNode({ parentId: root.id, role: 'manager', message: 'run a lane' }).node
+  const leaf = store.addNode({ parentId: mid.id, role: 'default', message: 'do the work' }).node
+
+  const out = store.detachToNewTree(mid.id)
+  assert.equal(out.ok, true)
+  assert.notEqual(out.treeId, root.treeId, 'the branch must land in a NEW tree')
+  const after = store.snapshot()
+  const byId = new Map(after.nodes.map(node => [node.id, node]))
+  assert.equal(byId.get(mid.id).parentId, null, 'the detached node is its new tree\'s root')
+  assert.equal(byId.get(mid.id).treeId, out.treeId)
+  assert.equal(byId.get(leaf.id).treeId, out.treeId, 'descendants ride along')
+  assert.equal(byId.get(root.id).treeId, root.treeId, 'the old tree keeps what was not dragged')
+  assert.equal(after.trees.length, 2)
+})
+
+test('detaching a sole root is a no-op accept, not a refusal and not a new id', () => {
+  const store = storeOf()
+  const root = store.addNode({ role: 'coordinator', message: 'solo' }).node
+  const out = store.detachToNewTree(root.id)
+  assert.equal(out.ok, true)
+  assert.equal(out.treeId, root.treeId, 'it already IS its own tree')
+  assert.equal(out.unchanged, true)
+  assert.equal(store.snapshot().trees.length, 1)
+})
+
+test('detaching the last branch of a tree removes the emptied husk', () => {
+  const store = storeOf()
+  const root = store.addNode({ role: 'coordinator', message: 'alone up top' }).node
+  const child = store.addNode({ parentId: root.id, role: 'default', message: 'below' }).node
+  // Detach the ROOT's whole tree? No -- detach the child, then the root is a
+  // sole root; detach the root's branch from a tree that has another member.
+  const out = store.detachToNewTree(child.id)
+  assert.equal(out.ok, true)
+  const after = store.snapshot()
+  assert.equal(after.trees.length, 2, 'old tree still holds the root; new tree holds the child')
+  // Now move the root over too -- its old tree empties and must vanish.
+  const move = store.moveNode(root.id, child.id)
+  assert.equal(move.ok, true)
+  assert.equal(store.snapshot().trees.length, 1, 'a tree left empty is removed, not kept as a husk')
+})
+
+test('detaching refuses at the tree cap with the same sentence the button uses', () => {
+  const store = storeOf()
+  const root = store.addNode({ role: 'coordinator', message: 'first' }).node
+  const child = store.addNode({ parentId: root.id, role: 'default', message: 'second' }).node
+  for (let index = store.snapshot().trees.length; index < 64; index += 1) {
+    const made = store.createTree({ name: `t${index}` })
+    assert.equal(made.ok, true, `tree ${index} should fit under the cap`)
+    const seeded = store.addNode({ treeId: made.tree.id, role: 'default', message: 'hold the tree open' })
+    assert.equal(seeded.ok, true)
+  }
+  const out = store.detachToNewTree(child.id)
+  assert.equal(out.ok, false)
+  assert.match(out.problems[0], /64 trees already/)
+})

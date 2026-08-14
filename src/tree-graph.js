@@ -217,6 +217,7 @@ export class StaticTreeGraph {
     canExtend = null,
     canDrag = null,
     onDropRefused = null,
+    onDetachToNewTree = null,
   } = {}) {
     this.container = container
     this.computer = computer
@@ -249,6 +250,10 @@ export class StaticTreeGraph {
        refuses says WHY in the page's own status line; a wiggle with no words
        reads as a bug, not a rule. */
     this.onDropRefused = typeof onDropRefused === 'function' ? onDropRefused : null
+    /* (nodeId) => boolean — the new-tree slot's drop: detach this branch into
+       its own tree. Injected like onReparent, and for the same reason: the
+       store is the only author of tree shape. */
+    this.onDetachToNewTree = typeof onDetachToNewTree === 'function' ? onDetachToNewTree : null
     /* Deliberately a second map, never merged into `this.nodes`. Everything
        that reads `this.nodes` — the chips, the runtime bindings, the drag and
        reparent path, the selection, the published node count — is written
@@ -686,11 +691,34 @@ export class StaticTreeGraph {
         raw = candidate
       }
     }
+    /* SLOTS ARE DROP TARGETS TOO (owner defect 4). A child slot means "join
+       this family" — the same move as dropping on the parent circle, said at
+       the exact spot the child would land. The new-tree slot is the drag OUT:
+       this branch becomes its own tree. Slots compete in the same
+       nearest-wins field as circles, so whichever target the node is actually
+       closest to lights up. */
+    for (const slot of this.emptySlots.values()) {
+      if (slot.hidden) continue
+      const score = this._dropHit(slot, record)
+      if (score < 0 && score < best) {
+        best = score
+        raw = slot
+      }
+    }
     const draggable = this.canDrag ? this.canDrag(record.agent) : true
+    const isSlot = raw && !raw.agent
+    const slotValid = isSlot && (
+      raw.kind === 'new-tree'
+        ? true
+        : raw.parentId !== record.agent.parentId
+          && raw.parentId !== record.agent.id
+          && !(this.nodes.get(raw.parentId) && this._wouldCycle(record.agent, this.nodes.get(raw.parentId).agent))
+    )
     const valid = raw
       && draggable
-      && raw.id !== record.agent.parentId
-      && !this._wouldCycle(record.agent, raw.agent)
+      && (isSlot
+        ? slotValid
+        : raw.id !== record.agent.parentId && !this._wouldCycle(record.agent, raw.agent))
       ? raw
       : null
     if (this._dropRec && this._dropRec !== valid) this._dropRec.el.classList.remove('drop-ok')
@@ -706,7 +734,20 @@ export class StaticTreeGraph {
     this._dropRec = null
     this._dropRaw = null
 
-    if (target) {
+    if (target && !target.agent) {
+      /* A slot drop. The child slot is the same move as dropping on its
+         parent circle; the new-tree slot detaches the branch into its own
+         tree. Both go through injected callbacks so the STORE stays the only
+         author of tree shape, exactly as onReparent already works. */
+      const changed = target.kind === 'new-tree'
+        ? this.onDetachToNewTree?.(record.id)
+        : this.onReparent?.(record.id, target.parentId)
+      if (changed) {
+        this._clearPosition(record.id)
+        this._layoutNow()
+        return
+      }
+    } else if (target) {
       const changed = this.onReparent
         ? this.onReparent(record.id, target.id)
         : sim.reparentAgent(this.computer, record.id, target.id)
@@ -725,12 +766,16 @@ export class StaticTreeGraph {
          accepted drop that mysteriously changed nothing. */
       if (this.onDropRefused) {
         const nameOf = (rec) => rec?.agent?.name || rec?.agent?.id || 'this agent'
+        const rawIsSlot = !raw.agent
+        const rawParentName = rawIsSlot ? nameOf(this.nodes.get(raw.parentId)) : nameOf(raw)
         if (this.canDrag && !this.canDrag(record.agent)) {
           this.onDropRefused('notDraggable', { name: nameOf(record) })
-        } else if (raw.id === record.agent.parentId) {
-          this.onDropRefused('alreadyUnder', { name: nameOf(record), parent: nameOf(raw) })
-        } else if (this._wouldCycle(record.agent, raw.agent)) {
-          this.onDropRefused('wouldCycle', { name: nameOf(record), target: nameOf(raw) })
+        } else if (rawIsSlot ? raw.parentId === record.agent.parentId : raw.id === record.agent.parentId) {
+          this.onDropRefused('alreadyUnder', { name: nameOf(record), parent: rawParentName })
+        } else if (rawIsSlot
+          ? (this.nodes.get(raw.parentId) && this._wouldCycle(record.agent, this.nodes.get(raw.parentId).agent))
+          : this._wouldCycle(record.agent, raw.agent)) {
+          this.onDropRefused('wouldCycle', { name: nameOf(record), target: rawParentName })
         }
       }
       record.el.classList.add('refuse')
@@ -816,7 +861,8 @@ export class StaticTreeGraph {
   }
 
   _planEmptySlots(agents, fleetLayout) {
-    if (!this.emptySlotsEnabled || this.editMode || this._destroyed) return []
+    /* editMode deliberately NOT in this guard any more — see setEditMode. */
+    if (!this.emptySlotsEnabled || this._destroyed) return []
     const plans = []
     const hasTree = agents.length > 0
     const describe = (kind) => slotWords(kind, hasTree)
@@ -1450,13 +1496,12 @@ export class StaticTreeGraph {
     if (next) {
       this.container.dataset.editMode = 'true'
       this.screenOverlay?.setAttribute('data-edit-mode', 'true')
-      /* Edit mode is for rearranging what exists: nodes become draggable and
-         every circle becomes a possible drop target. A slot is neither — it
-         cannot be dragged and nothing can be dropped on it — so leaving it on
-         the canvas would offer a target that refuses every gesture the mode
-         has just taught. Withdrawn on the way in; _layoutNow on the way out
-         plans them again. */
-      this._syncEmptySlots([], null)
+      /* Slots STAY in edit mode (owner defect 4: "keep the gray + nodes").
+         The old withdrawal's stated reason — "a slot cannot be dropped on" —
+         stopped being true when slot drops became real moves: a child slot
+         accepts a node as moveNode(id, slot.parentId), and the new-tree slot
+         is the drag-out-to-its-own-tree gesture. Withdrawing them would now
+         remove the mode's best drop targets. */
       this.resetZoom()
     } else {
       this.container.removeAttribute('data-edit-mode')

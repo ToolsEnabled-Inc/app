@@ -619,6 +619,10 @@ export const SECOND_TREE = Object.freeze({
   /* A tree added on a computer that already has one. It is not the first-run
      empty state -- this person has done this before -- so it is one line. */
   empty: 'This tree is empty. Press a spot in it to start an agent here.',
+  /* The drag-out gesture's answer, in the move vocabulary the rail already
+     speaks. Named with the node so a person who dropped the wrong thing sees
+     it immediately. */
+  detached: (name) => `${name} is now its own tree. Everything under it came along.`,
 })
 
 /**

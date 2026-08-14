@@ -901,6 +901,41 @@ export function createFleetTreeStore({
     },
 
     /**
+     * The drag OUT of a tree, as a verb: this node and everything under it
+     * become their own tree. The owner's ask, verbatim: nodes should be
+     * "dragged to its own seperate tree". The inverse of the cross-tree move
+     * above, built from the same pieces — treeId restamped across the branch,
+     * a source tree left empty removed rather than kept as an invisible husk
+     * — and refused with createTree's own sentence at the same cap, so the
+     * gesture and the button can never disagree about how many trees fit.
+     */
+    detachToNewTree(nodeId) {
+      const node = nodes.get(nodeId)
+      if (!node) return refuse('That agent is not on this computer.')
+      /* Already a sole root: it IS its own tree, and inventing a fresh id for
+         the same shape would churn every reference for nothing. Accepted, not
+         refused — the gesture's meaning is satisfied. */
+      if (node.parentId == null && nodesOfTree(node.treeId).length === 1 + descendantsOf(node.id).length) {
+        return accept({ node, treeId: node.treeId, unchanged: true })
+      }
+      if (trees.size >= FLEET_TREE_LIMITS.maxTrees) {
+        return refuse(`This computer holds ${FLEET_TREE_LIMITS.maxTrees} trees already. Remove one to add another.`)
+      }
+      const id = mintId('tree')
+      if (id === null) return refuse('Could not make a name for this tree. Try again.')
+      const stamp = now()
+      trees.set(id, Object.freeze({ id, name: null, createdAt: stamp, updatedAt: stamp }))
+      const sourceTreeId = node.treeId
+      for (const movedId of [node.id, ...descendantsOf(node.id)]) {
+        const moved = nodes.get(movedId)
+        if (moved) putNode(moved, { treeId: id })
+      }
+      const result = putNode(nodes.get(node.id), { parentId: null })
+      if (nodesOfTree(sourceTreeId).length === 0) trees.delete(sourceTreeId)
+      return accept({ node: result, treeId: id })
+    },
+
+    /**
      * Every parent this agent could legally move under, as data — the same
      * construction extensionPoints() uses for "+" slots, and for the same
      * reason: a picker built from this list can only offer moves the store

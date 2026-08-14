@@ -1686,6 +1686,23 @@ export function computersView({ initialComputer = null, navigate }) {
           : null
         if (sentence) setOrgStatus(sentence, 'warn')
       },
+      /* The new-tree slot's drop: this branch becomes its own tree. Tree
+         nodes only — the declared fleet has exactly one organisation, and
+         detaching a fleet agent into "another organisation" is not a thing
+         this product does. */
+      onDetachToNewTree: (agentId) => {
+        if (!treeStore?.getNode(agentId)) {
+          setOrgStatus(MOVE_PANEL.mixed, 'refuse', { sticky: true })
+          return false
+        }
+        const out = treeStore.detachToNewTree(agentId)
+        if (!out.ok) {
+          setOrgStatus(out.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
+          return false
+        }
+        setOrgStatus(SECOND_TREE.detached(treeNodeName(out.node)), 'ok')
+        return true
+      },
       /* The compact card: real config or nothing. A node without a session has
          nothing to talk to, so its chip keeps routing to the rail. */
       treeChat: agent => {
