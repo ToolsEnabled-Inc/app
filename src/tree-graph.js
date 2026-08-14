@@ -1450,6 +1450,17 @@ export class StaticTreeGraph {
     }
   }
 
+  /* Repaint ONE chip from the current feed, without the full reconcile.
+     refresh() re-lays the whole canvas — the right tool for structure, far too
+     heavy per streamed token. The caller frame-batches; this stays narrow. */
+  refreshChip(agentId) {
+    if (this._destroyed) return
+    const record = this.nodes.get(agentId)
+    if (!record || !record.chip || record.chatOpen) return
+    this._renderChipPreview(record)
+    this._placeChips()
+  }
+
   _renderChipPreview(record) {
     const preview = record.chip?.querySelector('.chip-preview')
     if (!preview) return
@@ -1481,7 +1492,7 @@ export class StaticTreeGraph {
             same screen twice already -- the rail says "not provided by fleet
             projection" in full -- and the chip's own last line says "no
             activity observed". Caught in artifacts/b7, not by an assertion. */''}
-      ${facts ? `<div class="cl cl-facts">${escapeMarkup(facts)}</div>` : '<div class="cl cl-facts">telemetry unavailable</div>'}
+      ${facts ? `<div class="cl cl-facts">${escapeMarkup(facts)}</div>` : (feed.chat || feed.previous ? '' : '<div class="cl cl-facts">telemetry unavailable</div>')}
       ${feed.current ? `<div class="cl cl-current">${escapeMarkup(feed.current)}</div>` : ''}
       ${feed.previous ? `<div class="cl cl-previous">${escapeMarkup(feed.previous)}</div>` : ''}
       ${feed.chat ? `<div class="cl cl-chat">› ${escapeMarkup(feed.chat)}</div>` : ''}

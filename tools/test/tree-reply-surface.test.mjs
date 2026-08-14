@@ -76,6 +76,34 @@ test('the rail renders the said panel from the copy module, for sessions only', 
     'the said box must exist only for nodes that hold a session; a draft node has nothing to have said')
 })
 
+test('the chip is a context window, never a telemetry card, for tree nodes', () => {
+  /* Owner, 2026-08-13: "I dont see anything just nonsense. Its supposed to be
+     a context window." The nonsense was deterministic: chat hardcoded null,
+     statusNote cleared on success, so every successful run printed "nothing
+     has run for this agent yet" under "telemetry unavailable". These pin the
+     repair's three load-bearing pieces. */
+  const view = read('src/views/computers.js')
+  const feed = view.slice(view.indexOf('function treeContextFeed'), view.indexOf('function treeContextFeed') + 2200)
+  assert.ok(!/chat:\s*null/.test(feed), 'treeContextFeed hardcodes chat null again — the context window went dark')
+  assert.match(feed, /sessionTurnText\.get\(node\.sessionId\)/, 'the chip no longer streams the turn in flight')
+  assert.match(feed, /nodeReplies\.get\(node\.id\) \|\| node\.reply/, 'the chip no longer shows the persisted reply')
+  assert.match(feed, /asked: /, 'the chip no longer shows what was asked')
+
+  const graph = read('src/tree-graph.js')
+  assert.match(graph, /feed\.chat \|\| feed\.previous \? '' :/,
+    'the telemetry-unavailable fallback is unconditional again — it prints over real context')
+  assert.match(graph, /refreshChip\(agentId\)/, 'the narrow one-chip repaint is gone; streaming cannot reach the glass')
+  assert.match(view, /scheduleChipRefresh\(/, 'nothing schedules chip repaints from the event stream')
+  assert.match(view, /requestAnimationFrame\(/, 'chip repaints are not frame-batched')
+})
+
+test('the role menu says what a person can observe, not an internal lease', () => {
+  const source = read('src/org-controls.js')
+  assert.ok(!/reserve work/.test(source.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'the option label asserts the reserve-work mechanic again — no customer surface exhibits it')
+  assert.match(source, /can be given jobs/, 'the enforced flag lost its observable-consequence label')
+})
+
 test('the said panel copy is whole, plain, and actionable', () => {
   for (const [key, sentence] of Object.entries(SAID_PANEL)) {
     assert.equal(typeof sentence, 'string', `${key} is not a sentence`)

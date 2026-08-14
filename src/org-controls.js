@@ -107,7 +107,12 @@ export const REVISION_CONFLICT_ADVICE = 'Another window changed the organisation
    dispatching work AND are prevented from reserving it; a custom role with no
    base is prevented too. Offering a role in a menu turns its description into a
    promise, so the enforced half travels with it everywhere the role is named. */
-export const claimLabel = (role) => role?.enforced?.mayClaimWork ? 'can reserve work' : 'cannot reserve work'
+/* The label says the consequence a person can SEE, not the mechanism. "Can
+   reserve work" named an internal lease no customer surface exhibits — the
+   dropdown asserted a mechanic nobody could observe, twice per option. The
+   enforced flag itself still travels on the role detail card, where there is
+   room for its sentence. */
+export const claimLabel = (role) => role?.enforced?.mayClaimWork ? 'can be given jobs' : 'watch only'
 const claimFlag = (role) => role?.enforced?.mayClaimWork ? 'yes' : 'no'
 
 export const roleOptionLabel = (role) => `${role?.name || role?.id} · ${claimLabel(role)}`
@@ -171,7 +176,7 @@ function roleFactsMarkup(role) {
   return `
     <div class="role-enforced">${enforced}</div>
     <div class="rail-sub">${escapeMarkup(role.summary || 'This role ships no summary.')}</div>
-    ${role.custom ? `<div class="rail-sub">Custom role${role.baseDefaultRole ? ` · based on ${escapeMarkup(role.baseDefaultRole)}` : ' · no base, so it cannot reserve work'}</div>` : ''}
+    ${role.custom ? `<div class="rail-sub">Custom role${role.baseDefaultRole ? ` · based on ${escapeMarkup(role.baseDefaultRole)}` : ' · no base, so it can only watch'}</div>` : ''}
     ${RULE_FIELDS.map(field => `<div class="role-rule"><b>${field.label}</b><span>${escapeMarkup(role[field.key] || 'not stated')}</span></div>`).join('')}
     ${rules}`
 }
@@ -296,14 +301,14 @@ export function buildRoleLibraryBox({ availability, onCreate, onEdit, onReset })
           <div class="rail-sub">Lowercase letters, numbers, hyphen or underscore. It cannot be one of the shipped ids, and "owner", "me" and "act" are reserved because other parts of the product read them as proof that no agent is involved.</div>
           <label class="role-field"><span class="cl">Based on</span>
             <select class="ctl-select" data-field="base" aria-label="Base default role"${disabled ? ' disabled' : ''}>
-              <option value="">No base · cannot reserve work</option>
+              <option value="">No base · watch only</option>
               ${bases.map(id => {
                 const base = roles.find(role => role.id === id)
                 return `<option value="${escapeMarkup(id)}">${escapeMarkup(id)} · ${escapeMarkup(claimLabel(base))}</option>`
               }).join('')}
             </select>
           </label>
-          <div class="rail-sub" data-field="base-note">The base decides what the new role may do. A role with no base cannot reserve work, whatever its wording says.</div>
+          <div class="rail-sub" data-field="base-note">The base decides what the new role may do. A role with no base can only watch, whatever its wording says.</div>
           ${ruleFieldsMarkup(null, { prefix: 'new role', disabled })}
           <div class="rail-sub">All three are required, and each is at most ${MAX_RULE_TEXT} characters.</div>
           <div class="role-actions">
@@ -324,7 +329,7 @@ export function buildRoleLibraryBox({ availability, onCreate, onEdit, onReset })
         <div class="role-body">
           <div class="rail-sub">${escapeMarkup(role.summary || 'This role ships no summary.')}</div>
           ${role.custom
-            ? `<div class="rail-sub">${role.baseDefaultRole ? `Based on ${escapeMarkup(role.baseDefaultRole)}.` : 'No base role, so it cannot reserve work.'}</div>`
+            ? `<div class="rail-sub">${role.baseDefaultRole ? `Based on ${escapeMarkup(role.baseDefaultRole)}.` : 'No base role, so it can only watch.'}</div>`
             : ''}
           ${role.enforced?.singleSeat ? '<div class="rail-sub">Exactly one agent may hold this role.</div>' : ''}
           ${ruleFieldsMarkup(role, { prefix: role.id, disabled })}
@@ -367,7 +372,7 @@ export function buildRoleLibraryBox({ availability, onCreate, onEdit, onReset })
     const base = roles.find(role => role.id === select.value)
     note.textContent = base
       ? `Based on ${base.id}, this role ${claimLabel(base)}. The base decides what the role may do; the wording below only describes it.`
-      : 'The base decides what the new role may do. A role with no base cannot reserve work, whatever its wording says.'
+      : 'The base decides what the new role may do. A role with no base can only watch, whatever its wording says.'
   })
 
   list.addEventListener('click', async (event) => {

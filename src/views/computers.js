@@ -1109,6 +1109,21 @@ export function computersView({ initialComputer = null, navigate }) {
     railSaid.appender.dispose()
     railSaid = null
   }
+  /* The chip repaints once per frame, never per token — the same batching the
+     transcript appender measured its way to. One pending id is enough: one
+     turn streams at a time, and a second node's event simply takes the slot. */
+  let chipRefreshFrame = 0
+  let chipRefreshNodeId = null
+  function scheduleChipRefresh(nodeId) {
+    chipRefreshNodeId = nodeId
+    if (chipRefreshFrame) return
+    chipRefreshFrame = requestAnimationFrame(() => {
+      chipRefreshFrame = 0
+      const id = chipRefreshNodeId
+      chipRefreshNodeId = null
+      if (!destroyed && graph && typeof graph.refreshChip === 'function') graph.refreshChip(id)
+    })
+  }
   /* Why the store might not exist at all: it needs an id for the computer, and a
      browser preview with no fleet has no computer to name. That is a real state
      and it must not be an exception on the way to first paint. The sentence goes
@@ -1308,11 +1323,25 @@ export function computersView({ initialComputer = null, navigate }) {
   function treeContextFeed(agent) {
     const node = agent.treeNode
     if (!node) return liveMode ? projectionMonitorContext(agent) : monitorContextFor(agent)
+    /* THE CONTEXT WINDOW, not a telemetry card. The owner's words for the old
+       shape: "I dont see anything just nonsense" — and he was right by
+       construction: chat was hardcoded null, statusNote is cleared on success,
+       so every successful run printed "nothing has run for this agent yet"
+       under "telemetry unavailable". A tree node KNOWS its context: what was
+       asked (message), what it is doing right now (nodeActivity), what it is
+       saying as it says it (sessionTurnText tail), and what it said
+       (node.reply, persisted). That is what the chip shows. The unavailable
+       sentence remains only as the last resort for a node with no message and
+       no session — a shape addNode cannot produce. */
+    const running = node.status === 'starting' || node.status === 'running'
+    const streaming = node.sessionId ? sessionTurnText.get(node.sessionId) : null
+    const reply = nodeReplies.get(node.id) || node.reply || null
+    const asked = String(node.message || '').split('\n').map(line => line.trim()).find(Boolean) || null
     return {
-      current: treeNodeStatusWord(node),
-      previous: node.statusNote || null,
-      chat: null,
-      unavailable: node.statusNote ? null : 'nothing has run for this agent yet',
+      current: (running && nodeActivity.get(node.id)) || treeNodeStatusWord(node),
+      previous: node.statusNote || (asked ? `asked: ${asked}` : null),
+      chat: streaming ? streaming.slice(-160) : (reply ? reply.slice(0, 160) : null),
+      unavailable: 'nothing has run for this agent yet',
       tasks: null,
       failRate: null,
       model: null,
@@ -2939,6 +2968,7 @@ export function computersView({ initialComputer = null, navigate }) {
           }
           railSaid.appender.push(text)
         }
+        scheduleChipRefresh(sessionNodeIds.get(sessionId))
         return
       }
       const activity = sessionActivityEvent(packet, sessionId)
@@ -2954,6 +2984,7 @@ export function computersView({ initialComputer = null, navigate }) {
             activityHost.removeAttribute('hidden')
           }
         }
+        scheduleChipRefresh(nodeId)
         return
       }
       const status = sessionTurnStatus(packet, sessionId)
@@ -2993,6 +3024,7 @@ export function computersView({ initialComputer = null, navigate }) {
       fetchVersion += 1
       clearTimeout(railDisposeTimer)
       clearTimeout(orgStatusTimer)
+      if (chipRefreshFrame) cancelAnimationFrame(chipRefreshFrame)
       disposeRailSaid()
       clearBoard()
       clearSourceUnsubs()
