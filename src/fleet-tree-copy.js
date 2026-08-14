@@ -224,9 +224,40 @@ export const DEFAULT_TIER = 'luna'
    The empty-turn sentence follows rule 3: it ends with something to do. */
 export const SAID_PANEL = Object.freeze({
   title: 'What it said',
-  waiting: 'No answer yet. This box fills in by itself when the agent finishes.',
+  waiting: 'No answer yet. Words appear here as the agent writes them.',
   emptyTurn: 'The turn finished without any words back. Ask again, or ask for something smaller.',
 })
+
+/* THE RUNNING NARRATION, one line at a time. The engine says what it is doing
+   -- a command starts, a command finishes, a file changes, an approval is
+   wanted -- and this turns that data (sessionActivityEvent in
+   src/agent-session-events.js) into one plain line for the rail. A command is
+   the person's own machine doing something, so the command TEXT rides in the
+   line as data, bounded so a long script cannot swallow the rail. */
+const ACTIVITY_COMMAND_MAX = 120
+export function activityLine(activity) {
+  if (!activity || typeof activity !== 'object') return ''
+  if (activity.kind === 'call') {
+    if (activity.command) {
+      const command = activity.command.length > ACTIVITY_COMMAND_MAX
+        ? `${activity.command.slice(0, ACTIVITY_COMMAND_MAX)}…`
+        : activity.command
+      return `Running a command: ${command}`
+    }
+    if (activity.tool === 'fileChange') return 'Editing files.'
+    return 'Using a tool.'
+  }
+  if (activity.kind === 'result') {
+    if (activity.exitCode === 0) return 'The last command finished.'
+    /* Action first, failure second — and not only for the reader: the checker
+       scans template fragments separately, so a sentence that OPENS with the
+       failure clause presents a dead-end fragment no trailing words can cure. */
+    if (typeof activity.exitCode === 'number') return `Watch here for what the agent tries next — its last command failed with exit code ${activity.exitCode}.`
+    return 'The last step finished.'
+  }
+  if (activity.kind === 'approval') return 'Waiting for an approval before going further.'
+  return ''
+}
 
 /* THE WAIT IS THE PART PEOPLE DISTRUST. A start crosses a background service
    and a program that is not this one, so it is not instant; a spinner with no

@@ -49,12 +49,17 @@ import { refusalCode } from '../agent-availability-copy.js'
 import {
   SAID_PANEL,
   START_REFUSAL,
+  activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
 } from '../fleet-tree-copy.js'
-/* The two readers that decide what a session event is allowed to put on a
-   screen. Same pair the agent page uses; a second reading of the same stream
-   is how one surface comes to be wrong without anybody noticing. */
-import { sessionEventText, sessionTurnStatus } from '../agent-session-events.js'
+/* The readers that decide what a session event is allowed to put on a screen.
+   Same set the agent page uses; a second reading of the same stream is how one
+   surface comes to be wrong without anybody noticing. */
+import { sessionActivityEvent, sessionEventText, sessionTurnStatus } from '../agent-session-events.js'
+/* The frame-batched appender the Controls panel already streams through --
+   measured there, reused here so the rail's "What it said" moves while the
+   turn runs instead of sitting silent until the end. */
+import { createTranscriptAppender } from '../agent-session-transcript.js'
 /* THE TREE A PERSON BUILDS, and the panel they build it in. Neither is this
    file's to own: src/fleet-trees.js holds the structure and its rules, and
    src/agent-compose-panel.js holds the form and its refusals. This view is the
@@ -1066,7 +1071,21 @@ export function computersView({ initialComputer = null, navigate }) {
   const sessionNodeIds = new Map()
   const sessionTurnText = new Map()
   const nodeReplies = new Map()
+  /* The latest narration line per node ("Running a command: …"), cleared when
+     the turn completes -- the reply takes over from there. */
+  const nodeActivity = new Map()
   let currentRailTreeNode = null
+  /* The one live streaming surface: the open rail's "What it said" box, when
+     the shown node's session is mid-turn. Torn down on every rail rebuild --
+     the box it writes into dies with the innerHTML swap. */
+  let railSaid = null
+  const scheduleFrame = cb => requestAnimationFrame(cb)
+  const cancelFrame = id => cancelAnimationFrame(id)
+  function disposeRailSaid() {
+    if (!railSaid) return
+    railSaid.appender.dispose()
+    railSaid = null
+  }
   /* Why the store might not exist at all: it needs an id for the computer, and a
      browser preview with no fleet has no computer to name. That is a real state
      and it must not be an exception on the way to first paint. The sentence goes
@@ -1134,6 +1153,18 @@ export function computersView({ initialComputer = null, navigate }) {
         storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
       })
       treeStoreId = computerId
+      /* RE-LEARN WHOSE ANSWER IS WHOSE. sessionNodeIds used to be written at
+         exactly one line, inside submitCompose -- so leaving this view and
+         coming back orphaned every session this window still owned: the
+         listener's own guard dropped their events, the node never left
+         "starting", and the reply had nowhere to land. Measured 2026-08-13 on
+         the installed build. Every session-bearing node re-registers here; a
+         session that is genuinely gone just never emits again, which is the
+         same silence it had before and costs nothing. */
+      for (const node of treeStore.snapshot().nodes) {
+        if (node.sessionId) sessionNodeIds.set(node.sessionId, node.id)
+        if (node.reply) nodeReplies.set(node.id, node.reply)
+      }
     } catch {
       treeStore = null
       treeStoreId = null
@@ -1176,16 +1207,27 @@ export function computersView({ initialComputer = null, navigate }) {
    */
   function treeAgentRecord(node) {
     const running = node.status === 'running' || node.status === 'starting'
-    const bornAt = running && node.sessionId ? Date.parse(node.createdAt) : NaN
+    /* A node that HELD a session keeps its clock. Measured 2026-08-13: bornAt
+       was granted only while running, and stoppedAt was hardcoded null -- so
+       the moment a real turn completed, the agent that had just run, replied
+       and finished rendered "no signal / no runtime", indistinguishable from
+       one that never existed. A session-bearing node now always carries its
+       start time, and a terminal one carries its stop time (updatedAt is
+       written on the same beat as the terminal status), so the circle shows
+       the run's real duration instead of denying the run happened. */
+    const held = Boolean(node.sessionId)
+    const terminal = node.status === 'finished' || node.status === 'failed'
+    const bornAt = held ? Date.parse(node.createdAt) : NaN
+    const stoppedAt = held && terminal ? Date.parse(node.updatedAt) : NaN
     return {
       id: node.id,
       name: treeNodeName(node),
       role: node.role || 'default',
       declaredRole: node.role || 'default',
       parentId: node.parentId || null,
-      state: running ? 'enabled' : 'not started',
+      state: running ? 'enabled' : terminal ? node.status : 'not started',
       bornAt: Number.isFinite(bornAt) ? bornAt : null,
-      stoppedAt: null,
+      stoppedAt: Number.isFinite(stoppedAt) ? stoppedAt : null,
       tasksDone: null,
       failRate: null,
       provider: null,
@@ -2366,6 +2408,7 @@ export function computersView({ initialComputer = null, navigate }) {
   const TREE_ENGINE_NOTE = 'Agents you start from this tree run on Codex. You pick the model in the start panel; the Claude choices are listed there and say so when they cannot start yet.'
 
   function showTreeNodeControls(node) {
+    disposeRailSaid()
     clearBoard()
     currentRailTreeNode = node
     const role = ROLES[node.role] || ROLES.default
@@ -2378,6 +2421,7 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
           <div class="rail-sub">${escapeMarkup(treeNodeStatusWord(node))}</div>
           ${node.statusNote ? `<div class="rail-sub projection-unavailable">${escapeMarkup(node.statusNote)}</div>` : ''}
+          <div class="rail-sub projection-unavailable" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
         </div>
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What you asked for</span></div>
@@ -2386,7 +2430,7 @@ export function computersView({ initialComputer = null, navigate }) {
         ${node.sessionId ? `
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
-          <div class="rail-sub">${escapeMarkup(nodeReplies.get(node.id) || SAID_PANEL.waiting)}</div>
+          <div class="rail-sub" data-tree-said></div>
         </div>` : ''}
         <div class="board-box board-ctl-box board-ctl-absent">
           <div class="board-box-h"><span class="bh-t">What it runs on</span></div>
@@ -2395,6 +2439,40 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
+    /* THE SAID BOX IS FILLED HERE, NOT IN THE TEMPLATE, because it has three
+       truthful states and two of them are alive: a finished reply (rendered
+       once), a mid-turn stream (the appender, seeded with everything the turn
+       has said so far -- a person opening the rail late must not miss the
+       first half of the answer), and the waiting line for a session that has
+       not spoken yet. */
+    const saidHost = controlsPage.querySelector('[data-tree-said]')
+    if (saidHost) {
+      const reply = nodeReplies.get(node.id)
+      const live = node.sessionId && (node.status === 'starting' || node.status === 'running')
+      if (reply) {
+        saidHost.textContent = reply
+      } else if (live) {
+        const waitingLine = document.createElement('span')
+        waitingLine.className = 'projection-unavailable'
+        waitingLine.textContent = SAID_PANEL.waiting
+        saidHost.appendChild(waitingLine)
+        const appender = createTranscriptAppender({
+          node: saidHost,
+          createTextNode: text => document.createTextNode(text),
+          scheduleFrame,
+          cancelFrame,
+        })
+        railSaid = { nodeId: node.id, appender, waitingLine }
+        const spokenSoFar = sessionTurnText.get(node.sessionId) || ''
+        if (spokenSoFar) {
+          waitingLine.remove()
+          railSaid.waitingLine = null
+          appender.push(spokenSoFar)
+        }
+      } else {
+        saidHost.textContent = SAID_PANEL.waiting
+      }
+    }
     activateRail(controlsPage)
   }
 
@@ -2769,6 +2847,31 @@ export function computersView({ initialComputer = null, navigate }) {
       const text = sessionEventText(packet, sessionId)
       if (text) {
         sessionTurnText.set(sessionId, (sessionTurnText.get(sessionId) || '') + text)
+        /* The open rail streams the same delta it buffers. The waiting line
+           leaves on the first word -- "no answer yet" beside an answer is the
+           kind of stale sentence this page is being cured of. */
+        if (railSaid && railSaid.nodeId === sessionNodeIds.get(sessionId)) {
+          if (railSaid.waitingLine) {
+            railSaid.waitingLine.remove()
+            railSaid.waitingLine = null
+          }
+          railSaid.appender.push(text)
+        }
+        return
+      }
+      const activity = sessionActivityEvent(packet, sessionId)
+      if (activity) {
+        const nodeId = sessionNodeIds.get(sessionId)
+        const line = activityLine(activity)
+        if (!line) return
+        nodeActivity.set(nodeId, line)
+        if (currentRailTreeNode && currentRailTreeNode.id === nodeId) {
+          const activityHost = controlsPage.querySelector('[data-tree-activity]')
+          if (activityHost) {
+            activityHost.textContent = line
+            activityHost.removeAttribute('hidden')
+          }
+        }
         return
       }
       const status = sessionTurnStatus(packet, sessionId)
@@ -2776,11 +2879,19 @@ export function computersView({ initialComputer = null, navigate }) {
       const nodeId = sessionNodeIds.get(sessionId)
       const spoken = (sessionTurnText.get(sessionId) || '').trim()
       sessionTurnText.delete(sessionId)
+      nodeActivity.delete(nodeId)
+      if (railSaid && railSaid.nodeId === nodeId) {
+        railSaid.appender.flushNow()
+        disposeRailSaid()
+      }
       /* A turn that ends having said nothing is a real outcome and must read
          as one; silence in this box would read as the product hanging. */
       nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
       const finished = status === 'completed' ? 'finished' : 'failed'
       if (treeStore) {
+        /* The reply outlives this view: the store keeps it on the node, and the
+           in-memory map above becomes a cache in front of it. */
+        treeStore.setNodeReply(nodeId, spoken || SAID_PANEL.emptyTurn)
         treeStore.setNodeStatus(nodeId, finished, { note: '' })
         refreshTree()
       }
@@ -2800,6 +2911,7 @@ export function computersView({ initialComputer = null, navigate }) {
       fetchVersion += 1
       clearTimeout(railDisposeTimer)
       clearTimeout(orgStatusTimer)
+      disposeRailSaid()
       clearBoard()
       clearSourceUnsubs()
       clearMountedGraph()

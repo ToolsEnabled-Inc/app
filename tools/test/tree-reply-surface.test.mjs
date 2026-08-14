@@ -35,7 +35,7 @@ test('the tree reads the stream only through the shared readers', () => {
      without anybody noticing -- the agent page's CORRECTED note is the measured
      case. The tree must use the same two readers, not its own field reads. */
   const source = read('src/views/computers.js')
-  assert.match(source, /import \{ sessionEventText, sessionTurnStatus \} from '\.\.\/agent-session-events\.js'/)
+  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus \} from '\.\.\/agent-session-events\.js'/)
   assert.ok(!/packet\.event\.text|packet\.text|packet\.delta/.test(source),
     'computers.js reads raw packet fields instead of the shared readers')
 })
@@ -48,13 +48,25 @@ test('a session is mapped to its node at the one place a session is born', () =>
 
 test('the reply is delivered once per turn, never once per token', () => {
   const source = read('src/views/computers.js')
+  /* Two writes are legal and each has one meaning: the handler's, after the
+     turn completes, and the mount rehydration copying the STORE's persisted
+     reply back into the cache. Anything else is a new delivery path. */
   const writes = source.match(/nodeReplies\.set\(/g) || []
-  assert.equal(writes.length, 1, 'nodeReplies must be written in exactly one place, after the turn completes')
+  assert.equal(writes.length, 2, 'nodeReplies is written at exactly two places: turn completion, and store rehydration')
+  assert.match(source, /nodeReplies\.set\(node\.id, node\.reply\)/,
+    'the rehydration write must copy the store\'s persisted reply, not compute one')
   const handler = source.slice(source.indexOf('unsubs.push(window.mcAgent.onEvent'))
   const statusCheck = handler.indexOf('sessionTurnStatus(packet, sessionId)')
   const replyWrite = handler.indexOf('nodeReplies.set(')
   assert.ok(statusCheck !== -1 && replyWrite > statusCheck,
     'the reply is written before the turn-completed check, i.e. per delta -- tens of thousands of one-word messages')
+  /* The stream that MOVES during the turn is the appender, and it must flush
+     before the reply takes over -- a truncated stream beside a complete reply
+     would read as two different answers. */
+  assert.match(handler, /flushNow\(\)/, 'the rail stream is not flushed on turn completion')
+  /* Persistence: the turn's reply must reach the store, not only the cache. */
+  assert.match(handler, /setNodeReply\(nodeId, spoken \|\| SAID_PANEL\.emptyTurn\)/,
+    'the completed reply is no longer persisted on the node')
 })
 
 test('the rail renders the said panel from the copy module, for sessions only', () => {

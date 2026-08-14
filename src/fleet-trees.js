@@ -103,6 +103,11 @@ export const FLEET_TREE_LIMITS = Object.freeze({
   maxRoleChars: 60,
   maxMessageChars: 4000,
   maxNoteChars: 240,
+  /* The agent's own answer, kept on the node so "What it said" survives a
+     restart. Bounded like the message that asked for it; the WRITER trims
+     rather than refuses, because this is machine output — refusing an
+     oversized answer would throw the whole answer away to punish its length. */
+  maxReplyChars: 4000,
   /* THE LOOP GUARD, NOT THE PRODUCT RULE. How many steps a walk up the parents
      may take before it gives up on the data. The rule a person meets is
      TREE_BOUNDS.maxDepth at the foot of this file, which is the ENGINE's own
@@ -332,6 +337,11 @@ export function parseFleetTrees(value, { computerId = null } = {}) {
       message,
       status,
       statusNote,
+      /* Forgiving on purpose, unlike the structural fields around it: a reply
+         is display text, not shape. An absent one is the empty answer (records
+         written before the field existed), and an oversized one is trimmed
+         rather than costing the person their whole saved forest. */
+      reply: typeof entry.reply === 'string' ? entry.reply.slice(0, FLEET_TREE_LIMITS.maxReplyChars) : '',
       sessionId,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
@@ -722,6 +732,7 @@ export function createFleetTreeStore({
         message: cleanMessage,
         status: 'draft',
         statusNote: '',
+        reply: '',
         sessionId: null,
         createdAt: stamp,
         updatedAt: stamp,
@@ -837,6 +848,22 @@ export function createFleetTreeStore({
         return refuse('Detach the session before turning this agent back into a draft.')
       }
       return accept({ node: putNode(node, { status, statusNote }) })
+    },
+
+    /**
+     * Keep what the agent said, on the node that said it.
+     *
+     * Written when a turn completes, so the rail's "What it said" is still
+     * there after a reload — the reply used to live only in a view-closure Map
+     * and evaporated on navigation, which read as the agent never having
+     * answered. Only a node that has held a session can have said anything.
+     */
+    setNodeReply(nodeId, reply) {
+      const node = nodes.get(nodeId)
+      if (!node) return refuse('That agent is not on this computer.')
+      if (node.sessionId === null) return refuse('This agent has never run, so there is nothing it said to keep.')
+      const text = typeof reply === 'string' ? reply.slice(0, FLEET_TREE_LIMITS.maxReplyChars) : ''
+      return accept({ node: putNode(node, { reply: text }) })
     },
 
     /**

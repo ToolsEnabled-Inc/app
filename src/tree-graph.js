@@ -434,6 +434,14 @@ export class StaticTreeGraph {
       if (existing) {
         existing.agent = agent
         existing.el.dataset.parentId = agent.parentId || ''
+        /* THE CIRCLE FOLLOWS THE RECORD IT ALREADY HAS. Measured 2026-08-13 on
+           the installed build: this branch swapped `agent` and stopped, so a
+           node created as a draft kept "no signal / no runtime" for the life of
+           the mount while its real session started, ran and finished -- the
+           status transitions only ever appeared after a full remount. The
+           renderers below skip work when nothing they draw from has changed. */
+        this._renderRuntime(existing)
+        if (!existing.chatOpen) this._renderChipPreview(existing)
         continue
       }
       this._createRecord(agent, !initial || addIds.has(agent.id))
@@ -488,29 +496,7 @@ export class StaticTreeGraph {
     }
     this.nodes.set(agent.id, record)
 
-    const runtime = node.querySelector('.rt')
-    if (Number.isFinite(agent.bornAt)) {
-      if (Number.isFinite(agent.stoppedAt)) {
-        runtime.textContent = fmtRuntime(agent.bornAt, agent.stoppedAt)
-        node.dataset.runtimeState = 'stopped'
-      } else {
-        record.runtimeUnsub = bindRuntime(runtime, () => agent.bornAt)
-        node.dataset.runtimeState = 'running'
-      }
-    } else {
-      /* An empty circle reads as a broken one. The node still knows something
-         true about itself — whether the fleet declares it enabled — so it says
-         that instead of showing nothing, in the caps register, and the layout
-         sizes it for a word rather than for a clock. */
-      node.classList.add('no-telemetry')
-      node.dataset.runtimeState = 'unavailable'
-      const stateWord = agent.state === 'disabled' ? 'disabled'
-        : agent.state === 'enabled' ? 'enabled'
-          : 'no signal'
-      const label = node.querySelector('.node-runtime')
-      label.innerHTML = `<div class="rt-state">${escapeMarkup(stateWord)}</div><div class="rl">no runtime</div>`
-      node.title = `Runtime unavailable · ${agent.projectionUnavailableReason || 'not provided'}`
-    }
+    this._renderRuntime(record)
 
     this._wireNode(record)
     if (this.screenChips) this._makeChip(record)
@@ -1416,6 +1402,54 @@ export class StaticTreeGraph {
     }
   }
 
+  /* Draw the circle's runtime face from record.agent, idempotently. Called at
+     creation AND from _reconcile's existing-node branch, so a status change
+     reaches the glass without a remount. The key skips redraws when nothing
+     this face reads has changed -- _reconcile runs on every store write, and
+     tearing down a ticking clock to rebuild the identical clock would fight
+     the very liveness this exists to show. bindRuntime reads record.agent at
+     tick time, never the creation-time object: the reconciled agent is the one
+     whose clock this is. */
+  _renderRuntime(record) {
+    const agent = record.agent
+    const node = record.el
+    const key = `${agent.bornAt}|${agent.stoppedAt}|${agent.state}|${agent.projectionUnavailableReason || ''}`
+    if (record.runtimeKey === key) return
+    record.runtimeKey = key
+    record.runtimeUnsub?.()
+    record.runtimeUnsub = null
+    const holder = node.querySelector('.node-runtime')
+    if (!holder) return
+    node.classList.toggle('spawning', agent.state === 'spawning')
+    if (Number.isFinite(agent.bornAt)) {
+      node.classList.remove('no-telemetry')
+      node.removeAttribute('title')
+      holder.innerHTML = '<div class="rt">0:00:00</div><div class="rl">Runtime</div>'
+      const runtime = holder.querySelector('.rt')
+      if (Number.isFinite(agent.stoppedAt)) {
+        runtime.textContent = fmtRuntime(agent.bornAt, agent.stoppedAt)
+        node.dataset.runtimeState = 'stopped'
+      } else {
+        record.runtimeUnsub = bindRuntime(runtime, () => record.agent.bornAt)
+        node.dataset.runtimeState = 'running'
+      }
+    } else {
+      /* An empty circle reads as a broken one. The node still knows something
+         true about itself — whether the fleet declares it enabled — so it says
+         that instead of showing nothing, in the caps register, and the layout
+         sizes it for a word rather than for a clock. */
+      node.classList.add('no-telemetry')
+      node.dataset.runtimeState = 'unavailable'
+      const stateWord = agent.state === 'disabled' ? 'disabled'
+        : agent.state === 'enabled' ? 'enabled'
+          : agent.state === 'finished' ? 'finished'
+            : agent.state === 'failed' ? 'failed'
+              : 'no signal'
+      holder.innerHTML = `<div class="rt-state">${escapeMarkup(stateWord)}</div><div class="rl">no runtime</div>`
+      node.title = `Runtime unavailable · ${agent.projectionUnavailableReason || 'not provided'}`
+    }
+  }
+
   _renderChipPreview(record) {
     const preview = record.chip?.querySelector('.chip-preview')
     if (!preview) return
@@ -1465,6 +1499,18 @@ export class StaticTreeGraph {
 
   openChat(record) {
     if (!record.chip || record.chatOpen) return
+    /* A PERSON'S OWN AGENT GETS NO SIMULATOR. buildChat below is the example
+       page's toy — seeded sentences, replies written by this app — and it was
+       measured 2026-08-13 opening on a REAL node: a fabricated conversation
+       painted over a genuinely running session, which the owner read, fairly,
+       as the whole product being fake. The truthful surface for a tree node is
+       its rail — real status, real narration, the real reply, streamed — so
+       the chip routes there through the same callback a node press uses, and
+       fabricates nothing. */
+    if (record.agent.treeNode && typeof this.onOpenControls === 'function') {
+      this.onOpenControls(record.agent)
+      return
+    }
     const chip = record.chip
     const fromWidth = chip.offsetWidth || SCREEN_CHIP_W
     const fromHeight = chip.offsetHeight || SCREEN_CHIP_H
