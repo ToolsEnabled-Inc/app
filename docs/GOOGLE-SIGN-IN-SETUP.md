@@ -1,18 +1,16 @@
 # Sign in with Google — registering the client this product signs in with
 
-> **This is already done — you do not have to do it.** On 2026-08-11 the client
-> below was registered and the packaged build completed a real Google sign-in
-> with it, end to end, session surviving a restart
-> (`node tools/google-signin-live-qa.mjs`, 21/21).
->
-> - project **ToolsEnabled** (`toolsenabled`), no billing
-> - OAuth client **ToolsEnabled desktop sign-in**, type **Desktop app**
-> - id `840383906222-t0jlnp7lmr4377l0ego13oct9murtl5s.apps.googleusercontent.com`
-> - secret in the vault as `product_google_signin_client_secret`
->
-> It was created under `jpinckard95@gmail.com`. The rest of this document is the
-> procedure that was followed — keep it for making another client, moving it to a
-> different Google account, or understanding why each choice is what it is.
+> **The flow is proven; the shipping client is NOT registered yet.** On
+> 2026-08-11 a client in the owner's personal project (`840383906222-…`,
+> secret in the vault as `product_google_signin_client_secret`) completed a
+> real Google sign-in end to end (`node tools/google-signin-live-qa.mjs`,
+> 21/21). That run proved the CODE. It did not produce a client this product
+> can ship: that client lives in the owner's personal project, and this
+> document's own closing paragraph forbids shipping it. Until the product's
+> own Desktop client is registered (the procedure below, ~10 minutes) and its
+> id lands in `config/google-signin.json`, every install honestly reports
+> Google sign-in as not configured — and `tools/check-asar-manifest.mjs`
+> refuses any build that ships the vault client instead.
 
 The flow is built and **tested against Google's own servers**, not against a
 stand-in. What this document describes is registering a Google OAuth client

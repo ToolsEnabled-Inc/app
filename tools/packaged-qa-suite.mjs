@@ -137,6 +137,15 @@ const SETTINGS = new Map([
      cut to the Windows system directories and the profile directories are
      empty, so the start travels the whole way and stops at the last gate. */
   ['agent-start-flow-qa.mjs', { runner: 'node', timeoutMs: 300_000 }],
+  /* Google sign-in against a LOOPBACK test provider (never Google): stages the
+     packaged window, plants a userData test-provider config, and drives the
+     button through PKCE, id-token verification, account mint, and restart
+     survival, plus the refusal lanes and cancelled-sign-in cleanliness. It
+     spends nothing and touches no network by construction. This was the one
+     flow a release could break with no gate noticing -- the shipped config
+     carrier (config/google-signin.json) is enforced by check-asar-manifest,
+     and THIS enforces that the machinery behind it still signs somebody in. */
+  ['google-signin-packaged-qa.mjs', { runner: 'node', timeoutMs: 900_000 }],
   /* The only driver here that opens no window: it starts the shipped payload's
      own capability layer and POSTs real dispatches to it. Measured at ~102s
      (twelve audited dispatches plus a second bridge for the negative control),

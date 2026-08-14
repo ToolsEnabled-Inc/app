@@ -72,6 +72,7 @@
     "files": [
       "dist/**",
       "shell/**",
+      "config/google-signin.json",
       "!tools/**",
       "!node_modules/**"
     ],

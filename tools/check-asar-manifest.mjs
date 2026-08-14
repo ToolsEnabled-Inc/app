@@ -317,6 +317,35 @@ function main() {
   }
   if (skipped.length) console.log(`check-asar-manifest: patterns not enforced (negations/complex globs): ${skipped.join(', ')}`)
 
+  // 3b. The Google sign-in carrier ships with an empty or a PRODUCT client id,
+  //     never the vault project's. The 840383906222 client proved the flow
+  //     against Google's real servers, but it is registered in the owner's
+  //     personal project and docs/GOOGLE-SIGN-IN-SETUP.md forbids shipping it.
+  //     An empty clientId is the honest pre-registration state and passes with
+  //     a printed note; a populated one must be Google-shaped and not the
+  //     forbidden client.
+  const googleEntry = archive.entries.find((entry) => entry.path === 'config/google-signin.json')
+  if (googleEntry) {
+    let googleConfig = null
+    try {
+      googleConfig = JSON.parse(readEntry(archivePath, googleEntry, archive.baseOffset).toString('utf8'))
+    } catch (error) {
+      problems.push(`config/google-signin.json ships but is not valid JSON (${error.message}) -- every install would report the config as unreadable instead of not-configured`)
+    }
+    if (googleConfig) {
+      const clientId = typeof googleConfig.clientId === 'string' ? googleConfig.clientId.trim() : ''
+      if (!clientId) {
+        console.log('check-asar-manifest: google sign-in carrier ships with an empty clientId -- sign-in reports not-configured until the product client is registered (docs/GOOGLE-SIGN-IN-SETUP.md)')
+      } else if (clientId.startsWith('840383906222-')) {
+        problems.push('config/google-signin.json ships the VAULT project\'s OAuth client (840383906222-*). That client is registered in the owner\'s personal project and must never ship; register the product\'s own Desktop client instead.')
+      } else if (!/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(clientId)) {
+        problems.push(`config/google-signin.json ships a clientId that is not in the form Google issues (${clientId.slice(0, 40)}...) -- every install would refuse it as invalid`)
+      } else {
+        console.log('check-asar-manifest: google sign-in ships a product client id')
+      }
+    }
+  }
+
   // 4. The capability layer is an extraResource, so it is NOT in the archive --
   //    it sits beside it. A build that ships the viewer alone is the exact
   //    defect this whole lane exists to close, so its absence is a failure
