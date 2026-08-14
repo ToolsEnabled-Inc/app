@@ -220,7 +220,7 @@
     }
   ],
   "$comment_pinnedSource": [
-    "The 1.0.7 payload is staged from engine ref a02ae59 -- the",
+    "The 1.0.7 payload is staged from engine ref bcbe8f8 -- the",
     "free-cut/r4r5-bridge-and-pin commit: engine 1328292 plus the research",
     "bench bridge routes (task-submit/claim/get/list, role-complete, GET",
     "local-tiers-status). The adoption from bbbcb3b restored the onboarding",
