@@ -323,6 +323,30 @@ export const REWIND_PANEL = Object.freeze({
   failed: 'The rewind did not happen; the conversation is unchanged. Try once more.',
 })
 
+/* THE APPROVAL CARD — rendered only when a request arrives, which today is
+   never (approvalPolicy is 'never' at every tier; the reply path shipped
+   first, by design). Decisions render in words; the identifiers ride
+   underneath as values. */
+export const APPROVAL_PANEL = Object.freeze({
+  title: 'It is asking permission',
+  command: prefix => `It wants to run: ${prefix}`,
+  file: 'It wants to change files.',
+  generic: 'It is asking to go further.',
+  answered: 'Answered. The agent continues from your decision.',
+  failed: 'The answer did not land; the agent is still waiting. Press a choice again.',
+  words: Object.freeze({
+    accept: 'Allow once',
+    acceptForSession: 'Allow for this session',
+    decline: 'Refuse',
+    cancel: 'Cancel this step',
+  }),
+})
+
+export function approvalDecisionWord(decision) {
+  if (APPROVAL_PANEL.words[decision]) return APPROVAL_PANEL.words[decision]
+  return String(decision || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
+}
+
 /* THE MODEL MENU on a running conversation. The engine accepts a model per
    turn, so switching is real and the conversation continues — this is not the
    respawn semantics of starting a new agent. Claude rows are shown so a

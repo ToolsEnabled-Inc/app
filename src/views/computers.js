@@ -52,6 +52,7 @@ import {
   QUEUE_PANEL,
   SAID_PANEL,
   START_REFUSAL,
+  APPROVAL_PANEL, approvalDecisionWord,
   MODEL_PANEL,
   REWIND_PANEL,
   activityLine,
@@ -3431,6 +3432,50 @@ export function computersView({ initialComputer = null, navigate }) {
      Idle agent: the words go now, the node returns to running, and the
      card's reply slot waits for the turn to complete. Either way nothing is
      fabricated: the card only ever shows what was sent and what came back. */
+  /* The approval card: mounted into the controls page only while a request is
+     pending, torn down by its own answer. The details a person needs are the
+     request's own (the command it wants to run); the buttons are exactly the
+     decisions the request named, in words. */
+  function renderApprovalCard(sessionId, approval) {
+    const activityHost = controlsPage.querySelector('[data-tree-activity]')
+    if (!activityHost) return
+    let card = controlsPage.querySelector('[data-tree-approval]')
+    if (!card) {
+      card = document.createElement('div')
+      card.setAttribute('data-tree-approval', '')
+      card.className = 'board-box board-ctl-box'
+      activityHost.after(card)
+    }
+    const command = typeof approval.details?.command === 'string' ? approval.details.command.slice(0, 160) : ''
+    const line = approval.approvalKind === 'commandExecution' && command
+      ? APPROVAL_PANEL.command(command)
+      : approval.approvalKind === 'fileChange'
+        ? APPROVAL_PANEL.file
+        : APPROVAL_PANEL.generic
+    card.innerHTML = `
+      <div class="board-box-h"><span class="bh-t">${escapeMarkup(APPROVAL_PANEL.title)}</span></div>
+      <div class="rail-sub">${escapeMarkup(line)}</div>
+      <div class="ctl-row" data-approval-choices>
+        ${approval.availableDecisions.map(decision => `<button class="ctl-btn" type="button" data-approval-decision="${escapeMarkup(decision)}">${escapeMarkup(approvalDecisionWord(decision))}</button>`).join('')}
+      </div>
+      <output class="rail-sub" role="status" data-approval-out></output>`
+    card.querySelector('[data-approval-choices]').addEventListener('click', async event => {
+      const decision = event.target?.dataset?.approvalDecision
+      if (!decision) return
+      const bridge = typeof window === 'undefined' ? null : window.mcAgent
+      if (!bridge || typeof bridge.answerApproval !== 'function') return
+      let answered = null
+      try { answered = await bridge.answerApproval({ sessionId, approvalId: approval.approvalId, decision }) } catch { answered = null }
+      if (!answered) {
+        const out = card.querySelector('[data-approval-out]')
+        if (out) out.textContent = APPROVAL_PANEL.failed
+        return
+      }
+      card.remove()
+      setOrgStatus(APPROVAL_PANEL.answered, 'ok')
+    })
+  }
+
   function treeCardSend(node, text, { reply, fail }) {
     /* Slash commands are the console's own vocabulary, parsed BEFORE anything
        is sent or queued — /interrupt while busy is exactly when it matters. */
@@ -3573,6 +3618,13 @@ export function computersView({ initialComputer = null, navigate }) {
       const activity = sessionActivityEvent(packet, sessionId)
       if (activity) {
         const nodeId = sessionNodeIds.get(sessionId)
+        if (activity.kind === 'approval' && activity.approvalId) {
+          /* EVENT-DRIVEN: the card exists only while a request is pending.
+             Buttons offer exactly the decisions the request itself named. */
+          if (currentRailTreeNode && currentRailTreeNode.id === nodeId) {
+            renderApprovalCard(sessionId, activity)
+          }
+        }
         const line = activityLine(activity)
         if (!line) return
         nodeActivity.set(nodeId, line)

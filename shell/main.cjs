@@ -1065,6 +1065,26 @@ ipcMain.handle('mc-agent:interrupt', async (event, value) => {
   }
 })
 
+/* THE APPROVAL ANSWER — the reply half of approval_request. approvalPolicy is
+   'never' at every tier, so nothing fires this today; the path exists FIRST,
+   which is the ordering the confinement module's own comment demands before
+   'on-request' may ever be offered. */
+ipcMain.handle('mc-agent:approval-answer', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['sessionId', 'approvalId', 'decision'])
+    const request = {
+      sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
+      approvalId: boundedAgentString(payload.approvalId, 'approvalId', 1024),
+      decision: boundedAgentString(payload.decision, 'decision', 64),
+    }
+    ownedAgentSession(event.sender, request.sessionId)
+    return await agentHost.answerApproval(request)
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
 /* REWIND — fork the session's thread at one of the person's own turns. The
    turnId must be one this session really returned; the host refuses a busy
    session so a rewind can never race the turn it erases. */

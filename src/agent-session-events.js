@@ -55,7 +55,23 @@ export function sessionActivityEvent(packet, sessionId) {
       status: typeof payload.status === 'string' ? payload.status : '',
     }
   }
-  if (event.type === 'approval_request') return { kind: 'approval' }
+  if (event.type === 'approval_request') {
+    /* The whole request rides as FIELDS: the id the reply must name, the kind,
+       the engine's stated decision vocabulary, and the details a person needs
+       to actually decide (the command, the file). Until 2026-08-14 this
+       returned {kind:'approval'} alone — enough to print the waiting line and
+       structurally impossible to answer. */
+    const approval = event.approval && typeof event.approval === 'object' ? event.approval : {}
+    return {
+      kind: 'approval',
+      approvalId: typeof approval.approvalId === 'string' ? approval.approvalId : '',
+      approvalKind: typeof approval.kind === 'string' ? approval.kind : '',
+      availableDecisions: Array.isArray(approval.availableDecisions)
+        ? approval.availableDecisions.filter(decision => typeof decision === 'string' && decision.length <= 64)
+        : [],
+      details: approval.details && typeof approval.details === 'object' ? approval.details : {},
+    }
+  }
   return null
 }
 

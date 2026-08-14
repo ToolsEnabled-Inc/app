@@ -1122,6 +1122,23 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return Object.freeze({ sessionId: session.sessionId, threadId: forked.threadId, turnId: rewindTurnId })
   }
 
+  /* THE APPROVAL REPLY PATH. approvalPolicy is 'never' at every tier, so no
+   * approval fires today — and that ordering is the point: the confinement
+   * module's own comment refused to enable 'on-request' while the host had no
+   * way to answer, because the day one fired the turn would hang forever.
+   * This is the answer path, landed FIRST. Offering 'on-request' is an
+   * install-level settings decision for a later iteration; nothing here
+   * widens anything. The decision string is validated by the adapter against
+   * the request's own vocabulary. */
+  async function answerApproval({ sessionId, approvalId, decision } = {}) {
+    assertOpen()
+    const session = readySession(sessionId)
+    const id = boundedString(approvalId, 'approvalId', 1024, { allowEmpty: false })
+    const chosen = boundedString(decision, 'decision', 64, { allowEmpty: false })
+    session.adapter.answerApproval({ approvalId: id, response: { decision: chosen } })
+    return Object.freeze({ sessionId: session.sessionId, approvalId: id, decision: chosen })
+  }
+
   async function closeSession({ sessionId } = {}) {
     const id = normalizeSessionId(sessionId)
     const session = sessions.get(id)
@@ -1164,6 +1181,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     sendTurn,
     interrupt,
     rewindSession,
+    answerApproval,
     closeSession,
     onEvent,
     closeAll,
