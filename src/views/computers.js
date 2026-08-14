@@ -1449,6 +1449,51 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!graph) return
     graph.computer = graphComputer()
     graph.refresh()
+    refreshTreeSwitch()
+  }
+
+  /* THE TREE SWITCHER (owner defect 5: "buttons to navigate between them").
+     One button per tree, named by treeLabel — the first words the person typed
+     into it — plus Every tree to zoom back out. Rendered only when there are
+     two or more trees: a switcher over one tree is chrome with no decision in
+     it. Rebuilt from listTrees() on every store change, so a tree created,
+     detached or emptied updates the row without anyone remembering to. */
+  function refreshTreeSwitch() {
+    const tools = root.querySelector('.graph-tools')
+    if (!tools) return
+    let host = tools.querySelector('.graph-tree-switch')
+    const trees = treeStore ? treeStore.listTrees() : []
+    if (trees.length < 2) {
+      host?.remove()
+      return
+    }
+    if (!host) {
+      host = document.createElement('div')
+      host.className = 'seg graph-tree-switch'
+      host.setAttribute('role', 'group')
+      host.setAttribute('aria-label', 'Trees on this computer')
+      tools.prepend(host)
+    }
+    host.innerHTML = ''
+    const current = graph?.rootId ? treeStore.getNode(graph.rootId)?.treeId ?? null : null
+    const all = document.createElement('button')
+    all.type = 'button'
+    all.textContent = 'Every tree'
+    all.classList.toggle('on', current === null)
+    all.addEventListener('click', () => { graph?.clearRoot() ; refreshTreeSwitch() })
+    host.appendChild(all)
+    for (const tree of trees) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = treeStore.treeLabel(tree.id)
+      button.classList.toggle('on', current === tree.id)
+      button.addEventListener('click', () => {
+        const treeRoot = treeStore.rootOf(tree.id)
+        if (treeRoot) graph?.setRoot(treeRoot.id)
+        refreshTreeSwitch()
+      })
+      host.appendChild(button)
+    }
   }
 
   /* ---------- the press, the panel, and the start ---------- */
@@ -1759,7 +1804,7 @@ export function computersView({ initialComputer = null, navigate }) {
         setOpenTarget(agent)
         showControls(agent)
       },
-      onRootChange: renderCrumb,
+      onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch() },
       onOverridesChange: syncResetButton,
       /* THE OFFER, AND ONLY WHERE IT CAN BE HONOURED. Empty nodes are drawn on
          the board that reads this computer and are absent from the example one,

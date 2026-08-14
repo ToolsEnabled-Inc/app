@@ -24,6 +24,20 @@ const ROLE_PRIORITY = { coordinator: 6, helper: 5, shadow: 5, manager: 4, defaul
    1.7 stopped short of that on a 1440-wide window. */
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.4
+/* ZOOM-TO-FOCUS (owner defect 1b: "if you zoom too far in, it should focus on
+   the tree that descends from the node closest to your cursor"). Crossing
+   ZOOM_DRILL_AT while zooming IN drills into the record nearest the cursor
+   (within DRILL_RADIUS graph px — past that the wheel is aimed at empty
+   canvas, and drilling into something offscreen would be a jump nobody
+   steered). Falling below ZOOM_DRILL_OUT_AT zooms back OUT of the drill.
+   The two thresholds are apart on purpose — hysteresis is not optional: one
+   shared threshold makes the boundary oscillate drill-in/drill-out on every
+   wheel notch that straddles it. The wheel path resets zoom to 1 after a
+   drill — 1 sits between the thresholds, so the freshly-fitted branch shows
+   whole and neither rule re-fires without a deliberate crossing. */
+const ZOOM_DRILL_AT = 1.6
+const ZOOM_DRILL_OUT_AT = 1.28
+const DRILL_RADIUS = 220
 // Content may be dragged until only this much of it is left on screen; it can
 // never be pushed away entirely, and it is never locked in place either.
 const PAN_KEEP = 160
@@ -654,6 +668,23 @@ export class StaticTreeGraph {
       current = parents.get(current) ?? null
     }
     return false
+  }
+
+  /* The record nearest a graph-space point, within a bound. Serves the
+     zoom-to-focus drill: past the bound the wheel is aimed at empty canvas,
+     and the honest answer is "nothing to focus", not the least-far node. */
+  _nearestRecordTo(graphX, graphY, within = Infinity) {
+    let nearest = null
+    let best = within
+    for (const record of this.nodes.values()) {
+      if (record.el.hidden || this._culled.has(record.id)) continue
+      const distance = Math.hypot(record.x - graphX, record.y - graphY)
+      if (distance < best) {
+        best = distance
+        nearest = record
+      }
+    }
+    return nearest
   }
 
   /* Whether the dragged record, at its current position, is "on" the
@@ -2262,12 +2293,25 @@ export class StaticTreeGraph {
       const graphX = (screenX - this.panX) / this.zoom
       const graphY = (screenY - this.panY) / this.zoom
       const delta = event.deltaMode === 1 ? event.deltaY * 33 : event.deltaY
+      const previous = this.zoom
       const next = clamp(this.zoom * Math.exp(-delta * 0.0022), ZOOM_MIN, ZOOM_MAX)
       this.zoom = next
       this.panX = screenX - graphX * next
       this.panY = screenY - graphY * next
       this._clampPan()
       this._applyZoom()
+      /* Zoom-to-focus: see the constants' comment. Crossings only, so holding
+         the wheel above the threshold does not re-drill on every notch. */
+      if (next >= ZOOM_DRILL_AT && previous < ZOOM_DRILL_AT && !this.rootId) {
+        const nearest = this._nearestRecordTo(graphX, graphY, DRILL_RADIUS)
+        if (nearest) {
+          this.setRoot(nearest.id)
+          this.resetZoom()
+        }
+      } else if (next <= ZOOM_DRILL_OUT_AT && previous > ZOOM_DRILL_OUT_AT && this.rootId) {
+        this.clearRoot()
+        this.resetZoom()
+      }
     }
     this.zoomHost.addEventListener('wheel', this._onWheel, { passive: false })
 

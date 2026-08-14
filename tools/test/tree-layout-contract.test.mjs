@@ -121,3 +121,40 @@ test('the label stack constant and the stylesheet agree', () => {
   // computed from one role line, and a two-line role overflows the reserve.
   assert.match(css, /\.node-role\s*{[^}]*-webkit-line-clamp:\s*1/s, 'the role row is no longer one-line; TREE_LABEL_STACK is now a lie')
 })
+
+test('two trees separate: their roots get the between-family gap, not shoulder packing', () => {
+  // Two 2-node trees. Before treeId grouping, all parentless records keyed
+  // '~orphan' and packed as ONE tight family nobody drew.
+  const nodes = [
+    { id: 'a-root', name: 'First Coordinator', role: 'coordinator', treeId: 'tree-a', bornAt: 1 },
+    { id: 'a-kid', name: 'First worker', role: 'default', parentId: 'a-root', treeId: 'tree-a', bornAt: 1 },
+    { id: 'b-root', name: 'Second Coordinator', role: 'coordinator', treeId: 'tree-b', bornAt: 1 },
+    { id: 'b-kid', name: 'Second worker', role: 'default', parentId: 'b-root', treeId: 'tree-b', bornAt: 1 },
+  ]
+  const result = layoutTree({ nodes, W: 1200, H: 700 })
+  const gapBetweenRoots = Math.abs(result.slots.get('b-root').x - result.slots.get('a-root').x)
+  // Same shape WITHOUT treeIds: the old single-cluster packing, as control.
+  const merged = layoutTree({ nodes: nodes.map(({ treeId, ...rest }) => rest), W: 1200, H: 700 })
+  const mergedGap = Math.abs(merged.slots.get('b-root').x - merged.slots.get('a-root').x)
+  assert.ok(
+    gapBetweenRoots > mergedGap,
+    `tree-separated roots (${gapBetweenRoots}px apart) must stand wider than the orphan-cluster control (${mergedGap}px)`,
+  )
+})
+
+test('the zoom drill keeps its hysteresis: two thresholds, resets between them', () => {
+  const graph = readFileSync(join(SRC, 'tree-graph.js'), 'utf8')
+  const at = graph.match(/const ZOOM_DRILL_AT = ([\d.]+)/)?.[1]
+  const out = graph.match(/const ZOOM_DRILL_OUT_AT = ([\d.]+)/)?.[1]
+  assert.ok(at && out, 'the drill thresholds vanished')
+  assert.ok(Number(out) < Number(at), 'drill-out must sit BELOW drill-in, or the boundary oscillates on every wheel notch')
+  // resetZoom lands the wheel at zoom = 1 after a drill. 1 must sit below
+  // BOTH thresholds: below drill-in so the next inward notch does not
+  // instantly re-drill, and at-or-below drill-out so the un-drill crossing
+  // can only happen from a genuinely zoomed-in state.
+  assert.ok(1 < Number(at), `zoom 1 must sit below the drill-in threshold (${at})`)
+  assert.ok(1 <= Number(out), `zoom 1 must sit at or below drill-out (${out})`)
+  // Crossings only: the drill body must check the PREVIOUS zoom.
+  assert.match(graph, /previous < ZOOM_DRILL_AT/, 'the drill no longer requires an upward crossing')
+  assert.match(graph, /previous > ZOOM_DRILL_OUT_AT/, 'the un-drill no longer requires a downward crossing')
+})

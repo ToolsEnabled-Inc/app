@@ -321,6 +321,12 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
          Absent on every existing caller, so every existing rank keeps the
          id order it has today. */
       orderHint: finite(node?.orderHint ?? node?.agent?.orderHint) ?? 0,
+      /* WHICH TREE a parentless record belongs to, for the grouped packer.
+         Without it every root keyed '~orphan' and unrelated trees packed as
+         one tight cluster — visually a single family that nobody drew (owner
+         defect 5's structural half). Optional: absent on fleet records, whose
+         single organisation has nothing to separate. */
+      treeId: String(node?.treeId ?? node?.agent?.treeId ?? node?.agent?.treeNode?.treeId ?? '') || null,
     }))
     .filter(record => record.id)
   const parents = hierarchyParents(nodes, edges)
@@ -435,7 +441,11 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
     const anchorOf = (record) => {
       const parentId = parents.get(record.id)
       const parentSlot = parentId ? slots.get(parentId) : null
-      return parentSlot ? { key: parentId, x: parentSlot.x } : null
+      if (parentSlot) return { key: parentId, x: parentSlot.x }
+      /* A parentless record groups with its own TREE, so two trees' roots get
+         the wide between-family gap instead of packing shoulder to shoulder
+         as one '~orphan' cluster. No anchor x: a root family centres itself. */
+      return record.treeId ? { key: `tree:${record.treeId}`, x: null } : null
     }
     let visible = list
     let xs = packGroupedXs(visible, width, anchorOf) || packedXs(visible, width)

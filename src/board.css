@@ -806,3 +806,14 @@ body:has([data-agent-compose])
   font-size: 11.5px; line-height: 1.35; color: var(--ink-3);
   font-family: var(--font-mono); font-weight: 400;
 }
+
+/* THE TREE SWITCHER: one seg in the tools strip, present only when a second
+   tree exists. Labels are treeLabel()'s words and can run long; the strip
+   must never push the zoomer off the canvas, so the switcher scrolls inside
+   its own box past ~40% of the canvas width. */
+.graph-tools .graph-tree-switch {
+  max-width: 40%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.graph-tools .graph-tree-switch > button { flex: none; height: 26px; }
