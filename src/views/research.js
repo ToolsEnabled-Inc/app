@@ -972,7 +972,15 @@ export function researchView() {
     const host = moduleEl('tiers').querySelector('[data-research-tiers]')
     if (!host) return
     if (!result?.ok || !result.receipt) {
-      host.innerHTML = unavailableMarkup('The local tiers', result?.reason)
+      /* The refusal CODE is the useful half — the message is a scrubbed
+         generic by design. MODEL_NO_GPU_PEER_CONFIGURED, rendered in words,
+         tells a single-machine researcher exactly what is going on. */
+      const reason = result?.code === 'MODEL_NO_GPU_PEER_CONFIGURED'
+        ? 'no local model host is set up on this computer yet'
+        : typeof result?.code === 'string' && result.code.length > 0
+          ? result.code.toLowerCase().replace(/_/g, ' ')
+          : result?.reason
+      host.innerHTML = unavailableMarkup('The local tiers', reason)
       return
     }
     const receipt = result.receipt
