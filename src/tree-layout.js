@@ -66,7 +66,7 @@ export function treeNodeRadius(node) {
 }
 const radiusOf = treeNodeRadius
 
-function hierarchyParents(nodes, edges) {
+export function hierarchyParents(nodes, edges) {
   const ids = new Set(nodes.map(idOf))
   const parents = new Map()
 

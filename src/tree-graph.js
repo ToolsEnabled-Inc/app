@@ -1,7 +1,7 @@
 import { sim, fmtRuntime } from './sim.js'
 import { ROLES } from './vocab.js'
 import { el, buildChat, bindRuntime, formatInlineText } from './components.js'
-import { layoutTree, TREE_ROLE_RADII, treeNodeRadius } from './tree-layout.js'
+import { layoutTree, TREE_ROLE_RADII, treeNodeRadius, hierarchyParents } from './tree-layout.js'
 /* THE WORDS ON AN EMPTY SLOT ARE NOT WRITTEN HERE. src/fleet-tree-copy.js owns
    every sentence in the start-an-agent-from-the-tree flow — the panel, the
    refusals, the tree names and these two — and it says at length why one flow
@@ -64,6 +64,11 @@ const HIERARCHY_TYPES = new Set(['manages', 'delegates_to', 'hierarchy'])
    SMALLEST a node on this canvas is allowed to be: a slot is subordinate to
    every agent around it by construction, and cannot be shrunk further. */
 const EMPTY_SLOT_RADIUS = 34
+/* The drop threshold's slack beyond exact circle contact. Must keep the hit
+   distance >= the packed non-overlap distance (MIN_AIR in tree-layout.js is
+   2), or an annulus reappears where two nodes visually touch and a release
+   registers on neither. */
+const DROP_SLOP = 8
 /* Sorted out of a crowded rank before any agent (see keepReadable), and placed
    after its own siblings inside its family (see orderHint). An offer is the
    first thing a rank should drop and the last thing a family should list. */
@@ -210,6 +215,8 @@ export class StaticTreeGraph {
     emptySlots = true,
     onEmptyPress = null,
     canExtend = null,
+    canDrag = null,
+    onDropRefused = null,
   } = {}) {
     this.container = container
     this.computer = computer
@@ -230,6 +237,18 @@ export class StaticTreeGraph {
        on a mount that has no such rule, in which case every position is drawn.
        See _planEmptySlots for why the rule is injected and not imported. */
     this.canExtend = typeof canExtend === 'function' ? canExtend : null
+    /* (agent) => boolean — "may this node be picked up at all?". Injected
+       because the graph cannot know the answer: the old inline rule was
+       `role !== 'coordinator'`, and TREE roles are free text — a node a
+       person happened to NAME "coordinator" was silently undraggable. The
+       view owns the data model, so the view supplies the rule; absent, every
+       node drags, which is the honest default for a canvas about moving
+       things. */
+    this.canDrag = typeof canDrag === 'function' ? canDrag : null
+    /* (sentence) => void — where the drag refusals speak. A drop the model
+       refuses says WHY in the page's own status line; a wiggle with no words
+       reads as a bug, not a rule. */
+    this.onDropRefused = typeof onDropRefused === 'function' ? onDropRefused : null
     /* Deliberately a second map, never merged into `this.nodes`. Everything
        that reads `this.nodes` — the chips, the runtime bindings, the drag and
        reparent path, the selection, the published node count — is written
@@ -310,7 +329,19 @@ export class StaticTreeGraph {
       for (const [id, value] of Object.entries(parsed)) {
         const dx = Number(value?.dx)
         const dy = Number(value?.dy)
-        if (Number.isFinite(dx) && Number.isFinite(dy)) clean[id] = { dx, dy }
+        /* v2 ONLY — an override is a nudge RELATIVE TO a slot, and the slot
+           follows the node's parent. A v1 entry {dx,dy} recorded no parent,
+           so after any reparent it displaced the node from its NEW slot by a
+           vector measured against the OLD one: the saved-drag defect behind
+           the stale connector lines (owner defect 2). It cannot be validated
+           retroactively — the parent it was measured under is gone — and
+           keeping it preserves exactly the displacement being fixed, so v1
+           blobs are discarded on read. Costs any hand-arrangement once, said
+           plainly in the release note. */
+        if (value?.v !== 2) continue
+        if (Number.isFinite(dx) && Number.isFinite(dy)) {
+          clean[id] = { v: 2, dx, dy, parentId: value.parentId ?? null, at: Number(value.at) || 0 }
+        }
       }
       return clean
     } catch {
@@ -605,28 +636,59 @@ export class StaticTreeGraph {
   }
 
   _wouldCycle(child, parent) {
-    const byId = new Map((this.computer?.agents || []).map(agent => [agent.id, agent]))
-    let current = parent
+    /* hierarchyParents is the SAME resolver the layout uses, declared edges
+       included — the old inline walk only followed parentId, so a cycle
+       created through a declared manages/delegates_to edge slipped past this
+       check while the layout saw it plainly. One resolver, one answer. */
+    const parents = hierarchyParents(this.computer?.agents || [], this.declaredEdges || [])
+    let current = String(parent.id)
     const seen = new Set()
-    while (current && !seen.has(current.id)) {
-      if (current.id === child.id) return true
-      seen.add(current.id)
-      current = current.parentId ? byId.get(current.parentId) : null
+    while (current && !seen.has(current)) {
+      if (current === String(child.id)) return true
+      seen.add(current)
+      current = parents.get(current) ?? null
     }
     return false
   }
 
+  /* Whether the dragged record, at its current position, is "on" the
+     candidate — the circle, or the LABEL BOX hanging under it. The label is
+     part of what a person sees as the node; a drop released over the name
+     used to fall into dead space and read as a rejected drop. */
+  _dropHit(candidate, record) {
+    const circle = Math.hypot(candidate.x - record.x, candidate.y - record.y)
+      - (candidate.r + record.r + DROP_SLOP)
+    if (circle < 0) return circle
+    const labelHalf = Math.max(candidate.r, 35) + 12
+    const dx = Math.abs(record.x - candidate.x)
+    const dy = record.y - (candidate.y + candidate.r)
+    if (dx <= labelHalf && dy >= 0 && dy <= 7 + 58) return -1
+    return circle
+  }
+
   _updateDropTarget(record) {
+    /* NEAREST wins, not first-in-insertion-order: with the old first-match
+       loop, two nodes standing close meant the drop target was decided by
+       Map insertion order, and the ring lit on a circle the pointer was not
+       even nearest to. And the threshold is candidate.r + record.r +
+       DROP_SLOP — AT LEAST the packed non-overlap distance — so no annulus
+       exists where two nodes visually touch yet nothing registers: the old
+       `record.r * 0.55` factor left exactly that dead ring, which is what
+       made dropping a child on its parent land in nothing (owner defect 3:
+       a MISSED drop, not an accepted one). */
     let raw = null
+    let best = Infinity
     for (const candidate of this.nodes.values()) {
-      if (candidate === record || this._culled.has(candidate.id)) continue
-      if (Math.hypot(candidate.x - record.x, candidate.y - record.y) < candidate.r + record.r * 0.55) {
+      if (candidate === record || this._culled.has(candidate.id) || candidate.el.hidden) continue
+      const score = this._dropHit(candidate, record)
+      if (score < 0 && score < best) {
+        best = score
         raw = candidate
-        break
       }
     }
+    const draggable = this.canDrag ? this.canDrag(record.agent) : true
     const valid = raw
-      && record.agent.role !== 'coordinator'
+      && draggable
       && raw.id !== record.agent.parentId
       && !this._wouldCycle(record.agent, raw.agent)
       ? raw
@@ -657,6 +719,20 @@ export class StaticTreeGraph {
     }
 
     if (raw) {
+      /* A refused drop names its rule. The wiggle alone taught nothing —
+         "possible to drop a child directly on its parent" (owner defect 3)
+         was in fact this branch snapping back wordlessly, which read as an
+         accepted drop that mysteriously changed nothing. */
+      if (this.onDropRefused) {
+        const nameOf = (rec) => rec?.agent?.name || rec?.agent?.id || 'this agent'
+        if (this.canDrag && !this.canDrag(record.agent)) {
+          this.onDropRefused('notDraggable', { name: nameOf(record) })
+        } else if (raw.id === record.agent.parentId) {
+          this.onDropRefused('alreadyUnder', { name: nameOf(record), parent: nameOf(raw) })
+        } else if (this._wouldCycle(record.agent, raw.agent)) {
+          this.onDropRefused('wouldCycle', { name: nameOf(record), target: nameOf(raw) })
+        }
+      }
       record.el.classList.add('refuse')
       const timer = setTimeout(() => {
         this._chatTimers.delete(timer)
@@ -670,9 +746,15 @@ export class StaticTreeGraph {
       return
     }
 
+    /* v2: the nudge remembers WHICH PARENT'S SLOT it was measured against,
+       so a later reparent by any route invalidates it wholesale instead of
+       displacing the node from a slot it was never dragged from. */
     this._positions[record.id] = {
+      v: 2,
       dx: Math.round((record.x - record.slot.x) * 100) / 100,
       dy: Math.round((record.y - record.slot.y) * 100) / 100,
+      parentId: record.agent.parentId ?? null,
+      at: Date.now(),
     }
     this._writePositions()
     this._renderLinks()
@@ -877,7 +959,18 @@ export class StaticTreeGraph {
       record.chipLeaderDot?.classList.toggle('visible', !hidden && !this.editMode)
       if (hidden || preserve.has(record.id)) continue
       record.slot = slot
-      const offset = this._positions[record.id] || { dx: 0, dy: 0 }
+      /* An override is a nudge against THIS parent's slot. If the record's
+         parent has changed since the nudge was saved — reparent by drag, by
+         the Move picker, by the store, any route at all — the override is
+         meaningless and dies here, without each route having to remember to
+         clear it. This is the fix for the stale connector lines (owner
+         defect 2): the line was drawn to slot+offset where offset belonged
+         to a layout that no longer exists. */
+      let offset = this._positions[record.id] || { dx: 0, dy: 0 }
+      if (offset.v === 2 && (offset.parentId ?? null) !== (record.agent.parentId ?? null)) {
+        this._clearPosition(record.id)
+        offset = { dx: 0, dy: 0 }
+      }
       record.x = clamp(slot.x + offset.dx, record.r + 12, this.W - record.r - 12)
       record.y = clamp(slot.y + offset.dy, record.r + 64, this.H - record.r - 58)
       const label = result.labels.get(record.id)
@@ -887,6 +980,37 @@ export class StaticTreeGraph {
       if (label?.maxWidth) record.el.style.setProperty('--nn-max', `${label.maxWidth}px`)
       else record.el.style.removeProperty('--nn-max')
       this._positionRecord(record)
+    }
+    /* An override may not recreate the overlap the packer just removed: a
+       nudged node that would come within MIN_AIR of any other placed record
+       or of an offered slot loses its nudge and returns to its own slot.
+       Checked after every record has its position, because the collision is
+       between FINAL positions, not slots. */
+    for (const record of this.nodes.values()) {
+      if (record.el.hidden || !this._positions[record.id]) continue
+      let collides = false
+      for (const other of this.nodes.values()) {
+        if (other === record || other.el.hidden) continue
+        if (Math.hypot(other.x - record.x, other.y - record.y) < record.r + other.r + 2) {
+          collides = true
+          break
+        }
+      }
+      if (!collides) {
+        for (const plan of plans) {
+          const slot = result.slots.get(plan.id)
+          if (slot && Math.hypot(slot.x - record.x, slot.y - record.y) < record.r + EMPTY_SLOT_RADIUS + 2) {
+            collides = true
+            break
+          }
+        }
+      }
+      if (collides) {
+        this._clearPosition(record.id)
+        record.x = clamp(record.slot.x, record.r + 12, this.W - record.r - 12)
+        record.y = clamp(record.slot.y, record.r + 64, this.H - record.r - 58)
+        this._positionRecord(record)
+      }
     }
     this._syncEmptySlots(plans, result)
     this._renderLinks()
@@ -1239,7 +1363,18 @@ export class StaticTreeGraph {
     // Focus record is left at its old position while every other retained
     // node snaps invisibly to the new deterministic slots.
     this._layoutNow({ preserve: focusRecord ? new Set([focusId]) : new Set() })
-    const targetSlot = focusRecord ? this._layoutResult?.slots.get(focusId) : null
+    let targetSlot = focusRecord ? this._layoutResult?.slots.get(focusId) : null
+    if (focusRecord && !targetSlot) {
+      /* The focus record earned NO slot in the new layout (culled, or
+         filtered out of the subtree). Preserving it anyway froze it at its
+         old coordinates while every connector repainted around it — a stale
+         line to a position no layout owns. Re-lay without the preserve so it
+         is placed or hidden like any other record; the animation below is
+         skipped (no target), and the single _renderLinks at the end paints
+         the truth. */
+      this._layoutNow()
+      targetSlot = this._layoutResult?.slots.get(focusId) ?? null
+    }
     const targetOffset = focusId ? this._positions[focusId] || { dx: 0, dy: 0 } : { dx: 0, dy: 0 }
     const target = focusRecord && targetSlot
       ? {

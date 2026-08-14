@@ -1672,6 +1672,20 @@ export function computersView({ initialComputer = null, navigate }) {
       contextFeed: treeContextFeed,
       edges: liveMode ? computer.graphEdges : null,
       onReparent: liveMode ? handleReparent : null,
+      /* The graph asks, the view answers: tree roles are FREE TEXT, so the
+         graph's old inline `role !== 'coordinator'` rule silently froze any
+         tree node a person happened to name "coordinator". A tree node is
+         draggable, full stop — the store refuses bad moves. Fleet records
+         keep the old rule: the declared coordinator anchors that canvas. */
+      canDrag: agent => Boolean(agent.treeNode) || agent.role !== 'coordinator',
+      /* Refusals speak in the page's own status line, in the copy module's
+         sentences. */
+      onDropRefused: (rule, detail) => {
+        const sentence = typeof MOVE_PANEL[rule] === 'function'
+          ? MOVE_PANEL[rule](detail.name, detail.parent ?? detail.target)
+          : null
+        if (sentence) setOrgStatus(sentence, 'warn')
+      },
       /* The compact card: real config or nothing. A node without a session has
          nothing to talk to, so its chip keeps routing to the rail. */
       treeChat: agent => {
@@ -2617,7 +2631,12 @@ export function computersView({ initialComputer = null, navigate }) {
           <output class="rail-sub" role="status" data-tree-actions-out></output>` : ''}
         </div>
         <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">What you asked for</span></div>
+          <!-- "The brief you started it with", not "what you asked for": this
+               box shows node.message, which is written ONCE at start (no
+               setNodeMessage exists) — while the reply box below shows the
+               LATEST answer, overwritten every turn. The old headings implied
+               the two were one exchange; these say what each really is. -->
+          <div class="board-box-h"><span class="bh-t">The brief you started it with</span></div>
           <div class="rail-sub">${escapeMarkup(node.message || '')}</div>
         </div>
         ${node.sessionId ? `

@@ -223,7 +223,11 @@ export const DEFAULT_TIER = 'luna'
    listener); this is the same repair for the tree rail, with its own register.
    The empty-turn sentence follows rule 3: it ends with something to do. */
 export const SAID_PANEL = Object.freeze({
-  title: 'What it said',
+  /* "Its latest answer", because that is what the box holds: the reply is
+     overwritten every turn, while the brief box above it shows the message
+     written once at start. "What it said" read as the other half of one
+     exchange, and the pairing was false. */
+  title: 'Its latest answer',
   waiting: 'No answer yet. Words appear here as the agent writes them.',
   emptyTurn: 'The turn finished without any words back. Ask again, or ask for something smaller.',
 })
@@ -244,6 +248,12 @@ export const MOVE_PANEL = Object.freeze({
   notSaved: 'The move was not saved. Pick another parent and try again.',
   saved: (name, parent) => `Saved. ${name} now reports to ${parent}.`,
   mixed: 'Your own tree agents and the declared fleet stay separate. Drag a tree agent onto a tree agent, or a fleet agent onto a fleet agent.',
+  /* The drag refusals. A drop that cannot be accepted says WHY in a sentence,
+     never a silent snap-back — a wiggle animation with no words reads as a
+     bug, not a rule. */
+  alreadyUnder: (name, parent) => `${name} already reports to ${parent} — dropping it there changes nothing.`,
+  wouldCycle: (name, target) => `${target} works under ${name}, so ${name} cannot also report to ${target}.`,
+  notDraggable: (name) => `${name} is this tree's coordinator and stays at the top. Move its agents instead.`,
 })
 
 /* THE ACTIONS PALETTE. Every row is an action this build really performs on
@@ -258,8 +268,8 @@ export const PALETTE_PANEL = Object.freeze({
   footer: 'Not possible yet, so not listed: attaching a text file’s contents — mention the file instead, and the agent reads it itself.',
   rewind: 'Rewind to one of your messages',
   rewindHint: 'Goes to the rewind menu on the agent page. The agent forgets everything after the message you pick.',
-  switchModel: 'Switch model for the next message',
-  switchModelHint: 'Goes to the model menu on the agent page. The change rides on your next message; the conversation continues.',
+  switchModel: 'Switch model',
+  switchModelHint: 'Goes to the model menu on the agent page. The change holds until you change it back; the conversation continues.',
   attach: 'Attach an image',
   attachHint: 'Opens a file picker. The picked image rides with your next message.',
   attachPicked: 'Attached. It rides with the next message you send.',
@@ -355,7 +365,12 @@ export function approvalDecisionWord(decision) {
 export const MODEL_PANEL = Object.freeze({
   title: 'What it runs on',
   currentDefault: 'Runs on the model its tier chose when it started.',
-  next: model => `Your next message runs on ${model}. The conversation continues.`,
+  /* STICKY, and the sentence says so. The override map keeps the choice until
+     a person changes it back — "your next message" implied one message and
+     then a revert, which is not what the mechanism does, and clearing the map
+     after one send to match the words would have made the menu's selected
+     state lie in the other direction. The words follow the mechanism. */
+  next: model => `Messages run on ${model} until you change it back. The conversation continues.`,
   keep: 'Keep the tier’s model',
 })
 
