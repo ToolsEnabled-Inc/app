@@ -422,10 +422,17 @@ function codexCommandIsMissing() {
  * redirectors, not a filter: PATH, APPDATA and the rest survive, which is what
  * lets Codex still be found on Windows, and CODEX_HOME is not on the list, so a
  * user who sets their own still gets it at `unrestricted`. */
-function sessionLaunchEnvironment(launchEnvironment, plan, { context }) {
+function sessionLaunchEnvironment(launchEnvironment, plan, { context, extras = null }) {
   const scrubbed = launchEnvironment.safeLaunchEnvironment(process.env, { context })
-  if (!plan.env) return scrubbed
-  return launchEnvironment.assertNoBillingCredentials({ ...scrubbed, ...plan.env }, { context })
+  if (!plan.env && !extras) return scrubbed
+  /* Extras sit UNDER the plan: a settings row may narrow a session (the tool
+     allowlist), but nothing a settings row carries may override what the
+     confinement plan decided. Both layered results still pass the billing
+     assertion, so an extra can never reintroduce what the scrub removed. */
+  return launchEnvironment.assertNoBillingCredentials(
+    { ...scrubbed, ...(extras || {}), ...(plan.env || {}) },
+    { context },
+  )
 }
 
 /**
@@ -665,7 +672,7 @@ function validateStartedSession(value) {
   return value
 }
 
-function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null } = {}) {
+function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null } = {}) {
   const { startCodexSession, engineRoot } = loadEngine(enginePath)
   const fallbackCwd = normalizeCwd(defaultCwd, process.cwd())
   /* Resolved PER SESSION rather than once here, so that changing the permission
@@ -818,10 +825,30 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
      *
      * The context carries NO caller data -- it is rendered into an error message
      * and a session id has no business in one (BLOCKER 2). */
+    /* THE PERSON'S OWN TOOL LIMITS, read per session like the plan is.
+     *
+     * The hook answers {ok:true, env} — env null when nothing narrows — or
+     * {ok:false, code}. A failed read REFUSES the start, for the same reason
+     * an unbuildable plan does: the user recorded a narrower surface, and a
+     * session that cannot read it must not run at the wider one. The absence
+     * of the hook (tests, embedders) narrows nothing. */
+    let envExtras = null
+    if (sessionEnvironmentExtras) {
+      let extrasResult
+      try { extrasResult = sessionEnvironmentExtras() } catch { extrasResult = null }
+      if (!extrasResult || extrasResult.ok !== true) {
+        fail(
+          (extrasResult && extrasResult.code) || 'AGENT_TOOL_LIMITS_UNREADABLE',
+          'The tool limits recorded for this account could not be read, so this session was not started at a wider surface than was chosen.',
+        )
+      }
+      envExtras = extrasResult.env || null
+    }
+
     const sessionEnv = sessionLaunchEnvironment(
       loadLaunchEnvironment(engineRoot),
       plan,
-      { context: 'ToolsEnabled agent session' },
+      { context: 'ToolsEnabled agent session', extras: envExtras },
     )
 
     const session = {

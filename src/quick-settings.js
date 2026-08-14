@@ -113,11 +113,114 @@ function pageRows(routeName) {
      nested in a <label> makes clicking the summary toggle the checkbox, so
      reading about a setting would change it -- which on this particular row
      would silently swap the page between your own records and the example. */
-  return `<label class="set-row set-toggle" title="Show your computer's own records on this page (read from ${esc(flag.domain)}.json). Turn off to see the labelled demonstration instead.">
+  const liveRow = `<label class="set-row set-toggle" title="Show your computer's own records on this page (read from ${esc(flag.domain)}.json). Turn off to see the labelled demonstration instead.">
     <span class="set-label">Live data</span>
     <span class="toggle"><input type="checkbox" data-quick-live="${esc(flag.id)}" ${isLiveView(flag.id) ? 'checked' : ''}/><i></i></span>
   </label>
   ${guidanceMarkup(`live_${flag.id}`, { summary: 'What this shows, and what it risks' })}`
+  /* The research page's settings additionally carry the agent tool switches.
+     The list is async (it comes from the engine registry over IPC), so the
+     markup ships a stated loading line and populateResearchTools() replaces
+     it — never a control that silently does nothing while it waits. */
+  if (routeName !== 'research') return liveRow
+  return `${liveRow}
+  <div class="drawer-tools" data-drawer-tools>
+    <p class="drawer-tools-note">Reading the tool list from this copy's engine.</p>
+  </div>`
+}
+
+/* ---------- the research page's tool switches ----------
+   Persisted as ONE account row, `agent_tools_disabled` (a JSON array of the
+   names switched OFF; the row is removed when nothing is). The enforcement is
+   not here: shell/main.cjs composes TOOLSENABLED_TOOL_ALLOWLIST from the same
+   row at every session start, and the engine's registry enforces it. A
+   checkbox that changed nothing would be the defect the settings doctrine
+   names, so the two halves land together or not at all. */
+
+const TOOLS_DISABLED_KEY = 'agent_tools_disabled'
+
+async function populateResearchTools(host) {
+  const agent = typeof window === 'undefined' ? null : window.mcAgent
+  const account = typeof window === 'undefined' ? null : window.mcAccount
+  if (!agent?.tools || !account?.getSetting) {
+    host.innerHTML = `<p class="drawer-tools-note">This copy cannot list agent tools. Open ToolsEnabled from its installed app to change them.</p>`
+    return
+  }
+  let listed = null
+  let saved = null
+  try { [listed, saved] = await Promise.all([agent.tools(), account.getSetting(TOOLS_DISABLED_KEY)]) } catch {}
+  if (!listed || listed.ok !== true) {
+    host.innerHTML = `<p class="drawer-tools-note">The tool list could not be read from this copy's engine, so nothing here was changed.</p>`
+    return
+  }
+  const signedOut = Boolean(saved && saved.ok === false && saved.code === 'ACCOUNT_NOT_SIGNED_IN')
+  const disabled = new Set()
+  if (saved && saved.ok === true && typeof saved.value === 'string') {
+    try {
+      const parsed = JSON.parse(saved.value)
+      if (Array.isArray(parsed)) for (const name of parsed) if (typeof name === 'string') disabled.add(name)
+    } catch {}
+  }
+  const withheld = listed.tools.filter(tool => !tool.allowed)
+  const switchable = listed.tools.filter(tool => tool.allowed)
+
+  function render() {
+    const offCount = switchable.filter(tool => disabled.has(tool.name)).length
+    host.innerHTML = `
+      <div class="drawer-tools-head">
+        <span class="set-label">Agent tools</span>
+        <span class="drawer-tools-count">${switchable.length} tools · ${offCount} off</span>
+      </div>
+      ${signedOut ? '<p class="drawer-tools-note">Sign in to change these. Tool switches belong to your account, and agents started while signed out get the full surface.</p>' : ''}
+      <div class="drawer-tools-all">
+        <button type="button" data-tools-all-on ${signedOut ? 'disabled' : ''}>Enable all</button>
+        <button type="button" data-tools-all-off ${signedOut ? 'disabled' : ''}>Disable all</button>
+      </div>
+      <div class="drawer-tools-list" role="group" aria-label="Agent tools">
+        ${switchable.map(tool => `
+          <label class="drawer-tools-row">
+            <input type="checkbox" data-tool-name="${esc(tool.name)}" ${disabled.has(tool.name) ? '' : 'checked'} ${signedOut ? 'disabled' : ''}/>
+            <span>${esc(tool.name)}</span>
+          </label>`).join('')}
+      </div>
+      ${withheld.length ? `<p class="drawer-tools-note">${withheld.length} more ${withheld.length === 1 ? 'tool is' : 'tools are'} withheld by this computer's permission level and cannot be switched on here.</p>` : ''}
+      <p class="drawer-tools-note" data-tools-status>Changes apply to agents you start afterwards. Running sessions keep the tools they started with.</p>`
+  }
+
+  async function persist() {
+    const status = host.querySelector('[data-tools-status]')
+    const value = disabled.size === 0 ? null : JSON.stringify([...disabled])
+    let result = null
+    try { result = await account.putSetting(TOOLS_DISABLED_KEY, value) } catch {}
+    if (!result || result.ok !== true) {
+      if (status) status.textContent = 'That change was not saved. Sign in, then set it again.'
+      return false
+    }
+    if (status) status.textContent = 'Saved. Applies to agents you start afterwards; running sessions keep the tools they started with.'
+    announce('agent_tools_disabled', [...disabled].join(','))
+    return true
+  }
+
+  host.addEventListener('change', async event => {
+    const name = event.target?.dataset?.toolName
+    if (!name) return
+    if (event.target.checked) disabled.delete(name)
+    else disabled.add(name)
+    const savedNow = await persist()
+    if (!savedNow) { event.target.checked = !event.target.checked; disabled[event.target.checked ? 'delete' : 'add'](name) }
+    const count = host.querySelector('.drawer-tools-count')
+    if (count) count.textContent = `${switchable.length} tools · ${switchable.filter(tool => disabled.has(tool.name)).length} off`
+  })
+  host.addEventListener('click', async event => {
+    if (event.target?.hasAttribute?.('data-tools-all-on')) {
+      disabled.clear()
+      if (await persist()) render()
+    } else if (event.target?.hasAttribute?.('data-tools-all-off')) {
+      for (const tool of switchable) disabled.add(tool.name)
+      if (await persist()) render()
+    }
+  })
+  render()
 }
 
 /* Each drawer row names the SAME setting id the settings page uses, so both
@@ -231,4 +334,6 @@ export function renderQuickSettings(body, routeName) {
     '<div class="drawer-note">Set here, applied now — the fleet keeps running.</div>',
   ].join('')
   wire(body)
+  const toolsHost = body.querySelector('[data-drawer-tools]')
+  if (toolsHost) populateResearchTools(toolsHost)
 }

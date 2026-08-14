@@ -115,6 +115,11 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      was the old fallback here, and retrying is the one thing that can never
      work -- the truthful move is a fresh agent. */
   MC_AGENT_UNKNOWN_SESSION: 'the session this was meant for is not open in this copy. Sessions end when ToolsEnabled closes, so nothing was delivered. Start a new agent and ask there',
+  /* The two refusals the tool checkboxes can raise at a start. Both refuse
+     rather than widen: a session that cannot read the limits the person
+     recorded must not run without them. */
+  AGENT_TOOL_LIMITS_UNREADABLE: 'the tool limits saved for this account could not be read, so no session was started at a wider surface than you chose. Open the research page settings and set the tool checkboxes again',
+  AGENT_TOOLS_ALL_DISABLED: 'every tool is switched off for this account, and an agent with no tools cannot do anything. Switch at least one tool on in the research page settings, then start again',
   /* The three Claude rows in the tier menu are offered so a person can see
      they exist, and refused honestly when picked -- silently starting Codex
      instead of a chosen Claude model is the defect this code closed. The

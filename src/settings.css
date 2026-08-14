@@ -426,3 +426,42 @@ body.reduce-motion .settings-tier {
     padding-left: var(--s3);
   }
 }
+
+/* ---------- the research drawer's tool switches ---------- */
+.drawer-tools { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.drawer-tools-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.drawer-tools-count { font-size: 12px; color: var(--ink-3); }
+.drawer-tools-all { display: flex; gap: 8px; margin: 8px 0; }
+.drawer-tools-all button {
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.drawer-tools-all button:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.drawer-tools-all button:disabled { opacity: 0.5; cursor: default; }
+.drawer-tools-list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 2px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+}
+.drawer-tools-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.drawer-tools-row:hover { color: var(--ink); }
+.drawer-tools-note { margin: 8px 0 0; font-size: 12px; color: var(--ink-3); }

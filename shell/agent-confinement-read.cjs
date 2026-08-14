@@ -144,10 +144,56 @@ function readAgentConfinement({ capabilityRoot, servicesRoot } = {}) {
   })
 }
 
+/**
+ * The tool surface BY NAME, for the research page's tool checkboxes.
+ *
+ * Same three rules as readAgentConfinement: it starts nothing, it carries no
+ * path (tool names are registry identifiers, never filesystem paths), and it
+ * never guesses ({ok:false, code} when the payload cannot answer). The tier
+ * is resolved through the SAME resolveAgentConfinement the spawn uses, so the
+ * `allowed` flag on each name is the truth about what a session started right
+ * now would be offered -- before the person's own allowlist narrows further.
+ */
+function listAgentTools({ capabilityRoot, servicesRoot } = {}) {
+  const payload = loadPayload(capabilityRoot)
+  if (!payload) return failure('AGENT_CONFINEMENT_UNAVAILABLE')
+
+  let resolved
+  try {
+    resolved = payload.confinement.resolveAgentConfinement(
+      servicesRoot ? { servicesRoot } : {},
+    )
+  } catch {
+    return failure('AGENT_CONFINEMENT_RECORD_UNREADABLE')
+  }
+  if (!resolved || typeof resolved.tier !== 'string') return failure('AGENT_CONFINEMENT_RECORD_UNREADABLE')
+
+  let tools
+  try { tools = payload.registry.registeredTools() } catch { return failure('AGENT_TOOLS_UNREADABLE') }
+  if (!Array.isArray(tools) || tools.length === 0) return failure('AGENT_TOOLS_UNREADABLE')
+
+  let allowedNames = null
+  try {
+    const session = payload.policy.installTierSession(resolved.tier)
+    if (session.tier !== 'full') {
+      allowedNames = new Set(payload.policy.allowedToolNames(tools, session))
+    }
+  } catch { return failure('AGENT_TOOLS_UNREADABLE') }
+
+  const names = []
+  for (const tool of tools) {
+    const name = typeof tool?.name === 'string' ? tool.name : null
+    if (!name) continue
+    names.push(Object.freeze({ name, allowed: allowedNames === null || allowedNames.has(name) }))
+  }
+  names.sort((left, right) => left.name.localeCompare(right.name))
+  return Object.freeze({ ok: true, tier: resolved.tier, total: names.length, tools: Object.freeze(names) })
+}
+
 /** Test seam only. The cache is process-lifetime by design; a suite that swaps
  *  payloads has to be able to clear it. */
 function resetToolCountsCache() {
   toolCountsCache = null
 }
 
-module.exports = { readAgentConfinement, resetToolCountsCache }
+module.exports = { readAgentConfinement, listAgentTools, resetToolCountsCache }

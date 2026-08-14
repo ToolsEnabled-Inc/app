@@ -15,7 +15,7 @@ const path = require('path')
 const fs = require('fs')
 const { randomBytes, randomUUID, createHash } = require('crypto')
 const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
-const { readAgentConfinement } = require('./agent-confinement-read.cjs')
+const { readAgentConfinement, listAgentTools } = require('./agent-confinement-read.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { recordCanonical: recordCanonicalIn } = require('./canonical-audit.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
@@ -809,10 +809,46 @@ function ensureWorkspaceRoot() {
   return WORKSPACE_ROOT
 }
 
+/* THE TOOL CHECKBOXES, ENFORCED — the settings row the research page writes,
+ * read back at the one point every agent child's environment is composed.
+ *
+ * The row is `agent_tools_disabled`: a JSON array of registry tool names the
+ * signed-in person switched OFF. The env var the engine enforces is an
+ * ALLOWLIST, so the composition is registry-minus-disabled — and three
+ * absences all mean "narrow nothing": nobody signed in (settings belong to an
+ * account), no row, an empty list. Two states REFUSE the start instead of
+ * widening it: a damaged read (the person recorded limits this process cannot
+ * see) and every-tool-disabled — the engine reads an EMPTY allowlist string as
+ * the full profile, the exact absence-as-consent inversion its own registry
+ * comment warns about, so that state must never reach the spawn. */
+const AGENT_TOOLS_DISABLED_KEY = 'agent_tools_disabled'
+
+function agentToolAllowlistExtras() {
+  const read = getAccountStore().getSetting(AGENT_TOOLS_DISABLED_KEY)
+  if (!read.ok) {
+    if (read.code === 'ACCOUNT_NOT_SIGNED_IN') return { ok: true, env: null }
+    return { ok: false, code: 'AGENT_TOOL_LIMITS_UNREADABLE' }
+  }
+  if (read.value === null || read.value === undefined) return { ok: true, env: null }
+  let disabled
+  try { disabled = JSON.parse(read.value) } catch { return { ok: false, code: 'AGENT_TOOL_LIMITS_UNREADABLE' } }
+  if (!Array.isArray(disabled) || disabled.some(name => typeof name !== 'string')) {
+    return { ok: false, code: 'AGENT_TOOL_LIMITS_UNREADABLE' }
+  }
+  if (disabled.length === 0) return { ok: true, env: null }
+  const listed = listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
+  if (!listed.ok) return { ok: false, code: 'AGENT_TOOL_LIMITS_UNREADABLE' }
+  const disabledSet = new Set(disabled)
+  const allowed = listed.tools.map(tool => tool.name).filter(name => !disabledSet.has(name))
+  if (allowed.length === 0) return { ok: false, code: 'AGENT_TOOLS_ALL_DISABLED' }
+  if (allowed.length === listed.tools.length) return { ok: true, env: null }
+  return { ok: true, env: { TOOLSENABLED_TOOL_ALLOWLIST: allowed.join(',') } }
+}
+
 function getAgentHost() {
   if (agentHost) return agentHost
   ensureWorkspaceRoot()
-  const host = createAgentHost({ defaultCwd: WORKSPACE_ROOT })
+  const host = createAgentHost({ defaultCwd: WORKSPACE_ROOT, sessionEnvironmentExtras: agentToolAllowlistExtras })
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
     if (!session || session.owner.isDestroyed()) return
@@ -870,6 +906,14 @@ ipcMain.handle('mc-agent:availability', async (event, value) => {
 ipcMain.handle('mc-agent:confinement', async (event) => {
   assertTrustedAgentSender(event)
   return readAgentConfinement({ capabilityRoot: resolveCapabilityRoot() })
+})
+
+/* The tool surface BY NAME, for the research page's checkboxes. A read like
+   the confinement channel above: starts nothing, carries registry identifiers
+   only (never a path), {ok:false, code} when the payload cannot answer. */
+ipcMain.handle('mc-agent:tools', async (event) => {
+  assertTrustedAgentSender(event)
+  return listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
 })
 
 /* The second agent channel that starts nothing, and the only one that reads

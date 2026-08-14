@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      permission level reached a running agent. Returns {ok:false, code} rather
      than a path on every failure, exactly like availability(). */
   confinement: () => ipcRenderer.invoke('mc-agent:confinement'),
+  /* The tool surface by NAME, for the research page's tool checkboxes. Same
+     posture as confinement(): read-only, registry identifiers only, and
+     {ok:false, code} on every failure. */
+  tools: () => ipcRenderer.invoke('mc-agent:tools'),
   /* Read-only, and the reason the home screen has something true to show on a
      computer with nothing else connected. Returns bounded records of what has
      run here: sequence, time, action. No path, no hash, no signature -- see
