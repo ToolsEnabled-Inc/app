@@ -360,6 +360,50 @@ test('a branch moves inside its tree and never into itself', () => {
   assert.notEqual(parseFleetTrees(store.snapshot().nodes.length ? recordFrom(store) : null, { computerId: COMPUTER }), EMPTY_FLEET_TREES)
 })
 
+test('a move answers to the same caps the placeholders draw by, and movePoints only offers what moveNode accepts', () => {
+  /* Until 2026-08-13 moveNode checked neither cap, so it was the one write
+     that could build a ninth child or a four-level branch — shapes every "+"
+     refuses by construction — after which extensionPoints() silently withdrew
+     the person's own placeholders. These are the missing halves. */
+  const store = storeOf()
+  const top = store.addNode({ role: 'top' }).node
+  const children = []
+  for (let i = 0; i < TREE_BOUNDS.maxChildren; i += 1) {
+    children.push(store.addNode({ parentId: top.id, role: `child ${i}` }).node)
+  }
+  const spare = store.addNode({ parentId: children[0].id, role: 'spare' }).node
+
+  // Fan-out: the ninth child a "+" refuses cannot arrive by move, or by offer.
+  assert.equal(store.moveNode(spare.id, top.id).ok, false, 'a move must not build the ninth child')
+  assert.equal(store.movePoints(spare.id).some(point => point.parentId === top.id), false, 'a full parent is never offered')
+
+  // Depth: the branch's HEIGHT rides in the check, not the one node's.
+  const deep = store.addNode({ parentId: children[1].id, role: 'deep' }).node
+  const deepest = store.addNode({ parentId: deep.id, role: 'deepest' }).node
+  assert.equal(store.moveNode(spare.id, deepest.id).ok, false, 'past the depth cap')
+  const b1 = store.addNode({ parentId: children[2].id, role: 'b1' }).node
+  store.addNode({ parentId: b1.id, role: 'b2' })
+  assert.equal(store.moveNode(b1.id, deep.id).ok, false, 'the branch under the moved node comes with it')
+  assert.equal(store.movePoints(b1.id).some(point => point.parentId === deep.id), false)
+
+  // The offer list and the write agree: an offered move is an accepted move.
+  const offers = store.movePoints(spare.id)
+  assert.ok(offers.length > 0, 'a movable node has somewhere to go')
+  assert.equal(store.moveNode(spare.id, offers[0].parentId).ok, true)
+
+  // What a node carries survives its move: the session, the status, the reply.
+  store.attachSession(spare.id, 'run-move')
+  store.setNodeReply(spare.id, 'kept')
+  const before = store.getNode(spare.id)
+  const target = store.movePoints(spare.id)[0]
+  assert.ok(target)
+  const moved = store.moveNode(spare.id, target.parentId)
+  assert.equal(moved.ok, true)
+  assert.equal(moved.node.sessionId, 'run-move')
+  assert.equal(moved.node.reply, 'kept')
+  assert.equal(moved.node.status, before.status)
+})
+
 function recordFrom(store) {
   const current = store.snapshot()
   return {

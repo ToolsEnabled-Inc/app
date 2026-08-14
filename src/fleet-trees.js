@@ -503,6 +503,25 @@ export function createFleetTreeStore({
     return depth
   }
 
+  /* How far the structure UNDER this node reaches — 0 for a leaf. A move
+     carries the whole branch, so the depth a move must answer for is the
+     BRANCH's, not the one node's: dropping a two-level branch under a depth-2
+     parent puts its deepest agent past the cap even though the moved node
+     itself would fit. */
+  function branchHeight(nodeId) {
+    let height = 0
+    const queue = [[nodeId, 0]]
+    while (queue.length > 0) {
+      const [current, depth] = queue.shift()
+      for (const node of nodes.values()) {
+        if (node.parentId !== current) continue
+        if (depth + 1 > height) height = depth + 1
+        if (depth + 1 < FLEET_TREE_LIMITS.maxChainSteps) queue.push([node.id, depth + 1])
+      }
+    }
+    return height
+  }
+
   const putNode = (node, fields) => {
     const next = Object.freeze({ ...node, ...fields, updatedAt: now() })
     nodes.set(next.id, next)
@@ -806,7 +825,42 @@ export function createFleetTreeStore({
       if (parent.id === node.id || descendantsOf(node.id).includes(parent.id)) {
         return refuse('An agent cannot report to itself or to one of its own agents. Pick another.')
       }
+      /* THE SAME CAPS THE "+" BUTTONS LIVE BY. Until 2026-08-13 a move checked
+         neither, so it was the one write that could build a ninth child or a
+         four-level branch — shapes every other path refuses — after which
+         extensionPoints() silently withdrew the person's own "+" slots. The
+         branch's HEIGHT rides in the depth check because the move carries
+         everything under the node. */
+      if (childrenOf(parent.id).length >= TREE_BOUNDS.maxChildren) {
+        return refuse(`This agent already has ${numberWord(TREE_BOUNDS.maxChildren)} agents under it. Pick another parent.`)
+      }
+      if (depthOf(parent) + 1 + branchHeight(node.id) > TREE_BOUNDS.maxDepth) {
+        return refuse(`A tree goes ${numberWord(TREE_BOUNDS.maxDepth + 1)} levels deep at most, and this agent's own branch comes with it. Pick a parent higher up.`)
+      }
       return accept({ node: putNode(node, { parentId }) })
+    },
+
+    /**
+     * Every parent this agent could legally move under, as data — the same
+     * construction extensionPoints() uses for "+" slots, and for the same
+     * reason: a picker built from this list can only offer moves the store
+     * will accept, so the menu and the refusal can never disagree.
+     */
+    movePoints(nodeId) {
+      const node = nodes.get(nodeId)
+      if (!node) return frozenList([])
+      const blocked = new Set([node.id, ...descendantsOf(node.id)])
+      const height = branchHeight(node.id)
+      const points = []
+      for (const candidate of nodes.values()) {
+        if (candidate.treeId !== node.treeId) continue
+        if (blocked.has(candidate.id)) continue
+        if (candidate.id === node.parentId) continue
+        if (childrenOf(candidate.id).length >= TREE_BOUNDS.maxChildren) continue
+        if (depthOf(candidate) + 1 + height > TREE_BOUNDS.maxDepth) continue
+        points.push({ parentId: candidate.id, treeId: candidate.treeId })
+      }
+      return frozenList(points)
     },
 
     /* Removing takes the branch with it. A child whose parent is gone is the

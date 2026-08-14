@@ -47,6 +47,7 @@ import { refusalCode } from '../agent-availability-copy.js'
    the lane that owns the words. Nothing in this file rewords a refusal: it hands
    the whole bridge result over and shows what comes back. */
 import {
+  MOVE_PANEL,
   SAID_PANEL,
   START_REFUSAL,
   activityLine,
@@ -884,6 +885,28 @@ export function computersView({ initialComputer = null, navigate }) {
    * defect this control existed to have: the page would be drawing an
    * organisation that nobody has. */
   function handleReparent(agentId, parentId) {
+    /* A TREE NODE MOVES IN THE TREE STORE; a fleet agent moves in the declared
+       organisation. Before this branch, dragging a node the person had
+       CREATED hit the org projection's byId miss and shook with no sentence
+       anywhere — an affordance that was visible on their own agents and
+       silently did nothing. Mixed drags refuse with words for the same
+       reason. The store's own refusals (caps, cycles, cross-tree) come back
+       verbatim; the subscription repaints the tree on an accepted move. */
+    const dragIsTree = Boolean(treeStore?.getNode(agentId))
+    const dropIsTree = Boolean(treeStore?.getNode(parentId))
+    if (dragIsTree || dropIsTree) {
+      if (dragIsTree !== dropIsTree) {
+        setOrgStatus(MOVE_PANEL.mixed, 'refuse', { sticky: true })
+        return false
+      }
+      const moved = treeStore.moveNode(agentId, parentId)
+      if (!moved.ok) {
+        setOrgStatus(moved.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
+        return false
+      }
+      setOrgStatus(MOVE_PANEL.saved(treeNodeName(moved.node), treeNodeName(treeStore.getNode(parentId))), 'ok')
+      return true
+    }
     if (!computer?.reparentAgent?.(agentId, parentId)) return false
     void persistReparent(agentId, parentId)
     return true
@@ -2437,8 +2460,67 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
           <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>
         </div>
+        <div class="board-box board-ctl-box" data-tree-move>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(MOVE_PANEL.title)}</span></div>
+          <div class="rail-sub">${escapeMarkup(MOVE_PANEL.help)}</div>
+          <div class="ctl-row" data-tree-move-row hidden>
+            <select class="ctl-select" data-tree-move-select aria-label="${escapeMarkup(MOVE_PANEL.title)}"></select>
+            <button class="ctl-btn" type="button" data-tree-move-save>${escapeMarkup(MOVE_PANEL.save)}</button>
+          </div>
+          <output class="rail-sub" role="status" data-tree-move-out></output>
+        </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
+    /* THE KEYBOARD HALF OF "quickly connect nodes and change hierarchies".
+       Edit-mode drag exists and stays; this menu is the accessible, refusable
+       path. It is built from movePoints(), so it can only offer moves the
+       store will accept — and the snapshot is RE-READ when Save is pressed,
+       because a menu built at open time can go stale while it stands. */
+    const moveRow = controlsPage.querySelector('[data-tree-move-row]')
+    const moveSelect = controlsPage.querySelector('[data-tree-move-select]')
+    const moveSave = controlsPage.querySelector('[data-tree-move-save]')
+    const moveOut = controlsPage.querySelector('[data-tree-move-out]')
+    if (moveRow && treeStore) {
+      const points = treeStore.movePoints(node.id)
+      if (points.length === 0) {
+        moveOut.textContent = MOVE_PANEL.empty
+      } else {
+        moveRow.removeAttribute('hidden')
+        const placeholder = document.createElement('option')
+        placeholder.value = ''
+        placeholder.textContent = MOVE_PANEL.prompt
+        moveSelect.appendChild(placeholder)
+        for (const point of points) {
+          const parent = treeStore.getNode(point.parentId)
+          if (!parent) continue
+          const option = document.createElement('option')
+          option.value = point.parentId
+          option.textContent = treeNodeName(parent)
+          moveSelect.appendChild(option)
+        }
+        moveSave.addEventListener('click', () => {
+          const parentId = moveSelect.value
+          if (!parentId) {
+            moveOut.textContent = MOVE_PANEL.needChoice
+            return
+          }
+          const stillLegal = treeStore.movePoints(node.id).some(point => point.parentId === parentId)
+          const moved = stillLegal
+            ? treeStore.moveNode(node.id, parentId)
+            : { ok: false, problems: [MOVE_PANEL.staleChoice] }
+          if (!moved.ok) {
+            moveOut.textContent = moved.problems[0] || MOVE_PANEL.notSaved
+            return
+          }
+          /* The rail is rebuilt around the moved node so every box tells the
+             new truth; the saved sentence lands in the fresh rail's output. */
+          const parentName = treeNodeName(treeStore.getNode(parentId))
+          showTreeNodeControls(treeStore.getNode(node.id))
+          const freshOut = controlsPage.querySelector('[data-tree-move-out]')
+          if (freshOut) freshOut.textContent = MOVE_PANEL.saved(treeNodeName(moved.node), parentName)
+        })
+      }
+    }
     /* THE SAID BOX IS FILLED HERE, NOT IN THE TEMPLATE, because it has three
        truthful states and two of them are alive: a finished reply (rendered
        once), a mid-turn stream (the appender, seeded with everything the turn

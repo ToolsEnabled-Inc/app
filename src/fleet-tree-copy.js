@@ -228,6 +228,24 @@ export const SAID_PANEL = Object.freeze({
   emptyTurn: 'The turn finished without any words back. Ask again, or ask for something smaller.',
 })
 
+/* MOVING AN AGENT, in words. The owner's ask, verbatim: "there needs to be a
+   way to quickly connect nodes and change hierarchies too". The picker offers
+   only what the store's movePoints() would accept, so every sentence here is
+   about a legal move or the reason there is none — the menu and the refusal
+   can never disagree. */
+export const MOVE_PANEL = Object.freeze({
+  title: 'Reports to',
+  help: 'Pick which agent this one works under. Everything under it moves with it.',
+  prompt: 'Choose a new parent',
+  save: 'Save',
+  needChoice: 'Pick a parent first, then press Save.',
+  empty: 'Every other agent in this tree is either under this one or already full, so there is nowhere else to move it.',
+  staleChoice: 'The tree changed while this menu was open. Close and reopen this agent, then pick again.',
+  notSaved: 'The move was not saved. Pick another parent and try again.',
+  saved: (name, parent) => `Saved. ${name} now reports to ${parent}.`,
+  mixed: 'Your own tree agents and the declared fleet stay separate. Drag a tree agent onto a tree agent, or a fleet agent onto a fleet agent.',
+})
+
 /* THE RUNNING NARRATION, one line at a time. The engine says what it is doing
    -- a command starts, a command finishes, a file changes, an approval is
    wanted -- and this turns that data (sessionActivityEvent in
