@@ -27,6 +27,56 @@ function fail(code, message) {
   throw new AgentHostError(code, message)
 }
 
+/* WHAT A RENDERER MAY ASK OF A TURN, and how the plan stays on top.
+ *
+ * The engine accepts cwd, approvalPolicy, model and serviceTier per turn.
+ * Exactly ONE of those is the renderer's to choose: `model`. The other three
+ * are refused BY NAME — approvalPolicy and sandbox are the recorded level's
+ * ceiling, cwd per-turn would relocate execution outside the workspace root
+ * the plan measured, and serviceTier is a billing routing question nobody
+ * asked the person. The requested model must be a Codex row of the SAME
+ * START_TIERS table the start channel resolves from, so the two surfaces can
+ * never disagree about what is launchable.
+ *
+ * The plan's per-turn-legal key (approvalPolicy) is spread LAST, so even a
+ * key that slipped past the name check could not override what the plan
+ * states; `sandbox` is thread-level, already bound at start, and refused per
+ * turn by the adapter itself. Widening is structurally impossible, not
+ * merely checked. Module-level and exported so the suite runs the REAL rule
+ * rather than grepping for its shape. */
+const RENDERER_TURN_KEYS = Object.freeze(['model'])
+
+function narrowTurnOptions(planThreadOptions, requested, startTiers) {
+  if (requested === undefined || requested === null) return null
+  if (typeof requested !== 'object' || Array.isArray(requested)) {
+    fail('AGENT_TURN_OPTION_FORBIDDEN', 'Turn options must be an object')
+  }
+  for (const key of Object.keys(requested)) {
+    if (!RENDERER_TURN_KEYS.includes(key)) {
+      fail('AGENT_TURN_OPTION_FORBIDDEN', `Turn option "${key}" is not a renderer choice`)
+    }
+  }
+  const narrowed = {}
+  if (requested.model !== undefined) {
+    const model = boundedString(requested.model, 'model', 128, { allowEmpty: false })
+    const row = Object.entries(startTiers).find(([, tier]) => tier.model === model)
+    if (!row) {
+      fail('AGENT_TIER_UNKNOWN', `Unknown model "${model}". Available: ${Object.values(startTiers).map(tier => tier.model).join(', ')}.`)
+    }
+    if (row[1].provider !== 'codex') {
+      fail('AGENT_TIER_NO_LAUNCHER', `The ${row[0]} tier has no launcher in this app yet.`)
+    }
+    narrowed.model = model
+  }
+  if (!Object.keys(narrowed).length) return null
+  return {
+    ...narrowed,
+    ...(planThreadOptions && planThreadOptions.approvalPolicy !== undefined
+      ? { approvalPolicy: planThreadOptions.approvalPolicy }
+      : {}),
+  }
+}
+
 function boundedString(value, label, max, { allowEmpty = false } = {}) {
   if (typeof value !== 'string' || (!allowEmpty && value.length === 0) || value.length > max) {
     fail('AGENT_HOST_INVALID_ARGUMENT', `${label} must be ${allowEmpty ? 'a' : 'a non-empty'} string of at most ${max} characters`)
@@ -870,6 +920,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       completedDuringSend: new Set(),
       completedWithoutTurnId: false,
       startPromise: null,
+      /* The confinement the session was started under, kept so per-turn
+         options are narrowed against the SAME plan — never a re-read that
+         could drift from what actually bound the thread. */
+      planThreadOptions: plan.threadOptions || null,
     }
     // Reserve before the asynchronous engine start so duplicate starts cannot
     // race and leak a second child process.
@@ -962,10 +1016,39 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return session.startPromise
   }
 
-  async function sendTurn({ sessionId, text } = {}) {
+  /* WHAT A RENDERER MAY ASK OF A TURN, and how the plan stays on top.
+   *
+   * The engine accepts cwd, approvalPolicy, model and serviceTier per turn.
+   * Exactly ONE of those is the renderer's to choose: `model`. The other
+   * three are refused BY NAME — approvalPolicy and sandbox are the recorded
+   * level's ceiling, cwd per-turn would relocate execution outside the
+   * workspace root the plan measured, and serviceTier is a billing routing
+   * question nobody asked the person. The requested model must be a Codex
+   * row of the same START_TIERS table the start channel resolves from, so
+   * the two surfaces can never disagree about what is launchable.
+   *
+   * The plan's own keys are spread LAST, so even a key that slipped past the
+   * name check could not override what the plan states. Widening is
+   * structurally impossible, not merely checked. */
+  const narrowTurn = (plan, requested) => narrowTurnOptions(plan, requested, START_TIERS)
+
+  function boundedTurnImages(images) {
+    if (images === undefined || images === null) return []
+    if (!Array.isArray(images) || images.length > 8) {
+      fail('AGENT_TURN_IMAGES_INVALID', 'A turn carries at most 8 picked images')
+    }
+    return images.map(image => {
+      const path = boundedString(image && image.path, 'image path', 32_768, { allowEmpty: false })
+      return { path }
+    })
+  }
+
+  async function sendTurn({ sessionId, text, images, options } = {}) {
     assertOpen()
     const session = readySession(sessionId)
     const turnText = boundedString(text, 'text', 200_000, { allowEmpty: false })
+    const turnImages = boundedTurnImages(images)
+    const turnOptions = narrowTurn(session.planThreadOptions, options)
     if (session.sendPromise || session.activeTurnId) {
       fail('AGENT_TURN_ACTIVE', `Session ${session.sessionId} already has an active turn`)
     }
@@ -976,7 +1059,8 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       const result = await session.adapter.sendTurn({
         threadId: session.threadId,
         text: turnText,
-        images: [],
+        images: turnImages,
+        ...(turnOptions ? { options: turnOptions } : {}),
       })
       if (!result || typeof result.turnId !== 'string' || result.turnId.length === 0 || result.turnId.length > 512) {
         fail('AGENT_ENGINE_INVALID_TURN', 'Codex sendTurn() returned an invalid turnId')
@@ -1066,4 +1150,4 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
  * it. A precedence test written against engineAvailability() therefore passes
  * whichever way round the candidates are, which is exactly what a planted
  * swap proved before this was exported. */
-module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, createAgentHost, engineAvailability, engineCandidates }
+module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, createAgentHost, engineAvailability, engineCandidates, narrowTurnOptions }

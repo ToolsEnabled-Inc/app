@@ -403,11 +403,23 @@ function parseAgentStart(value) {
 }
 
 function parseAgentSend(value) {
-  const payload = agentPayload(value, ['sessionId', 'text'])
-  return {
+  const payload = agentPayload(value, ['sessionId', 'text', 'model', 'images'])
+  const request = {
     sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
     text: boundedAgentString(payload.text, 'text', MAX_TURN_TEXT_LENGTH),
   }
+  if (payload.model !== undefined) {
+    request.model = boundedAgentString(payload.model, 'model', 128)
+  }
+  if (payload.images !== undefined) {
+    if (!Array.isArray(payload.images) || payload.images.length > 8) {
+      agentIpcError('MC_AGENT_INVALID_PAYLOAD', 'images must be an array of at most 8 picked files')
+    }
+    request.images = payload.images.map(image => ({
+      path: boundedAgentString(image && image.path, 'image path', 32768),
+    }))
+  }
+  return request
 }
 
 function parseAgentSessionCommand(value) {
@@ -974,8 +986,69 @@ ipcMain.handle('mc-agent:send', async (event, value) => {
   assertTrustedAgentSender(event)
   try {
     const request = parseAgentSend(value)
+    const session = ownedAgentSession(event.sender, request.sessionId)
+    /* THE SECURITY LINE FOR IMAGES: the renderer can never name an arbitrary
+       disk path for the engine to read into model context. Only paths a
+       person picked in this session's own native dialog ride — anything else
+       refuses by name, whether typed, guessed or replayed from another
+       session. */
+    if (request.images && request.images.length) {
+      const issued = session.attachments instanceof Set ? session.attachments : new Set()
+      for (const image of request.images) {
+        if (!issued.has(image.path)) {
+          agentIpcError('MC_AGENT_ATTACHMENT_UNKNOWN', 'An attached file was not picked in this session, so nothing was sent')
+        }
+      }
+    }
+    return await agentHost.sendTurn({
+      sessionId: request.sessionId,
+      text: request.text,
+      ...(request.images ? { images: request.images } : {}),
+      ...(request.model ? { options: { model: request.model } } : {}),
+    })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* THE ATTACHMENT PICKER — the only way a file path enters a session's image
+   allowlist. A native dialog the person drives; the chosen path is issued to
+   exactly this session and refused everywhere else. */
+ipcMain.handle('mc-agent:pick-attachment', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const request = parseAgentSessionCommand(value)
+    const session = ownedAgentSession(event.sender, request.sessionId)
+    const picked = await dialog.showOpenDialog({
+      title: 'Attach an image to this message',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
+    })
+    if (picked.canceled || !picked.filePaths.length) return { ok: true, path: null }
+    const chosen = picked.filePaths[0]
+    if (!(session.attachments instanceof Set)) session.attachments = new Set()
+    session.attachments.add(chosen)
+    return { ok: true, path: chosen }
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* THE MENTION PICKER — returns a path for the renderer to insert as TEXT.
+   No allowlist: it becomes words in the message, and the agent's own
+   confined tools do (or refuse) the reading. */
+ipcMain.handle('mc-agent:pick-mention', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const request = parseAgentSessionCommand(value)
     ownedAgentSession(event.sender, request.sessionId)
-    return await agentHost.sendTurn(request)
+    const picked = await dialog.showOpenDialog({
+      title: 'Mention a file in this message',
+      defaultPath: WORKSPACE_ROOT,
+      properties: ['openFile'],
+    })
+    if (picked.canceled || !picked.filePaths.length) return { ok: true, path: null }
+    return { ok: true, path: picked.filePaths[0] }
   } catch (error) {
     throw rendererSafeAgentError(error)
   }

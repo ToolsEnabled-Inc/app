@@ -863,6 +863,15 @@ test('every refusal code in the agent host is classified as reachable from the p
        choose. Its sibling AGENT_TIER_NO_LAUNCHER is one click away for a real
        person and therefore lives in START_REFUSAL_CODES with copy instead. */
     'AGENT_TIER_UNKNOWN',
+    /* Raised by narrowTurnOptions() only when a send names a turn option that
+       is not the renderer's to choose (sandbox, approvalPolicy, cwd,
+       serviceTier), or by the image bound check for a malformed images array.
+       The model picker offers only Codex rows and images ride only through
+       the native picker's issued paths, so no click can produce either --
+       only renderer/host drift or a hand-built payload can, the same
+       MC_AGENT_INVALID_PAYLOAD family as AGENT_TIER_UNKNOWN above. */
+    'AGENT_TURN_OPTION_FORBIDDEN',
+    'AGENT_TURN_IMAGES_INVALID',
   ])
   const source = read('shell/agent-host.cjs')
   const found = new Set()

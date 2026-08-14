@@ -119,7 +119,10 @@ test('a send to a session from an earlier run refuses truthfully, not with a ret
   const shell = readFileSync(resolve(ROOT, 'shell/main.cjs'), 'utf8')
   for (const channel of ['mc-agent:send', 'mc-agent:interrupt', 'mc-agent:close']) {
     const handler = shell.slice(shell.indexOf(`ipcMain.handle('${channel}'`))
-    const body = handler.slice(0, handler.indexOf('})'))
+    /* The handler ends at the first close that returns to column zero — a
+       slice to the first bare `})` cut mid-handler the day the send handler
+       grew an inner callback. */
+    const body = handler.slice(0, handler.indexOf('\n})') + 3)
     assert.match(body, /rendererSafeAgentError/,
       `${channel} throws raw errors across the IPC boundary -- the code is stripped and the message may name paths`)
   }

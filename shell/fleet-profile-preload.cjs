@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   history: request => ipcRenderer.invoke('mc-agent:history', request || {}),
   start: request => ipcRenderer.invoke('mc-agent:start', request),
   send: request => ipcRenderer.invoke('mc-agent:send', request),
+  /* Native dialogs, driven by the person. pickAttachment issues the chosen
+     path to that session's image allowlist in main; pickMention returns a
+     path the renderer inserts as TEXT. Both answer {ok, path|null}. */
+  pickAttachment: request => ipcRenderer.invoke('mc-agent:pick-attachment', request),
+  pickMention: request => ipcRenderer.invoke('mc-agent:pick-mention', request),
   interrupt: request => ipcRenderer.invoke('mc-agent:interrupt', request),
   close: request => ipcRenderer.invoke('mc-agent:close', request),
   /* Returns its own unsubscribe. A surface that mounts per navigation must be
