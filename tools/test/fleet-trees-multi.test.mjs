@@ -137,23 +137,33 @@ test('the design doc states the engine\'s own tree bounds, not its own numbers',
     'the doc\'s level count and the engine\'s depth cap are off by more than the root')
 })
 
-test('seven agents can run at once, and every seat the engine names is really declared', () => {
+test('eleven agents can run at once, and every seat the engine names is really declared', () => {
   const tiers = engineTiers()
   const bounds = documentedBounds()
 
-  const codexSeats = new Set()
-  const claudeSeats = new Set()
+  /* One bucket per provider, built from the row rather than from a
+     two-provider ternary — the ternary silently filed the local pool under
+     Codex the day the engine grew a third provider. */
+  const seatsByProvider = new Map()
   for (const [tier, row] of tiers) {
     assert.ok(row.seats.length > 0, `tier ${tier} declares no seat, so it can never dispatch`)
-    for (const seat of row.seats) (row.provider === 'claude' ? claudeSeats : codexSeats).add(seat)
+    if (!seatsByProvider.has(row.provider)) seatsByProvider.set(row.provider, new Set())
+    for (const seat of row.seats) seatsByProvider.get(row.provider).add(seat)
   }
 
+  const codexSeats = seatsByProvider.get('codex') || new Set()
+  const claudeSeats = seatsByProvider.get('claude') || new Set()
+  const localSeats = seatsByProvider.get('local') || new Set()
+  assert.equal(seatsByProvider.size, 3,
+    `the engine names ${seatsByProvider.size} providers; this suite and the doc know codex, claude and local`)
   assert.equal(codexSeats.size, bounds.get('codex-seats'),
     `the engine has ${codexSeats.size} Codex seats, the doc says ${bounds.get('codex-seats')}`)
   assert.equal(claudeSeats.size, bounds.get('claude-seats'),
     `the engine has ${claudeSeats.size} Claude seats, the doc says ${bounds.get('claude-seats')}`)
+  assert.equal(localSeats.size, bounds.get('local-seats'),
+    `the engine has ${localSeats.size} local seats, the doc says ${bounds.get('local-seats')}`)
 
-  const all = new Set([...codexSeats, ...claudeSeats])
+  const all = new Set([...codexSeats, ...claudeSeats, ...localSeats])
   assert.equal(all.size, bounds.get('agents-at-once'),
     `the engine can run ${all.size} agents at once, the doc says ${bounds.get('agents-at-once')}`)
 

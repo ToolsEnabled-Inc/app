@@ -124,7 +124,7 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      they exist, and refused honestly when picked -- silently starting Codex
      instead of a chosen Claude model is the defect this code closed. The
      sentence names what to pick instead, never a module or a path. */
-  AGENT_TIER_NO_LAUNCHER: 'that agent type runs on Claude, and this version can only start Codex agents. Pick Luna, Terra or Sol and it will start now',
+  AGENT_TIER_NO_LAUNCHER: 'this version can only start Codex agents from the tree, so that agent type was not started. Pick Luna, Terra or Sol and it will start now',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not

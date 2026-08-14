@@ -144,16 +144,23 @@ test('the three Codex tiers are distinct identities and never conflict', () => {
   assert.deepEqual(identityConflicts(['luna', 'terra', 'sol']), [])
 })
 
-test('a team of a lead plus every other seat is dispatchable', () => {
+test('a team of a lead plus the fan-out cap is dispatchable; the seats now outnumber one team', () => {
+  /* Until the local pool landed, one team could occupy every seat and this
+     test said so. With 11 seats and an engine fan-out cap of 8 members per
+     leader, that invariant is structurally gone: the largest single team is
+     the lead plus the cap, and filling every seat takes a second team. */
   const plan = planTeam({
     lead: 'sol',
-    members: ['luna', 'terra', 'claude-opus', 'claude-sonnet', 'claude-fable', 'claude-opus'],
+    members: ['luna', 'terra', 'claude-opus', 'claude-sonnet', 'claude-fable', 'claude-opus',
+      'local', 'local'],
   })
   assert.equal(plan.dispatchable, true, plan.problems.join(' '))
-  assert.equal(plan.size, TEAM_BOUNDS.maxConcurrent,
-    'the largest honest team is exactly one lane per seat')
-  assert.equal(plan.size, 7,
-    'three Codex seats plus a four-seat Claude pool — if this moves, the engine table moved')
+  assert.equal(plan.size, TEAM_BOUNDS.maxFanOut + 1,
+    'the largest single team is the lead plus the engine fan-out cap')
+  assert.equal(TEAM_BOUNDS.maxConcurrent, 11,
+    'three Codex seats plus four Claude seats plus four local seats — if this moves, the engine table moved')
+  assert.ok(TEAM_BOUNDS.maxConcurrent > plan.size,
+    'the machine seats more lanes than one leader may fan out; a full bench is two teams')
 })
 
 test('one lane past the seat count is refused before anything is dispatched', () => {

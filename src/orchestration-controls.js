@@ -51,6 +51,13 @@ export const LAUNCH_TIERS = Object.freeze([
   Object.freeze({ id: 'claude-fable', provider: 'claude', label: 'Fable', model: 'claude/fable', cliModel: 'fable', effort: null }),
   Object.freeze({ id: 'claude-sonnet', provider: 'claude', label: 'Sonnet', model: 'claude/sonnet', cliModel: 'sonnet', effort: null }),
   Object.freeze({ id: 'claude-opus', provider: 'claude', label: 'Opus', model: 'claude/opus', cliModel: 'opus', effort: null }),
+  /* A model on the user's own GPU, in the same table as the paid ones — the
+     engine's TIERS.local row (owner, 2026-08-12: the free path is the
+     product, not a consolation). `cliModel: null` is load-bearing: a local
+     node has no vendor CLI; the engine resolves the concrete model at
+     dispatch from what the user has pulled, and refuses honestly if nothing
+     is installed. */
+  Object.freeze({ id: 'local', provider: 'local', label: 'Local', model: 'local/auto', cliModel: null, effort: null }),
 ])
 
 const TIER_BY_ID = new Map(LAUNCH_TIERS.map(tier => [tier.id, tier]))

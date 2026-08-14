@@ -120,7 +120,7 @@ export const LOOP_OVERRUN = Object.freeze({
   behaviour: 'skip',
   code: 'BRIDGE_AGENT_LANE_COLLISION',
   sentence: 'If a run is still going when the next one is due, the next one is skipped, not queued and not run alongside. The engine refuses it: one declared identity may only have one live lane.',
-  evidence: 'capability/src/lib/agent-presence.js:575',
+  evidence: 'capability/src/lib/agent-presence.js:580',
 })
 
 /** The run cap, restated here only to name the bound and its address.

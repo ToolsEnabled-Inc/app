@@ -192,6 +192,19 @@
   ],
   "dynamicRequires": [
     {
+      "$comment": "Declared so the packer's computed-require guard is satisfied, and resolved to NOTHING on purpose: capability-features.js carries the commercial tier table, and the free payload must not ship a byte of it (tools/test/free-payload-licensing.test.mjs). The caller degrades through its own catch with the stated reason capability-features-unavailable.",
+      "from": "src/lib/agent-onboarding.js",
+      "expression": "path.join(runtimeRoot, 'src', 'lib', 'capability-features.js'",
+      "resolvesTo": []
+    },
+    {
+      "from": "src/lib/agent-onboarding.js",
+      "expression": "path.join(runtimeRoot, 'src', 'lib', 'tool-registry.js'",
+      "resolvesTo": [
+        "src/lib/tool-registry.js"
+      ]
+    },
+    {
       "from": "src/lib/agent-onboarding.js",
       "expression": "path.join(runtimeRoot, 'tools', 'grepsaver-orient.js'",
       "resolvesTo": [
@@ -207,15 +220,17 @@
     }
   ],
   "$comment_pinnedSource": [
-    "The 1.0.7 payload is staged from engine ref bbbcb3b (2026-08-12 09:40,",
-    "the seat-pools commit) -- the last ref whose tier tables match the ones",
-    "this app's renderer, shell and QA suites are validated against. Engine",
-    "HEAD adds the local-GPU tier (478da30) and the onboarding",
-    "capability-features/tool-registry dynamic requires (48536bb); adopting",
-    "that payload means syncing LAUNCH_TIERS, the seat pools, the shell's",
-    "START_TIERS and a local-tier launcher IN THE SAME CHANGE, and restoring",
-    "the two dynamicRequires rows this pin removed. The packer's refusal on",
-    "undeclared computed requires will stop a half-done adoption here, which",
-    "is exactly what it is for."
+    "The 1.0.7 payload is staged from engine ref a02ae59 -- the",
+    "free-cut/r4r5-bridge-and-pin commit: engine 1328292 plus the research",
+    "bench bridge routes (task-submit/claim/get/list, role-complete, GET",
+    "local-tiers-status). The adoption from bbbcb3b restored the onboarding",
+    "capability-features/tool-registry dynamicRequires rows above. What this",
+    "adoption deliberately does NOT do yet: offer claude or local tiers on",
+    "the interactive tree. The engine's ACP claude path runs on a fresh",
+    "temp CLAUDE_CONFIG_DIR with no login state and refuses a model thread",
+    "option, so an interactive claude start needs the auth-source question",
+    "answered first; the local tier is a dispatch-lane runner with no ACP",
+    "adapter. Both stay honestly refused by the shell's START_TIERS gate",
+    "until a launcher exists that actually starts."
   ]
 }

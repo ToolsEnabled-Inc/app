@@ -129,6 +129,42 @@
       "enabled": true,
       "assignedPhase": null,
       "phasePriority": []
+    },
+    {
+      "id": "local-node-1",
+      "displayName": "Local node 1",
+      "role": "builder",
+      "provider": "local",
+      "enabled": true,
+      "assignedPhase": null,
+      "phasePriority": []
+    },
+    {
+      "id": "local-node-2",
+      "displayName": "Local node 2",
+      "role": "builder",
+      "provider": "local",
+      "enabled": true,
+      "assignedPhase": null,
+      "phasePriority": []
+    },
+    {
+      "id": "local-node-3",
+      "displayName": "Local node 3",
+      "role": "builder",
+      "provider": "local",
+      "enabled": true,
+      "assignedPhase": null,
+      "phasePriority": []
+    },
+    {
+      "id": "local-node-4",
+      "displayName": "Local node 4",
+      "role": "builder",
+      "provider": "local",
+      "enabled": true,
+      "assignedPhase": null,
+      "phasePriority": []
     }
   ],
   "relationships": [
@@ -138,6 +174,10 @@
     { "from": "controller", "to": "claude", "type": "manages" },
     { "from": "controller", "to": "claude-2", "type": "manages" },
     { "from": "controller", "to": "claude-3", "type": "manages" },
-    { "from": "controller", "to": "claude-4", "type": "manages" }
+    { "from": "controller", "to": "claude-4", "type": "manages" },
+    { "from": "controller", "to": "local-node-1", "type": "manages" },
+    { "from": "controller", "to": "local-node-2", "type": "manages" },
+    { "from": "controller", "to": "local-node-3", "type": "manages" },
+    { "from": "controller", "to": "local-node-4", "type": "manages" }
   ]
 }

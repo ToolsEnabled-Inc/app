@@ -770,6 +770,11 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     'claude-fable': { provider: 'claude', model: 'claude/fable' },
     'claude-sonnet': { provider: 'claude', model: 'claude/sonnet' },
     'claude-opus': { provider: 'claude', model: 'claude/opus' },
+    /* Offered in the menu like the claude rows, refused honestly at press:
+       the engine's local tier is a dispatch-lane runner with no interactive
+       ACP adapter yet, and a session this host cannot actually start must
+       refuse rather than silently start Codex instead. */
+    local: { provider: 'local', model: 'local/auto' },
   })
 
   function resolveStartTier(tier) {

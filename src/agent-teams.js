@@ -72,6 +72,11 @@ export const TIER_SEAT_POOL = Object.freeze({
   'claude-fable': Object.freeze(['claude', 'claude-2', 'claude-3', 'claude-4']),
   'claude-sonnet': Object.freeze(['claude', 'claude-2', 'claude-3', 'claude-4']),
   'claude-opus': Object.freeze(['claude', 'claude-2', 'claude-3', 'claude-4']),
+  /* The engine's local tier has four seats OF ITS OWN — borrowing the claude
+     pool would make a local node and a Claude worker mutually exclusive on
+     the one machine most likely to run several local lanes because they are
+     free. Mirrors TIERS.local in the payload's mission-bridge actions. */
+  local: Object.freeze(['local-node-1', 'local-node-2', 'local-node-3', 'local-node-4']),
 })
 
 /* The seat a tier is CERTAIN to take, or null when its pool holds more than one

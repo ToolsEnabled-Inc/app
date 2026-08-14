@@ -333,9 +333,10 @@ rather than against this prose:
 children-per-node: 8
 max-depth-value: 3
 levels: 4
-agents-at-once: 7
+agents-at-once: 11
 codex-seats: 3
 claude-seats: 4
+local-seats: 4
 ```
 
 `tools/test/fleet-trees-multi.test.mjs` holds this contract. It parses the engine for

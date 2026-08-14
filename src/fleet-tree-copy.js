@@ -201,7 +201,7 @@ export const START_PANEL = Object.freeze({
    orchestration-controls suite pins against the engine). The label names the
    model and what it runs on; the id rides on the option value where only the
    program reads it, the same split the role menu keeps. */
-const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude' })
+const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude', local: 'your computer' })
 export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze({
   id: tier.id,
   label: `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider}`,
