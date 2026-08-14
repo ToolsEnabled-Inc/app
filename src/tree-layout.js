@@ -8,11 +8,17 @@ const ROLE_RADII = Object.freeze({
 })
 
 const HIERARCHY_EDGE_TYPES = new Set(['manages', 'delegates_to', 'hierarchy'])
+/* The last rung was [12, -6]: literal minus-six pixels of air, overlap by
+   sanction. It existed because a jammed rank had nowhere else to go — but the
+   tierRank fix in views/computers.js spreads a deep tree across its true
+   ranks, so the pressure that rung relieved is gone, and the ladder now ends
+   at the smallest HONEST air instead. No rung may ever be negative again:
+   below MIN_AIR the answers are culling and drill, which exist. */
+const MIN_AIR = 2
 const PACKING_LADDER = Object.freeze([
   [44, 10],
   [12, 10],
-  [12, 0],
-  [12, -6],
+  [12, MIN_AIR],
 ])
 
 const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : null
@@ -31,7 +37,25 @@ const SILENT_SCALE = 0.72
    fitter in layoutTree; 34 is the same floor the horizontal packer already
    treats as "still readable", so the two axes agree on what readable means. */
 const RADIUS_FLOOR = 34
-const LABEL_STACK = 34
+/* The height of the name+role stack under every circle, as a CORRECTED
+   CONSTANT, not a measurement: layoutTree's contract is DOM-free determinism,
+   so this number is computed from the stack's own worst case, not read back
+   from a rendered page. A name may wrap to two 13px lines (2 × 17px line
+   height) plus the role row clamped to ONE line (14px, clamped in
+   tree-graph.css precisely so this worst case is computable) plus the 6px gap
+   above the stack: 34 + 14 + 6 = 54, padded to 58 for the role bead's
+   descender box. The old value, 34, was one wrapped name with no role row at
+   all — every two-line label under a tight rank painted into the row below.
+   Exported, and written once into CSS as --tree-label-stack, so the sheet and
+   the layout cannot drift apart; a guard asserts they match. */
+const LABEL_STACK = 58
+export const TREE_LABEL_STACK = LABEL_STACK
+/* A named circle's horizontal claim is its label's minimum readable width,
+   not just its diameter: two 34px circles side by side hold 68px of circle
+   and two 70px labels. Packing by radius alone made exactly those labels
+   overlap. Unnamed records (empty slots) claim only their circle. */
+const LABEL_FOOT_MIN = 70
+const halfFoot = (record) => Math.max(record.r, record.name ? LABEL_FOOT_MIN / 2 : 0)
 export function treeNodeRadius(node) {
   const explicit = finite(node?.r) ?? finite(node?.radius)
   if (explicit !== null) return Math.max(RADIUS_FLOOR, explicit)
@@ -101,17 +125,17 @@ function packedXs(list, width) {
   const naive = list.map((record, index) =>
     Math.max(record.r + 44, Math.min(width - record.r - 44, step * (index + 1))))
   const naiveOk = naive.every((x, index) => index === 0
-    || x - naive[index - 1] >= list[index - 1].r + list[index].r + 2)
+    || x - naive[index - 1] >= halfFoot(list[index - 1]) + halfFoot(list[index]) + MIN_AIR)
   if (naiveOk) return naive
 
   for (const [edge, air] of PACKING_LADDER) {
     const gaps = list.map((record, index) => index
-      ? list[index - 1].r + record.r + air
+      ? halfFoot(list[index - 1]) + halfFoot(record) + air
       : 0)
     const span = gaps.reduce((sum, gap) => sum + gap, 0)
-    const available = width - edge * 2 - list[0].r - list.at(-1).r
+    const available = width - edge * 2 - halfFoot(list[0]) - halfFoot(list.at(-1))
     if (span > available) continue
-    let x = edge + list[0].r + Math.max(0, (available - span) / 2)
+    let x = edge + halfFoot(list[0]) + Math.max(0, (available - span) / 2)
     return list.map((record, index) => (x += gaps[index]))
   }
   return null
@@ -156,7 +180,10 @@ function packGroupedXs(list, width, anchorOf) {
     else groups.push({ key, items: [record], anchor: anchor?.x ?? null })
   }
 
-  const circleSpan = list.reduce((sum, record) => sum + record.r * 2, 0)
+  /* Footprints, not diameters: a named record's claim includes its label's
+     minimum readable width (halfFoot), so labels are a packing input here the
+     same way they are in packedXs. */
+  const circleSpan = list.reduce((sum, record) => sum + halfFoot(record) * 2, 0)
   const room = width - RANK_EDGE * 2 - circleSpan
   if (room < 0) return null
   /* total(air) = circleSpan + air * (n - g) + air * RATIO * (g - 1), so the
@@ -169,7 +196,7 @@ function packGroupedXs(list, width, anchorOf) {
   }
   const between = Math.floor(air * BETWEEN_RATIO)
 
-  const widthOf = (group) => group.items.reduce((sum, record) => sum + record.r * 2, 0)
+  const widthOf = (group) => group.items.reduce((sum, record) => sum + halfFoot(record) * 2, 0)
     + air * (group.items.length - 1)
   const total = groups.reduce((sum, group) => sum + widthOf(group), 0)
     + between * (groups.length - 1)
@@ -203,8 +230,8 @@ function packGroupedXs(list, width, anchorOf) {
   for (const group of groups) {
     let x = group.left
     for (const record of group.items) {
-      xs.push(x + record.r)
-      x += record.r * 2 + air
+      xs.push(x + halfFoot(record))
+      x += halfFoot(record) * 2 + air
     }
   }
   return xs.at(-1) + list.at(-1).r <= width - 4 ? xs : null
@@ -237,7 +264,12 @@ const LABEL_LINES = 2
 function labelFor(record, pitch) {
   const full = record.name
   if (pitch == null) return { maxWidth: null, text: full, title: full }
-  const maxWidth = Math.max(96, Math.round(pitch - 10))
+  /* Floor 70, not 96: the packers now guarantee every named record at least
+     LABEL_FOOT_MIN of footprint, so 70 is a width the rank actually HAS. The
+     96 floor promised more room than a tight rank owned, which is how labels
+     painted over their neighbours. 70 is also the width the over-capacity
+     test has always pinned as the readable minimum. */
+  const maxWidth = Math.max(LABEL_FOOT_MIN, Math.round(pitch - 10))
   const perLine = Math.max(6, Math.floor((maxWidth - LABEL_CHROME_PX) / LABEL_CHAR_PX))
   const budget = perLine * LABEL_LINES
   if (full.length <= budget) return { maxWidth, text: full, title: full }
@@ -333,20 +365,50 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
      smaller tree, never a broken one. Below the floor the honest answer is
      more height, which is why the stacked breakpoint in src/styles.css now
      asks for enough of it. */
+  /* When even the radius floor cannot make the tiers fit, the honest answer
+     is MORE HEIGHT, and layoutTree says how much: minHeight is the canvas
+     height at which this same tree lays out without any pair of adjacent
+     tiers overlapping. The caller grows or scrolls the wrap (the stacked
+     breakpoint in src/styles.css is the precedent). Rank count depends only
+     on parentId and edges, never on H, so the value is a fixed point of the
+     layout — found by iterating the fitter's own arithmetic below, and
+     GUARDED by a test that re-lays at minHeight, because "should converge"
+     is a claim, not a property, until it is pinned. */
+  let minHeight = null
   if (rows > 1 && rowHeight > 0) {
-    const tallestPerTier = tierKeys.map(key =>
-      tiers.get(key).reduce((max, record) => Math.max(max, record.r), 0))
-    let needed = 0
-    for (let index = 0; index + 1 < tallestPerTier.length; index += 1) {
-      needed = Math.max(needed, tallestPerTier[index] + tallestPerTier[index + 1] + LABEL_STACK)
+    const fullRadii = records.map(record => record.r)
+    const tallestPair = (radii) => {
+      const byTier = tierKeys.map(key =>
+        tiers.get(key).reduce((max, record) => Math.max(max, radii.get(record.id)), 0))
+      let needed = 0
+      for (let index = 0; index + 1 < byTier.length; index += 1) {
+        needed = Math.max(needed, byTier[index] + byTier[index + 1] + LABEL_STACK)
+      }
+      return needed
     }
+    const asMap = (values) => new Map(records.map((record, index) => [record.id, values[index]]))
+    const scaledRadii = (pitch) => {
+      const fullNeeded = tallestPair(asMap(fullRadii))
+      const circles = fullNeeded - LABEL_STACK
+      const scale = circles > 0 ? Math.max(0, pitch - LABEL_STACK) / circles : 1
+      return fullRadii.map(r => scale < 1 ? Math.max(RADIUS_FLOOR, Math.round(r * scale)) : r)
+    }
+
+    const needed = tallestPair(asMap(fullRadii))
     if (needed > rowHeight) {
-      const circles = needed - LABEL_STACK
-      const scale = circles > 0 ? Math.max(0, rowHeight - LABEL_STACK) / circles : 1
-      if (scale < 1) {
-        for (const record of records) {
-          record.r = Math.max(RADIUS_FLOOR, Math.round(record.r * scale))
+      const shrunk = scaledRadii(rowHeight)
+      records.forEach((record, index) => { record.r = shrunk[index] })
+      /* Still colliding after the floor bit? Then no scale fits this height;
+         iterate the fitter's own arithmetic to the height that does. */
+      let residual = tallestPair(asMap(shrunk))
+      if (residual > rowHeight) {
+        let candidate = residual
+        for (let step = 0; step < 6; step += 1) {
+          const at = tallestPair(asMap(scaledRadii(candidate)))
+          if (at <= candidate) break
+          candidate = at
         }
+        minHeight = Math.ceil(104 + 116 + (rows - 1) * candidate)
       }
     }
   }
@@ -395,13 +457,22 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
       for (const record of list.slice(1)) culled.add(record.id)
     }
 
-    const pitch = visible.length > 1
-      ? Math.min(...xs.slice(1).map((x, index) => x - xs[index]))
-      : null
+    /* Each record's label budget comes from ITS OWN two neighbours, not from
+       the rank minimum: one tight pair used to shrink every label in the row,
+       including labels standing next to open space. An end record has one
+       neighbour; a lone record has none and stays uncapped. */
+    const pitchAt = (index) => {
+      const left = index > 0 ? xs[index] - xs[index - 1] : null
+      const right = index + 1 < xs.length ? xs[index + 1] - xs[index] : null
+      if (left == null && right == null) return null
+      if (left == null) return right
+      if (right == null) return left
+      return Math.min(left, right)
+    }
     visible.forEach((record, index) => {
       slots.set(record.id, { x: xs[index], y })
       rowOf.set(record.id, rowIndex)
-      labels.set(record.id, labelFor(record, pitch))
+      labels.set(record.id, labelFor(record, pitchAt(index)))
     })
   })
 
@@ -411,7 +482,7 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
      to be told, or the canvas draws full-size circles into slots that were
      packed for smaller ones. */
   const radii = new Map(records.map(record => [record.id, record.r]))
-  return { slots, rowYs, rowOf, culled, drillRequired, labels, parents, radii }
+  return { slots, rowYs, rowOf, culled, drillRequired, labels, parents, radii, minHeight }
 }
 
 export const TREE_ROLE_RADII = ROLE_RADII

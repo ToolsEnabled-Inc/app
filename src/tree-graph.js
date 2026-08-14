@@ -828,6 +828,31 @@ export class StaticTreeGraph {
     this._culled = result.culled
     this._layoutVisibleIds = new Set(agents.map(agent => agent.id))
 
+    /* BELOW THE RADIUS FLOOR, THE ONLY HONEST ANSWER IS MORE HEIGHT.
+       The layout says how much (minHeight, from the vertical fitter's own
+       arithmetic); the wrap asks for it and the page scrolls -- the same cure
+       .comp-body's static min-height already applies in styles.css. The
+       subtlety is CLEARING the ask: with the ask applied, this.H is the
+       inflated height, so "the tree fits now" cannot be read from the current
+       pass -- that misread would clear, shrink, refit, re-ask, forever. The
+       natural height is remembered from the last un-asked layout, and the ask
+       is dropped only when a probe at THAT height fits. One extra layoutTree
+       call, only while an ask is active, DOM-free by contract. */
+    const layoutNodes = plans.length && result !== fleetLayout
+      ? [...agents, ...plans.map(plan => this._emptyLayoutNode(plan))]
+      : agents
+    if (!this._heightAsk) this._naturalH = this.H
+    if (Number.isFinite(result.minHeight) && result.minHeight > this.H) {
+      this._heightAsk = result.minHeight
+      this.container.style.minHeight = `${result.minHeight}px`
+    } else if (this._heightAsk) {
+      const probe = layoutTree({ nodes: layoutNodes, edges, W: this.W, H: this._naturalH })
+      if (!Number.isFinite(probe.minHeight)) {
+        this._heightAsk = null
+        this.container.style.minHeight = ''
+      }
+    }
+
     /* The layout is allowed to shrink the circles so the tiers clear each
        other on a short canvas (src/tree-layout.js, vertical fitter). It hands
        back what it decided, and every consumer of the radius has to move with

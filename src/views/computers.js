@@ -1353,7 +1353,17 @@ export function computersView({ initialComputer = null, navigate }) {
       provider: null,
       model: null,
       context: [],
-      tierRank: node.parentId ? 2 : 0,
+      /* null ON PURPOSE, and the single line behind owner defect 1a. This used
+         to be `node.parentId ? 2 : 0`, and depthFor short-circuits on an
+         explicit tierRank -- so child, grandchild and great-grandchild all
+         shared rank 2, every root shared rank 0, a four-level tree drew as two
+         rows, and a same-row parent/child turned its connector into a straight
+         diagonal. With null, the layout walks parentId chains and gives the
+         tree its true depth. Drill-in always looked right because
+         _layoutAgents strips tierRank when drilled -- that was the tell. The
+         FLEET projection's tierRank (a different data model, computers.js
+         fleet records) is legitimate and untouched. */
+      tierRank: null,
       cullable: Boolean(node.parentId),
       cullRank: 0,
       /* The graph puts this in the circle's tooltip when there is no clock. It

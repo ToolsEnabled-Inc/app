@@ -712,30 +712,44 @@
 /* 3. Labels. Middle-truncation ("assi…ant", "reco…ile") destroyed the word.
    The two rows become one centred stack that WRAPS to two lines, so the name
    and its role read whole; the layout budgets characters for two lines. */
+/* The layout side of this constant is TREE_LABEL_STACK in src/tree-layout.js
+   (58): two 17px name lines + one 14px role line + the 6px gap + descender
+   pad. Written once here so the sheet and the layout cannot drift; a guard
+   test compares them. If you change one, you are changing both. */
+.static-tree-graph { --tree-label-stack: 58px; }
 .static-tree-graph .node .node-labels {
   position: absolute;
   top: calc(100% + 7px);
   left: 50%;
   transform: translateX(-50%);
   width: min(calc(var(--d) + 118px), var(--nn-max, 9999px));
+  max-height: var(--tree-label-stack);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
   pointer-events: none;
-  /* Same ground as the panel, so this is occlusion and not a box: the trunk
-     dropping out of a parent circle passes BEHIND its own name instead of
-     ruling a line through the middle of it. */
-  background: var(--sheet);
-  padding: 1px 4px 2px;
+  /* No background on the STACK: the stack spans the label column's full
+     width, and an opaque box that wide painted over the neighbouring
+     circle whenever ranks ran tight. The occlusion the background exists
+     for -- the trunk passing behind the words, not through them -- moves
+     onto the two text rows below, each shrink-wrapped to its own line. */
+  padding: 0 0 2px;
 }
 .static-tree-graph .node .node-name,
 .static-tree-graph .node .node-role {
   position: static;
   transform: none;
+  width: fit-content;
   max-width: 100%;
   white-space: normal;
   text-align: center;
+  /* Same ground as the panel, so this is occlusion and not a box: the trunk
+     dropping out of a parent circle passes BEHIND its own name instead of
+     ruling a line through the middle of it -- but only exactly as wide as
+     the words themselves. */
+  background: var(--sheet);
+  padding: 1px 4px;
 }
 .static-tree-graph .node .node-name {
   justify-content: center;
@@ -756,7 +770,13 @@
 }
 .static-tree-graph .node .node-role {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  /* ONE line, deliberately, so TREE_LABEL_STACK's worst case is computable:
+     roles are a closed vocabulary and every string in it fits one line at
+     this size ("Coordinator's Helper" included, at the full stack width).
+     Two lines here would make the stack's real height exceed the constant
+     the layout reserves, which is exactly the drift the shared custom
+     property exists to prevent. */
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.3;
