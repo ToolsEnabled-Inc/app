@@ -246,6 +246,21 @@ export const MOVE_PANEL = Object.freeze({
   mixed: 'Your own tree agents and the declared fleet stay separate. Drag a tree agent onto a tree agent, or a fleet agent onto a fleet agent.',
 })
 
+/* THE QUEUE'S WORDS. The owner's ask: "can we add a que/unque for messages."
+   A busy agent refuses an overlapping send by design; the queue is where the
+   next message waits, visibly, until the turn completes and the view sends
+   exactly one. Renderer memory only — a draft does not outlive the window,
+   and the strip says so. */
+export const QUEUE_PANEL = Object.freeze({
+  title: 'Waiting to send',
+  placeholder: 'Write the next message…',
+  queue: 'Queue',
+  unqueue: 'Unqueue',
+  note: 'Sends by itself when the agent finishes its current turn. Kept only while this window is open.',
+  sentNext: 'Sent the next queued message.',
+  notSent: 'The queued message did not reach the agent, so it is back at the front of the queue. It will try again after the next turn, or unqueue it.',
+})
+
 /* THE RUNNING NARRATION, one line at a time. The engine says what it is doing
    -- a command starts, a command finishes, a file changes, an approval is
    wanted -- and this turns that data (sessionActivityEvent in

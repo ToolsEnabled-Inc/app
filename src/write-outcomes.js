@@ -69,6 +69,7 @@ export const WRITE_OUTCOME_KEYS = Object.freeze({
   BRIDGE_DISPATCH: 'bridge-dispatch',
   BRIDGE_DECISION: 'bridge-decision',
   BRIDGE_QUEUE: 'bridge-queue',
+  SESSION_OUTBOX: 'session-outbox',
 })
 
 // surfaceKey -> { key, tone, message, atMs }

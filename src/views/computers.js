@@ -48,11 +48,24 @@ import { refusalCode } from '../agent-availability-copy.js'
    the whole bridge result over and shows what comes back. */
 import {
   MOVE_PANEL,
+  QUEUE_PANEL,
   SAID_PANEL,
   START_REFUSAL,
   activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
 } from '../fleet-tree-copy.js'
+/* The owner's queue: messages written while the agent is busy, drained one
+   per completed turn by this view's own listener. The store holds words; this
+   file holds the wire. */
+import {
+  SESSION_OUTBOX_EVENT,
+  cancel as outboxCancel,
+  enqueue as outboxEnqueue,
+  list as outboxList,
+  requeueFront as outboxRequeueFront,
+  takeNext as outboxTakeNext,
+} from '../session-outbox.js'
+import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js'
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
@@ -2483,6 +2496,16 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
           <div class="rail-sub" data-tree-said></div>
+        </div>
+        <div class="board-box board-ctl-box" data-tree-queue>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(QUEUE_PANEL.title)}</span></div>
+          <div class="rail-sub">${escapeMarkup(QUEUE_PANEL.note)}</div>
+          <ul class="rail-sub tree-queue-list" data-tree-queue-list></ul>
+          <div class="ctl-row">
+            <input class="ctl-select" type="text" data-tree-queue-input placeholder="${escapeMarkup(QUEUE_PANEL.placeholder)}" aria-label="${escapeMarkup(QUEUE_PANEL.placeholder)}">
+            <button class="ctl-btn" type="button" data-tree-queue-add>${escapeMarkup(QUEUE_PANEL.queue)}</button>
+          </div>
+          <output class="rail-sub" role="status" data-tree-queue-out></output>
         </div>` : ''}
         <div class="board-box board-ctl-box board-ctl-absent">
           <div class="board-box-h"><span class="bh-t">What it runs on</span></div>
@@ -2549,6 +2572,56 @@ export function computersView({ initialComputer = null, navigate }) {
           if (freshOut) freshOut.textContent = MOVE_PANEL.saved(treeNodeName(moved.node), parentName)
         })
       }
+    }
+    /* THE QUEUE STRIP. Text nodes and listeners, never innerHTML with the
+       person's words in it. The list repaints from the store on every change
+       this rail itself causes; the drain path re-renders the whole rail, so
+       there is no second listener to leak. */
+    const queueList = controlsPage.querySelector('[data-tree-queue-list]')
+    if (queueList && node.sessionId) {
+      const queueOut = controlsPage.querySelector('[data-tree-queue-out]')
+      const paintQueue = () => {
+        queueList.innerHTML = ''
+        for (const entry of outboxList(node.sessionId)) {
+          const item = document.createElement('li')
+          const words = document.createElement('span')
+          words.textContent = entry.text.length > 80 ? `${entry.text.slice(0, 80)}…` : entry.text
+          const drop = document.createElement('button')
+          drop.className = 'ctl-btn'
+          drop.type = 'button'
+          drop.textContent = QUEUE_PANEL.unqueue
+          drop.addEventListener('click', () => {
+            outboxCancel(node.sessionId, entry.id)
+            paintQueue()
+          })
+          item.appendChild(words)
+          item.appendChild(drop)
+          queueList.appendChild(item)
+        }
+      }
+      paintQueue()
+      const queueInput = controlsPage.querySelector('[data-tree-queue-input]')
+      const queueAdd = controlsPage.querySelector('[data-tree-queue-add]')
+      const submitQueued = () => {
+        const result = outboxEnqueue(node.sessionId, queueInput.value)
+        if (!result.ok) {
+          queueOut.textContent = result.sentence
+          return
+        }
+        queueInput.value = ''
+        queueOut.textContent = ''
+        paintQueue()
+        /* An idle agent has no coming turn-completion to drain on, so a
+           message queued at one goes now — same wire, same one-at-a-time. */
+        if (node.status === 'finished') {
+          const next = outboxTakeNext(node.sessionId)
+          if (next) void drainOutboxMessage(node.sessionId, node.id, next)
+        }
+      }
+      queueAdd.addEventListener('click', submitQueued)
+      queueInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter') submitQueued()
+      })
     }
     /* THE SAID BOX IS FILLED HERE, NOT IN THE TEMPLATE, because it has three
        truthful states and two of them are alive: a finished reply (rendered
@@ -2943,6 +3016,46 @@ export function computersView({ initialComputer = null, navigate }) {
   unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
 
   loadRailRuns()
+  /* ONE QUEUED MESSAGE GOES OUT, THROUGH THE SAME WIRE A TYPED ONE USES.
+     Called from the turn-completed branch below (the engine's only "I am
+     free" signal) and from the queue strip when a person queues at an idle
+     session. A refusal puts the words back at the FRONT and says so; a view
+     that died before the outcome files it with the undelivered-writes store
+     rather than swallowing it. */
+  async function drainOutboxMessage(sessionId, nodeId, entry) {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.send !== 'function') {
+      outboxRequeueFront(sessionId, entry)
+      return
+    }
+    try {
+      await bridge.send({ sessionId, text: entry.text })
+    } catch (error) {
+      outboxRequeueFront(sessionId, entry)
+      if (destroyed) {
+        recordUndeliveredWrite(WRITE_OUTCOME_KEYS.SESSION_OUTBOX, 'refused', QUEUE_PANEL.notSent)
+        return
+      }
+      setOrgStatus(QUEUE_PANEL.notSent, 'refuse', { sticky: true, code: refusalCode(error) })
+      if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
+        showTreeNodeControls(currentRailTreeNode)
+      }
+      return
+    }
+    if (destroyed) {
+      recordUndeliveredWrite(WRITE_OUTCOME_KEYS.SESSION_OUTBOX, 'confirmed', QUEUE_PANEL.sentNext)
+      return
+    }
+    if (treeStore) {
+      treeStore.setNodeStatus(nodeId, 'running', { note: '' })
+      refreshTree()
+    }
+    setOrgStatus(QUEUE_PANEL.sentNext, 'ok')
+    if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
+      showTreeNodeControls({ ...currentRailTreeNode, status: 'running' })
+    }
+  }
+
   /* THE TREE'S OWN EAR ON THE SESSION STREAM. Without this, a tree-started
      agent answered into a void: computers.js subscribed to nothing, the rail
      stayed on "starting", and the person concluded agents do not respond --
@@ -3011,6 +3124,11 @@ export function computersView({ initialComputer = null, navigate }) {
       if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
         showTreeNodeControls({ ...currentRailTreeNode, status: finished })
       }
+      /* The queue drains here because this is the engine's only "I am free"
+         signal. Exactly one message — the next turn's completion drains the
+         next. */
+      const queuedNext = outboxTakeNext(sessionId)
+      if (queuedNext) void drainOutboxMessage(sessionId, nodeId, queuedNext)
     }))
   }
 
