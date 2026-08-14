@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   pickAttachment: request => ipcRenderer.invoke('mc-agent:pick-attachment', request),
   pickMention: request => ipcRenderer.invoke('mc-agent:pick-mention', request),
   interrupt: request => ipcRenderer.invoke('mc-agent:interrupt', request),
+  /* Fork this session's thread at one of your own turns and continue from
+     there — proven by tools/agent-rewind-probe.mjs before it shipped. */
+  rewind: request => ipcRenderer.invoke('mc-agent:rewind', request),
   close: request => ipcRenderer.invoke('mc-agent:close', request),
   /* Returns its own unsubscribe. A surface that mounts per navigation must be
      able to detach exactly its own listener, or every visit to an agent page

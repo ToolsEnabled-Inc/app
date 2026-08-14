@@ -53,6 +53,7 @@ import {
   SAID_PANEL,
   START_REFUSAL,
   MODEL_PANEL,
+  REWIND_PANEL,
   activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
@@ -2610,6 +2611,19 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-sub" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
           <div class="rail-sub"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
         </div>
+        <div class="board-box board-ctl-box" data-tree-rewind>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(REWIND_PANEL.title)}</span></div>
+          <div class="rail-sub">${escapeMarkup(REWIND_PANEL.help)}</div>
+          ${(sessionTurnLog.get(node.sessionId) || []).length ? `
+          <div class="ctl-row">
+            <select class="ctl-select" data-tree-rewind-select aria-label="${escapeMarkup(REWIND_PANEL.title)}">
+              ${(sessionTurnLog.get(node.sessionId) || []).map(entry => `<option value="${escapeMarkup(entry.turnId)}">${escapeMarkup(entry.yourText.slice(0, 80))}</option>`).join('')}
+            </select>
+            <button class="ctl-btn" type="button" data-tree-rewind-go>${escapeMarkup(REWIND_PANEL.button)}</button>
+          </div>
+          <output class="rail-sub" role="status" data-tree-rewind-out></output>` : `
+          <div class="rail-sub projection-unavailable">${escapeMarkup(REWIND_PANEL.empty)}</div>`}
+        </div>
         <div class="board-box board-ctl-box" data-tree-queue>
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(QUEUE_PANEL.title)}</span></div>
           <div class="rail-sub">${escapeMarkup(QUEUE_PANEL.note)}</div>
@@ -2765,6 +2779,47 @@ export function computersView({ initialComputer = null, navigate }) {
         if (event.key === 'Enter') submitQueued()
       })
     }
+    const rewindGo = controlsPage.querySelector('[data-tree-rewind-go]')
+    if (rewindGo && node.sessionId) {
+      rewindGo.addEventListener('click', async () => {
+        const select = controlsPage.querySelector('[data-tree-rewind-select]')
+        const rewindOut = controlsPage.querySelector('[data-tree-rewind-out]')
+        const turnId = select?.value
+        if (!turnId) return
+        const live = node.status === 'starting' || node.status === 'running'
+        if (live) { if (rewindOut) rewindOut.textContent = REWIND_PANEL.busy; return }
+        const bridge = typeof window === 'undefined' ? null : window.mcAgent
+        if (!bridge || typeof bridge.rewind !== 'function') return
+        let done = null
+        try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch { done = null }
+        if (!done || done.turnId !== turnId) {
+          if (rewindOut) rewindOut.textContent = REWIND_PANEL.failed
+          return
+        }
+        /* The agent's memory now ends at that turn; every screen follows it.
+           The transcript restarts from one truthful line, the kept turn log
+           truncates to the turns that still exist, and the stored reply goes
+           — it may postdate the point the person just erased. */
+        const log = sessionTurnLog.get(node.sessionId) || []
+        const keptIndex = log.findIndex(entry => entry.turnId === turnId)
+        sessionTurnLog.set(node.sessionId, keptIndex >= 0 ? log.slice(0, keptIndex + 1) : [])
+        const kept = keptIndex >= 0 ? log[keptIndex] : null
+        sessionTranscripts.set(node.sessionId, [{
+          who: 'agent',
+          text: kept ? `Rewound. I remember everything up to “${kept.yourText.slice(0, 80)}” and nothing after it.` : REWIND_PANEL.done,
+          at: Date.now(),
+        }])
+        nodeReplies.delete(node.id)
+        nodeActivity.delete(node.id)
+        if (treeStore) {
+          treeStore.setNodeReply(node.id, '')
+          treeStore.setNodeStatus(node.id, 'finished', { note: statusNote(REWIND_PANEL.done) })
+          refreshTree()
+        }
+        if (rewindOut) rewindOut.textContent = REWIND_PANEL.done
+        showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
+      })
+    }
     const modelSelect = controlsPage.querySelector('[data-tree-model]')
     if (modelSelect && node.sessionId) {
       modelSelect.addEventListener('change', () => {
@@ -2833,6 +2888,7 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'queue', label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: Boolean(node.sessionId) },
       { id: 'switch-model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(node.sessionId) },
       { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(node.sessionId) },
+      { id: 'rewind', label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: Boolean(node.sessionId) && (sessionTurnLog.get(node.sessionId) || []).length > 0 },
       { id: 'attach', label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: Boolean(node.sessionId) },
       { id: 'mention', label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: Boolean(node.sessionId) },
       { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true },
@@ -2895,10 +2951,13 @@ export function computersView({ initialComputer = null, navigate }) {
       openComposeFor({ kind: 'child', parentId: node.id })
       return
     }
-    if (id === 'queue' || id === 'move' || id === 'switch-model') {
+    if (id === 'queue' || id === 'move' || id === 'switch-model' || id === 'rewind') {
       showTreeNodeControls(node)
       const target = controlsPage.querySelector(
-        id === 'queue' ? '[data-tree-queue-input]' : id === 'move' ? '[data-tree-move-select]' : '[data-tree-model]',
+        id === 'queue' ? '[data-tree-queue-input]'
+          : id === 'move' ? '[data-tree-move-select]'
+            : id === 'rewind' ? '[data-tree-rewind-select]'
+              : '[data-tree-model]',
       )
       target?.focus?.()
       return

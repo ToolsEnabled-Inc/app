@@ -21,6 +21,7 @@ export const SLASH_COMMANDS = Object.freeze([
   Object.freeze({ name: 'attach', action: 'attach', help: 'attach an image to the next message' }),
   Object.freeze({ name: 'mention', action: 'mention', help: 'pick a file and write its path into the message' }),
   Object.freeze({ name: 'clear', action: 'clear', help: 'start this conversation over; the agent forgets everything said here' }),
+  Object.freeze({ name: 'rewind', action: 'rewind', help: 'go back to one of your messages; the agent forgets everything after it' }),
 ])
 
 const BY_NAME = new Map(SLASH_COMMANDS.map(command => [command.name, command]))

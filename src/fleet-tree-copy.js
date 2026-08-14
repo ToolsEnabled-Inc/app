@@ -255,7 +255,9 @@ export const PALETTE_PANEL = Object.freeze({
   filter: 'Filter actions…',
   back: '‹ Agent',
   none: 'No action matches that. Clear the filter to see them all.',
-  footer: 'Not possible yet, so not listed: rewinding a conversation, and attaching a text file’s contents — mention the file instead, and the agent reads it itself.',
+  footer: 'Not possible yet, so not listed: attaching a text file’s contents — mention the file instead, and the agent reads it itself.',
+  rewind: 'Rewind to one of your messages',
+  rewindHint: 'Goes to the rewind menu on the agent page. The agent forgets everything after the message you pick.',
   switchModel: 'Switch model for the next message',
   switchModelHint: 'Goes to the model menu on the agent page. The change rides on your next message; the conversation continues.',
   attach: 'Attach an image',
@@ -304,6 +306,21 @@ export const QUEUE_PANEL = Object.freeze({
   cardQueued: 'Queued — sends by itself when this turn finishes.',
   notSent: 'The queued message did not reach the agent, so it is back at the front of the queue. It will try again after the next turn, or unqueue it.',
   emptyQueueCommand: 'Write the message after /queue, and it will wait its turn.',
+})
+
+/* THE REWIND MENU. The engine forks the conversation at one of the person's
+   own turns — proven live before this shipped (tools/agent-rewind-probe.mjs:
+   the fork remembered everything up to the picked turn and nothing after).
+   The menu lists the person's own words, which is the only honest way to name
+   a point in time they can recognise. */
+export const REWIND_PANEL = Object.freeze({
+  title: 'Rewind',
+  help: 'Pick one of your messages. The agent keeps everything up to it and forgets everything after it.',
+  button: 'Rewind',
+  done: 'Rewound. The agent remembers everything up to that message and nothing after it.',
+  busy: 'Interrupt the running turn first — a rewind needs the agent idle.',
+  empty: 'Send a message first; your messages appear here to rewind to.',
+  failed: 'The rewind did not happen; the conversation is unchanged. Try once more.',
 })
 
 /* THE MODEL MENU on a running conversation. The engine accepts a model per

@@ -1097,6 +1097,31 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return Object.freeze({ sessionId: session.sessionId, turnId })
   }
 
+  /* REWIND: fork the thread at one of the person's own turns and continue
+   * from there. Proven live before this shipped (tools/agent-rewind-probe.mjs
+   * 2026-08-14: fork at turn 2 of 3 remembered turns 1-2 and had genuinely
+   * forgotten turn 3). The session keeps its child process; only its
+   * threadId moves to the fork. A busy session refuses — the person
+   * interrupts first, so a rewind can never race the turn it is erasing. */
+  async function rewindSession({ sessionId, turnId } = {}) {
+    assertOpen()
+    const session = readySession(sessionId)
+    const rewindTurnId = boundedString(turnId, 'turnId', 512, { allowEmpty: false })
+    if (session.sendPromise || session.activeTurnId) {
+      fail('AGENT_TURN_ACTIVE', `Session ${session.sessionId} has an active turn; interrupt it before rewinding`)
+    }
+    const forked = await session.adapter.forkThread(session.threadId, {
+      lastTurnId: rewindTurnId,
+      cwd: session.cwd,
+    })
+    if (!forked || typeof forked.threadId !== 'string' || forked.threadId.length === 0) {
+      fail('AGENT_ENGINE_INVALID_SESSION', 'thread/fork returned an invalid thread')
+    }
+    session.threadId = forked.threadId
+    session.activeTurnId = null
+    return Object.freeze({ sessionId: session.sessionId, threadId: forked.threadId, turnId: rewindTurnId })
+  }
+
   async function closeSession({ sessionId } = {}) {
     const id = normalizeSessionId(sessionId)
     const session = sessions.get(id)
@@ -1138,6 +1163,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     startSession,
     sendTurn,
     interrupt,
+    rewindSession,
     closeSession,
     onEvent,
     closeAll,

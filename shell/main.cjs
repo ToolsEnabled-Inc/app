@@ -1065,6 +1065,24 @@ ipcMain.handle('mc-agent:interrupt', async (event, value) => {
   }
 })
 
+/* REWIND — fork the session's thread at one of the person's own turns. The
+   turnId must be one this session really returned; the host refuses a busy
+   session so a rewind can never race the turn it erases. */
+ipcMain.handle('mc-agent:rewind', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['sessionId', 'turnId'])
+    const request = {
+      sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
+      turnId: boundedAgentString(payload.turnId, 'turnId', 512),
+    }
+    ownedAgentSession(event.sender, request.sessionId)
+    return await agentHost.rewindSession(request)
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
 ipcMain.handle('mc-agent:close', async (event, value) => {
   assertTrustedAgentSender(event)
   try {

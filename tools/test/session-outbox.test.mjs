@@ -72,21 +72,25 @@ test('the palette holds only real actions, and says what it cannot do in words',
   const view = readFileSync(resolve(ROOT, 'src/views/computers.js'), 'utf8')
   const copy = readFileSync(resolve(ROOT, 'src/fleet-tree-copy.js'), 'utf8')
   /* The unsupported set lives in ONE footer sentence, never as controls.
-     Rewind stays footer-only until its engine probe proves the fork
-     semantics; model switching GRADUATED to a control when the per-turn wire
-     landed, so its absence from the footer is now the honest state and a
-     footer that still called it impossible would be the lie. */
+     Model switching graduated when the per-turn wire landed; rewind graduated
+     when tools/agent-rewind-probe.mjs PROVED the fork semantics live
+     (2026-08-14: the fork remembered turns 1-2 and had forgotten turn 3). A
+     footer that still called either impossible would now be the lie. */
   const palette = view.slice(view.indexOf('function showPalette'), view.indexOf('function showControls'))
   assert.ok(palette.length > 200, 'the palette left computers.js')
-  assert.ok(!/[Rr]ewind/.test(palette), 'the palette renders a Rewind control before the fork probe proved it')
   assert.match(copy, /Not possible yet, so not listed/, 'the honest footer sentence is gone')
   assert.ok(!/footer:.*changing the model/.test(copy), 'the footer still calls model switching impossible — it shipped')
+  assert.ok(!/footer:.*rewinding/.test(copy), 'the footer still calls rewind impossible — the probe proved it and the control shipped')
   assert.match(palette, /PALETTE_PANEL\.footer/, 'the palette no longer shows the footer')
-  /* Every action id in the palette must have a handler branch — including the
-     three that graduated from the footer when the wire widened. */
-  for (const id of ['interrupt', 'stop', 'child', 'queue', 'move', 'copy-brief', 'copy-reply', 'switch-model', 'attach', 'mention']) {
+  /* Every action id in the palette must have a handler branch — including
+     every row that graduated out of the footer. */
+  for (const id of ['interrupt', 'stop', 'child', 'queue', 'move', 'copy-brief', 'copy-reply', 'switch-model', 'attach', 'mention', 'clear', 'rewind']) {
     assert.ok(view.includes(`'${id}'`), `palette action ${id} lost its binding`)
   }
+  /* Rewind's binding must be REAL: the menu lists the person's own turns and
+     the go button reaches the rewind channel. */
+  assert.match(view, /data-tree-rewind-select/, 'the rewind menu left the rail')
+  assert.match(view, /bridge\.rewind\(\{ sessionId: node\.sessionId, turnId \}\)/, 'the rewind button no longer reaches the channel')
   /* The graduated rows must be REAL: switch-model focuses the live model
      menu, and the menu writes the override every send reads. */
   assert.match(view, /data-tree-model/, 'the model menu left the rail')
