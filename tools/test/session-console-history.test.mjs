@@ -107,6 +107,22 @@ test('the conversation is kept and the card opens over it, never empty and never
   assert.match(graph, /history: Array\.isArray\(config\.history\)/, 'the graph drops the history on the way to the card')
 })
 
+test('clear starts the conversation over for real: close, fresh session, nothing re-sent', () => {
+  const view = read('src/views/computers.js')
+  const clear = view.slice(view.indexOf(`if (id === 'clear')`))
+  assert.ok(clear.length > 400, 'the clear action left the palette')
+  assert.ok(clear.indexOf('await bridge.close(') !== -1 && clear.indexOf('await bridge.close(') < clear.indexOf('await bridge.start('),
+    'clear must close the old session before starting the fresh one')
+  assert.ok(!/bridge\.send/.test(clear.slice(0, clear.indexOf('if (id ==='))),
+    'clear re-sends the brief — re-running the original ask uninvited could redo real work')
+  for (const wiped of ['sessionTranscripts.delete', 'sessionTurnLog.delete', 'sessionUsage.delete', 'sessionModelOverride.delete']) {
+    assert.ok(clear.includes(wiped), `clear no longer wipes ${wiped.split('.')[0]} — a forgotten agent with a remembered screen is a lie in one direction or the other`)
+  }
+  assert.match(view, /tier: draft\.tier/, 'the compose panel no longer records the tier a restart honestly reuses')
+  const store = read('src/fleet-trees.js')
+  assert.match(store, /tier: typeof entry\.tier === 'string'/, 'the store no longer reads the recorded tier forgivingly')
+})
+
 test('the usage row exists in the rail and fills from the live ear', () => {
   const view = read('src/views/computers.js')
   assert.match(view, /data-tree-usage/, 'the rail lost its usage row')

@@ -1539,6 +1539,9 @@ export function computersView({ initialComputer = null, navigate }) {
       parentId: parent ? parent.id : null,
       role: draft.role,
       message: draft.message,
+      /* Recorded so "start this conversation over" can honestly reuse the
+         tier the person chose, however much later the restart happens. */
+      tier: draft.tier || '',
     })
     /* The store's own sentence, verbatim. It knows what it refused and why —
        a message too long, a branch too deep, a computer already holding as many
@@ -2624,7 +2627,7 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="ctl-row">
             <select class="ctl-select" data-tree-model aria-label="${escapeMarkup(MODEL_PANEL.title)}">
               <option value="">${escapeMarkup(MODEL_PANEL.keep)}</option>
-              ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : 'Claude — cannot start here yet')}</option>`).join('')}
+              ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet')}</option>`).join('')}
             </select>
           </div>
           <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>` : `
@@ -2829,6 +2832,7 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true },
       { id: 'queue', label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: Boolean(node.sessionId) },
       { id: 'switch-model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(node.sessionId) },
+      { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(node.sessionId) },
       { id: 'attach', label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: Boolean(node.sessionId) },
       { id: 'mention', label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: Boolean(node.sessionId) },
       { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true },
@@ -2908,6 +2912,52 @@ export function computersView({ initialComputer = null, navigate }) {
       held.push({ path: picked.path })
       sessionPendingImages.set(node.sessionId, held.slice(0, 8))
       out.textContent = PALETTE_PANEL.attachPicked
+      return
+    }
+    if (id === 'clear') {
+      if (!bridge || typeof bridge.start !== 'function' || typeof bridge.close !== 'function' || !node.sessionId) return
+      const oldSessionId = node.sessionId
+      try { await bridge.close({ sessionId: oldSessionId }) }
+      catch { /* an already-closed session is the goal state */ }
+      outboxClearSession(oldSessionId)
+      sessionTranscripts.delete(oldSessionId)
+      sessionTurnLog.delete(oldSessionId)
+      sessionUsage.delete(oldSessionId)
+      sessionModelOverride.delete(oldSessionId)
+      sessionPendingImages.delete(oldSessionId)
+      sessionNodeIds.delete(oldSessionId)
+      let started = null
+      try {
+        /* A start WITHOUT the brief re-sent: re-running the original ask
+           uninvited could redo real work. The brief stays on the node; the
+           fresh session waits for whatever the person says next. */
+        started = node.tier
+          ? await bridge.start({ surface: 'fleet-tree', tier: node.tier })
+          : await bridge.start({ surface: 'fleet-tree' })
+      } catch {
+        started = null
+      }
+      if (!started || typeof started.sessionId !== 'string' || !started.sessionId) {
+        if (treeStore) {
+          treeStore.setNodeStatus(node.id, 'failed', { note: statusNote(PALETTE_PANEL.clearFailed) })
+          refreshTree()
+        }
+        out.textContent = PALETTE_PANEL.clearFailed
+        return
+      }
+      sessionNodeIds.set(started.sessionId, node.id)
+      nodeReplies.delete(node.id)
+      nodeActivity.delete(node.id)
+      if (treeStore) {
+        treeStore.attachSession(node.id, started.sessionId)
+        treeStore.setNodeReply(node.id, '')
+        treeStore.setNodeStatus(node.id, 'finished', { note: statusNote(PALETTE_PANEL.cleared) })
+        refreshTree()
+      }
+      out.textContent = PALETTE_PANEL.cleared
+      if (controlsPage.classList.contains('is-active') && currentRailTreeNode && currentRailTreeNode.id === node.id) {
+        showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
+      }
       return
     }
     if (id === 'mention') {

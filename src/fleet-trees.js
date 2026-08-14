@@ -373,6 +373,10 @@ export function parseFleetTrees(value, { computerId = null } = {}) {
          written before the field existed), and an oversized one is trimmed
          rather than costing the person their whole saved forest. */
       reply: typeof entry.reply === 'string' ? entry.reply.slice(0, FLEET_TREE_LIMITS.maxReplyChars) : '',
+      /* Same forgiveness as reply: the tier a node started on is display and
+         restart guidance, not shape. Absent means the record predates the
+         field, and a restart falls back to the default tier and says so. */
+      tier: typeof entry.tier === 'string' ? entry.tier.slice(0, 64) : '',
       sessionId,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
@@ -719,7 +723,11 @@ export function createFleetTreeStore({
      * yet know either, and a caller that thinks it does is describing a launch
      * rather than a placeholder.
      */
-    addNode({ treeId = null, parentId = null, role = '', message = '' } = {}) {
+    addNode({ treeId = null, parentId = null, role = '', message = '', tier = '' } = {}) {
+      const cleanTier = optionalOneLine(tier, 64)
+      if (cleanTier === null) {
+        return refuse('Keep the tier to one line of 64 characters or fewer.')
+      }
       const cleanRole = optionalOneLine(role, FLEET_TREE_LIMITS.maxRoleChars)
       if (cleanRole === null) {
         return refuse(`Keep the role to one line of ${FLEET_TREE_LIMITS.maxRoleChars} characters or fewer.`)
@@ -783,6 +791,7 @@ export function createFleetTreeStore({
         status: 'draft',
         statusNote: '',
         reply: '',
+        tier: cleanTier,
         sessionId: null,
         createdAt: stamp,
         updatedAt: stamp,
