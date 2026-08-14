@@ -57,7 +57,6 @@ import {
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
-import { LAUNCH_TIERS } from '../orchestration-controls.js'
 /* The owner's queue: messages written while the agent is busy, drained one
    per completed turn by this view's own listener. The store holds words; this
    file holds the wire. */
