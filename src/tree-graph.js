@@ -1536,6 +1536,7 @@ export class StaticTreeGraph {
         subtitle: config.subtitle || '',
         roleKey: config.roleKey || record.agent.role,
         seed: 0,
+        history: Array.isArray(config.history) ? config.history : [],
         onSend: config.onSend,
       })
       return

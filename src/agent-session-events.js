@@ -58,3 +58,27 @@ export function sessionActivityEvent(packet, sessionId) {
   if (event.type === 'approval_request') return { kind: 'approval' }
   return null
 }
+
+/* WHAT THE TURN HAS COST, as data. The engine reports token usage on every
+ * thread/tokenUsage/updated and the adapter re-emits it as a `usage` event —
+ * which crossed mc-agent:event from the first day and was dropped by every
+ * reader here. Same contract as the siblings: exact shape, exact session,
+ * null otherwise. Only FINITE NUMBERS survive from the usage record: the
+ * shape is the engine's own and unversioned here, and a filter that admits
+ * only numeric fields cannot smuggle prose or paths onto a screen. */
+export function sessionUsageEvent(packet, sessionId) {
+  if (!packet || typeof packet !== 'object' || packet.sessionId !== sessionId) return null
+  const event = packet.event
+  if (!event || typeof event !== 'object' || event.type !== 'usage') return null
+  const source = event.usage && typeof event.usage === 'object' && !Array.isArray(event.usage) ? event.usage : {}
+  const usage = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof key === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && Number.isFinite(value)) {
+      usage[key] = value
+    }
+  }
+  return {
+    turnId: typeof event.turnId === 'string' ? event.turnId : null,
+    usage,
+  }
+}

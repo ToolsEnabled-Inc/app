@@ -341,7 +341,7 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
    placeholder attribute on the line below. The label stays verbatim on purpose
    (mangling somebody's words in the one place they compare them against what
    they typed is worse), so every sink escapes instead. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null }) {
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null }) {
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
     <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
@@ -406,6 +406,21 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     log.scrollTop = log.scrollHeight
     return m
   }
+  /* REAL HISTORY, WHEN THE CALLER HAS ONE. The tree card passes the actual
+     conversation (this window's transcript, or the node's stored ask+reply),
+     rendered verbatim — the simulated excerpt below never runs for a caller
+     that provided real entries, whatever its seed. */
+  if (Array.isArray(history) && history.length) {
+    for (const entry of history) {
+      if (!entry || typeof entry.text !== 'string' || !entry.text) continue
+      addMsg(
+        entry.who === 'you' ? 'me' : 'them',
+        entry.text,
+        entry.who === 'you' ? 'you' : title,
+        Number.isFinite(entry.at) ? entry.at : Date.now(),
+      )
+    }
+  }
   // The seeded excerpt is the conversation's *past*, so it must not change
   // between opens: the title is the conversation's identity, so the window
   // into CHAT is derived from it rather than re-rolled with Math.random().
@@ -413,21 +428,21 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   const titleHash = hashString(String(title ?? ''))
   const span = Math.max(1, CHAT.length - seed)
   const start = titleHash % span
-  const history = CHAT.slice(start, start + seed)
+  const seeded = Array.isArray(history) && history.length ? [] : CHAT.slice(start, start + seed)
 
   // Give the simulated past a stable rhythm: short exchanges grouped around
   // one real pause. A six-turn direct line therefore reads like a thread,
   // while the compact two-turn comms excerpt does not spend a row on chrome.
-  const historyTimes = new Array(history.length)
-  const clusterAt = history.length >= 3 ? Math.floor(history.length / 2) : -1
+  const historyTimes = new Array(seeded.length)
+  const clusterAt = seeded.length >= 3 ? Math.floor(seeded.length / 2) : -1
   let historyCursor = CHAT_CLOCK_ORIGIN - (2 + titleHash % 4) * CHAT_MINUTE
-  for (let i = history.length - 1; i >= 0; i--) {
+  for (let i = seeded.length - 1; i >= 0; i--) {
     historyTimes[i] = historyCursor
     const shortGap = 1 + ((titleHash >>> (i % 24)) % 4)
     const gap = i === clusterAt ? 9 + (titleHash % 4) : shortGap
     historyCursor -= gap * CHAT_MINUTE
   }
-  history.forEach((m, i) => addMsg(
+  seeded.forEach((m, i) => addMsg(
     m.from,
     m.text,
     i === 0 ? (m.from === 'them' ? title : 'you') : null,

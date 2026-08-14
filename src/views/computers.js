@@ -54,6 +54,7 @@ import {
   START_REFUSAL,
   activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
+  usageSentence,
 } from '../fleet-tree-copy.js'
 /* The owner's queue: messages written while the agent is busy, drained one
    per completed turn by this view's own listener. The store holds words; this
@@ -71,7 +72,8 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { sessionActivityEvent, sessionEventText, sessionTurnStatus } from '../agent-session-events.js'
+import { sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionUsageEvent } from '../agent-session-events.js'
+import { parseSlashCommand } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
    turn runs instead of sitting silent until the end. */
@@ -1128,6 +1130,34 @@ export function computersView({ initialComputer = null, navigate }) {
      dropped if the card closed first (the reply still lands on the chip, the
      rail and the store — the card is a window, not the record). */
   const cardReplies = new Map()
+  /* THE CONVERSATION, kept in this window's memory and said to be exactly
+     that. The STORE keeps one reply per node (the durable part); these maps
+     keep the back-and-forth so the card and the rail can show a real history
+     instead of opening empty over a node that has plainly spoken. Bounded per
+     session; entries carry the turnId the engine returned so a rewind can one
+     day point at "the message where I said …". */
+  const TRANSCRIPT_MAX_ENTRIES = 60
+  const sessionTranscripts = new Map()
+  const sessionTurnLog = new Map()
+  /* What the engine says the session has used, latest reading per session —
+     the usage events crossed the wire from day one and were dropped here. */
+  const sessionUsage = new Map()
+
+  function transcriptAppend(sessionId, entry) {
+    if (!sessionId) return
+    const held = sessionTranscripts.get(sessionId) || []
+    held.push(entry)
+    if (held.length > TRANSCRIPT_MAX_ENTRIES) held.splice(0, held.length - TRANSCRIPT_MAX_ENTRIES)
+    sessionTranscripts.set(sessionId, held)
+  }
+
+  function turnLogAppend(sessionId, turnId, yourText) {
+    if (!sessionId || typeof turnId !== 'string' || !turnId) return
+    const held = sessionTurnLog.get(sessionId) || []
+    held.push({ turnId, yourText: String(yourText || '').slice(0, 200), at: Date.now() })
+    if (held.length > TRANSCRIPT_MAX_ENTRIES) held.splice(0, held.length - TRANSCRIPT_MAX_ENTRIES)
+    sessionTurnLog.set(sessionId, held)
+  }
   let currentRailTreeNode = null
   /* The one live streaming surface: the open rail's "What it said" box, when
      the shown node's session is mid-turn. Torn down on every rail rebuild --
@@ -1616,10 +1646,22 @@ export function computersView({ initialComputer = null, navigate }) {
       treeChat: agent => {
         const node = agent.treeNode
         if (!node || !node.sessionId) return null
+        /* The card opens over the REAL conversation. This window's transcript
+           when it has one; else the durable pair the store kept (the ask and
+           the last reply), so a card over a node that has plainly spoken never
+           opens empty. Renderer memory only, and the store stays the record. */
+        let history = sessionTranscripts.get(node.sessionId) || []
+        if (!history.length) {
+          history = []
+          if (node.message) history.push({ who: 'you', text: node.message, at: null })
+          const kept = nodeReplies.get(node.id) || node.reply
+          if (kept) history.push({ who: 'agent', text: kept, at: null })
+        }
         return {
           title: treeNodeName(node),
           subtitle: 'your agent · live session',
           roleKey: node.role,
+          history,
           onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
         }
       },
@@ -2536,6 +2578,11 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
           <div class="rail-sub" data-tree-said></div>
         </div>
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">What it has used</span></div>
+          <div class="rail-sub" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
+          <div class="rail-sub"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
+        </div>
         <div class="board-box board-ctl-box" data-tree-queue>
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(QUEUE_PANEL.title)}</span></div>
           <div class="rail-sub">${escapeMarkup(QUEUE_PANEL.note)}</div>
@@ -2649,6 +2696,20 @@ export function computersView({ initialComputer = null, navigate }) {
       const queueInput = controlsPage.querySelector('[data-tree-queue-input]')
       const queueAdd = controlsPage.querySelector('[data-tree-queue-add]')
       const submitQueued = () => {
+        /* The console vocabulary works here too: /interrupt typed into the
+           queue box should act now, not wait its turn in the queue. */
+        const slash = parseSlashCommand(queueInput.value)
+        if (slash) {
+          if (slash.kind === 'help' || slash.kind === 'unknown') { queueOut.textContent = slash.sentence; return }
+          if (slash.action === 'queue') {
+            queueInput.value = slash.rest
+            if (!slash.rest) { queueOut.textContent = QUEUE_PANEL.emptyQueueCommand; return }
+          } else {
+            queueInput.value = ''
+            void runPaletteAction(slash.action, node, queueOut)
+            return
+          }
+        }
         const result = outboxEnqueue(node.sessionId, queueInput.value)
         if (!result.ok) {
           queueOut.textContent = result.sentence
@@ -3191,6 +3252,24 @@ export function computersView({ initialComputer = null, navigate }) {
      card's reply slot waits for the turn to complete. Either way nothing is
      fabricated: the card only ever shows what was sent and what came back. */
   function treeCardSend(node, text, { reply, fail }) {
+    /* Slash commands are the console's own vocabulary, parsed BEFORE anything
+       is sent or queued — /interrupt while busy is exactly when it matters. */
+    const slash = parseSlashCommand(text)
+    if (slash) {
+      if (slash.kind === 'help' || slash.kind === 'unknown') { reply(slash.sentence); return }
+      if (slash.action === 'queue') {
+        if (!slash.rest) { fail(QUEUE_PANEL.emptyQueueCommand); return }
+        const queued = outboxEnqueue(node.sessionId, slash.rest)
+        if (!queued.ok) { fail(queued.sentence); return }
+        reply(QUEUE_PANEL.cardQueued)
+        return
+      }
+      const sink = { textContent: '' }
+      void runPaletteAction(slash.action, node, sink).then(() => {
+        reply(sink.textContent || PALETTE_PANEL.done)
+      })
+      return
+    }
     const busy = node.status === 'starting' || node.status === 'running'
     if (busy) {
       const queued = outboxEnqueue(node.sessionId, text)
@@ -3201,8 +3280,10 @@ export function computersView({ initialComputer = null, navigate }) {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.send !== 'function') { fail(START_NEEDS_APP_TEXT); return }
     cardReplies.set(node.sessionId, reply)
-    bridge.send({ sessionId: node.sessionId, text }).then(() => {
+    transcriptAppend(node.sessionId, { who: 'you', text, at: Date.now() })
+    bridge.send({ sessionId: node.sessionId, text }).then(sent => {
       if (destroyed) return
+      turnLogAppend(node.sessionId, sent && sent.turnId, text)
       if (treeStore) {
         treeStore.setNodeStatus(node.id, 'running', { note: '' })
         refreshTree()
@@ -3225,8 +3306,9 @@ export function computersView({ initialComputer = null, navigate }) {
       outboxRequeueFront(sessionId, entry)
       return
     }
+    let drained = null
     try {
-      await bridge.send({ sessionId, text: entry.text })
+      drained = await bridge.send({ sessionId, text: entry.text })
     } catch (error) {
       outboxRequeueFront(sessionId, entry)
       if (destroyed) {
@@ -3243,6 +3325,8 @@ export function computersView({ initialComputer = null, navigate }) {
       recordUndeliveredWrite(WRITE_OUTCOME_KEYS.SESSION_OUTBOX, 'confirmed', QUEUE_PANEL.sentNext)
       return
     }
+    transcriptAppend(sessionId, { who: 'you', text: entry.text, at: Date.now() })
+    turnLogAppend(sessionId, drained && drained.turnId, entry.text)
     if (treeStore) {
       treeStore.setNodeStatus(nodeId, 'running', { note: '' })
       refreshTree()
@@ -3281,6 +3365,18 @@ export function computersView({ initialComputer = null, navigate }) {
         scheduleChipRefresh(sessionNodeIds.get(sessionId))
         return
       }
+      const used = sessionUsageEvent(packet, sessionId)
+      if (used) {
+        sessionUsage.set(sessionId, used.usage)
+        if (currentRailTreeNode && currentRailTreeNode.id === sessionNodeIds.get(sessionId)) {
+          const usageHost = controlsPage.querySelector('[data-tree-usage]')
+          if (usageHost) {
+            usageHost.textContent = usageSentence(used.usage)
+            usageHost.removeAttribute('hidden')
+          }
+        }
+        return
+      }
       const activity = sessionActivityEvent(packet, sessionId)
       if (activity) {
         const nodeId = sessionNodeIds.get(sessionId)
@@ -3310,6 +3406,7 @@ export function computersView({ initialComputer = null, navigate }) {
       /* A turn that ends having said nothing is a real outcome and must read
          as one; silence in this box would read as the product hanging. */
       nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
+      transcriptAppend(sessionId, { who: 'agent', text: spoken || SAID_PANEL.emptyTurn, at: Date.now() })
       const cardReply = cardReplies.get(sessionId)
       if (cardReply) {
         cardReplies.delete(sessionId)

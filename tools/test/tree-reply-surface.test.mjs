@@ -35,7 +35,7 @@ test('the tree reads the stream only through the shared readers', () => {
      without anybody noticing -- the agent page's CORRECTED note is the measured
      case. The tree must use the same two readers, not its own field reads. */
   const source = read('src/views/computers.js')
-  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus \} from '\.\.\/agent-session-events\.js'/)
+  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
   assert.ok(!/packet\.event\.text|packet\.text|packet\.delta/.test(source),
     'computers.js reads raw packet fields instead of the shared readers')
 })

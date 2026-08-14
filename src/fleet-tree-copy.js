@@ -274,6 +274,7 @@ export const PALETTE_PANEL = Object.freeze({
   copied: 'Copied.',
   nothingToCopy: 'There is nothing to copy yet.',
   clipboardRefused: 'Select the text on the agent page instead — the clipboard refused this copy.',
+  done: 'Done.',
 })
 
 /* THE QUEUE'S WORDS. The owner's ask: "can we add a que/unque for messages."
@@ -290,6 +291,7 @@ export const QUEUE_PANEL = Object.freeze({
   sentNext: 'Sent the next queued message.',
   cardQueued: 'Queued — sends by itself when this turn finishes.',
   notSent: 'The queued message did not reach the agent, so it is back at the front of the queue. It will try again after the next turn, or unqueue it.',
+  emptyQueueCommand: 'Write the message after /queue, and it will wait its turn.',
 })
 
 /* THE RUNNING NARRATION, one line at a time. The engine says what it is doing
@@ -321,6 +323,40 @@ export function activityLine(activity) {
   }
   if (activity.kind === 'approval') return 'Waiting for an approval before going further.'
   return ''
+}
+
+/* WHAT THE SESSION HAS USED, as one sentence. The engine reports token usage
+   on every update; the reader (sessionUsageEvent) admits only numeric fields,
+   and this turns the common ones into words. Field names vary by engine
+   version, so each is looked up by its known spellings and a reading with
+   nothing recognisable says so instead of inventing a number. */
+function usageNumber(usage, names) {
+  for (const name of names) {
+    if (Number.isFinite(usage?.[name])) return usage[name]
+  }
+  return null
+}
+
+function tokensWord(count) {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)} million tokens`
+  if (count >= 10_000) return `${Math.round(count / 1000)} thousand tokens`
+  return `${count} tokens`
+}
+
+export function usageSentence(usage) {
+  const input = usageNumber(usage, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokens'])
+  const output = usageNumber(usage, ['output_tokens', 'outputTokens', 'completion_tokens', 'completionTokens'])
+  const cached = usageNumber(usage, ['cached_input_tokens', 'cachedInputTokens', 'cache_read_input_tokens'])
+  const total = usageNumber(usage, ['total_tokens', 'totalTokens'])
+    ?? (input !== null || output !== null ? (input || 0) + (output || 0) : null)
+  if (total === null) return 'The engine reported its usage in a form this copy does not recognise yet.'
+  const parts = []
+  if (input !== null) parts.push(`${tokensWord(input)} read`)
+  if (output !== null) parts.push(`${tokensWord(output)} written`)
+  if (cached !== null && cached > 0) parts.push(`${tokensWord(cached)} of the reading served from cache`)
+  return parts.length
+    ? `About ${tokensWord(total)} so far — ${parts.join(', ')}.`
+    : `About ${tokensWord(total)} so far.`
 }
 
 /* THE WAIT IS THE PART PEOPLE DISTRUST. A start crosses a background service
