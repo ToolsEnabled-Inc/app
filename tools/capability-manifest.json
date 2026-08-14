@@ -178,7 +178,8 @@
     "config/agent-org.json",
     "config/managed-processes.json",
     "config/toolsenabled.policy.json",
-    "config/model-floor.json"
+    "config/model-floor.json",
+    "package.json"
   ],
   "$comment_dynamicRequires": [
     "The require() calls whose argument is computed at runtime, so a static",
