@@ -70,6 +70,7 @@ import {
   roleLabel,
   startingLine,
 } from './fleet-tree-copy.js'
+import { railTitleRowElement } from './rail-title.js'
 
 const asText = value => (typeof value === 'string' ? value : '')
 const asTrimmed = value => asText(value).trim()
@@ -170,6 +171,19 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   root.className = 'agent-compose'
   root.setAttribute('data-agent-compose', 'open')
   root.setAttribute('aria-labelledby', `${id}-title`)
+
+  /* The nav row first, so Cancel sits in the SAME back slot every rail page
+     puts its back button in (owner defect 6: no mouse travel between pages).
+     Cancel keeps its honest word -- this button discards a draft, it does not
+     merely navigate -- but it lives where the going-back muscle memory already
+     points. Same element, same data attribute, same disable wiring as when it
+     sat at the bottom. */
+  const nav = railTitleRowElement(doc, {
+    back: { label: START_PANEL.cancel, aria: 'Discard this draft and go back', attrs: { 'data-compose-action': 'cancel' } },
+    title: '',
+  })
+  root.appendChild(nav.row)
+  const cancel = nav.backButton
 
   const title = doc.createElement('h3')
   title.className = 'agent-compose-title'
@@ -351,14 +365,9 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   submit.setAttribute('type', 'button')
   submit.setAttribute('data-compose-action', 'submit')
   submit.textContent = START_PANEL.submit
-  const cancel = doc.createElement('button')
-  cancel.className = 'ctl-btn agent-compose-cancel'
-  cancel.type = 'button'
-  cancel.setAttribute('type', 'button')
-  cancel.setAttribute('data-compose-action', 'cancel')
-  cancel.textContent = START_PANEL.cancel
+  /* Cancel is built with the nav row at the top of this function; only Start
+     remains down here, full-width in the action row. */
   actions.appendChild(submit)
-  actions.appendChild(cancel)
   root.appendChild(actions)
 
   /* Progress, not problems, and polite on purpose. The wait is the part people

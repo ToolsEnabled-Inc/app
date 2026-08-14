@@ -5,6 +5,7 @@ import { SVGRenderer } from 'echarts/renderers'
 import { sim, fmtRuntime } from '../sim.js'
 import { CHAT, ROLES } from '../vocab.js'
 import { el, uptimeRing, setViewMorph, buildChat } from '../components.js'
+import { railTitleRow } from '../rail-title.js'
 import { StaticTreeGraph } from '../tree-graph.js'
 import { withAlpha } from '../echarts-theme.js'
 import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
@@ -737,7 +738,14 @@ export function computersView({ initialComputer = null, navigate }) {
                showing when the panel closes. It is empty until a press: nothing
                is built here on load, because nothing here is a thing to read. -->
           <div class="rail-page compose-page"></div>
-          <div class="rail-page palette-page"></div>
+          <!-- board-page because this rail page renders .board-box, .ctl-btn and
+               .ctl-select: without it, board.css's box padding, overflow fence
+               and input styling are all inert here. It was the ONLY rail page
+               with those pieces and without the class, which is half of why the
+               actions palette rendered as unreadable overlap (the other half:
+               its row classes had no stylesheet rules at all -- see
+               .palette-row in board.css). -->
+          <div class="rail-page palette-page board-page"></div>
         </aside>
       </div>
     </div>`)
@@ -1812,7 +1820,7 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     const active = computer.agents.length
     statsPage.innerHTML = `
-      <div class="rail-title">Runtime Statistics</div>
+      ${railTitleRow({ title: 'Runtime Statistics' })}
       <div class="rail-scroll">
         <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agent Count</span></div>
         <div class="rail-sub">${active} live now · ${escapeMarkup(computer.name.toLowerCase())} · ${escapeMarkup(computer.note)}</div>
@@ -1840,7 +1848,7 @@ export function computersView({ initialComputer = null, navigate }) {
   function renderLiveStats() {
     const services = computer.services || []
     statsPage.innerHTML = `
-      <div class="rail-title">Fleet overview</div>
+      ${railTitleRow({ title: 'Fleet overview' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agents on record</span></div>
         <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
@@ -2583,7 +2591,7 @@ export function computersView({ initialComputer = null, navigate }) {
     const role = ROLES[node.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
     controlsPage.innerHTML = `
-      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet overview</button><span class="spacer"></span>Agent in your tree<button class="rail-back" type="button" data-open-palette>${escapeMarkup(PALETTE_PANEL.title)} ›</button></div>
+      ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Agent in your tree', forward: { label: PALETTE_PANEL.title, attr: 'data-open-palette' } })}
       <div class="rail-scroll">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
         <div class="board-box board-ctl-box">
@@ -2897,12 +2905,12 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply) },
     ]
     palettePage.innerHTML = `
-      <div class="rail-title"><button class="rail-back" type="button">${escapeMarkup(PALETTE_PANEL.back)}</button><span class="spacer"></span>${escapeMarkup(PALETTE_PANEL.title)}</div>
+      ${railTitleRow({ back: { aria: 'Back to this agent' }, title: PALETTE_PANEL.title })}
       <div class="rail-scroll">
         <div class="board-box board-ctl-box">
           <input class="ctl-select" type="text" data-palette-filter placeholder="${escapeMarkup(PALETTE_PANEL.filter)}" aria-label="${escapeMarkup(PALETTE_PANEL.filter)}">
         </div>
-        <div class="board-box board-ctl-box" data-palette-list></div>
+        <div class="board-box board-ctl-box palette-list" data-palette-list></div>
         <output class="rail-sub" role="status" data-palette-out></output>
         <p class="rail-sub projection-unavailable">${escapeMarkup(PALETTE_PANEL.footer)}</p>
       </div>`
@@ -2931,7 +2939,9 @@ export function computersView({ initialComputer = null, navigate }) {
         row.appendChild(label)
         if (action.hint) {
           const hint = document.createElement('div')
-          hint.className = 'rail-sub'
+          // Not .rail-sub: that class carries margin-bottom var(--s4), which
+          // inside a button skews every row's baseline downward.
+          hint.className = 'palette-hint'
           hint.textContent = action.hint
           row.appendChild(hint)
         }
@@ -3080,7 +3090,7 @@ export function computersView({ initialComputer = null, navigate }) {
     const role = ROLES[agent.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
     controlsPage.innerHTML = `
-      <div class="rail-title"><button class="rail-back" type="button">‹ Statistics</button><span class="spacer"></span>Agent Controls</div>
+      ${railTitleRow({ back: { aria: 'Back to statistics' }, title: 'Agent Controls' })}
       <div class="rail-scroll">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(role.label)}</div></div></div>
         <div class="agent-ring-wrap"></div>
@@ -3162,7 +3172,7 @@ export function computersView({ initialComputer = null, navigate }) {
        panel report two things missing while they sit above it. */
     const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task history' : null, 'activity'].filter(Boolean)
     controlsPage.innerHTML = `
-      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet overview</button><span class="spacer"></span>Recorded agent</div>
+      ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Recorded agent' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(agent.name)}</div><div class="ar">${escapeMarkup(agent.declaredRole)}</div></div></div>
         <div class="board-box board-chat-box"></div>
@@ -3343,6 +3353,7 @@ export function computersView({ initialComputer = null, navigate }) {
        before any computer reports. Leaving the panel out here would have put the
        only way to reach it behind a host most copies do not have. */
     statsPage.innerHTML = `
+      ${railTitleRow({ title: 'Runtime Statistics' })}
       <div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Reading your fleet…' : `The live fleet data could not be read · ${escapeMarkup(reason)}`}</div>
       ${loading ? '' : `<div class="rail-scroll rail-org-only">${orgSourceMarkup()}<div class="board-org-slot"></div></div>`}`
     controlsPage.innerHTML = ''

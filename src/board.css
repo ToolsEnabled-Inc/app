@@ -775,3 +775,23 @@ body[data-route="computers"]:has(.computers[data-live-mode="simulated"])
    one state where pointing at Settings still helps. */
 body[data-route="computers"]:has(.computers[data-live-mode="live"] .static-tree-node)
   .fleet-profile-notice:not(.is-serious) { display: none; }
+
+/* THE ACTIONS PALETTE. Its rows were button.ctl-btn.palette-row with NO rule
+   for palette-row anywhere: .ctl-btn is a fixed 40px CENTRED flex row, so the
+   label and the hint rendered side by side, clipped, and overlapping across
+   rows. (The page div was also the only rail page rendering board pieces
+   without board-page -- fixed at the markup.) Rows are columns, left-aligned,
+   free to grow; the hint is its own class because .rail-sub's
+   margin-bottom: var(--s4) inside a button skews the baselines. */
+.board-page .palette-list { display: flex; flex-direction: column; gap: 6px; }
+.board-page .palette-row {
+  flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  height: auto; min-height: 40px;
+  padding: 9px 11px; gap: 3px;
+  text-align: left;
+}
+.board-page .palette-row > div:first-child { font-weight: 640; }
+.board-page .palette-hint {
+  font-size: 11.5px; line-height: 1.35; color: var(--ink-3);
+  font-family: var(--font-mono); font-weight: 400;
+}

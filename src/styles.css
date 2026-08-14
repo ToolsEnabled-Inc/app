@@ -1782,6 +1782,20 @@ body[data-route="computers"] { --page-max: 1680px; }
   margin-bottom: var(--s3); flex: none;
 }
 .rail-title .spacer { flex: 1; }
+/* THE FIXED NAV ROW (src/rail-title.js). Three slots whose geometry never
+   depends on content: the back button's centre may not move between pages
+   (owner defect 6), so the columns are constant widths, the row keeps a
+   minimum height even with no buttons, and an absent button is an empty slot,
+   not a collapsed one. 116px fits "‹ Back" and the widest forward label
+   ("Actions ›") with the button's own padding at rest. */
+.rail-title-row {
+  display: grid; grid-template-columns: 116px 1fr 116px;
+  align-items: center; gap: 0; min-height: 34px;
+}
+.rail-title-slot { display: flex; align-items: center; min-width: 0; }
+.rail-title-slot-back { justify-content: flex-start; }
+.rail-title-slot-title { justify-content: center; text-align: center; }
+.rail-title-slot-forward { justify-content: flex-end; }
 .rail-back {
   border: none; background: none; cursor: pointer;
   font-size: 12.5px; color: var(--ink-25); font-weight: 640;
