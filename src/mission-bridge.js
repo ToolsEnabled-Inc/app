@@ -32,6 +32,13 @@ const ACTION_ROUTES = Object.freeze({
   'cloud-tasks': '/v1/actions/cloud-tasks',
   'cloud-task-status': '/v1/actions/cloud-task-status',
   'cloud-launch': '/v1/actions/cloud-launch',
+  /* The research bench family — same registered tools the MCP surface serves,
+     reachable from the workbench without a session. */
+  'task-submit': '/v1/actions/task-submit',
+  'task-claim': '/v1/actions/task-claim',
+  'task-get': '/v1/actions/task-get',
+  'task-list': '/v1/actions/task-list',
+  'role-complete': '/v1/actions/role-complete',
 })
 
 let bootstrapPromise = null
@@ -270,6 +277,15 @@ export function bridgeStatus() {
 }
 
 /**
+ * What the two fixed local advisory tiers can do on this machine right now,
+ * with machine-readable reasons. A read like bridgeStatus(): starts no
+ * inference, mutates nothing.
+ */
+export function localTiersStatus() {
+  return request('/v1/research/local-tiers-status', { timeoutMs: STATUS_TIMEOUT_MS })
+}
+
+/**
  * Read-only, public owner prompts. Secret-entry prompts are deliberately not
  * part of this renderer contract; those remain in the isolated native host.
  */
@@ -319,6 +335,10 @@ export async function bridgeReachable() {
 const ACTION_TIMEOUT_MS = Object.freeze({
   dispatch: 120_000, queue: 30_000, terminate: 120_000, 'ledger-archive': 120_000,
   'cloud-accounts': 120_000, 'cloud-tasks': 90_000, 'cloud-task-status': 90_000, 'cloud-launch': 240_000,
+  /* Task actions pay a durable write each; role-complete runs local inference
+     and is slow rather than stuck — the judge gets minutes, not seconds. */
+  'task-submit': 30_000, 'task-claim': 30_000, 'task-get': 30_000, 'task-list': 30_000,
+  'role-complete': 300_000,
 })
 
 export function postBridgeAction(action, body) {

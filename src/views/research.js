@@ -25,6 +25,7 @@ import { createResearchRegistry } from '../research-modules.js'
    leave its tail behind as garbage. */
 import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
 import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments } from '../research-experiments.js'
+import { localTiersStatus } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
 import { isLiveView } from '../live-flags.js'
@@ -344,6 +345,16 @@ export function researchView() {
             </div>
           </section>
 
+          <section class="research-section" aria-labelledby="research-tiers-title" data-mc="tiers">
+            <div class="research-section-head">
+              <h2 id="research-tiers-title">Local advisory tiers</h2>
+              <p>What the two fixed local models on this computer can do right now, and the reason when one cannot.</p>
+            </div>
+            <div data-research-tiers aria-live="polite">
+              <p class="research-observed-empty">Reading the local tiers.</p>
+            </div>
+          </section>
+
           <section class="research-section" aria-labelledby="research-queue-title" data-mc="queue" data-research-queue-section>
             <div class="research-section-head">
               <h2 id="research-queue-title">Research queue</h2>
@@ -427,12 +438,13 @@ export function researchView() {
     { id: 'designer', title: 'Experiment designer', size: 'full', el: root.querySelector('[data-mc="designer"]') },
     { id: 'runboard', title: 'Run board', size: 'full', el: root.querySelector('[data-mc="runboard"]') },
     { id: 'results', title: 'Results', size: 'full', el: root.querySelector('[data-mc="results"]') },
+    { id: 'tiers', title: 'Local advisory tiers', size: 'full', el: root.querySelector('[data-mc="tiers"]') },
     { id: 'queue', title: 'Research queue', size: 'full', el: root.querySelector('[data-mc="queue"]') },
     { id: 'library', title: 'Report library', size: 'full', el: root.querySelector('[data-mc="library"]') },
     { id: 'methods', title: 'Method notes', size: 'full', el: root.querySelector('[data-mc="methods"]') },
     { id: 'worklists', title: 'Working lists', size: 'full', el: root.querySelector('[data-mc="worklists"]') },
   ]
-  const STANDARD = [['designer'], ['runboard'], ['results'], ['queue'], ['library'], ['methods'], ['worklists']]
+  const STANDARD = [['designer'], ['runboard'], ['results'], ['tiers'], ['queue'], ['library'], ['methods'], ['worklists']]
   const moduleEl = id => MODULES.find(module => module.id === id).el
 
   const registry = createResearchRegistry({
@@ -936,6 +948,46 @@ export function researchView() {
   const onExperimentsChanged = () => { if (!destroyed) renderExperimentModules() }
   window.addEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)
 
+  /* ---------- the local tiers panel ----------
+     Read from the bridge's GET route — the same reading the engine's own MCP
+     tool serves. Reason codes are machine identifiers; they render with their
+     underscores turned to spaces rather than being hidden, because "another
+     local model is resident" is exactly what a researcher needs to know. */
+
+  function tierRowMarkup(word, tier) {
+    if (!tier || typeof tier !== 'object') return ''
+    const state = tier.enabled !== true
+      ? 'switched off in settings'
+      : tier.ready === true
+        ? 'ready'
+        : `not ready · ${esc(String(tier.reason || 'the app was not told why').replace(/_/g, ' '))}`
+    return `
+      <div class="research-register-row">
+        <h3>${esc(word)}</h3>
+        <div><p>${esc(tier.model || 'The model name was not reported.')} — ${state}</p></div>
+      </div>`
+  }
+
+  function renderTiers(result) {
+    const host = moduleEl('tiers').querySelector('[data-research-tiers]')
+    if (!host) return
+    if (!result?.ok || !result.receipt) {
+      host.innerHTML = unavailableMarkup('The local tiers', result?.reason)
+      return
+    }
+    const receipt = result.receipt
+    const facts = [
+      Number.isSafeInteger(receipt.freeRamMiB) ? `${Math.round(receipt.freeRamMiB / 1024)} GB RAM free` : null,
+      Number.isSafeInteger(receipt.freeVramMiB) ? `${Math.round(receipt.freeVramMiB / 1024)} GB VRAM free` : null,
+      Number.isFinite(receipt.gpuTemperatureC) ? `GPU ${receipt.gpuTemperatureC}°C` : null,
+      receipt.onBattery === true ? 'on battery — heavy runs pause' : null,
+    ].filter(Boolean).join(' · ')
+    host.innerHTML = `
+      ${facts ? `<p class="research-observed-empty">${esc(facts)}</p>` : ''}
+      ${tierRowMarkup('Fast', receipt.fast)}
+      ${tierRowMarkup('Strong', receipt.strong)}`
+  }
+
   /* ---------- boot ---------- */
 
   mountLayout()
@@ -954,6 +1006,12 @@ export function researchView() {
       if (!destroyed) renderExperimentModules()
     })
 
+    localTiersStatus().then(result => {
+      if (!destroyed) renderTiers(result)
+    }, error => {
+      if (!destroyed) renderTiers({ ok: false, reason: error?.message || String(error) })
+    })
+
     fetchResearch().then(result => {
       if (destroyed) return
       if (!result.ok) { renderUnavailable(result.reason); return }
@@ -967,6 +1025,14 @@ export function researchView() {
     seedExperiments({ experiments: [SAMPLE_EXPERIMENT], damaged: false })
     renderRunBoard()
     renderResults()
+    renderTiers({
+      ok: true,
+      receipt: {
+        freeRamMiB: 24576, freeVramMiB: 10240, gpuTemperatureC: 41, onBattery: false,
+        fast: { model: 'hermes3:8b', enabled: true, ready: true, reason: null },
+        strong: { model: 'gpt-oss:20b', enabled: true, ready: false, reason: 'fresh_load_free_vram_below_6.5GiB' },
+      },
+    })
     const designerHost = moduleEl('designer').querySelector('[data-research-designer]')
     if (designerHost) designerHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to design experiments of your own.</p>'
     root.dataset.projectionState = 'simulated'
