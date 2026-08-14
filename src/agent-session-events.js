@@ -70,13 +70,23 @@ export function sessionUsageEvent(packet, sessionId) {
   if (!packet || typeof packet !== 'object' || packet.sessionId !== sessionId) return null
   const event = packet.event
   if (!event || typeof event !== 'object' || event.type !== 'usage') return null
-  const source = event.usage && typeof event.usage === 'object' && !Array.isArray(event.usage) ? event.usage : {}
+  const record = event.usage && typeof event.usage === 'object' && !Array.isArray(event.usage) ? event.usage : {}
+  /* MEASURED SHAPE (codex 0.146 app-server, captured live 2026-08-14):
+     { total: {totalTokens, inputTokens, cachedInputTokens, outputTokens, ...},
+       last: {...same...}, modelContextWindow }. `total` is the session's
+     lifetime reading — the one "What it has used" means. Older or flat shapes
+     fall back to the record itself, and the numbers-only filter holds either
+     way: prose or a path in a usage record can never reach a screen. */
+  const source = record.total && typeof record.total === 'object' && !Array.isArray(record.total)
+    ? record.total
+    : record
   const usage = {}
   for (const [key, value] of Object.entries(source)) {
     if (typeof key === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && Number.isFinite(value)) {
       usage[key] = value
     }
   }
+  if (Number.isFinite(record.modelContextWindow)) usage.modelContextWindow = record.modelContextWindow
   return {
     turnId: typeof event.turnId === 'string' ? event.turnId : null,
     usage,

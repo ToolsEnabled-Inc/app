@@ -26,6 +26,29 @@ test('the usage reader admits numbers from its own session and nothing else', ()
   assert.equal(sessionUsageEvent({ sessionId: 'chat-1', event: { type: 'assistant_text' } }, 'chat-1'), null)
 })
 
+test('the reader unwraps the engine\'s measured nested shape (total + modelContextWindow)', () => {
+  /* Captured live from codex 0.146 app-server, 2026-08-14. */
+  const packet = {
+    sessionId: 'chat-1',
+    event: {
+      type: 'usage', turnId: 'turn-2',
+      usage: {
+        total: { totalTokens: 28246, inputTokens: 28180, cachedInputTokens: 23040, cacheWriteInputTokens: 0, outputTokens: 66, reasoningOutputTokens: 31 },
+        last: { totalTokens: 14133, inputTokens: 14127, cachedInputTokens: 13056, cacheWriteInputTokens: 0, outputTokens: 6, reasoningOutputTokens: 0 },
+        modelContextWindow: 258400,
+      },
+    },
+  }
+  const reading = sessionUsageEvent(packet, 'chat-1')
+  assert.equal(reading.usage.totalTokens, 28246, 'the session-lifetime total is the reading')
+  assert.equal(reading.usage.inputTokens, 28180)
+  assert.equal(reading.usage.modelContextWindow, 258400)
+  assert.equal(reading.usage.last, undefined, 'nested records do not ride whole')
+  const sentence = usageSentence(reading.usage)
+  assert.match(sentence, /28 thousand tokens/, 'the lifetime total renders in words')
+  assert.match(sentence, /window holds/, 'the context window is worth a sentence')
+})
+
 test('the usage sentence is words, never bare token codes, and admits ignorance', () => {
   const sentence = usageSentence({ input_tokens: 52_000, output_tokens: 900, cached_input_tokens: 21_000 })
   assert.match(sentence, /thousand tokens/, 'counts render as words')

@@ -354,9 +354,13 @@ export function usageSentence(usage) {
   if (input !== null) parts.push(`${tokensWord(input)} read`)
   if (output !== null) parts.push(`${tokensWord(output)} written`)
   if (cached !== null && cached > 0) parts.push(`${tokensWord(cached)} of the reading served from cache`)
-  return parts.length
+  const window = usageNumber(usage, ['modelContextWindow', 'contextWindow'])
+  const windowSentence = window !== null && window > 0
+    ? ` The model's window holds ${tokensWord(window)}.`
+    : ''
+  return (parts.length
     ? `About ${tokensWord(total)} so far — ${parts.join(', ')}.`
-    : `About ${tokensWord(total)} so far.`
+    : `About ${tokensWord(total)} so far.`) + windowSentence
 }
 
 /* THE WAIT IS THE PART PEOPLE DISTRUST. A start crosses a background service
