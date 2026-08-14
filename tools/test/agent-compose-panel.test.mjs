@@ -229,7 +229,12 @@ test('the refusals and the picked role’s line are the copy module’s too', ()
 test('the panel’s own labels and buttons are the flow’s, word for word', () => {
   const { handle } = open()
 
-  assert.equal(handle.element().find(node => node.className === 'agent-compose-title').textContent, START_PANEL.title)
+  /* The title lives in the nav row's title slot (2026-08-14: the separate h3
+     was ~30px that pushed Start below the fold of an 832px window). Found via
+     the root's own aria-labelledby, the same wiring the screen-reader test
+     follows, so this assertion survives any future re-homing of the words. */
+  const titleId = handle.element().getAttribute('aria-labelledby')
+  assert.equal(handle.element().find(node => node.getAttribute('id') === titleId).textContent, START_PANEL.title)
   assert.equal(handle.element().find(node => node.className === 'agent-compose-intro').textContent, START_PANEL.intro)
   assert.equal(actionNamed(handle, 'submit').textContent, START_PANEL.submit)
   assert.equal(actionNamed(handle, 'cancel').textContent, START_PANEL.cancel)

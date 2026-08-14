@@ -64,11 +64,16 @@ export function railTitleRow({ back = false, title = '', forward = null } = {}) 
  * @param {{label?: string, aria?: string, attrs?: Record<string,string>}|null} [options.back]
  *        `label` overrides the constant only where the button is genuinely not
  *        "back" (the compose panel's Cancel lives in the back slot: same place,
- *        same muscle memory, honest word).
+ *        same muscle memory, honest word). No separate aria-label when a label
+ *        is given: an accessible name that differs from the visible words
+ *        fails both the speech-input rule and the product's own copy checks.
  * @param {string}  [options.title]
+ * @param {string}  [options.titleId]  id for the title slot, so a panel can
+ *        point its aria-labelledby at the row instead of carrying a second
+ *        heading element for the same words.
  * @returns {{row: HTMLElement, backButton: HTMLButtonElement|null}}
  */
-export function railTitleRowElement(doc, { back = null, title = '' } = {}) {
+export function railTitleRowElement(doc, { back = null, title = '', titleId = null } = {}) {
   const row = doc.createElement('div')
   row.className = 'rail-title rail-title-row'
 
@@ -93,6 +98,7 @@ export function railTitleRowElement(doc, { back = null, title = '' } = {}) {
   const titleSlot = doc.createElement('span')
   titleSlot.className = 'rail-title-slot rail-title-slot-title'
   titleSlot.textContent = title
+  if (titleId) titleSlot.setAttribute('id', titleId)
   row.appendChild(titleSlot)
 
   const forwardSlot = doc.createElement('span')

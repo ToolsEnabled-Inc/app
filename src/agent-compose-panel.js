@@ -177,19 +177,19 @@ function buildPanel(doc, { choices, newTree, underLine }) {
      Cancel keeps its honest word -- this button discards a draft, it does not
      merely navigate -- but it lives where the going-back muscle memory already
      points. Same element, same data attribute, same disable wiring as when it
-     sat at the bottom. */
+     sat at the bottom. NO aria-label: the visible words ARE the declared copy,
+     and an accessible name that differs from them fails both the speech-input
+     rule and agent-start-flow-qa's copy check -- measured, not hypothetical.
+     The panel's title rides in the row's own title slot rather than a second
+     heading element: the row was already there, and the heading's 30px was
+     exactly what pushed Start below the fold of an 832px window. */
   const nav = railTitleRowElement(doc, {
-    back: { label: START_PANEL.cancel, aria: 'Discard this draft and go back', attrs: { 'data-compose-action': 'cancel' } },
-    title: '',
+    back: { label: START_PANEL.cancel, attrs: { 'data-compose-action': 'cancel' } },
+    title: START_PANEL.title,
+    titleId: `${id}-title`,
   })
   root.appendChild(nav.row)
   const cancel = nav.backButton
-
-  const title = doc.createElement('h3')
-  title.className = 'agent-compose-title'
-  title.setAttribute('id', `${id}-title`)
-  title.textContent = START_PANEL.title
-  root.appendChild(title)
 
   /* "Two answers and it runs" -- a person looking at a new panel is deciding
      whether this is a form they can finish, and the length is the answer. */
