@@ -776,6 +776,17 @@ body[data-route="computers"]:has(.computers[data-live-mode="simulated"])
 body[data-route="computers"]:has(.computers[data-live-mode="live"] .static-tree-node)
   .fleet-profile-notice:not(.is-serious) { display: none; }
 
+/* AND WHILE THE COMPOSE PANEL IS OPEN. The notice floats bottom-right at
+   z=190, which is exactly where the panel's Start button sits — measured on
+   the packaged build over CDP: all nine elementFromPoint samples on the
+   button returned the notice's anchor, so "the panel offers a way to SEND
+   it" was literally unpressable at panel-open (agent-start-flow-qa's
+   finding). A person mid-compose is acting, not needing the example-data
+   disclaimer; it returns the moment the panel closes. Serious notices stay,
+   as everywhere else. */
+body:has([data-agent-compose])
+  .fleet-profile-notice:not(.is-serious) { display: none; }
+
 /* THE ACTIONS PALETTE. Its rows were button.ctl-btn.palette-row with NO rule
    for palette-row anywhere: .ctl-btn is a fixed 40px CENTRED flex row, so the
    label and the hint rendered side by side, clipped, and overlapping across
