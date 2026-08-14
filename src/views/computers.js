@@ -1115,6 +1115,11 @@ export function computersView({ initialComputer = null, navigate }) {
   /* The latest narration line per node ("Running a command: …"), cleared when
      the turn completes -- the reply takes over from there. */
   const nodeActivity = new Map()
+  /* The compact card's waiting answer-slot, one per session: registered when
+     the card sends at an idle agent, delivered by the turn-completed branch,
+     dropped if the card closed first (the reply still lands on the chip, the
+     rail and the store — the card is a window, not the record). */
+  const cardReplies = new Map()
   let currentRailTreeNode = null
   /* The one live streaming surface: the open rail's "What it said" box, when
      the shown node's session is mid-turn. Torn down on every rail rebuild --
@@ -1595,6 +1600,18 @@ export function computersView({ initialComputer = null, navigate }) {
       contextFeed: treeContextFeed,
       edges: liveMode ? computer.graphEdges : null,
       onReparent: liveMode ? handleReparent : null,
+      /* The compact card: real config or nothing. A node without a session has
+         nothing to talk to, so its chip keeps routing to the rail. */
+      treeChat: agent => {
+        const node = agent.treeNode
+        if (!node || !node.sessionId) return null
+        return {
+          title: treeNodeName(node),
+          subtitle: 'your agent · live session',
+          roleKey: node.role,
+          onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
+        }
+      },
       /* A CLICK ON AN AGENT THIS PERSON STARTED IS NOT A CLICK ON A FLEET
          RECORD, and the rail behind this callback is written for a fleet record:
          it prints a provider, an origin and a bridge dispatch, and it would have
@@ -2492,6 +2509,12 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-sub">${escapeMarkup(treeNodeStatusWord(node))}</div>
           ${node.statusNote ? `<div class="rail-sub projection-unavailable">${escapeMarkup(node.statusNote)}</div>` : ''}
           <div class="rail-sub projection-unavailable" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
+          ${node.sessionId && (node.status === 'starting' || node.status === 'running') ? `
+          <div class="ctl-row">
+            <button class="ctl-btn" type="button" data-tree-interrupt>${escapeMarkup(PALETTE_PANEL.interrupt)}</button>
+            <button class="ctl-btn" type="button" data-tree-stop>${escapeMarkup(PALETTE_PANEL.stop)}</button>
+          </div>
+          <output class="rail-sub" role="status" data-tree-actions-out></output>` : ''}
         </div>
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What you asked for</span></div>
@@ -2529,6 +2552,12 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-open-palette]')?.addEventListener('click', () => showPalette(node))
+    /* Interrupt and Stop live inline too — the full console's fastest two
+       verbs, sharing the palette's handlers so the two surfaces cannot
+       drift. */
+    const actionsOut = controlsPage.querySelector('[data-tree-actions-out]')
+    controlsPage.querySelector('[data-tree-interrupt]')?.addEventListener('click', () => { void runPaletteAction('interrupt', node, actionsOut) })
+    controlsPage.querySelector('[data-tree-stop]')?.addEventListener('click', () => { void runPaletteAction('stop', node, actionsOut) })
     /* THE KEYBOARD HALF OF "quickly connect nodes and change hierarchies".
        Edit-mode drag exists and stays; this menu is the accessible, refusable
        path. It is built from movePoints(), so it can only offer moves the
@@ -3145,6 +3174,34 @@ export function computersView({ initialComputer = null, navigate }) {
   unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
 
   loadRailRuns()
+  /* THE COMPACT CARD'S SEND. Busy agent: the words join the queue and the
+     card says so — the same one-turn-at-a-time truth the engine enforces.
+     Idle agent: the words go now, the node returns to running, and the
+     card's reply slot waits for the turn to complete. Either way nothing is
+     fabricated: the card only ever shows what was sent and what came back. */
+  function treeCardSend(node, text, { reply, fail }) {
+    const busy = node.status === 'starting' || node.status === 'running'
+    if (busy) {
+      const queued = outboxEnqueue(node.sessionId, text)
+      if (!queued.ok) { fail(queued.sentence); return }
+      reply(QUEUE_PANEL.cardQueued)
+      return
+    }
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.send !== 'function') { fail(START_NEEDS_APP_TEXT); return }
+    cardReplies.set(node.sessionId, reply)
+    bridge.send({ sessionId: node.sessionId, text }).then(() => {
+      if (destroyed) return
+      if (treeStore) {
+        treeStore.setNodeStatus(node.id, 'running', { note: '' })
+        refreshTree()
+      }
+    }, error => {
+      cardReplies.delete(node.sessionId)
+      fail(startRefusalSentence({ ok: false, code: refusalCode(error) }))
+    })
+  }
+
   /* ONE QUEUED MESSAGE GOES OUT, THROUGH THE SAME WIRE A TYPED ONE USES.
      Called from the turn-completed branch below (the engine's only "I am
      free" signal) and from the queue strip when a person queues at an idle
@@ -3242,6 +3299,11 @@ export function computersView({ initialComputer = null, navigate }) {
       /* A turn that ends having said nothing is a real outcome and must read
          as one; silence in this box would read as the product hanging. */
       nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
+      const cardReply = cardReplies.get(sessionId)
+      if (cardReply) {
+        cardReplies.delete(sessionId)
+        cardReply(spoken || SAID_PANEL.emptyTurn)
+      }
       const finished = status === 'completed' ? 'finished' : 'failed'
       if (treeStore) {
         /* The reply outlives this view: the store keeps it on the node, and the

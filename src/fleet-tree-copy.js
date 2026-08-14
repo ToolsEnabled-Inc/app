@@ -288,6 +288,7 @@ export const QUEUE_PANEL = Object.freeze({
   unqueue: 'Unqueue',
   note: 'Sends by itself when the agent finishes its current turn. Kept only while this window is open.',
   sentNext: 'Sent the next queued message.',
+  cardQueued: 'Queued — sends by itself when this turn finishes.',
   notSent: 'The queued message did not reach the agent, so it is back at the front of the queue. It will try again after the next turn, or unqueue it.',
 })
 

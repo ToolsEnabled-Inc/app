@@ -205,6 +205,7 @@ export class StaticTreeGraph {
     contextFeed = null,
     edges = null,
     onReparent = null,
+    treeChat = null,
     onOverridesChange = null,
     emptySlots = true,
     onEmptyPress = null,
@@ -220,6 +221,7 @@ export class StaticTreeGraph {
     this.contextFeed = typeof contextFeed === 'function' ? contextFeed : null
     this.declaredEdges = Array.isArray(edges) ? edges : null
     this.onReparent = typeof onReparent === 'function' ? onReparent : null
+    this.treeChat = typeof treeChat === 'function' ? treeChat : null
     this.onOverridesChange = typeof onOverridesChange === 'function' ? onOverridesChange : null
     this.emptySlotsEnabled = emptySlots !== false
     this.onEmptyPress = typeof onEmptyPress === 'function' ? onEmptyPress : null
@@ -1510,18 +1512,46 @@ export class StaticTreeGraph {
 
   openChat(record) {
     if (!record.chip || record.chatOpen) return
-    /* A PERSON'S OWN AGENT GETS NO SIMULATOR. buildChat below is the example
-       page's toy — seeded sentences, replies written by this app — and it was
+    /* A PERSON'S OWN AGENT GETS NO SIMULATOR. buildChat's seeded path was
        measured 2026-08-13 opening on a REAL node: a fabricated conversation
-       painted over a genuinely running session, which the owner read, fairly,
-       as the whole product being fake. The truthful surface for a tree node is
-       its rail — real status, real narration, the real reply, streamed — so
-       the chip routes there through the same callback a node press uses, and
-       fabricates nothing. */
-    if (record.agent.treeNode && typeof this.onOpenControls === 'function') {
-      this.onOpenControls(record.agent)
+       painted over a genuinely running session. The tree-node card exists
+       ONLY when the view supplies a real config (treeChat) whose onSend rides
+       the real session — passing onSend is what makes the simulator
+       unreachable inside buildChat, the same way the agent page does it. With
+       no config, the chip still routes to the rail and fabricates nothing. */
+    if (record.agent.treeNode) {
+      const config = this.treeChat ? this.treeChat(record.agent) : null
+      if (!config || typeof config.onSend !== 'function') {
+        this.onOpenControls?.(record.agent)
+        return
+      }
+      /* ONE CHAT OPEN AT A TIME, enforced here because this is the one door.
+         Two open cards each guaranteed a slot can cover half the canvas, and
+         Escape closing "the topmost" of several was a guess about intent. */
+      for (const other of this.nodes.values()) {
+        if (other !== record && other.chatOpen) this.closeChat(other)
+      }
+      this._openChatCard(record, {
+        title: config.title,
+        subtitle: config.subtitle || '',
+        roleKey: config.roleKey || record.agent.role,
+        seed: 0,
+        onSend: config.onSend,
+      })
       return
     }
+    this._openChatCard(record, {
+      title: record.agent.name,
+      subtitle: `${ROLES[record.agent.role]?.label || 'Agent'} · context`,
+      roleKey: record.agent.role,
+      context: () => record.agent.context,
+    })
+  }
+
+  /* The card mechanics, shared by the simulated path above and the real
+     tree-node path: expand the chip, mount buildChat with whatever config the
+     caller vouches for, and let closeChat undo all of it. */
+  _openChatCard(record, chatOptions) {
     const chip = record.chip
     const fromWidth = chip.offsetWidth || SCREEN_CHIP_W
     const fromHeight = chip.offsetHeight || SCREEN_CHIP_H
@@ -1535,10 +1565,7 @@ export class StaticTreeGraph {
     const chatHeight = Math.max(250, Math.min(368, (this.zoomHost.clientHeight || this.H) - 24))
     record.chatHeight = chatHeight
     const chat = buildChat({
-      title: record.agent.name,
-      subtitle: `${ROLES[record.agent.role]?.label || 'Agent'} · context`,
-      roleKey: record.agent.role,
-      context: () => record.agent.context,
+      ...chatOptions,
       onClose: () => this.closeChat(record),
     })
     chip.appendChild(chat)

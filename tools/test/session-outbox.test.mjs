@@ -84,6 +84,29 @@ test('the palette holds only real actions, and says what it cannot do in words',
   assert.match(view, /data-open-palette/, 'the rail lost its way into the palette')
 })
 
+test('the compact card is real-sourced or absent, never the simulator', () => {
+  const ROOT = resolve(import.meta.dirname, '..', '..')
+  const graph = readFileSync(resolve(ROOT, 'src/tree-graph.js'), 'utf8')
+  const view = readFileSync(resolve(ROOT, 'src/views/computers.js'), 'utf8')
+  /* The card exists only when the view vouches for a real onSend — that is
+     what makes buildChat's seeded/canned path unreachable. No config → the
+     chip routes to the rail. And only one card opens at a time. */
+  const start = graph.indexOf('if (record.agent.treeNode)')
+  const branch = graph.slice(start, start + 2200)
+  assert.match(branch, /typeof config\.onSend !== 'function'/, 'a card can open without a real send path')
+  assert.match(branch, /onOpenControls\?\.\(record\.agent\)/, 'a source-less chip no longer falls back to the rail')
+  assert.match(branch, /seed: 0/, 'the tree card seeds fake history again')
+  assert.match(branch, /closeChat\(other\)/, 'one-chat-at-a-time is no longer enforced')
+  /* Busy sends queue; idle sends register the card reply slot BEFORE the wire
+     call, and the turn-completed branch delivers to it before draining. */
+  const send = view.slice(view.indexOf('function treeCardSend'), view.indexOf('function drainOutboxMessage'))
+  assert.match(send, /outboxEnqueue\(node\.sessionId, text\)/, 'a busy card send no longer queues')
+  assert.ok(send.indexOf('cardReplies.set') < send.indexOf('bridge.send({ sessionId'), 'the reply slot registers after the send — a fast turn could race it')
+  const turn = view.slice(view.indexOf('unsubs.push(window.mcAgent.onEvent'))
+  assert.ok(turn.indexOf('cardReplies.get(sessionId)') < turn.indexOf('outboxTakeNext(sessionId)'),
+    'the card reply is delivered after the drain — the queued send would steal the turn')
+})
+
 test('the view drains one message per completed turn, and requeues on refusal', () => {
   const ROOT = resolve(import.meta.dirname, '..', '..')
   const view = readFileSync(resolve(ROOT, 'src/views/computers.js'), 'utf8')
