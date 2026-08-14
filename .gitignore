@@ -51,3 +51,7 @@ error.log
 # fail require-clean-tree and block `npm run dist`.
 /reports/a11y/
 /reports/a11y-keyboard-last-run.json
+
+# offline-routes-qa rewrites its route transcript here on every run;
+# a harness-owned artifact must not hold require-clean-tree hostage.
+/reports/lanes/team2-b7-transcript.json
