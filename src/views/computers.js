@@ -48,6 +48,7 @@ import { refusalCode } from '../agent-availability-copy.js'
    the whole bridge result over and shows what comes back. */
 import {
   MOVE_PANEL,
+  PALETTE_PANEL,
   QUEUE_PANEL,
   SAID_PANEL,
   START_REFUSAL,
@@ -60,6 +61,7 @@ import {
 import {
   SESSION_OUTBOX_EVENT,
   cancel as outboxCancel,
+  clearSession as outboxClearSession,
   enqueue as outboxEnqueue,
   list as outboxList,
   requeueFront as outboxRequeueFront,
@@ -726,6 +728,7 @@ export function computersView({ initialComputer = null, navigate }) {
                showing when the panel closes. It is empty until a press: nothing
                is built here on load, because nothing here is a thing to read. -->
           <div class="rail-page compose-page"></div>
+          <div class="rail-page palette-page"></div>
         </aside>
       </div>
     </div>`)
@@ -739,6 +742,7 @@ export function computersView({ initialComputer = null, navigate }) {
   const statsPage = root.querySelector('.stats-page')
   const controlsPage = root.querySelector('.ctl-page')
   const composePage = root.querySelector('.compose-page')
+  const palettePage = root.querySelector('.palette-page')
   const editButton = root.querySelector('.graph-edit-btn')
   const resetButton = root.querySelector('.graph-reset-btn')
   const openButton = root.querySelector('.graph-open-btn')
@@ -841,6 +845,7 @@ export function computersView({ initialComputer = null, navigate }) {
     /* The compose panel is a page here like the other two, so exactly one of the
        three is ever on screen and none of them has to know about the others. */
     composePage.classList.toggle('is-active', page === composePage)
+    palettePage.classList.toggle('is-active', page === palettePage)
     if (page === statsPage) railDisposeTimer = setTimeout(clearBoard, 200)
   }
 
@@ -2479,7 +2484,7 @@ export function computersView({ initialComputer = null, navigate }) {
     const role = ROLES[node.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
     controlsPage.innerHTML = `
-      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet overview</button><span class="spacer"></span>Agent in your tree</div>
+      <div class="rail-title"><button class="rail-back" type="button">‹ Fleet overview</button><span class="spacer"></span>Agent in your tree<button class="rail-back" type="button" data-open-palette>${escapeMarkup(PALETTE_PANEL.title)} ›</button></div>
       <div class="rail-scroll">
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
         <div class="board-box board-ctl-box">
@@ -2523,6 +2528,7 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
+    controlsPage.querySelector('[data-open-palette]')?.addEventListener('click', () => showPalette(node))
     /* THE KEYBOARD HALF OF "quickly connect nodes and change hierarchies".
        Edit-mode drag exists and stays; this menu is the accessible, refusable
        path. It is built from movePoints(), so it can only offer moves the
@@ -2658,6 +2664,129 @@ export function computersView({ initialComputer = null, navigate }) {
       }
     }
     activateRail(controlsPage)
+  }
+
+  /* THE ACTIONS PALETTE — the owner's "vscode command types", holding ONLY
+     what this build really performs on this node today. What it cannot do is
+     one honest sentence in the footer, never a dead control; each row's
+     enabled state is derived from the node, and every outcome is a sentence
+     in the palette's own output line. Rebuilt fresh per open, like the
+     drawer. */
+  function showPalette(node) {
+    disposeRailSaid()
+    clearBoard()
+    currentRailTreeNode = node
+    const role = ROLES[node.role] || ROLES.default
+    palettePage.style.setProperty('--rc', role.hex)
+    const running = node.status === 'starting' || node.status === 'running'
+    const reply = nodeReplies.get(node.id) || node.reply || ''
+    const actions = [
+      { id: 'interrupt', label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running && Boolean(node.sessionId) },
+      { id: 'stop', label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: Boolean(node.sessionId) && running },
+      { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true },
+      { id: 'queue', label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: Boolean(node.sessionId) },
+      { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true },
+      { id: 'copy-brief', label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(node.message) },
+      { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply) },
+    ]
+    palettePage.innerHTML = `
+      <div class="rail-title"><button class="rail-back" type="button">${escapeMarkup(PALETTE_PANEL.back)}</button><span class="spacer"></span>${escapeMarkup(PALETTE_PANEL.title)}</div>
+      <div class="rail-scroll">
+        <div class="board-box board-ctl-box">
+          <input class="ctl-select" type="text" data-palette-filter placeholder="${escapeMarkup(PALETTE_PANEL.filter)}" aria-label="${escapeMarkup(PALETTE_PANEL.filter)}">
+        </div>
+        <div class="board-box board-ctl-box" data-palette-list></div>
+        <output class="rail-sub" role="status" data-palette-out></output>
+        <p class="rail-sub projection-unavailable">${escapeMarkup(PALETTE_PANEL.footer)}</p>
+      </div>`
+    palettePage.querySelector('.rail-back').addEventListener('click', () => showTreeNodeControls(node))
+    const listHost = palettePage.querySelector('[data-palette-list]')
+    const out = palettePage.querySelector('[data-palette-out]')
+    const paint = query => {
+      const wanted = (query || '').trim().toLowerCase()
+      listHost.innerHTML = ''
+      const visible = actions.filter(action =>
+        !wanted || action.label.toLowerCase().includes(wanted) || action.hint.toLowerCase().includes(wanted))
+      if (visible.length === 0) {
+        const line = document.createElement('p')
+        line.className = 'rail-sub'
+        line.textContent = PALETTE_PANEL.none
+        listHost.appendChild(line)
+        return
+      }
+      for (const action of visible) {
+        const row = document.createElement('button')
+        row.type = 'button'
+        row.className = 'ctl-btn palette-row'
+        row.disabled = !action.enabled
+        const label = document.createElement('div')
+        label.textContent = action.label
+        row.appendChild(label)
+        if (action.hint) {
+          const hint = document.createElement('div')
+          hint.className = 'rail-sub'
+          hint.textContent = action.hint
+          row.appendChild(hint)
+        }
+        row.addEventListener('click', () => { void runPaletteAction(action.id, node, out) })
+        listHost.appendChild(row)
+      }
+    }
+    paint('')
+    const filter = palettePage.querySelector('[data-palette-filter]')
+    filter.addEventListener('input', () => paint(filter.value))
+    activateRail(palettePage)
+    filter.focus()
+  }
+
+  async function runPaletteAction(id, node, out) {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (id === 'child') {
+      openComposeFor({ kind: 'child', parentId: node.id })
+      return
+    }
+    if (id === 'queue' || id === 'move') {
+      showTreeNodeControls(node)
+      const target = controlsPage.querySelector(id === 'queue' ? '[data-tree-queue-input]' : '[data-tree-move-select]')
+      target?.focus?.()
+      return
+    }
+    if (id === 'copy-brief' || id === 'copy-reply') {
+      const text = id === 'copy-brief' ? (node.message || '') : (nodeReplies.get(node.id) || node.reply || '')
+      if (!text) { out.textContent = PALETTE_PANEL.nothingToCopy; return }
+      try {
+        await navigator.clipboard.writeText(text)
+        out.textContent = PALETTE_PANEL.copied
+      } catch {
+        out.textContent = PALETTE_PANEL.clipboardRefused
+      }
+      return
+    }
+    if (id === 'interrupt') {
+      if (!bridge || typeof bridge.interrupt !== 'function' || !node.sessionId) return
+      try {
+        await bridge.interrupt({ sessionId: node.sessionId })
+        out.textContent = PALETTE_PANEL.interruptDone
+      } catch {
+        /* AGENT_TURN_NONE and its siblings all mean the same observable thing
+           here: there was no running turn left to stop. */
+        out.textContent = PALETTE_PANEL.interruptMissed
+      }
+      return
+    }
+    if (id === 'stop') {
+      if (!bridge || typeof bridge.close !== 'function' || !node.sessionId) return
+      try { await bridge.close({ sessionId: node.sessionId }) }
+      catch { /* an already-closed session is the goal state */ }
+      const dropped = outboxClearSession(node.sessionId)
+      if (treeStore) {
+        treeStore.setNodeStatus(node.id, 'finished', { note: 'Stopped by you.' })
+        refreshTree()
+      }
+      out.textContent = dropped > 0
+        ? `${PALETTE_PANEL.stopped} ${dropped} queued message${dropped === 1 ? ' was' : 's were'} dropped.`
+        : PALETTE_PANEL.stopped
+    }
   }
 
   function showControls(agent) {

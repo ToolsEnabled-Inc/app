@@ -65,6 +65,25 @@ test('unqueue removes exactly the named message; a refused send goes back to the
   assert.equal(list(SID).length, 0)
 })
 
+test('the palette holds only real actions, and says what it cannot do in words', () => {
+  const ROOT = resolve(import.meta.dirname, '..', '..')
+  const view = readFileSync(resolve(ROOT, 'src/views/computers.js'), 'utf8')
+  const copy = readFileSync(resolve(ROOT, 'src/fleet-tree-copy.js'), 'utf8')
+  /* The unsupported set lives in ONE footer sentence, never as controls. A
+     rendered "Rewind" or "Switch model" row would be the temperature-slider
+     defect back again. */
+  const palette = view.slice(view.indexOf('function showPalette'), view.indexOf('function showControls'))
+  assert.ok(palette.length > 200, 'the palette left computers.js')
+  assert.ok(!/[Rr]ewind|[Ss]witch model/.test(palette), 'the palette renders a control for an unsupported action')
+  assert.match(copy, /Not possible yet, so not listed/, 'the honest footer sentence is gone')
+  assert.match(palette, /PALETTE_PANEL\.footer/, 'the palette no longer shows the footer')
+  /* Every action id in the palette must have a handler branch. */
+  for (const id of ['interrupt', 'stop', 'child', 'queue', 'move', 'copy-brief', 'copy-reply']) {
+    assert.ok(view.includes(`'${id}'`), `palette action ${id} lost its binding`)
+  }
+  assert.match(view, /data-open-palette/, 'the rail lost its way into the palette')
+})
+
 test('the view drains one message per completed turn, and requeues on refusal', () => {
   const ROOT = resolve(import.meta.dirname, '..', '..')
   const view = readFileSync(resolve(ROOT, 'src/views/computers.js'), 'utf8')

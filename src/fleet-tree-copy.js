@@ -246,6 +246,36 @@ export const MOVE_PANEL = Object.freeze({
   mixed: 'Your own tree agents and the declared fleet stay separate. Drag a tree agent onto a tree agent, or a fleet agent onto a fleet agent.',
 })
 
+/* THE ACTIONS PALETTE. Every row is an action this build really performs on
+   this node, today. What the product cannot do is one honest sentence in the
+   footer, never a disabled control pretending — the temperature-slider rule.
+   Refusal/confirmation sentences follow the house register. */
+export const PALETTE_PANEL = Object.freeze({
+  title: 'Actions',
+  filter: 'Filter actions…',
+  back: '‹ Agent',
+  none: 'No action matches that. Clear the filter to see them all.',
+  footer: 'Not possible yet, so not listed: rewinding a conversation, changing the model mid-session, attaching file contents. For a different model, start a new agent.',
+  interrupt: 'Interrupt the running turn',
+  interruptHint: 'Stops what it is writing now. The session stays open.',
+  interruptDone: 'Interrupted.',
+  interruptMissed: 'Nothing was interrupted; the turn may already be over.',
+  stop: 'Stop this agent',
+  stopHint: 'Closes the session. Queued messages are dropped; the reply it already gave stays.',
+  stopped: 'Stopped. The session is closed.',
+  child: 'Start an agent under this one',
+  childHint: 'Opens the start panel with this agent as the parent.',
+  queueFocus: 'Queue a message',
+  queueFocusHint: 'Goes to the queue box on the agent page.',
+  moveFocus: 'Change who it reports to',
+  moveFocusHint: 'Goes to the Reports-to menu on the agent page.',
+  copyBrief: 'Copy what you asked for',
+  copyReply: 'Copy what it said',
+  copied: 'Copied.',
+  nothingToCopy: 'There is nothing to copy yet.',
+  clipboardRefused: 'Select the text on the agent page instead — the clipboard refused this copy.',
+})
+
 /* THE QUEUE'S WORDS. The owner's ask: "can we add a que/unque for messages."
    A busy agent refuses an overlapping send by design; the queue is where the
    next message waits, visibly, until the turn completes and the view sends
