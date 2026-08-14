@@ -15,7 +15,7 @@
  * requirement for correctness.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, rmdirSync } from 'node:fs'
+import { existsSync, readlinkSync, rmdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -126,6 +126,17 @@ export async function provisionNodeModules(sourceRepoRoot, worktreePath, { log =
 export function releaseNodeModulesJunction(worktreePath, { log = console.log } = {}) {
   const target = path.join(worktreePath, 'node_modules')
   if (!existsSync(target)) return false
+  /* Only a reparse point may be rmdir'd here. When the reuse fell back to a
+     real `npm ci`, node_modules is an ordinary populated directory and
+     rmdirSync would throw ENOTEMPTY -- crashing a cut AFTER a fully verified
+     build, the exact failure class the 1.0.3 postmortem in this repo warns
+     about. readlink succeeds only for symlinks and junctions, so a real
+     directory falls through to git's own removal untouched. */
+  try {
+    readlinkSync(target)
+  } catch {
+    return false
+  }
   rmdirSync(target)
   log(`[node-modules] released junction before worktree removal: ${target} (target directory untouched)`)
   return true

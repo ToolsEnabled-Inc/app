@@ -553,3 +553,48 @@ test("the default staging root lives under Desktop\agentwork, not as a bare Desk
   );
   assert.equal(parts[parts.length - 1], "MACHINE-A-INSTALLER-CANDIDATE");
 });
+
+// THE JUNCTION IS RELEASED, AND ONLY THE JUNCTION.
+//
+// Measured 2026-08-14: the release helper existed with a full docblock and NO
+// call site, the cut's `git worktree remove --force` followed the node_modules
+// junction into the shared source tree, and the next build died at "vite not
+// found". Two contracts, both pinned: the cut calls the helper before git
+// removes anything, and the helper acts ONLY on reparse points -- an ordinary
+// npm-ci node_modules falls through untouched (rmdirSync on it would throw
+// ENOTEMPTY and kill a finished cut).
+test("the cut releases the node_modules junction before removing the worktree", async () => {
+  const testDir = path.dirname(fileURLToPath(import.meta.url));
+  const source = await readFile(path.join(testDir, "..", "release-packager", "cut-release-candidate.mjs"), "utf8");
+  const releaseAt = source.indexOf("releaseNodeModulesJunction(worktreePath)");
+  const removeAt = source.indexOf("worktreeRemove(repo, worktreePath)");
+  assert.ok(releaseAt !== -1, "the cut no longer calls releaseNodeModulesJunction -- the shared node_modules is one cut from destruction");
+  assert.ok(removeAt !== -1 && releaseAt < removeAt, "the junction must be released BEFORE git worktree remove");
+});
+
+test("releaseNodeModulesJunction detaches a junction but never touches a real directory", async () => {
+  const { releaseNodeModulesJunction } = await import("../release-packager/lib/node-modules-reuse.mjs");
+  const { symlinkSync, mkdirSync: mkDir, writeFileSync: writeF, existsSync: exists } = await import("node:fs");
+  const scratch = await mkdtemp(path.join(tmpdir(), "junction-release-"));
+  try {
+    // A REAL node_modules: helper must refuse and leave it intact.
+    const realTree = path.join(scratch, "real-wt");
+    mkDir(path.join(realTree, "node_modules", "pkg"), { recursive: true });
+    writeF(path.join(realTree, "node_modules", "pkg", "index.js"), "x");
+    assert.equal(releaseNodeModulesJunction(realTree, { log: () => {} }), false);
+    assert.ok(exists(path.join(realTree, "node_modules", "pkg", "index.js")), "a real node_modules was modified");
+
+    // A JUNCTION: helper removes the link; the target stays whole.
+    const shared = path.join(scratch, "shared-nm");
+    mkDir(path.join(shared, "pkg"), { recursive: true });
+    writeF(path.join(shared, "pkg", "index.js"), "y");
+    const linkTree = path.join(scratch, "link-wt");
+    mkDir(linkTree, { recursive: true });
+    symlinkSync(shared, path.join(linkTree, "node_modules"), "junction");
+    assert.equal(releaseNodeModulesJunction(linkTree, { log: () => {} }), true);
+    assert.ok(!exists(path.join(linkTree, "node_modules")), "the junction entry should be gone");
+    assert.ok(exists(path.join(shared, "pkg", "index.js")), "the SHARED target was destroyed -- the exact 2026-08-14 failure");
+  } finally {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});

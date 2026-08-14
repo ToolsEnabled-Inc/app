@@ -52,7 +52,7 @@ import {
   worktreeRemove,
 } from './lib/git.mjs'
 import { measureFile, sameBytes } from './lib/hash.mjs'
-import { provisionNodeModules } from './lib/node-modules-reuse.mjs'
+import { provisionNodeModules, releaseNodeModulesJunction } from './lib/node-modules-reuse.mjs'
 import { assertStagingFree } from './lib/staging-collision.mjs'
 import { findOtherCandidates } from './lib/scan-artifacts.mjs'
 import { readExeVersionInfo } from './lib/version-info.mjs'
@@ -437,6 +437,14 @@ async function main() {
 
     // --- only now is it safe to clean up the worktree --------------------------
     if (!args.keepWorktree) {
+      /* THE JUNCTION IS RELEASED BEFORE GIT DELETES ANYTHING. The helper and
+         its docblock existed; nothing called it, and on 2026-08-14 the cut's
+         own `git worktree remove --force` followed the node_modules junction
+         into the SHARED source tree and emptied it -- the next build died at
+         "vite not found" and npm ci cost the cycle the reuse existed to save.
+         rmdirSync on the junction removes only the reparse point; the shared
+         node_modules is never entered. */
+      releaseNodeModulesJunction(worktreePath)
       worktreeRemove(repo, worktreePath)
       worktreeRemoved = true
       console.log(`[cut-release-candidate] removed build worktree: ${worktreePath}`)
