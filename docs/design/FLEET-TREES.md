@@ -207,7 +207,12 @@ What that store already gets right, and what this design relies on:
 - a fresh computer holds no trees and no agents, and nothing is seeded;
 - `addNode()` with nothing passed makes a new tree, so a second tree costs one press;
 - `extensionPoints()` answers *where a placeholder may be pressed* in one place;
-- `moveNode()` refuses to drag a branch between two trees;
+- `moveNode()` re-hangs a branch under any legal parent — since 2026-08-13 across
+  trees too, as a deliberate adoption (the branch joins the parent's tree; an
+  emptied tree is removed). The earlier refusal guarded against a drag silently
+  re-treeing a branch; the measured first run made the case for the reversal:
+  every agent begins as its own single-node tree, so connecting two agents IS a
+  cross-tree move, and the owner asked for it in words;
 - `removeTree()` takes its agents with it rather than orphaning them;
 - every refusal is a sentence, not a code.
 

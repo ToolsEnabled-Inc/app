@@ -353,15 +353,22 @@ behaviour('two trees really coexist on one computer, and neither can reach into 
   assert.equal(held.listNodes(first.tree.id).length, 1, 'a tree\'s agents leaked into the other tree')
   assert.equal(held.listNodes(second.tree.id).length, 1, 'a tree\'s agents leaked into the other tree')
 
+  /* A CROSS-TREE MOVE IS A CONNECTION SINCE 2026-08-13. Every agent begins as
+     its own single-node tree, so "connect these two" IS this move — the owner
+     asked for it in words. What coexistence still means: nothing leaks WITHOUT
+     a deliberate move, the adoption re-trees the whole branch explicitly, and
+     the emptied tree is removed rather than left as a husk. */
   const crossed = held.moveNode(second.node.id, first.node.id)
-  assert.equal(crossed.ok, false, 'an agent was dragged between two trees, silently rewriting a whole branch')
-  assertPlain(crossed.problems.join(' '), 'the refusal for a move between two trees')
+  assert.equal(crossed.ok, true, 'connecting two agents across trees is the owner\'s ask')
+  assert.equal(crossed.node.treeId, first.tree.id, 'the adopted agent joins the parent\'s tree')
+  assert.equal(held.listTrees().length, 1, 'the emptied source tree is removed, not kept as a husk')
+  assert.equal(held.listNodes(first.tree.id).length, 2, 'the connected pair lives in one tree')
 
-  /* Removing one tree must leave the other exactly as it was. Two trees that
-     share removal are one tree with two names. */
-  accepted(held.removeTree(second.tree.id), 'removing the second tree')
+  /* Removing the merged tree takes exactly its own agents and nothing else. */
+  const third = accepted(held.addNode({}), 'third tree')
+  accepted(held.removeTree(first.tree.id), 'removing the merged tree')
   assert.equal(held.listTrees().length, 1)
-  assert.equal(held.listNodes(first.tree.id).length, 1, 'removing one tree took an agent out of another')
+  assert.equal(held.listNodes(third.tree.id).length, 1, 'removing one tree took an agent out of another')
 })
 
 behaviour('no empty node is offered where the engine would refuse the agent: width', () => {

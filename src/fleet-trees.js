@@ -793,16 +793,19 @@ export function createFleetTreeStore({
     },
 
     /**
-     * Re-hang a branch inside its own tree.
+     * Re-hang a branch — inside its tree, or under a parent in another one.
      *
      * This is where the no-loop rule earns its keep. Adding always appends below
      * something that already exists, so a loop cannot be built by adding alone;
      * it takes a move, or a saved file somebody edited. Both are guarded, by the
      * same walk.
      *
-     * Moving between trees is refused rather than supported. Two trees on one
-     * computer are two structures the person drew separately, and dragging a
-     * branch across would silently rewrite the tree of every agent under it.
+     * Moving between trees was refused until 2026-08-13 on the ground that it
+     * would "silently rewrite the tree of every agent under it". The measured
+     * first run showed why that had to change: every agent begins as its own
+     * single-node tree, so connecting two agents — the owner's stated ask — IS
+     * a cross-tree move. The rewrite is now the move's explicit meaning, done
+     * here in the store where the caps and the cleanup live, never implied.
      */
     moveNode(nodeId, parentId = null) {
       const node = nodes.get(nodeId)
@@ -819,9 +822,6 @@ export function createFleetTreeStore({
 
       const parent = nodes.get(parentId)
       if (!parent) return refuse('That agent is not on this computer.')
-      if (parent.treeId !== node.treeId) {
-        return refuse('That agent is in a different tree. An agent can only move inside its own tree.')
-      }
       if (parent.id === node.id || descendantsOf(node.id).includes(parent.id)) {
         return refuse('An agent cannot report to itself or to one of its own agents. Pick another.')
       }
@@ -837,7 +837,27 @@ export function createFleetTreeStore({
       if (depthOf(parent) + 1 + branchHeight(node.id) > TREE_BOUNDS.maxDepth) {
         return refuse(`A tree goes ${numberWord(TREE_BOUNDS.maxDepth + 1)} levels deep at most, and this agent's own branch comes with it. Pick a parent higher up.`)
       }
-      return accept({ node: putNode(node, { parentId }) })
+      /* ACROSS TREES IS A CONNECTION, NOT AN ACCIDENT. The old contract
+         refused this outright because a DRAG that silently rewrote the tree
+         of everything underneath would show a person a structure they did not
+         draw. But the measured first-run reality (2026-08-13) is that every
+         agent starts as its own single-node tree — the top-level "+" makes
+         one each — so "connect these two" IS a cross-tree move, and the owner
+         asked for exactly that in words. The rewrite is now the deliberate,
+         stated meaning of the move: the node and everything under it join the
+         parent's tree, and a tree left empty is removed rather than kept as
+         an invisible husk that blocks the one-empty-tree rule. */
+      const sourceTreeId = node.treeId
+      const movedIds = [node.id, ...descendantsOf(node.id)]
+      for (const movedId of movedIds) {
+        const moved = nodes.get(movedId)
+        if (moved && moved.treeId !== parent.treeId) putNode(moved, { treeId: parent.treeId })
+      }
+      const result = putNode(nodes.get(node.id), { parentId })
+      if (sourceTreeId !== parent.treeId && nodesOfTree(sourceTreeId).length === 0) {
+        trees.delete(sourceTreeId)
+      }
+      return accept({ node: result })
     },
 
     /**
@@ -853,7 +873,6 @@ export function createFleetTreeStore({
       const height = branchHeight(node.id)
       const points = []
       for (const candidate of nodes.values()) {
-        if (candidate.treeId !== node.treeId) continue
         if (blocked.has(candidate.id)) continue
         if (candidate.id === node.parentId) continue
         if (childrenOf(candidate.id).length >= TREE_BOUNDS.maxChildren) continue

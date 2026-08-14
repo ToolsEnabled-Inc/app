@@ -353,8 +353,23 @@ test('a branch moves inside its tree and never into itself', () => {
   assert.equal(store.moveNode('node-nope', top.id).ok, false)
   assert.equal(store.moveNode(leaf.id, 'node-nope').ok, false)
 
+  /* ACROSS TREES IS A CONNECTION. Every agent starts as its own single-node
+     tree, so "connect these two" is a cross-tree move — supported since
+     2026-08-13 as a deliberate adoption: the branch joins the parent's tree,
+     and a tree left empty is removed instead of lingering as a husk. */
   const elsewhere = store.addNode({ role: 'other tree' }).node
-  assert.equal(store.moveNode(leaf.id, elsewhere.id).ok, false, 'trees stay separate')
+  const treesBefore = store.listTrees().length
+  const adopted = store.moveNode(leaf.id, elsewhere.id)
+  assert.equal(adopted.ok, true, 'a cross-tree move is a connection, not an accident')
+  assert.equal(adopted.node.treeId, elsewhere.treeId, 'the moved agent joins the parent\'s tree')
+  assert.equal(store.getNode(leaf.id).parentId, elsewhere.id)
+  assert.equal(store.listTrees().length, treesBefore, 'the source tree survives while it still holds agents')
+  // Moving the LAST agent out of a tree removes the emptied tree.
+  const lonely = store.addNode({ role: 'lonely tree' }).node
+  const treesWithLonely = store.listTrees().length
+  assert.equal(store.moveNode(lonely.id, elsewhere.id).ok, true)
+  assert.equal(store.getNode(lonely.id).treeId, elsewhere.treeId)
+  assert.equal(store.listTrees().length, treesWithLonely - 1, 'an emptied tree is removed, not kept as a husk')
 
   // Whatever the moves, the saved shape still reads back.
   assert.notEqual(parseFleetTrees(store.snapshot().nodes.length ? recordFrom(store) : null, { computerId: COMPUTER }), EMPTY_FLEET_TREES)

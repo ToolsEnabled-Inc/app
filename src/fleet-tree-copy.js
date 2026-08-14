@@ -235,11 +235,11 @@ export const SAID_PANEL = Object.freeze({
    can never disagree. */
 export const MOVE_PANEL = Object.freeze({
   title: 'Reports to',
-  help: 'Pick which agent this one works under. Everything under it moves with it.',
+  help: 'Pick which agent this one works under — in this tree or another. Everything under it moves with it.',
   prompt: 'Choose a new parent',
   save: 'Save',
   needChoice: 'Pick a parent first, then press Save.',
-  empty: 'Every other agent in this tree is either under this one or already full, so there is nowhere else to move it.',
+  empty: 'Every agent this one could work under is already full or sits below it, so there is nowhere else to move it.',
   staleChoice: 'The tree changed while this menu was open. Close and reopen this agent, then pick again.',
   notSaved: 'The move was not saved. Pick another parent and try again.',
   saved: (name, parent) => `Saved. ${name} now reports to ${parent}.`,
