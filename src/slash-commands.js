@@ -17,6 +17,9 @@ export const SLASH_COMMANDS = Object.freeze([
   Object.freeze({ name: 'queue', action: 'queue', help: 'queue the words after the command for when the agent is free' }),
   Object.freeze({ name: 'move', action: 'move', help: 'change who this agent reports to' }),
   Object.freeze({ name: 'copy', action: 'copy-reply', help: 'copy the last reply' }),
+  Object.freeze({ name: 'model', action: 'switch-model', help: 'pick the model the next message runs on' }),
+  Object.freeze({ name: 'attach', action: 'attach', help: 'attach an image to the next message' }),
+  Object.freeze({ name: 'mention', action: 'mention', help: 'pick a file and write its path into the message' }),
 ])
 
 const BY_NAME = new Map(SLASH_COMMANDS.map(command => [command.name, command]))

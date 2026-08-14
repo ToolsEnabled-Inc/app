@@ -341,7 +341,7 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
    placeholder attribute on the line below. The label stays verbatim on purpose
    (mangling somebody's words in the one place they compare them against what
    they typed is worse), so every sink escapes instead. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null }) {
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null }) {
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
     <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
@@ -357,7 +357,14 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         </button>` : ''}
       </div>
       <div class="chat-log"></div>
+      <div class="chat-attach-strip" hidden></div>
       <div class="chat-input">
+        ${onAttach ? `<button class="chat-tool" data-chat-attach aria-label="Attach an image" title="Attach an image — it rides with your next message">
+          <svg viewBox="0 0 24 24"><path d="M8 12.5 15.2 5.3a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a5.4 5.4 0 0 1-7.6-7.6L11 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>` : ''}
+        ${onMention ? `<button class="chat-tool" data-chat-mention aria-label="Mention a file" title="Mention a file — its path is written into your message">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.2 12v1.8a2.4 2.4 0 0 0 4.8 0V12a9 9 0 1 0-3.5 7.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>` : ''}
         <input type="text" placeholder="Message ${escapeMarkup(title)}…" />
         <button class="chat-send" aria-label="Send">
           <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -371,6 +378,27 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   const sendButton = root.querySelector('.chat-send')
   let disposed = false
   let lastTurnAt = null
+
+  /* The picker buttons: the handlers own the mechanism (and any state); this
+     component only shows what they answered. An attach names its file in the
+     strip above the input; a mention writes the path INTO the input, which is
+     the whole point of a mention. */
+  const attachStrip = root.querySelector('.chat-attach-strip')
+  root.querySelector('[data-chat-attach]')?.addEventListener('click', async () => {
+    const picked = await Promise.resolve(onAttach()).catch(() => null)
+    if (disposed || !picked || !picked.path) return
+    const name = String(picked.path).split(/[\\/]/).pop()
+    attachStrip.textContent = `${name} — rides with your next message.`
+    attachStrip.hidden = false
+  })
+  root.querySelector('[data-chat-mention]')?.addEventListener('click', async () => {
+    const picked = await Promise.resolve(onMention()).catch(() => null)
+    if (disposed || !picked) return
+    const path = typeof picked === 'string' ? picked : picked.path
+    if (!path) return
+    input.value = input.value ? `${input.value} ${path}` : `Read ${path} and use it for what I ask next.`
+    input.focus()
+  })
 
   const addTimeDivider = (at) => {
     const divider = document.createElement('time')
@@ -650,6 +678,12 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     if (!v) return
     input.value = ''
     pinned = true
+    if (attachStrip && !attachStrip.hidden) {
+      /* The pending attachment rides THIS send (the handler that issued it
+         holds it); the strip's promise is kept, so it empties here. */
+      attachStrip.hidden = true
+      attachStrip.textContent = ''
+    }
     const message = addMsg('me', v)
 
     // A REAL SENDER REPLACES THE SIMULATION ENTIRELY.

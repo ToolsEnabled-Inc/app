@@ -255,7 +255,15 @@ export const PALETTE_PANEL = Object.freeze({
   filter: 'Filter actions…',
   back: '‹ Agent',
   none: 'No action matches that. Clear the filter to see them all.',
-  footer: 'Not possible yet, so not listed: rewinding a conversation, changing the model mid-session, attaching file contents. For a different model, start a new agent.',
+  footer: 'Not possible yet, so not listed: rewinding a conversation, and attaching a text file’s contents — mention the file instead, and the agent reads it itself.',
+  switchModel: 'Switch model for the next message',
+  switchModelHint: 'Goes to the model menu on the agent page. The change rides on your next message; the conversation continues.',
+  attach: 'Attach an image',
+  attachHint: 'Opens a file picker. The picked image rides with your next message.',
+  attachPicked: 'Attached. It rides with the next message you send.',
+  attachCancelled: 'Nothing was attached.',
+  mention: 'Mention a file',
+  mentionHint: 'Opens a file picker and writes the path into your message. The agent reads it itself, under its own permissions.',
   interrupt: 'Interrupt the running turn',
   interruptHint: 'Stops what it is writing now. The session stays open.',
   interruptDone: 'Interrupted.',
@@ -292,6 +300,18 @@ export const QUEUE_PANEL = Object.freeze({
   cardQueued: 'Queued — sends by itself when this turn finishes.',
   notSent: 'The queued message did not reach the agent, so it is back at the front of the queue. It will try again after the next turn, or unqueue it.',
   emptyQueueCommand: 'Write the message after /queue, and it will wait its turn.',
+})
+
+/* THE MODEL MENU on a running conversation. The engine accepts a model per
+   turn, so switching is real and the conversation continues — this is not the
+   respawn semantics of starting a new agent. Claude rows are shown so a
+   person can see they exist, and refused honestly when picked, exactly like
+   the start menu. */
+export const MODEL_PANEL = Object.freeze({
+  title: 'What it runs on',
+  currentDefault: 'Runs on the model its tier chose when it started.',
+  next: model => `Your next message runs on ${model}. The conversation continues.`,
+  keep: 'Keep the tier’s model',
 })
 
 /* THE RUNNING NARRATION, one line at a time. The engine says what it is doing

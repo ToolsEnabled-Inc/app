@@ -1538,6 +1538,8 @@ export class StaticTreeGraph {
         seed: 0,
         history: Array.isArray(config.history) ? config.history : [],
         onSend: config.onSend,
+        onAttach: typeof config.onAttach === 'function' ? config.onAttach : null,
+        onMention: typeof config.onMention === 'function' ? config.onMention : null,
       })
       return
     }

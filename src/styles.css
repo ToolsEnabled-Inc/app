@@ -1229,6 +1229,28 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .chat-send:active { transform: scale(0.92); }
 .chat-send svg { width: 17px; height: 17px; }
 
+/* The picker buttons beside the composer: quiet hairline squares, the send
+   arrow keeps the accent. */
+.chat-tool {
+  height: 38px; width: 38px; flex: none;
+  border-radius: 3px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--ink-3);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.chat-tool:hover { color: var(--ink); border-color: var(--ink-3); }
+.chat-tool svg { width: 17px; height: 17px; }
+.chat-attach-strip {
+  flex: none;
+  margin-top: var(--s2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
 /* ============================================================
    COMPUTERS
    ============================================================ */

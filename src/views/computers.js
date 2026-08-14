@@ -52,10 +52,12 @@ import {
   QUEUE_PANEL,
   SAID_PANEL,
   START_REFUSAL,
+  MODEL_PANEL,
   activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
+import { LAUNCH_TIERS } from '../orchestration-controls.js'
 /* The owner's queue: messages written while the agent is busy, drained one
    per completed turn by this view's own listener. The store holds words; this
    file holds the wire. */
@@ -1142,6 +1144,13 @@ export function computersView({ initialComputer = null, navigate }) {
   /* What the engine says the session has used, latest reading per session —
      the usage events crossed the wire from day one and were dropped here. */
   const sessionUsage = new Map()
+  /* The model the person chose for the NEXT message, per session. Rides on
+     every send until cleared; the engine accepts it per turn, so the
+     conversation continues — this is a real switch, not a respawn. */
+  const sessionModelOverride = new Map()
+  /* Images picked for the next card send, per session — issued paths only
+     (the shell refuses anything the picker did not hand out). */
+  const sessionPendingImages = new Map()
 
   function transcriptAppend(sessionId, entry) {
     if (!sessionId) return
@@ -1663,6 +1672,22 @@ export function computersView({ initialComputer = null, navigate }) {
           roleKey: node.role,
           history,
           onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
+          onAttach: async () => {
+            const bridge = typeof window === 'undefined' ? null : window.mcAgent
+            if (!bridge || typeof bridge.pickAttachment !== 'function') return null
+            const picked = await bridge.pickAttachment({ sessionId: node.sessionId }).catch(() => null)
+            if (picked && picked.path) {
+              const held = sessionPendingImages.get(node.sessionId) || []
+              held.push({ path: picked.path })
+              sessionPendingImages.set(node.sessionId, held.slice(0, 8))
+            }
+            return picked
+          },
+          onMention: async () => {
+            const bridge = typeof window === 'undefined' ? null : window.mcAgent
+            if (!bridge || typeof bridge.pickMention !== 'function') return null
+            return bridge.pickMention({ sessionId: node.sessionId }).catch(() => null)
+          },
         }
       },
       /* A CLICK ON AN AGENT THIS PERSON STARTED IS NOT A CLICK ON A FLEET
@@ -2593,10 +2618,18 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <output class="rail-sub" role="status" data-tree-queue-out></output>
         </div>` : ''}
-        <div class="board-box board-ctl-box board-ctl-absent">
-          <div class="board-box-h"><span class="bh-t">What it runs on</span></div>
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(MODEL_PANEL.title)}</span></div>
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
-          <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>
+          ${node.sessionId ? `
+          <div class="ctl-row">
+            <select class="ctl-select" data-tree-model aria-label="${escapeMarkup(MODEL_PANEL.title)}">
+              <option value="">${escapeMarkup(MODEL_PANEL.keep)}</option>
+              ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : 'Claude — cannot start here yet')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>` : `
+          <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
         </div>
         <div class="board-box board-ctl-box" data-tree-move>
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(MOVE_PANEL.title)}</span></div>
@@ -2730,6 +2763,16 @@ export function computersView({ initialComputer = null, navigate }) {
         if (event.key === 'Enter') submitQueued()
       })
     }
+    const modelSelect = controlsPage.querySelector('[data-tree-model]')
+    if (modelSelect && node.sessionId) {
+      modelSelect.addEventListener('change', () => {
+        const chosen = modelSelect.value
+        if (chosen) sessionModelOverride.set(node.sessionId, chosen)
+        else sessionModelOverride.delete(node.sessionId)
+        const note = controlsPage.querySelector('[data-tree-model-note]')
+        if (note) note.textContent = chosen ? MODEL_PANEL.next(chosen) : MODEL_PANEL.currentDefault
+      })
+    }
     /* THE SAID BOX IS FILLED HERE, NOT IN THE TEMPLATE, because it has three
        truthful states and two of them are alive: a finished reply (rendered
        once), a mid-turn stream (the appender, seeded with everything the turn
@@ -2786,6 +2829,9 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'stop', label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: Boolean(node.sessionId) && running },
       { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true },
       { id: 'queue', label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: Boolean(node.sessionId) },
+      { id: 'switch-model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(node.sessionId) },
+      { id: 'attach', label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: Boolean(node.sessionId) },
+      { id: 'mention', label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: Boolean(node.sessionId) },
       { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true },
       { id: 'copy-brief', label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(node.message) },
       { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply) },
@@ -2846,10 +2892,36 @@ export function computersView({ initialComputer = null, navigate }) {
       openComposeFor({ kind: 'child', parentId: node.id })
       return
     }
-    if (id === 'queue' || id === 'move') {
+    if (id === 'queue' || id === 'move' || id === 'switch-model') {
       showTreeNodeControls(node)
-      const target = controlsPage.querySelector(id === 'queue' ? '[data-tree-queue-input]' : '[data-tree-move-select]')
+      const target = controlsPage.querySelector(
+        id === 'queue' ? '[data-tree-queue-input]' : id === 'move' ? '[data-tree-move-select]' : '[data-tree-model]',
+      )
       target?.focus?.()
+      return
+    }
+    if (id === 'attach') {
+      if (!bridge || typeof bridge.pickAttachment !== 'function' || !node.sessionId) return
+      let picked = null
+      try { picked = await bridge.pickAttachment({ sessionId: node.sessionId }) } catch { picked = null }
+      if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.attachCancelled; return }
+      const held = sessionPendingImages.get(node.sessionId) || []
+      held.push({ path: picked.path })
+      sessionPendingImages.set(node.sessionId, held.slice(0, 8))
+      out.textContent = PALETTE_PANEL.attachPicked
+      return
+    }
+    if (id === 'mention') {
+      if (!bridge || typeof bridge.pickMention !== 'function' || !node.sessionId) return
+      let picked = null
+      try { picked = await bridge.pickMention({ sessionId: node.sessionId }) } catch { picked = null }
+      if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.attachCancelled; return }
+      showTreeNodeControls(node)
+      const input = controlsPage.querySelector('[data-tree-queue-input]')
+      if (input) {
+        input.value = input.value ? `${input.value} ${picked.path}` : `Read ${picked.path} and use it for what I ask next.`
+        input.focus()
+      }
       return
     }
     if (id === 'copy-brief' || id === 'copy-reply') {
@@ -3281,7 +3353,15 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!bridge || typeof bridge.send !== 'function') { fail(START_NEEDS_APP_TEXT); return }
     cardReplies.set(node.sessionId, reply)
     transcriptAppend(node.sessionId, { who: 'you', text, at: Date.now() })
-    bridge.send({ sessionId: node.sessionId, text }).then(sent => {
+    const override = sessionModelOverride.get(node.sessionId)
+    const pendingImages = sessionPendingImages.get(node.sessionId)
+    sessionPendingImages.delete(node.sessionId)
+    bridge.send({
+      sessionId: node.sessionId,
+      text,
+      ...(override ? { model: override } : {}),
+      ...(pendingImages && pendingImages.length ? { images: pendingImages } : {}),
+    }).then(sent => {
       if (destroyed) return
       turnLogAppend(node.sessionId, sent && sent.turnId, text)
       if (treeStore) {
@@ -3307,8 +3387,13 @@ export function computersView({ initialComputer = null, navigate }) {
       return
     }
     let drained = null
+    const drainOverride = sessionModelOverride.get(sessionId)
     try {
-      drained = await bridge.send({ sessionId, text: entry.text })
+      drained = await bridge.send({
+        sessionId,
+        text: entry.text,
+        ...(drainOverride ? { model: drainOverride } : {}),
+      })
     } catch (error) {
       outboxRequeueFront(sessionId, entry)
       if (destroyed) {
