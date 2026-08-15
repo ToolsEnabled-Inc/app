@@ -57,10 +57,14 @@ import {
   APPROVAL_PANEL, approvalDecisionWord,
   MODEL_PANEL,
   REWIND_PANEL,
+  RESUME_PANEL,
+  EFFORT_SWITCH,
+  EFFORT_CHOICES,
   activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
+import { createTranscriptStore, transcriptSeedText } from '../session-transcript-store.js'
 /* The owner's queue: messages written while the agent is busy, drained one
    per completed turn by this view's own listener. The store holds words; this
    file holds the wire. */
@@ -639,6 +643,10 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
   }
 
   const sessionId = started.sessionId
+  /* The engine names the thread it opened. Kept and handed to the caller so
+     the durable transcript record can carry it — the name a TRUE engine-side
+     resume would ask for, saved now so that future has no data gap. */
+  const threadId = typeof started.threadId === 'string' && started.threadId.length > 0 ? started.threadId : null
   let sent = null
   try {
     sent = await bridge.send({ sessionId, text })
@@ -648,6 +656,7 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       ok: false,
       needsApp: false,
       sessionId,
+      threadId,
       code: refusal.code,
       sentence: sendRefusalSentence(refusal),
       needsAssistantProgram: false,
@@ -658,12 +667,13 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       ok: false,
       needsApp: false,
       sessionId,
+      threadId,
       code: refusalCodeOf(sent),
       sentence: sendRefusalSentence(sent),
       needsAssistantProgram: false,
     }
   }
-  return { ok: true, needsApp: false, sessionId, code: null, sentence: null, needsAssistantProgram: false }
+  return { ok: true, needsApp: false, sessionId, threadId, code: null, sentence: null, needsAssistantProgram: false }
 }
 
 export function computersView({ initialComputer = null, navigate }) {
@@ -1144,6 +1154,10 @@ export function computersView({ initialComputer = null, navigate }) {
      the person switching tabs is switching machines. Rebuilt by mountGraph when
      the computer changes; the previous one is dropped with its subscription. */
   let treeStore = null
+  /* The durable transcript excerpts for this computer's nodes — opened and
+     released in step with the tree store, but failing ALONE: a transcript
+     store that cannot open leaves the trees standing and resume disabled. */
+  let transcriptStore = null
   let treeStoreUnsub = null
   /* Registered while this view's store instance is live, so the research
      dispatcher's module-level listener never opens a second instance beside
@@ -1186,6 +1200,12 @@ export function computersView({ initialComputer = null, navigate }) {
   /* Images picked for the next card send, per session — issued paths only
      (the shell refuses anything the picker did not hand out). */
   const sessionPendingImages = new Map()
+  /* What each session started with: the reasoning depth it was bound to at
+     spawn (the effort switch shows this as "current"), and the thread name
+     the engine reported (saved with the durable transcript so a real
+     engine-side resume is possible one day without a data gap). */
+  const sessionEfforts = new Map()
+  const sessionThreadIds = new Map()
 
   function transcriptAppend(sessionId, entry) {
     if (!sessionId) return
@@ -1193,7 +1213,28 @@ export function computersView({ initialComputer = null, navigate }) {
     held.push(entry)
     if (held.length > TRANSCRIPT_MAX_ENTRIES) held.splice(0, held.length - TRANSCRIPT_MAX_ENTRIES)
     sessionTranscripts.set(sessionId, held)
+    persistTranscript(sessionId)
   }
+
+  /* THE DURABLE HALF. Every append lands the bounded excerpt on disk under
+     the NODE, because the node is what survives the window and the session
+     both — it is the thing on screen a person presses Resume on. A missing
+     store (open failed, browser-only window) degrades to exactly the old
+     behaviour: window-memory transcripts, resume disabled. */
+  function persistTranscript(sessionId) {
+    if (!transcriptStore) return
+    const nodeId = sessionNodeIds.get(sessionId)
+    if (!nodeId) return
+    const lines = sessionTranscripts.get(sessionId) || []
+    if (lines.length === 0) return
+    transcriptStore.save(nodeId, {
+      lines,
+      threadId: sessionThreadIds.get(sessionId) || null,
+      effort: sessionEfforts.get(sessionId) || null,
+    })
+  }
+
+  const tierEffortOf = tierId => LAUNCH_TIERS.find(tier => tier.id === tierId)?.effort || null
 
   function turnLogAppend(sessionId, turnId, yourText) {
     if (!sessionId || typeof turnId !== 'string' || !turnId) return
@@ -1314,6 +1355,7 @@ export function computersView({ initialComputer = null, navigate }) {
     treeStoreLiveRelease?.()
     treeStoreLiveRelease = null
     treeStore = null
+    transcriptStore = null
     treeStoreId = null
   }
 
@@ -1350,6 +1392,14 @@ export function computersView({ initialComputer = null, navigate }) {
       })
       treeStoreId = computerId
       treeStoreLiveRelease = markTreeStoreLive(computerId)
+      /* Its own try: a transcript store that cannot open costs resume, not
+         the trees. */
+      try {
+        transcriptStore = createTranscriptStore({
+          computerId,
+          storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
+        })
+      } catch { transcriptStore = null }
       /* RE-LEARN WHOSE ANSWER IS WHOSE. sessionNodeIds used to be written at
          exactly one line, inside submitCompose -- so leaving this view and
          coming back orphaned every session this window still owned: the
@@ -1885,6 +1935,8 @@ export function computersView({ initialComputer = null, navigate }) {
     }
 
     sessionNodeIds.set(result.sessionId, node.id)
+    sessionEfforts.set(result.sessionId, draft.effort || tierEffortOf(draft.tier))
+    if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
     const attached = store.attachSession(node.id, result.sessionId)
     if (!attached.ok) {
       /* The session is real and the tree could not record it. Saying "started"
@@ -3026,7 +3078,18 @@ export function computersView({ initialComputer = null, navigate }) {
               ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet')}</option>`).join('')}
             </select>
           </div>
-          <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>` : `
+          <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>
+          <div class="rail-sub">${escapeMarkup(EFFORT_SWITCH.help)}</div>
+          <div class="ctl-row">
+            <select class="ctl-select" data-tree-effort aria-label="${escapeMarkup(EFFORT_SWITCH.title)}">
+              <option value="">${escapeMarkup(EFFORT_SWITCH.keep)}</option>
+              ${EFFORT_CHOICES.map(choice => `<option value="${escapeMarkup(choice.id)}">${escapeMarkup(choice.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="ctl-row" data-tree-effort-row hidden>
+            <button class="ctl-btn" type="button" data-tree-effort-go>${escapeMarkup(EFFORT_SWITCH.go)}</button>
+          </div>
+          <output class="rail-sub" role="status" data-tree-effort-out></output>` : `
           <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
           <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
           <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
@@ -3034,6 +3097,9 @@ export function computersView({ initialComputer = null, navigate }) {
             <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
           </div>
           <output class="rail-sub" role="status" data-tree-profile-out></output>
+          <div class="ctl-row" data-tree-profile-restart-row hidden>
+            <button class="ctl-btn" type="button" data-tree-profile-restart>${escapeMarkup(PROFILE_PANEL.switchGo)}</button>
+          </div>
           <div class="rail-sec">${escapeMarkup(MOVE_PANEL.title)}</div>
           <div class="rail-sub">${escapeMarkup(MOVE_PANEL.help)}</div>
           <div class="ctl-row" data-tree-move-row hidden>
@@ -3128,6 +3194,17 @@ export function computersView({ initialComputer = null, navigate }) {
         if (!saved.ok) { profileOut.textContent = saved.problems[0] || PROFILE_PANEL.refused; return }
         const label = profileSelect.selectedOptions[0]?.textContent || ''
         profileOut.textContent = chosen ? PROFILE_PANEL.assigned(label) : PROFILE_PANEL.cleared
+        /* The assignment touched the TREE; this node's live session still
+           runs where it started. Moving it now is a warned restart the
+           person presses, never a side effect of picking from a menu. */
+        const restartRow = controlsPage.querySelector('[data-tree-profile-restart-row]')
+        if (restartRow && node.sessionId) {
+          profileOut.textContent += ` ${PROFILE_PANEL.switchOffer}`
+          restartRow.hidden = false
+        }
+      })
+      controlsPage.querySelector('[data-tree-profile-restart]')?.addEventListener('click', () => {
+        void resumeNodeSession(treeStore ? treeStore.getNode(node.id) || node : node, { out: profileOut })
       })
     }
     const moveRow = controlsPage.querySelector('[data-tree-move-row]')
@@ -3269,6 +3346,9 @@ export function computersView({ initialComputer = null, navigate }) {
           text: kept ? `Rewound. I remember everything up to “${kept.yourText.slice(0, 80)}” and nothing after it.` : REWIND_PANEL.done,
           at: Date.now(),
         }])
+        /* The durable excerpt follows the erasure — a resume must not replay
+           words the person just made the agent forget. */
+        persistTranscript(node.sessionId)
         nodeReplies.delete(node.id)
         nodeActivity.delete(node.id)
         if (treeStore) {
@@ -3288,6 +3368,28 @@ export function computersView({ initialComputer = null, navigate }) {
         else sessionModelOverride.delete(node.sessionId)
         const note = controlsPage.querySelector('[data-tree-model-note]')
         if (note) note.textContent = chosen ? MODEL_PANEL.next(chosen) : MODEL_PANEL.currentDefault
+      })
+    }
+    /* THE DEPTH SWITCH IS A WARNED RESTART, never a silent one. Picking a
+       different depth shows the token-cost sentence and a button; nothing
+       happens until the button. Picking the current depth (or "keep") puts
+       the row away — there is nothing to warn about. */
+    const effortSelect = controlsPage.querySelector('[data-tree-effort]')
+    if (effortSelect && node.sessionId) {
+      const effortRow = controlsPage.querySelector('[data-tree-effort-row]')
+      const effortOut = controlsPage.querySelector('[data-tree-effort-out]')
+      const currentEffort = sessionEfforts.get(node.sessionId)
+        || transcriptStore?.get(node.id)?.effort || tierEffortOf(node.tier)
+      effortSelect.addEventListener('change', () => {
+        const chosen = effortSelect.value
+        const changes = Boolean(chosen) && chosen !== currentEffort
+        if (effortRow) effortRow.hidden = !changes
+        if (effortOut) effortOut.textContent = changes ? EFFORT_SWITCH.warn : ''
+      })
+      controlsPage.querySelector('[data-tree-effort-go]')?.addEventListener('click', () => {
+        const chosen = effortSelect.value
+        if (!chosen || chosen === currentEffort) return
+        void resumeNodeSession(treeStore ? treeStore.getNode(node.id) || node : node, { effort: chosen, out: effortOut })
       })
     }
     /* THE SAID BOX IS FILLED HERE, NOT IN THE TEMPLATE, because it has three
@@ -3348,6 +3450,10 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'queue', label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: Boolean(node.sessionId) },
       { id: 'switch-model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(node.sessionId) },
       { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(node.sessionId) },
+      /* Enabled exactly when it can act: a saved conversation exists and no
+         session is mid-turn over it. A running agent is resumed by talking
+         to it, not by restarting it out from under itself. */
+      { id: 'resume', label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)) },
       { id: 'rewind', label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: Boolean(node.sessionId) && (sessionTurnLog.get(node.sessionId) || []).length > 0 },
       { id: 'attach', label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: Boolean(node.sessionId) },
       { id: 'mention', label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: Boolean(node.sessionId) },
@@ -3407,6 +3513,106 @@ export function computersView({ initialComputer = null, navigate }) {
     filter.focus()
   }
 
+  /* RESUME, AND EVERY SWITCH THAT IS HONESTLY A RESTART (iteration 5 W7 and
+     W10's mid-session half). One flow serves three presses — Resume on a dead
+     session, "restart at this depth", "restart in the new folder" — because
+     they are the same true mechanism: close whatever is left, start a fresh
+     session with the CURRENT tier, depth, and tree profile, and make its
+     first message the saved conversation so the new agent picks up where the
+     old one stood. The words a person saved are never deleted here; a resume
+     that fails leaves the excerpt exactly as it was.
+
+     A node that never spoke resumes as a bare restart (clear-shaped, brief
+     NOT re-sent) — there is nothing to read, and re-running the original ask
+     uninvited could redo real work. */
+  async function resumeNodeSession(node, { effort = null, out = null } = {}) {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.start !== 'function') {
+      if (out) out.textContent = START_NEEDS_APP_TEXT
+      return false
+    }
+    const oldSessionId = node.sessionId || null
+    const profileId = treeStore && node.treeId ? treeStore.treeProfile(node.treeId) : null
+    const saved = transcriptStore ? transcriptStore.get(node.id) : null
+    const savedLines = saved && Array.isArray(saved.lines) ? saved.lines : []
+    /* The depth to resume at: the person's pick first, then whatever the
+       session runs at now, then the depth the RECORD remembers (the live map
+       is empty after an app restart — the record is why a hand-picked depth
+       survives one), then the tier's own default. */
+    const chosenEffort = effort
+      || (oldSessionId ? sessionEfforts.get(oldSessionId) : null)
+      || (saved && saved.effort) || tierEffortOf(node.tier)
+    if (oldSessionId) {
+      if (typeof bridge.close === 'function') {
+        try { await bridge.close({ sessionId: oldSessionId }) }
+        catch { /* an already-dead session is the expected state here */ }
+      }
+      outboxClearSession(oldSessionId)
+      sessionTranscripts.delete(oldSessionId)
+      sessionTurnLog.delete(oldSessionId)
+      sessionUsage.delete(oldSessionId)
+      sessionModelOverride.delete(oldSessionId)
+      sessionPendingImages.delete(oldSessionId)
+      sessionNodeIds.delete(oldSessionId)
+      sessionEfforts.delete(oldSessionId)
+      sessionThreadIds.delete(oldSessionId)
+    }
+    let result
+    if (savedLines.length > 0) {
+      result = await startAgentForNode({
+        text: transcriptSeedText(savedLines),
+        surface: 'fleet-tree',
+        tier: node.tier,
+        effort: chosenEffort,
+        profileId,
+      })
+    } else {
+      let started = null
+      try {
+        started = await bridge.start({
+          surface: 'fleet-tree',
+          ...(node.tier ? { tier: node.tier } : {}),
+          ...(chosenEffort ? { effort: chosenEffort } : {}),
+          ...(profileId ? { profileId } : {}),
+        })
+      } catch { started = null }
+      result = started && typeof started.sessionId === 'string' && started.sessionId
+        ? { ok: true, sessionId: started.sessionId, threadId: typeof started.threadId === 'string' && started.threadId ? started.threadId : null, sentence: null }
+        : { ok: false, sessionId: null, threadId: null, sentence: null }
+    }
+    if (destroyed) return false
+    if (!result.ok || !result.sessionId) {
+      if (treeStore) {
+        treeStore.setNodeStatus(node.id, 'failed', { note: statusNote(result.sentence || RESUME_PANEL.failed) })
+        refreshTree()
+      }
+      if (out) out.textContent = result.sentence || RESUME_PANEL.failed
+      return false
+    }
+    sessionNodeIds.set(result.sessionId, node.id)
+    if (chosenEffort) sessionEfforts.set(result.sessionId, chosenEffort)
+    if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
+    /* The window's transcript continues rather than restarting: the saved
+       lines come back, a marker says what just happened, and the new agent's
+       reply lands after it through the ordinary turn completion. The old
+       reply stays on the node — it is part of the conversation being kept. */
+    if (savedLines.length > 0) {
+      sessionTranscripts.set(result.sessionId, [...savedLines, { who: 'you', text: RESUME_PANEL.marker, at: Date.now() }])
+    }
+    nodeActivity.delete(node.id)
+    if (treeStore) {
+      treeStore.attachSession(node.id, result.sessionId)
+      treeStore.setNodeStatus(node.id, savedLines.length > 0 ? 'running' : 'finished', { note: statusNote(RESUME_PANEL.done) })
+      refreshTree()
+    }
+    persistTranscript(result.sessionId)
+    if (out) out.textContent = RESUME_PANEL.done
+    if (controlsPage.classList.contains('is-active') && currentRailTreeNode && currentRailTreeNode.id === node.id) {
+      showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
+    }
+    return true
+  }
+
   async function runPaletteAction(id, node, out) {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (id === 'child') {
@@ -3438,6 +3644,10 @@ export function computersView({ initialComputer = null, navigate }) {
     if (id === 'clear') {
       if (!bridge || typeof bridge.start !== 'function' || typeof bridge.close !== 'function' || !node.sessionId) return
       const oldSessionId = node.sessionId
+      /* Read before the wipe below erases them: the fresh session keeps the
+         depth this one ran at, and the folder its tree is assigned to. */
+      const keptEffort = sessionEfforts.get(oldSessionId) || tierEffortOf(node.tier)
+      const keptProfile = treeStore && node.treeId ? treeStore.treeProfile(node.treeId) : null
       try { await bridge.close({ sessionId: oldSessionId }) }
       catch { /* an already-closed session is the goal state */ }
       outboxClearSession(oldSessionId)
@@ -3447,14 +3657,22 @@ export function computersView({ initialComputer = null, navigate }) {
       sessionModelOverride.delete(oldSessionId)
       sessionPendingImages.delete(oldSessionId)
       sessionNodeIds.delete(oldSessionId)
+      sessionEfforts.delete(oldSessionId)
+      sessionThreadIds.delete(oldSessionId)
+      /* "Start over" means the words are gone — the durable excerpt goes with
+         the window's copy, or Resume would offer a past the person erased. */
+      transcriptStore?.remove(node.id)
       let started = null
       try {
         /* A start WITHOUT the brief re-sent: re-running the original ask
            uninvited could redo real work. The brief stays on the node; the
            fresh session waits for whatever the person says next. */
-        started = node.tier
-          ? await bridge.start({ surface: 'fleet-tree', tier: node.tier })
-          : await bridge.start({ surface: 'fleet-tree' })
+        started = await bridge.start({
+          surface: 'fleet-tree',
+          ...(node.tier ? { tier: node.tier } : {}),
+          ...(keptEffort ? { effort: keptEffort } : {}),
+          ...(keptProfile ? { profileId: keptProfile } : {}),
+        })
       } catch {
         started = null
       }
@@ -3467,6 +3685,8 @@ export function computersView({ initialComputer = null, navigate }) {
         return
       }
       sessionNodeIds.set(started.sessionId, node.id)
+      sessionEfforts.set(started.sessionId, keptEffort)
+      if (typeof started.threadId === 'string' && started.threadId) sessionThreadIds.set(started.sessionId, started.threadId)
       nodeReplies.delete(node.id)
       nodeActivity.delete(node.id)
       if (treeStore) {
@@ -3479,6 +3699,12 @@ export function computersView({ initialComputer = null, navigate }) {
       if (controlsPage.classList.contains('is-active') && currentRailTreeNode && currentRailTreeNode.id === node.id) {
         showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
       }
+      return
+    }
+    if (id === 'resume') {
+      if (node.status === 'starting' || node.status === 'running') { out.textContent = RESUME_PANEL.busy; return }
+      if (!transcriptStore || !transcriptStore.has(node.id)) { out.textContent = RESUME_PANEL.nothing; return }
+      await resumeNodeSession(node, { out })
       return
     }
     if (id === 'mention') {

@@ -291,6 +291,38 @@ export const PROFILE_PANEL = Object.freeze({
   needsApp: 'Profiles need the installed app; this window cannot reach it.',
   assigned: (name) => `Agents in this tree now start in ${name}.`,
   cleared: 'Agents in this tree now start in the product’s own workspace.',
+  /* The mid-conversation half of the owner's ask ("change session profiles
+     halfway through - with a warning because of possible token burn"): the
+     assignment itself only touches FUTURE starts, so moving the agent on
+     screen is a separate, warned press. */
+  switchOffer: 'This agent keeps its current folder until it restarts. Restarting re-sends its saved conversation, which costs tokens.',
+  switchGo: 'Restart it in the new folder',
+})
+
+/* RESUMING A DEAD SESSION (iteration 5 W7). A session cannot be reopened —
+   the engine process is gone — so resume is honest about what it does: a
+   FRESH agent starts and its first message is the saved conversation. The
+   hint carries the token cost, because the press re-sends every saved word. */
+export const RESUME_PANEL = Object.freeze({
+  action: 'Resume with a fresh agent',
+  hint: 'Starts a new agent whose first message is the saved conversation. Re-sending it costs tokens.',
+  nothing: 'Nothing is saved here to resume from.',
+  busy: 'This agent is still running — stop it first, or just keep talking to it.',
+  failed: 'The resume did not happen. The saved conversation is untouched; press again to retry.',
+  done: 'Resumed. A fresh agent is reading the conversation and will pick it up from there.',
+  marker: 'Resumed — the saved conversation above was sent to a fresh agent.',
+})
+
+/* CHANGING HOW HARD IT THINKS, MID-CONVERSATION (iteration 5 W10). The wire
+   has no mid-session knob — depth is bound when the engine process starts —
+   so the menu says what really happens: a restart that re-reads the saved
+   conversation at the new depth, warned before it fires. */
+export const EFFORT_SWITCH = Object.freeze({
+  title: 'How hard it thinks',
+  help: 'Changing depth restarts this agent: a fresh session reads the saved conversation at the new depth.',
+  warn: 'Restarting re-sends the saved conversation, which costs tokens.',
+  go: 'Restart at this depth',
+  keep: 'Keep its current depth',
 })
 
 /* THE ACTIONS PALETTE. Every row is an action this build really performs on
