@@ -150,3 +150,17 @@ test('the three rail tabs exist and the chat body is first', () => {
   // Chat is the default tab: its button carries .on in the markup.
   assert.match(view, /class="on" data-rail-tab="chat"/, 'chat is no longer the default tab (owner defect 7: conversation first)')
 })
+
+test('the split view is off by default and view-only', () => {
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  // Absence of the preference is single-pane -- the state every harness
+  // contract runs in. Only the literal 'on' enables it.
+  assert.match(view, /localStorage\.getItem\(SPLIT_PREF_KEY\) === 'on'/, 'the split default is no longer off-unless-chosen')
+  // The second pane is a viewing pane: no chips, no slots, no drags.
+  const enable = view.slice(view.indexOf('function enableSplit'), view.indexOf('function disableSplit'))
+  assert.match(enable, /screenChips: false/, 'the split pane grew chips; the probe and overlay contracts belong to pane one')
+  assert.match(enable, /emptySlots: false/, 'the split pane offers slots; starting agents belongs to pane one')
+  assert.match(enable, /canDrag: \(\) => false/, 'the split pane accepts drags; editing belongs to pane one')
+  // Teardown kills the pane with the graph.
+  assert.match(view, /function clearMountedGraph\(\) \{\n    disableSplit\(\)/, 'clearMountedGraph no longer tears the split pane down first')
+})

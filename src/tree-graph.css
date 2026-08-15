@@ -87,6 +87,7 @@
   gap: 8px;
 }
 .computers .graph-edit-btn,
+.computers .graph-split-btn,
 .computers .graph-reset-btn {
   position: static;
   min-height: 32px;
@@ -112,6 +113,7 @@
 }
 .computers .graph-reset-btn[hidden] { display: none; }
 .computers .graph-edit-btn:hover,
+.computers .graph-split-btn:hover,
 .computers .graph-reset-btn:hover {
   color: var(--ink);
   background: color-mix(in oklab, var(--ink) 5%, var(--sheet));

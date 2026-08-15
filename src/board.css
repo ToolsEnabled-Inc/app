@@ -828,3 +828,10 @@ body:has([data-agent-compose])
 .board-page .rail-chat-body[hidden] { display: none; }
 .board-page .rail-chat-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .board-page .rail-chat-host .chat { flex: 1; min-height: 0; }
+
+/* THE SPLIT VIEW. Off: .graph-pane-2 is absent and the page is byte-for-byte
+   the single-pane layout every harness runs. On: the body grid gains a second
+   equal canvas column; each pane is a full .graph-wrap because the graph's
+   zoom host, fit control and chip placement all read their own wrap. */
+.comp-body.is-split { grid-template-columns: 1fr 1fr minmax(320px, 400px); }
+.graph-pane-2 { position: relative; min-width: 0; }
