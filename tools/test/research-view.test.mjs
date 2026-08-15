@@ -180,6 +180,46 @@ test('the experiment designer is builders first, with the raw text behind an Adv
   assert.match(view, /<option value="boolean">yes or no<\/option>/)
 })
 
+test('the tracking layer gathers, duplicates, files findings, and pulses honestly', () => {
+  const view = read('src/views/research.js')
+
+  /* The gathered view: a card opens into one inline panel holding its cells,
+     its queued runs, and its results — with a way back out. */
+  for (const hook of ['data-exp-open', 'data-exp-gathered', 'data-exp-close', 'data-gathered-service', 'data-gathered-chart']) {
+    assert.match(view, new RegExp(hook), `the gathered view lost its ${hook} hook`)
+  }
+  /* Reuse, not duplication: the panel renders through the boards' own
+     builders, so the two surfaces cannot drift apart. */
+  assert.match(view, /runDrillMarkup\(run\)/, 'the gathered view no longer reuses the drill rows')
+  assert.match(view, /resultTableModel\(\{ runs: doneRuns/, 'the gathered view no longer builds the shared table model')
+  assert.match(view, /createResultChart\(chartHost/, 'the gathered view lost its chart mount')
+
+  /* Duplicate and the starter templates only PREFILL the one form; the pins
+     hold the controls and the sentence that says nothing was saved. */
+  for (const hook of ['data-exp-duplicate', 'data-exp-template', 'data-exp-templates']) {
+    assert.match(view, new RegExp(hook), `the designer lost its ${hook} control`)
+  }
+  assert.match(view, /nothing is saved yet/, 'the prefill sentence stopped saying nothing was saved')
+  assert.doesNotMatch(view, /expDuplicate[\s\S]{0,400}?persistExperiments/, 'Duplicate must prefill, never save')
+
+  /* Save as finding: the claim posts through the findings client with the
+     open status, and the list renders per selected project. */
+  for (const hook of ['data-finding-form', 'data-finding-status', 'data-research-findings', 'data-research-findings-list']) {
+    assert.match(view, new RegExp(hook), `the findings surface lost its ${hook} hook`)
+  }
+  assert.match(view, /saveFinding\(\{ projectId: form\.dataset\.findingProject, claim: form\.elements\.claim\.value, status: 'open' \}\)/)
+  assert.match(view, /await readFindings\(wanted\)/, 'the findings list no longer reads through the findings client')
+  assert.match(view, /selection !== wanted\) return/, 'a slow findings answer for a left project is no longer dropped')
+  assert.match(view, /Recorded as \$\{saved\.findingId\}\./, 'the saved finding is no longer named back to the person')
+
+  /* The status strip: computed from the run reads and local cells, absent
+     states said honestly, never invented from a refusal. */
+  assert.match(view, /data-research-pulse/, 'the status strip host is gone')
+  assert.match(view, /nothing running/, 'the strip lost its honest absence sentence')
+  assert.ok(view.includes('${running} running · ${queued} queued · ${finished} finished'),
+    'the strip lost its three-count sentence')
+})
+
 test('research styling stays theme-native across white, tan, and black', () => {
   const css = read('src/research.css')
   const shared = read('src/styles.css')

@@ -346,6 +346,21 @@ async function drive(executable, scratch) {
     check('a process-runner grid is queue-sized, and the control says so',
       (await evaluate('document.querySelector("[data-exp-run]").textContent')) === 'Send to the run queue')
 
+    /* ----- 6b. the gathered view and the status strip -----
+       The card opens into ONE inline panel carrying the experiment's cells;
+       and the project bar's status strip states the current load honestly --
+       here, before anything runs, that is an explicit "nothing running"
+       rather than a silent blank. */
+
+    await evaluate('document.querySelector("[data-exp-open]").click()')
+    await until('the gathered panel', 'document.querySelector("[data-exp-gathered]") !== null', 40)
+    check('the card opens into one gathered view holding its cells',
+      (await evaluate('document.querySelectorAll("[data-exp-gathered] .research-cell").length')) === 2,
+      (await text('[data-exp-gathered]')).slice(0, 120).replace(/\n/g, ' | '))
+    check('the status strip states absence honestly',
+      (await text('[data-research-pulse]')).trim() === 'nothing running',
+      (await text('[data-research-pulse]')).slice(0, 80))
+
     /* ----- 7. the settings gate, live, holding the submit -----
        research.pipeline defaults OFF and this universe has no settings file,
        so the service MUST refuse -- and the refusal must surface as its own
