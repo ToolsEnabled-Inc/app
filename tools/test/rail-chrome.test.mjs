@@ -227,6 +227,11 @@ test('the pane bar scrolls its trees slot and nowhere else', () => {
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
   assert.match(view, /<div class="graph-bar">/, 'the main pane lost its bar')
   assert.ok(/graph-pane-2">\s*<div class="graph-bar">/.test(view), 'the split pane lost its own bar — one nice bar PER SPLIT was the ask')
+  /* The switcher must build AT MOUNT: every other caller is a change
+     handler, and a quietly-loaded page with saved trees stood bare until
+     the first store write — found driving the installed build. */
+  const mount = view.slice(view.indexOf('function mountGraph'), view.indexOf('REDRAW THE PAGE FROM WHAT IS ACTUALLY SAVED'))
+  assert.match(mount, /refreshTreeSwitch\(\)/, 'mountGraph no longer builds the switcher; a quiet load shows an empty trees slot over a forest')
 })
 
 test('Details reads as prose, dims really dim, and the boxes have a floor', () => {

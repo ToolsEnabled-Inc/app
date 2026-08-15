@@ -2203,6 +2203,12 @@ export function computersView({ initialComputer = null, navigate }) {
        reward for having already found the way in. A computer with no agents at
        all leaves the target null and the button hidden. */
     setOpenTarget(computer.agents?.[0] || null)
+    /* The switcher builds AT MOUNT, not on the first store write. Every other
+       caller of refreshTreeSwitch is a change handler (store events, root
+       drills, compose flows), so a quietly-loaded page with five saved trees
+       showed an empty trees slot until something changed — found driving the
+       installed iteration-6 build, where the bar stood bare over a forest. */
+    refreshTreeSwitch()
   }
 
   /**
