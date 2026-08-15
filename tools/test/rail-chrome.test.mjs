@@ -120,3 +120,33 @@ test('the model panel does not claim a one-message override', () => {
   const code = block.replace(/\/\*[\s\S]*?\*\//g, '')
   assert.ok(!/next message/i.test(code), 'MODEL_PANEL claims the override lasts one message; the map is sticky until changed back')
 })
+
+test('the rail chat streams once and closes once', () => {
+  // 2.3's stream contract, pinned at source level (the geometry and the live
+  // turn are the packaged probes' job):
+  const components = readFileSync(join(SRC, 'components.js'), 'utf8')
+  assert.match(components, /'openStream'/, 'buildChat lost openStream; the rail chat cannot stream a live turn')
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  // The delta branch pushes the ACCUMULATED text -- push replaces, so a
+  // missed frame can never double words.
+  assert.match(view, /railChat\.stream\?\.push\(sessionTurnText\.get\(sessionId\)\)/, 'the delta branch no longer pushes the accumulated turn text')
+  // The completion's safety close comes AFTER the cardReply call, or a
+  // rail-claimed turn prints its reply twice.
+  const completionAt = view.indexOf('cardReplies.delete(sessionId)\n        cardReply(')
+  const safetyCloseAt = view.indexOf('railChat.sessionId === sessionId && railChat.stream')
+  assert.ok(completionAt !== -1 && safetyCloseAt > completionAt, 'the stream safety-close must follow the cardReply call')
+  // A controlsPage rebuild disposes the mounted chat FIRST -- never
+  // innerHTML='' over a live chat.
+  const disposeAt = view.indexOf('disposeRailChat()\n    controlsPage.innerHTML')
+  assert.ok(disposeAt !== -1, 'showTreeNodeControls no longer disposes the rail chat before rebuilding its markup')
+})
+
+test('the three rail tabs exist and the chat body is first', () => {
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  for (const tab of ['chat', 'details', 'actions']) {
+    assert.match(view, new RegExp(`data-rail-tab="${tab}"`), `the ${tab} tab vanished`)
+    assert.match(view, new RegExp(`data-rail-body="${tab}"`), `the ${tab} body vanished`)
+  }
+  // Chat is the default tab: its button carries .on in the markup.
+  assert.match(view, /class="on" data-rail-tab="chat"/, 'chat is no longer the default tab (owner defect 7: conversation first)')
+})

@@ -817,3 +817,14 @@ body:has([data-agent-compose])
   scrollbar-width: thin;
 }
 .graph-tools .graph-tree-switch > button { flex: none; height: 26px; }
+
+/* THE VSCODE-SHAPED RAIL (defect 7): Chat / Details / Actions. Bodies are
+   persistent siblings toggled by [hidden]; the chat body is a column that
+   hands its full height to the mounted .chat, which owns its own scrolling. */
+.board-page .rail-tabs { margin: 2px 0 10px; align-self: flex-start; }
+.board-page .rail-tabs > button { height: 26px; }
+.board-page .rail-tab-body { min-height: 0; }
+.board-page .rail-chat-body { flex: 1; display: flex; flex-direction: column; }
+.board-page .rail-chat-body[hidden] { display: none; }
+.board-page .rail-chat-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.board-page .rail-chat-host .chat { flex: 1; min-height: 0; }

@@ -775,6 +775,39 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   unregisterLifecycle = registerChatLifecycle({ root, dispose, seenConnected: false, morphHost: null })
   Object.defineProperty(root, 'dispose', { value: dispose })
 
+  /* A LIVE TURN, STREAMED INTO THE LOG BY THE CALLER. The simulated
+     word-stream above answers PROMPTS this component invented; openStream is
+     the real thing's door: the caller opens one bubble when the engine starts
+     speaking, pushes the accumulated turn text as deltas arrive, and closes
+     it with the final words. push REPLACES the bubble's text (the caller owns
+     accumulation — the engine's delta events are already summed by the view),
+     so a missed frame can never double words. One stream at a time is the
+     caller's contract, same as cardReplies being single-slot per session. */
+  Object.defineProperty(root, 'openStream', {
+    value: ({ at = Date.now() } = {}) => {
+      const { m, body } = makeMsg('them', '', null, at)
+      m.setAttribute('aria-busy', 'true')
+      lastTurnAt = at
+      log.appendChild(m)
+      log.scrollTop = log.scrollHeight
+      let closed = false
+      const paint = (text) => {
+        body.innerHTML = formatInlineText(String(text ?? ''), { agents: [{ name: title, role: roleKey }], roleKey })
+        log.scrollTop = log.scrollHeight
+      }
+      return {
+        push: (text) => { if (!disposed && !closed) paint(text) },
+        flush: () => { if (!disposed && !closed) { log.scrollTop = log.scrollHeight } },
+        close: (finalText) => {
+          if (closed) return
+          closed = true
+          if (!disposed && finalText != null) paint(finalText)
+          m.removeAttribute('aria-busy')
+        },
+      }
+    },
+  })
+
   return root
 }
 

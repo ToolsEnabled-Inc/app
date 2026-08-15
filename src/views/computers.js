@@ -1188,6 +1188,57 @@ export function computersView({ initialComputer = null, navigate }) {
     railSaid.appender.dispose()
     railSaid = null
   }
+
+  /* THE RAIL'S CHAT TAB — one mounted chat at a time, tracked so the delta
+     stream and the turn completion know where to speak. Disposed before any
+     controlsPage rebuild: the rule is never innerHTML='' OVER a mounted chat,
+     and disposing first is how a rebuild honours it. */
+  let railChat = null
+  function disposeRailChat() {
+    if (!railChat) return
+    railChat.stream?.close()
+    railChat.root?.dispose?.()
+    railChat = null
+  }
+
+  /* ONE chat config for a tree node, serving the compact card AND the rail's
+     Chat tab. The conversation shown is this window's transcript when it has
+     one; else the durable pair the store kept (the ask and the last reply),
+     so a chat over a node that has plainly spoken never opens empty.
+     Renderer memory only; the store stays the record. */
+  function treeChatConfigFor(node) {
+    if (!node || !node.sessionId) return null
+    let history = sessionTranscripts.get(node.sessionId) || []
+    if (!history.length) {
+      history = []
+      if (node.message) history.push({ who: 'you', text: node.message, at: null })
+      const kept = nodeReplies.get(node.id) || node.reply
+      if (kept) history.push({ who: 'agent', text: kept, at: null })
+    }
+    return {
+      title: treeNodeName(node),
+      subtitle: 'your agent · live session',
+      roleKey: node.role,
+      history,
+      onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
+      onAttach: async () => {
+        const bridge = typeof window === 'undefined' ? null : window.mcAgent
+        if (!bridge || typeof bridge.pickAttachment !== 'function') return null
+        const picked = await bridge.pickAttachment({ sessionId: node.sessionId }).catch(() => null)
+        if (picked && picked.path) {
+          const held = sessionPendingImages.get(node.sessionId) || []
+          held.push({ path: picked.path })
+          sessionPendingImages.set(node.sessionId, held.slice(0, 8))
+        }
+        return picked
+      },
+      onMention: async () => {
+        const bridge = typeof window === 'undefined' ? null : window.mcAgent
+        if (!bridge || typeof bridge.pickMention !== 'function') return null
+        return bridge.pickMention({ sessionId: node.sessionId }).catch(() => null)
+      },
+    }
+  }
   /* The chip repaints once per frame, never per token — the same batching the
      transcript appender measured its way to. One pending id is enough: one
      turn streams at a time, and a second node's event simply takes the slot. */
@@ -1749,45 +1800,10 @@ export function computersView({ initialComputer = null, navigate }) {
         return true
       },
       /* The compact card: real config or nothing. A node without a session has
-         nothing to talk to, so its chip keeps routing to the rail. */
-      treeChat: agent => {
-        const node = agent.treeNode
-        if (!node || !node.sessionId) return null
-        /* The card opens over the REAL conversation. This window's transcript
-           when it has one; else the durable pair the store kept (the ask and
-           the last reply), so a card over a node that has plainly spoken never
-           opens empty. Renderer memory only, and the store stays the record. */
-        let history = sessionTranscripts.get(node.sessionId) || []
-        if (!history.length) {
-          history = []
-          if (node.message) history.push({ who: 'you', text: node.message, at: null })
-          const kept = nodeReplies.get(node.id) || node.reply
-          if (kept) history.push({ who: 'agent', text: kept, at: null })
-        }
-        return {
-          title: treeNodeName(node),
-          subtitle: 'your agent · live session',
-          roleKey: node.role,
-          history,
-          onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
-          onAttach: async () => {
-            const bridge = typeof window === 'undefined' ? null : window.mcAgent
-            if (!bridge || typeof bridge.pickAttachment !== 'function') return null
-            const picked = await bridge.pickAttachment({ sessionId: node.sessionId }).catch(() => null)
-            if (picked && picked.path) {
-              const held = sessionPendingImages.get(node.sessionId) || []
-              held.push({ path: picked.path })
-              sessionPendingImages.set(node.sessionId, held.slice(0, 8))
-            }
-            return picked
-          },
-          onMention: async () => {
-            const bridge = typeof window === 'undefined' ? null : window.mcAgent
-            if (!bridge || typeof bridge.pickMention !== 'function') return null
-            return bridge.pickMention({ sessionId: node.sessionId }).catch(() => null)
-          },
-        }
-      },
+         nothing to talk to, so its chip keeps routing to the rail. ONE config
+         builder serves both this card and the rail's Chat tab — two copies of
+         the attach/mention/send wiring is how the two surfaces drift. */
+      treeChat: agent => treeChatConfigFor(agent.treeNode),
       /* A CLICK ON AN AGENT THIS PERSON STARTED IS NOT A CLICK ON A FLEET
          RECORD, and the rail behind this callback is written for a fleet record:
          it prints a provider, an origin and a bridge dispatch, and it would have
@@ -2676,21 +2692,33 @@ export function computersView({ initialComputer = null, navigate }) {
     currentRailTreeNode = node
     const role = ROLES[node.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
+    disposeRailChat()
     controlsPage.innerHTML = `
       ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Agent in your tree', forward: { label: PALETTE_PANEL.title, attr: 'data-open-palette' } })}
-      <div class="rail-scroll">
+      <!-- THE VSCODE-SHAPED RAIL (owner defect 7): the conversation first,
+           the agent's facts second, the verbs third. One ctl-page with three
+           PERSISTENT bodies toggled by [hidden] — roughly forty selectors
+           query controlsPage, and swapping innerHTML per tab would orphan the
+           mounted chat and strand every live updater; hidden bodies keep both
+           working. -->
+      <div class="seg rail-tabs" data-rail-tabs role="group" aria-label="Agent panels">
+        <button type="button" class="on" data-rail-tab="chat">Chat</button>
+        <button type="button" data-rail-tab="details">Details</button>
+        <button type="button" data-rail-tab="actions">Actions</button>
+      </div>
+      <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
+        ${node.sessionId ? '<div class="rail-chat-host" data-rail-chat-host></div>' : `
+        <div class="board-box board-ctl-box">
+          <div class="rail-sub">${escapeMarkup(node.statusNote || 'This agent has not been started yet. Press its circle on the canvas to start it; the conversation opens here.')}</div>
+        </div>`}
+      </div>
+      <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
           <div class="rail-sub">${escapeMarkup(treeNodeStatusWord(node))}</div>
           ${node.statusNote ? `<div class="rail-sub projection-unavailable">${escapeMarkup(node.statusNote)}</div>` : ''}
           <div class="rail-sub projection-unavailable" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
-          ${node.sessionId && (node.status === 'starting' || node.status === 'running') ? `
-          <div class="ctl-row">
-            <button class="ctl-btn" type="button" data-tree-interrupt>${escapeMarkup(PALETTE_PANEL.interrupt)}</button>
-            <button class="ctl-btn" type="button" data-tree-stop>${escapeMarkup(PALETTE_PANEL.stop)}</button>
-          </div>
-          <output class="rail-sub" role="status" data-tree-actions-out></output>` : ''}
         </div>
         <div class="board-box board-ctl-box">
           <!-- "The brief you started it with", not "what you asked for": this
@@ -2710,7 +2738,19 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="board-box-h"><span class="bh-t">What it has used</span></div>
           <div class="rail-sub" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
           <div class="rail-sub"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
-        </div>
+        </div>` : ''}
+      </div>
+      <div class="rail-tab-body rail-scroll" data-rail-body="actions" hidden>
+        ${node.sessionId && (node.status === 'starting' || node.status === 'running') ? `
+        <div class="board-box board-ctl-box">
+          <div class="board-box-h"><span class="bh-t">While it works</span></div>
+          <div class="ctl-row">
+            <button class="ctl-btn" type="button" data-tree-interrupt>${escapeMarkup(PALETTE_PANEL.interrupt)}</button>
+            <button class="ctl-btn" type="button" data-tree-stop>${escapeMarkup(PALETTE_PANEL.stop)}</button>
+          </div>
+          <output class="rail-sub" role="status" data-tree-actions-out></output>
+        </div>` : ''}
+        ${node.sessionId ? `
         <div class="board-box board-ctl-box" data-tree-rewind>
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(REWIND_PANEL.title)}</span></div>
           <div class="rail-sub">${escapeMarkup(REWIND_PANEL.help)}</div>
@@ -2759,6 +2799,47 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-open-palette]')?.addEventListener('click', () => showPalette(node))
+    /* The three tabs toggle [hidden] on persistent bodies — see the markup
+       comment for why nothing is ever re-rendered on a tab press. */
+    const railTabs = controlsPage.querySelector('[data-rail-tabs]')
+    railTabs?.addEventListener('click', (event) => {
+      const pressed = event.target.closest('[data-rail-tab]')
+      if (!pressed) return
+      for (const button of railTabs.querySelectorAll('[data-rail-tab]')) {
+        button.classList.toggle('on', button === pressed)
+      }
+      for (const body of controlsPage.querySelectorAll('[data-rail-body]')) {
+        body.hidden = body.dataset.railBody !== pressed.dataset.railTab
+      }
+    })
+    /* The Chat tab's mount: the same config the compact card uses, tall, over
+       the FULL transcript (D9's mechanism — the rail no longer pairs the
+       first ask with the latest reply; the whole conversation is here). The
+       send wraps the shared handlers so a turn that STREAMED into an open
+       bubble closes that bubble instead of printing the reply twice. */
+    const chatHost = controlsPage.querySelector('[data-rail-chat-host]')
+    if (chatHost && node.sessionId) {
+      const config = treeChatConfigFor(node)
+      if (config) {
+        const chat = buildChat({
+          ...config,
+          tall: true,
+          onSend: (text, handlers) => config.onSend(text, {
+            reply: (said) => {
+              if (railChat?.stream) {
+                railChat.stream.close(said)
+                railChat.stream = null
+              } else {
+                handlers.reply(said)
+              }
+            },
+            fail: handlers.fail,
+          }),
+        })
+        chatHost.appendChild(chat)
+        railChat = { sessionId: node.sessionId, nodeId: node.id, root: chat, stream: null }
+      }
+    }
     /* Interrupt and Stop live inline too — the full console's fastest two
        verbs, sharing the palette's handlers so the two surfaces cannot
        drift. */
@@ -3702,6 +3783,14 @@ export function computersView({ initialComputer = null, navigate }) {
           }
           railSaid.appender.push(text)
         }
+        /* The rail's Chat tab streams the SAME turn: one live bubble, opened
+           on the first delta, repainted with the accumulated text (push
+           replaces, so a missed frame can never double words), closed by the
+           turn completion through the wrapped reply handler. */
+        if (railChat && railChat.sessionId === sessionId) {
+          if (!railChat.stream) railChat.stream = railChat.root.openStream?.({ at: Date.now() }) ?? null
+          railChat.stream?.push(sessionTurnText.get(sessionId))
+        }
         scheduleChipRefresh(sessionNodeIds.get(sessionId))
         return
       }
@@ -3758,6 +3847,15 @@ export function computersView({ initialComputer = null, navigate }) {
       if (cardReply) {
         cardReplies.delete(sessionId)
         cardReply(spoken || SAID_PANEL.emptyTurn)
+      }
+      /* A rail-chat stream still open here means the compact card, not the
+         rail, claimed this turn's reply slot (or the turn arrived with no
+         claimant at all). The bubble still has to end. After, not before,
+         cardReply: when the rail IS the claimant its wrapped reply closes the
+         stream itself, and closing twice would print the reply twice. */
+      if (railChat && railChat.sessionId === sessionId && railChat.stream) {
+        railChat.stream.close(spoken || SAID_PANEL.emptyTurn)
+        railChat.stream = null
       }
       const finished = status === 'completed' ? 'finished' : 'failed'
       if (treeStore) {
