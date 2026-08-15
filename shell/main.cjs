@@ -1853,6 +1853,18 @@ const MIME = {
 function serveDist() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
+      /* frame-ancestors works only as a RESPONSE HEADER — Chrome ignores the
+         directive inside a <meta> policy, which left every page on this
+         loopback origin frameable by any website in the person's browser
+         (reports/lanes/preview-frame-ancestors-inert.md, measured
+         2026-08-14; a page can iframe http://127.0.0.1:<port>/ and the Host
+         check rightly passes). Set on EVERY branch, before any of them
+         writes: nothing this server answers is a third party's to embed.
+         The preview page alone allows the same-origin embed its design
+         expects — its honesty banner can be overlaid by a hostile framer,
+         which is exactly the audit-that-looks-like-it-ran defect the page
+         itself argues against. */
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'none'")
       const expectedHost = shellOrigin ? new URL(shellOrigin).host : null
       if (!expectedHost || req.headers.host !== expectedHost) {
         res.writeHead(421, 'Misdirected Request', { 'content-type': 'text/plain', 'cache-control': 'no-store' })
@@ -1860,6 +1872,9 @@ function serveDist() {
         return
       }
       const url = decodeURIComponent((req.url || '/').split('?')[0])
+      if (url === '/preview' || url.startsWith('/preview/')) {
+        res.setHeader('Content-Security-Policy', "frame-ancestors 'self'")
+      }
       if (serveOwnerPurchaseList(url, req, res)) return
       if (serveConfiguredProjection(url, req, res)) return
       if (serveSignup(url, req, res)) return
