@@ -29,6 +29,10 @@ import { localTiersStatus } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
 import { isLiveView } from '../live-flags.js'
+import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
+import { createAssignmentStore } from '../research-assignments.js'
+import { cellLabel, gridCells, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
+import { readResults, readRuns, resultTableModel, resultsExport, runIsTerminal, runStateWord, submitRun } from '../research-runs.js'
 import '../research.css'
 
 const RESEARCH_QUEUE_URL = '/data/research-queue.json'
@@ -395,6 +399,16 @@ export function researchView() {
             </div>
           </section>
 
+          <section class="research-section" aria-labelledby="research-sessions-title" data-mc="sessions">
+            <div class="research-section-head">
+              <h2 id="research-sessions-title">Assigned sessions</h2>
+              <p>The sessions filed under the selected project — one, many, or every session on this computer through the assign-all rule. The sessions themselves run on the computers page.</p>
+            </div>
+            <div data-research-sessions aria-live="polite">
+              <p class="research-observed-empty">Reading the session assignments.</p>
+            </div>
+          </section>
+
           <p class="research-observed-empty research-none-enabled" data-research-none hidden>
             Every module is switched off. Press Modules and switch one on.
           </p>
@@ -412,6 +426,13 @@ export function researchView() {
   const bar = el(`
     <div class="research-bar" data-research-bar>
       <button type="button" class="m-edit-btn" data-modules-btn aria-expanded="false" aria-haspopup="true">Modules</button>
+      <span class="research-project-bar" data-project-bar>
+        <label class="research-popover-row">Project
+          <select data-project-select aria-label="Project" disabled><option value="all">All projects</option></select>
+        </label>
+        <button type="button" class="m-edit-btn" data-project-new hidden>New project</button>
+        <span class="research-queue-form-status" data-project-status role="status"></span>
+      </span>
       <span class="spacer"></span>
       <button type="button" class="m-edit-btn" data-research-edit>Edit layout</button>
     </div>`)
@@ -443,8 +464,9 @@ export function researchView() {
     { id: 'library', title: 'Report library', size: 'full', el: root.querySelector('[data-mc="library"]') },
     { id: 'methods', title: 'Method notes', size: 'full', el: root.querySelector('[data-mc="methods"]') },
     { id: 'worklists', title: 'Working lists', size: 'full', el: root.querySelector('[data-mc="worklists"]') },
+    { id: 'sessions', title: 'Assigned sessions', size: 'full', el: root.querySelector('[data-mc="sessions"]') },
   ]
-  const STANDARD = [['designer'], ['runboard'], ['results'], ['tiers'], ['queue'], ['library'], ['methods'], ['worklists']]
+  const STANDARD = [['designer'], ['runboard'], ['results'], ['sessions'], ['tiers'], ['queue'], ['library'], ['methods'], ['worklists']]
   const moduleEl = id => MODULES.find(module => module.id === id).el
 
   const registry = createResearchRegistry({
@@ -996,6 +1018,389 @@ export function researchView() {
       ${tierRowMarkup('Strong', receipt.strong)}`
   }
 
+  /* ---------- the project layer ----------
+     Projects, durable grid experiments, queued runs, results and session
+     assignment all live behind the action bridge; this block renders what the
+     service answered and never invents an empty list from a refusal. The
+     selection (which project this page looks at) is the one local remembering. */
+
+  const assignmentStore = createAssignmentStore({ storage: typeof window === 'undefined' ? null : window.localStorage })
+  let selection = readProjectSelection(typeof window === 'undefined' ? null : window.localStorage)
+  let service = null            // the last readResearchSnapshot result, ok or not
+  const runsByExperiment = new Map()   // experimentId -> readRuns result
+  const resultsByRun = new Map()       // runId -> record list
+  let runPollTimer = null
+
+  const projectBar = bar.querySelector('[data-project-bar]')
+  const projectSelect = projectBar.querySelector('[data-project-select]')
+  const projectNewBtn = projectBar.querySelector('[data-project-new]')
+  const projectStatus = projectBar.querySelector('[data-project-status]')
+
+  function selectedProject() {
+    if (!service?.ok) return null
+    return service.projects.find(project => project.projectId === selection) || null
+  }
+
+  function renderProjectBar() {
+    if (!service) return
+    if (!service.ok) {
+      projectSelect.disabled = true
+      projectNewBtn.hidden = true
+      projectStatus.textContent = `Projects could not be read — ${service.reason || 'the research service did not answer'}.`
+      return
+    }
+    const options = [
+      `<option value="${PROJECT_ALL}"${selection === PROJECT_ALL ? ' selected' : ''}>All projects</option>`,
+      ...service.projects.map(project => `
+        <option value="${esc(project.projectId)}"${selection === project.projectId ? ' selected' : ''}>${esc(project.name)}${project.enabled === false ? ' (switched off)' : ''}</option>`),
+      `<option value="${PROJECT_UNFILED}"${selection === PROJECT_UNFILED ? ' selected' : ''}>Unfiled</option>`,
+    ]
+    projectSelect.innerHTML = options.join('')
+    projectSelect.disabled = false
+    projectNewBtn.hidden = false
+    if (service.settings && service.settings.pipelineEnabled === false) {
+      projectStatus.textContent = 'The research pipeline is switched off in settings; queued runs wait until it is on.'
+    } else {
+      projectStatus.textContent = ''
+    }
+  }
+
+  projectSelect.addEventListener('change', () => {
+    selection = projectSelect.value
+    writeProjectSelection(typeof window === 'undefined' ? null : window.localStorage, selection)
+    renderServiceModules()
+  })
+
+  projectNewBtn.addEventListener('click', async () => {
+    const name = window.prompt?.('Name the new project.')
+    if (typeof name !== 'string' || name.trim().length === 0) return
+    projectNewBtn.disabled = true
+    const saved = await saveProject({ name: name.trim(), enabled: true })
+    projectNewBtn.disabled = false
+    if (!saved.ok) {
+      projectStatus.textContent = `The project was not created — ${saved.reason || 'the research service refused it'}.`
+      return
+    }
+    selection = saved.project.projectId
+    writeProjectSelection(typeof window === 'undefined' ? null : window.localStorage, selection)
+    await refreshServiceSnapshot()
+  })
+
+  function serviceExperiments() {
+    if (!service?.ok) return []
+    const all = Object.entries(service.experiments).flatMap(([projectId, experiments]) =>
+      experiments.map(experiment => ({ ...experiment, projectId })))
+    return all.filter(experiment => filesUnder(selection, experiment.projectId))
+  }
+
+  function renderSessionsModule() {
+    const host = moduleEl('sessions').querySelector('[data-research-sessions]')
+    if (!host) return
+    if (!service) return
+    if (!service.ok) {
+      host.innerHTML = unavailableMarkup('The session assignments', service.reason)
+      return
+    }
+    const rows = assignmentStore.snapshot().rows.filter(row => filesUnder(selection, row.projectId))
+    const projectName = id => service.projects.find(project => project.projectId === id)?.name || id
+    if (rows.length === 0) {
+      host.innerHTML = '<p class="research-observed-empty">No sessions are filed under this view. File one from the computers page, or assign every session with the all rule there.</p>'
+      return
+    }
+    host.innerHTML = `
+      <ol class="research-catalog" data-research-session-list>
+        ${rows.map(row => `
+          <li class="research-report">
+            <div class="research-report-body">
+              <div class="research-report-head">
+                <h3>${esc(row.kind === 'all' ? 'Every session on this computer' : `${row.kind} · ${row.ref}`)}</h3>
+                <dl class="research-report-meta"><div><dt>project</dt><dd>${esc(projectName(row.projectId))}</dd></div></dl>
+              </div>
+              ${row.pending ? '<p class="research-authorization">Saved on this computer; the research service has not heard it yet.</p>' : ''}
+              <div class="research-queue-controls">
+                <button type="button" data-session-unassign data-project="${esc(row.projectId)}" data-kind="${esc(row.kind)}" data-ref="${esc(row.ref)}">Unassign</button>
+                <a class="host-absent-action" href="#/computers">Open the computers page</a>
+              </div>
+            </div>
+          </li>`).join('')}
+      </ol>`
+  }
+
+  moduleEl('sessions').addEventListener('click', async event => {
+    const button = event.target
+    if (!button?.hasAttribute?.('data-session-unassign')) return
+    button.disabled = true
+    const result = await assignmentStore.unassign(button.dataset.project, button.dataset.kind, button.dataset.ref)
+    button.disabled = false
+    if (!result.ok) { button.textContent = result.sentence; return }
+    renderSessionsModule()
+  })
+
+  /* ---------- the grid designer (queued runs) ----------
+     A grid experiment is registered durably on its first submit: the full
+     declaration rides with each run and the service matches it by
+     configuration, so a repeat submit replays instead of duplicating. */
+
+  function gridFormMarkup() {
+    const project = selectedProject()
+    if (!service?.ok) return ''
+    if (!project) {
+      return `
+        <div class="research-grid-designer" data-grid-designer>
+          <h3>Grid experiment</h3>
+          <p class="research-observed-empty">Pick one project above to submit grid runs — queued work always belongs to a project.</p>
+        </div>`
+    }
+    return `
+      <div class="research-grid-designer" data-grid-designer>
+        <h3>Grid experiment</h3>
+        <form class="research-queue-form" data-grid-form>
+          <input name="name" maxlength="120" placeholder="Name this grid experiment." aria-label="Grid experiment name"/>
+          <textarea name="axes" rows="2" placeholder='The axes, one object: {"model": ["a", "b"], "effort": ["low", "high"]}' aria-label="Axes"></textarea>
+          <label class="research-popover-row">Runner
+            <select name="runnerKind" aria-label="Runner kind">
+              <option value="agent">Start sessions through the service</option>
+              <option value="process">Run a command on the service host</option>
+              <option value="http">Call a web service</option>
+            </select>
+          </label>
+          <textarea name="runnerDetail" rows="2" placeholder="Agent: the brief with {axis} tokens. Process: the command then each argument on its own line. Http: the https address." aria-label="Runner detail"></textarea>
+          <input name="resultColumns" placeholder='Result columns, optional: {"fields": {"score": "number"}, "required": ["score"]}' aria-label="Result columns"/>
+          <div class="research-queue-form-row">
+            <label class="research-popover-row">Repeats
+              <select name="replicates"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select>
+            </label>
+            <button type="submit">Submit the grid to the run queue</button>
+            <span class="research-queue-form-status" data-grid-form-status role="status"></span>
+          </div>
+        </form>
+      </div>`
+  }
+
+  function parseGridForm(form) {
+    const name = form.elements.name.value.trim()
+    if (name.length === 0 || name.length > 120) return { ok: false, sentence: 'Name the grid experiment first.' }
+    let axesRaw
+    try { axesRaw = JSON.parse(form.elements.axes.value) }
+    catch { return { ok: false, sentence: 'The axes did not read as an object. Write them like {"model": ["a", "b"]}.' } }
+    const axes = parseAxes(axesRaw)
+    if (!axes.ok) return axes
+    const kind = form.elements.runnerKind.value
+    const detail = form.elements.runnerDetail.value.trim()
+    let runner
+    if (kind === 'agent') runner = parseRunner({ kind, briefTemplate: detail })
+    else if (kind === 'process') {
+      const [command, ...args] = detail.split('\n').map(line => line.trim()).filter(Boolean)
+      runner = parseRunner({ kind, command: command || '', args })
+    } else runner = parseRunner({ kind, url: detail })
+    if (!runner.ok) return runner
+    let schemaRaw
+    if (form.elements.resultColumns.value.trim()) {
+      try { schemaRaw = JSON.parse(form.elements.resultColumns.value) }
+      catch { return { ok: false, sentence: 'The result columns did not read as an object.' } }
+    }
+    const resultSchema = parseResultSchema(schemaRaw)
+    if (!resultSchema.ok) return resultSchema
+    const replicates = Number(form.elements.replicates.value)
+    return { ok: true, name, axes: axes.axes, runner: runner.runner, resultSchema: resultSchema.resultSchema, replicates }
+  }
+
+  function runnerConfigFor(runner) {
+    if (runner.kind === 'agent') return { briefTemplate: runner.briefTemplate }
+    if (runner.kind === 'process') return { command: runner.command, args: runner.args || [], stdin: 'none' }
+    return { url: runner.url }
+  }
+
+  moduleEl('designer').addEventListener('submit', async event => {
+    if (!event.target?.hasAttribute?.('data-grid-form')) return
+    event.preventDefault()
+    const form = event.target
+    const status = form.querySelector('[data-grid-form-status]')
+    const project = selectedProject()
+    if (!project) { if (status) status.textContent = 'Pick one project above first.'; return }
+    const parsed = parseGridForm(form)
+    if (!parsed.ok) { if (status) status.textContent = parsed.sentence; return }
+    const spec = {
+      projectId: project.projectId,
+      name: parsed.name,
+      runnerKind: parsed.runner.kind,
+      runnerConfig: runnerConfigFor(parsed.runner),
+      resultSchema: parsed.resultSchema,
+      collector: parsed.runner.kind === 'agent' ? { kind: 'none' } : { kind: 'stdout-json', recordKind: 'summary' },
+    }
+    const cells = gridCells(parsed.axes, { replicates: parsed.replicates })
+    if (status) status.textContent = `Submitting ${cells.length} runs.`
+    let submitted = 0
+    let replayed = 0
+    let firstRefusal = null
+    let experimentId = null
+    for (const cell of cells) {
+      const body = experimentId ? { experimentId, params: cell } : { experiment: spec, params: cell }
+      const outcome = await submitRun(body)
+      if (outcome.ok) {
+        experimentId = experimentId || outcome.experiment?.experimentId || null
+        if (outcome.disposition === 'replay') replayed += 1
+        else submitted += 1
+      } else if (!firstRefusal) {
+        firstRefusal = outcome.reason || 'the research service refused a run'
+      }
+    }
+    if (status) {
+      status.textContent = firstRefusal
+        ? `${submitted} submitted, ${replayed} already queued, then the service refused: ${firstRefusal}`
+        : `${submitted} submitted, ${replayed} already queued. Watch them on the run board.`
+    }
+    await refreshServiceSnapshot()
+  })
+
+  /* ---------- the service run board and results ---------- */
+
+  async function refreshRuns() {
+    const experiments = serviceExperiments()
+    for (const experiment of experiments) {
+      runsByExperiment.set(experiment.experimentId, await readRuns(experiment.experimentId))
+    }
+    renderServiceRunBoard()
+    renderServiceResults()
+    scheduleRunPoll()
+  }
+
+  function anyRunActive() {
+    for (const read of runsByExperiment.values()) {
+      if (read?.ok === true && read.runs.some(run => !runIsTerminal(run?.task?.status))) return true
+    }
+    return false
+  }
+
+  function scheduleRunPoll() {
+    if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
+    if (destroyed || !anyRunActive()) return
+    runPollTimer = setTimeout(() => { refreshRuns() }, 5000)
+  }
+
+  function renderServiceRunBoard() {
+    const host = moduleEl('runboard').querySelector('[data-research-runboard]')
+    if (!host || !service) return
+    let block = host.querySelector('[data-service-runboard]')
+    if (!block) {
+      block = el('<div data-service-runboard></div>')
+      host.appendChild(block)
+    }
+    if (!service.ok) {
+      block.innerHTML = unavailableMarkup('The queued runs', service.reason)
+      return
+    }
+    const experiments = serviceExperiments()
+    if (experiments.length === 0) {
+      block.innerHTML = '<p class="research-observed-empty">No grid experiments are registered under this view yet.</p>'
+      return
+    }
+    block.innerHTML = experiments.map(experiment => {
+      const read = runsByExperiment.get(experiment.experimentId)
+      if (!read) return `<div class="research-runboard-exp"><h3>${esc(experiment.name)}</h3><p class="research-observed-empty">Reading its runs.</p></div>`
+      if (read.ok !== true) return `<div class="research-runboard-exp"><h3>${esc(experiment.name)}</h3>${unavailableMarkup('Its run list', read.reason)}</div>`
+      const cells = read.runs.map(run => `
+        <span class="research-cell is-${esc(run?.task?.status || 'unknown')}">${esc(Object.values(run?.params || {}).join(' · ') || run.runId)} · ${esc(runStateWord(run?.task?.status))}</span>`).join('')
+      return `
+        <div class="research-runboard-exp" data-service-exp="${esc(experiment.experimentId)}">
+          <h3>${esc(experiment.name)} <span class="research-observed-empty">(queued through the service)</span></h3>
+          <div class="research-runboard-cells">${cells || '<p class="research-observed-empty">No runs submitted yet.</p>'}</div>
+        </div>`
+    }).join('')
+  }
+
+  async function renderServiceResults() {
+    const host = moduleEl('results').querySelector('[data-research-results]')
+    if (!host || !service?.ok) return
+    let block = host.querySelector('[data-service-results]')
+    if (!block) {
+      block = el('<div data-service-results></div>')
+      host.appendChild(block)
+    }
+    const experiments = serviceExperiments()
+    const sections = []
+    for (const experiment of experiments) {
+      const read = runsByExperiment.get(experiment.experimentId)
+      if (read?.ok !== true) continue
+      const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
+      for (const run of doneRuns) {
+        if (!resultsByRun.has(run.runId)) {
+          const results = await readResults(run.runId)
+          resultsByRun.set(run.runId, results.ok === true ? results.results : [])
+        }
+      }
+      if (doneRuns.length === 0) continue
+      const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+      sections.push(`
+        <div class="research-results-exp" data-service-results-exp="${esc(experiment.experimentId)}">
+          <div class="research-report-head">
+            <h3>${esc(experiment.name)}</h3>
+            <div class="research-queue-controls">
+              <button type="button" data-service-csv="${esc(experiment.experimentId)}">Copy as CSV</button>
+              <button type="button" data-service-json="${esc(experiment.experimentId)}">Copy as JSON</button>
+            </div>
+          </div>
+          <div class="research-results-scroll"><table class="research-results-table">
+            <thead><tr>${model.columns.map(name => `<th>${esc(name)}</th>`).join('')}<th>state</th></tr></thead>
+            <tbody>${model.rows.map(row => `<tr>${row.cells.map(value => `<td>${esc(value ?? '—')}</td>`).join('')}<td>${esc(runStateWord(row.status))}</td></tr>`).join('')}</tbody>
+          </table></div>
+          <p class="research-queue-form-status" data-service-results-status="${esc(experiment.experimentId)}" role="status"></p>
+        </div>`)
+    }
+    block.innerHTML = sections.join('')
+  }
+
+  moduleEl('results').addEventListener('click', async event => {
+    const csvId = event.target?.dataset?.serviceCsv
+    const jsonId = event.target?.dataset?.serviceJson
+    if (!csvId && !jsonId) return
+    const experimentId = csvId || jsonId
+    const experiment = serviceExperiments().find(candidate => candidate.experimentId === experimentId)
+    const read = runsByExperiment.get(experimentId)
+    if (!experiment || read?.ok !== true) return
+    const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
+    const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+    const status = moduleEl('results').querySelector(`[data-service-results-status="${experimentId}"]`)
+    try {
+      await navigator.clipboard.writeText(resultsExport(model, csvId ? 'csv' : 'json'))
+      if (status) status.textContent = 'Copied. Paste it where you need it.'
+    } catch {
+      if (status) status.textContent = 'Select the table and copy it by hand — the clipboard refused this copy.'
+    }
+  })
+
+  function renderGridDesigner() {
+    const host = moduleEl('designer').querySelector('[data-research-designer]')
+    if (!host || !service) return
+    let block = host.querySelector('[data-grid-designer]')
+    const markup = gridFormMarkup()
+    if (!markup) { if (block) block.remove(); return }
+    if (block) {
+      block.outerHTML = markup
+    } else {
+      host.insertAdjacentHTML('beforeend', markup)
+    }
+  }
+
+  function renderServiceModules() {
+    renderProjectBar()
+    renderSessionsModule()
+    renderGridDesigner()
+    renderServiceRunBoard()
+    renderServiceResults()
+  }
+
+  async function refreshServiceSnapshot() {
+    service = await readResearchSnapshot()
+    if (destroyed) return
+    if (service.ok) {
+      assignmentStore.adoptServiceRows(service.assignments)
+      assignmentStore.flushPending()
+    }
+    renderServiceModules()
+    refreshRuns()
+  }
+
   /* ---------- boot ---------- */
 
   mountLayout()
@@ -1013,6 +1418,8 @@ export function researchView() {
     readExperimentsRow().then(() => {
       if (!destroyed) renderExperimentModules()
     })
+
+    refreshServiceSnapshot()
 
     localTiersStatus().then(result => {
       if (!destroyed) renderTiers(result)
@@ -1043,6 +1450,8 @@ export function researchView() {
     })
     const designerHost = moduleEl('designer').querySelector('[data-research-designer]')
     if (designerHost) designerHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to design experiments of your own.</p>'
+    const sessionsHost = moduleEl('sessions').querySelector('[data-research-sessions]')
+    if (sessionsHost) sessionsHost.innerHTML = '<p class="research-observed-empty">This is the example face. Turn on Live data in settings to file sessions under your projects.</p>'
     root.dataset.projectionState = 'simulated'
     root.setAttribute('aria-busy', 'false')
   }
@@ -1051,6 +1460,7 @@ export function researchView() {
     el: root,
     destroy() {
       destroyed = true
+      if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
       document.removeEventListener('pointerdown', onDocPointer)
       document.removeEventListener('keydown', onDocKey)
       window.removeEventListener(RESEARCH_EXPERIMENTS_EVENT, onExperimentsChanged)

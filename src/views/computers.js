@@ -97,6 +97,9 @@ import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
+import { readResearchSnapshot } from '../research-projects.js'
+import { createAssignmentStore } from '../research-assignments.js'
+import { createAssignmentControl } from '../research-assignment-control.js'
 /* The other source of computers, and on a customer machine the only one that
    can ever answer. See the header of src/declared-fleet.js for the measurement:
    the fleet projection is a BUILD-TIME file and ships `ok:false` forever. */
@@ -707,6 +710,11 @@ export function computersView({ initialComputer = null, navigate }) {
      empty list. src/chatbox-feed.js's availability flags are about the source,
      so the source's existence is what has to be passed to them. */
   let railRunsSupported = false
+  /* Research projects, for filing sessions. Read ONCE per mount; the refusal
+     is kept so the filing control can render disabled WITH the sentence
+     instead of as an empty select pretending no projects exist. */
+  let researchService = null
+  const researchAssignments = createAssignmentStore({ storage: typeof window === 'undefined' ? null : window.localStorage })
   let railChatUnsub = null
 
   const root = el(`
@@ -1726,6 +1734,54 @@ export function computersView({ initialComputer = null, navigate }) {
       })
       host.appendChild(button)
     }
+  }
+
+  /* Filing a whole scope under a research project: the selected tree files
+     each of its sessions; "Every tree" writes the live assign-all rule that
+     also covers sessions started later. One shared control (the same factory
+     the rail and the research page use), mounted once the projects are read. */
+  function mountResearchScopeControl() {
+    const tools = root.querySelector('.graph-tools')
+    if (!tools || tools.querySelector('[data-assign-control]') || !liveMode) return
+    tools.appendChild(createAssignmentControl({
+      projects: researchService?.ok ? researchService.projects : [],
+      unavailableReason: researchService && !researchService.ok ? researchService.reason : null,
+      label: 'File this scope under',
+      onAssign: async projectId => {
+        const currentTreeId = graph?.rootId ? treeStore?.getNode(graph.rootId)?.treeId ?? null : null
+        if (currentTreeId === null) {
+          const result = await researchAssignments.assign(projectId, 'all')
+          if (result.ok && !result.sentence) result.sentence = 'Every session on this computer is filed there, including ones started later.'
+          return result
+        }
+        const sessions = (treeStore?.listNodes(currentTreeId) || []).filter(node => node.sessionId)
+        if (sessions.length === 0) {
+          return { ok: false, sentence: 'This tree has no attached sessions to file yet.' }
+        }
+        let filed = 0
+        let pending = false
+        for (const node of sessions) {
+          const result = await researchAssignments.assign(projectId, 'observed', node.sessionId)
+          if (result.ok) { filed += 1; pending = pending || result.pending === true }
+        }
+        return {
+          ok: true,
+          sentence: `${filed} session${filed === 1 ? '' : 's'} filed.${pending ? ' The research service has not heard some of them yet.' : ''}`,
+        }
+      },
+    }))
+  }
+
+  if (liveMode) {
+    readResearchSnapshot().then(result => {
+      if (destroyed) return
+      researchService = result
+      if (result.ok) {
+        researchAssignments.adoptServiceRows(result.assignments)
+        researchAssignments.flushPending()
+      }
+      mountResearchScopeControl()
+    })
   }
 
   function refreshTreeSwitch() {
@@ -3017,6 +3073,12 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-sub">${escapeMarkup(node.message || '')}</div>
         </div>
         ${node.sessionId ? `
+        <div class="board-box board-ctl-box" data-research-file-box>
+          <div class="board-box-h"><span class="bh-t">Research project</span></div>
+          <div class="rail-sub" data-research-filed-line>Reading where this session is filed.</div>
+          <div data-research-file-mount></div>
+        </div>` : ''}
+        ${node.sessionId ? `
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
           <div class="rail-sub" data-tree-said></div>
@@ -3111,6 +3173,35 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-open-palette]')?.addEventListener('click', () => showPalette(node))
+    /* Filing this session under a research project. The projects list was read
+       once at mount; a refusal renders as its sentence, never as an empty
+       select. The session reference is the OBSERVED id — the one identity a
+       tree node always has once a session is attached. */
+    const fileMount = controlsPage.querySelector('[data-research-file-mount]')
+    if (fileMount && node.sessionId) {
+      const filedLine = controlsPage.querySelector('[data-research-filed-line]')
+      const projects = researchService?.ok ? researchService.projects : []
+      const projectName = id => projects.find(project => project.projectId === id)?.name || id
+      const renderFiledLine = () => {
+        const filed = researchAssignments.projectsOfSession('observed', node.sessionId)
+        if (filedLine) {
+          filedLine.textContent = filed.length === 0
+            ? 'Not filed under a research project.'
+            : `Filed under: ${filed.map(projectName).join(', ')}.`
+        }
+      }
+      renderFiledLine()
+      fileMount.appendChild(createAssignmentControl({
+        projects,
+        unavailableReason: researchService && !researchService.ok ? researchService.reason : (researchService ? null : 'the projects have not been read yet'),
+        currentProjectIds: researchAssignments.projectsOfSession('observed', node.sessionId),
+        onAssign: async projectId => {
+          const result = await researchAssignments.assign(projectId, 'observed', node.sessionId)
+          renderFiledLine()
+          return result
+        },
+      }))
+    }
     /* The three tabs toggle [hidden] on persistent bodies — see the markup
        comment for why nothing is ever re-rendered on a tab press. */
     const railTabs = controlsPage.querySelector('[data-rail-tabs]')
