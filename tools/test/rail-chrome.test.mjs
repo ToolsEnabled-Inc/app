@@ -193,13 +193,27 @@ test('the topbar holds one position on every route', () => {
   assert.ok(!/data-route[^}]*--topbar-max/.test(css), 'a route overrides --topbar-max; the chevrons move again')
 })
 
-test('the switcher can never become a scroll strip again', () => {
+test('the pane bar scrolls its trees slot and nowhere else', () => {
+  /* Iteration 6 (owner): "one nice bar per split and it should have a scroll
+     function. you have to place it nicely though." The bar is normal flow
+     with three fixed slots, so the strip-over-the-title collision is
+     structurally impossible; the SCROLL lives on the trees slot with its
+     scrollbar hidden — never inside the seg, whose fixed 32px box rendered
+     an inner scrollbar as the squashed glitch strip (iteration 5). */
   const board = readFileSync(join(SRC, 'board.css'), 'utf8')
-  const block = board.slice(board.indexOf('.graph-tools .graph-tree-switch {'), board.indexOf('.graph-tools .graph-tree-switch {') + 700)
-  assert.ok(!/overflow-x:\s*auto/.test(block), 'the switcher regained an inner scroller; the 32px seg box cannot hold one')
-  assert.match(block, /text-overflow: ellipsis/, 'the switcher buttons lost their ellipsis budget')
+  const seg = board.slice(board.indexOf('.graph-bar-trees .graph-tree-switch {'), board.indexOf('.graph-bar-trees .graph-tree-switch {') + 700)
+  assert.ok(seg.length > 100, 'the switcher seg rules left the trees slot; re-measure this bar contract')
+  assert.ok(!/overflow-x:\s*auto/.test(seg.slice(0, seg.indexOf('> button'))), 'the switcher seg regained an inner scroller; the 32px box cannot hold one')
+  assert.match(seg, /text-overflow: ellipsis/, 'the switcher buttons lost their ellipsis budget')
   const graphCss = readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
-  assert.match(graphCss, /\.computers \.graph-tools \{[^}]*max-width: calc\(100% - 34px\)/s, 'the tools strip is unbounded again; it will grow across the title')
+  const bar = graphCss.slice(graphCss.indexOf('.computers .graph-bar {'), graphCss.indexOf('.computers .graph-bar {') + 500)
+  assert.ok(!/position:\s*absolute/.test(bar), 'the bar floated over the canvas again; the title collision returns')
+  const trees = graphCss.slice(graphCss.indexOf('.computers .graph-bar-trees {'), graphCss.indexOf('.computers .graph-bar-trees {') + 700)
+  assert.match(trees, /overflow-x: auto/, "the trees slot lost its scroll — many trees squeeze the bar again")
+  assert.match(trees, /scrollbar-width: none/, 'the trees slot shows a raw scrollbar inside the 46px bar')
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  assert.match(view, /<div class="graph-bar">/, 'the main pane lost its bar')
+  assert.ok(/graph-pane-2">\s*<div class="graph-bar">/.test(view), 'the split pane lost its own bar — one nice bar PER SPLIT was the ask')
 })
 
 test('every theme block declares its color-scheme', () => {

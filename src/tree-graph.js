@@ -2339,8 +2339,12 @@ export class StaticTreeGraph {
     cluster.querySelector('.gz-in').addEventListener('click', () => this.zoomBy(1.25))
     cluster.querySelector('.graph-fit').addEventListener('click', () => this.resetZoom())
     /* In the tool row, not floating over the canvas: parked bottom-left it sat
-       on the last tier's labels at 1440 and read as debris on the tree. */
-    const tools = this.zoomHost.querySelector('.graph-tools')
+       on the last tier's labels at 1440 and read as debris on the tree. The
+       row lives in the pane BAR now, a sibling of the canvas slot this graph
+       zooms in — so the lookup climbs to the pane (.graph-wrap) first and
+       falls back to the host for embedders with no bar. */
+    const pane = this.zoomHost.closest('.graph-wrap')
+    const tools = (pane || this.zoomHost).querySelector('.graph-tools')
     if (tools) tools.insertBefore(cluster, tools.firstChild)
     else this.zoomHost.appendChild(cluster)
     this.zoomerEl = cluster

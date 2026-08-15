@@ -713,42 +713,56 @@ export function computersView({ initialComputer = null, navigate }) {
     <div class="computers">
       <div class="tabs"></div>
       <div class="comp-body">
+        <!-- ONE REAL BAR PER PANE (owner, iteration 6: "it should be one nice
+             bar per split and it should have a scroll function. you have to
+             place it nicely though"). The title, the tree switcher and the
+             tool buttons used to be absolutely positioned siblings sharing one
+             band over the canvas, and the strip legally painted across the
+             title the moment enough trees existed. The bar is normal flow with
+             three FIXED slots — name, trees, tools — so construction order
+             stops deciding the visual order, and the trees slot alone scrolls
+             sideways (hidden scrollbar, edge fades). -->
         <div class="graph-wrap glass">
-          <div class="graph-title"></div>
-          <div class="graph-crumb"></div>
-          <div class="graph-hint">Select a node to focus its branch</div>
-          <div class="graph-tools">
-            <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
-            <!-- THE NAMED DOOR TO THE DRILL-IN.
-                 src/tree-graph.js already made ONE CLICK on a node open the rail,
-                 which fixed the gesture. It did not fix the naming: nothing on
-                 this page said the drill-in exists, so reaching it still meant
-                 clicking a bubble on the chance that something useful appears,
-                 then finding "Open full view" inside the panel that appeared.
-                 This button is the same destination said out loud, in the strip
-                 that already holds this page's named controls, and it is a
-                 sibling of the rail button rather than a replacement for it. -->
-            <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
-            <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
-            <!-- SPLIT VIEW (owner defect 5): a second, view-only pane beside
-                 this one for side-by-side tree viewing. OFF by default, and
-                 that default is a load-bearing contract: nine harnesses run
-                 this page single-pane, and page2-qa green with split off is
-                 the acceptance bar. -->
-            <button class="graph-split-btn" type="button" title="A second pane for viewing side by side">Split</button>
+          <div class="graph-bar">
+            <div class="graph-title"></div>
+            <div class="graph-bar-trees"></div>
+            <div class="graph-tools">
+              <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
+              <!-- THE NAMED DOOR TO THE DRILL-IN.
+                   src/tree-graph.js already made ONE CLICK on a node open the rail,
+                   which fixed the gesture. It did not fix the naming: nothing on
+                   this page said the drill-in exists, so reaching it still meant
+                   clicking a bubble on the chance that something useful appears,
+                   then finding "Open full view" inside the panel that appeared.
+                   This button is the same destination said out loud, in the strip
+                   that already holds this page's named controls, and it is a
+                   sibling of the rail button rather than a replacement for it. -->
+              <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
+              <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
+              <!-- SPLIT VIEW (owner defect 5): a second, view-only pane beside
+                   this one for side-by-side tree viewing. OFF by default, and
+                   that default is a load-bearing contract: nine harnesses run
+                   this page single-pane, and page2-qa green with split off is
+                   the acceptance bar. -->
+              <button class="graph-split-btn" type="button" title="A second pane for viewing side by side">Split</button>
+            </div>
           </div>
-          <div class="graph-edit-note">drag onto a parent or into empty space</div>
-          <!-- WHAT THE LAST ACTION ON THIS CANVAS DID, and there are two of them
-               now: a drag onto a new manager, and a start from an empty node.
-               A drag has no other place to report from: the rail is showing
-               whichever node was last clicked, which is not necessarily the one
-               being moved, and the canvas itself can only show the node's
-               position. A start needs this line for a different reason — the
-               panel that reported it closes on success, and the person is then
-               looking at the canvas. A refusal stays until the next attempt; a
-               save clears itself, because a persistent "saved" would be
-               indistinguishable from a stale one. -->
-          <div class="org-status" data-state="idle" role="status" hidden></div>
+          <div class="graph-canvas-slot">
+            <div class="graph-crumb"></div>
+            <div class="graph-hint">Select a node to focus its branch</div>
+            <div class="graph-edit-note">drag onto a parent or into empty space</div>
+            <!-- WHAT THE LAST ACTION ON THIS CANVAS DID, and there are two of them
+                 now: a drag onto a new manager, and a start from an empty node.
+                 A drag has no other place to report from: the rail is showing
+                 whichever node was last clicked, which is not necessarily the one
+                 being moved, and the canvas itself can only show the node's
+                 position. A start needs this line for a different reason — the
+                 panel that reported it closes on success, and the person is then
+                 looking at the canvas. A refusal stays until the next attempt; a
+                 save clears itself, because a persistent "saved" would be
+                 indistinguishable from a stale one. -->
+            <div class="org-status" data-state="idle" role="status" hidden></div>
+          </div>
         </div>
         <aside class="rail glass">
           <div class="rail-page stats-page is-active"></div>
@@ -1622,7 +1636,14 @@ export function computersView({ initialComputer = null, navigate }) {
   }
   function enableSplit() {
     if (splitGraph || !graph || !computer) return
-    splitPane = el('<div class="graph-wrap glass graph-pane-2"><div class="computer-tree-canvas"></div></div>')
+    /* The second pane carries the SAME bar shape as the first — one nice bar
+       per split (owner, iteration 6). Its tools slot starts empty; the
+       pane's own graph parks its zoomer there, and buildPaneSwitch fills
+       the trees slot. */
+    splitPane = el(`<div class="graph-wrap glass graph-pane-2">
+      <div class="graph-bar"><div class="graph-bar-trees"></div><div class="graph-tools"></div></div>
+      <div class="graph-canvas-slot"><div class="computer-tree-canvas"></div></div>
+    </div>`)
     graphWrap.insertAdjacentElement('afterend', splitPane)
     root.querySelector('.comp-body')?.classList.add('is-split')
     /* THE SECOND PANE IS A REAL TREE VIEW (owner, iteration 5: "split node
@@ -1704,7 +1725,8 @@ export function computersView({ initialComputer = null, navigate }) {
       host.className = 'seg graph-tree-switch graph-pane-switch'
       host.setAttribute('role', 'group')
       host.setAttribute('aria-label', 'Trees in this pane')
-      pane.prepend(host)
+      /* Into the pane bar's trees slot — the one place that scrolls. */
+      ;(pane.querySelector('.graph-bar-trees') || pane).prepend(host)
     }
     host.innerHTML = ''
     const current = paneGraph.rootId ? treeStore.getNode(paneGraph.rootId)?.treeId ?? null : null
@@ -1730,9 +1752,13 @@ export function computersView({ initialComputer = null, navigate }) {
 
   function refreshTreeSwitch() {
     if (splitPane && splitGraph) buildPaneSwitch(splitPane, splitGraph)
-    const tools = root.querySelector('.graph-tools')
-    if (!tools) return
-    let host = tools.querySelector('.graph-tree-switch')
+    /* The main pane's own trees slot — never the tools cluster: the slot is
+       the one section of the bar that scrolls, so a computer with many trees
+       slides its buttons sideways instead of squeezing the strip over the
+       title (the iteration-6 bar complaint). */
+    const slot = graphWrap.querySelector('.graph-bar-trees')
+    if (!slot) return
+    let host = slot.querySelector('.graph-tree-switch')
     const trees = treeStore ? treeStore.listTrees() : []
     if (trees.length < 2) {
       host?.remove()
@@ -1743,7 +1769,7 @@ export function computersView({ initialComputer = null, navigate }) {
       host.className = 'seg graph-tree-switch'
       host.setAttribute('role', 'group')
       host.setAttribute('aria-label', 'Trees on this computer')
-      tools.prepend(host)
+      slot.prepend(host)
     }
     host.innerHTML = ''
     const current = graph?.rootId ? treeStore.getNode(graph.rootId)?.treeId ?? null : null
@@ -1992,7 +2018,12 @@ export function computersView({ initialComputer = null, navigate }) {
     syncTreeStore()
     graphTitle.textContent = computer.name
     canvas = el('<div class="computer-tree-canvas"></div>')
-    graphWrap.insertBefore(canvas, graphTitle)
+    /* First child of the canvas slot, under the absolute overlays (crumb,
+       hint, status) that follow it in the DOM — the same stacking the old
+       insertBefore(title) arrangement produced. The slot, not the wrap: the
+       bar above is normal flow, and the graph's zoom host (the canvas's
+       parent) must be the area the tree actually owns. */
+    graphWrap.querySelector('.graph-canvas-slot').prepend(canvas)
     graph = new StaticTreeGraph(canvas, {
       computer: graphComputer(),
       screenChips: true,
