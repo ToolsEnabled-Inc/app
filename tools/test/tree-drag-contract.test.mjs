@@ -62,17 +62,27 @@ test('the cycle check reads the same resolver as the layout', () => {
   assert.match(graph, /hierarchyParents\(this\.computer\?\.agents/, '_wouldCycle no longer uses the shared hierarchy resolver; declared-edge cycles slip past it again')
 })
 
-test('a vertical nudge stays inside its own rank corridor', () => {
-  // Owner walkthrough (iteration 5): a dragged ROOT sank into the child
-  // row's band and tangled with its labels -- the old clamp knew only the
-  // canvas edges. The corridor is derived from the layout's own rowYs.
-  assert.match(graphNow(), /_rankCorridor\(record, result\)/, 'the offset apply no longer clamps into the rank corridor')
-  assert.match(graphNow(), /_rankCorridor\(focusRecord, this\._layoutResult\)/, 'the focus-animation path lost the corridor clamp; the settle jumps')
-  // Tight rows must refuse nudges rather than trade overlap for freedom.
-  assert.match(graphNow(), /Math\.max\(0, \(rowY - rowYs\[rowIndex - 1\]\) \/ 2 - TREE_LABEL_STACK \/ 2\)/, 'the corridor no longer reserves the label stack')
+test('the corridor constrains nudges and NEVER the layout\'s own position', () => {
+  /* Owner amendment (iteration 6): "keep the new version but make it act
+     and feel like before". The corridor stays — iteration 5's "top circles
+     stay at the top" — but its band must always CONTAIN the record's own
+     slot, so an un-nudged node sits exactly where the layout put it. The
+     first corridor kept the old canvas-edge floor (r + 64), which
+     disagrees with the layout's padTop for big circles and pushed the
+     whole top row down AT REST — the regression the owner screenshotted. */
+  const graph = graphNow()
+  assert.match(graph, /_rankCorridor\(record, result, slot\.y\)/, 'the offset apply no longer clamps into a slot-containing rank corridor')
+  assert.match(graph, /_rankCorridor\(focusRecord, this\._layoutResult, targetSlot\.y\)/, 'the focus-animation path lost the slot-containing corridor; the settle jumps or shifts at rest')
+  assert.match(graph, /_rankCorridor\(record, this\._layoutResult\)/, 'the LIVE drag no longer obeys the corridor; the node jumps on release')
+  assert.match(graph, /Math\.min\(Math\.max\(canvasLow, rowY - up\), slotY\)/, 'the corridor stopped containing the slot — un-nudged nodes will shift at rest again')
+  /* The band is the midline between ranks, full half-pitch each way: the
+     label-stack subtraction plus zero floor made tight rows refuse every
+     nudge, the snap-back feel the owner rejected. The precise label veto
+     below is the overlap check, not this fence. */
+  assert.ok(!/TREE_LABEL_STACK \/ 2/.test(graph), 'the corridor re-grew the label-stack subtraction; tight rows will refuse nudges again (the snap-back feel)')
 })
 
-test('the override veto sees words, not only circles', () => {
+test('the override veto sees words at their TRUE width, not only circles', () => {
   const graph = graphNow()
   assert.match(graph, /rectsMeet\(recordBox, otherBox\)/, 'the veto lost its label-vs-label test')
   assert.match(graph, /circleMeetsRect\(/, 'the veto lost its label-vs-circle test')
@@ -80,6 +90,20 @@ test('the override veto sees words, not only circles', () => {
   // exported constant is the single source.
   assert.ok(!/7 \+ 58/.test(graph), 'tree-graph.js re-hardcoded the label stack; import TREE_LABEL_STACK instead')
   assert.match(graph, /_labelBox\(record\)/, 'the shared label box vanished')
+  /* The box mirrors the CSS width — min(r + 59, labelMax / 2). The first
+     version spanned max(r,35)+12, half the truth; a veto measuring half
+     the words missed half the collisions. */
+  assert.match(graph, /Math\.min\(record\.r \+ 59, \(record\.labelMax \|\| Infinity\) \/ 2\)/, '_labelBox no longer mirrors the CSS label width')
+  assert.match(graph, /record\.labelMax = label\?\.maxWidth \|\| null/, 'labelMax is no longer recorded at layout time, so _labelBox measures a stale width')
+})
+
+test('a collision revert returns to the layout position verbatim', () => {
+  const graph = graphNow()
+  /* Anchor past the veto's geometry helpers: the FIRST _clearPosition call
+     in the file is the stale-parent branch, which restores nothing. */
+  const revert = graph.slice(graph.indexOf('this._clearPosition(record.id)', graph.indexOf('rectsMeet')))
+  assert.match(revert.slice(0, 600), /record\.x = record\.slot\.x/, 'the veto revert clamps again instead of restoring the slot — reverted nodes land where the layout never chose')
+  assert.match(revert.slice(0, 600), /record\.y = record\.slot\.y/, 'the veto revert clamps y again instead of restoring the slot')
 })
 
 function graphNow() {

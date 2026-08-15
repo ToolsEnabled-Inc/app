@@ -272,7 +272,24 @@ function labelFor(record, pitch) {
   const maxWidth = Math.max(LABEL_FOOT_MIN, Math.round(pitch - 10))
   const perLine = Math.max(6, Math.floor((maxWidth - LABEL_CHROME_PX) / LABEL_CHAR_PX))
   const budget = perLine * LABEL_LINES
-  if (full.length <= budget) return { maxWidth, text: full, title: full }
+  /* The total budget is not enough: "Coordinator 1" fits 14 chars over two
+     lines, but the single word "Coordinator" does not fit EITHER line, so
+     the renderer broke it mid-word — "Coordinat / or 1" (owner walkthrough,
+     iteration 6). A name is accepted whole only when its longest word also
+     fits one line. When the name fits the budget but one word cannot fit a
+     line, that WORD is end-ellipsised in place ("Coordin… 1") — the name
+     stays a name, the full text rides in the hover title, and nothing is
+     ever broken mid-word. Names over the whole budget keep their id-segment
+     and end-ellipsis forms below, unchanged. */
+  const words = full.split(/\s+/)
+  const longestWord = words.reduce((longest, word) => Math.max(longest, word.length), 0)
+  if (full.length <= budget) {
+    if (longestWord <= perLine) return { maxWidth, text: full, title: full }
+    const text = words
+      .map(word => word.length > perLine ? `${word.slice(0, Math.max(3, perLine - 1))}…` : word)
+      .join(' ')
+    return { maxWidth, text, title: full }
+  }
 
   const segments = record.id.split(/[-_.]/).filter(Boolean)
   let suffix = ''
@@ -383,20 +400,26 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
   let minHeight = null
   if (rows > 1 && rowHeight > 0) {
     const fullRadii = records.map(record => record.r)
+    /* LABEL_STACK is the label BOX; the box hangs 7px below the circle's
+       edge (the CSS `top: calc(100% + 7px)` — the same 7 the graph's
+       _labelBox counts). Reserving only the box budgeted zero air and left
+       the stack ~7px into the next circle's space whenever rows ran tight,
+       a constant sliver of the overlap the owner keeps photographing. */
+    const LABEL_CLEARANCE = LABEL_STACK + 7
     const tallestPair = (radii) => {
       const byTier = tierKeys.map(key =>
         tiers.get(key).reduce((max, record) => Math.max(max, radii.get(record.id)), 0))
       let needed = 0
       for (let index = 0; index + 1 < byTier.length; index += 1) {
-        needed = Math.max(needed, byTier[index] + byTier[index + 1] + LABEL_STACK)
+        needed = Math.max(needed, byTier[index] + byTier[index + 1] + LABEL_CLEARANCE)
       }
       return needed
     }
     const asMap = (values) => new Map(records.map((record, index) => [record.id, values[index]]))
     const scaledRadii = (pitch) => {
       const fullNeeded = tallestPair(asMap(fullRadii))
-      const circles = fullNeeded - LABEL_STACK
-      const scale = circles > 0 ? Math.max(0, pitch - LABEL_STACK) / circles : 1
+      const circles = fullNeeded - LABEL_CLEARANCE
+      const scale = circles > 0 ? Math.max(0, pitch - LABEL_CLEARANCE) / circles : 1
       return fullRadii.map(r => scale < 1 ? Math.max(RADIUS_FLOOR, Math.round(r * scale)) : r)
     }
 

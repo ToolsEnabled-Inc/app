@@ -635,8 +635,13 @@ export class StaticTreeGraph {
       }
       if (!record.dragMoved) return
       const point = this._toGraph(event)
-      record.x = clamp(point.x + offset.x, record.r + 12, this.W - record.r - 12)
-      record.y = clamp(point.y + offset.y, record.r + 64, this.H - record.r - 58)
+      /* The LIVE drag obeys the same corridor the release applies. The old
+         live clamp knew only the canvas, so a drag rode free and then
+         jumped into the corridor on release — a snap the hand never asked
+         for. What the person sees while dragging is where the node stays. */
+      const slotX = record.slot?.x ?? record.x
+      record.x = clamp(point.x + offset.x, Math.min(record.r + 12, slotX), Math.max(this.W - record.r - 12, slotX))
+      record.y = clamp(point.y + offset.y, ...this._rankCorridor(record, this._layoutResult))
       this._positionRecord(record)
       this._updateDropTarget(record)
       this._renderLinks()
@@ -671,37 +676,53 @@ export class StaticTreeGraph {
   }
 
   /* The vertical band a nudged record may occupy without leaving its rank:
-     [low, high] around its own row's y. Half the gap to each neighbouring
-     row, minus half the label stack so the words between rows stay clear;
-     floored at zero (a tight pair of rows refuses vertical nudges rather
-     than trading overlap for freedom); the outermost rows get a fixed 40px
-     outward since no neighbour bounds them. Falls back to plain canvas
-     bounds when the layout carries no rows (single-rank canvases). */
-  _rankCorridor(record, result) {
+     [low, high] around its own row's y, HALF THE PITCH to each neighbouring
+     row — the band boundary is the midline between ranks, so a top circle
+     cannot be dragged into its children's band, while a drag INSIDE the
+     band stays free. The precise label-collision veto below is what refuses
+     genuine overlaps, not this coarse fence: the earlier version also
+     subtracted the label stack here and floored at zero, which made tight
+     rows refuse every vertical nudge — the snap-back feel the owner called
+     a regression (iteration 6: "keep the new version but make it act and
+     feel like before"). The outermost rows get a fixed 40px outward since
+     no neighbour bounds them.
+
+     THE BAND ALWAYS CONTAINS THE RECORD'S OWN SLOT. The corridor constrains
+     nudges, never the layout's resting position — the canvas-edge floor
+     (r + 64) disagrees with the layout's own padTop for big circles, and
+     letting it move un-nudged nodes pushed the whole top row down into its
+     label reservation. That at-rest shift IS the mess the owner
+     screenshotted; a node nobody dragged sits exactly where the layout put
+     it, always. Falls back to canvas bounds when the layout carries no
+     rows (single-rank canvases). */
+  _rankCorridor(record, result, slotY = record.slot?.y ?? record.y) {
     const canvasLow = record.r + 64
     const canvasHigh = this.H - record.r - 58
     const rowIndex = result?.rowOf?.get(record.id)
     const rowYs = result?.rowYs
     if (!Number.isFinite(rowIndex) || !Array.isArray(rowYs) || rowYs.length < 2) {
-      return [canvasLow, canvasHigh]
+      return [Math.min(canvasLow, slotY), Math.max(canvasHigh, slotY)]
     }
     const rowY = rowYs[rowIndex]
-    const up = rowIndex > 0
-      ? Math.max(0, (rowY - rowYs[rowIndex - 1]) / 2 - TREE_LABEL_STACK / 2)
-      : 40
-    const down = rowIndex + 1 < rowYs.length
-      ? Math.max(0, (rowYs[rowIndex + 1] - rowY) / 2 - TREE_LABEL_STACK / 2)
-      : 40
-    return [Math.max(canvasLow, rowY - up), Math.min(canvasHigh, rowY + down)]
+    const up = rowIndex > 0 ? (rowY - rowYs[rowIndex - 1]) / 2 : 40
+    const down = rowIndex + 1 < rowYs.length ? (rowYs[rowIndex + 1] - rowY) / 2 : 40
+    return [
+      Math.min(Math.max(canvasLow, rowY - up), slotY),
+      Math.max(Math.min(canvasHigh, rowY + down), slotY),
+    ]
   }
 
   /* One label rectangle for every rule that needs it — the drop hit test and
      the override-overlap veto must agree about where a node's words are, or
-     a drop can land where a veto later fires. Geometry mirrors the CSS:
-     the stack hangs 7px under the circle, TREE_LABEL_STACK tall, and spans
-     max(r, 35px)+12 to each side (the label column plus its padding). */
+     a drop can land where a veto later fires. Geometry mirrors the CSS
+     EXACTLY: the stack hangs 7px under the circle, TREE_LABEL_STACK tall,
+     and .node-labels is min(var(--d) + 118px, var(--nn-max)) wide, centred —
+     half is min(r + 59, labelMax / 2). The first version spanned
+     max(r, 35) + 12, half the real width, so the veto measured half the
+     words and missed half the collisions. labelMax is recorded at layout
+     time beside the --nn-max write. */
   _labelBox(record) {
-    const half = Math.max(record.r, 35) + 12
+    const half = Math.min(record.r + 59, (record.labelMax || Infinity) / 2)
     return {
       left: record.x - half,
       right: record.x + half,
@@ -1086,22 +1107,23 @@ export class StaticTreeGraph {
         this._clearPosition(record.id)
         offset = { dx: 0, dy: 0 }
       }
-      record.x = clamp(slot.x + offset.dx, record.r + 12, this.W - record.r - 12)
-      /* THE NUDGE STAYS IN ITS OWN RANK (owner: "the top circles should stay
-         at the top — not overlap ever"). A vertical nudge used to be clamped
-         only to the canvas, so a dragged root could sink into the child
-         row's band and tangle with its labels long before any circle
-         touched. The corridor is derived from the layout's own rowYs — half
-         the gap to each neighbouring row minus half the label stack, floored
-         at zero (rows packed tight simply refuse vertical nudges) — and the
-         first and last rows keep a modest fixed allowance outward. */
-      record.y = clamp(slot.y + offset.dy, ...this._rankCorridor(record, result))
+      /* THE NUDGE IS WHAT GETS CLAMPED, NEVER THE LAYOUT'S OWN POSITION.
+         Both bounds contain the slot, so an un-nudged record (dx = dy = 0)
+         lands exactly where the layout put it — the old clamps moved big
+         circles even at rest, and that push-down was the overlap the owner
+         called a regression. Vertically the nudge also stays in its own
+         rank corridor (owner, iteration 5: "the top circles should stay at
+         the top — not overlap ever"): the midline between rows is the
+         fence, and the label-collision veto below is the precise check. */
+      record.x = clamp(slot.x + offset.dx, Math.min(record.r + 12, slot.x), Math.max(this.W - record.r - 12, slot.x))
+      record.y = clamp(slot.y + offset.dy, ...this._rankCorridor(record, result, slot.y))
       const label = result.labels.get(record.id)
       const text = record.el.querySelector('.nn-t')
       if (text && label) text.textContent = label.text
       if (label?.title) record.el.querySelector('.node-name')?.setAttribute('title', label.title)
       if (label?.maxWidth) record.el.style.setProperty('--nn-max', `${label.maxWidth}px`)
       else record.el.style.removeProperty('--nn-max')
+      record.labelMax = label?.maxWidth || null
       this._positionRecord(record)
     }
     /* An override may not recreate the overlap the packer just removed: a
@@ -1145,8 +1167,12 @@ export class StaticTreeGraph {
       }
       if (collides) {
         this._clearPosition(record.id)
-        record.x = clamp(record.slot.x, record.r + 12, this.W - record.r - 12)
-        record.y = clamp(record.slot.y, record.r + 64, this.H - record.r - 58)
+        /* Back to the layout's own position VERBATIM — clamping the return
+           trip was the same at-rest shift the apply above just stopped
+           doing, and a "reverted" node that lands somewhere the layout
+           never chose reads as random. */
+        record.x = record.slot.x
+        record.y = record.slot.y
         this._positionRecord(record)
       }
     }
@@ -1188,8 +1214,12 @@ export class StaticTreeGraph {
       const radius = result.radii?.get(plan.id)
       slot.r = Number.isFinite(radius) ? radius : EMPTY_SLOT_RADIUS
       slot.el.style.setProperty('--d', `${slot.r * 2}px`)
-      slot.x = clamp(point.x, slot.r + 12, this.W - slot.r - 12)
-      slot.y = clamp(point.y, slot.r + 64, this.H - slot.r - 58)
+      /* Layout positions verbatim, same rule as the agent records above: a
+         slot nobody can drag has no nudge to clamp, and the old edge clamps
+         pulled clipped rows back INTO view on short canvases — parked on
+         top of the row above. Clipped below the fold beats overlapped. */
+      slot.x = point.x
+      slot.y = point.y
       slot.el.style.left = `${slot.x}px`
       slot.el.style.top = `${slot.y}px`
     }
@@ -1516,10 +1546,12 @@ export class StaticTreeGraph {
     const targetOffset = focusId ? this._positions[focusId] || { dx: 0, dy: 0 } : { dx: 0, dy: 0 }
     const target = focusRecord && targetSlot
       ? {
-          x: clamp(targetSlot.x + targetOffset.dx, focusRecord.r + 12, this.W - focusRecord.r - 12),
-          /* Same rank corridor as _layoutNow — the focus animation must land
-             where the next layout would put it, or the settle jumps. */
-          y: clamp(targetSlot.y + targetOffset.dy, ...this._rankCorridor(focusRecord, this._layoutResult)),
+          /* Same containment-and-corridor as _layoutNow — the focus
+             animation must land where the next layout would put it, or the
+             settle jumps; and an un-nudged focus target is the slot
+             itself, exactly. */
+          x: clamp(targetSlot.x + targetOffset.dx, Math.min(focusRecord.r + 12, targetSlot.x), Math.max(this.W - focusRecord.r - 12, targetSlot.x)),
+          y: clamp(targetSlot.y + targetOffset.dy, ...this._rankCorridor(focusRecord, this._layoutResult, targetSlot.y)),
         }
       : null
 

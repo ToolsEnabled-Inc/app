@@ -777,7 +777,12 @@
   overflow: hidden;
   white-space: normal;
   text-overflow: clip;
-  overflow-wrap: anywhere;
+  /* break-word, not anywhere: `anywhere` broke names mid-word at the first
+     opportunity ("Coordinat / or 1" — owner walkthrough, iteration 6).
+     labelFor() now guarantees every word it emits fits one line, so this
+     rule is the backstop for text it never measured, and it only breaks a
+     word that would otherwise overflow the box. */
+  overflow-wrap: break-word;
   line-height: 1.25;
 }
 .static-tree-graph .node .node-role {
