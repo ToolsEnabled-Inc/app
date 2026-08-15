@@ -394,3 +394,28 @@ test('removing an experiment card takes two presses, and a lone press disarms', 
   assert.ok(handler.indexOf('Press again to remove') < handler.indexOf('removeExperiment('),
     'the arm gate must sit before the destructive call')
 })
+
+test('the bench follows the project selector, hides nothing unreachable, and says what it left out', () => {
+  const view = read('src/views/research.js')
+  const benchAt = view.indexOf('function benchExperiments')
+  assert.ok(benchAt !== -1, 'the shared bench filter is gone')
+  const bench = view.slice(benchAt, benchAt + 1200)
+  assert.match(bench, /filesUnder\(selection, experiment\.projectId\) \|\| !experiment\.projectId/,
+    'an experiment filed under no project must stay visible under every selection')
+  assert.match(bench, /filed under another project/, 'the bench must count what the filter left out')
+
+  // Both bench modules must consume the filter, or the page blends two projects.
+  const designer = view.slice(view.indexOf('function renderDesigner'), view.indexOf('function renderRunBoard'))
+  assert.match(designer, /benchExperiments\(\)/, 'the designer ignores the project selector again')
+  const runboard = view.slice(view.indexOf('function renderRunBoard'), view.indexOf('function renderResults'))
+  assert.match(runboard, /benchExperiments\(\)/, 'the run board ignores the project selector again')
+  assert.match(runboard, /cellsWithServiceStatus\(experiment, read\.runs\)/,
+    'the run board promises live state; queue-dispatched cells must read their service state')
+
+  // Switching projects must re-render the bench, not only the service modules.
+  const onChange = view.slice(view.indexOf("projectSelect.addEventListener('change'"))
+  const handler = onChange.slice(0, onChange.indexOf('\n  })'))
+  assert.match(handler, /renderExperimentModules\(\)/, 'a project switch must re-render the bench')
+  assert.match(handler, /renderServiceModules\(\)/)
+  assert.match(handler, /gatheredExperimentId = null/, 'a gathered panel from the project just left must close')
+})

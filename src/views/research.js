@@ -1039,13 +1039,14 @@ export function researchView() {
       host.innerHTML = '<p class="research-observed-empty">Sign in to design experiments — they are kept with your account.</p>'
       return
     }
-    const { experiments, damaged } = experimentsSnapshot()
+    const { damaged } = experimentsSnapshot()
+    const { shown: experiments, hidden } = benchExperiments()
     const damagedNote = damaged
       ? '<p class="research-unavailable projection-unavailable">Your saved experiments could not be read. New ones will overwrite the unreadable record.</p>'
       : ''
     const list = experiments.length === 0
-      ? '<p class="research-observed-empty">No experiments are designed yet.</p>'
-      : `<ol class="research-catalog">${experiments.map(experiment => `
+      ? `<p class="research-observed-empty">No experiments are designed yet.</p>${elsewhereNote(hidden)}`
+      : `${elsewhereNote(hidden)}<ol class="research-catalog">${experiments.map(experiment => `
           <li class="research-report" data-research-experiment="${esc(experiment.id)}">
             <div class="research-report-body">
               <div class="research-report-head">
@@ -1123,20 +1124,31 @@ export function researchView() {
   function renderRunBoard() {
     const host = moduleEl('runboard').querySelector('[data-research-runboard]')
     if (!host) return
-    const { experiments } = experimentsSnapshot()
+    const { shown: experiments, hidden } = benchExperiments()
     const active = experiments.filter(experiment => experiment.cells.some(cell => cell.status !== 'designed'))
     if (active.length === 0) {
-      host.innerHTML = '<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>'
+      host.innerHTML = `<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>${elsewhereNote(hidden)}`
       return
     }
-    host.innerHTML = active.map(experiment => `
+    /* The header promises "with its live state", so a queue-dispatched cell
+       must not sit here reading 'queued' while the service board below it
+       says finished — the flagship experiment showed exactly that on the
+       staged page. Same display-only translation the gathered panel uses;
+       when the service has not been read, the local word stands unchanged. */
+    const cellsFor = experiment => {
+      const read = experiment.serviceExperimentId ? runsByExperiment.get(experiment.serviceExperimentId) : null
+      return read?.ok === true
+        ? localCellsMarkup(experiment, cellsWithServiceStatus(experiment, read.runs))
+        : localCellsMarkup(experiment)
+    }
+    host.innerHTML = `${elsewhereNote(hidden)}${active.map(experiment => `
       <div class="research-runboard-exp" data-runboard-exp="${esc(experiment.id)}">
         <h3>${esc(experiment.name)}</h3>
         <div class="research-runboard-cells">
-          ${localCellsMarkup(experiment)}
+          ${cellsFor(experiment)}
         </div>
         <p class="research-observed-empty">Session workers are nodes on the computers page; queued runs report in the service board below.</p>
-      </div>`).join('')
+      </div>`).join('')}`
   }
 
   function renderResults() {
@@ -1177,6 +1189,27 @@ export function researchView() {
     renderRunBoard()
     renderResults()
     renderStatusPulse()
+  }
+
+  /* The bench belongs to the selected project too. It used to ignore the
+     selector entirely, so switching projects produced a page that blended
+     two: the service board followed the new project while these cards still
+     listed the old one's experiments (adversarial live review, 2026-08-15).
+     Nothing is taken away by filtering: an experiment filed under no project
+     stays visible under every selection — otherwise a just-designed one would
+     become unreachable the moment a project was picked — and whatever the
+     filter does leave out is counted in a sentence, with the selector right
+     there as the way back to it. */
+  function benchExperiments() {
+    const all = experimentsSnapshot().experiments
+    const shown = all.filter(experiment =>
+      filesUnder(selection, experiment.projectId) || !experiment.projectId)
+    return { shown, hidden: all.length - shown.length }
+  }
+
+  function elsewhereNote(hidden) {
+    if (hidden <= 0) return ''
+    return `<p class="research-observed-empty">${hidden} experiment${hidden === 1 ? ' is' : 's are'} filed under another project. Choose it, or All projects, above.</p>`
   }
 
   /* The one designer form. Tier checkboxes build the reserved-meaning 'tier'
@@ -1591,6 +1624,18 @@ export function researchView() {
   projectSelect.addEventListener('change', () => {
     selection = projectSelect.value
     writeProjectSelection(typeof window === 'undefined' ? null : window.localStorage, selection)
+    /* Every module that filters by project must re-render together. The
+       adversarial live review switched projects and got a blended page: the
+       service board, results and pulse followed the new project while the
+       designer cards and the run board still listed the OTHER project's
+       experiments. A gathered panel belonging to the project just left is
+       closed rather than carried across. */
+    if (gatheredExperimentId) {
+      const stillHere = experimentsSnapshot().experiments
+        .find(experiment => experiment.id === gatheredExperimentId && filesUnder(selection, experiment.projectId))
+      if (!stillHere) gatheredExperimentId = null
+    }
+    renderExperimentModules()
     renderServiceModules()
     refreshFindings()
   })
