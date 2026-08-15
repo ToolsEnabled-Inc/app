@@ -222,7 +222,7 @@
     }
   ],
   "$comment_pinnedSource": [
-    "The payload is staged from engine ref d728a47 -- coordinator/r1161",
+    "The payload is staged from engine ref ac97673 -- coordinator/r1161",
     "merged with lane/research-subsystem: the f1cc018 lineage (engine",
     "1328292, research-bench routes, unrestricted-tier MCP parity) plus the",
     "full research subsystem: ten research-* bridge actions, the",
@@ -230,7 +230,7 @@
     "worker (spawnedPrograms gains tools/research-runs-worker.js -- spawned",
     "by src/lib/providers/research-runs-runtime.js, unreachable by the",
     "require() walk exactly like the overnight sidecar beside it), eleven",
-    "research.* MCP tools, and the four research settings rows. d728a47",
+    "research.* MCP tools, and the four research settings rows. ac97673",
     "additionally lazies the paddle-to-entitlement requires so the priced",
     "tier table stays out of this free payload's require() walk.",
     "Standing adoption notes: offer claude or local tiers on",
