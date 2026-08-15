@@ -697,6 +697,12 @@
   padding: 7px 0;
   cursor: pointer;
   font-size: 12.5px; color: var(--ink-2);
+  /* A long role name + nowrap claim chip + the kind column overflowed the
+     rail sideways, and .rail-scroll's overflow-y:auto silently computes
+     overflow-x to auto — the horizontal scrollbar in the owner's screenshot.
+     Rows WRAP instead; nothing in a rail may scroll sideways. */
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .computers .rail-page .role-item > summary b {
   color: var(--ink); font-weight: 650;
@@ -850,3 +856,22 @@ body:has([data-agent-compose])
    zoom host, fit control and chip placement all read their own wrap. */
 .comp-body.is-split { grid-template-columns: 1fr 1fr minmax(320px, 400px); }
 .graph-pane-2 { position: relative; min-width: 0; }
+
+
+/* The role list's own frame: breathing room between rows, and the box never
+   becomes a sideways scroller. It had no rule at all before — its whole
+   appearance was an accident of inheritance, the palette-row defect's shape. */
+.computers .rail-page .role-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-x: hidden;
+}
+/* And the rail scroller itself never pans sideways: overflow-y:auto computes
+   the unset x-axis to auto, which is how every over-wide child became a
+   scrollbar instead of a wrap. */
+.board-page .rail-scroll,
+.computers .stats-page.rail-page,
+.computers .rail-page .rail-scroll {
+  overflow-x: hidden;
+}

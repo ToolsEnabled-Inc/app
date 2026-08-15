@@ -33,6 +33,11 @@ const css = readdirSync(SRC)
   .join('\n')
 
 const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+/* org-controls.js writes rail markup too -- the role library -- and the sweep
+   originally read only computers.js, which is exactly how .role-list shipped
+   with no rule anywhere (owner walkthrough, iteration 5). Every rail writer
+   joins the sweep. */
+const orgControls = readFileSync(join(SRC, 'org-controls.js'), 'utf8')
 
 // Elements that are honest with NO styled class: pure mount points whose only
 // job is to be found by querySelector and filled. Every entry carries its
@@ -54,12 +59,14 @@ const HOOK_ONLY_ELEMENTS = new Set([
 
 function elementClassLists() {
   const lists = []
-  for (const match of view.matchAll(/className = '([^']+)'/g)) {
-    lists.push(match[1].split(/\s+/).filter(Boolean))
-  }
-  for (const match of view.matchAll(/class="([^"$]+)"/g)) {
-    const names = match[1].split(/\s+/).filter(name => name && !name.includes('{'))
-    if (names.length) lists.push(names)
+  for (const source of [view, orgControls]) {
+    for (const match of source.matchAll(/className = '([^']+)'/g)) {
+      lists.push(match[1].split(/\s+/).filter(Boolean))
+    }
+    for (const match of source.matchAll(/class="([^"$]+)"/g)) {
+      const names = match[1].split(/\s+/).filter(name => name && !name.includes('{'))
+      if (names.length) lists.push(names)
+    }
   }
   return lists
 }

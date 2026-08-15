@@ -1367,10 +1367,27 @@ export function computersView({ initialComputer = null, navigate }) {
      is what the circle is called — it is the one string on the record that tells
      two agents apart at a glance. A message that is all whitespace or missing
      falls back to the role's own label rather than to an id. */
+  /* A NODE'S NAME IS AN IDENTITY, NOT ITS HOMEWORK. This used to return the
+     start brief's first line, so the Details head shouted "Reply with exactly
+     the word OMEGA…" as if it were somebody's name (owner walkthrough,
+     iteration 5). The name is now the role plus a per-tree ordinal when
+     siblings share the role — "Coordinator", "Worker 2" — mirroring the
+     ordinal shape treeLabel() already uses for trees. The brief keeps its own
+     box and its own helper below; the two never trade places again. */
   function treeNodeName(node) {
+    const role = roleLabel(node.role)
+    if (!treeStore) return role
+    const peers = treeStore.snapshot().nodes.filter(peer => peer.treeId === node.treeId && peer.role === node.role)
+    if (peers.length <= 1) return role
+    const index = peers.findIndex(peer => peer.id === node.id)
+    return index === -1 ? role : `${role} ${index + 1}`
+  }
+
+  /* The brief's first line, for the small row under the name and nowhere
+     larger. Kept short the way the old name was, because it is a caption. */
+  function treeNodeBrief(node) {
     const firstLine = String(node.message || '').split('\n').map(line => line.trim()).find(Boolean) || ''
-    if (firstLine.length === 0) return roleLabel(node.role)
-    return firstLine.length > 34 ? `${firstLine.slice(0, 33).trimEnd()}…` : firstLine
+    return firstLine.length > 60 ? `${firstLine.slice(0, 59).trimEnd()}…` : firstLine
   }
 
   /* WHAT A TREE NODE LOOKS LIKE TO THE GRAPH.
@@ -2791,7 +2808,12 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>`}
       </div>
       <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
-        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
+        <!-- Name first, brief as the caption. The name is now the role-ordinal
+             identity; the ar row carries the brief's first line so a person
+             still sees at a glance what this agent is for — in caption size,
+             not shouted as a title. Falls back to the role word when the node
+             has no brief yet. -->
+        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar" title="${escapeMarkup(node.message || '')}">${escapeMarkup(treeNodeBrief(node) || roleLabel(node.role))}</div></div></div>
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
           <div class="rail-sub">${escapeMarkup(treeNodeStatusWord(node))}</div>
@@ -2828,9 +2850,15 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <output class="rail-sub" role="status" data-tree-actions-out></output>
         </div>` : ''}
+        <!-- SIX BOXES BECAME THREE (owner: "just messy… should be more human
+             usable"). The verbs group by what they act on — the conversation
+             (rewind, queue) and the machinery (model, placement) — with
+             .rail-sec rules inside one box instead of a full box frame per
+             verb. Every data hook keeps its name; only the frames merged. -->
         ${node.sessionId ? `
         <div class="board-box board-ctl-box" data-tree-rewind>
-          <div class="board-box-h"><span class="bh-t">${escapeMarkup(REWIND_PANEL.title)}</span></div>
+          <div class="board-box-h"><span class="bh-t">The conversation</span></div>
+          <div class="rail-sec">${escapeMarkup(REWIND_PANEL.title)}</div>
           <div class="rail-sub">${escapeMarkup(REWIND_PANEL.help)}</div>
           ${(sessionTurnLog.get(node.sessionId) || []).length ? `
           <div class="ctl-row">
@@ -2841,19 +2869,20 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <output class="rail-sub" role="status" data-tree-rewind-out></output>` : `
           <div class="rail-sub projection-unavailable">${escapeMarkup(REWIND_PANEL.empty)}</div>`}
-        </div>
-        <div class="board-box board-ctl-box" data-tree-queue>
-          <div class="board-box-h"><span class="bh-t">${escapeMarkup(QUEUE_PANEL.title)}</span></div>
-          <div class="rail-sub">${escapeMarkup(QUEUE_PANEL.note)}</div>
-          <ul class="rail-sub tree-queue-list" data-tree-queue-list></ul>
-          <div class="ctl-row">
-            <input class="ctl-select" type="text" data-tree-queue-input placeholder="${escapeMarkup(QUEUE_PANEL.placeholder)}" aria-label="${escapeMarkup(QUEUE_PANEL.placeholder)}">
-            <button class="ctl-btn" type="button" data-tree-queue-add>${escapeMarkup(QUEUE_PANEL.queue)}</button>
+          <div data-tree-queue>
+            <div class="rail-sec">${escapeMarkup(QUEUE_PANEL.title)}</div>
+            <div class="rail-sub">${escapeMarkup(QUEUE_PANEL.note)}</div>
+            <ul class="rail-sub tree-queue-list" data-tree-queue-list></ul>
+            <div class="ctl-row">
+              <input class="ctl-select" type="text" data-tree-queue-input placeholder="${escapeMarkup(QUEUE_PANEL.placeholder)}" aria-label="${escapeMarkup(QUEUE_PANEL.placeholder)}">
+              <button class="ctl-btn" type="button" data-tree-queue-add>${escapeMarkup(QUEUE_PANEL.queue)}</button>
+            </div>
+            <output class="rail-sub" role="status" data-tree-queue-out></output>
           </div>
-          <output class="rail-sub" role="status" data-tree-queue-out></output>
         </div>` : ''}
-        <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">${escapeMarkup(MODEL_PANEL.title)}</span></div>
+        <div class="board-box board-ctl-box" data-tree-move>
+          <div class="board-box-h"><span class="bh-t">Engine &amp; placement</span></div>
+          <div class="rail-sec">${escapeMarkup(MODEL_PANEL.title)}</div>
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
           ${node.sessionId ? `
           <div class="ctl-row">
@@ -2864,9 +2893,7 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>` : `
           <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
-        </div>
-        <div class="board-box board-ctl-box" data-tree-move>
-          <div class="board-box-h"><span class="bh-t">${escapeMarkup(MOVE_PANEL.title)}</span></div>
+          <div class="rail-sec">${escapeMarkup(MOVE_PANEL.title)}</div>
           <div class="rail-sub">${escapeMarkup(MOVE_PANEL.help)}</div>
           <div class="ctl-row" data-tree-move-row hidden>
             <select class="ctl-select" data-tree-move-select aria-label="${escapeMarkup(MOVE_PANEL.title)}"></select>
