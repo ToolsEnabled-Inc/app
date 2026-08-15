@@ -42,6 +42,11 @@
    ============================================================ */
 
 :root {
+  /* Light is the base scheme; the black theme flips it (see its own block).
+     Declared so native popups follow the theme -- without this the UA guesses,
+     and on the black theme it guessed light, painting the role dropdown's
+     options unreadable. */
+  color-scheme: light;
   /* surfaces */
   --bg: #f4f7fa;
   --bg-2: #eef2f7;
@@ -214,6 +219,14 @@
      the same 1240), so the content edge never moves on navigation. */
   --page-max: 1240px;
   --page-gutter: 16px;
+  /* The TOPBAR's own column, split from --page-max on purpose: a route may
+     widen its page (computers takes 1680 for the canvas), but the two
+     chevrons are CROSS-PAGE chrome -- the owner's rule is that clicking
+     through every page never moves the mouse, and a bar that follows the
+     page's width moved the forward chevron 64px between computers and
+     everywhere else (measured on the installed build). Same value as the
+     base --page-max; only the base, never a route override. */
+  --topbar-max: 1240px;
 
   /* THE INTERFACE FONT IS A USER SETTING (owner, R1523: "the default font is
      not my most favorite"). This declaration is only the DEFAULT — IBM Plex
@@ -725,6 +738,12 @@
 /* BLACK — clinical dark. The ink ramp inverts; --wa drops so the same
    glass rules render as faint films of light instead of white slabs. */
 :root[data-theme="black"] {
+  /* The UA must know this theme is dark, or every NATIVE popup it paints --
+     the <select> dropdown above all -- renders light-scheme with our #eef2f6
+     ink inherited onto it: unreadable, measured on the packaged build (owner
+     walkthrough, the role menu). The pair below mirrors
+     public/preview/preview.css:79-80, which is the already-tested shape. */
+  color-scheme: dark;
   --bg: #0d0f12;  --bg-2: #131519;  --surface: #0d0f12;
   --sheet: #14171b;  --wa: 0.075;
   --brace: rgba(255, 255, 255, 0.238);
@@ -888,7 +907,9 @@ body {
      element resolves a percentage against the viewport too, but in the zoomed
      coordinate space, so the painted bar lands exactly inside the window at
      every zoom. Same expression, same reason, on .settings-recovery below. */
-  width: min(var(--page-max), calc(100% - 2 * var(--page-gutter)));
+  /* --topbar-max, not --page-max: the chevrons hold ONE position across every
+     route, including the ones that widen their page. See the token's comment. */
+  width: min(var(--topbar-max), calc(100% - 2 * var(--page-gutter)));
   height: 44px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 2px;
@@ -2690,4 +2711,15 @@ body.reduce-motion * { animation-duration: 0.001s !important; transition-duratio
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
+}
+
+/* Native dropdown popups do NOT inherit a transparent control background:
+   Chromium paints them in UA colors unless told otherwise, which on the black
+   theme meant near-black text on near-black rows (the role menu, owner
+   walkthrough). Painted with the theme's own tokens; color-scheme above makes
+   the popup chrome itself dark. */
+select option,
+select optgroup {
+  background-color: var(--sheet);
+  color: var(--ink);
 }

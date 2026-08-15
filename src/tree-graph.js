@@ -1,7 +1,7 @@
 import { sim, fmtRuntime } from './sim.js'
 import { ROLES } from './vocab.js'
 import { el, buildChat, bindRuntime, formatInlineText } from './components.js'
-import { layoutTree, TREE_ROLE_RADII, treeNodeRadius, hierarchyParents } from './tree-layout.js'
+import { layoutTree, TREE_ROLE_RADII, TREE_LABEL_STACK, treeNodeRadius, hierarchyParents } from './tree-layout.js'
 /* THE WORDS ON AN EMPTY SLOT ARE NOT WRITTEN HERE. src/fleet-tree-copy.js owns
    every sentence in the start-an-agent-from-the-tree flow — the panel, the
    refusals, the tree names and these two — and it says at length why one flow
@@ -670,6 +670,46 @@ export class StaticTreeGraph {
     return false
   }
 
+  /* The vertical band a nudged record may occupy without leaving its rank:
+     [low, high] around its own row's y. Half the gap to each neighbouring
+     row, minus half the label stack so the words between rows stay clear;
+     floored at zero (a tight pair of rows refuses vertical nudges rather
+     than trading overlap for freedom); the outermost rows get a fixed 40px
+     outward since no neighbour bounds them. Falls back to plain canvas
+     bounds when the layout carries no rows (single-rank canvases). */
+  _rankCorridor(record, result) {
+    const canvasLow = record.r + 64
+    const canvasHigh = this.H - record.r - 58
+    const rowIndex = result?.rowOf?.get(record.id)
+    const rowYs = result?.rowYs
+    if (!Number.isFinite(rowIndex) || !Array.isArray(rowYs) || rowYs.length < 2) {
+      return [canvasLow, canvasHigh]
+    }
+    const rowY = rowYs[rowIndex]
+    const up = rowIndex > 0
+      ? Math.max(0, (rowY - rowYs[rowIndex - 1]) / 2 - TREE_LABEL_STACK / 2)
+      : 40
+    const down = rowIndex + 1 < rowYs.length
+      ? Math.max(0, (rowYs[rowIndex + 1] - rowY) / 2 - TREE_LABEL_STACK / 2)
+      : 40
+    return [Math.max(canvasLow, rowY - up), Math.min(canvasHigh, rowY + down)]
+  }
+
+  /* One label rectangle for every rule that needs it — the drop hit test and
+     the override-overlap veto must agree about where a node's words are, or
+     a drop can land where a veto later fires. Geometry mirrors the CSS:
+     the stack hangs 7px under the circle, TREE_LABEL_STACK tall, and spans
+     max(r, 35px)+12 to each side (the label column plus its padding). */
+  _labelBox(record) {
+    const half = Math.max(record.r, 35) + 12
+    return {
+      left: record.x - half,
+      right: record.x + half,
+      top: record.y + record.r + 7,
+      bottom: record.y + record.r + 7 + TREE_LABEL_STACK,
+    }
+  }
+
   /* The record nearest a graph-space point, within a bound. Serves the
      zoom-to-focus drill: past the bound the wheel is aimed at empty canvas,
      and the honest answer is "nothing to focus", not the least-far node. */
@@ -695,10 +735,8 @@ export class StaticTreeGraph {
     const circle = Math.hypot(candidate.x - record.x, candidate.y - record.y)
       - (candidate.r + record.r + DROP_SLOP)
     if (circle < 0) return circle
-    const labelHalf = Math.max(candidate.r, 35) + 12
-    const dx = Math.abs(record.x - candidate.x)
-    const dy = record.y - (candidate.y + candidate.r)
-    if (dx <= labelHalf && dy >= 0 && dy <= 7 + 58) return -1
+    const box = this._labelBox(candidate)
+    if (record.x >= box.left && record.x <= box.right && record.y >= box.top - candidate.r && record.y <= box.bottom) return -1
     return circle
   }
 
@@ -1049,7 +1087,15 @@ export class StaticTreeGraph {
         offset = { dx: 0, dy: 0 }
       }
       record.x = clamp(slot.x + offset.dx, record.r + 12, this.W - record.r - 12)
-      record.y = clamp(slot.y + offset.dy, record.r + 64, this.H - record.r - 58)
+      /* THE NUDGE STAYS IN ITS OWN RANK (owner: "the top circles should stay
+         at the top — not overlap ever"). A vertical nudge used to be clamped
+         only to the canvas, so a dragged root could sink into the child
+         row's band and tangle with its labels long before any circle
+         touched. The corridor is derived from the layout's own rowYs — half
+         the gap to each neighbouring row minus half the label stack, floored
+         at zero (rows packed tight simply refuse vertical nudges) — and the
+         first and last rows keep a modest fixed allowance outward. */
+      record.y = clamp(slot.y + offset.dy, ...this._rankCorridor(record, result))
       const label = result.labels.get(record.id)
       const text = record.el.querySelector('.nn-t')
       if (text && label) text.textContent = label.text
@@ -1063,12 +1109,27 @@ export class StaticTreeGraph {
        or of an offered slot loses its nudge and returns to its own slot.
        Checked after every record has its position, because the collision is
        between FINAL positions, not slots. */
+    const rectsMeet = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top)
+    const circleMeetsRect = (cx, cy, r, box) => {
+      const px = Math.max(box.left, Math.min(cx, box.right))
+      const py = Math.max(box.top, Math.min(cy, box.bottom))
+      return Math.hypot(cx - px, cy - py) < r - 2
+    }
     for (const record of this.nodes.values()) {
       if (record.el.hidden || !this._positions[record.id]) continue
       let collides = false
+      const recordBox = this._labelBox(record)
       for (const other of this.nodes.values()) {
         if (other === record || other.el.hidden) continue
-        if (Math.hypot(other.x - record.x, other.y - record.y) < record.r + other.r + 2) {
+        /* Circle-vs-circle, and now ALSO the words: a nudge that leaves the
+           circles clear but drops this node's label onto a neighbour's label
+           or circle is the overlap the owner sees, and it was invisible to
+           the old circle-only test. */
+        const otherBox = this._labelBox(other)
+        if (Math.hypot(other.x - record.x, other.y - record.y) < record.r + other.r + 2
+          || rectsMeet(recordBox, otherBox)
+          || circleMeetsRect(other.x, other.y, other.r, recordBox)
+          || circleMeetsRect(record.x, record.y, record.r, otherBox)) {
           collides = true
           break
         }
@@ -1456,7 +1517,9 @@ export class StaticTreeGraph {
     const target = focusRecord && targetSlot
       ? {
           x: clamp(targetSlot.x + targetOffset.dx, focusRecord.r + 12, this.W - focusRecord.r - 12),
-          y: clamp(targetSlot.y + targetOffset.dy, focusRecord.r + 64, this.H - focusRecord.r - 58),
+          /* Same rank corridor as _layoutNow — the focus animation must land
+             where the next layout would put it, or the settle jumps. */
+          y: clamp(targetSlot.y + targetOffset.dy, ...this._rankCorridor(focusRecord, this._layoutResult)),
         }
       : null
 

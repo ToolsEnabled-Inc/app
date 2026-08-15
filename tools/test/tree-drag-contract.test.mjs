@@ -61,3 +61,27 @@ test('a refused drop speaks a sentence and a parent-drop stores nothing', () => 
 test('the cycle check reads the same resolver as the layout', () => {
   assert.match(graph, /hierarchyParents\(this\.computer\?\.agents/, '_wouldCycle no longer uses the shared hierarchy resolver; declared-edge cycles slip past it again')
 })
+
+test('a vertical nudge stays inside its own rank corridor', () => {
+  // Owner walkthrough (iteration 5): a dragged ROOT sank into the child
+  // row's band and tangled with its labels -- the old clamp knew only the
+  // canvas edges. The corridor is derived from the layout's own rowYs.
+  assert.match(graphNow(), /_rankCorridor\(record, result\)/, 'the offset apply no longer clamps into the rank corridor')
+  assert.match(graphNow(), /_rankCorridor\(focusRecord, this\._layoutResult\)/, 'the focus-animation path lost the corridor clamp; the settle jumps')
+  // Tight rows must refuse nudges rather than trade overlap for freedom.
+  assert.match(graphNow(), /Math\.max\(0, \(rowY - rowYs\[rowIndex - 1\]\) \/ 2 - TREE_LABEL_STACK \/ 2\)/, 'the corridor no longer reserves the label stack')
+})
+
+test('the override veto sees words, not only circles', () => {
+  const graph = graphNow()
+  assert.match(graph, /rectsMeet\(recordBox, otherBox\)/, 'the veto lost its label-vs-label test')
+  assert.match(graph, /circleMeetsRect\(/, 'the veto lost its label-vs-circle test')
+  // One label geometry for every rule: the hardcoded 7 + 58 is gone and the
+  // exported constant is the single source.
+  assert.ok(!/7 \+ 58/.test(graph), 'tree-graph.js re-hardcoded the label stack; import TREE_LABEL_STACK instead')
+  assert.match(graph, /_labelBox\(record\)/, 'the shared label box vanished')
+})
+
+function graphNow() {
+  return readFileSync(join(SRC, 'tree-graph.js'), 'utf8')
+}

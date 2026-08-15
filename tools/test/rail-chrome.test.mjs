@@ -164,3 +164,35 @@ test('the split view is off by default and view-only', () => {
   // Teardown kills the pane with the graph.
   assert.match(view, /function clearMountedGraph\(\) \{\n    disableSplit\(\)/, 'clearMountedGraph no longer tears the split pane down first')
 })
+
+test('the topbar holds one position on every route', () => {
+  const css = readFileSync(join(SRC, 'styles.css'), 'utf8')
+  // The chevrons are cross-page chrome: the bar reads its OWN token, never
+  // the per-route page width (computers widens --page-max to 1680 and the
+  // forward chevron travelled 64px with it -- measured on the installed
+  // build, owner walkthrough iteration 5).
+  assert.match(css, /--topbar-max: 1240px/, 'the topbar token vanished')
+  const topbarAt = css.indexOf('.topbar {')
+  const widthLine = css.slice(topbarAt, topbarAt + 2800).match(/width: min\(var\((--[a-z-]+)\)/)
+  assert.ok(widthLine, 'the topbar width expression changed shape; re-verify the cross-route geometry')
+  assert.equal(widthLine[1], '--topbar-max', 'the topbar follows the page width again; the chevrons move between routes')
+  // And no route may override the topbar token.
+  assert.ok(!/data-route[^}]*--topbar-max/.test(css), 'a route overrides --topbar-max; the chevrons move again')
+})
+
+test('the switcher can never become a scroll strip again', () => {
+  const board = readFileSync(join(SRC, 'board.css'), 'utf8')
+  const block = board.slice(board.indexOf('.graph-tools .graph-tree-switch {'), board.indexOf('.graph-tools .graph-tree-switch {') + 700)
+  assert.ok(!/overflow-x:\s*auto/.test(block), 'the switcher regained an inner scroller; the 32px seg box cannot hold one')
+  assert.match(block, /text-overflow: ellipsis/, 'the switcher buttons lost their ellipsis budget')
+  const graphCss = readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
+  assert.match(graphCss, /\.computers \.graph-tools \{[^}]*max-width: calc\(100% - 34px\)/s, 'the tools strip is unbounded again; it will grow across the title')
+})
+
+test('every theme block declares its color-scheme', () => {
+  const css = readFileSync(join(SRC, 'styles.css'), 'utf8')
+  assert.match(css, /color-scheme: light/, 'the light color-scheme vanished; native popups guess again')
+  const black = css.slice(css.indexOf(':root[data-theme="black"]'), css.indexOf(':root[data-theme="black"]') + 800)
+  assert.match(black, /color-scheme: dark/, "the black theme lost color-scheme: dark; the role dropdown goes unreadable again")
+  assert.match(css, /select option,\nselect optgroup \{/, 'the option paint rule vanished; Chromium popups ignore the theme')
+})

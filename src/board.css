@@ -812,11 +812,26 @@ body:has([data-agent-compose])
    must never push the zoomer off the canvas, so the switcher scrolls inside
    its own box past ~40% of the canvas width. */
 .graph-tools .graph-tree-switch {
-  max-width: 40%;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  /* No inner scroller: a horizontal scrollbar inside the seg's fixed 32px box
+     had nowhere to live and rendered as a squashed glitch strip. The switcher
+     SHRINKS instead -- each button keeps a readable ellipsised slice of its
+     tree's name, the same budget philosophy the canvas labels use -- and the
+     seg flexes inside the bounded tools strip. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
-.graph-tools .graph-tree-switch > button { flex: none; height: 26px; }
+.graph-tools .graph-tree-switch > button {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 14ch;
+  height: 26px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  line-height: 26px;
+}
 
 /* THE VSCODE-SHAPED RAIL (defect 7): Chat / Details / Actions. Bodies are
    persistent siblings toggled by [hidden]; the chat body is a column that

@@ -85,6 +85,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* THE STRIP IS BOUNDED, or it is not a strip. Shrink-to-fit with no left
+     bound let the tools row grow leftward across the title and crumb, and a
+     child's max-width:40% then resolved against that already-oversized run --
+     the squashed glitch box beside the zoomer (owner walkthrough). The strip
+     may never exceed the canvas minus the title's own margin; children shrink
+     (min-width:0) instead of the strip growing. */
+  max-width: calc(100% - 34px);
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .computers .graph-edit-btn,
 .computers .graph-split-btn,
