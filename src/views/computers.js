@@ -574,7 +574,7 @@ function sendRefusalSentence(result) {
    started through THIS function — the same contract, the same refusal
    sentences, the same four outcome shapes — so a worker node on the tree is
    indistinguishable from one the compose panel started. */
-export async function startAgentForNode({ text, surface, tier }) {
+export async function startAgentForNode({ text, surface, tier, effort }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -595,8 +595,8 @@ export async function startAgentForNode({ text, surface, tier }) {
        calls rather than one built object, because the fleet-trees suite
        measures every `.start({...})` in this file mechanically and a request
        assembled elsewhere is a call it cannot read. */
-    started = tier
-      ? await bridge.start({ surface, tier })
+    started = tier && effort ? await bridge.start({ surface, tier, effort })
+      : tier ? await bridge.start({ surface, tier })
       : await bridge.start({ surface })
   } catch (error) {
     /* A REJECTION IS A REFUSAL WITH ITS CODE IN THE MESSAGE. Electron rebuilds a
@@ -1769,7 +1769,7 @@ export function computersView({ initialComputer = null, navigate }) {
        presses a second circle for the same job. */
     setOrgStatus(startingLine(draft.role), 'busy', { sticky: true })
 
-    const result = await startAgentForNode({ text: draft.message, surface: 'fleet-tree', tier: draft.tier })
+    const result = await startAgentForNode({ text: draft.message, surface: 'fleet-tree', tier: draft.tier, effort: draft.effort })
     if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
 
     if (!result.ok) {

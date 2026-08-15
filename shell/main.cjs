@@ -379,7 +379,7 @@ function parseAgentStart(value) {
   // startSession(), which resolves it, and the compose panel, which must offer
   // it. Shipping any one of them alone leaves a control that looks real and is
   // not, which is the defect f1ce3ec removed three sliders for.
-  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier'])
+  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort'])
   const sessionId = Object.prototype.hasOwnProperty.call(payload, 'sessionId')
     ? payload.sessionId
     : `chat-${randomUUID()}`
@@ -398,6 +398,19 @@ function parseAgentStart(value) {
     // starting the default engine and reporting success -- which is how the app
     // came to run every agent on Codex while appearing to offer a choice.
     result.tier = boundedAgentString(payload.tier, 'tier', 64)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'effort')) {
+    // Same doctrine as tier: refused AT THE BOUNDARY with the available set
+    // named, never silently defaulted -- a control that accepts anything and
+    // starts something else is the defect the tier comment above records.
+    const effort = boundedAgentString(payload.effort, 'effort', 8)
+    if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) {
+      agentIpcError(
+        'MC_AGENT_EFFORT_UNKNOWN',
+        'effort must be one of: low, medium, high, xhigh',
+      )
+    }
+    result.effort = effort
   }
   return result
 }

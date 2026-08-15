@@ -842,9 +842,28 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return row
   }
 
-  function startSession({ sessionId, cwd, tier } = {}) {
+  /* EFFORT, BOUND AT SPAWN. The codex app-server protocol has no per-turn or
+   * per-thread effort field (the adapter's allowlists are strict and upstream
+   * offers nothing to map to), but the CLI accepts `-c
+   * model_reasoning_effort=<key>` -- the same lever the mission-bridge lane
+   * already uses -- and codex-process.js takes spawn args as a parameter. So
+   * effort is a START-time property of the session, defaulting to the tier's
+   * own declared effort, which START_TIERS has carried since the beginning
+   * and this path used to read and then drop. */
+  const EFFORT_KEYS = new Set(['low', 'medium', 'high', 'xhigh'])
+  function resolveEffort(effort, startTier) {
+    if (effort === undefined || effort === null || effort === '') return (startTier && startTier.effort) || null
+    const key = String(effort).trim()
+    if (!EFFORT_KEYS.has(key)) {
+      fail('AGENT_EFFORT_UNKNOWN', `Unknown effort "${key}". Available: low, medium, high, xhigh.`)
+    }
+    return key
+  }
+
+  function startSession({ sessionId, cwd, tier, effort } = {}) {
     assertOpen()
     const startTier = resolveStartTier(tier)
+    const sessionEffort = resolveEffort(effort, startTier)
     const id = normalizeSessionId(sessionId)
     if (sessions.has(id)) fail('AGENT_SESSION_EXISTS', `Session already exists: ${id}`)
     const sessionCwd = normalizeCwd(cwd, fallbackCwd)
@@ -909,6 +928,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     const session = {
       sessionId: id,
       cwd: sessionCwd,
+      /* The effort this session was spawned with -- the record a probe or a
+         later surface reads; never re-derived from the tier, which a model
+         override can drift from. */
+      effort: sessionEffort,
       state: 'starting',
       closeRequested: false,
       closePromise: null,
@@ -934,6 +957,9 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
         const startedValue = await startCodexSession({
           cwd: sessionCwd,
           clientInfo: CLIENT_INFO,
+          // The spawn seam: effort has no protocol field, so it rides the
+          // CLI's own config flag on the app-server process itself.
+          ...(sessionEffort ? { args: ['app-server', '-c', `model_reasoning_effort=${sessionEffort}`] } : {}),
           // What the OS enforces on the agent process itself. MEASURED against a
           // user config that says danger-full-access: the thread option wins.
           // The chosen model rides in threadOptions, which the adapter already

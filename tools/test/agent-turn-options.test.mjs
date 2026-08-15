@@ -83,3 +83,18 @@ test('the host passes images and narrowed options to the adapter, and the plan i
   assert.match(send.slice(0, 2000), /images: turnImages/, 'picked images no longer reach the adapter')
   assert.ok(!/images: \[\]/.test(send.slice(0, 2000)), 'the images: [] literal is back — the pipe is cut again')
 })
+
+test('effort is a start-time property: boundary-validated, tier-defaulted, bound at spawn', () => {
+  // Iteration 5, W10. The codex app-server protocol has no effort field, so
+  // effort rides the CLI's own -c flag on the spawn -- and every layer of the
+  // chain is pinned, because a control that looks real and is not is the
+  // defect the tier comment in main.cjs records.
+  const mainSource = readFileSync(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
+  assert.match(mainSource, /'sessionId', 'cwd', 'surface', 'tier', 'effort'/, 'the start IPC no longer accepts effort')
+  assert.match(mainSource, /MC_AGENT_EFFORT_UNKNOWN/, 'the boundary no longer refuses unknown efforts by name')
+  const hostSource = readFileSync(new URL('../../shell/agent-host.cjs', import.meta.url), 'utf8')
+  assert.match(hostSource, /const EFFORT_KEYS = new Set\(\['low', 'medium', 'high', 'xhigh'\]\)/, 'the host lost its closed effort set')
+  assert.match(hostSource, /resolveEffort\(effort, startTier\)/, 'startSession no longer resolves effort against the tier default')
+  assert.match(hostSource, /model_reasoning_effort=\$\{sessionEffort\}/, 'the spawn seam no longer binds effort; the dead tier field is dead again')
+  assert.match(hostSource, /effort: sessionEffort/, 'the session record no longer keeps the spawned effort')
+})

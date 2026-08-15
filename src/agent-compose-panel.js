@@ -67,9 +67,11 @@ import {
   START_PANEL,
   START_REFUSAL,
   TIER_CHOICES,
+  EFFORT_CHOICES,
   roleLabel,
   startingLine,
 } from './fleet-tree-copy.js'
+import { LAUNCH_TIERS } from './orchestration-controls.js'
 import { railTitleRowElement } from './rail-title.js'
 
 const asText = value => (typeof value === 'string' ? value : '')
@@ -326,6 +328,40 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   tierField.appendChild(tierSelect)
   root.appendChild(tierField)
 
+  /* EFFORT RIDES BESIDE THE TIER (owner, iteration 5: "I need to be able to
+     choose effort levels when starting an agent … just like vscode"). The
+     menu re-defaults to the tier's own effort whenever the tier changes, so
+     an untouched row means the tier's judgment — a person only overrides it
+     by choosing. */
+  const effortField = doc.createElement('div')
+  effortField.className = 'agent-compose-field'
+  const effortLabelNode = doc.createElement('label')
+  effortLabelNode.className = 'cl'
+  effortLabelNode.setAttribute('for', `${id}-effort`)
+  effortLabelNode.textContent = START_PANEL.effortLabel
+  const effortHint = doc.createElement('p')
+  effortHint.className = 'agent-compose-hint'
+  effortHint.setAttribute('id', `${id}-effort-hint`)
+  effortHint.textContent = START_PANEL.effortHelp
+  const effortSelect = doc.createElement('select')
+  effortSelect.className = 'agent-compose-select'
+  effortSelect.setAttribute('id', `${id}-effort`)
+  effortSelect.setAttribute('data-compose-field', 'effort')
+  effortSelect.setAttribute('aria-describedby', `${id}-effort-hint`)
+  for (const choice of EFFORT_CHOICES) {
+    const option = doc.createElement('option')
+    option.value = choice.id
+    option.textContent = choice.label
+    effortSelect.appendChild(option)
+  }
+  const tierEffort = (tierId) => LAUNCH_TIERS.find(tier => tier.id === tierId)?.effort || 'medium'
+  effortSelect.value = tierEffort(DEFAULT_TIER)
+  tierSelect.addEventListener('change', () => { effortSelect.value = tierEffort(tierSelect.value) })
+  effortField.appendChild(effortLabelNode)
+  effortField.appendChild(effortHint)
+  effortField.appendChild(effortSelect)
+  root.appendChild(effortField)
+
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
   const messageLabel = doc.createElement('label')
@@ -381,7 +417,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   status.setAttribute('hidden', 'hidden')
   root.appendChild(status)
 
-  return { root, roleSelect, tierSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
+  return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
 }
 
 /**
@@ -520,6 +556,9 @@ export function mountAgentComposePanel({
        falls back to the same default the engine would apply, never to
        nothing. */
     tier: asTrimmed(nodes?.tierSelect?.value) || DEFAULT_TIER,
+    /* The effort key rides beside the tier; an untouched menu carries the
+       tier's own default, so this is never an invented fifth value. */
+    effort: asTrimmed(nodes?.effortSelect?.value) || null,
     message: asText(nodes?.messageInput?.value).trim(),
     parentId: isRecord(current.parent) ? asTrimmed(current.parent.id) || null : null,
   })

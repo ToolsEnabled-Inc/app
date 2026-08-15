@@ -46,6 +46,7 @@ import {
   START_PANEL,
   START_REFUSAL,
   TIER_CHOICES,
+  EFFORT_CHOICES,
   roleLabel,
   startingLine,
 } from '../../src/fleet-tree-copy.js'
@@ -82,6 +83,7 @@ const APPROVED_WORDS = new Set([
   ...ROLE_CHOICES.map(choice => choice.summary),
   ...ROLE_CHOICES.map(choice => startingLine(choice.role)),
   ...TIER_CHOICES.map(choice => choice.label),
+  ...EFFORT_CHOICES.map(choice => choice.label),
 ])
 
 class FakeElement {
@@ -278,8 +280,8 @@ test('every choice on screen is a label, and no role key is anywhere in the pane
   const { handle } = open()
   const options = handle.element().findAll(node => node.tagName === 'OPTION')
 
-  assert.equal(options.length, ROLE_CHOICES.length + 1 + TIER_CHOICES.length,
-    'every role plus the prompt row, and every tier')
+  assert.equal(options.length, ROLE_CHOICES.length + 1 + TIER_CHOICES.length + EFFORT_CHOICES.length,
+    'every role plus the prompt row, every tier, and every effort level')
   const roleOptions = fieldNamed(handle, 'role').children
   assert.equal(roleOptions[0].textContent, START_PANEL.rolePrompt)
   assert.equal(roleOptions[0].value, '', 'the panel opens with nothing chosen, so a press cannot pass a role nobody picked')
@@ -350,7 +352,7 @@ test('the pressed node’s id travels in the draft and is never rendered', () =>
 
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, message: 'Take the packaging work.', parentId: 'node-17' }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: 'node-17' }])
 })
 
 test('a node’s name is put on the page as text, never as markup', () => {
@@ -376,7 +378,7 @@ test('no parent at all means this begins a new tree, and the draft carries no pa
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, message: 'Take the packaging work.', parentId: null }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: null }])
 })
 
 /* ---------- handing the draft back ---------- */
@@ -392,6 +394,7 @@ test('a complete draft is handed to the caller as role, message and parent', () 
        An absent tier would make the model choice fall to whatever the engine
        happens to be set to, silently, which is the pre-4204332 defect. */
     tier: DEFAULT_TIER,
+    effort: 'medium',
     // Trimmed at the ends and nowhere else: the line break is the person's.
     message: 'Watch the release branch.\nReport twice a day.',
     parentId: 'node-17',
@@ -406,7 +409,7 @@ test('a picked model rides in the draft, Claude rows included', () => {
   fill(handle, { role: 'manager', tier: 'claude-fable', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: 'claude-fable', message: 'Take the packaging work.', parentId: 'node-17' }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: 'claude-fable', effort: 'medium', message: 'Take the packaging work.', parentId: 'node-17' }])
 })
 
 test('the model menu preselects the default and offers the six tiers by label', () => {
@@ -434,11 +437,11 @@ test('re-opening over another node starts from an empty draft', () => {
   handle.open({ parent: { id: 'node-18' } })
   /* Empty means unanswered questions are unanswered again; the model question
      arrives answered by the product default, so the default IS its empty. */
-  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, message: '', parentId: 'node-18' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-18' })
 
   fill(handle, { role: 'helper', message: 'Second brief.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [{ role: 'helper', tier: DEFAULT_TIER, message: 'Second brief.', parentId: 'node-18' }])
+  assert.deepEqual(calls.submitted, [{ role: 'helper', tier: DEFAULT_TIER, effort: 'medium', message: 'Second brief.', parentId: 'node-18' }])
 })
 
 /* ---------- refusing an incomplete draft ---------- */
@@ -524,7 +527,7 @@ test('cancel discards the draft, takes the panel off the page and tells the call
   assert.equal(container.children.length, 0)
 
   handle.open({ parent: { id: 'node-17' } })
-  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, message: '', parentId: 'node-17' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-17' })
 })
 
 test('Escape from inside the panel discards the draft the same way', () => {
@@ -591,7 +594,7 @@ test('a caller that refuses puts its own refusal sentence on the panel and keeps
   assert.equal(noticeLine(handle).textContent, START_REFUSAL.everyAgentBusy)
   assert.equal(noticeLine(handle).getAttribute('role'), 'alert')
   assert.equal(actionNamed(handle, 'submit').disabled, false)
-  assert.deepEqual(handle.draft(), { role: 'manager', tier: DEFAULT_TIER, message: 'Take the packaging work.', parentId: null })
+  assert.deepEqual(handle.draft(), { role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: null })
 })
 
 test('a refusal that arrives with no words still gets the flow’s sentence', async () => {
@@ -696,7 +699,7 @@ test('a late answer about a node the person has moved on from is dropped', async
   // A refusal about the previous node, painted onto a panel the person has
   // since opened over a different one, is a sentence about the wrong tree.
   assert.equal(noticeLine(handle).textContent, '')
-  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, message: '', parentId: 'node-18' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-18' })
 })
 
 /* ---------- stated absences ---------- */

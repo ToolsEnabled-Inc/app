@@ -239,12 +239,13 @@ test('section 8\'s limitation is still true: no agent start passes a working fol
    * this suite for every other lane, which is how a true gate gets deleted. */
   const shell = read('shell/main.cjs')
   const parse = shell.slice(shell.indexOf('function parseAgentStart('))
-  /* Re-measured 2026-08-13: the allowlist gained `tier` (the provider/model
-     choice, 4204332). `cwd` is still accepted and still passed by nobody, so
-     the folder limitation this section records is unchanged. The slice is
-     wider than the original 400 because the allowlist now sits below the
-     comment explaining why tier exists. */
-  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier'\]/.test(parse.slice(0, 1600)),
+  /* Re-measured 2026-08-14: the allowlist gained `effort` (the reasoning
+     depth choice, iteration 5 W10), after gaining `tier` on 2026-08-13.
+     `cwd` is still accepted and still passed by nobody, so the folder
+     limitation this section records is unchanged -- and the session-profiles
+     work (W6) is the change that will finally retire it, at which point
+     section 8 gets rewritten in the same commit. */
+  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort'\]/.test(parse.slice(0, 1600)),
     'parseAgentStart\'s allowlist moved again, so section 8\'s first bullet is wrong. '
     + 'Re-measure that section rather than editing this assertion.')
 

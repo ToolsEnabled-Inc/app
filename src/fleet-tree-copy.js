@@ -185,6 +185,8 @@ export const START_PANEL = Object.freeze({
      quietly become Codex, the exact defect the tier channel closed. */
   tierLabel: 'What does it run on?',
   tierHelp: 'Luna is a good default. The Claude choices are listed so you can see them, and picking one tells you it cannot start yet.',
+  effortLabel: 'How hard should it think?',
+  effortHelp: 'Harder thinking is slower and costs more. The tier picks a sensible default; change it here for this agent.',
   messageLabel: 'What do you want it to do?',
   messageHelp: 'Write it the way you would ask a person. One clear job is enough to start.',
   messagePlaceholder: 'Read the notes in my documents folder and list what is unfinished.',
@@ -210,6 +212,19 @@ export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze
 /* Preselected, not prompted: the engine has a default, so the menu states it.
    An empty first row here would be a question the product already answers. */
 export const DEFAULT_TIER = 'luna'
+
+/* EFFORT, IN WORDS A PERSON WEIGHS. The engine's four keys are a real
+   difference paid for in time and money, so each row says what it costs
+   rather than leaving a bare key on the glass (write-surfaces.js already set
+   this register: "thinks a little / harder / hardest"). The menu defaults
+   from the chosen tier's own effort, so leaving it alone means the tier's
+   judgment, not a hidden fifth value. */
+export const EFFORT_CHOICES = Object.freeze([
+  Object.freeze({ id: 'low', label: 'Quick — thinks briefly, cheapest' }),
+  Object.freeze({ id: 'medium', label: 'Standard — thinks a little' }),
+  Object.freeze({ id: 'high', label: 'Thorough — thinks harder, slower' }),
+  Object.freeze({ id: 'xhigh', label: 'Deepest — thinks hardest, slowest and costliest' }),
+])
 
 /* ---------------------------------------------------------------
    Starting, and running.
