@@ -569,7 +569,9 @@
 .projection-mode {
   margin-left: auto;
   color: var(--ink-4);
-  font-family: var(--mono);
+  /* --font-mono: the --mono shorthand never existed (same silent-invalid
+     defect the iteration-6 Details redo found on .projection-unavailable). */
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: .12em;
@@ -603,7 +605,7 @@
 .projection-state span,
 .projection-state small {
   max-width: 64ch;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.5;
 }
