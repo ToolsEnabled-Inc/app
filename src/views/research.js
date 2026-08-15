@@ -24,7 +24,7 @@ import { createResearchRegistry } from '../research-modules.js'
    this module with every `^import` LINE stripped, so a wrapped import would
    leave its tail behind as garbage. */
 import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
-import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, decideDispatch, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments, submitExperimentRuns } from '../research-experiments.js'
+import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, cellsWithServiceStatus, decideDispatch, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments, submitExperimentRuns } from '../research-experiments.js'
 import { localTiersStatus, postBridgeAction } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
@@ -890,8 +890,8 @@ export function researchView() {
   let gatheredExperimentId = null
   const gatheredCharts = new Map()   // experimentId -> { resize, destroy }
 
-  function localCellsMarkup(experiment) {
-    return experiment.cells.map(cell => `
+  function localCellsMarkup(experiment, cells = experiment.cells) {
+    return cells.map(cell => `
       <span class="research-cell is-${esc(cell.status)}">${esc(cellWords(experiment, cell))} · ${esc(CELL_WORD[cell.status] || cell.status)}${cellDuration(cell) ? ` · ${cellDuration(cell)}` : ''}</span>`).join('')
   }
 
@@ -936,7 +936,7 @@ export function researchView() {
         </div>
         <div class="research-gathered-block">
           <h5>Cells on this computer</h5>
-          <div class="research-runboard-cells">${localCellsMarkup(experiment)}</div>
+          <div class="research-runboard-cells" data-gathered-cells="${esc(experiment.id)}">${localCellsMarkup(experiment)}</div>
         </div>
         ${hasLocalResults ? `
         <div class="research-gathered-block">
@@ -1969,6 +1969,8 @@ export function researchView() {
       host.innerHTML = '<p class="research-observed-empty">No runs submitted yet.</p>'
       return
     }
+    const cellsHost = moduleEl('designer').querySelector(`[data-gathered-cells="${experiment.id}"]`)
+    if (cellsHost) cellsHost.innerHTML = localCellsMarkup(experiment, cellsWithServiceStatus(experiment, read.runs))
     const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
     for (const run of doneRuns) {
       if (!resultsByRun.has(run.runId)) {

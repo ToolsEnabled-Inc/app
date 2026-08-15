@@ -347,3 +347,39 @@ test('the module files the tree ONLY when no view store is live, and the view wi
   }
   assert.ok(!view.includes('data-grid-form'), 'the second designer form is gone; one form designs every experiment')
 })
+
+test('the gathered chips speak service truth for queued cells, without mutation', async () => {
+  const { cellsWithServiceStatus } = await import('../../src/research-experiments.js')
+  const experiment = {
+    cells: [
+      { params: { a: 2 }, status: 'queued', runId: 'rr-done' },
+      { params: { a: 3 }, status: 'queued', runId: 'rr-broke' },
+      { params: { a: 4 }, status: 'queued', runId: 'rr-busy' },
+      { params: { a: 5 }, status: 'queued', runId: 'rr-waiting' },
+      { params: { a: 6 }, status: 'queued', runId: 'rr-odd' },
+      { params: { a: 7 }, status: 'queued' },              // never submitted a runId
+      { params: { a: 8 }, status: 'finished', runId: 'rr-done' }, // local truth wins when not queued
+    ],
+  }
+  const runs = [
+    { runId: 'rr-done', task: { status: 'succeeded' } },
+    { runId: 'rr-broke', task: { status: 'failed' } },
+    { runId: 'rr-busy', task: { status: 'claimed' } },
+    { runId: 'rr-waiting', task: { status: 'queued' } },
+    { runId: 'rr-odd', task: { status: 'held' } },
+    { runId: 'rr-null', task: null },
+  ]
+  const shown = cellsWithServiceStatus(experiment, runs)
+  assert.deepEqual(shown.map(cell => cell.status),
+    ['finished', 'failed', 'running', 'queued', 'held', 'queued', 'finished'],
+    'succeeded reads finished, claimed reads running, unknown words pass through honestly')
+  assert.ok(experiment.cells.every(cell => ['queued', 'finished'].includes(cell.status)),
+    'the account rows themselves are untouched — display only')
+  assert.deepEqual(cellsWithServiceStatus(experiment, undefined).map(cell => cell.status),
+    experiment.cells.map(cell => cell.status), 'no runs, no change')
+
+  const view = read('src/views/research.js')
+  assert.match(view, /data-gathered-cells/, 'the gathered panel lost its addressable chips block')
+  assert.match(view, /cellsWithServiceStatus\(experiment, read\.runs\)/,
+    'the service read no longer refreshes the chips from service truth')
+})

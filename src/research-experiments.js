@@ -482,6 +482,26 @@ export async function submitExperimentRuns(experimentId, { submit = submitRun, p
   return { ok: true, submitted, replayed, total: experiment.cells.length, sentence }
 }
 
+/* Display truth for queue-dispatched cells. The account row keeps 'queued'
+   by design (the service run board owns resolution — see the header note),
+   but the gathered panel must not show 'queued' beside a service run that
+   already finished. Pure translation for rendering; nothing is mutated and
+   nothing is persisted. Unknown service words pass through untranslated —
+   an honest unfamiliar word beats a familiar wrong one. */
+const SERVICE_CELL_WORDS = Object.freeze({
+  succeeded: 'finished', failed: 'failed', running: 'running', claimed: 'running', queued: 'queued',
+})
+export function cellsWithServiceStatus(experiment, runs) {
+  const statusByRunId = new Map((Array.isArray(runs) ? runs : [])
+    .filter(run => run && typeof run.runId === 'string' && run.task && typeof run.task.status === 'string')
+    .map(run => [run.runId, run.task.status]))
+  return experiment.cells.map(cell => {
+    if (cell.status !== 'queued' || !cell.runId || !statusByRunId.has(cell.runId)) return cell
+    const service = statusByRunId.get(cell.runId)
+    return { ...cell, status: SERVICE_CELL_WORDS[service] || service }
+  })
+}
+
 /* Test seam: the module-level maps outlive suites otherwise. */
 export function resetExperimentTracking() {
   tracked.clear()
