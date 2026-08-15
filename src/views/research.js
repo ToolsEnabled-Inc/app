@@ -32,7 +32,7 @@ import { isLiveView } from '../live-flags.js'
 import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
 import { createAssignmentStore } from '../research-assignments.js'
 import { axisRowsToObject, columnRowsToSchema, gridRunPreview, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
-import { chartableColumn, readResults, readRun, readRuns, resultTableModel, resultsExport, runDrillModel, runIsTerminal, runStateWord } from '../research-runs.js'
+import { chartableColumn, chartableColumns, readResults, readRun, readRuns, resultTableModel, resultsExport, runDrillModel, runIsTerminal, runStateWord } from '../research-runs.js'
 import { findingStateWord, readFindings, saveFinding } from '../research-findings.js'
 import { createResultChart } from '../research-result-charts.js'
 import { readLiveSession } from '../agent-session-registry.js'
@@ -1983,26 +1983,40 @@ export function researchView() {
     const model = doneRuns.length > 0
       ? resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
       : null
+    const column = model ? chartableColumn(model, experiment.resultSchema) : null
+    const columns = model ? chartableColumns(model, experiment.resultSchema) : []
     host.innerHTML = `
       <div class="research-runboard-cells">${drills}</div>
       ${model ? `
       <div class="research-results-exp">
         ${serviceCopyControlsMarkup(serviceId)}
         ${serviceResultsTableMarkup(model)}
+        ${column && columns.length > 1 ? `
+        <label class="research-chart-pick">Chart:
+          <select data-chart-column="${esc(experiment.id)}">${columns.map(candidate => `
+            <option value="${esc(candidate.name)}"${candidate.name === column.name ? ' selected' : ''}>${esc(candidate.name)}</option>`).join('')}
+          </select>
+        </label>` : ''}
         <div class="research-result-chart" data-gathered-chart="${esc(experiment.id)}" hidden></div>
         <p class="research-queue-form-status" data-service-results-status="${esc(serviceId)}" role="status"></p>
         ${findingFormMarkup(serviceId, experiment.projectId)}
       </div>` : ''}`
     gatheredCharts.get(experiment.id)?.destroy()
     gatheredCharts.delete(experiment.id)
-    if (!model) return
-    const column = chartableColumn(model, experiment.resultSchema)
-    const chartHost = host.querySelector(`[data-gathered-chart="${experiment.id}"]`)
-    if (!column || !chartHost) return
-    chartHost.hidden = false
-    const mounted = createResultChart(chartHost, { model, column })
-    if (mounted) gatheredCharts.set(experiment.id, mounted)
-    else chartHost.hidden = true
+    const mountGatheredChart = chosen => {
+      gatheredCharts.get(experiment.id)?.destroy()
+      gatheredCharts.delete(experiment.id)
+      const chartHost = host.querySelector(`[data-gathered-chart="${experiment.id}"]`)
+      if (!chosen || !chartHost) return
+      chartHost.hidden = false
+      const mounted = createResultChart(chartHost, { model, column: chosen })
+      if (mounted) gatheredCharts.set(experiment.id, mounted)
+      else chartHost.hidden = true
+    }
+    mountGatheredChart(column)
+    host.querySelector(`[data-chart-column="${experiment.id}"]`)?.addEventListener('change', event => {
+      mountGatheredChart(columns.find(candidate => candidate.name === event.target.value) || null)
+    })
   }
 
   /* ---------- project findings ----------

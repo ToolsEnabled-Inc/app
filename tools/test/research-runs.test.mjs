@@ -144,3 +144,35 @@ test('submitRun carries the inline spec on first submit and returns the durable 
   const hollow = await submitRun({ experimentId: 'rx-9', params: {} }, { postAction: async () => ({ ok: true, receipt: {} }) })
   assert.equal(hollow.code, 'RESEARCH_RUN_RECEIPT_INVALID')
 })
+
+test('the default chart skips axis columns; the person can chart any numeric column', async () => {
+  const { chartableColumns } = await import('../../src/research-runs.js')
+  // The 2026-08-15 stage measured this: seed and n are grid axes AND declared
+  // numeric result fields, so declaration order charted "seed" — an input.
+  const runs = [
+    RUN('rr-1', 'succeeded', { seed: 11, n: 100 }),
+    RUN('rr-2', 'succeeded', { seed: 11, n: 1000 }),
+  ]
+  const resultsByRun = new Map([
+    ['rr-1', [{ record: { seed: 11, n: 100, mean: 0.49, sd_of_mean: 0.029 } }]],
+    ['rr-2', [{ record: { seed: 11, n: 1000, mean: 0.5, sd_of_mean: 0.009 } }]],
+  ])
+  const schema = { fields: { seed: 'number', n: 'number', mean: 'number', sd_of_mean: 'number' }, required: [] }
+  const model = resultTableModel({ runs, resultsByRun, resultSchema: schema })
+  assert.deepEqual(model.axisNames, ['seed', 'n'], 'the model names its axis columns')
+
+  const chart = chartableColumn(model, schema)
+  assert.equal(chart.name, 'mean', 'the first NON-AXIS numeric column is the default, not "seed"')
+
+  const all = chartableColumns(model, schema)
+  assert.deepEqual(all.map(column => column.name), ['seed', 'n', 'mean', 'sd_of_mean'],
+    'every numeric column with data stays choosable')
+
+  const axesOnly = resultTableModel({ runs, resultsByRun: new Map([['rr-1', [{ record: { seed: 11, n: 100 } }]]]), resultSchema: { fields: { seed: 'number', n: 'number' }, required: [] } })
+  assert.equal(chartableColumn(axesOnly, { fields: { seed: 'number', n: 'number' }, required: [] }).name, 'seed',
+    'when only axes are numeric, the first still charts rather than nothing')
+
+  const view = (await import('node:fs')).readFileSync(new URL('../../src/views/research.js', import.meta.url), 'utf8')
+  assert.match(view, /data-chart-column/, 'the gathered panel lost its chart column picker')
+  assert.match(view, /mountGatheredChart\(columns\.find/, 'the picker no longer remounts the chart on change')
+})

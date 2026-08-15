@@ -118,7 +118,7 @@ export function resultTableModel({ runs, resultsByRun, resultSchema }) {
       })
     }
   }
-  return { columns, rows }
+  return { columns, rows, axisNames }
 }
 
 /** csv or json text for the whole table; the caller puts it on the clipboard. */
@@ -166,15 +166,29 @@ export function runDrillModel({ run, results = [] }) {
   }
 }
 
-/** The first declared numeric column with at least one number in the table. */
-export function chartableColumn(model, resultSchema) {
+/** Every declared numeric column with at least one number in the table. */
+export function chartableColumns(model, resultSchema) {
   const numericNames = Object.entries(resultSchema?.fields || {})
     .filter(([, kind]) => kind === 'number').map(([name]) => name)
+  const columns = []
   for (const name of numericNames) {
     const index = model.columns.indexOf(name)
     if (index !== -1 && model.rows.some(row => typeof row.cells[index] === 'number')) {
-      return { name, index }
+      columns.push({ name, index })
     }
   }
-  return null
+  return columns
+}
+
+/**
+ * The default charted column. Axis parameters are inputs, not measurements —
+ * charting one draws meaningless bars (measured on the 2026-08-15 stage:
+ * the convergence grid charted "seed") — so the first numeric column that is
+ * NOT an axis wins, and axes are only a last resort.
+ */
+export function chartableColumn(model, resultSchema, { axisIds } = {}) {
+  const columns = chartableColumns(model, resultSchema)
+  if (columns.length === 0) return null
+  const axes = new Set(axisIds ?? model.axisNames ?? [])
+  return columns.find(column => !axes.has(column.name)) || columns[0]
 }
