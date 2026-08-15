@@ -155,7 +155,12 @@ test('the reading reports the recorded level, its sandbox, and a measured tool c
     })
     assert.equal(unrestricted.toolsAllowed, null,
       'a level that narrows nothing has no allowlist, and null is that fact rather than a missing value')
-    assert.equal(unrestricted.isolated, false)
+    /* true since engine f1cc018 (payload pin flip 2026-08-14): the widest tier
+       runs in the product's own prepared home too, so its tools are the
+       generated surface instead of whatever ~/.codex happens to hold. Its
+       sandbox stays danger-full-access -- isolation here is about WHOSE HOME,
+       not about reach. */
+    assert.equal(unrestricted.isolated, true)
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }
