@@ -39,6 +39,19 @@ const ACTION_ROUTES = Object.freeze({
   'task-get': '/v1/actions/task-get',
   'task-list': '/v1/actions/task-list',
   'role-complete': '/v1/actions/role-complete',
+  /* The research project family: durable projects, experiments, runs, results,
+     findings and session assignment. Four reads, six writes; the server keeps
+     the read/write distinction at the provider behind each action. */
+  'research-snapshot': '/v1/actions/research-snapshot',
+  'research-runs': '/v1/actions/research-runs',
+  'research-results': '/v1/actions/research-results',
+  'research-findings': '/v1/actions/research-findings',
+  'research-project-save': '/v1/actions/research-project-save',
+  'research-experiment-save': '/v1/actions/research-experiment-save',
+  'research-run-submit': '/v1/actions/research-run-submit',
+  'research-session-assign': '/v1/actions/research-session-assign',
+  'research-finding-save': '/v1/actions/research-finding-save',
+  'research-lifecycle': '/v1/actions/research-lifecycle',
 })
 
 let bootstrapPromise = null
@@ -339,6 +352,10 @@ const ACTION_TIMEOUT_MS = Object.freeze({
      and is slow rather than stuck — the judge gets minutes, not seconds. */
   'task-submit': 30_000, 'task-claim': 30_000, 'task-get': 30_000, 'task-list': 30_000,
   'role-complete': 300_000,
+  /* The research lifecycle spawns or exactly stops a worker process under a
+     cross-process lock; every other research action is a bounded durable
+     read/write on the default budget. */
+  'research-lifecycle': 60_000,
 })
 
 export function postBridgeAction(action, body) {
@@ -810,6 +827,15 @@ export function createTerminateController({
     destroy() { destroyed = true },
     getState() { return state },
   })
+}
+
+/**
+ * The research page-open read: projects with their experiments, session
+ * assignments, the settings-gate decisions and worker lifecycle in one call.
+ * Same {ok,reason,code} refusal shape as every action here.
+ */
+export function researchSnapshot() {
+  return postBridgeAction('research-snapshot', {})
 }
 
 export function resetBridgeSession() {
