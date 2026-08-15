@@ -105,6 +105,10 @@ function validV1(experiment) {
     && Array.isArray(experiment.cells)
 }
 
+/* The parse gate enforces exactly what the renderers dereference: a stored
+   row is a trust boundary (partial write, older build, another device), and
+   one malformed experiment must drop HERE — not survive to blank the whole
+   bench with a render throw. */
 function validV2(experiment) {
   return experiment
     && typeof experiment === 'object'
@@ -112,8 +116,13 @@ function validV2(experiment) {
     && cleanText(experiment.name, CAPS.name)
     && experiment.runner && typeof experiment.runner === 'object'
     && typeof experiment.runner.kind === 'string'
+    && (experiment.runner.kind !== 'agent' || cleanText(experiment.runner.briefTemplate, CAPS.briefTemplate))
     && Array.isArray(experiment.axes)
+    && experiment.axes.every(axis => axis && typeof axis === 'object'
+      && typeof axis.id === 'string' && Array.isArray(axis.values) && axis.values.length > 0)
     && Array.isArray(experiment.cells)
+    && experiment.cells.every(cell => cell && typeof cell === 'object'
+      && cell.params && typeof cell.params === 'object' && typeof cell.status === 'string')
 }
 
 export function parseExperimentsRow(raw) {

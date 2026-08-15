@@ -116,6 +116,26 @@ test('a v1-upgraded row with a stray token falls back to plain dataset substitut
   assert.match(brief, /\{this\}/, 'a stray token in v1 prose stays literal, exactly as v1 ran it')
 })
 
+test('a malformed stored v2 experiment drops at the parse gate, never reaching a renderer', () => {
+  // The re-review's finding: the gate must enforce what renderDesigner
+  // dereferences, or one bad row from a partial write or another device
+  // blanks the whole bench with a throw instead of losing the one row.
+  const good = buildExperiment(SPEC, EMPTY)
+  const raw = JSON.stringify({
+    v: 2,
+    experiments: [
+      good.experiment,
+      { id: 'exp-bad-1', name: 'No brief', runner: { kind: 'agent' }, axes: [{ id: 'tier', values: ['luna'] }], cells: [] },
+      { id: 'exp-bad-2', name: 'Null axis', runner: { kind: 'process', command: 'node' }, axes: [null], cells: [] },
+      { id: 'exp-bad-3', name: 'Bare cells', runner: { kind: 'agent', briefTemplate: 'Do it.' }, axes: [{ id: 'tier', values: ['luna'] }], cells: [{}] },
+    ],
+  })
+  const parsed = parseExperimentsRow(raw)
+  assert.equal(parsed.damaged, false)
+  assert.deepEqual(parsed.experiments.map(experiment => experiment.id), [good.experiment.id],
+    'the three malformed rows drop; the good one survives')
+})
+
 test('the row round-trips as v2 and damage is stated', () => {
   const built = buildExperiment(SPEC, EMPTY)
   const serialized = serializeExperimentsRow(built.next)
