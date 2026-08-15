@@ -92,9 +92,16 @@ test('the marker list covers a badge with no words in it at all', () => {
   }
 })
 
-test('the disclosure says the thing it exists to say', () => {
+test('the disclosure carries all three required elements', () => {
+  /* R-009 §2 (the legal clearance of this simulation) requires three
+     elements, individually: simulated-in-browser, WHAT is simulated (the
+     free local product — the sentence separating this from the hosted
+     tier), and the timeline-compression note (measured: ~7.2 wall seconds
+     per simulated minute). Dropping any one lapses the clearance. */
   assert.match(DISCLOSURE, /Nothing on this page is live/)
   assert.match(DISCLOSURE, /fixed seed/)
+  assert.match(DISCLOSURE, /free local product/, 'element (b) gone: nothing separates the simulation from the hosted tier')
+  assert.match(DISCLOSURE, /timeline compressed/, 'element (c) gone: the compressed clock goes unsaid')
 })
 
 /* ------------------------------------------------------------------
