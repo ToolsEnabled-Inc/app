@@ -380,6 +380,7 @@
       "src/lib/mission-bridge/errors.js",
       "src/lib/mission-bridge/owner-prompts.js",
       "src/lib/mission-bridge/purchase-recording.js",
+      "src/lib/mission-bridge/research-actions.js",
       "src/lib/mission-bridge/server.js",
       "src/lib/mission-bridge/termination.js",
       "src/lib/model-floor.js",
@@ -456,7 +457,9 @@
       "src/lib/providers/remote-playwright.js",
       "src/lib/providers/repo-files.js",
       "src/lib/providers/research-hermes.js",
+      "src/lib/providers/research-runs-runtime.js",
       "src/lib/providers/research-strong.js",
+      "src/lib/providers/research.js",
       "src/lib/providers/scheduler.js",
       "src/lib/providers/sensitive-local-input.js",
       "src/lib/providers/stripe.js",
@@ -467,6 +470,10 @@
       "src/lib/repo-sync-status.js",
       "src/lib/request-context.js",
       "src/lib/request-id.js",
+      "src/lib/research/collectors.js",
+      "src/lib/research/research-runs-worker.js",
+      "src/lib/research/runners.js",
+      "src/lib/research/settings-gate.js",
       "src/lib/runtime-state-root.js",
       "src/lib/runtime.js",
       "src/lib/scheduled-actions.js",
@@ -517,6 +524,7 @@
       "tools/playwright-call.js",
       "tools/playwright-mcp.cmd",
       "tools/prior-work-index.js",
+      "tools/research-runs-worker.js",
       "tools/secrets.ps1"
     ]
   }
