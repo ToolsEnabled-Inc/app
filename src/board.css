@@ -122,7 +122,12 @@
   padding: 12px 13px 14px;
   border-radius: var(--board-r);
   border: 1px solid var(--line-2);
-  background: linear-gradient(180deg, rgba(255,255,255,calc(0.6 * var(--wa))), rgba(255,255,255,calc(0.32 * var(--wa))));
+  /* ink-mix, not white-alpha: the old gradient rode --wa, and dark themes
+     set --wa to 0.075 — the fill resolved to ~4% white, five stacked boxes
+     read as five hairlines around identical grey text (iteration 6:
+     Details "completely unreadable"). Mixing the theme's own ink gives the
+     same quiet lift on every theme: darker-on-light, lighter-on-dark. */
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,calc(0.92 * var(--wa))),          /* inner top highlight */
     /* theme-scaled, like every other elevation on the site: the literal

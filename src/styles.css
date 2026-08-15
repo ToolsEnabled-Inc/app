@@ -634,9 +634,35 @@
 
 .projection-unavailable {
   color: var(--ink-3);
-  font-family: var(--mono);
+  /* --font-mono, not --mono: the shorthand token never existed, so this
+     declaration was invalid-at-computed-value time and the font silently
+     inherited — found during the iteration-6 Details redo. */
+  font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.5;
+}
+/* Dimmed lines must actually dim. Standalone .projection-unavailable ties
+   .rail-sub on specificity and LOSES on order, so "unavailable" prose
+   rendered identically to body prose — no hierarchy at all. The compound
+   selector wins the tie and reads visibly quieter. */
+.rail-sub.projection-unavailable,
+.rail-prose.is-dim {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* THE RAIL'S PROSE VOICE (iteration 6: Details was "completely unreadable" —
+   a wall of one style, 13px mono, one colour). Sentences read in the UI
+   face at a real line-height; mono stays for values, ids and paths, which
+   is what mono is for. Long tokens wrap instead of clipping against the
+   rail's overflow-x fence. */
+.rail-prose {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+  margin-bottom: var(--s4);
 }
 
 .comms .projection-unavailable {

@@ -229,6 +229,26 @@ test('the pane bar scrolls its trees slot and nowhere else', () => {
   assert.ok(/graph-pane-2">\s*<div class="graph-bar">/.test(view), 'the split pane lost its own bar — one nice bar PER SPLIT was the ask')
 })
 
+test('Details reads as prose, dims really dim, and the boxes have a floor', () => {
+  /* Iteration 6: "Details is completely unreadable". Four measured causes,
+     four pins: the undefined --mono token (the dim class silently inherited
+     its font); the specificity tie that made dimmed lines identical to body
+     lines; the mono wall (sentences now speak .rail-prose, the UI voice);
+     and box fills that resolved to ~4% white on dark (ink-mix now, so the
+     lift survives every theme). */
+  const css = readFileSync(join(SRC, 'styles.css'), 'utf8')
+  assert.ok(!/font-family: var\(--mono\)/.test(css), 'var(--mono) is back — that token does not exist, the declaration is silently invalid')
+  assert.match(css, /\.rail-sub\.projection-unavailable,[\r\n]+\.rail-prose\.is-dim \{/, 'the compound dim rule is gone; dimmed lines tie and lose again')
+  assert.match(css, /\.rail-prose \{[^}]*font-family: var\(--font-ui\)/s, 'the rail prose voice is gone; Details is a mono wall again')
+  assert.match(css, /\.rail-prose \{[^}]*overflow-wrap: anywhere/s, 'long ids clip against the rail overflow fence again')
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  const details = view.slice(view.indexOf('data-rail-body="details"'), view.indexOf('data-tree-move-out'))
+  assert.ok(!/class="rail-sub"/.test(details), 'a bare rail-sub is back in the Details body; sentences belong to the prose voice')
+  const board = readFileSync(join(SRC, 'board.css'), 'utf8')
+  const box = board.slice(board.indexOf('.board-page .board-box,'), board.indexOf('.board-page .board-box,') + 1200)
+  assert.match(box, /background: color-mix\(in oklab, var\(--ink\)/, 'the box fill rides white-alpha again; on dark themes the boxes vanish')
+})
+
 test('every theme block declares its color-scheme', () => {
   const css = readFileSync(join(SRC, 'styles.css'), 'utf8')
   assert.match(css, /color-scheme: light/, 'the light color-scheme vanished; native popups guess again')

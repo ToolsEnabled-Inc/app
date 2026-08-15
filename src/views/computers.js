@@ -3095,7 +3095,7 @@ export function computersView({ initialComputer = null, navigate }) {
       <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
         ${node.sessionId ? '<div class="rail-chat-host" data-rail-chat-host></div>' : `
         <div class="board-box board-ctl-box">
-          <div class="rail-sub">${escapeMarkup(node.statusNote || 'This agent has not been started yet. Press its circle on the canvas to start it; the conversation opens here.')}</div>
+          <div class="rail-prose">${escapeMarkup(node.statusNote || 'This agent has not been started yet. Press its circle on the canvas to start it; the conversation opens here.')}</div>
         </div>`}
       </div>
       <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
@@ -3105,11 +3105,16 @@ export function computersView({ initialComputer = null, navigate }) {
              not shouted as a title. Falls back to the role word when the node
              has no brief yet. -->
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar" title="${escapeMarkup(node.message || '')}">${escapeMarkup(treeNodeBrief(node) || roleLabel(node.role))}</div></div></div>
+        <!-- SENTENCES IN THE PROSE VOICE, VALUES IN MONO (iteration 6:
+             "Details is completely unreadable" — it was one style for
+             everything, 13px mono, one colour, in boxes whose fill vanished
+             on dark). .rail-prose is the readable body voice; .is-dim is the
+             visibly quieter register for notes and narration. -->
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
-          <div class="rail-sub">${escapeMarkup(treeNodeStatusWord(node))}</div>
-          ${node.statusNote ? `<div class="rail-sub projection-unavailable">${escapeMarkup(node.statusNote)}</div>` : ''}
-          <div class="rail-sub projection-unavailable" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
+          <div class="rail-prose">${escapeMarkup(treeNodeStatusWord(node))}</div>
+          ${node.statusNote ? `<div class="rail-prose is-dim">${escapeMarkup(node.statusNote)}</div>` : ''}
+          <div class="rail-prose is-dim" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
         </div>
         <div class="board-box board-ctl-box">
           <!-- "The brief you started it with", not "what you asked for": this
@@ -3118,17 +3123,17 @@ export function computersView({ initialComputer = null, navigate }) {
                LATEST answer, overwritten every turn. The old headings implied
                the two were one exchange; these say what each really is. -->
           <div class="board-box-h"><span class="bh-t">The brief you started it with</span></div>
-          <div class="rail-sub">${escapeMarkup(node.message || '')}</div>
+          <div class="rail-prose">${escapeMarkup(node.message || '')}</div>
         </div>
         ${node.sessionId ? `
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
-          <div class="rail-sub" data-tree-said></div>
+          <div class="rail-prose" data-tree-said></div>
         </div>
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it has used</span></div>
-          <div class="rail-sub" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
-          <div class="rail-sub"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
+          <div class="rail-prose" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
+          <div class="rail-prose is-dim"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
         </div>` : ''}
         <!-- SETUP: the two controls that describe the node rather than the
              conversation — its folder and its place in the tree — moved here
@@ -3139,21 +3144,21 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
           ${node.sessionId ? '' : `<p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
           <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
-          <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
+          <div class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
           <div class="ctl-row">
             <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
           </div>
-          <output class="rail-sub" role="status" data-tree-profile-out></output>
+          <output class="rail-prose" role="status" data-tree-profile-out></output>
           <div class="ctl-row" data-tree-profile-restart-row hidden>
             <button class="ctl-btn" type="button" data-tree-profile-restart>${escapeMarkup(PROFILE_PANEL.switchGo)}</button>
           </div>
           <div class="rail-sec">${escapeMarkup(MOVE_PANEL.title)}</div>
-          <div class="rail-sub">${escapeMarkup(MOVE_PANEL.help)}</div>
+          <div class="rail-prose is-dim">${escapeMarkup(MOVE_PANEL.help)}</div>
           <div class="ctl-row" data-tree-move-row hidden>
             <select class="ctl-select" data-tree-move-select aria-label="${escapeMarkup(MOVE_PANEL.title)}"></select>
             <button class="ctl-btn" type="button" data-tree-move-save>${escapeMarkup(MOVE_PANEL.save)}</button>
           </div>
-          <output class="rail-sub" role="status" data-tree-move-out></output>
+          <output class="rail-prose" role="status" data-tree-move-out></output>
         </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
