@@ -137,6 +137,49 @@ test('research view distinguishes unavailable observations from observed-empty d
   assert.equal(envelope.data.openQuestions.reason, 'source-out-of-scope')
 })
 
+test('the experiment designer is builders first, with the raw text behind an Advanced disclosure', () => {
+  const view = read('src/views/research.js')
+
+  /* The builder rows and their controls: a researcher adds an axis or a result
+     column as a row, never as raw text, and every row carries its way out. */
+  for (const hook of [
+    'data-axis-rows', 'data-axis-add', 'data-axis-row', 'data-axis-name', 'data-axis-values', 'data-axis-remove',
+    'data-col-rows', 'data-col-add', 'data-col-row', 'data-col-name', 'data-col-kind', 'data-col-required', 'data-col-remove',
+  ]) {
+    assert.match(view, new RegExp(hook), `the designer lost its ${hook} control`)
+  }
+  assert.match(view, /axisRowsToObject\(/, 'the axis rows no longer compose through the grid engine helper')
+  assert.match(view, /columnRowsToSchema\(/, 'the column rows no longer compose through the grid engine helper')
+
+  /* The live preview: the grid renders as a sentence and chips before Save,
+     and a parse refusal renders ITS sentence in the same spot. */
+  assert.match(view, /data-exp-preview/, 'the preview host is gone')
+  assert.match(view, /gridRunPreview\(/, 'the preview no longer runs the real grid engine')
+  assert.match(view, /This grid makes/, 'the preview sentence is gone')
+  assert.ok(view.includes('and ${model.more} more'), 'the preview no longer bounds its chips with a count of the rest')
+
+  /* The runner select rewrites the ONE detail field to one meaning at a time;
+     the field keeps its name so the submit handler keeps working. */
+  assert.match(view, /The task each session runs\. Write \{axis\} tokens and \{dataset\} where values belong\./)
+  assert.match(view, /The command, then each argument on its own line\./)
+  assert.match(view, /The https address; \{axis\} tokens are filled per run\./)
+  assert.match(view, /data-runner-detail-label/, 'the detail label lost its hook')
+  assert.match(view, /name="runnerDetail"/, 'the detail field was renamed; the submit handler contract broke')
+
+  /* Nothing was removed: the two raw fields survive behind Advanced, named as
+     the submit handler reads them, and the page says the text wins there. */
+  assert.match(view, /data-exp-advanced/, 'the Advanced disclosure is gone')
+  assert.match(view, /name="moreAxes"/, 'the raw axes field left the form')
+  assert.match(view, /name="resultColumns"/, 'the raw columns field left the form')
+  assert.match(view, /replaces the axis and column rows above/, 'the Advanced-wins sentence is gone')
+
+  /* Column kinds face the person as words; the stored names ride only on the
+     option values, where no person reads them. */
+  assert.match(view, /<option value="string">words<\/option>/)
+  assert.match(view, /<option value="number">a number<\/option>/)
+  assert.match(view, /<option value="boolean">yes or no<\/option>/)
+})
+
 test('research styling stays theme-native across white, tan, and black', () => {
   const css = read('src/research.css')
   const shared = read('src/styles.css')

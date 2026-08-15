@@ -31,7 +31,7 @@ import { startAgentForNode } from './computers.js'
 import { isLiveView } from '../live-flags.js'
 import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
 import { createAssignmentStore } from '../research-assignments.js'
-import { parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
+import { axisRowsToObject, columnRowsToSchema, gridRunPreview, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
 import { chartableColumn, readResults, readRun, readRuns, resultTableModel, resultsExport, runDrillModel, runIsTerminal, runStateWord } from '../research-runs.js'
 import { createResultChart } from '../research-result-charts.js'
 import { readLiveSession } from '../agent-session-registry.js'
@@ -308,6 +308,46 @@ const SAMPLE_EXPERIMENT = Object.freeze({
     { params: { tier: 'terra', replicate: 2 }, status: 'running', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
   ],
 })
+
+/* ---------- the designer's builder copy ----------
+   One meaning per runner kind, spelled out where the person types. The select
+   swaps this copy in place; the field itself never changes name, so the
+   submit handler goes on reading form.elements.runnerDetail. */
+
+const RUNNER_DETAIL_COPY = Object.freeze({
+  agent: 'The task each session runs. Write {axis} tokens and {dataset} where values belong.',
+  process: 'The command, then each argument on its own line.',
+  http: 'The https address; {axis} tokens are filled per run.',
+})
+
+/* One axis the person is adding: its name, its comma-separated values, and
+   the way out. The inputs carry data hooks, not names — duplicate names would
+   turn form.elements lookups into lists under the submit handler's feet. */
+function axisRowMarkup() {
+  return `
+    <div class="research-designer-row" data-axis-row>
+      <input data-axis-name maxlength="32" placeholder="Axis name, like prompt_style." aria-label="Axis name"/>
+      <input data-axis-values maxlength="800" placeholder="Values, separated by commas." aria-label="Axis values"/>
+      <button type="button" class="research-row-btn" data-axis-remove>Remove</button>
+    </div>`
+}
+
+/* One result column: its name, what it holds in a person's words (the stored
+   kind rides on the option value where only the program reads it), and
+   whether every run must report it. */
+function columnRowMarkup() {
+  return `
+    <div class="research-designer-row" data-col-row>
+      <input data-col-name maxlength="32" placeholder="Column name, like score." aria-label="Column name"/>
+      <select data-col-kind aria-label="What the column holds">
+        <option value="string">words</option>
+        <option value="number">a number</option>
+        <option value="boolean">yes or no</option>
+      </select>
+      <label class="research-popover-row"><input type="checkbox" data-col-required/><span>Required</span></label>
+      <button type="button" class="research-row-btn" data-col-remove>Remove</button>
+    </div>`
+}
 
 /* ---------- the workbench ---------- */
 
@@ -846,14 +886,30 @@ export function researchView() {
             <option value="http">A web address</option>
           </select>
         </label>
-        <textarea name="runnerDetail" maxlength="2000" rows="3" placeholder="Sessions: the task each one runs, with {axis} tokens and {dataset} where values belong. A command: the command, then each argument on its own line. A web address: the https address." aria-label="What runs"></textarea>
+        <p class="research-designer-hint" data-runner-detail-label>${esc(RUNNER_DETAIL_COPY.agent)}</p>
+        <textarea name="runnerDetail" maxlength="2000" rows="3" placeholder="${esc(RUNNER_DETAIL_COPY.agent)}" aria-label="What runs"></textarea>
         <input name="datasetPath" maxlength="400" placeholder="Dataset path on this computer, if the task reads one. Workers read it under their own permissions." aria-label="Dataset path"/>
         <div class="research-designer-tiers" role="group" aria-label="Model tiers">
           ${TIER_CHOICES.map(choice => `
             <label class="research-popover-row"><input type="checkbox" name="tier" value="${esc(choice.id)}" ${choice.id === DEFAULT_TIER ? 'checked' : ''}/><span>${esc(choice.label)}</span></label>`).join('')}
         </div>
-        <textarea name="moreAxes" rows="2" placeholder='More axes, optional, one object: {"prompt_style": ["terse", "full"]}' aria-label="More axes"></textarea>
-        <input name="resultColumns" placeholder='Result columns, optional: {"fields": {"score": "number"}, "required": ["score"]}' aria-label="Result columns"/>
+        <div class="research-designer-group" role="group" aria-label="More axes">
+          <p class="research-designer-hint">Vary more than the tier: add an axis, then write its values separated by commas.</p>
+          <div class="research-designer-rows" data-axis-rows></div>
+          <button type="button" class="research-row-btn" data-axis-add>Add an axis</button>
+        </div>
+        <div class="research-exp-preview" data-exp-preview role="status"></div>
+        <div class="research-designer-group" role="group" aria-label="Result columns">
+          <p class="research-designer-hint">Each run always keeps its answer. Add a column when a run should also report a named value.</p>
+          <div class="research-designer-rows" data-col-rows></div>
+          <button type="button" class="research-row-btn" data-col-add>Add a result column</button>
+        </div>
+        <details class="research-designer-advanced" data-exp-advanced>
+          <summary>Advanced</summary>
+          <p class="research-designer-hint">Text written here replaces the axis and column rows above.</p>
+          <textarea name="moreAxes" rows="2" placeholder='More axes, optional, one object: {"prompt_style": ["terse", "full"]}' aria-label="More axes"></textarea>
+          <input name="resultColumns" placeholder='Result columns, optional: {"fields": {"score": "number"}, "required": ["score"]}' aria-label="Result columns"/>
+        </details>
         <div class="research-queue-form-row">
           <label class="research-popover-row">Repeats
             <select name="runsPerCell"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
@@ -863,6 +919,8 @@ export function researchView() {
         </div>
       </form>
       ${damagedNote}${list}`
+    const freshForm = host.querySelector('[data-exp-form]')
+    if (freshForm) updateDesignerPreview(freshForm)
   }
 
   function renderRunBoard() {
@@ -934,26 +992,109 @@ export function researchView() {
   }
 
   /* The one designer form. Tier checkboxes build the reserved-meaning 'tier'
-     axis for session runs; the optional JSON adds further axes; the runner
-     select decides what the detail text IS. Everything parses through the
-     grid engine before buildExperiment sees it. */
-  function parseDesignerForm(form) {
-    let extra = {}
-    if (form.elements.moreAxes.value.trim()) {
-      try { extra = JSON.parse(form.elements.moreAxes.value) }
+     axis for session runs; the axis rows add further axes; the runner select
+     decides what the detail text IS. The Advanced text, when written, replaces
+     the rows — a power user's exact object beats a builder's composition.
+     Everything parses through the grid engine before buildExperiment sees it. */
+
+  function designerAxisRows(form) {
+    return [...form.querySelectorAll('[data-axis-row]')].map(row => ({
+      name: row.querySelector('[data-axis-name]')?.value ?? '',
+      values: row.querySelector('[data-axis-values]')?.value ?? '',
+    }))
+  }
+
+  function designerColumnRows(form) {
+    return [...form.querySelectorAll('[data-col-row]')].map(row => ({
+      name: row.querySelector('[data-col-name]')?.value ?? '',
+      kind: row.querySelector('[data-col-kind]')?.value ?? 'string',
+      required: row.querySelector('[data-col-required]')?.checked === true,
+    }))
+  }
+
+  function designerExtraAxes(form) {
+    const advanced = form.elements.moreAxes.value.trim()
+    if (advanced) {
+      let extra
+      try { extra = JSON.parse(advanced) }
       catch { return { ok: false, sentence: 'The extra axes did not read as an object. Write them like {"prompt_style": ["terse", "full"]}.' } }
-      if (extra && Object.hasOwn(extra, 'tier')) {
+      if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
+        return { ok: false, sentence: 'The extra axes did not read as an object. Write them like {"prompt_style": ["terse", "full"]}.' }
+      }
+      if (Object.hasOwn(extra, 'tier')) {
         return { ok: false, sentence: 'Tier values come from the checkboxes above — take "tier" out of the axes text.' }
       }
+      return { ok: true, axesRaw: extra }
     }
+    const composed = axisRowsToObject(designerAxisRows(form))
+    if (!composed.ok) return composed
+    if (Object.hasOwn(composed.axesRaw, 'tier')) {
+      return { ok: false, sentence: 'Tier values come from the checkboxes above — remove the axis row named tier.' }
+    }
+    return composed
+  }
+
+  function designerResultColumns(form) {
+    const advanced = form.elements.resultColumns.value.trim()
+    if (advanced) {
+      try { return { ok: true, schemaRaw: JSON.parse(advanced) } }
+      catch { return { ok: false, sentence: 'The result columns did not read as an object.' } }
+    }
+    return columnRowsToSchema(designerColumnRows(form))
+  }
+
+  /* The whole grid the form currently declares, tier axis included, shared by
+     the live preview and the submit handler so the two can never disagree. */
+  function designerGrid(form) {
+    const extra = designerExtraAxes(form)
+    if (!extra.ok) return extra
     const checkedTiers = [...form.querySelectorAll('input[name="tier"]:checked')].map(input => input.value)
     const kind = form.elements.runnerKind.value
-    const detail = form.elements.runnerDetail.value.trim()
-    const axesRaw = kind === 'agent' && checkedTiers.length > 0 ? { tier: checkedTiers, ...extra } : extra
+    const axesRaw = kind === 'agent' && checkedTiers.length > 0 ? { tier: checkedTiers, ...extra.axesRaw } : extra.axesRaw
     if (Object.keys(axesRaw).length === 0) {
-      return { ok: false, sentence: kind === 'agent' ? 'Pick at least one model tier to run on.' : 'Give the grid at least one axis in the axes text.' }
+      return { ok: false, sentence: kind === 'agent' ? 'Pick at least one model tier to run on.' : 'Add at least one axis row so the grid has something to vary.' }
     }
-    const axes = parseAxes(axesRaw)
+    return { ok: true, axesRaw }
+  }
+
+  /* The living answer under the builder: what this grid will run, before Save
+     is ever pressed. A refusal renders its sentence here instead, while the
+     field that caused it is still under the person's hands. */
+  function updateDesignerPreview(form) {
+    const preview = form.querySelector('[data-exp-preview]')
+    if (!preview) return
+    const grid = designerGrid(form)
+    if (!grid.ok) {
+      preview.innerHTML = `<p class="research-queue-form-status">${esc(grid.sentence)}</p>`
+      return
+    }
+    const model = gridRunPreview(grid.axesRaw, { replicates: Number(form.elements.runsPerCell.value) || 1 })
+    if (!model.ok) {
+      preview.innerHTML = `<p class="research-queue-form-status">${esc(model.sentence)}</p>`
+      return
+    }
+    preview.innerHTML = `
+      <p class="research-designer-hint">This grid makes ${model.runCount} ${model.runCount === 1 ? 'run' : 'runs'}:</p>
+      ${model.labels.map(label => `<span class="research-cell">${esc(label)}</span>`).join('')}
+      ${model.more > 0 ? `<span class="research-designer-hint">and ${model.more} more</span>` : ''}`
+  }
+
+  /* One meaning at a time: the detail area's label and placeholder follow the
+     runner choice. Only those two attributes re-render; the field keeps its
+     name, its text, and the submit handler that reads it. */
+  function syncRunnerDetail(form) {
+    const copy = RUNNER_DETAIL_COPY[form.elements.runnerKind.value] || RUNNER_DETAIL_COPY.agent
+    const label = form.querySelector('[data-runner-detail-label]')
+    if (label) label.textContent = copy
+    form.elements.runnerDetail.placeholder = copy
+  }
+
+  function parseDesignerForm(form) {
+    const grid = designerGrid(form)
+    if (!grid.ok) return grid
+    const kind = form.elements.runnerKind.value
+    const detail = form.elements.runnerDetail.value.trim()
+    const axes = parseAxes(grid.axesRaw)
     if (!axes.ok) return axes
     let runner
     if (kind === 'agent') runner = parseRunner({ kind, briefTemplate: detail })
@@ -962,12 +1103,9 @@ export function researchView() {
       runner = parseRunner({ kind, command: command || '', args })
     } else runner = parseRunner({ kind, url: detail })
     if (!runner.ok) return runner
-    let schemaRaw
-    if (form.elements.resultColumns.value.trim()) {
-      try { schemaRaw = JSON.parse(form.elements.resultColumns.value) }
-      catch { return { ok: false, sentence: 'The result columns did not read as an object.' } }
-    }
-    const resultSchema = parseResultSchema(schemaRaw)
+    const columns = designerResultColumns(form)
+    if (!columns.ok) return columns
+    const resultSchema = parseResultSchema(columns.schemaRaw)
     if (!resultSchema.ok) return resultSchema
     return {
       ok: true,
@@ -1059,6 +1197,44 @@ export function researchView() {
       seedExperiments({ experiments: result.next.experiments, damaged: false })
       renderExperimentModules()
     }
+  })
+
+  /* Builder rows come and go in place — only the preview re-renders, so a
+     half-typed field never loses its focus to a repaint. */
+  moduleEl('designer').addEventListener('click', event => {
+    const form = event.target?.closest?.('[data-exp-form]')
+    if (!form) return
+    if (event.target.hasAttribute('data-axis-add')) {
+      form.querySelector('[data-axis-rows]').insertAdjacentHTML('beforeend', axisRowMarkup())
+      form.querySelector('[data-axis-rows] [data-axis-row]:last-child [data-axis-name]')?.focus()
+      updateDesignerPreview(form)
+      return
+    }
+    if (event.target.hasAttribute('data-axis-remove')) {
+      event.target.closest('[data-axis-row]')?.remove()
+      updateDesignerPreview(form)
+      return
+    }
+    if (event.target.hasAttribute('data-col-add')) {
+      form.querySelector('[data-col-rows]').insertAdjacentHTML('beforeend', columnRowMarkup())
+      form.querySelector('[data-col-rows] [data-col-row]:last-child [data-col-name]')?.focus()
+      return
+    }
+    if (event.target.hasAttribute('data-col-remove')) {
+      event.target.closest('[data-col-row]')?.remove()
+    }
+  })
+
+  moduleEl('designer').addEventListener('input', event => {
+    const form = event.target?.closest?.('[data-exp-form]')
+    if (form) updateDesignerPreview(form)
+  })
+
+  moduleEl('designer').addEventListener('change', event => {
+    const form = event.target?.closest?.('[data-exp-form]')
+    if (!form) return
+    if (event.target.name === 'runnerKind') syncRunnerDetail(form)
+    updateDesignerPreview(form)
   })
 
   moduleEl('results').addEventListener('click', async event => {
@@ -1182,20 +1358,50 @@ export function researchView() {
     renderServiceModules()
   })
 
-  projectNewBtn.addEventListener('click', async () => {
-    const name = window.prompt?.('Name the new project.')
-    if (typeof name !== 'string' || name.trim().length === 0) return
-    projectNewBtn.disabled = true
+  /* An inline name field, not window.prompt: Electron throws on prompt(), so
+     the packaged app's New-project click died in the handler — the walkthrough
+     harness caught it because a human's click path is exactly what it drives. */
+  const projectNewForm = el(`
+    <span class="research-project-new" data-project-new-form hidden>
+      <input type="text" maxlength="120" placeholder="Name the new project." aria-label="New project name" data-project-new-name/>
+      <button type="button" data-project-new-save>Create</button>
+      <button type="button" data-project-new-cancel>Cancel</button>
+    </span>`)
+  projectNewBtn.after(projectNewForm)
+  const projectNewName = projectNewForm.querySelector('[data-project-new-name]')
+
+  function setProjectFormOpen(open) {
+    projectNewForm.hidden = !open
+    projectNewBtn.hidden = open || !service?.ok
+    if (open) projectNewName.focus()
+  }
+
+  projectNewBtn.addEventListener('click', () => setProjectFormOpen(true))
+  projectNewForm.querySelector('[data-project-new-cancel]').addEventListener('click', () => setProjectFormOpen(false))
+
+  async function createProjectFromForm() {
+    const name = projectNewName.value
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      projectStatus.textContent = 'Name the project first.'
+      return
+    }
+    const saveBtn = projectNewForm.querySelector('[data-project-new-save]')
+    saveBtn.disabled = true
     const saved = await saveProject({ name: name.trim(), enabled: true })
-    projectNewBtn.disabled = false
+    saveBtn.disabled = false
     if (!saved.ok) {
       projectStatus.textContent = `The project was not created — ${saved.reason || 'the research service did not say why'}. Nothing was saved; try once more.`
       return
     }
+    projectNewName.value = ''
+    setProjectFormOpen(false)
     selection = saved.project.projectId
     writeProjectSelection(typeof window === 'undefined' ? null : window.localStorage, selection)
     await refreshServiceSnapshot()
-  })
+  }
+
+  projectNewForm.querySelector('[data-project-new-save]').addEventListener('click', createProjectFromForm)
+  projectNewName.addEventListener('keydown', event => { if (event.key === 'Enter') createProjectFromForm() })
 
   function serviceExperiments() {
     if (!service?.ok) return []
@@ -1343,7 +1549,10 @@ export function researchView() {
       return
     }
     event.target.disabled = false
-    if (status) status.textContent = `That did not happen — ${result?.reason || 'the research service did not answer'}. The worker is unchanged; try once more.`
+    if (status) {
+      const reason = String(result?.reason || 'the research service did not answer').replace(/\.$/, '')
+      status.textContent = `That did not happen — ${reason}. The worker is unchanged; try once more.`
+    }
   })
 
   /* The drill: opening a run reads its checkpoint, files and results once,

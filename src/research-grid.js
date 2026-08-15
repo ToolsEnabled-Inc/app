@@ -186,3 +186,67 @@ export function cellLabel(axes, cell) {
   if (Object.hasOwn(cell, 'replicate')) parts.push(`#${cell.replicate}`)
   return parts.join(' · ')
 }
+
+/**
+ * Compose the designer's axis rows into the object parseAxes reads. A row is
+ * { name, values } with values written as one comma-separated line. An
+ * untouched row is skipped — a blank row is a row nobody used, not a mistake —
+ * while a half-filled row and a name collision are refusals, because an object
+ * key would silently swallow the second of two same-named rows.
+ */
+export function axisRowsToObject(rows) {
+  const axesRaw = {}
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = String(row?.name ?? '').trim()
+    const valuesText = String(row?.values ?? '').trim()
+    if (name.length === 0 && valuesText.length === 0) continue
+    if (name.length === 0) {
+      return { ok: false, sentence: 'One axis row has values but no name. Name it, or clear the row.' }
+    }
+    if (Object.hasOwn(axesRaw, name)) {
+      return { ok: false, sentence: `Two axis rows are both named "${name}". Give each axis its own name.` }
+    }
+    axesRaw[name] = valuesText.split(',').map(value => value.trim()).filter(value => value.length > 0)
+  }
+  return { ok: true, axesRaw }
+}
+
+/**
+ * Compose the designer's result-column rows into the shape parseResultSchema
+ * reads. A row is { name, kind, required }; a nameless row is one nobody used.
+ * No named rows means "keep the standard columns", reported as an absent shape
+ * rather than an empty one so the frozen default applies.
+ */
+export function columnRowsToSchema(rows) {
+  const fields = {}
+  const required = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = String(row?.name ?? '').trim()
+    if (name.length === 0) continue
+    if (Object.hasOwn(fields, name)) {
+      return { ok: false, sentence: `Two result columns are both named "${name}". Give each column its own name.` }
+    }
+    fields[name] = row?.kind
+    if (row?.required === true) required.push(name)
+  }
+  if (Object.keys(fields).length === 0) return { ok: true, schemaRaw: undefined }
+  return { ok: true, schemaRaw: { fields, required } }
+}
+
+/**
+ * What a declared grid will actually run, for the designer's live preview:
+ * the run count with repeats included and the first few cell labels. A parse
+ * refusal passes through unchanged, so the person reads the problem in the
+ * preview before ever pressing Save.
+ */
+export function gridRunPreview(axesRaw, { replicates = 1, limit = 6 } = {}) {
+  const parsed = parseAxes(axesRaw)
+  if (!parsed.ok) return parsed
+  const cells = gridCells(parsed.axes, { replicates })
+  return {
+    ok: true,
+    runCount: cells.length,
+    labels: cells.slice(0, limit).map(cell => cellLabel(parsed.axes, cell)),
+    more: Math.max(0, cells.length - limit),
+  }
+}

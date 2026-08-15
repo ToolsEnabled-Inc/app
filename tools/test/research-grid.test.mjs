@@ -3,10 +3,13 @@ import test from 'node:test'
 
 import {
   DEFAULT_RESULT_SCHEMA,
+  axisRowsToObject,
   cellBrief,
   cellLabel,
+  columnRowsToSchema,
   gridCellCount,
   gridCells,
+  gridRunPreview,
   parseAxes,
   parseResultSchema,
   parseRunner,
@@ -71,6 +74,62 @@ test('result columns parse shallowly with a frozen default', () => {
   assert.deepEqual(parsed.resultSchema.required, ['score'])
   assert.match(parseResultSchema({ fields: { score: 'float' } }).sentence, /string, number, or boolean/)
   assert.match(parseResultSchema({ fields: { score: 'number' }, required: ['missing'] }).sentence, /must be one of the declared fields/)
+})
+
+/* The designer's builders compose through these three, so what they hand the
+   engine is exactly what the engine's own parsers accept or refuse. */
+
+test('axis rows compose into the axes object; blank rows skip, half rows and collisions refuse', () => {
+  const composed = axisRowsToObject([
+    { name: ' style ', values: ' terse , full ' },
+    { name: '', values: '' },
+  ])
+  assert.equal(composed.ok, true)
+  assert.deepEqual(composed.axesRaw, { style: ['terse', 'full'] })
+  assert.equal(parseAxes(composed.axesRaw).ok, true)
+
+  assert.match(axisRowsToObject([{ name: '', values: 'a' }]).sentence, /no name/)
+  assert.match(axisRowsToObject([{ name: 'a', values: 'x' }, { name: 'a', values: 'y' }]).sentence, /own name/,
+    'an object key would silently swallow the second row; the refusal must name the collision')
+  const named = axisRowsToObject([{ name: 'a', values: ' , ' }])
+  assert.equal(named.ok, true)
+  assert.match(parseAxes(named.axesRaw).sentence, /at least one value/,
+    'a named row with no values falls through to the engine refusal, never a silent empty axis')
+  assert.deepEqual(axisRowsToObject(undefined), { ok: true, axesRaw: {} })
+})
+
+test('column rows compose into the result shape, and no named rows means the standard columns', () => {
+  const none = columnRowsToSchema([{ name: ' ', kind: 'number', required: true }])
+  assert.equal(none.ok, true)
+  assert.equal(none.schemaRaw, undefined)
+  assert.equal(parseResultSchema(none.schemaRaw).resultSchema, DEFAULT_RESULT_SCHEMA)
+
+  const composed = columnRowsToSchema([
+    { name: ' score ', kind: 'number', required: true },
+    { name: 'note', kind: 'string', required: false },
+  ])
+  assert.equal(composed.ok, true)
+  assert.deepEqual(composed.schemaRaw, { fields: { score: 'number', note: 'string' }, required: ['score'] })
+  assert.equal(parseResultSchema(composed.schemaRaw).ok, true)
+  assert.match(columnRowsToSchema([{ name: 'score', kind: 'number' }, { name: 'score', kind: 'string' }]).sentence, /own name/)
+})
+
+test('the run preview counts repeats, labels the first cells, and passes a refusal through', () => {
+  const model = gridRunPreview({ tier: ['luna'], style: ['terse', 'full'] }, { replicates: 2, limit: 3 })
+  assert.equal(model.ok, true)
+  assert.equal(model.runCount, 4)
+  assert.deepEqual(model.labels, ['luna · terse · #1', 'luna · terse · #2', 'luna · full · #1'])
+  assert.equal(model.more, 1)
+
+  const single = gridRunPreview({ tier: ['luna'] })
+  assert.equal(single.runCount, 1)
+  assert.deepEqual(single.labels, ['luna'])
+  assert.equal(single.more, 0)
+
+  const refused = gridRunPreview({ replicate: ['1'] })
+  assert.equal(refused.ok, false)
+  assert.match(refused.sentence, /reserved for the repeat counter/,
+    'the preview shows the engine sentence, so the person reads the problem before Save')
 })
 
 test('a brief substitutes every axis token and refuses an unknown one', () => {

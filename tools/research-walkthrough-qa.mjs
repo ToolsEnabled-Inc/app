@@ -307,13 +307,15 @@ async function drive(executable, scratch) {
       !(await text('[data-research-designer]')).includes('Sign in to design experiments'))
 
     /* ----- 5. a project, through the page's own New-project flow -----
-       window.prompt throws in Electron by design; the page reaches for it, so
-       the walkthrough supplies one BEFORE the click, exactly as a wrapper
-       dialog would. */
+       window.prompt throws in Electron by design, so the page carries its own
+       inline name field; this drives it the way a person does — open, type,
+       press Create. */
 
     await until('the New project control', 'document.querySelector("[data-project-new]") && document.querySelector("[data-project-new]").hidden === false', 120)
-    await evaluate('window.prompt = () => "Walkthrough project"')
     await evaluate('document.querySelector("[data-project-new]").click()')
+    await until('the inline name field', 'document.querySelector("[data-project-new-form]") && document.querySelector("[data-project-new-form]").hidden === false')
+    await evaluate('(() => { document.querySelector("[data-project-new-name]").value = "Walkthrough project"; return true })()')
+    await evaluate('document.querySelector("[data-project-new-save]").click()')
     await until('the created project to be selected',
       '[...document.querySelectorAll("[data-project-select] option")].some(o => o.textContent.includes("Walkthrough project") && o.selected)', 80)
     check('New project creates and selects a project through the page flow', true)
@@ -327,8 +329,14 @@ async function drive(executable, scratch) {
       form.elements.runnerKind.value = 'process'
       form.elements.runnerDetail.value = ${JSON.stringify('cmd.exe\n/c\necho walkthrough')}
       form.elements.datasetPath.value = ''
-      form.elements.moreAxes.value = ${JSON.stringify('{"variant": ["a", "b"]}')}
-      form.elements.resultColumns.value = ''
+      /* The axes builder, driven the way a person drives it: add a row, name
+         the axis, write its values. The Advanced raw fields stay empty, so the
+         row is the one source the submit composes from. */
+      form.querySelector('[data-axis-add]').click()
+      const row = form.querySelector('[data-axis-rows] [data-axis-row]')
+      if (!row) return false
+      row.querySelector('[data-axis-name]').value = 'variant'
+      row.querySelector('[data-axis-values]').value = 'a, b'
       form.elements.runsPerCell.value = '1'
       form.requestSubmit()
       return true
