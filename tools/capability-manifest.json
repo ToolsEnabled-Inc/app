@@ -171,7 +171,8 @@
   "spawnedPrograms": [
     "src/job-runner.js",
     "tools/lane-run.js",
-    "sidecars/local-coder/bin/overnight-advisory-worker.js"
+    "sidecars/local-coder/bin/overnight-advisory-worker.js",
+    "tools/research-runs-worker.js"
   ],
   "neutralDefaults": [
     "config/service-registry.json",
@@ -221,12 +222,16 @@
     }
   ],
   "$comment_pinnedSource": [
-    "The 1.0.7 payload is staged from engine ref f1cc018 -- the",
-    "free-cut/r4r5-bridge-and-pin commit: engine 1328292 plus the research",
-    "bench bridge routes (task-submit/claim/get/list, role-complete, GET",
-    "local-tiers-status). The adoption from bbbcb3b restored the onboarding",
-    "capability-features/tool-registry dynamicRequires rows above. What this",
-    "adoption deliberately does NOT do yet: offer claude or local tiers on",
+    "The payload is staged from engine ref c7cbaa0 -- coordinator/r1161",
+    "merged with lane/research-subsystem: the f1cc018 lineage (engine",
+    "1328292, research-bench routes, unrestricted-tier MCP parity) plus the",
+    "full research subsystem: ten research-* bridge actions, the",
+    "ResearchControl provider, the reserved research-runs queue and its",
+    "worker (spawnedPrograms gains tools/research-runs-worker.js -- spawned",
+    "by src/lib/providers/research-runs-runtime.js, unreachable by the",
+    "require() walk exactly like the overnight sidecar beside it), eleven",
+    "research.* MCP tools, and the four research settings rows.",
+    "Standing adoption notes: offer claude or local tiers on",
     "the interactive tree. The engine's ACP claude path runs on a fresh",
     "temp CLAUDE_CONFIG_DIR with no login state and refuses a model thread",
     "option, so an interactive claude start needs the auth-source question",
