@@ -413,6 +413,13 @@
 .research-cell.is-finished { color: var(--ink); }
 .research-cell.is-failed { border-style: dashed; color: var(--ink-3); }
 .research-cell.is-queued { border-style: dotted; color: var(--ink-2); }
+.research-project-bar { display: inline-flex; align-items: center; gap: var(--s2); }
+.research-assign-control { display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.research-run-drill { border: 1px solid var(--line); border-radius: 6px; padding: var(--s1) var(--s2); margin: var(--s1) 0; }
+.research-run-drill summary { cursor: pointer; color: var(--ink-2); }
+.research-run-drill-body { padding-top: var(--s1); }
+.research-run-drill-files { margin: var(--s1) 0 0; padding-left: var(--s4); color: var(--ink-2); }
+.research-result-chart { height: 220px; margin-top: var(--s2); }
 .research-results-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
 .research-results-exp:first-child { border-top: none; }
 .research-results-exp h3 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 610; }

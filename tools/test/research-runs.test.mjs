@@ -3,14 +3,17 @@ import test from 'node:test'
 
 import {
   chartableColumn,
+  readRun,
   readRuns,
   resultTableModel,
   resultsExport,
   runBoardModel,
+  runDrillModel,
   runIsTerminal,
   runStateWord,
   submitRun,
 } from '../../src/research-runs.js'
+import { chartRows } from '../../src/research-result-charts.js'
 
 /* The board models: bridge-down is carried as a sentence beside the last
    knowledge, tables are generic axis-led columns, numbers stay numbers. */
@@ -73,6 +76,55 @@ test('reads pass the bridge envelope through and validate shape', async () => {
     return { ok: true, receipt: { runs: [] } }
   } })
   assert.equal(good.ok, true)
+})
+
+test('the drill model states every absence instead of rendering it empty', () => {
+  const bare = runDrillModel({ run: { runId: 'rr-1', params: { a: 'x' }, task: { status: 'queued' } } })
+  assert.equal(bare.stateWord, 'queued')
+  assert.match(bare.checkpointSummary, /No progress note/)
+  assert.match(bare.artifactsSentence, /has not been read/)
+  assert.equal(bare.errorSentence, null)
+
+  const full = runDrillModel({
+    run: {
+      runId: 'rr-2', params: { a: 'x' }, artifactDir: 'state/research/p/e/rr-2',
+      artifacts: [{ name: 'out.json', bytes: 7 }], artifactsTruncated: false,
+      task: { status: 'failed', error: { code: 'RESEARCH_RUN_TIMEOUT', message: 'The declared command exceeded its limit and was stopped.' }, latestCheckpoint: { checkpoint: { summary: 'Runner finished; collecting results.' } } },
+    },
+    results: [{ record: { n: 1 } }],
+  })
+  assert.equal(full.checkpointSummary, 'Runner finished; collecting results.')
+  assert.match(full.errorSentence, /exceeded its limit/)
+  assert.match(full.artifactsSentence, /1 file\./)
+  assert.equal(full.resultCount, 1)
+
+  const unreadable = runDrillModel({ run: { runId: 'rr-3', params: {}, artifacts: null, artifactsNote: 'The artifact folder could not be read from here.', task: { status: 'succeeded' } } })
+  assert.match(unreadable.artifactsSentence, /could not be read/)
+})
+
+test('readRun unwraps the single-run read and names an absent run', async () => {
+  const good = await readRun('rr-9', { postAction: async (action, body) => {
+    assert.equal(body.runId, 'rr-9')
+    return { ok: true, receipt: { runs: [{ runId: 'rr-9' }] } }
+  } })
+  assert.equal(good.run.runId, 'rr-9')
+  const missing = await readRun('rr-0', { postAction: async () => ({ ok: true, receipt: { runs: [] } }) })
+  assert.equal(missing.code, 'RESEARCH_RUN_NOT_FOUND')
+})
+
+test('chartRows plots only real numbers and labels bars by the other columns', () => {
+  const model = {
+    columns: ['axis_a', 'score'],
+    rows: [
+      { runId: 'rr-1', status: 'succeeded', cells: ['x', 0.5] },
+      { runId: 'rr-2', status: 'succeeded', cells: ['y', null] },
+      { runId: 'rr-3', status: 'succeeded', cells: ['z', 0.9] },
+    ],
+  }
+  const rows = chartRows(model, { name: 'score', index: 1 })
+  assert.equal(rows.length, 2, 'a row without a number is not plotted as zero')
+  assert.deepEqual(rows[0], { label: 'x', value: 0.5 })
+  assert.deepEqual(rows[1], { label: 'z', value: 0.9 })
 })
 
 test('submitRun carries the inline spec on first submit and returns the durable run', async () => {

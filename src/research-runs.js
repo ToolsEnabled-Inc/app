@@ -34,6 +34,15 @@ export async function readRuns(experimentId, { postAction = postBridgeAction } =
   return { ok: true, runs }
 }
 
+/** The single-run drill read: carries the checkpoint body and artifact listing. */
+export async function readRun(runId, { postAction = postBridgeAction } = {}) {
+  const result = await postAction('research-runs', { runId })
+  if (result?.ok !== true) return result ?? { ok: false, reason: 'the research service did not answer' }
+  const run = Array.isArray(result.receipt?.runs) ? result.receipt.runs[0] : null
+  if (!run) return { ok: false, reason: 'the research service has no run by that name', code: 'RESEARCH_RUN_NOT_FOUND' }
+  return { ok: true, run }
+}
+
 export async function readResults(runId, { postAction = postBridgeAction } = {}) {
   const result = await postAction('research-results', { runId })
   if (result?.ok !== true) return result ?? { ok: false, reason: 'the research service did not answer' }
@@ -125,6 +134,36 @@ export function resultsExport(model, format) {
   const lines = [['runId', 'status', ...model.columns]]
   for (const row of model.rows) lines.push([row.runId, row.status, ...row.cells])
   return lines.map(line => line.map(escape).join(',')).join('\n')
+}
+
+/**
+ * The drill-in model for one run: everything a person opens a run to learn,
+ * as plain words. `read` is the single-run service answer (which carries the
+ * checkpoint body and the bounded artifact listing); `results` that run's
+ * records. Absence is stated, never rendered as empty.
+ */
+export function runDrillModel({ run, results = [] }) {
+  const checkpoint = run?.task?.latestCheckpoint?.checkpoint || null
+  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts : null
+  return {
+    runId: run?.runId || 'unknown',
+    stateWord: runStateWord(run?.task?.status),
+    params: run?.params && typeof run.params === 'object' ? run.params : {},
+    checkpointSummary: checkpoint && typeof checkpoint.summary === 'string' && checkpoint.summary.length > 0
+      ? checkpoint.summary
+      : 'No progress note has been written yet.',
+    errorSentence: run?.task?.error
+      ? `${run.task.error.message || 'It stopped without a message.'}`
+      : null,
+    artifacts,
+    artifactsSentence: artifacts === null
+      ? (run?.artifactsNote || 'The artifact folder has not been read.')
+      : artifacts.length === 0
+        ? 'The run has produced no files yet.'
+        : `${artifacts.length} file${artifacts.length === 1 ? '' : 's'}${run?.artifactsTruncated ? ', showing the first fifty' : ''}.`,
+    resultCount: results.length,
+    artifactDir: typeof run?.artifactDir === 'string' ? run.artifactDir : null,
+  }
 }
 
 /** The first declared numeric column with at least one number in the table. */
