@@ -1027,6 +1027,13 @@ export function researchView() {
           return
         }
         renderExperimentModules()
+        /* A refused cell stays 'designed' and the first refusal sentence rides
+           back on an ok-shaped outcome (submitExperimentRuns). Dropping it here
+           made a settings-gate hold LOOK like a successful submit: the board
+           re-rendered, nothing was queued, and no sentence said why. The
+           designer's own status line says it, after the re-render that would
+           otherwise wipe it. */
+        if (outcome.sentence) { const holdStatus = moduleEl('designer').querySelector('[data-exp-form-status]'); if (holdStatus) holdStatus.textContent = outcome.sentence }
         refreshServiceSnapshot()
         return
       }

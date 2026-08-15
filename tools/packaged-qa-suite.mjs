@@ -137,6 +137,14 @@ const SETTINGS = new Map([
      cut to the Windows system directories and the profile directories are
      empty, so the start travels the whole way and stops at the last gate. */
   ['agent-start-flow-qa.mjs', { runner: 'node', timeoutMs: 300_000 }],
+  /* The research workbench, walked live on a fresh universe: supervised
+     capability layer (with the CURRENT capability/ payload staged in), live
+     page mount, account creation and sign-in, a project and a grid experiment
+     through the page's own controls, and the research.pipeline settings gate
+     refusing the submit AND the worker start by name. Spends nothing by
+     construction: the gate holds every run in the isolated universe, which is
+     precisely what it asserts. */
+  ['research-walkthrough-qa.mjs', { runner: 'node', timeoutMs: 900_000 }],
   /* Google sign-in against a LOOPBACK test provider (never Google): stages the
      packaged window, plants a userData test-provider config, and drives the
      button through PKCE, id-token verification, account mint, and restart
