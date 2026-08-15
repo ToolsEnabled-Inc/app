@@ -12,6 +12,11 @@ const MAX_VALUES_PER_AXIS = 24
 const MAX_CELLS = 512
 const AXIS_ID = /^[a-z][a-z0-9_]{0,31}$/
 const MAX_VALUE_CHARS = 120
+// 'replicate' is injected into every cell by the repeat counter and 'dataset'
+// is substituted beside the axis tokens; an axis by either name would be
+// silently overwritten. 'tier' stays legal — it is the reserved-MEANING axis
+// the designer builds from the tier checkboxes.
+const RESERVED_AXIS_IDS = new Set(['replicate', 'dataset'])
 
 /**
  * Parse a declared axes object: { axisId: [value, ...], ... }.
@@ -29,6 +34,14 @@ export function parseAxes(value) {
   for (const name of names) {
     if (!AXIS_ID.test(name)) {
       return { ok: false, sentence: `"${name}" cannot name an axis — use a short lowercase name like model or effort, letters and digits only.` }
+    }
+    if (RESERVED_AXIS_IDS.has(name)) {
+      return {
+        ok: false,
+        sentence: name === 'replicate'
+          ? '"replicate" is reserved for the repeat counter — pick another axis name.'
+          : '"dataset" is reserved for the dataset path token — pick another axis name.',
+      }
     }
     const values = value[name]
     if (!Array.isArray(values) || values.length === 0) {

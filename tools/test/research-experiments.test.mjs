@@ -5,7 +5,9 @@ import test from 'node:test'
 
 import {
   EXPERIMENT_COMPUTER_ID,
+  MAX_LOCAL_CELLS,
   buildExperiment,
+  decideDispatch,
   dispatchExperiment,
   experimentsSnapshot,
   parseExperimentsRow,
@@ -13,13 +15,15 @@ import {
   resetExperimentTracking,
   seedExperiments,
   serializeExperimentsRow,
+  submitExperimentRuns,
   workerBrief,
 } from '../../src/research-experiments.js'
 import { createFleetTreeStore, isTreeStoreLive, markTreeStoreLive, safeTreeStorage } from '../../src/fleet-trees.js'
 
-/* The bench's dispatcher: an experiment is a tree of real worker nodes, its
-   results are a bounded account row, and nothing here may write beside a live
-   view's store instance. */
+/* ONE experiment model: a grid with a runner, upgraded from v1 on read,
+   dispatched locally as tree nodes when it is agent-kind and tree-sized, and
+   queued through the research service otherwise. The tree semantics, the
+   bounded account row, and the live-store discipline are v1's, unchanged. */
 
 const ROOT = resolve(import.meta.dirname, '..', '..')
 const read = file => readFileSync(resolve(ROOT, file), 'utf8')
@@ -27,10 +31,10 @@ const read = file => readFileSync(resolve(ROOT, file), 'utf8')
 const EMPTY = Object.freeze({ experiments: [], damaged: false })
 const SPEC = Object.freeze({
   name: 'Tokenizer drift sweep',
-  promptTemplate: 'Read {dataset} and report the drift.',
+  axes: [{ id: 'tier', values: ['luna', 'terra'] }],
+  runner: { kind: 'agent', briefTemplate: 'Read {dataset} and report the drift.' },
+  runsPerCell: 2,
   datasetPath: 'C:/data/drift.jsonl',
-  tiers: ['luna', 'terra'],
-  runsPerTier: 2,
 })
 
 function memoryStorage() {
@@ -45,29 +49,78 @@ function memoryStorage() {
 test('a spec builds bounded cells, and every refusal is a sentence', () => {
   const built = buildExperiment(SPEC, EMPTY)
   assert.equal(built.ok, true)
-  assert.equal(built.experiment.cells.length, 4, 'two tiers times two runs')
+  assert.equal(built.experiment.cells.length, 4, 'two tiers times two repeats')
   assert.ok(built.experiment.cells.every(cell => cell.status === 'designed'))
-  const noTier = buildExperiment({ ...SPEC, tiers: [] }, EMPTY)
+  assert.deepEqual(built.experiment.cells.map(cell => cell.params.tier), ['luna', 'luna', 'terra', 'terra'],
+    'row-major with replicates inner reproduces the v1 cell order exactly')
+
+  const noTier = buildExperiment({ ...SPEC, axes: [{ id: 'style', values: ['a'] }] }, EMPTY)
   assert.equal(noTier.ok, false)
   assert.match(noTier.sentence, /at least one model tier/)
-  const tooWide = buildExperiment({ ...SPEC, tiers: ['a', 'b', 'c'], runsPerTier: 3 }, EMPTY)
-  assert.equal(tooWide.ok, false)
-  assert.match(tooWide.sentence, /at most 8 workers/, 'the tree-bounds cap is stated, not silently truncated')
-  const badRuns = buildExperiment({ ...SPEC, runsPerTier: 0 }, EMPTY)
+  const badRuns = buildExperiment({ ...SPEC, runsPerCell: 0 }, EMPTY)
   assert.equal(badRuns.ok, false)
+  const strayToken = buildExperiment({ ...SPEC, runner: { kind: 'agent', briefTemplate: 'Do {missing_axis}.' } }, EMPTY)
+  assert.equal(strayToken.ok, false)
+  assert.match(strayToken.sentence, /no axis called missing_axis/, 'an unknown token is refused at design, never mid-run')
+})
+
+test('an oversized grid is refused by its measured count, counting repeats', () => {
+  const wide = buildExperiment({
+    ...SPEC,
+    axes: [{ id: 'tier', values: ['luna'] }, { id: 'v', values: Array.from({ length: 24 }, (_x, i) => `v${i}`) }, { id: 'w', values: Array.from({ length: 5 }, (_x, i) => `w${i}`) }],
+    runsPerCell: 5,
+  }, EMPTY)
+  assert.equal(wide.ok, false)
+  assert.match(wide.sentence, /600 runs/, 'the refusal states what it measured, repeats included')
+})
+
+test('decideDispatch: tree-sized agent grids run local, everything else queues under a project', () => {
+  const local = buildExperiment(SPEC, EMPTY).experiment
+  assert.deepEqual(decideDispatch(local), { ok: true, mode: 'local' })
+  assert.equal(local.cells.length <= MAX_LOCAL_CELLS, true)
+
+  const big = buildExperiment({ ...SPEC, axes: [{ id: 'tier', values: ['luna', 'terra', 'sol'] }], runsPerCell: 3 }, EMPTY).experiment
+  assert.equal(big.cells.length, 9)
+  assert.equal(decideDispatch(big).ok, false, 'queue-sized with no project is a refusal, not a guess')
+  assert.match(decideDispatch(big).sentence, /pick one above/)
+  assert.deepEqual(decideDispatch(big, { projectId: 'rp-1234' }), { ok: true, mode: 'queue', projectId: 'rp-1234' })
+
+  const process = buildExperiment({
+    ...SPEC, axes: [{ id: 'n', values: ['1'] }], runsPerCell: 1,
+    runner: { kind: 'process', command: 'node', args: [] },
+  }, EMPTY).experiment
+  assert.equal(decideDispatch(process).ok, false, 'a command never runs from the bench, whatever its size')
+  assert.equal(decideDispatch(process, { projectId: 'rp-1' }).mode, 'queue')
 })
 
 test('the brief substitutes the dataset as TEXT and names the cell', () => {
   const built = buildExperiment(SPEC, EMPTY)
   const brief = workerBrief(built.experiment, built.experiment.cells[0])
   assert.match(brief, /C:\/data\/drift\.jsonl/)
-  assert.match(brief, /luna run 1/)
+  assert.match(brief, /luna · #1/)
   assert.ok(!brief.includes('{dataset}'))
 })
 
-test('the row round-trips and damage is stated', () => {
+test('a v1-upgraded row with a stray token falls back to plain dataset substitution', () => {
+  const v1Raw = JSON.stringify({
+    v: 1,
+    experiments: [{
+      id: 'exp-legacy', name: 'Legacy', promptTemplate: 'Read {dataset} and keep {this} literal.',
+      datasetPath: 'C:/data/x.jsonl', createdAtMs: 5, treeId: null,
+      cells: [{ tier: 'luna', run: 1, status: 'designed', sessionId: null, nodeId: null, startedAtMs: null, endedAtMs: null, replyExcerpt: '' }],
+    }],
+  })
+  const upgraded = parseExperimentsRow(v1Raw).experiments[0]
+  const brief = workerBrief(upgraded, upgraded.cells[0])
+  assert.match(brief, /C:\/data\/x\.jsonl/)
+  assert.match(brief, /\{this\}/, 'a stray token in v1 prose stays literal, exactly as v1 ran it')
+})
+
+test('the row round-trips as v2 and damage is stated', () => {
   const built = buildExperiment(SPEC, EMPTY)
-  const parsed = parseExperimentsRow(serializeExperimentsRow(built.next))
+  const serialized = serializeExperimentsRow(built.next)
+  assert.match(serialized, /"v":2/)
+  const parsed = parseExperimentsRow(serialized)
   assert.equal(parsed.experiments.length, 1)
   assert.equal(parsed.experiments[0].name, SPEC.name)
   assert.equal(parseExperimentsRow('broken').damaged, true)
@@ -76,6 +129,82 @@ test('the row round-trips and damage is stated', () => {
   const removed = removeExperiment(built.next, built.experiment.id)
   assert.equal(removed.ok, true)
   assert.equal(removed.serialized, null)
+})
+
+test('a v1 row upgrades on read: order, status and excerpts preserved, and the upgrade is idempotent', () => {
+  const v1Raw = JSON.stringify({
+    v: 1,
+    experiments: [{
+      id: 'exp-old', name: 'Old sweep', promptTemplate: 'Read {dataset}.',
+      datasetPath: 'C:/data/old.jsonl', createdAtMs: 7, treeId: 'tree-1',
+      cells: [
+        { tier: 'luna', run: 1, status: 'finished', sessionId: 's1', nodeId: 'n1', startedAtMs: 1, endedAtMs: 2, replyExcerpt: 'kept' },
+        { tier: 'luna', run: 2, status: 'failed', sessionId: null, nodeId: 'n2', startedAtMs: 1, endedAtMs: 3, replyExcerpt: 'also kept' },
+        { tier: 'terra', run: 1, status: 'designed', sessionId: null, nodeId: null, startedAtMs: null, endedAtMs: null, replyExcerpt: '' },
+        { tier: 'terra', run: 2, status: 'designed', sessionId: null, nodeId: null, startedAtMs: null, endedAtMs: null, replyExcerpt: '' },
+      ],
+    }],
+  })
+  const upgraded = parseExperimentsRow(v1Raw)
+  assert.equal(upgraded.damaged, false)
+  const experiment = upgraded.experiments[0]
+  assert.deepEqual(experiment.axes, [{ id: 'tier', values: ['luna', 'terra'] }])
+  assert.equal(experiment.runsPerCell, 2)
+  assert.equal(experiment.runner.kind, 'agent')
+  assert.equal(experiment.projectId, null)
+  assert.deepEqual(experiment.cells.map(cell => cell.params), [
+    { tier: 'luna', replicate: 1 }, { tier: 'luna', replicate: 2 },
+    { tier: 'terra', replicate: 1 }, { tier: 'terra', replicate: 2 },
+  ], 'the tracked map indexes into this array; order is load-bearing')
+  assert.deepEqual(experiment.cells.map(cell => cell.status), ['finished', 'failed', 'designed', 'designed'])
+  assert.equal(experiment.cells[0].replyExcerpt, 'kept')
+  const again = parseExperimentsRow(serializeExperimentsRow(upgraded))
+  assert.deepEqual(again.experiments, upgraded.experiments, 're-serializing the upgrade changes nothing')
+})
+
+test('submitExperimentRuns queues designed cells: inline spec first, service id after, refusals honest', async () => {
+  resetExperimentTracking()
+  try {
+    const big = buildExperiment({ ...SPEC, axes: [{ id: 'tier', values: ['luna', 'terra', 'sol'] }], runsPerCell: 3 }, EMPTY)
+    seedExperiments({ experiments: big.next.experiments, damaged: false })
+    const bodies = []
+    let counter = 0
+    const outcome = await submitExperimentRuns(big.experiment.id, {
+      projectId: 'rp-abcd',
+      persist: () => {},
+      submit: async body => {
+        bodies.push(body)
+        counter += 1
+        if (counter === 5) return { ok: false, reason: 'the research pipeline is off' }
+        return { ok: true, disposition: counter === 2 ? 'replay' : 'submitted', run: { runId: `rr-${counter}` }, experiment: { experimentId: 'rx-service' } }
+      },
+    })
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.submitted, 7)
+    assert.equal(outcome.replayed, 1)
+    assert.match(outcome.sentence, /pipeline is off/, 'the refused cell rides back as a sentence, not silence')
+    assert.ok(Object.hasOwn(bodies[0], 'experiment'), 'the first submit registers the declaration inline')
+    assert.ok(bodies.slice(1).every(body => body.experimentId === 'rx-service'),
+      'every later cell submits by the captured service id, never a second inline spec')
+    const cells = experimentsSnapshot().experiments[0].cells
+    assert.equal(cells.filter(cell => cell.status === 'queued').length, 8)
+    assert.equal(cells.filter(cell => cell.status === 'designed').length, 1, 'the refused cell stays designed — the honest state')
+    const paramKeys = new Set(bodies.map(body => JSON.stringify(body.params)))
+    assert.equal(paramKeys.size, bodies.length,
+      'the replicate key keeps every repeat a distinct params hash, or the service would replay them into one run')
+
+    // Resubmitting sends ONLY the remaining designed cell, by service id.
+    bodies.length = 0
+    const retry = await submitExperimentRuns(big.experiment.id, {
+      projectId: 'rp-abcd', persist: () => {},
+      submit: async body => { bodies.push(body); return { ok: true, disposition: 'submitted', run: { runId: 'rr-late' }, experiment: { experimentId: 'rx-service' } } },
+    })
+    assert.equal(bodies.length, 1)
+    assert.equal(bodies[0].experimentId, 'rx-service')
+    assert.equal(retry.submitted, 1)
+  } finally {
+    resetExperimentTracking()
+  }
 })
 
 test('dispatch builds one tree of real nodes and starts one worker per cell', async () => {
@@ -130,7 +259,7 @@ test('a refused start fails its cell with the sentence and the rest continue', a
   const originalWindow = globalThis.window
   globalThis.window = { localStorage: storage, dispatchEvent: () => {}, addEventListener: () => {}, removeEventListener: () => {} }
   try {
-    const built = buildExperiment({ ...SPEC, tiers: ['luna'], runsPerTier: 2 }, EMPTY)
+    const built = buildExperiment({ ...SPEC, axes: [{ id: 'tier', values: ['luna'] }], runsPerCell: 2 }, EMPTY)
     seedExperiments({ experiments: built.next.experiments, damaged: false })
     let calls = 0
     const outcome = await dispatchExperiment(built.experiment.id, {
@@ -150,6 +279,21 @@ test('a refused start fails its cell with the sentence and the rest continue', a
     assert.equal(cells[1].status, 'running')
   } finally {
     globalThis.window = originalWindow
+    resetExperimentTracking()
+  }
+})
+
+test('a queue-sized experiment refuses the local dispatcher by name', async () => {
+  resetExperimentTracking()
+  try {
+    const big = buildExperiment({ ...SPEC, axes: [{ id: 'tier', values: ['luna', 'terra', 'sol'] }], runsPerCell: 3 }, EMPTY)
+    seedExperiments({ experiments: big.next.experiments, damaged: false })
+    const outcome = await dispatchExperiment(big.experiment.id, {
+      agent: null, persist: () => {}, startAgent: async () => ({ ok: true, sessionId: 'never' }),
+    })
+    assert.equal(outcome.ok, false)
+    assert.match(outcome.sentence, /queue/)
+  } finally {
     resetExperimentTracking()
   }
 })
@@ -181,4 +325,5 @@ test('the module files the tree ONLY when no view store is live, and the view wi
   for (const hook of ['data-exp-form', 'data-exp-run', 'data-results-csv', 'data-results-json']) {
     assert.match(view, new RegExp(hook), `the bench lost its ${hook} control`)
   }
+  assert.ok(!view.includes('data-grid-form'), 'the second designer form is gone; one form designs every experiment')
 })

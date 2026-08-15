@@ -34,6 +34,12 @@ test('axes parse into ordered cells, and every refusal is a sentence', () => {
   assert.match(four.sentence, /at most 3 axes/)
 })
 
+test('the reserved axis names are refused with the reason', () => {
+  assert.match(parseAxes({ replicate: ['1', '2'] }).sentence, /reserved for the repeat counter/)
+  assert.match(parseAxes({ dataset: ['a'] }).sentence, /reserved for the dataset path token/)
+  assert.equal(parseAxes({ tier: ['luna'] }).ok, true, 'tier is the reserved-meaning axis and stays legal')
+})
+
 test('replicates multiply cells and carry a replicate field', () => {
   const parsed = parseAxes({ a: ['x', 'y'] })
   const cells = gridCells(parsed.axes, { replicates: 3 })

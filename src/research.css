@@ -412,6 +412,7 @@
 .research-cell.is-running { border-color: color-mix(in oklab, var(--c-coordinator) 45%, transparent); }
 .research-cell.is-finished { color: var(--ink); }
 .research-cell.is-failed { border-style: dashed; color: var(--ink-3); }
+.research-cell.is-queued { border-style: dotted; color: var(--ink-2); }
 .research-results-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
 .research-results-exp:first-child { border-top: none; }
 .research-results-exp h3 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 610; }

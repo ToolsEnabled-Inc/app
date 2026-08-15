@@ -24,15 +24,15 @@ import { createResearchRegistry } from '../research-modules.js'
    this module with every `^import` LINE stripped, so a wrapped import would
    leave its tail behind as garbage. */
 import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
-import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments } from '../research-experiments.js'
+import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, decideDispatch, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments, submitExperimentRuns } from '../research-experiments.js'
 import { localTiersStatus } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
 import { isLiveView } from '../live-flags.js'
 import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
 import { createAssignmentStore } from '../research-assignments.js'
-import { cellLabel, gridCells, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
-import { readResults, readRuns, resultTableModel, resultsExport, runIsTerminal, runStateWord, submitRun } from '../research-runs.js'
+import { parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
+import { readResults, readRuns, resultTableModel, resultsExport, runIsTerminal, runStateWord } from '../research-runs.js'
 import '../research.css'
 
 const RESEARCH_QUEUE_URL = '/data/research-queue.json'
@@ -289,16 +289,21 @@ const SAMPLE_PROJECTION = Object.freeze({
 
 const SAMPLE_EXPERIMENT = Object.freeze({
   id: 'sample-experiment',
-  name: 'Example sweep — two tiers, two runs',
-  promptTemplate: 'Summarize the dataset at {dataset} in three sentences.',
+  name: 'Example sweep — two tiers, two repeats',
+  axes: [{ id: 'tier', values: ['luna', 'terra'] }],
+  runner: { kind: 'agent', briefTemplate: 'Summarize the dataset at {dataset} in three sentences.' },
+  resultSchema: { fields: { answer: 'string' }, required: [] },
+  runsPerCell: 2,
   datasetPath: 'C:\\examples\\dataset.jsonl',
+  projectId: null,
+  serviceExperimentId: null,
   createdAtMs: 0,
   treeId: null,
   cells: [
-    { tier: 'luna', run: 1, status: 'finished', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 41000, replyExcerpt: 'The example dataset holds 200 rows of paired prompts and answers.' },
-    { tier: 'luna', run: 2, status: 'finished', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 38000, replyExcerpt: 'A second pass reads the same 200 rows and agrees with the first.' },
-    { tier: 'terra', run: 1, status: 'failed', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: 12000, replyExcerpt: 'This example cell shows what a refused start looks like.' },
-    { tier: 'terra', run: 2, status: 'running', sessionId: null, nodeId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
+    { params: { tier: 'luna', replicate: 1 }, status: 'finished', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 41000, replyExcerpt: 'The example dataset holds 200 rows of paired prompts and answers.' },
+    { params: { tier: 'luna', replicate: 2 }, status: 'finished', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 38000, replyExcerpt: 'A second pass reads the same 200 rows and agrees with the first.' },
+    { params: { tier: 'terra', replicate: 1 }, status: 'failed', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: 12000, replyExcerpt: 'This example cell shows what a refused start looks like.' },
+    { params: { tier: 'terra', replicate: 2 }, status: 'running', sessionId: null, nodeId: null, runId: null, startedAtMs: 0, endedAtMs: null, replyExcerpt: '' },
   ],
 })
 
@@ -775,7 +780,7 @@ export function researchView() {
     return { ok: true }
   }
 
-  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed' })
+  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed', queued: 'queued' })
 
   function cellDuration(cell) {
     if (!Number.isFinite(cell.startedAtMs) || !Number.isFinite(cell.endedAtMs)) return ''
@@ -785,6 +790,17 @@ export function researchView() {
 
   function tierWord(id) {
     return TIER_CHOICES.find(choice => choice.id === id)?.label || id
+  }
+
+  /* cellLabel with the tier value spelled as its human word. */
+  function cellWords(experiment, cell) {
+    const parts = experiment.axes.map(axis => axis.id === 'tier' ? tierWord(cell.params[axis.id]) : String(cell.params[axis.id]))
+    if (Object.hasOwn(cell.params, 'replicate')) parts.push(`#${cell.params.replicate}`)
+    return parts.join(' · ')
+  }
+
+  function runControlWord(experiment) {
+    return decideDispatch(experiment).mode === 'local' ? 'Run here as sessions' : 'Send to the run queue'
   }
 
   function renderDesigner() {
@@ -806,14 +822,14 @@ export function researchView() {
               <div class="research-report-head">
                 <h3>${esc(experiment.name)}</h3>
                 <dl class="research-report-meta">
-                  <div><dt>cells</dt><dd>${experiment.cells.length}</dd></div>
-                  <div><dt>tiers</dt><dd>${esc([...new Set(experiment.cells.map(cell => cell.tier))].join(', '))}</dd></div>
+                  <div><dt>runs</dt><dd>${experiment.cells.length}</dd></div>
+                  <div><dt>axes</dt><dd>${esc(experiment.axes.map(axis => `${axis.id} (${axis.values.length})`).join(', '))}</dd></div>
                 </dl>
               </div>
-              <div class="research-context"><p>${esc(experiment.promptTemplate.slice(0, 200))}</p></div>
+              <div class="research-context"><p>${esc(experiment.runner.kind === 'agent' ? experiment.runner.briefTemplate.slice(0, 200) : experiment.runner.kind === 'process' ? `Runs a command: ${experiment.runner.command || ''}`.slice(0, 200) : `Calls ${experiment.runner.url || 'a web address'}`.slice(0, 200))}</p></div>
               ${experiment.datasetPath ? `<p class="research-authorization"><strong>Dataset:</strong> ${esc(experiment.datasetPath)}</p>` : ''}
               <div class="research-queue-controls">
-                <button type="button" data-exp-run="${esc(experiment.id)}">Run on the tree</button>
+                <button type="button" data-exp-run="${esc(experiment.id)}">${esc(runControlWord(experiment))}</button>
                 <button type="button" data-exp-remove="${esc(experiment.id)}">Remove</button>
               </div>
             </div>
@@ -821,15 +837,24 @@ export function researchView() {
     host.innerHTML = `
       <form class="research-queue-form" data-exp-form>
         <input name="name" maxlength="120" placeholder="Name this experiment." aria-label="Experiment name"/>
-        <textarea name="promptTemplate" maxlength="2000" rows="3" placeholder="The task each worker runs. Write {dataset} where the dataset path belongs." aria-label="Task template"></textarea>
+        <label class="research-popover-row">Runner
+          <select name="runnerKind" aria-label="Runner kind">
+            <option value="agent">Sessions</option>
+            <option value="process">A command</option>
+            <option value="http">A web address</option>
+          </select>
+        </label>
+        <textarea name="runnerDetail" maxlength="2000" rows="3" placeholder="Sessions: the task each one runs, with {axis} tokens and {dataset} where values belong. A command: the command, then each argument on its own line. A web address: the https address." aria-label="What runs"></textarea>
         <input name="datasetPath" maxlength="400" placeholder="Dataset path on this computer, if the task reads one. Workers read it under their own permissions." aria-label="Dataset path"/>
         <div class="research-designer-tiers" role="group" aria-label="Model tiers">
           ${TIER_CHOICES.map(choice => `
             <label class="research-popover-row"><input type="checkbox" name="tier" value="${esc(choice.id)}" ${choice.id === DEFAULT_TIER ? 'checked' : ''}/><span>${esc(choice.label)}</span></label>`).join('')}
         </div>
+        <textarea name="moreAxes" rows="2" placeholder='More axes, optional, one object: {"prompt_style": ["terse", "full"]}' aria-label="More axes"></textarea>
+        <input name="resultColumns" placeholder='Result columns, optional: {"fields": {"score": "number"}, "required": ["score"]}' aria-label="Result columns"/>
         <div class="research-queue-form-row">
-          <label class="research-popover-row">Runs per tier
-            <select name="runsPerTier"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+          <label class="research-popover-row">Repeats
+            <select name="runsPerCell"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
           </label>
           <button type="submit">Save the experiment</button>
           <span class="research-queue-form-status" data-exp-form-status role="status"></span>
@@ -852,9 +877,9 @@ export function researchView() {
         <h3>${esc(experiment.name)}</h3>
         <div class="research-runboard-cells">
           ${experiment.cells.map(cell => `
-            <span class="research-cell is-${esc(cell.status)}">${esc(tierWord(cell.tier))} · run ${cell.run} · ${esc(CELL_WORD[cell.status] || cell.status)}${cellDuration(cell) ? ` · ${cellDuration(cell)}` : ''}</span>`).join('')}
+            <span class="research-cell is-${esc(cell.status)}">${esc(cellWords(experiment, cell))} · ${esc(CELL_WORD[cell.status] || cell.status)}${cellDuration(cell) ? ` · ${cellDuration(cell)}` : ''}</span>`).join('')}
         </div>
-        <p class="research-observed-empty">The workers are nodes on the computers page — watch them stream there.</p>
+        <p class="research-observed-empty">Session workers are nodes on the computers page; queued runs report in the service board below.</p>
       </div>`).join('')
   }
 
@@ -877,10 +902,10 @@ export function researchView() {
           </div>
         </div>
         <div class="research-results-scroll"><table class="research-results-table">
-          <thead><tr><th>tier</th><th>run</th><th>state</th><th>took</th><th>answer</th></tr></thead>
+          <thead><tr>${experiment.axes.map(axis => `<th>${esc(axis.id)}</th>`).join('')}<th>repeat</th><th>state</th><th>took</th><th>answer</th></tr></thead>
           <tbody>
             ${experiment.cells.map(cell => `
-              <tr><td>${esc(cell.tier)}</td><td>${cell.run}</td><td>${esc(cell.status)}</td><td>${esc(cellDuration(cell) || '—')}</td><td>${esc(cell.replyExcerpt || '—')}</td></tr>`).join('')}
+              <tr>${experiment.axes.map(axis => `<td>${esc(cell.params[axis.id] ?? '—')}</td>`).join('')}<td>${cell.params.replicate ?? 1}</td><td>${esc(cell.status)}</td><td>${esc(cellDuration(cell) || '—')}</td><td>${esc(cell.replyExcerpt || '—')}</td></tr>`).join('')}
           </tbody>
         </table></div>
         <p class="research-queue-form-status" data-results-status="${esc(experiment.id)}" role="status"></p>
@@ -888,12 +913,15 @@ export function researchView() {
   }
 
   function experimentExport(experiment, format) {
+    const axisNames = experiment.axes.map(axis => axis.id)
     if (format === 'json') {
-      return JSON.stringify({ name: experiment.name, cells: experiment.cells.map(cell => ({ tier: cell.tier, run: cell.run, status: cell.status, startedAtMs: cell.startedAtMs, endedAtMs: cell.endedAtMs, reply: cell.replyExcerpt })) }, null, 2)
+      return JSON.stringify({ name: experiment.name, cells: experiment.cells.map(cell => ({ ...cell.params, status: cell.status, startedAtMs: cell.startedAtMs, endedAtMs: cell.endedAtMs, reply: cell.replyExcerpt })) }, null, 2)
     }
     const escape = value => `"${String(value ?? '').replace(/"/g, '""')}"`
-    const rows = [['tier', 'run', 'status', 'startedAtMs', 'endedAtMs', 'reply']]
-    for (const cell of experiment.cells) rows.push([cell.tier, cell.run, cell.status, cell.startedAtMs, cell.endedAtMs, cell.replyExcerpt])
+    const rows = [[...axisNames, 'replicate', 'status', 'startedAtMs', 'endedAtMs', 'reply']]
+    for (const cell of experiment.cells) {
+      rows.push([...axisNames.map(name => cell.params[name]), cell.params.replicate ?? 1, cell.status, cell.startedAtMs, cell.endedAtMs, cell.replyExcerpt])
+    }
     return rows.map(row => row.map(escape).join(',')).join('\n')
   }
 
@@ -903,17 +931,68 @@ export function researchView() {
     renderResults()
   }
 
+  /* The one designer form. Tier checkboxes build the reserved-meaning 'tier'
+     axis for session runs; the optional JSON adds further axes; the runner
+     select decides what the detail text IS. Everything parses through the
+     grid engine before buildExperiment sees it. */
+  function parseDesignerForm(form) {
+    let extra = {}
+    if (form.elements.moreAxes.value.trim()) {
+      try { extra = JSON.parse(form.elements.moreAxes.value) }
+      catch { return { ok: false, sentence: 'The extra axes did not read as an object. Write them like {"prompt_style": ["terse", "full"]}.' } }
+      if (extra && Object.hasOwn(extra, 'tier')) {
+        return { ok: false, sentence: 'Tier values come from the checkboxes above — take "tier" out of the axes text.' }
+      }
+    }
+    const checkedTiers = [...form.querySelectorAll('input[name="tier"]:checked')].map(input => input.value)
+    const kind = form.elements.runnerKind.value
+    const detail = form.elements.runnerDetail.value.trim()
+    const axesRaw = kind === 'agent' && checkedTiers.length > 0 ? { tier: checkedTiers, ...extra } : extra
+    if (Object.keys(axesRaw).length === 0) {
+      return { ok: false, sentence: kind === 'agent' ? 'Pick at least one model tier to run on.' : 'Give the grid at least one axis in the axes text.' }
+    }
+    const axes = parseAxes(axesRaw)
+    if (!axes.ok) return axes
+    let runner
+    if (kind === 'agent') runner = parseRunner({ kind, briefTemplate: detail })
+    else if (kind === 'process') {
+      const [command, ...args] = detail.split('\n').map(line => line.trim()).filter(Boolean)
+      runner = parseRunner({ kind, command: command || '', args })
+    } else runner = parseRunner({ kind, url: detail })
+    if (!runner.ok) return runner
+    let schemaRaw
+    if (form.elements.resultColumns.value.trim()) {
+      try { schemaRaw = JSON.parse(form.elements.resultColumns.value) }
+      catch { return { ok: false, sentence: 'The result columns did not read as an object.' } }
+    }
+    const resultSchema = parseResultSchema(schemaRaw)
+    if (!resultSchema.ok) return resultSchema
+    return {
+      ok: true,
+      name: form.elements.name.value,
+      axes: axes.axes,
+      runner: runner.runner,
+      resultSchema: resultSchema.resultSchema,
+      runsPerCell: Number(form.elements.runsPerCell.value),
+      datasetPath: form.elements.datasetPath.value,
+    }
+  }
+
   moduleEl('designer').addEventListener('submit', async event => {
     if (!event.target?.hasAttribute?.('data-exp-form')) return
     event.preventDefault()
     const form = event.target
     const status = form.querySelector('[data-exp-form-status]')
+    const parsed = parseDesignerForm(form)
+    if (!parsed.ok) { if (status) status.textContent = parsed.sentence; return }
     const built = buildExperiment({
-      name: form.elements.name.value,
-      promptTemplate: form.elements.promptTemplate.value,
-      datasetPath: form.elements.datasetPath.value,
-      tiers: [...form.querySelectorAll('input[name="tier"]:checked')].map(input => input.value),
-      runsPerTier: Number(form.elements.runsPerTier.value),
+      name: parsed.name,
+      axes: parsed.axes,
+      runner: parsed.runner,
+      resultSchema: parsed.resultSchema,
+      runsPerCell: parsed.runsPerCell,
+      datasetPath: parsed.datasetPath,
+      projectId: selectedProject()?.projectId ?? null,
     }, experimentsSnapshot())
     if (!built.ok) { if (status) status.textContent = built.sentence; return }
     const saved = await persistExperiments(built.serialized)
@@ -926,7 +1005,29 @@ export function researchView() {
     const runId = event.target?.dataset?.expRun
     const removeId = event.target?.dataset?.expRemove
     if (runId) {
+      const experiment = experimentsSnapshot().experiments.find(candidate => candidate.id === runId)
+      if (!experiment) return
+      const decision = decideDispatch(experiment, { projectId: selectedProject()?.projectId ?? experiment.projectId })
+      if (!decision.ok) {
+        event.target.textContent = decision.sentence
+        return
+      }
       event.target.disabled = true
+      if (decision.mode === 'queue') {
+        event.target.textContent = 'Submitting to the run queue…'
+        const outcome = await submitExperimentRuns(runId, {
+          persist: serialized => account.putSetting(RESEARCH_EXPERIMENTS_ROW_KEY, serialized),
+          projectId: decision.projectId,
+        })
+        if (!outcome.ok) {
+          event.target.disabled = false
+          event.target.textContent = outcome.sentence
+          return
+        }
+        renderExperimentModules()
+        refreshServiceSnapshot()
+        return
+      }
       event.target.textContent = 'Starting the workers…'
       const outcome = await dispatchExperiment(runId, {
         agent: typeof window === 'undefined' ? null : window.mcAgent,
@@ -1136,123 +1237,6 @@ export function researchView() {
     renderSessionsModule()
   })
 
-  /* ---------- the grid designer (queued runs) ----------
-     A grid experiment is registered durably on its first submit: the full
-     declaration rides with each run and the service matches it by
-     configuration, so a repeat submit replays instead of duplicating. */
-
-  function gridFormMarkup() {
-    const project = selectedProject()
-    if (!service?.ok) return ''
-    if (!project) {
-      return `
-        <div class="research-grid-designer" data-grid-designer>
-          <h3>Grid experiment</h3>
-          <p class="research-observed-empty">Pick one project above to submit grid runs — queued work always belongs to a project.</p>
-        </div>`
-    }
-    return `
-      <div class="research-grid-designer" data-grid-designer>
-        <h3>Grid experiment</h3>
-        <form class="research-queue-form" data-grid-form>
-          <input name="name" maxlength="120" placeholder="Name this grid experiment." aria-label="Grid experiment name"/>
-          <textarea name="axes" rows="2" placeholder='The axes, one object: {"model": ["a", "b"], "effort": ["low", "high"]}' aria-label="Axes"></textarea>
-          <label class="research-popover-row">Runner
-            <select name="runnerKind" aria-label="Runner kind">
-              <option value="agent">Sessions</option>
-              <option value="process">A command</option>
-              <option value="http">A web address</option>
-            </select>
-          </label>
-          <textarea name="runnerDetail" rows="2" placeholder="Agent: the brief with {axis} tokens. Process: the command then each argument on its own line. Http: the https address." aria-label="Runner detail"></textarea>
-          <input name="resultColumns" placeholder='Result columns, optional: {"fields": {"score": "number"}, "required": ["score"]}' aria-label="Result columns"/>
-          <div class="research-queue-form-row">
-            <label class="research-popover-row">Repeats
-              <select name="replicates"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select>
-            </label>
-            <button type="submit">Submit the grid to the run queue</button>
-            <span class="research-queue-form-status" data-grid-form-status role="status"></span>
-          </div>
-        </form>
-      </div>`
-  }
-
-  function parseGridForm(form) {
-    const name = form.elements.name.value.trim()
-    if (name.length === 0 || name.length > 120) return { ok: false, sentence: 'Name the grid experiment first.' }
-    let axesRaw
-    try { axesRaw = JSON.parse(form.elements.axes.value) }
-    catch { return { ok: false, sentence: 'The axes did not read as an object. Write them like {"model": ["a", "b"]}.' } }
-    const axes = parseAxes(axesRaw)
-    if (!axes.ok) return axes
-    const kind = form.elements.runnerKind.value
-    const detail = form.elements.runnerDetail.value.trim()
-    let runner
-    if (kind === 'agent') runner = parseRunner({ kind, briefTemplate: detail })
-    else if (kind === 'process') {
-      const [command, ...args] = detail.split('\n').map(line => line.trim()).filter(Boolean)
-      runner = parseRunner({ kind, command: command || '', args })
-    } else runner = parseRunner({ kind, url: detail })
-    if (!runner.ok) return runner
-    let schemaRaw
-    if (form.elements.resultColumns.value.trim()) {
-      try { schemaRaw = JSON.parse(form.elements.resultColumns.value) }
-      catch { return { ok: false, sentence: 'The result columns did not read as an object.' } }
-    }
-    const resultSchema = parseResultSchema(schemaRaw)
-    if (!resultSchema.ok) return resultSchema
-    const replicates = Number(form.elements.replicates.value)
-    return { ok: true, name, axes: axes.axes, runner: runner.runner, resultSchema: resultSchema.resultSchema, replicates }
-  }
-
-  function runnerConfigFor(runner) {
-    if (runner.kind === 'agent') return { briefTemplate: runner.briefTemplate }
-    if (runner.kind === 'process') return { command: runner.command, args: runner.args || [], stdin: 'none' }
-    return { url: runner.url }
-  }
-
-  moduleEl('designer').addEventListener('submit', async event => {
-    if (!event.target?.hasAttribute?.('data-grid-form')) return
-    event.preventDefault()
-    const form = event.target
-    const status = form.querySelector('[data-grid-form-status]')
-    const project = selectedProject()
-    if (!project) { if (status) status.textContent = 'Pick one project above first.'; return }
-    const parsed = parseGridForm(form)
-    if (!parsed.ok) { if (status) status.textContent = parsed.sentence; return }
-    const spec = {
-      projectId: project.projectId,
-      name: parsed.name,
-      runnerKind: parsed.runner.kind,
-      runnerConfig: runnerConfigFor(parsed.runner),
-      resultSchema: parsed.resultSchema,
-      collector: parsed.runner.kind === 'agent' ? { kind: 'none' } : { kind: 'stdout-json', recordKind: 'summary' },
-    }
-    const cells = gridCells(parsed.axes, { replicates: parsed.replicates })
-    if (status) status.textContent = `Submitting ${cells.length} runs.`
-    let submitted = 0
-    let replayed = 0
-    let firstRefusal = null
-    let experimentId = null
-    for (const cell of cells) {
-      const body = experimentId ? { experimentId, params: cell } : { experiment: spec, params: cell }
-      const outcome = await submitRun(body)
-      if (outcome.ok) {
-        experimentId = experimentId || outcome.experiment?.experimentId || null
-        if (outcome.disposition === 'replay') replayed += 1
-        else submitted += 1
-      } else if (!firstRefusal) {
-        firstRefusal = outcome.reason || 'the research service refused a run'
-      }
-    }
-    if (status) {
-      status.textContent = firstRefusal
-        ? `${submitted} submitted and ${replayed} already queued. ${firstRefusal} stopped the rest; fix that, then submit the grid again.`
-        : `${submitted} submitted, ${replayed} already queued. Watch them on the run board.`
-    }
-    await refreshServiceSnapshot()
-  })
-
   /* ---------- the service run board and results ---------- */
 
   async function refreshRuns() {
@@ -1369,23 +1353,9 @@ export function researchView() {
     }
   })
 
-  function renderGridDesigner() {
-    const host = moduleEl('designer').querySelector('[data-research-designer]')
-    if (!host || !service) return
-    let block = host.querySelector('[data-grid-designer]')
-    const markup = gridFormMarkup()
-    if (!markup) { if (block) block.remove(); return }
-    if (block) {
-      block.outerHTML = markup
-    } else {
-      host.insertAdjacentHTML('beforeend', markup)
-    }
-  }
-
   function renderServiceModules() {
     renderProjectBar()
     renderSessionsModule()
-    renderGridDesigner()
     renderServiceRunBoard()
     renderServiceResults()
   }
