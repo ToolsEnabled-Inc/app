@@ -308,7 +308,12 @@ export function parseFleetTrees(value, { computerId = null } = {}) {
     if (entry.name != null && name === null) return EMPTY_FLEET_TREES
     if (!safeStamp(entry.createdAt) || !safeStamp(entry.updatedAt)) return EMPTY_FLEET_TREES
     ids.add(entry.id)
-    trees.push({ id: entry.id, name, createdAt: entry.createdAt, updatedAt: entry.updatedAt })
+    /* profileId is additive and forgiving on purpose: it is a POINTER to a
+       main-process profile store, so a dangling id costs nothing here -- the
+       start path refuses it loudly there. Anything not a plausible id reads
+       as null rather than poisoning the whole record. */
+    const profileId = typeof entry.profileId === 'string' && entry.profileId.length <= 128 ? entry.profileId : null
+    trees.push({ id: entry.id, name, createdAt: entry.createdAt, updatedAt: entry.updatedAt, profileId })
   }
 
   const treeIds = new Set(trees.map(tree => tree.id))
@@ -663,9 +668,27 @@ export function createFleetTreeStore({
       const id = mintId('tree')
       if (id === null) return refuse('Could not make a name for this tree. Try again.')
       const stamp = now()
-      const tree = Object.freeze({ id, name: clean, createdAt: stamp, updatedAt: stamp })
+      const tree = Object.freeze({ id, name: clean, createdAt: stamp, updatedAt: stamp, profileId: null })
       trees.set(id, tree)
       return accept({ tree })
+    },
+
+    /* WHICH PROFILE THIS TREE'S AGENTS START UNDER. A pointer, not a path:
+       the main process owns the folders and refuses dangling ids at start.
+       Null means the product's own workspace, which is what every tree meant
+       before profiles existed. */
+    setTreeProfile(treeId, profileId) {
+      const tree = trees.get(treeId)
+      if (!tree) return refuse('That tree is not on this computer.')
+      const clean = typeof profileId === 'string' && profileId && profileId.length <= 128 ? profileId : null
+      trees.set(treeId, Object.freeze({ ...tree, profileId: clean, updatedAt: now() }))
+      persist()
+      notify()
+      return accept({ treeId, profileId: clean })
+    },
+
+    treeProfile(treeId) {
+      return trees.get(treeId)?.profileId || null
     },
 
     renameTree(treeId, name) {
@@ -924,7 +947,7 @@ export function createFleetTreeStore({
       const id = mintId('tree')
       if (id === null) return refuse('Could not make a name for this tree. Try again.')
       const stamp = now()
-      trees.set(id, Object.freeze({ id, name: null, createdAt: stamp, updatedAt: stamp }))
+      trees.set(id, Object.freeze({ id, name: null, createdAt: stamp, updatedAt: stamp, profileId: null }))
       const sourceTreeId = node.treeId
       for (const movedId of [node.id, ...descendantsOf(node.id)]) {
         const moved = nodes.get(movedId)

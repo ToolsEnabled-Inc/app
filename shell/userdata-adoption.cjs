@@ -152,6 +152,11 @@ const PRODUCT_STATE_ENTRIES = Object.freeze([
      customer loses it. Inert until that lane lands the file; the copy skips
      entries that do not exist. */
   'purchase-catalog.json',
+  /* The person's own session profiles -- names and folders they picked through
+     the OS dialog (iteration 5, W6). Losing this on an upgrade silently sends
+     every "different work stays apart" tree back to the shared workspace,
+     which is the exact pain profiles exist to end. */
+  'session-profiles.json',
   /* The capability layer's own state root, <userData>/capability: state/ (the
      signed audit ledger and the mission bridge's per-boot records), logs/,
      vault/ (the person's credentials), captures/, profiles/, reports/. It moved

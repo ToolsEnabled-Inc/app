@@ -227,6 +227,14 @@ const CRASH_DUMP_DIR = path.join(app.getPath('userData'), CRASH_DUMP_DIR_NAME)
    disagreeing about where the user's work lives. */
 const WORKSPACE_ROOT = path.join(app.getPath('userData'), 'workspace')
 
+/* Session profiles: the person's own named working folders, resolved ONLY in
+   this process. The renderer sends a profileId; shell/session-profiles.cjs
+   holds folders picked through the OS dialog and refuses everything else. */
+const { createSessionProfileStore } = require('./session-profiles.cjs')
+const sessionProfiles = createSessionProfileStore({
+  file: path.join(app.getPath('userData'), 'session-profiles.json'),
+})
+
 /* The renderer's settings, kept where no port can partition them. See
    shell/renderer-prefs.cjs for what was wrong and why this is one file rather
    than a second copy of anything. */
@@ -379,7 +387,7 @@ function parseAgentStart(value) {
   // startSession(), which resolves it, and the compose panel, which must offer
   // it. Shipping any one of them alone leaves a control that looks real and is
   // not, which is the defect f1ce3ec removed three sliders for.
-  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort'])
+  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId'])
   const sessionId = Object.prototype.hasOwnProperty.call(payload, 'sessionId')
     ? payload.sessionId
     : `chat-${randomUUID()}`
@@ -411,6 +419,12 @@ function parseAgentStart(value) {
       )
     }
     result.effort = effort
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'profileId')) {
+    // An ID, never a path: the main-process profile store resolves it after
+    // parse (see mc-agent:start), so a hand-built payload can name a profile
+    // or be refused -- it cannot smuggle a working directory.
+    result.profileId = boundedAgentString(payload.profileId, 'profileId', 128)
   }
   return result
 }
@@ -954,6 +968,22 @@ ipcMain.handle('mc-agent:history', async (event, value) => {
 ipcMain.handle('mc-agent:start', async (event, value) => {
   assertTrustedAgentSender(event)
   const request = parseAgentStart(value)
+  if (request.profileId) {
+    /* Resolved HERE, not in the renderer and not in the host: the store only
+       holds folders the person picked through the OS dialog, and a stale or
+       unknown profile refuses the start loudly instead of spawning an agent
+       somewhere nobody chose. The resolved cwd replaces any renderer-sent
+       one; profileId is authoritative when present. */
+    try {
+      request.cwd = sessionProfiles.resolveCwd(request.profileId)
+    } catch (error) {
+      agentIpcError(
+        'MC_AGENT_' + (typeof error?.code === 'string' ? error.code : 'PROFILE_UNKNOWN'),
+        'That session profile could not be used: pick the folder again in its settings.',
+      )
+    }
+    delete request.profileId
+  }
   if (agentSessions.has(request.sessionId)) {
     agentIpcError('MC_AGENT_SESSION_EXISTS', 'Session already exists: ' + request.sessionId)
   }
@@ -1027,6 +1057,43 @@ ipcMain.handle('mc-agent:send', async (event, value) => {
 /* THE ATTACHMENT PICKER — the only way a file path enters a session's image
    allowlist. A native dialog the person drives; the chosen path is issued to
    exactly this session and refused everywhere else. */
+/* SESSION PROFILES over IPC. list/remove are plain store calls; create runs
+   the OS folder dialog IN THIS PROCESS, so the only way a folder enters the
+   store is the person choosing it in a native picker -- that dialog is the
+   consent boundary the whole design rests on. */
+ipcMain.handle('mc-agent:profiles', (event) => {
+  assertTrustedAgentSender(event)
+  return { ok: true, profiles: sessionProfiles.list() }
+})
+
+ipcMain.handle('mc-agent:profile-create', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['name'])
+    const name = boundedAgentString(payload.name, 'name', 64)
+    const picked = await dialog.showOpenDialog({
+      title: 'Choose the folder agents in this profile work in',
+      properties: ['openDirectory'],
+    })
+    if (picked.canceled || !picked.filePaths.length) return { ok: true, profile: null }
+    const profile = sessionProfiles.create({ name, cwd: picked.filePaths[0] })
+    return { ok: true, profile }
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+ipcMain.handle('mc-agent:profile-remove', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['profileId'])
+    const removed = sessionProfiles.remove(boundedAgentString(payload.profileId, 'profileId', 128))
+    return { ok: true, removed }
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
 ipcMain.handle('mc-agent:pick-attachment', async (event, value) => {
   assertTrustedAgentSender(event)
   try {

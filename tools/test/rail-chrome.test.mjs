@@ -158,16 +158,22 @@ test('the three rail tabs exist and the chat body is first', () => {
   assert.match(view, /class="on" data-rail-tab="chat"/, 'chat is no longer the default tab (owner defect 7: conversation first)')
 })
 
-test('the split view is off by default and view-only', () => {
+test('the split view is off by default, and the second pane is a full tree', () => {
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
   // Absence of the preference is single-pane -- the state every harness
   // contract runs in. Only the literal 'on' enables it.
   assert.match(view, /localStorage\.getItem\(SPLIT_PREF_KEY\) === 'on'/, 'the split default is no longer off-unless-chosen')
-  // The second pane is a viewing pane: no chips, no slots, no drags.
+  /* Iteration 5 reversed the view-only contract on the owner's explicit
+     instruction ("split node should use the exact same tree as the first
+     ones setup"): the second pane carries slots, drags, drops and the
+     compose flow. The ONE thing that stays with pane one is the chip
+     overlay -- window.__mcGraph and the screen-chip harness contracts are
+     singletons. page2-qa green with split OFF remains the acceptance bar. */
   const enable = view.slice(view.indexOf('function enableSplit'), view.indexOf('function disableSplit'))
   assert.match(enable, /screenChips: false/, 'the split pane grew chips; the probe and overlay contracts belong to pane one')
-  assert.match(enable, /emptySlots: false/, 'the split pane offers slots; starting agents belongs to pane one')
-  assert.match(enable, /canDrag: \(\) => false/, 'the split pane accepts drags; editing belongs to pane one')
+  assert.match(enable, /emptySlots: liveMode === true/, 'the split pane lost its slots; it is a viewing pane again, against the owner instruction')
+  assert.match(enable, /onReparent: liveMode \? handleReparent : null/, 'the split pane lost drag-reparenting')
+  assert.match(enable, /buildPaneSwitch\(splitPane, splitGraph\)/, 'the split pane lost its own tree switcher')
   // Teardown kills the pane with the graph.
   assert.match(view, /function clearMountedGraph\(\) \{\n    disableSplit\(\)/, 'clearMountedGraph no longer tears the split pane down first')
 })

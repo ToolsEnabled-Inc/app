@@ -271,6 +271,28 @@ export const MOVE_PANEL = Object.freeze({
   notDraggable: (name) => `${name} is this tree's coordinator and stays at the top. Move its agents instead.`,
 })
 
+/* SESSION PROFILES, in words. A profile is a name and a folder; agents in a
+   tree assigned one wake up in that folder, which is where their instructions
+   live -- so "different onboarding for different work" is a folder choice,
+   said plainly. The renderer never invents or displays a path of its own; the
+   folder in a row is the one the person picked in the system dialog. */
+export const PROFILE_PANEL = Object.freeze({
+  title: 'Works in',
+  help: 'A profile is a name and a folder. Agents in a tree that uses a profile start in that folder and read its instructions — so different kinds of work stay apart.',
+  treeHelp: 'Where agents in THIS TREE start. Applies to agents started after you change it.',
+  productWorkspace: 'The product’s own workspace',
+  none: 'No profiles yet. Name one and pick its folder.',
+  namePlaceholder: 'Name the profile…',
+  add: 'Pick a folder…',
+  remove: 'Remove',
+  nameFirst: 'Name the profile first, then pick its folder.',
+  cancelled: 'No folder was picked, so nothing was saved.',
+  refused: 'That profile could not be saved. Try another name.',
+  needsApp: 'Profiles need the installed app; this window cannot reach it.',
+  assigned: (name) => `Agents in this tree now start in ${name}.`,
+  cleared: 'Agents in this tree now start in the product’s own workspace.',
+})
+
 /* THE ACTIONS PALETTE. Every row is an action this build really performs on
    this node, today. What the product cannot do is one honest sentence in the
    footer, never a disabled control pretending — the temperature-slider rule.

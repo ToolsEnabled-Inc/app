@@ -49,6 +49,7 @@ import { refusalCode } from '../agent-availability-copy.js'
    the whole bridge result over and shows what comes back. */
 import {
   MOVE_PANEL,
+  PROFILE_PANEL,
   PALETTE_PANEL,
   QUEUE_PANEL,
   SAID_PANEL,
@@ -574,7 +575,7 @@ function sendRefusalSentence(result) {
    started through THIS function — the same contract, the same refusal
    sentences, the same four outcome shapes — so a worker node on the tree is
    indistinguishable from one the compose panel started. */
-export async function startAgentForNode({ text, surface, tier, effort }) {
+export async function startAgentForNode({ text, surface, tier, effort, profileId }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -595,9 +596,16 @@ export async function startAgentForNode({ text, surface, tier, effort }) {
        calls rather than one built object, because the fleet-trees suite
        measures every `.start({...})` in this file mechanically and a request
        assembled elsewhere is a call it cannot read. */
-    started = tier && effort ? await bridge.start({ surface, tier, effort })
-      : tier ? await bridge.start({ surface, tier })
-      : await bridge.start({ surface })
+    /* Optional keys ride only when supplied; profileId is an ID the main
+       process resolves against folders the person picked in the OS dialog --
+       the renderer never handles a path. */
+    const startRequest = {
+      surface,
+      ...(tier ? { tier } : {}),
+      ...(effort ? { effort } : {}),
+      ...(profileId ? { profileId } : {}),
+    }
+    started = await bridge.start(startRequest)
   } catch (error) {
     /* A REJECTION IS A REFUSAL WITH ITS CODE IN THE MESSAGE. Electron rebuilds a
        rejected call in this window from the error's name and message; own
@@ -1567,12 +1575,42 @@ export function computersView({ initialComputer = null, navigate }) {
     splitPane = el('<div class="graph-wrap glass graph-pane-2"><div class="computer-tree-canvas"></div></div>')
     graphWrap.insertAdjacentElement('afterend', splitPane)
     root.querySelector('.comp-body')?.classList.add('is-split')
+    /* THE SECOND PANE IS A REAL TREE VIEW (owner, iteration 5: "split node
+       should use the exact same tree as the first ones setup"). Same slots,
+       same drags, same drops, same refusal sentences, same compose flow --
+       everything the first pane offers except the chip overlay, which stays
+       with pane one because window.__mcGraph and the screen-chip harness
+       contracts are singletons. Each pane keeps its own zoom, pan and drilled
+       root: that independence is the reason a split exists. */
     splitGraph = new StaticTreeGraph(splitPane.querySelector('.computer-tree-canvas'), {
       computer: graphComputer(),
       screenChips: false,
-      emptySlots: false,
+      emptySlots: liveMode === true,
       edges: liveMode ? computer.graphEdges : null,
-      canDrag: () => false,
+      onReparent: liveMode ? handleReparent : null,
+      canDrag: agent => Boolean(agent.treeNode) || agent.role !== 'coordinator',
+      onDropRefused: (rule, detail) => {
+        const sentence = typeof MOVE_PANEL[rule] === 'function'
+          ? MOVE_PANEL[rule](detail.name, detail.parent ?? detail.target)
+          : null
+        if (sentence) setOrgStatus(sentence, 'warn')
+      },
+      onDetachToNewTree: (agentId) => {
+        if (!treeStore?.getNode(agentId)) {
+          setOrgStatus(MOVE_PANEL.mixed, 'refuse', { sticky: true })
+          return false
+        }
+        const out = treeStore.detachToNewTree(agentId)
+        if (!out.ok) {
+          setOrgStatus(out.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
+          return false
+        }
+        setOrgStatus(SECOND_TREE.detached(treeNodeName(out.node)), 'ok')
+        return true
+      },
+      canExtend: graph?.canExtend || null,
+      onEmptyPress: graph?.onEmptyPress || null,
+      treeChat: agent => treeChatConfigFor(agent.treeNode),
       onOpenControls: (agent) => {
         if (agent?.treeNode) {
           setOpenTarget(null)
@@ -1582,7 +1620,10 @@ export function computersView({ initialComputer = null, navigate }) {
         setOpenTarget(agent)
         showControls(agent)
       },
+      /* The second pane's own switcher rides its root changes too. */
+      onRootChange: () => refreshTreeSwitch(),
     })
+    buildPaneSwitch(splitPane, splitGraph)
     root.querySelector('.graph-split-btn')?.classList.add('on')
   }
   function disableSplit() {
@@ -1600,7 +1641,45 @@ export function computersView({ initialComputer = null, navigate }) {
      two or more trees: a switcher over one tree is chrome with no decision in
      it. Rebuilt from listTrees() on every store change, so a tree created,
      detached or emptied updates the row without anyone remembering to. */
+  /* A pane's own tree switcher: the same seg the main tools strip carries,
+     built against THAT pane's graph so each side of a split can look at a
+     different tree -- which is the entire point of the split. */
+  function buildPaneSwitch(pane, paneGraph) {
+    if (!pane || !paneGraph || !treeStore) return
+    let host = pane.querySelector('.graph-pane-switch')
+    const trees = treeStore.listTrees()
+    if (trees.length < 2) { host?.remove(); return }
+    if (!host) {
+      host = document.createElement('div')
+      host.className = 'seg graph-tree-switch graph-pane-switch'
+      host.setAttribute('role', 'group')
+      host.setAttribute('aria-label', 'Trees in this pane')
+      pane.prepend(host)
+    }
+    host.innerHTML = ''
+    const current = paneGraph.rootId ? treeStore.getNode(paneGraph.rootId)?.treeId ?? null : null
+    const all = document.createElement('button')
+    all.type = 'button'
+    all.textContent = 'Every tree'
+    all.classList.toggle('on', current === null)
+    all.addEventListener('click', () => { paneGraph.clearRoot(); buildPaneSwitch(pane, paneGraph) })
+    host.appendChild(all)
+    for (const tree of trees) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = treeStore.treeLabel(tree.id)
+      button.classList.toggle('on', current === tree.id)
+      button.addEventListener('click', () => {
+        const treeRoot = treeStore.rootOf(tree.id)
+        if (treeRoot) paneGraph.setRoot(treeRoot.id)
+        buildPaneSwitch(pane, paneGraph)
+      })
+      host.appendChild(button)
+    }
+  }
+
   function refreshTreeSwitch() {
+    if (splitPane && splitGraph) buildPaneSwitch(splitPane, splitGraph)
     const tools = root.querySelector('.graph-tools')
     if (!tools) return
     let host = tools.querySelector('.graph-tree-switch')
@@ -1769,7 +1848,16 @@ export function computersView({ initialComputer = null, navigate }) {
        presses a second circle for the same job. */
     setOrgStatus(startingLine(draft.role), 'busy', { sticky: true })
 
-    const result = await startAgentForNode({ text: draft.message, surface: 'fleet-tree', tier: draft.tier, effort: draft.effort })
+    const result = await startAgentForNode({
+      text: draft.message,
+      surface: 'fleet-tree',
+      tier: draft.tier,
+      effort: draft.effort,
+      /* The tree's assigned session profile rides with every start in it --
+         per-tree onboarding, which is the whole point of profiles. Null means
+         the product's own workspace, exactly as before profiles existed. */
+      profileId: treeStore && node.treeId ? treeStore.treeProfile(node.treeId) : null,
+    })
     if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
 
     if (!result.ok) {
@@ -2061,10 +2149,57 @@ export function computersView({ initialComputer = null, navigate }) {
         <div class="rail-sec">Recorded relationships</div>
         <div class="rail-sub">${computer.graphEdges.length} recorded relationships · runtime, load, tasks, and messages are not part of this record</div>
         ${orgSourceMarkup()}
+        <div class="rail-sec">Session profiles</div>
+        <div class="board-profile-slot" data-profile-slot></div>
         <div class="rail-sec">Roles</div>
         <div class="board-org-slot"></div>
       </div>`
     mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
+    void mountProfilePanel(statsPage.querySelector('[data-profile-slot]'))
+  }
+
+  /* SESSION PROFILES, MANAGED WHERE THE FLEET IS DESCRIBED. A profile is a
+     name plus a folder the person picked in the OS dialog -- the renderer
+     never types or shows a path it invented; the main process owns the store
+     and the picker. Assigning a profile to a tree happens on the tree's own
+     Actions tab; this box creates and removes the profiles themselves. */
+  async function mountProfilePanel(slot) {
+    if (!slot) return
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.profiles !== 'function') {
+      slot.innerHTML = `<div class="rail-sub">${escapeMarkup(PROFILE_PANEL.needsApp)}</div>`
+      return
+    }
+    const answer = await bridge.profiles().catch(() => null)
+    const profiles = answer && answer.ok ? answer.profiles : []
+    slot.innerHTML = `
+      <div class="board-box board-ctl-box">
+        <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.help)}</div>
+        <ul class="rail-sub profile-list" data-profile-list>
+          ${profiles.map(profile => `<li><b>${escapeMarkup(profile.name)}</b> · <span class="profile-folder">${escapeMarkup(profile.cwd)}</span> <button class="ctl-btn profile-remove" type="button" data-profile-remove="${escapeMarkup(profile.id)}">${escapeMarkup(PROFILE_PANEL.remove)}</button></li>`).join('')
+            || `<li>${escapeMarkup(PROFILE_PANEL.none)}</li>`}
+        </ul>
+        <div class="ctl-row">
+          <input class="ctl-select" type="text" data-profile-name placeholder="${escapeMarkup(PROFILE_PANEL.namePlaceholder)}" aria-label="${escapeMarkup(PROFILE_PANEL.namePlaceholder)}">
+          <button class="ctl-btn" type="button" data-profile-add>${escapeMarkup(PROFILE_PANEL.add)}</button>
+        </div>
+        <output class="rail-sub" role="status" data-profile-out></output>
+      </div>`
+    const out = slot.querySelector('[data-profile-out]')
+    slot.querySelector('[data-profile-add]')?.addEventListener('click', async () => {
+      const name = slot.querySelector('[data-profile-name]')?.value?.trim()
+      if (!name) { out.textContent = PROFILE_PANEL.nameFirst; return }
+      const made = await bridge.profileCreate({ name }).catch(error => ({ ok: false, code: refusalCode(error) }))
+      if (!made || made.ok !== true) { out.textContent = PROFILE_PANEL.refused; return }
+      if (!made.profile) { out.textContent = PROFILE_PANEL.cancelled; return }
+      void mountProfilePanel(slot)
+    })
+    for (const button of slot.querySelectorAll('[data-profile-remove]')) {
+      button.addEventListener('click', async () => {
+        await bridge.profileRemove({ profileId: button.dataset.profileRemove }).catch(() => null)
+        void mountProfilePanel(slot)
+      })
+    }
   }
 
   /* WHAT THE PERSON IS LOOKING AT, BEFORE THEY EDIT IT.
@@ -2893,6 +3028,12 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>` : `
           <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
+          <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
+          <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
+          <div class="ctl-row">
+            <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
+          </div>
+          <output class="rail-sub" role="status" data-tree-profile-out></output>
           <div class="rail-sec">${escapeMarkup(MOVE_PANEL.title)}</div>
           <div class="rail-sub">${escapeMarkup(MOVE_PANEL.help)}</div>
           <div class="ctl-row" data-tree-move-row hidden>
@@ -2956,6 +3097,39 @@ export function computersView({ initialComputer = null, navigate }) {
        path. It is built from movePoints(), so it can only offer moves the
        store will accept — and the snapshot is RE-READ when Save is pressed,
        because a menu built at open time can go stale while it stands. */
+    /* The tree's profile select: options are the main process's own list,
+       plus the product workspace as the stated default. A change writes the
+       TREE (setTreeProfile) and speaks; it applies to agents started after,
+       which the help line says out loud. */
+    const profileSelect = controlsPage.querySelector('[data-tree-profile]')
+    const profileOut = controlsPage.querySelector('[data-tree-profile-out]')
+    if (profileSelect && treeStore && node.treeId) {
+      const bridgeForProfiles = typeof window === 'undefined' ? null : window.mcAgent
+      const current = treeStore.treeProfile(node.treeId)
+      const baseOption = document.createElement('option')
+      baseOption.value = ''
+      baseOption.textContent = PROFILE_PANEL.productWorkspace
+      profileSelect.appendChild(baseOption)
+      if (bridgeForProfiles && typeof bridgeForProfiles.profiles === 'function') {
+        void bridgeForProfiles.profiles().then(answer => {
+          if (!answer || answer.ok !== true) return
+          for (const profile of answer.profiles) {
+            const option = document.createElement('option')
+            option.value = profile.id
+            option.textContent = profile.name
+            if (profile.id === current) option.selected = true
+            profileSelect.appendChild(option)
+          }
+        }).catch(() => {})
+      }
+      profileSelect.addEventListener('change', () => {
+        const chosen = profileSelect.value || null
+        const saved = treeStore.setTreeProfile(node.treeId, chosen)
+        if (!saved.ok) { profileOut.textContent = saved.problems[0] || PROFILE_PANEL.refused; return }
+        const label = profileSelect.selectedOptions[0]?.textContent || ''
+        profileOut.textContent = chosen ? PROFILE_PANEL.assigned(label) : PROFILE_PANEL.cleared
+      })
+    }
     const moveRow = controlsPage.querySelector('[data-tree-move-row]')
     const moveSelect = controlsPage.querySelector('[data-tree-move-select]')
     const moveSave = controlsPage.querySelector('[data-tree-move-save]')

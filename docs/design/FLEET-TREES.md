@@ -55,8 +55,9 @@ in a sentence if you asked what they are doing.
 Two trees on one computer are told apart by **the name a person gives them**, and by
 nothing else. Not by structure — two trees can be the same shape — and never by an id.
 
-**Trees separate work, not files.** See section 8: every agent on this computer runs in
-one shared folder, and no tree owns one.
+**Trees can separate files too, per profile.** See section 8: a tree assigned a
+session profile runs its agents in that profile's folder; a tree without one runs
+in the product's shared workspace, exactly as every tree did before profiles.
 
 - **Name.** Editable at any time. Until it is edited, the name is the first line of
   the first message sent in that tree, trimmed to one short line. Before any message
@@ -270,61 +271,43 @@ made, and here, where the feature is specified.
 
 ---
 
-## 8. Recorded limitation: two trees can edit the same files
+## 8. Session profiles: a tree can own its folder (limitation retired 2026-08-14)
 
-**Shipping this way is decided. Whether to change it later is the owner's, and this
-section exists so he can weigh it rather than discover it.**
+**This section recorded a limitation — every agent on this computer ran in one shared
+folder — until the owner ordered the feature that retires it (iteration 5, W6:
+"different onboardings cause me a lot of issues when doing non toolsenabled work").
+The old text's own closing line said the owner decides; he did.**
 
 ### What is true today, measured
 
-Every agent started from this page runs in **one shared folder**, and no tree owns one.
+- A **session profile** is a name plus a folder the person picked through the OS
+  folder dialog. Profiles live in the MAIN process's own store
+  (`shell/session-profiles.cjs`, `<userData>/session-profiles.json`), carried across
+  upgrades by the adoption list.
+- A tree may be assigned a profile (`setTreeProfile` in `src/fleet-trees.js`; the
+  record's `profileId` is a pointer, additive and back-compatible). Agents started in
+  that tree start in the profile's folder — where Codex discovers its instructions —
+  so per-tree onboarding is a folder choice.
+- **The renderer never passes a path.** `parseAgentStart()` accepts a `profileId`;
+  the main process resolves it against folders the person picked, refuses unknown or
+  stale ids loudly, and only then sets the session's `cwd`. A hand-built IPC payload
+  can name a profile or be refused; it cannot smuggle a working directory. The old
+  `cwd` field remains accepted at the boundary and remains passed by **no caller in
+  `src/`** — that half of the old guarantee still holds and is still asserted.
+- A tree with no profile behaves exactly as every tree did before: the product's own
+  `WORKSPACE_ROOT`.
 
-- `shell/main.cjs` `parseAgentStart()` accepts an optional `cwd` — and, since the
-  provider/model channel landed (4204332), an optional `tier`. The tier chooses a
-  model; it says nothing about folders.
-- Every caller in `src/` passes only `sessionId`, `surface` or `tier` — in
-  `src/agent-session.js`, `src/views/agent.js` and `src/views/computers.js`.
-  **None passes a `cwd`.**
-- So every session falls back to `getAgentHost()`'s `defaultCwd`, which is the single
-  `WORKSPACE_ROOT` prepared by `ensureWorkspaceRoot()`.
+**Checked, not just written**, in `tools/test/fleet-trees-multi.test.mjs`: no start
+call in `src/` passes a raw `cwd`; the computers view's start request carries
+`profileId`; and the boundary still accepts the legacy field without a caller.
 
-**These three bullets are checked, not just written.** A claim about another file's
-contents has an expiry date and nothing in a build reads prose, so
-`tools/test/fleet-trees-multi.test.mjs` asserts both halves — that `parseAgentStart()`
-still accepts a `cwd`, and that no start call in `src/` passes one. The day either stops
-being true this section fails a test instead of quietly becoming false. Line numbers are
-deliberately absent for the same reason: the first draft of this section cited
-`src/views/agent.js:772` and the line had moved to 781 within the hour.
+### What the product still does not claim
 
-The panel collects a role, a message and a parent. The store's node record has no
-folder field, declined deliberately by the lane that owns it: a working folder is a
-dispatch input, not tree shape.
-
-### So the product claims nothing about files, on purpose
-
-Trees separate **work**, not **files**. The owner asked for more than one tree per
-computer; he did not ask for trees to isolate what they touch. Building that on the
-last piece of an integration would be inventing scope.
-
-An earlier decision here — allow sharing, warn on collision — was withdrawn, and the
-reason is worth keeping. It described a rare condition that is in fact **universal**,
-and pointed at a control that does not exist. A warning that fires every time is not a
-warning, and copy about a feature nobody built is the defect this whole product is
-organised against.
-
-### The argument for building it, so it can be weighed and not assumed
-
-Two trees running at once are two sets of agents editing one working tree with no
-boundary between them. **This project has eight recorded incidents of concurrent lanes
-clobbering each other's uncommitted work.** That is the real cost, it is already
-measured, and it lands on the person, not on us.
-
-Against it: per-tree folders mean a folder chooser, a story for what a second tree does
-to a checkout it does not own, and a `cwd` threaded from the panel through the start
-into the engine. None of that is a line of copy; all of it is a feature.
-
-**The owner decides.** Nothing in this release should be read as a promise that two
-trees stay out of each other's way, because they do not.
+A profile keeps trees' folders apart only when the person assigns different folders.
+Two trees pointed at one folder still share it, and nothing warns — a warning that
+fires on a state the person deliberately chose is noise. The eight recorded incidents
+of concurrent lanes clobbering uncommitted work remain the reason to assign folders;
+the product now offers the boundary and leaves the choice where it was.
 
 Bounds, restated here so a test can compare them against the engine's own source
 rather than against this prose:

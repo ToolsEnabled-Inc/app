@@ -224,30 +224,23 @@ test('the seat refusal a person reads is the shipped sentence, quoted verbatim i
     + 'the SAME commit. Nothing here needs to go in a baseline.')
 })
 
-test('section 8\'s limitation is still true: no agent start passes a working folder', () => {
-  /* WHY THIS TEST EXISTS, and it is a rule worth generalising.
-   *
-   * Section 8 tells the owner that two trees can edit the same files, and rests that
-   * on three statements about OTHER files. A claim about another file's contents has
-   * an expiry date, and nothing in a build reads prose — so the day somebody threads a
-   * working folder through, the doc silently becomes a false statement in front of the
-   * person who has to decide whether to fund fixing it.
-   *
-   * So both halves are asserted here. Line numbers deliberately are not: the first
-   * draft of section 8 cited src/views/agent.js:772 and the line had moved to 781
-   * within the hour. A guard that breaks on unrelated edits above it would red-light
-   * this suite for every other lane, which is how a true gate gets deleted. */
+test('section 8 tells the truth about profiles: ids cross the boundary, paths never do', () => {
+  /* Section 8 recorded "every agent runs in one shared folder" until iteration
+   * 5's session profiles retired that limitation, owner-ordered; the doc was
+   * rewritten in the same commit as this test. What is pinned now is the
+   * SECURITY shape that replaced the limitation:
+   *  - the renderer still never passes a raw cwd to a start;
+   *  - the computers view's start request carries profileId — the pointer the
+   *    MAIN process resolves against folders the person picked in the OS
+   *    dialog, refusing everything else;
+   *  - the boundary still accepts the legacy cwd field, caller-less, so the
+   *    half of the old guarantee that stays true stays asserted. */
   const shell = read('shell/main.cjs')
   const parse = shell.slice(shell.indexOf('function parseAgentStart('))
-  /* Re-measured 2026-08-14: the allowlist gained `effort` (the reasoning
-     depth choice, iteration 5 W10), after gaining `tier` on 2026-08-13.
-     `cwd` is still accepted and still passed by nobody, so the folder
-     limitation this section records is unchanged -- and the session-profiles
-     work (W6) is the change that will finally retire it, at which point
-     section 8 gets rewritten in the same commit. */
-  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort'\]/.test(parse.slice(0, 1600)),
-    'parseAgentStart\'s allowlist moved again, so section 8\'s first bullet is wrong. '
-    + 'Re-measure that section rather than editing this assertion.')
+  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId'\]/.test(parse.slice(0, 1800)),
+    'parseAgentStart\'s allowlist moved again. Re-measure section 8 rather than editing this assertion.')
+  assert.ok(/sessionProfiles\.resolveCwd\(request\.profileId\)/.test(shell),
+    'the main process no longer resolves profileId itself — the consent boundary section 8 describes is gone')
 
   const callers = ['src/agent-session.js', 'src/views/agent.js', 'src/views/computers.js']
   let starts = 0
@@ -255,17 +248,18 @@ test('section 8\'s limitation is still true: no agent start passes a working fol
     for (const call of read(file).matchAll(/\.start\(\s*\{([^}]*)\}/g)) {
       starts += 1
       assert.ok(!/\bcwd\b/.test(call[1]),
-        `${file} now passes a working folder to a start: {${call[1].trim()}}.\n`
-        + 'That makes section 8 of docs/design/FLEET-TREES.md false — it tells the owner every agent '
-        + 'on this computer shares one folder, which is the basis of a recorded limitation he is being '
-        + 'asked to weigh.\n'
-        + 'Update section 8 in the same commit. If per-tree folders now exist, the product may say '
-        + 'something about keeping files apart that today it must not.')
+        `${file} passes a raw working folder to a start: {${call[1].trim()}}.\n`
+        + 'Folders cross the boundary as profile ids the main process resolves, never as paths. '
+        + 'If this is deliberate, section 8 of docs/design/FLEET-TREES.md must be rewritten in the same commit.')
     }
   }
-  assert.ok(starts >= 3,
-    `only ${starts} start call(s) found across ${callers.join(', ')}; section 8 was measured against three. `
-    + 'The flow moved, so re-measure that section rather than trusting it.')
+  const computersView = read('src/views/computers.js')
+  assert.ok(/profileId: treeStore && node\.treeId \? treeStore\.treeProfile\(node\.treeId\) : null/.test(computersView),
+    'the compose start no longer carries the tree\'s profile; section 8\'s per-tree-folder claim is false again')
+  assert.ok(/const startRequest = \{/.test(computersView),
+    'the start request builder moved; re-measure section 8\'s bullets before trusting them')
+  assert.ok(starts >= 2,
+    `only ${starts} object-literal start call(s) found across ${callers.join(', ')}; the flow moved, so re-measure section 8.`)
 })
 
 /* ---------------------------------------------------------------

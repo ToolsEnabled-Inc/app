@@ -57,6 +57,11 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      path the renderer inserts as TEXT. Both answer {ok, path|null}. */
   pickAttachment: request => ipcRenderer.invoke('mc-agent:pick-attachment', request),
   pickMention: request => ipcRenderer.invoke('mc-agent:pick-mention', request),
+  /* Session profiles: named working folders the person picked through the OS
+     dialog. The renderer only ever handles ids; paths stay main-side. */
+  profiles: () => ipcRenderer.invoke('mc-agent:profiles'),
+  profileCreate: request => ipcRenderer.invoke('mc-agent:profile-create', request),
+  profileRemove: request => ipcRenderer.invoke('mc-agent:profile-remove', request),
   interrupt: request => ipcRenderer.invoke('mc-agent:interrupt', request),
   /* Fork this session's thread at one of your own turns and continue from
      there — proven by tools/agent-rewind-probe.mjs before it shipped. */
