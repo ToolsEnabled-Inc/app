@@ -32,7 +32,7 @@ import { isLiveView } from '../live-flags.js'
 import { PROJECT_ALL, PROJECT_UNFILED, filesUnder, readProjectSelection, readResearchSnapshot, saveProject, writeProjectSelection } from '../research-projects.js'
 import { createAssignmentStore } from '../research-assignments.js'
 import { axisRowsToObject, columnRowsToSchema, gridRunPreview, parseAxes, parseResultSchema, parseRunner } from '../research-grid.js'
-import { chartableColumn, chartableColumns, readResults, readRun, readRuns, resultTableModel, resultsExport, runDrillModel, runIsTerminal, runStateWord } from '../research-runs.js'
+import { chartableColumn, chartableColumns, readResults, readRun, readRuns, resultTableModel, resultsExport, runDrillModel, runIsTerminal, runStateWord, runTaskIsStalled, runTaskStateWord } from '../research-runs.js'
 import { findingStateWord, readFindings, saveFinding } from '../research-findings.js'
 import { createResultChart } from '../research-result-charts.js'
 import { readLiveSession } from '../agent-session-registry.js'
@@ -888,6 +888,7 @@ export function researchView() {
      nothing is removed from the boards themselves. */
 
   let gatheredExperimentId = null
+  let lastKnownPulse = null          // the last counts read whole; see renderStatusPulse
   const gatheredCharts = new Map()   // experimentId -> { resize, destroy }
 
   function localCellsMarkup(experiment, cells = experiment.cells) {
@@ -1739,7 +1740,7 @@ export function researchView() {
   function runDrillMarkup(run) {
     return `
       <details class="research-run-drill" data-run-drill="${esc(run.runId)}">
-        <summary>${esc(Object.values(run?.params || {}).join(' · ') || run.runId)} · ${esc(runStateWord(run?.task?.status))}</summary>
+        <summary>${esc(Object.values(run?.params || {}).join(' · ') || run.runId)} · ${esc(runTaskStateWord(run?.task))}</summary>
         <div class="research-run-drill-body" data-run-drill-body="${esc(run.runId)}">
           <p class="research-observed-empty">Open reads the run's progress and files.</p>
         </div>
@@ -2101,17 +2102,28 @@ export function researchView() {
     let running = 0
     let queued = 0
     let finished = 0
+    let stalled = 0
+    let unread = 0
     const okRead = id => {
       const read = id ? runsByExperiment.get(id) : null
       return read?.ok === true ? read : null
     }
     for (const experiment of experimentsSnapshot().experiments) {
       if (!filesUnder(selection, experiment.projectId)) continue
-      const serviceRead = okRead(experiment.serviceExperimentId)
+      const queuedThrough = experiment.serviceExperimentId
+      const serviceRead = okRead(queuedThrough)
       for (const cell of experiment.cells) {
         if (cell.status === 'running' || cell.status === 'starting') running += 1
         else if (cell.status === 'finished') finished += 1
-        else if (cell.status === 'queued' && !serviceRead) queued += 1
+        // A queue-dispatched cell's local row stays 'queued' for life; the
+        // service owns its real state. If the service could not be read, that
+        // state is UNKNOWN — counting it as queued is how the pulse came to
+        // say "0 finished" over seventeen finished runs when the capability
+        // layer died (adversarial live review, 2026-08-15).
+        else if (cell.status === 'queued') {
+          if (queuedThrough && !serviceRead) unread += 1
+          else if (!queuedThrough) queued += 1
+        }
       }
     }
     for (const experiment of serviceExperiments()) {
@@ -2119,14 +2131,24 @@ export function researchView() {
       if (!read) continue
       for (const run of read.runs) {
         const status = run?.task?.status
-        if (status === 'running' || status === 'leased') running += 1
+        if (runTaskIsStalled(run?.task)) stalled += 1
+        else if (status === 'running' || status === 'leased') running += 1
         else if (status === 'queued' || status === 'retry_wait') queued += 1
         else if (status === 'succeeded') finished += 1
       }
     }
-    pulse.textContent = running === 0 && queued === 0 && finished === 0
-      ? 'nothing running'
-      : `${running} running · ${queued} queued · ${finished} finished`
+    const counted = `${running} running · ${queued} queued · ${finished} finished${stalled ? ` · ${stalled} stalled` : ''}`
+    if (unread === 0) {
+      lastKnownPulse = counted
+      pulse.textContent = running === 0 && queued === 0 && finished === 0 && stalled === 0
+        ? 'nothing running'
+        : counted
+      return
+    }
+    // Say what is not known rather than a number that stands in for it.
+    pulse.textContent = lastKnownPulse
+      ? `${lastKnownPulse} — last known; the run service could not be read just now`
+      : `${unread} cell${unread === 1 ? '' : 's'} are with the run service, which could not be read just now`
   }
 
   function renderServiceModules() {

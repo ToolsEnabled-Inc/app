@@ -176,3 +176,29 @@ test('the default chart skips axis columns; the person can chart any numeric col
   assert.match(view, /data-chart-column/, 'the gathered panel lost its chart column picker')
   assert.match(view, /mountGatheredChart\(columns\.find/, 'the picker no longer remounts the chart on change')
 })
+
+test('a task whose lease expired reads stalled, not running', async () => {
+  const { runTaskStateWord, runTaskIsStalled } = await import('../../src/research-runs.js')
+  // The adversarial live review found the board saying "running" for this exact
+  // shape while the run board also said "Run worker: stopped."
+  assert.equal(runTaskStateWord({ status: 'running', leaseExpired: true }), 'stalled')
+  assert.equal(runTaskStateWord({ status: 'leased', leaseExpired: true }), 'stalled')
+  assert.equal(runTaskIsStalled({ status: 'running', leaseExpired: true }), true)
+  // A live lease is not stalled, and a terminal state never is.
+  assert.equal(runTaskStateWord({ status: 'running', leaseExpired: false }), 'running')
+  assert.equal(runTaskStateWord({ status: 'leased', leaseExpired: false }), 'claimed')
+  assert.equal(runTaskStateWord({ status: 'succeeded', leaseExpired: true }), 'finished',
+    'a finished run is finished however stale its lease record looks')
+  assert.equal(runTaskStateWord({ status: 'queued' }), 'queued')
+  assert.equal(runTaskIsStalled(null), false)
+  assert.equal(runDrillModel({ run: { task: { status: 'running', leaseExpired: true } } }).stateWord, 'stalled',
+    'the drill must not contradict the board')
+
+  const view = (await import('node:fs')).readFileSync(new URL('../../src/views/research.js', import.meta.url), 'utf8')
+  const pulse = view.slice(view.indexOf('function renderStatusPulse'))
+  assert.match(pulse, /lastKnownPulse/, 'the pulse no longer remembers what it last read whole')
+  assert.match(pulse, /could not be read just now/, 'the pulse must name an unreadable service instead of counting for it')
+  assert.match(pulse, /if \(queuedThrough && !serviceRead\) unread \+= 1/,
+    'queue-dispatched cells with no service read must count as unread, never as queued')
+  assert.match(pulse, /runTaskIsStalled\(run\?\.task\)/, 'the pulse counts a stalled run as running again')
+})

@@ -21,6 +21,24 @@ export function runStateWord(status) {
   return RUN_STATE_WORD[status] || String(status || 'unknown')
 }
 
+/**
+ * The word for a run's task, which knows something the status alone does not:
+ * a claimed or running task whose lease has expired is NOT running — nothing
+ * holds it. The adversarial live review found the board saying "running" for a
+ * run whose worker had been stopped for over an hour, next to "Run worker:
+ * stopped." The service will reclaim it on the worker's next start, so the
+ * honest word is "stalled" and the honest count is not "running".
+ */
+export function runTaskStateWord(task) {
+  if (runTaskIsStalled(task)) return 'stalled'
+  return runStateWord(task?.status)
+}
+
+export function runTaskIsStalled(task) {
+  if (!task || task.leaseExpired !== true) return false
+  return task.status === 'running' || task.status === 'leased'
+}
+
 export function runIsTerminal(status) {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled'
 }
@@ -147,7 +165,7 @@ export function runDrillModel({ run, results = [] }) {
   const artifacts = Array.isArray(run?.artifacts) ? run.artifacts : null
   return {
     runId: run?.runId || 'unknown',
-    stateWord: runStateWord(run?.task?.status),
+    stateWord: runTaskStateWord(run?.task),
     params: run?.params && typeof run.params === 'object' ? run.params : {},
     checkpointSummary: checkpoint && typeof checkpoint.summary === 'string' && checkpoint.summary.length > 0
       ? checkpoint.summary
