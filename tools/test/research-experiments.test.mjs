@@ -383,3 +383,14 @@ test('the gathered chips speak service truth for queued cells, without mutation'
   assert.match(view, /cellsWithServiceStatus\(experiment, read\.runs\)/,
     'the service read no longer refreshes the chips from service truth')
 })
+
+test('removing an experiment card takes two presses, and a lone press disarms', () => {
+  const view = read('src/views/research.js')
+  const handler = view.slice(view.indexOf('if (removeId) {'))
+  assert.match(handler, /Press again to remove/, 'the first press must arm, not remove')
+  assert.match(handler, /dataset\.armed !== 'true'/, 'the removal no longer checks the armed state before acting')
+  assert.match(handler, /button\.isConnected && button\.dataset\.armed === 'true'/,
+    'a lone press must disarm itself so the label never lies')
+  assert.ok(handler.indexOf('Press again to remove') < handler.indexOf('removeExperiment('),
+    'the arm gate must sit before the destructive call')
+})

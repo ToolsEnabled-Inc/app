@@ -1377,6 +1377,21 @@ export function researchView() {
       return
     }
     if (removeId) {
+      /* Removal is destructive and the stage-tidy drive (2026-08-15) measured
+         it firing on a single press. Arm on the first press, act on the
+         second; a lone press disarms itself so the label never lies. */
+      const button = event.target
+      if (button.dataset.armed !== 'true') {
+        button.dataset.armed = 'true'
+        button.textContent = 'Press again to remove'
+        setTimeout(() => {
+          if (button.isConnected && button.dataset.armed === 'true') {
+            delete button.dataset.armed
+            button.textContent = 'Remove'
+          }
+        }, 4000)
+        return
+      }
       const result = removeExperiment(experimentsSnapshot(), removeId)
       if (!result.ok) { event.target.textContent = result.sentence; return }
       const saved = await persistExperiments(result.serialized)
