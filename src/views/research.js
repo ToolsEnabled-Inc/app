@@ -1078,7 +1078,7 @@ export function researchView() {
     const saved = await saveProject({ name: name.trim(), enabled: true })
     projectNewBtn.disabled = false
     if (!saved.ok) {
-      projectStatus.textContent = `The project was not created — ${saved.reason || 'the research service refused it'}.`
+      projectStatus.textContent = `The project was not created — ${saved.reason || 'the research service did not say why'}. Nothing was saved; try once more.`
       return
     }
     selection = saved.project.projectId
@@ -1159,9 +1159,9 @@ export function researchView() {
           <textarea name="axes" rows="2" placeholder='The axes, one object: {"model": ["a", "b"], "effort": ["low", "high"]}' aria-label="Axes"></textarea>
           <label class="research-popover-row">Runner
             <select name="runnerKind" aria-label="Runner kind">
-              <option value="agent">Start sessions through the service</option>
-              <option value="process">Run a command on the service host</option>
-              <option value="http">Call a web service</option>
+              <option value="agent">Sessions</option>
+              <option value="process">A command</option>
+              <option value="http">A web address</option>
             </select>
           </label>
           <textarea name="runnerDetail" rows="2" placeholder="Agent: the brief with {axis} tokens. Process: the command then each argument on its own line. Http: the https address." aria-label="Runner detail"></textarea>
@@ -1247,7 +1247,7 @@ export function researchView() {
     }
     if (status) {
       status.textContent = firstRefusal
-        ? `${submitted} submitted, ${replayed} already queued, then the service refused: ${firstRefusal}`
+        ? `${submitted} submitted and ${replayed} already queued. ${firstRefusal} stopped the rest; fix that, then submit the grid again.`
         : `${submitted} submitted, ${replayed} already queued. Watch them on the run board.`
     }
     await refreshServiceSnapshot()
