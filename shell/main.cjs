@@ -395,7 +395,19 @@ function parseAgentStart(value) {
     sessionId: boundedAgentString(sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
   }
   if (payload.cwd !== undefined) {
-    result.cwd = boundedAgentString(payload.cwd, 'cwd', MAX_CWD_LENGTH)
+    /* Retired 2026-08-14 (session profiles, iteration 5 W6). A working folder
+       is not the renderer's to choose: the field was accepted for years and
+       sent by NOBODY — the fleet-trees suite's section-8 guard measures every
+       caller — and now that profileId exists there is a consented route (a
+       folder the person picked through the OS dialog). So the free-string
+       route refuses by name instead of quietly working for whoever forges a
+       payload. The key stays in the allowlist exactly so this sentence, not
+       a generic unexpected-key error, is the answer. */
+    boundedAgentString(payload.cwd, 'cwd', MAX_CWD_LENGTH)
+    agentIpcError(
+      'MC_AGENT_CWD_NOT_YOURS',
+      'A working folder cannot be sent with a start. Assign a session profile instead - a profile is a folder picked by hand in the app.',
+    )
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'surface')) {
     boundedAgentString(payload.surface, 'surface', MAX_SURFACE_LENGTH)

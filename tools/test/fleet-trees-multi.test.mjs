@@ -229,16 +229,19 @@ test('section 8 tells the truth about profiles: ids cross the boundary, paths ne
    * 5's session profiles retired that limitation, owner-ordered; the doc was
    * rewritten in the same commit as this test. What is pinned now is the
    * SECURITY shape that replaced the limitation:
-   *  - the renderer still never passes a raw cwd to a start;
+   *  - the renderer never passes a raw cwd to a start, and since 2026-08-14
+   *    the boundary REFUSES one by name (MC_AGENT_CWD_NOT_YOURS) — the legacy
+   *    field stays in the allowlist exactly so the refusal is that sentence
+   *    and not a generic unexpected-key error;
    *  - the computers view's start request carries profileId — the pointer the
    *    MAIN process resolves against folders the person picked in the OS
-   *    dialog, refusing everything else;
-   *  - the boundary still accepts the legacy cwd field, caller-less, so the
-   *    half of the old guarantee that stays true stays asserted. */
+   *    dialog, refusing everything else. */
   const shell = read('shell/main.cjs')
   const parse = shell.slice(shell.indexOf('function parseAgentStart('))
   assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId'\]/.test(parse.slice(0, 1800)),
     'parseAgentStart\'s allowlist moved again. Re-measure section 8 rather than editing this assertion.')
+  assert.ok(/MC_AGENT_CWD_NOT_YOURS/.test(parse.slice(0, 2600)),
+    'a renderer-sent working folder must be refused by name at the boundary — profiles are the one route to a folder')
   assert.ok(/sessionProfiles\.resolveCwd\(request\.profileId\)/.test(shell),
     'the main process no longer resolves profileId itself — the consent boundary section 8 describes is gone')
 

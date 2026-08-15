@@ -288,18 +288,18 @@ The old text's own closing line said the owner decides; he did.**
   record's `profileId` is a pointer, additive and back-compatible). Agents started in
   that tree start in the profile's folder — where Codex discovers its instructions —
   so per-tree onboarding is a folder choice.
-- **The renderer never passes a path.** `parseAgentStart()` accepts a `profileId`;
-  the main process resolves it against folders the person picked, refuses unknown or
-  stale ids loudly, and only then sets the session's `cwd`. A hand-built IPC payload
-  can name a profile or be refused; it cannot smuggle a working directory. The old
-  `cwd` field remains accepted at the boundary and remains passed by **no caller in
-  `src/`** — that half of the old guarantee still holds and is still asserted.
+- **The renderer never passes a path — and since 2026-08-14 it cannot.**
+  `parseAgentStart()` accepts a `profileId`; the main process resolves it against
+  folders the person picked, refuses unknown or stale ids loudly, and only then sets
+  the session's `cwd`. A start that carries a raw `cwd` — which no caller in `src/`
+  ever sent — is refused by name (`MC_AGENT_CWD_NOT_YOURS`): a hand-built IPC payload
+  can name a profile or be refused; it cannot smuggle a working directory.
 - A tree with no profile behaves exactly as every tree did before: the product's own
   `WORKSPACE_ROOT`.
 
 **Checked, not just written**, in `tools/test/fleet-trees-multi.test.mjs`: no start
 call in `src/` passes a raw `cwd`; the computers view's start request carries
-`profileId`; and the boundary still accepts the legacy field without a caller.
+`profileId`; and the boundary refuses a raw `cwd` by name.
 
 ### What the product still does not claim
 
