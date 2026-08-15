@@ -991,9 +991,13 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
           // choosing it was consenting to have a metered API account billed by
           // surprise, or to have their prompts routed through whatever host an
           // inherited BASE_URL happens to name. So the scrub applies at every
-          // level, and what `unrestricted` still means is intact: no redirected
-          // Codex home, no substituted MCP servers, and the user's own
-          // CODEX_HOME (not on the scrub list) still honoured.
+          // level. Since engine f1cc018 (payload pin flip 2026-08-14),
+          // `unrestricted` is ALSO redirected to a prepared Codex home
+          // carrying the full generated tool surface -- capability parity
+          // with the confined tiers, after the measured inversion where the
+          // most-trusted tier was the only one with no browser tools. What
+          // it still means: sandbox danger-full-access, the widest reach the
+          // engine offers; isolation is about whose home, not about reach.
           env: sessionEnv,
           onEvent: (event) => emit(session, event),
         })
