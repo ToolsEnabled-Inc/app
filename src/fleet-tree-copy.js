@@ -325,9 +325,20 @@ export const EFFORT_SWITCH = Object.freeze({
   keep: 'Keep its current depth',
 })
 
-/* THE ACTIONS PALETTE. Every row is an action this build really performs on
-   this node, today. What the product cannot do is one honest sentence in the
-   footer, never a disabled control pretending — the temperature-slider rule.
+/* MESSAGING A DEAD AGENT JUST WORKS (iteration 6, owner: "We still get this
+   message" — the sessionGone refusal). The send now recovers by itself: a
+   fresh agent reads the saved conversation and the typed message waits in
+   the queue, visibly, until the reading turn finishes. The sentence says
+   all three honest parts: what ended, what it costs, when the words go. */
+export const RECOVERED_SESSION = Object.freeze({
+  reconnecting: 'That agent’s session had ended, so a fresh one is reading the saved conversation now — re-sending it costs tokens. Your message is queued and goes the moment it catches up.',
+  bare: 'That agent’s session had ended, so a fresh one started in its place. Your message is going now.',
+})
+
+/* THE ACTIONS PALETTE — now the chat composer's popup. Every row is an
+   action this build really performs on this node, today. What the product
+   cannot do is one honest sentence in the footer, never a disabled control
+   pretending — the temperature-slider rule.
    Refusal/confirmation sentences follow the house register. */
 export const PALETTE_PANEL = Object.freeze({
   title: 'Actions',
@@ -336,9 +347,9 @@ export const PALETTE_PANEL = Object.freeze({
   none: 'No action matches that. Clear the filter to see them all.',
   footer: 'Not possible yet, so not listed: attaching a text file’s contents — mention the file instead, and the agent reads it itself.',
   rewind: 'Rewind to one of your messages',
-  rewindHint: 'Goes to the rewind menu on the agent page. The agent forgets everything after the message you pick.',
+  rewindHint: 'Pick one of your messages; the agent forgets everything said after it.',
   switchModel: 'Switch model',
-  switchModelHint: 'Goes to the model menu on the agent page. The change holds until you change it back; the conversation continues.',
+  switchModelHint: 'The change holds until you change it back; the conversation continues.',
   attach: 'Attach an image',
   attachHint: 'Opens a file picker. The picked image rides with your next message.',
   attachPicked: 'Attached. It rides with the next message you send.',
@@ -359,9 +370,9 @@ export const PALETTE_PANEL = Object.freeze({
   child: 'Start an agent under this one',
   childHint: 'Opens the start panel with this agent as the parent.',
   queueFocus: 'Queue a message',
-  queueFocusHint: 'Goes to the queue box on the agent page.',
+  queueFocusHint: 'Focuses the message box — while the agent works, a send waits its turn and shows above the box.',
   moveFocus: 'Change who it reports to',
-  moveFocusHint: 'Goes to the Reports-to menu on the agent page.',
+  moveFocusHint: 'Opens the Reports-to menu on the Details tab.',
   copyBrief: 'Copy what you asked for',
   copyReply: 'Copy what it said',
   copied: 'Copied.',

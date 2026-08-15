@@ -98,13 +98,16 @@ test("this phase's own chrome classes are strictly styled", () => {
 test('every rail page that renders board pieces carries board-page', () => {
   // board.css scopes its box padding, overflow fence and .ctl-select styling
   // to .board-page. A rail page using those pieces without the class renders
-  // them inert -- the second half of defect 8.
+  // them inert -- the second half of defect 8. The palette page retired with
+  // the Actions tab (iteration 6: actions live in the chat composer's popup);
+  // the ctl-page is the one board-piece renderer left, and it must keep the
+  // class.
   const pages = [...view.matchAll(/class="rail-page([^"]*)"/g)].map(match => match[1])
-  assert.ok(pages.length >= 4, `expected the rail's pages, found ${pages.length}`)
-  // The palette page is the one that regressed; it must carry the class.
-  const palette = pages.find(rest => rest.includes('palette-page'))
-  assert.ok(palette, 'palette page missing')
-  assert.ok(palette.includes('board-page'), 'the palette page lost board-page; board.css is inert on it again')
+  assert.ok(pages.length >= 3, `expected the rail's pages, found ${pages.length}`)
+  assert.ok(!pages.some(rest => rest.includes('palette-page')), 'the palette page is back; actions belong to the chat popup now')
+  const controls = pages.find(rest => rest.includes('ctl-page'))
+  assert.ok(controls, 'controls page missing')
+  assert.ok(controls.includes('board-page'), 'the controls page lost board-page; board.css is inert on it')
 })
 
 test('one title-row definition, and no hand-built rail-title markup remains in the view', () => {
@@ -148,14 +151,24 @@ test('the rail chat streams once and closes once', () => {
   assert.ok(disposeAt !== -1, 'showTreeNodeControls no longer disposes the rail chat before rebuilding its markup')
 })
 
-test('the three rail tabs exist and the chat body is first', () => {
+test('two rail tabs, chat first — the Actions page stays retired', () => {
+  /* Iteration 6, owner verbatim: "Actions again just shouldnt be its own
+     page it should be a button on the chat." The rail is Chat | Details;
+     the verbs live in the composer's popup (data-chat-actions in
+     components.js) with runPaletteAction still the one engine. */
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
-  for (const tab of ['chat', 'details', 'actions']) {
+  for (const tab of ['chat', 'details']) {
     assert.match(view, new RegExp(`data-rail-tab="${tab}"`), `the ${tab} tab vanished`)
     assert.match(view, new RegExp(`data-rail-body="${tab}"`), `the ${tab} body vanished`)
   }
+  assert.ok(!/data-rail-tab="actions"/.test(view), 'the Actions tab is back as its own page — the owner retired it twice')
+  assert.match(view, /chatActionRowsFor/, 'the chat popup lost its action rows; the verbs have no surface')
   // Chat is the default tab: its button carries .on in the markup.
   assert.match(view, /class="on" data-rail-tab="chat"/, 'chat is no longer the default tab (owner defect 7: conversation first)')
+  // The setup controls the Actions tab used to hold live on in Details.
+  for (const hook of ['data-tree-profile', 'data-tree-move-select']) {
+    assert.match(view, new RegExp(hook), `${hook} vanished with the Actions tab instead of moving to Details`)
+  }
 })
 
 test('the split view is off by default, and the second pane is a full tree', () => {

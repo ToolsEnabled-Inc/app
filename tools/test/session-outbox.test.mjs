@@ -76,28 +76,33 @@ test('the palette holds only real actions, and says what it cannot do in words',
      when tools/agent-rewind-probe.mjs PROVED the fork semantics live
      (2026-08-14: the fork remembered turns 1-2 and had forgotten turn 3). A
      footer that still called either impossible would now be the lie. */
-  const palette = view.slice(view.indexOf('function showPalette'), view.indexOf('function showControls'))
-  assert.ok(palette.length > 200, 'the palette left computers.js')
+  /* The palette re-homed into the chat composer's popup (iteration 6, owner:
+     actions are "a button on the chat", not a page). chatActionRowsFor is
+     the row source, runPaletteAction stays the verb engine, and the honest
+     footer rides into the popup as its actionsNote. */
+  const palette = view.slice(view.indexOf('function chatActionRowsFor'), view.indexOf('async function resumeNodeSession'))
+  assert.ok(palette.length > 200, 'the chat action rows left computers.js')
   assert.match(copy, /Not possible yet, so not listed/, 'the honest footer sentence is gone')
   assert.ok(!/footer:.*changing the model/.test(copy), 'the footer still calls model switching impossible — it shipped')
   assert.ok(!/footer:.*rewinding/.test(copy), 'the footer still calls rewind impossible — the probe proved it and the control shipped')
-  assert.match(palette, /PALETTE_PANEL\.footer/, 'the palette no longer shows the footer')
-  /* Every action id in the palette must have a handler branch — including
+  assert.match(view, /actionsNote: PALETTE_PANEL\.footer/, 'the popup no longer shows the honest footer')
+  /* Every action id must keep a handler branch in the verb engine — including
      every row that graduated out of the footer. */
   for (const id of ['interrupt', 'stop', 'child', 'queue', 'move', 'copy-brief', 'copy-reply', 'switch-model', 'attach', 'mention', 'clear', 'rewind']) {
     assert.ok(view.includes(`'${id}'`), `palette action ${id} lost its binding`)
   }
-  /* Rewind's binding must be REAL: the menu lists the person's own turns and
-     the go button reaches the rewind channel. */
-  assert.match(view, /data-tree-rewind-select/, 'the rewind menu left the rail')
-  assert.match(view, /bridge\.rewind\(\{ sessionId: node\.sessionId, turnId \}\)/, 'the rewind button no longer reaches the channel')
-  /* The graduated rows must be REAL: switch-model focuses the live model
-     menu, and the menu writes the override every send reads. */
-  assert.match(view, /data-tree-model/, 'the model menu left the rail')
+  /* Rewind's binding must be REAL: the popup stage lists the person's own
+     turns and performRewind reaches the rewind channel. */
+  assert.match(palette, /rewindRows/, 'the rewind stage left the popup')
+  assert.match(view, /bridge\.rewind\(\{ sessionId: node\.sessionId, turnId \}\)/, 'the rewind flow no longer reaches the channel')
+  /* The graduated rows must be REAL: the model stage writes the override
+     every send reads. */
+  assert.match(palette, /modelRows/, 'the model stage left the popup')
   assert.match(view, /sessionModelOverride/, 'the model override map is gone — the menu would be decoration')
   assert.match(view, /pickAttachment/, 'the attach action no longer reaches the picker')
   assert.match(view, /pickMention/, 'the mention action no longer reaches the picker')
-  assert.match(view, /data-open-palette/, 'the rail lost its way into the palette')
+  const components = readFileSync(resolve(ROOT, 'src/components.js'), 'utf8')
+  assert.match(components, /data-chat-actions/, 'the composer lost its actions button — the popup has no door')
 })
 
 test('the compact card is real-sourced or absent, never the simulator', () => {
@@ -163,5 +168,11 @@ test('the view drains one message per completed turn, and requeues on refusal', 
   const drainer = view.slice(view.indexOf('async function drainOutboxMessage'))
   assert.match(drainer.slice(0, 1200), /outboxRequeueFront\(sessionId, entry\)/,
     'a refused drained send no longer returns to the front of the queue')
-  assert.match(view, /data-tree-queue-list/, 'the queue lost its visible strip; a store nobody sees eats words')
+  /* The visible strip lives in the chat composer now (iteration 6: "a little
+     preview of it waiting to be sent"): the component renders it, the view
+     feeds it through the queue config, and the outbox event finally has its
+     subscriber so every surface repaints on every change. */
+  const components = readFileSync(resolve(ROOT, 'src/components.js'), 'utf8')
+  assert.match(components, /chat-queue-strip/, 'the queue lost its visible strip; a store nobody sees eats words')
+  assert.match(view, /window\.addEventListener\(SESSION_OUTBOX_EVENT/, 'nothing subscribes to the outbox event; the strip goes stale')
 })

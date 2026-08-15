@@ -58,6 +58,7 @@ import {
   MODEL_PANEL,
   REWIND_PANEL,
   RESUME_PANEL,
+  RECOVERED_SESSION,
   EFFORT_SWITCH,
   EFFORT_CHOICES,
   activityLine,
@@ -776,14 +777,6 @@ export function computersView({ initialComputer = null, navigate }) {
                showing when the panel closes. It is empty until a press: nothing
                is built here on load, because nothing here is a thing to read. -->
           <div class="rail-page compose-page"></div>
-          <!-- board-page because this rail page renders .board-box, .ctl-btn and
-               .ctl-select: without it, board.css's box padding, overflow fence
-               and input styling are all inert here. It was the ONLY rail page
-               with those pieces and without the class, which is half of why the
-               actions palette rendered as unreadable overlap (the other half:
-               its row classes had no stylesheet rules at all -- see
-               .palette-row in board.css). -->
-          <div class="rail-page palette-page board-page"></div>
         </aside>
       </div>
     </div>`)
@@ -797,7 +790,6 @@ export function computersView({ initialComputer = null, navigate }) {
   const statsPage = root.querySelector('.stats-page')
   const controlsPage = root.querySelector('.ctl-page')
   const composePage = root.querySelector('.compose-page')
-  const palettePage = root.querySelector('.palette-page')
   const editButton = root.querySelector('.graph-edit-btn')
   const resetButton = root.querySelector('.graph-reset-btn')
   const openButton = root.querySelector('.graph-open-btn')
@@ -900,7 +892,6 @@ export function computersView({ initialComputer = null, navigate }) {
     /* The compose panel is a page here like the other two, so exactly one of the
        three is ever on screen and none of them has to know about the others. */
     composePage.classList.toggle('is-active', page === composePage)
-    palettePage.classList.toggle('is-active', page === palettePage)
     if (page === statsPage) railDisposeTimer = setTimeout(clearBoard, 200)
   }
 
@@ -1250,6 +1241,41 @@ export function computersView({ initialComputer = null, navigate }) {
 
   const tierEffortOf = tierId => LAUNCH_TIERS.find(tier => tier.id === tierId)?.effort || null
 
+  /* LIVENESS, NOT JUST STATUS. parseFleetTrees loads a saved 'running' node
+     back as 'starting', so after an app restart every mid-turn node reads
+     busy FOREVER over a dead session — the stop button would stand over a
+     corpse and every send would silently queue into a queue nothing will
+     ever drain. sessionNodeIds holds exactly the sessions THIS run started
+     or reattached, so status AND membership is the honest busy test; a
+     restart-stale node reads idle, its send goes out, the engine refuses
+     with MC_AGENT_UNKNOWN_SESSION, and the recovery below takes over. */
+  const nodeBusy = node => Boolean(node
+    && (node.status === 'starting' || node.status === 'running')
+    && node.sessionId && sessionNodeIds.has(node.sessionId))
+
+  /* The chat composer's ear on a node's status. Notified from refreshTree(),
+     the choke point every status mutation already flows through — no second
+     event stream to drift from the first. */
+  const nodeStatusListeners = new Map()
+  function registerNodeStatusListener(nodeId, listener) {
+    const held = nodeStatusListeners.get(nodeId) || new Set()
+    held.add(listener)
+    nodeStatusListeners.set(nodeId, held)
+    return () => {
+      const set = nodeStatusListeners.get(nodeId)
+      if (!set) return
+      set.delete(listener)
+      if (set.size === 0) nodeStatusListeners.delete(nodeId)
+    }
+  }
+  function notifyNodeStatusListeners() {
+    for (const held of nodeStatusListeners.values()) {
+      for (const listener of held) {
+        try { listener() } catch { /* a dead listener must not break the tree */ }
+      }
+    }
+  }
+
   function turnLogAppend(sessionId, turnId, yourText) {
     if (!sessionId || typeof turnId !== 'string' || !turnId) return
     const held = sessionTurnLog.get(sessionId) || []
@@ -1317,6 +1343,49 @@ export function computersView({ initialComputer = null, navigate }) {
         const bridge = typeof window === 'undefined' ? null : window.mcAgent
         if (!bridge || typeof bridge.pickMention !== 'function') return null
         return bridge.pickMention({ sessionId: node.sessionId }).catch(() => null)
+      },
+      /* The composer's four live powers (iteration 6): the busy feed for the
+         send↔stop morph, the queue face over this session's outbox (the
+         SESSION_OUTBOX_EVENT import finally has its subscriber), the popup's
+         rows, and the stop verb. All closures — the component stays
+         fleet-agnostic, and agent.js/comms.js pass none of these. */
+      status: {
+        busy: () => nodeBusy(treeStore ? treeStore.getNode(node.id) || node : node),
+        subscribe: listener => registerNodeStatusListener(node.id, listener),
+      },
+      queue: {
+        list: () => outboxList(node.sessionId).map(entry => ({ id: entry.id, text: entry.text })),
+        /* The console vocabulary works here too: /interrupt typed while the
+           agent is busy is EXACTLY when it matters, and this add is the one
+           path a busy composer send takes — parsed before anything queues,
+           same rule as treeCardSend's own first line. */
+        add: text => {
+          const slash = parseSlashCommand(text)
+          if (slash) {
+            if (slash.kind === 'help' || slash.kind === 'unknown') return { ok: false, sentence: slash.sentence }
+            if (slash.action === 'queue') {
+              if (!slash.rest) return { ok: false, sentence: QUEUE_PANEL.emptyQueueCommand }
+              return outboxEnqueue(node.sessionId, slash.rest)
+            }
+            const sink = { textContent: '' }
+            void runPaletteAction(slash.action, treeStore ? treeStore.getNode(node.id) || node : node, sink)
+            return { ok: true }
+          }
+          return outboxEnqueue(node.sessionId, text)
+        },
+        cancel: id => outboxCancel(node.sessionId, id),
+        subscribe: listener => {
+          const heard = event => { if (event?.detail?.sessionId === node.sessionId) listener() }
+          window.addEventListener(SESSION_OUTBOX_EVENT, heard)
+          return () => window.removeEventListener(SESSION_OUTBOX_EVENT, heard)
+        },
+      },
+      actions: () => chatActionRowsFor(node),
+      actionsNote: PALETTE_PANEL.footer,
+      onStop: () => {
+        const sink = { textContent: '' }
+        return runPaletteAction('interrupt', treeStore ? treeStore.getNode(node.id) || node : node, sink)
+          .then(() => sink.textContent || PALETTE_PANEL.interruptDone)
       },
     }
   }
@@ -1607,6 +1676,9 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!graph) return
     graph.computer = graphComputer()
     graph.refresh()
+    /* Every status mutation flows through here; the chat composers listening
+       for their node's busy state hear it here and only here. */
+    notifyNodeStatusListeners()
     /* ONE subscription refreshes every pane: the split pane re-reads the same
        store snapshot here rather than subscribing on its own, so the two
        canvases can never disagree about what the fleet holds. */
@@ -3007,17 +3079,18 @@ export function computersView({ initialComputer = null, navigate }) {
     controlsPage.style.setProperty('--rc', role.hex)
     disposeRailChat()
     controlsPage.innerHTML = `
-      ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Agent in your tree', forward: { label: PALETTE_PANEL.title, attr: 'data-open-palette' } })}
-      <!-- THE VSCODE-SHAPED RAIL (owner defect 7): the conversation first,
-           the agent's facts second, the verbs third. One ctl-page with three
-           PERSISTENT bodies toggled by [hidden] — roughly forty selectors
+      ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Agent in your tree' })}
+      <!-- THE VSCODE-SHAPED RAIL, round two (owner, iteration 6: "Actions
+           again just shouldnt be its own page it should be a button on the
+           chat"). Two PERSISTENT bodies toggled by [hidden] — many selectors
            query controlsPage, and swapping innerHTML per tab would orphan the
            mounted chat and strand every live updater; hidden bodies keep both
-           working. -->
+           working. The verbs live in the chat composer's actions popup; what
+           remains here is the conversation and the agent's facts, with its
+           setup (folder, place in the tree) at the bottom of Details. -->
       <div class="seg rail-tabs" data-rail-tabs role="group" aria-label="Agent panels">
         <button type="button" class="on" data-rail-tab="chat">Chat</button>
         <button type="button" data-rail-tab="details">Details</button>
-        <button type="button" data-rail-tab="actions">Actions</button>
       </div>
       <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
         ${node.sessionId ? '<div class="rail-chat-host" data-rail-chat-host></div>' : `
@@ -3057,71 +3130,14 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-sub" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
           <div class="rail-sub"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
         </div>` : ''}
-      </div>
-      <div class="rail-tab-body rail-scroll" data-rail-body="actions" hidden>
-        ${node.sessionId && (node.status === 'starting' || node.status === 'running') ? `
-        <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">While it works</span></div>
-          <div class="ctl-row">
-            <button class="ctl-btn" type="button" data-tree-interrupt>${escapeMarkup(PALETTE_PANEL.interrupt)}</button>
-            <button class="ctl-btn" type="button" data-tree-stop>${escapeMarkup(PALETTE_PANEL.stop)}</button>
-          </div>
-          <output class="rail-sub" role="status" data-tree-actions-out></output>
-        </div>` : ''}
-        <!-- SIX BOXES BECAME THREE (owner: "just messy… should be more human
-             usable"). The verbs group by what they act on — the conversation
-             (rewind, queue) and the machinery (model, placement) — with
-             .rail-sec rules inside one box instead of a full box frame per
-             verb. Every data hook keeps its name; only the frames merged. -->
-        ${node.sessionId ? `
-        <div class="board-box board-ctl-box" data-tree-rewind>
-          <div class="board-box-h"><span class="bh-t">The conversation</span></div>
-          <div class="rail-sec">${escapeMarkup(REWIND_PANEL.title)}</div>
-          <div class="rail-sub">${escapeMarkup(REWIND_PANEL.help)}</div>
-          ${(sessionTurnLog.get(node.sessionId) || []).length ? `
-          <div class="ctl-row">
-            <select class="ctl-select" data-tree-rewind-select aria-label="${escapeMarkup(REWIND_PANEL.title)}">
-              ${(sessionTurnLog.get(node.sessionId) || []).map(entry => `<option value="${escapeMarkup(entry.turnId)}">${escapeMarkup(entry.yourText.slice(0, 80))}</option>`).join('')}
-            </select>
-            <button class="ctl-btn" type="button" data-tree-rewind-go>${escapeMarkup(REWIND_PANEL.button)}</button>
-          </div>
-          <output class="rail-sub" role="status" data-tree-rewind-out></output>` : `
-          <div class="rail-sub projection-unavailable">${escapeMarkup(REWIND_PANEL.empty)}</div>`}
-          <div data-tree-queue>
-            <div class="rail-sec">${escapeMarkup(QUEUE_PANEL.title)}</div>
-            <div class="rail-sub">${escapeMarkup(QUEUE_PANEL.note)}</div>
-            <ul class="rail-sub tree-queue-list" data-tree-queue-list></ul>
-            <div class="ctl-row">
-              <input class="ctl-select" type="text" data-tree-queue-input placeholder="${escapeMarkup(QUEUE_PANEL.placeholder)}" aria-label="${escapeMarkup(QUEUE_PANEL.placeholder)}">
-              <button class="ctl-btn" type="button" data-tree-queue-add>${escapeMarkup(QUEUE_PANEL.queue)}</button>
-            </div>
-            <output class="rail-sub" role="status" data-tree-queue-out></output>
-          </div>
-        </div>` : ''}
+        <!-- SETUP: the two controls that describe the node rather than the
+             conversation — its folder and its place in the tree — moved here
+             when the Actions tab retired (iteration 6). Every data hook keeps
+             its exact name, so the handlers below moved without rewrites. -->
         <div class="board-box board-ctl-box" data-tree-move>
-          <div class="board-box-h"><span class="bh-t">Engine &amp; placement</span></div>
-          <div class="rail-sec">${escapeMarkup(MODEL_PANEL.title)}</div>
+          <div class="board-box-h"><span class="bh-t">Setup</span></div>
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
-          ${node.sessionId ? `
-          <div class="ctl-row">
-            <select class="ctl-select" data-tree-model aria-label="${escapeMarkup(MODEL_PANEL.title)}">
-              <option value="">${escapeMarkup(MODEL_PANEL.keep)}</option>
-              ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet')}</option>`).join('')}
-            </select>
-          </div>
-          <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>
-          <div class="rail-sub">${escapeMarkup(EFFORT_SWITCH.help)}</div>
-          <div class="ctl-row">
-            <select class="ctl-select" data-tree-effort aria-label="${escapeMarkup(EFFORT_SWITCH.title)}">
-              <option value="">${escapeMarkup(EFFORT_SWITCH.keep)}</option>
-              ${EFFORT_CHOICES.map(choice => `<option value="${escapeMarkup(choice.id)}">${escapeMarkup(choice.label)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="ctl-row" data-tree-effort-row hidden>
-            <button class="ctl-btn" type="button" data-tree-effort-go>${escapeMarkup(EFFORT_SWITCH.go)}</button>
-          </div>
-          <output class="rail-sub" role="status" data-tree-effort-out></output>` : `
-          <p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
+          ${node.sessionId ? '' : `<p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}
           <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
           <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
           <div class="ctl-row">
@@ -3141,8 +3157,7 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
-    controlsPage.querySelector('[data-open-palette]')?.addEventListener('click', () => showPalette(node))
-    /* The three tabs toggle [hidden] on persistent bodies — see the markup
+    /* The tabs toggle [hidden] on persistent bodies — see the markup
        comment for why nothing is ever re-rendered on a tab press. */
     const railTabs = controlsPage.querySelector('[data-rail-tabs]')
     railTabs?.addEventListener('click', (event) => {
@@ -3183,12 +3198,6 @@ export function computersView({ initialComputer = null, navigate }) {
         railChat = { sessionId: node.sessionId, nodeId: node.id, root: chat, stream: null }
       }
     }
-    /* Interrupt and Stop live inline too — the full console's fastest two
-       verbs, sharing the palette's handlers so the two surfaces cannot
-       drift. */
-    const actionsOut = controlsPage.querySelector('[data-tree-actions-out]')
-    controlsPage.querySelector('[data-tree-interrupt]')?.addEventListener('click', () => { void runPaletteAction('interrupt', node, actionsOut) })
-    controlsPage.querySelector('[data-tree-stop]')?.addEventListener('click', () => { void runPaletteAction('stop', node, actionsOut) })
     /* THE KEYBOARD HALF OF "quickly connect nodes and change hierarchies".
        Edit-mode drag exists and stays; this menu is the accessible, refusable
        path. It is built from movePoints(), so it can only offer moves the
@@ -3283,146 +3292,6 @@ export function computersView({ initialComputer = null, navigate }) {
         })
       }
     }
-    /* THE QUEUE STRIP. Text nodes and listeners, never innerHTML with the
-       person's words in it. The list repaints from the store on every change
-       this rail itself causes; the drain path re-renders the whole rail, so
-       there is no second listener to leak. */
-    const queueList = controlsPage.querySelector('[data-tree-queue-list]')
-    if (queueList && node.sessionId) {
-      const queueOut = controlsPage.querySelector('[data-tree-queue-out]')
-      const paintQueue = () => {
-        queueList.innerHTML = ''
-        for (const entry of outboxList(node.sessionId)) {
-          const item = document.createElement('li')
-          const words = document.createElement('span')
-          words.textContent = entry.text.length > 80 ? `${entry.text.slice(0, 80)}…` : entry.text
-          const drop = document.createElement('button')
-          drop.className = 'ctl-btn'
-          drop.type = 'button'
-          drop.textContent = QUEUE_PANEL.unqueue
-          drop.addEventListener('click', () => {
-            outboxCancel(node.sessionId, entry.id)
-            paintQueue()
-          })
-          item.appendChild(words)
-          item.appendChild(drop)
-          queueList.appendChild(item)
-        }
-      }
-      paintQueue()
-      const queueInput = controlsPage.querySelector('[data-tree-queue-input]')
-      const queueAdd = controlsPage.querySelector('[data-tree-queue-add]')
-      const submitQueued = () => {
-        /* The console vocabulary works here too: /interrupt typed into the
-           queue box should act now, not wait its turn in the queue. */
-        const slash = parseSlashCommand(queueInput.value)
-        if (slash) {
-          if (slash.kind === 'help' || slash.kind === 'unknown') { queueOut.textContent = slash.sentence; return }
-          if (slash.action === 'queue') {
-            queueInput.value = slash.rest
-            if (!slash.rest) { queueOut.textContent = QUEUE_PANEL.emptyQueueCommand; return }
-          } else {
-            queueInput.value = ''
-            void runPaletteAction(slash.action, node, queueOut)
-            return
-          }
-        }
-        const result = outboxEnqueue(node.sessionId, queueInput.value)
-        if (!result.ok) {
-          queueOut.textContent = result.sentence
-          return
-        }
-        queueInput.value = ''
-        queueOut.textContent = ''
-        paintQueue()
-        /* An idle agent has no coming turn-completion to drain on, so a
-           message queued at one goes now — same wire, same one-at-a-time. */
-        if (node.status === 'finished') {
-          const next = outboxTakeNext(node.sessionId)
-          if (next) void drainOutboxMessage(node.sessionId, node.id, next)
-        }
-      }
-      queueAdd.addEventListener('click', submitQueued)
-      queueInput.addEventListener('keydown', event => {
-        if (event.key === 'Enter') submitQueued()
-      })
-    }
-    const rewindGo = controlsPage.querySelector('[data-tree-rewind-go]')
-    if (rewindGo && node.sessionId) {
-      rewindGo.addEventListener('click', async () => {
-        const select = controlsPage.querySelector('[data-tree-rewind-select]')
-        const rewindOut = controlsPage.querySelector('[data-tree-rewind-out]')
-        const turnId = select?.value
-        if (!turnId) return
-        const live = node.status === 'starting' || node.status === 'running'
-        if (live) { if (rewindOut) rewindOut.textContent = REWIND_PANEL.busy; return }
-        const bridge = typeof window === 'undefined' ? null : window.mcAgent
-        if (!bridge || typeof bridge.rewind !== 'function') return
-        let done = null
-        try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch { done = null }
-        if (!done || done.turnId !== turnId) {
-          if (rewindOut) rewindOut.textContent = REWIND_PANEL.failed
-          return
-        }
-        /* The agent's memory now ends at that turn; every screen follows it.
-           The transcript restarts from one truthful line, the kept turn log
-           truncates to the turns that still exist, and the stored reply goes
-           — it may postdate the point the person just erased. */
-        const log = sessionTurnLog.get(node.sessionId) || []
-        const keptIndex = log.findIndex(entry => entry.turnId === turnId)
-        sessionTurnLog.set(node.sessionId, keptIndex >= 0 ? log.slice(0, keptIndex + 1) : [])
-        const kept = keptIndex >= 0 ? log[keptIndex] : null
-        sessionTranscripts.set(node.sessionId, [{
-          who: 'agent',
-          text: kept ? `Rewound. I remember everything up to “${kept.yourText.slice(0, 80)}” and nothing after it.` : REWIND_PANEL.done,
-          at: Date.now(),
-        }])
-        /* The durable excerpt follows the erasure — a resume must not replay
-           words the person just made the agent forget. */
-        persistTranscript(node.sessionId)
-        nodeReplies.delete(node.id)
-        nodeActivity.delete(node.id)
-        if (treeStore) {
-          treeStore.setNodeReply(node.id, '')
-          treeStore.setNodeStatus(node.id, 'finished', { note: statusNote(REWIND_PANEL.done) })
-          refreshTree()
-        }
-        if (rewindOut) rewindOut.textContent = REWIND_PANEL.done
-        showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
-      })
-    }
-    const modelSelect = controlsPage.querySelector('[data-tree-model]')
-    if (modelSelect && node.sessionId) {
-      modelSelect.addEventListener('change', () => {
-        const chosen = modelSelect.value
-        if (chosen) sessionModelOverride.set(node.sessionId, chosen)
-        else sessionModelOverride.delete(node.sessionId)
-        const note = controlsPage.querySelector('[data-tree-model-note]')
-        if (note) note.textContent = chosen ? MODEL_PANEL.next(chosen) : MODEL_PANEL.currentDefault
-      })
-    }
-    /* THE DEPTH SWITCH IS A WARNED RESTART, never a silent one. Picking a
-       different depth shows the token-cost sentence and a button; nothing
-       happens until the button. Picking the current depth (or "keep") puts
-       the row away — there is nothing to warn about. */
-    const effortSelect = controlsPage.querySelector('[data-tree-effort]')
-    if (effortSelect && node.sessionId) {
-      const effortRow = controlsPage.querySelector('[data-tree-effort-row]')
-      const effortOut = controlsPage.querySelector('[data-tree-effort-out]')
-      const currentEffort = sessionEfforts.get(node.sessionId)
-        || transcriptStore?.get(node.id)?.effort || tierEffortOf(node.tier)
-      effortSelect.addEventListener('change', () => {
-        const chosen = effortSelect.value
-        const changes = Boolean(chosen) && chosen !== currentEffort
-        if (effortRow) effortRow.hidden = !changes
-        if (effortOut) effortOut.textContent = changes ? EFFORT_SWITCH.warn : ''
-      })
-      controlsPage.querySelector('[data-tree-effort-go]')?.addEventListener('click', () => {
-        const chosen = effortSelect.value
-        if (!chosen || chosen === currentEffort) return
-        void resumeNodeSession(treeStore ? treeStore.getNode(node.id) || node : node, { effort: chosen, out: effortOut })
-      })
-    }
     /* THE SAID BOX IS FILLED HERE, NOT IN THE TEMPLATE, because it has three
        truthful states and two of them are alive: a finished reply (rendered
        once), a mid-turn stream (the appender, seeded with everything the turn
@@ -3460,88 +3329,169 @@ export function computersView({ initialComputer = null, navigate }) {
     activateRail(controlsPage)
   }
 
-  /* THE ACTIONS PALETTE — the owner's "vscode command types", holding ONLY
-     what this build really performs on this node today. What it cannot do is
-     one honest sentence in the footer, never a dead control; each row's
-     enabled state is derived from the node, and every outcome is a sentence
-     in the palette's own output line. Rebuilt fresh per open, like the
-     drawer. */
-  function showPalette(node) {
-    disposeRailSaid()
-    clearBoard()
-    currentRailTreeNode = node
-    const role = ROLES[node.role] || ROLES.default
-    palettePage.style.setProperty('--rc', role.hex)
-    const running = node.status === 'starting' || node.status === 'running'
-    const reply = nodeReplies.get(node.id) || node.reply || ''
-    const actions = [
-      { id: 'interrupt', label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running && Boolean(node.sessionId) },
-      { id: 'stop', label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: Boolean(node.sessionId) && running },
-      { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true },
-      { id: 'queue', label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: Boolean(node.sessionId) },
-      { id: 'switch-model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(node.sessionId) },
-      { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(node.sessionId) },
+  /* THE REWIND, AS A NAMED FUNCTION. Its rail select retired with the
+     Actions tab (iteration 6); the chat popup's rewind stage is the caller
+     now. The body is the old handler's, unchanged: engine rewind first,
+     then every screen follows the shortened memory. */
+  async function performRewind(node, turnId, out) {
+    if (!turnId || !node.sessionId) return false
+    if (nodeBusy(node)) { if (out) out.textContent = REWIND_PANEL.busy; return false }
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.rewind !== 'function') return false
+    let done = null
+    try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch { done = null }
+    if (!done || done.turnId !== turnId) {
+      if (out) out.textContent = REWIND_PANEL.failed
+      return false
+    }
+    /* The agent's memory now ends at that turn; every screen follows it.
+       The transcript restarts from one truthful line, the kept turn log
+       truncates to the turns that still exist, and the stored reply goes
+       — it may postdate the point the person just erased. */
+    const log = sessionTurnLog.get(node.sessionId) || []
+    const keptIndex = log.findIndex(entry => entry.turnId === turnId)
+    sessionTurnLog.set(node.sessionId, keptIndex >= 0 ? log.slice(0, keptIndex + 1) : [])
+    const kept = keptIndex >= 0 ? log[keptIndex] : null
+    sessionTranscripts.set(node.sessionId, [{
+      who: 'agent',
+      text: kept ? `Rewound. I remember everything up to “${kept.yourText.slice(0, 80)}” and nothing after it.` : REWIND_PANEL.done,
+      at: Date.now(),
+    }])
+    /* The durable excerpt follows the erasure — a resume must not replay
+       words the person just made the agent forget. */
+    persistTranscript(node.sessionId)
+    nodeReplies.delete(node.id)
+    nodeActivity.delete(node.id)
+    if (treeStore) {
+      treeStore.setNodeReply(node.id, '')
+      treeStore.setNodeStatus(node.id, 'finished', { note: statusNote(REWIND_PANEL.done) })
+      refreshTree()
+    }
+    if (out) out.textContent = REWIND_PANEL.done
+    showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
+    return true
+  }
+
+  /* An outcome reporter that survives the popup. The restart verbs (depth,
+     resume, start over) rebuild the rail, which disposes the chat and its
+     popup mid-flight — so their sentences land on the canvas status line,
+     the reporter that outlives every rail rebuild. */
+  function statusSink() {
+    return {
+      get textContent() { return '' },
+      set textContent(value) {
+        const sentence = String(value || '')
+        if (!sentence) return
+        setOrgStatus(sentence, sentence === RESUME_PANEL.done || sentence === PALETTE_PANEL.cleared ? 'ok' : 'refuse', { sticky: sentence !== RESUME_PANEL.done && sentence !== PALETTE_PANEL.cleared })
+      },
+    }
+  }
+
+  /* Focus one of the Details tab's setup controls from anywhere. */
+  function focusDetailsControl(node, selector) {
+    showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
+    controlsPage.querySelector('[data-rail-tab="details"]')?.click()
+    controlsPage.querySelector(selector)?.focus?.()
+  }
+
+  /* THE CHAT'S ACTION ROWS — the palette model, re-homed (owner, iteration
+     6: "Actions again just shouldnt be its own page it should be a button
+     on the chat"). Same honest rules as the page it replaces: every row is
+     something this build really performs on this node today, enabled states
+     derive from the node, and runPaletteAction stays the single verb
+     engine. Depth, model and rewind are two-stage picks inside the popup
+     (ctx.show); the warned-restart contract for depth is unchanged — the
+     token-cost sentence stands between the pick and the restart. */
+  function chatActionRowsFor(node) {
+    const fresh = () => (treeStore ? treeStore.getNode(node.id) || node : node)
+    const current = fresh()
+    const running = nodeBusy(current)
+    const reply = nodeReplies.get(current.id) || current.reply || ''
+    const sinkFor = ctx => ({
+      get textContent() { return '' },
+      set textContent(value) { ctx.say(String(value || '')) },
+    })
+    const currentEffort = () => sessionEfforts.get(fresh().sessionId)
+      || transcriptStore?.get(node.id)?.effort || tierEffortOf(current.tier)
+    const effortRows = () => EFFORT_CHOICES.map(choice => ({
+      id: `effort-${choice.id}`,
+      label: choice.label,
+      hint: choice.id === currentEffort() ? 'Its current depth.' : null,
+      current: choice.id === currentEffort(),
+      enabled: true,
+      run: ctx => {
+        if (choice.id === currentEffort()) { ctx.say(EFFORT_SWITCH.keep); return }
+        ctx.show([{
+          id: 'effort-go',
+          label: EFFORT_SWITCH.go,
+          hint: EFFORT_SWITCH.warn,
+          enabled: true,
+          run: goCtx => {
+            goCtx.close()
+            void resumeNodeSession(fresh(), { effort: choice.id, out: statusSink() })
+          },
+        }], { title: choice.label })
+      },
+    }))
+    const modelRows = () => {
+      const override = sessionModelOverride.get(fresh().sessionId) || ''
+      const keepRow = {
+        id: 'model-keep',
+        label: MODEL_PANEL.keep,
+        hint: MODEL_PANEL.currentDefault,
+        current: !override,
+        enabled: true,
+        run: ctx => {
+          sessionModelOverride.delete(fresh().sessionId)
+          ctx.say(MODEL_PANEL.currentDefault)
+        },
+      }
+      return [keepRow, ...LAUNCH_TIERS.map(tier => ({
+        id: `model-${tier.model}`,
+        label: `${tier.label} · ${tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet'}`,
+        hint: null,
+        current: override === tier.model,
+        enabled: tier.provider === 'codex',
+        run: ctx => {
+          sessionModelOverride.set(fresh().sessionId, tier.model)
+          ctx.say(MODEL_PANEL.next(tier.model))
+        },
+      }))]
+    }
+    const rewindRows = () => (sessionTurnLog.get(fresh().sessionId) || []).map(entry => ({
+      id: `rewind-${entry.turnId}`,
+      label: entry.yourText.slice(0, 80),
+      hint: null,
+      enabled: true,
+      run: ctx => {
+        ctx.show([{
+          id: 'rewind-go',
+          label: REWIND_PANEL.button,
+          hint: REWIND_PANEL.help,
+          enabled: true,
+          run: goCtx => {
+            goCtx.close()
+            void performRewind(fresh(), entry.turnId, statusSink())
+          },
+        }], { title: `“${entry.yourText.slice(0, 60)}”` })
+      },
+    }))
+    return [
+      { id: 'interrupt', label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running, run: ctx => runPaletteAction('interrupt', fresh(), sinkFor(ctx)) },
+      { id: 'stop', label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: running, run: ctx => runPaletteAction('stop', fresh(), sinkFor(ctx)) },
+      { id: 'effort', label: EFFORT_SWITCH.title, hint: EFFORT_SWITCH.help, enabled: Boolean(current.sessionId), run: ctx => ctx.show(effortRows(), { title: EFFORT_SWITCH.title }) },
+      { id: 'model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(current.sessionId), run: ctx => ctx.show(modelRows(), { title: MODEL_PANEL.title }) },
+      { id: 'rewind', label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: Boolean(current.sessionId) && (sessionTurnLog.get(current.sessionId) || []).length > 0, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
       /* Enabled exactly when it can act: a saved conversation exists and no
          session is mid-turn over it. A running agent is resumed by talking
          to it, not by restarting it out from under itself. */
-      { id: 'resume', label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)) },
-      { id: 'rewind', label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: Boolean(node.sessionId) && (sessionTurnLog.get(node.sessionId) || []).length > 0 },
-      { id: 'attach', label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: Boolean(node.sessionId) },
-      { id: 'mention', label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: Boolean(node.sessionId) },
-      { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true },
-      { id: 'copy-brief', label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(node.message) },
-      { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply) },
+      { id: 'resume', label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)), run: ctx => { ctx.close(); void resumeNodeSession(fresh(), { out: statusSink() }) } },
+      { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(current.sessionId), run: ctx => { ctx.close(); void runPaletteAction('clear', fresh(), statusSink()) } },
+      { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true, run: ctx => { ctx.close(); openComposeFor({ kind: 'child', parentId: node.id }) } },
+      { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true, run: ctx => { ctx.close(); focusDetailsControl(node, '[data-tree-move-select]') } },
+      { id: 'copy-brief', label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(current.message), run: ctx => runPaletteAction('copy-brief', fresh(), sinkFor(ctx)) },
+      { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply), run: ctx => runPaletteAction('copy-reply', fresh(), sinkFor(ctx)) },
     ]
-    palettePage.innerHTML = `
-      ${railTitleRow({ back: { aria: 'Back to this agent' }, title: PALETTE_PANEL.title })}
-      <div class="rail-scroll">
-        <div class="board-box board-ctl-box">
-          <input class="ctl-select" type="text" data-palette-filter placeholder="${escapeMarkup(PALETTE_PANEL.filter)}" aria-label="${escapeMarkup(PALETTE_PANEL.filter)}">
-        </div>
-        <div class="board-box board-ctl-box palette-list" data-palette-list></div>
-        <output class="rail-sub" role="status" data-palette-out></output>
-        <p class="rail-sub projection-unavailable">${escapeMarkup(PALETTE_PANEL.footer)}</p>
-      </div>`
-    palettePage.querySelector('.rail-back').addEventListener('click', () => showTreeNodeControls(node))
-    const listHost = palettePage.querySelector('[data-palette-list]')
-    const out = palettePage.querySelector('[data-palette-out]')
-    const paint = query => {
-      const wanted = (query || '').trim().toLowerCase()
-      listHost.innerHTML = ''
-      const visible = actions.filter(action =>
-        !wanted || action.label.toLowerCase().includes(wanted) || action.hint.toLowerCase().includes(wanted))
-      if (visible.length === 0) {
-        const line = document.createElement('p')
-        line.className = 'rail-sub'
-        line.textContent = PALETTE_PANEL.none
-        listHost.appendChild(line)
-        return
-      }
-      for (const action of visible) {
-        const row = document.createElement('button')
-        row.type = 'button'
-        row.className = 'ctl-btn palette-row'
-        row.disabled = !action.enabled
-        const label = document.createElement('div')
-        label.textContent = action.label
-        row.appendChild(label)
-        if (action.hint) {
-          const hint = document.createElement('div')
-          // Not .rail-sub: that class carries margin-bottom var(--s4), which
-          // inside a button skews every row's baseline downward.
-          hint.className = 'palette-hint'
-          hint.textContent = action.hint
-          row.appendChild(hint)
-        }
-        row.addEventListener('click', () => { void runPaletteAction(action.id, node, out) })
-        listHost.appendChild(row)
-      }
-    }
-    paint('')
-    const filter = palettePage.querySelector('[data-palette-filter]')
-    filter.addEventListener('input', () => paint(filter.value))
-    activateRail(palettePage)
-    filter.focus()
   }
 
   /* RESUME, AND EVERY SWITCH THAT IS HONESTLY A RESTART (iteration 5 W7 and
@@ -3650,15 +3600,22 @@ export function computersView({ initialComputer = null, navigate }) {
       openComposeFor({ kind: 'child', parentId: node.id })
       return
     }
-    if (id === 'queue' || id === 'move' || id === 'switch-model' || id === 'rewind') {
+    /* The four navigational verbs, retargeted for the popup era (iteration
+       6): model and rewind open the chat's actions popup straight at their
+       stage; queue focuses the composer (the composer IS the queue while
+       the agent works); move focuses the Details tab's Reports-to menu. */
+    if (id === 'queue') {
       showTreeNodeControls(node)
-      const target = controlsPage.querySelector(
-        id === 'queue' ? '[data-tree-queue-input]'
-          : id === 'move' ? '[data-tree-move-select]'
-            : id === 'rewind' ? '[data-tree-rewind-select]'
-              : '[data-tree-model]',
-      )
-      target?.focus?.()
+      controlsPage.querySelector('[data-rail-chat-host] .chat-input input')?.focus?.()
+      return
+    }
+    if (id === 'move') {
+      focusDetailsControl(node, '[data-tree-move-select]')
+      return
+    }
+    if (id === 'switch-model' || id === 'rewind') {
+      showTreeNodeControls(node)
+      railChat?.root?.openActions?.(id === 'rewind' ? 'rewind' : 'model')
       return
     }
     if (id === 'attach') {
@@ -3744,7 +3701,9 @@ export function computersView({ initialComputer = null, navigate }) {
       try { picked = await bridge.pickMention({ sessionId: node.sessionId }) } catch { picked = null }
       if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.attachCancelled; return }
       showTreeNodeControls(node)
-      const input = controlsPage.querySelector('[data-tree-queue-input]')
+      /* Into the chat composer — the queue box retired with the Actions
+         tab; the composer is where a mention's path belongs now. */
+      const input = controlsPage.querySelector('[data-rail-chat-host] .chat-input input')
       if (input) {
         input.value = input.value ? `${input.value} ${picked.path}` : `Read ${picked.path} and use it for what I ask next.`
         input.focus()
@@ -4214,8 +4173,12 @@ export function computersView({ initialComputer = null, navigate }) {
       })
       return
     }
-    const busy = node.status === 'starting' || node.status === 'running'
-    if (busy) {
+    /* nodeBusy, not raw status: a restart-stale node (saved 'running' loads
+       as 'starting' forever, over a session this run never owned) must FALL
+       THROUGH to the send, meet MC_AGENT_UNKNOWN_SESSION, and recover below
+       — the old status-only test parked its messages in a queue that no
+       turn-completion would ever drain. */
+    if (nodeBusy(node)) {
       const queued = outboxEnqueue(node.sessionId, text)
       if (!queued.ok) { fail(queued.sentence); return }
       reply(QUEUE_PANEL.cardQueued)
@@ -4242,8 +4205,93 @@ export function computersView({ initialComputer = null, navigate }) {
       }
     }, error => {
       cardReplies.delete(node.sessionId)
+      /* A DEAD SESSION IS NOT THE PERSON'S PROBLEM (owner, iteration 6: "We
+         still get this message"). The one code that means "this session is
+         gone" hands the send to the recovery: a fresh agent reads the saved
+         conversation and the typed words wait in the queue, visibly. Every
+         other refusal keeps its sentence. */
+      if (refusalCode(error) === 'MC_AGENT_UNKNOWN_SESSION') {
+        void recoverDeadSessionSend(node, text, { reply, fail })
+        return
+      }
       fail(startRefusalSentence({ ok: false, code: refusalCode(error) }))
     })
+  }
+
+  /* THE RECOVERY: reached exactly once per dead session per send, from the
+     rejection branch above. Order matters — the phantom you-line the failed
+     send already appended is stripped from the window transcript AND the
+     durable record BEFORE the resume reads it, or the words would ride
+     twice: once inside the seed the fresh agent reads, once as the queued
+     message. The typed message then queues and drains when the seed turn
+     completes, through the one drain site every queued message uses. */
+  const recoveringNodes = new Set()
+  const recentRecoveries = new Map()
+  async function recoverDeadSessionSend(node, text, { reply, fail }) {
+    /* One recovery per node per quarter-minute. Without this, a fresh
+       session that dies instantly would bounce send → unknown-session →
+       recover → send forever; after one bounded attempt the honest dead
+       end speaks. */
+    const lastAt = recentRecoveries.get(node.id) || 0
+    if (Date.now() - lastAt < 15_000) { fail(START_REFUSAL.sessionGone); return }
+    if (recoveringNodes.has(node.id)) {
+      /* A second send while the fresh agent still reads: it queues behind
+         the first the moment the new session exists; refusing it here would
+         lose words the person already typed. */
+      const freshNow = treeStore ? treeStore.getNode(node.id) || node : node
+      if (freshNow.sessionId && sessionNodeIds.has(freshNow.sessionId)) {
+        const queued = outboxEnqueue(freshNow.sessionId, text)
+        if (queued.ok) { reply(QUEUE_PANEL.cardQueued); return }
+      }
+      fail(START_REFUSAL.sessionGone)
+      return
+    }
+    recoveringNodes.add(node.id)
+    recentRecoveries.set(node.id, Date.now())
+    try {
+      const deadSessionId = node.sessionId
+      /* Strip the phantom you-line from both copies. */
+      const held = sessionTranscripts.get(deadSessionId) || []
+      const last = held[held.length - 1]
+      if (last && last.who === 'you' && last.text === text) {
+        held.pop()
+        sessionTranscripts.set(deadSessionId, held)
+      }
+      const durable = transcriptStore ? transcriptStore.get(node.id) : null
+      if (durable && Array.isArray(durable.lines)) {
+        const tail = durable.lines[durable.lines.length - 1]
+        if (tail && tail.who === 'you' && tail.text === text.slice(0, tail.text.length) && durable.lines.length > 0) {
+          const trimmed = durable.lines.slice(0, -1)
+          if (trimmed.length > 0) {
+            transcriptStore.save(node.id, { lines: trimmed, threadId: durable.threadId, effort: durable.effort })
+          } else {
+            transcriptStore.remove(node.id)
+          }
+        }
+      }
+      const seeded = Boolean(transcriptStore && transcriptStore.has(node.id))
+      reply(seeded ? RECOVERED_SESSION.reconnecting : RECOVERED_SESSION.bare)
+      const ok = await resumeNodeSession(node, {})
+      if (!ok) { fail(START_REFUSAL.sessionGone); return }
+      const fresh = treeStore ? treeStore.getNode(node.id) || node : node
+      if (!fresh.sessionId) { fail(START_REFUSAL.sessionGone); return }
+      if (seeded) {
+        /* The resume seeded the transcript as the new session's first turn;
+           the person's message queues behind it and drains on that turn's
+           completion — visible in the strip the whole time. */
+        const queued = outboxEnqueue(fresh.sessionId, text)
+        if (!queued.ok) fail(queued.sentence)
+      } else {
+        /* Nothing saved: the fresh session is idle, the message goes now —
+           one retry only, and the honest dead end if that also fails. */
+        treeCardSend(fresh, text, {
+          reply,
+          fail: sentence => fail(sentence || START_REFUSAL.sessionGone),
+        })
+      }
+    } finally {
+      recoveringNodes.delete(node.id)
+    }
   }
 
   /* ONE QUEUED MESSAGE GOES OUT, THROUGH THE SAME WIRE A TYPED ONE USES.
