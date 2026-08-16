@@ -24,7 +24,7 @@ import { createResearchRegistry } from '../research-modules.js'
    this module with every `^import` LINE stripped, so a wrapped import would
    leave its tail behind as garbage. */
 import { RESEARCH_QUEUE_ROW_KEY, advanceItem, buildOwnItem, mergeQueueForRender, nextStatus, parseQueueRow, removeOwnItem } from '../research-queue-store.js'
-import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, cellsWithServiceStatus, decideDispatch, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments, submitExperimentRuns } from '../research-experiments.js'
+import { RESEARCH_EXPERIMENTS_EVENT, RESEARCH_EXPERIMENTS_ROW_KEY, buildExperiment, cellsAwaitingService, cellsWithServiceStatus, decideDispatch, dispatchExperiment, experimentsSnapshot, parseExperimentsRow, removeExperiment, seedExperiments, submitExperimentRuns } from '../research-experiments.js'
 import { localTiersStatus, postBridgeAction } from '../mission-bridge.js'
 import { TIER_CHOICES, DEFAULT_TIER } from '../fleet-tree-copy.js'
 import { startAgentForNode } from './computers.js'
@@ -857,7 +857,7 @@ export function researchView() {
     return { ok: true }
   }
 
-  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed', queued: 'queued' })
+  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed', queued: 'queued', unread: 'with the run service' })
 
   function cellDuration(cell) {
     if (!Number.isFinite(cell.startedAtMs) || !Number.isFinite(cell.endedAtMs)) return ''
@@ -938,7 +938,7 @@ export function researchView() {
         </div>
         <div class="research-gathered-block">
           <h5>Cells on this computer</h5>
-          <div class="research-runboard-cells" data-gathered-cells="${esc(experiment.id)}">${localCellsMarkup(experiment)}</div>
+          <div class="research-runboard-cells" data-gathered-cells="${esc(experiment.id)}">${localCellsMarkup(experiment, experiment.serviceExperimentId ? cellsAwaitingService(experiment) : experiment.cells)}</div>
         </div>
         ${hasLocalResults ? `
         <div class="research-gathered-block">
@@ -1138,10 +1138,11 @@ export function researchView() {
        staged page. Same display-only translation the gathered panel uses;
        when the service has not been read, the local word stands unchanged. */
     const cellsFor = experiment => {
-      const read = experiment.serviceExperimentId ? runsByExperiment.get(experiment.serviceExperimentId) : null
+      if (!experiment.serviceExperimentId) return localCellsMarkup(experiment)
+      const read = runsByExperiment.get(experiment.serviceExperimentId)
       return read?.ok === true
         ? localCellsMarkup(experiment, cellsWithServiceStatus(experiment, read.runs))
-        : localCellsMarkup(experiment)
+        : localCellsMarkup(experiment, cellsAwaitingService(experiment))
     }
     host.innerHTML = `${elsewhereNote(hidden)}${active.map(experiment => `
       <div class="research-runboard-exp" data-runboard-exp="${esc(experiment.id)}">
@@ -1406,10 +1407,15 @@ export function researchView() {
            That is the idempotency working, but silence made the press look
            broken — a saved grid has no edit, so pressing it again is exactly
            what a person does (measured on the installed build, 2026-08-15). */
+        /* The count comes from the cells, not from `replayed`: a cell that was
+           already sent is skipped before the service is asked, so `replayed`
+           stays 0 and the sentence used to carry no number at all (installed
+           1.0.11). Say how many, and say what to press next. */
+        const alreadySent = outcome.total - outcome.submitted - outcome.replayed
         const said = outcome.sentence || (outcome.submitted === 0
           ? (outcome.replayed > 0
             ? `Already queued — the run service recognised all ${outcome.replayed} of these runs and made no duplicates. Duplicate this experiment to run a fresh set.`
-            : 'Nothing new to queue: every cell of this experiment has already been sent.')
+            : `Already sent — all ${alreadySent} cells of this experiment are with the run service. Press Duplicate to run a fresh set.`)
           : null)
         if (said) { const holdStatus = moduleEl('designer').querySelector('[data-exp-form-status]'); if (holdStatus) holdStatus.textContent = said }
         refreshServiceSnapshot()
@@ -1790,7 +1796,13 @@ export function researchView() {
   function scheduleRunPoll() {
     if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
     if (destroyed || !anyRunActive()) return
-    runPollTimer = setTimeout(() => { refreshRuns() }, 5000)
+    /* The poll refreshes runs; the LIFECYCLE comes from the snapshot, and
+       without re-reading it the worker control keeps its old word. Measured
+       on installed 1.0.11: seven minutes after the worker process died the
+       control still read "Run worker: running." and offered only Stop, so
+       there was no Start to press to recover. The snapshot read is a cheap
+       one (~0.1s) and this only runs while something is actually active. */
+    runPollTimer = setTimeout(() => { refreshServiceSnapshot() }, 5000)
   }
 
   /* The worker control: the service's own lifecycle word beside a start/stop

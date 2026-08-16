@@ -502,6 +502,16 @@ export function cellsWithServiceStatus(experiment, runs) {
   })
 }
 
+/* The same translation for the moment BEFORE the service has answered. A
+   queue-dispatched cell's local row says 'queued' for life, so painting it
+   raw asserts "queued" for runs that may be finished — which is what a
+   researcher saw on every cold load and on any failed poll (installed
+   1.0.11: nine finished cells read "queued" at 240ms). Unknown is its own
+   word, and the pulse already speaks it. */
+export function cellsAwaitingService(experiment) {
+  return experiment.cells.map(cell => (cell.status === 'queued' ? { ...cell, status: 'unread' } : cell))
+}
+
 /* Test seam: the module-level maps outlive suites otherwise. */
 export function resetExperimentTracking() {
   tracked.clear()

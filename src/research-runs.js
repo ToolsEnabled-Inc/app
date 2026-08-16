@@ -35,8 +35,18 @@ export function runTaskStateWord(task) {
 }
 
 export function runTaskIsStalled(task) {
+  /* leaseExpired is only ever true for a row the service stored as leased or
+     running, so the flag alone is the whole test. The first version also
+     required status to BE 'running' or 'leased' and therefore never fired:
+     when a lease expires the service reports 'uncertain' (from running) or
+     'expired' (from leased), not the stored word — so the board said
+     "uncertain" at a person, and "stalled" appeared nowhere in the shipped
+     app (measured on installed 1.0.11). */
   if (!task || task.leaseExpired !== true) return false
-  return task.status === 'running' || task.status === 'leased'
+  // A finished run is finished however stale its lease record looks. The
+  // service never sets the flag on a terminal row, so this only guards a
+  // caller handing us a malformed one — cheap, and it keeps the word honest.
+  return !runIsTerminal(task.status) && !runIsTerminal(task.storedStatus || task.status)
 }
 
 export function runIsTerminal(status) {

@@ -184,6 +184,15 @@ test('a task whose lease expired reads stalled, not running', async () => {
   assert.equal(runTaskStateWord({ status: 'running', leaseExpired: true }), 'stalled')
   assert.equal(runTaskStateWord({ status: 'leased', leaseExpired: true }), 'stalled')
   assert.equal(runTaskIsStalled({ status: 'running', leaseExpired: true }), true)
+  // The service REPLACES the word when a lease dies: a stored 'running' is
+  // reported 'uncertain' and a stored 'leased' is reported 'expired'. Keying
+  // on the reported word meant the check never fired and a person read
+  // "uncertain" (installed 1.0.11). The flag alone decides.
+  assert.equal(runTaskStateWord({ status: 'uncertain', leaseExpired: true, storedStatus: 'running' }), 'stalled')
+  assert.equal(runTaskStateWord({ status: 'expired', leaseExpired: true, storedStatus: 'leased' }), 'stalled')
+  assert.equal(runTaskIsStalled({ status: 'uncertain', leaseExpired: true }), true)
+  assert.equal(runTaskStateWord({ status: 'uncertain', leaseExpired: false }), 'uncertain',
+    'an uncertain run with a LIVE lease is not stalled')
   // A live lease is not stalled, and a terminal state never is.
   assert.equal(runTaskStateWord({ status: 'running', leaseExpired: false }), 'running')
   assert.equal(runTaskStateWord({ status: 'leased', leaseExpired: false }), 'claimed')

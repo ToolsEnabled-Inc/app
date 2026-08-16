@@ -441,3 +441,26 @@ test('the run board and the service board cannot wipe each other, and the worker
   // A fully-replayed submit must say so instead of doing nothing visible.
   assert.match(view, /Already queued — the run service recognised all/)
 })
+
+test('cells with no service answer say so instead of asserting queued', async () => {
+  const { cellsAwaitingService } = await import('../../src/research-experiments.js')
+  const experiment = {
+    cells: [
+      { params: { a: 1 }, status: 'queued', runId: 'rr-1' },
+      { params: { a: 2 }, status: 'finished' },
+      { params: { a: 3 }, status: 'designed' },
+    ],
+  }
+  assert.deepEqual(cellsAwaitingService(experiment).map(cell => cell.status),
+    ['unread', 'finished', 'designed'],
+    'a queued cell whose service state is unknown reads unread; local truth is untouched')
+  assert.equal(experiment.cells[0].status, 'queued', 'display only — the stored row is unchanged')
+
+  const view = read('src/views/research.js')
+  assert.match(view, /unread: 'with the run service'/, 'the unread word lost its sentence')
+  assert.match(view, /cellsAwaitingService\(experiment\)/, 'the boards no longer fall back to unread')
+  // The poll must refresh the LIFECYCLE too, or a dead worker keeps its word.
+  const poll = view.slice(view.indexOf('function scheduleRunPoll'), view.indexOf('function workerControlMarkup'))
+  assert.match(poll, /refreshServiceSnapshot\(\)/, 'the poll refreshes runs only; the worker control goes stale again')
+  assert.match(view, /Already sent — all \$\{alreadySent\} cells/, 'the replay sentence lost its count')
+})
