@@ -80,5 +80,30 @@ standalone on both 1.0.12 and 1.0.13 — a suite-context hang, not a finding.
 
 ## 7. `performance-budget-qa`'s node growth is mostly a harness artifact
 
-See PERFORMANCE-BUDGET-NODE-GROWTH-ANALYSIS.md. Known-red for a measured
-reason; take the routes-scenario reading before touching the harness.
+See PERFORMANCE-BUDGET-NODE-GROWTH-ANALYSIS.md. It failed on 1.0.11, 1.0.12
+and 1.0.13 with an identical number and then PASSED on 1.0.14 with
+"-192 nodes/lap" — on a cut that touched only `src/views/research.js`. That
+flip is exactly what the analysis predicts: the figure is the live-size
+difference between whichever two pages the lap loop happens to end on, so it
+moves when the page's mounted size moves. Do not read the pass as "the leak
+was fixed" any more than the fail meant "there is a leak". Take the
+routes-scenario reading before touching the harness.
+
+## 8. `recommended-path-packaged-qa` hangs on app launch + CDP attach
+
+Timed out in-suite at ~900s on 1.0.13 and 1.0.14, and on 1.0.14 also hung
+once STANDALONE (12/21, stuck at a leg boundary with six scratch-copy
+ToolsEnabled processes alive) before passing 21/21 in 51s on the next try.
+The driver's `send()` has no timeout — only `open()` is bounded — so a lost
+CDP reply hangs it for ever. Harness hang class, intermittent; if it hangs,
+run it standalone before calling anything a finding, and kill only the
+Temp-scratch processes it spawned.
+
+## 9. `agent-start-flow-qa`'s 1.0.9 attribution does not transfer
+
+The 1.0.9 document explains its red as "measured a stale working-tree
+renderer". On 1.0.14 the same two checks fail ("the send control is not on
+the glass") with the SEALED build's own dist swapped in, so that explanation
+does not apply any more. Not a research-lane delta (the cut touched only the
+research view), but do not quote the 1.0.9 reason for it again; it belongs
+to the fleet/compose lane to re-attribute.
