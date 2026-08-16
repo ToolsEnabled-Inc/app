@@ -639,6 +639,18 @@ function endSentence(text) {
   return /[.!?…]$/.test(value) ? value : `${value}.`
 }
 
+/* The availability table's sentences are written lower-case first because two
+   of their three surfaces read "unavailable · <phrase>" and "refused ·
+   <phrase>" (agent-session.js), where a capital would be wrong. This surface
+   is the third, and it puts a full stop in front of them -- which rendered
+   "Nothing was started. this copy starts Codex agents…" on the installed
+   1.0.17, measured. Capitalise HERE, at the one join that needs it, rather
+   than in twenty strings the other two surfaces also read. */
+function startCapital(text) {
+  const value = String(text ?? '')
+  return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1)
+}
+
 /* DID THE PRODUCT ACTUALLY LEARN ANYTHING? The engine's own `reason` is good
    English and worth showing, but two things arrive in that field that are not:
    an empty string, and a `reason` that is itself a machine code, which really
@@ -681,7 +693,7 @@ export function startRefusalSentence(result) {
   const code = refusalCodeOf(result)
   if (code && Object.prototype.hasOwnProperty.call(REFUSAL_BY_CODE, code)) return REFUSAL_BY_CODE[code]
   if (code && Object.prototype.hasOwnProperty.call(UNAVAILABLE_TEXT, code)) {
-    return `${NOTHING_STARTED} ${endSentence(unavailableReason(code))}`
+    return `${NOTHING_STARTED} ${startCapital(endSentence(unavailableReason(code)))}`
   }
   if (readableReason(result) || refusalRemedy(code) !== GENERIC_REMEDY) return refusalSentence(result)
   return START_REFUSAL.noReasonGiven
