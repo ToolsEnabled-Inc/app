@@ -99,6 +99,27 @@ CDP reply hangs it for ever. Harness hang class, intermittent; if it hangs,
 run it standalone before calling anything a finding, and kill only the
 Temp-scratch processes it spawned.
 
+## 10. A driver that exits 0 mid-run is counted PASS (2026-08-16)
+
+`test-account-journey-qa` reported PASS on 1.0.15 while its own log showed
+eleven FAIL lines and no ledger summary — the driver exited 0 part-way and
+the suite counted a truncated ledger as green. The 1.0.12 copy did the same
+once standalone. Until the suite refuses a ledger with no summary line, a
+"PASS" from this driver needs its log read before it is believed.
+
+## 11. The fresh-profile sign-in class flipped red machine-wide (2026-08-16)
+
+`account-isolation-session-qa` (and by inspection `account-isolation-leak-qa`)
+fail on EVERY sealed build today — including 1.0.12, which passed them on
+2026-08-15 — with "creating it signs the person in — signedIn=false" and no
+`product-session.enc` written in the scratch profile. Same driver, same
+build, different day: machine state changed, not code. The owner's REAL
+universe is unaffected (its session file is intact and a DPAPI round-trip
+succeeds for the user), so the showing is not at risk; account CREATION in
+fresh profiles is what broke. Hypothesis, uncontrolled: the sealed session
+is DPAPI-backed and this machine has a recorded DPAPI outage. Someone with
+vault context should check before the next fresh-install rehearsal.
+
 ## 9. `agent-start-flow-qa`'s 1.0.9 attribution does not transfer
 
 The 1.0.9 document explains its red as "measured a stale working-tree
