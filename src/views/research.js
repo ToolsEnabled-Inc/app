@@ -1156,12 +1156,18 @@ export function researchView() {
     let block = host.querySelector('[data-bench-runboard]')
     if (!block) {
       block = el('<div data-bench-runboard></div>')
-      host.prepend(block)
+      claimHost(host, block)
     }
     const { shown: experiments, hidden } = benchExperiments()
     const active = experiments.filter(experiment => experiment.cells.some(cell => cell.status !== 'designed'))
     if (active.length === 0) {
-      block.innerHTML = `<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>${elsewhereNote(hidden)}`
+      /* Only claim the board is idle when the service board beside it is
+         idle too — the two blocks share a section heading and read as one. */
+      const serviceIsBusy = serviceExperiments().some(experiment => {
+        const read = runsByExperiment.get(experiment.experimentId)
+        return read?.ok === true && read.runs.some(run => run?.task && !runIsTerminal(run.task.status))
+      })
+      block.innerHTML = `${serviceIsBusy ? '' : '<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>'}${elsewhereNote(hidden)}`
       renderServiceRunBoard()
       return
     }
@@ -1208,7 +1214,7 @@ export function researchView() {
     let block = host.querySelector('[data-bench-results]')
     if (!block) {
       block = el('<div data-bench-results></div>')
-      host.prepend(block)
+      claimHost(host, block)
     }
     const { experiments } = experimentsSnapshot()
     const finished = experiments.filter(experiment => experiment.cells.some(cell => cell.status === 'finished' || cell.status === 'failed'))
@@ -1252,6 +1258,22 @@ export function researchView() {
     renderRunBoard()
     renderResults()
     renderStatusPulse()
+  }
+
+  /* The run-board and results hosts are seeded in the module markup with a
+     placeholder paragraph ("Nothing is running yet." / "No results have
+     arrived yet."). When these renderers wrote host.innerHTML the seed was
+     replaced along with everything else; once they took ownership of a child
+     block instead, the seed was left standing between the bench block and
+     the service block — so "No results have arrived yet." sat above 57 rows
+     of results and "Nothing is running yet." above a run reading "running"
+     (installed 1.0.14). The first renderer to claim a host removes the seed;
+     each block speaks only for its own source from then on. */
+  function claimHost(host, block) {
+    for (const seed of Array.from(host.children)) {
+      if (seed.matches('p.research-observed-empty')) seed.remove()
+    }
+    host.prepend(block)
   }
 
   /* The bench belongs to the selected project too. It used to ignore the
@@ -2053,6 +2075,18 @@ export function researchView() {
       }
       if (doneRuns.length === 0) continue
       const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
+      const column = chartableColumn(model, experiment.resultSchema)
+      const columns = chartableColumns(model, experiment.resultSchema)
+      /* Same picker the gathered view carries: without it the results-module
+         chart was unlabeled bars of one column with no way to switch, and a
+         convergence study whose default column is `mean` reads as nine
+         identical bars (installed 1.0.14). */
+      const picker = column && columns.length > 1 ? `
+          <label class="research-chart-pick">Chart:
+            <select data-service-chart-column="${esc(experiment.experimentId)}">${columns.map(candidate => `
+              <option value="${esc(candidate.name)}"${candidate.name === column.name ? ' selected' : ''}>${esc(candidate.name)}</option>`).join('')}
+            </select>
+          </label>` : ''
       sections.push(`
         <div class="research-results-exp" data-service-results-exp="${esc(experiment.experimentId)}">
           <div class="research-report-head">
@@ -2060,29 +2094,42 @@ export function researchView() {
             ${serviceCopyControlsMarkup(experiment.experimentId)}
           </div>
           ${serviceResultsTableMarkup(model)}
+          ${picker}
           <div class="research-result-chart" data-service-chart="${esc(experiment.experimentId)}" hidden></div>
           <p class="research-queue-form-status" data-service-results-status="${esc(experiment.experimentId)}" role="status"></p>
           ${findingFormMarkup(experiment.experimentId, experiment.projectId)}
         </div>`)
     }
+    /* Destroy the old charts BEFORE the markup they live in is replaced. The
+       reverse order still released echarts' registry, but disposed charts
+       whose hosts were already detached — the exact ordering that turns into
+       a leak the first time an early return lands between the two. */
+    for (const chart of serviceCharts.values()) chart.destroy()
+    serviceCharts.clear()
     block.innerHTML = sections.join('')
     /* The chart mounts only where a declared numeric column actually holds a
        number; otherwise its host stays hidden and no empty frame renders. */
-    for (const chart of serviceCharts.values()) chart.destroy()
-    serviceCharts.clear()
+    const mountServiceChart = (experiment, model, chosen) => {
+      serviceCharts.get(experiment.experimentId)?.destroy()
+      serviceCharts.delete(experiment.experimentId)
+      const chartHost = block.querySelector(`[data-service-chart="${experiment.experimentId}"]`)
+      if (!chosen || !chartHost) return
+      chartHost.hidden = false
+      const mounted = createResultChart(chartHost, { model, column: chosen })
+      if (mounted) serviceCharts.set(experiment.experimentId, mounted)
+      else chartHost.hidden = true
+    }
     for (const experiment of experiments) {
       const read = runsByExperiment.get(experiment.experimentId)
       if (read?.ok !== true) continue
       const doneRuns = read.runs.filter(run => run?.task?.status === 'succeeded')
       if (doneRuns.length === 0) continue
       const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
-      const column = chartableColumn(model, experiment.resultSchema)
-      const chartHost = block.querySelector(`[data-service-chart="${experiment.experimentId}"]`)
-      if (!column || !chartHost) continue
-      chartHost.hidden = false
-      const mounted = createResultChart(chartHost, { model, column })
-      if (mounted) serviceCharts.set(experiment.experimentId, mounted)
-      else chartHost.hidden = true
+      const columns = chartableColumns(model, experiment.resultSchema)
+      mountServiceChart(experiment, model, chartableColumn(model, experiment.resultSchema))
+      block.querySelector(`[data-service-chart-column="${experiment.experimentId}"]`)?.addEventListener('change', event => {
+        mountServiceChart(experiment, model, columns.find(candidate => candidate.name === event.target.value) || null)
+      })
     }
   }
 
@@ -2240,7 +2287,7 @@ export function researchView() {
       return
     }
     list.innerHTML = `<ol class="research-register-list">${findingsRead.findings.map(item => `
-      <li><span>${esc(findingStateWord(item?.status))}</span><p>${esc(item?.claim || 'The claim text is missing.')}</p></li>`).join('')}</ol>`
+      <li><span>${esc(findingStateWord(item?.status))}</span>${item?.findingId ? `<span class="research-finding-id">${esc(item.findingId)}</span>` : ''}<p>${esc(item?.claim || 'The claim text is missing.')}</p></li>`).join('')}</ol>`
   }
 
   async function refreshFindings() {

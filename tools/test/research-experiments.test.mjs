@@ -542,3 +542,28 @@ test('a service experiment fed by several duplicated designs says so', () => {
     'the line must name the designs that actually feed this service experiment')
   assert.match(board, /designs\.length > 1/, 'a single design must not be explained at')
 })
+
+test('a seeded placeholder never survives beside live data, and each block speaks only for its source', () => {
+  const view = read('src/views/research.js')
+  // The module markup seeds both hosts with a placeholder paragraph. When the
+  // renderers stopped writing host.innerHTML, the seed was left standing
+  // between the bench block and the service block: "No results have arrived
+  // yet." above 57 rows, "Nothing is running yet." above a running cell
+  // (installed 1.0.14). The first claim of a host removes it.
+  const claim = view.slice(view.indexOf('function claimHost'), view.indexOf('function claimHost') + 400)
+  assert.match(claim, /seed\.matches\('p\.research-observed-empty'\)/, 'the seed placeholder is no longer removed on claim')
+  assert.match(claim, /host\.prepend\(block\)/)
+  for (const renderer of ['function renderRunBoard', 'function renderResults()']) {
+    const body = view.slice(view.indexOf(renderer), view.indexOf(renderer) + 900)
+    assert.match(body, /claimHost\(host, block\)/, `${renderer} must claim its host through claimHost`)
+  }
+  const runboard = view.slice(view.indexOf('function renderRunBoard'), view.indexOf('function renderResults'))
+  assert.match(runboard, /serviceIsBusy/, '"Nothing is running yet." must not print above a service run that is running')
+  // The results module's chart carries the same picker as the gathered view.
+  const results = view.slice(view.indexOf('async function renderServiceResults'), view.indexOf('async function renderServiceResults') + 3000)
+  assert.match(results, /data-service-chart-column/, 'the results-module chart lost its column picker')
+  assert.ok(results.indexOf('chart.destroy()') < results.indexOf('block.innerHTML = sections.join'),
+    'charts must be destroyed BEFORE the markup they live in is replaced')
+  // The register names each finding's id, so a receipt can be found again.
+  assert.match(view, /research-finding-id/, 'register rows lost the finding id')
+})
