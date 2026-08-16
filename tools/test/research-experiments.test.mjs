@@ -473,7 +473,7 @@ test('an unreadable report catalog says what failed, and does not leave three mo
   assert.doesNotMatch(block, /Your research could not be loaded/,
     'the alarming claim is back over a working bench')
   assert.match(block, /The report catalog could not be read/)
-  assert.match(block, /The experiment bench is unaffected/)
+  assert.match(block, /The bench below is not affected/)
   assert.match(block, /report catalog: could not be read/, 'the mast must name what could not be read')
   // The three seeded "Reading …" placeholders must be settled, not left spinning.
   for (const module of ['data-research-library', 'data-research-methods', 'data-research-worklists']) {

@@ -827,7 +827,7 @@ export function researchView() {
     shell.insertAdjacentHTML('beforeend', `
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
         <strong>The report catalog could not be read</strong>
-        <span>The experiment bench is unaffected: projects, experiments, runs and results are read from the research service, not from this catalog.</span>
+        <span>The bench below is not affected.</span>
         <span>${esc(reason || 'The app was not told why.')}</span>
         <a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a>
       </section>`)
