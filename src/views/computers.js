@@ -738,12 +738,12 @@ export function computersView({ initialComputer = null, navigate }) {
                  sibling of the rail button rather than a replacement for it. -->
             <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
             <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
-            <!-- SPLIT VIEW (owner defect 5): a second, view-only pane beside
-                 this one for side-by-side tree viewing. OFF by default, and
-                 that default is a load-bearing contract: nine harnesses run
-                 this page single-pane, and page2-qa green with split off is
-                 the acceptance bar. -->
-            <button class="graph-split-btn" type="button" title="A second pane for viewing side by side">Split</button>
+            <!-- The Split button (owner defect 5's second, view-only pane) stood
+                 here until 2026-08-16. Owner: "lets throw it away for now" -- his
+                 read was that a page ends up with two views nobody keeps
+                 straight. So the button, its pane and its saved preference are
+                 gone; the page is single-pane, which is also the shape every
+                 harness measured it in. -->
           </div>
           <div class="graph-edit-note">drag onto a parent or into empty space</div>
           <!-- WHAT THE LAST ACTION ON THIS CANVAS DID, and there are two of them
@@ -1050,17 +1050,6 @@ export function computersView({ initialComputer = null, navigate }) {
     navigate(`#/agent/${computer.id}/${openTarget.id}`)
   })
 
-  root.querySelector('.graph-split-btn')?.addEventListener('click', () => {
-    if (!graph) return
-    if (splitGraph) {
-      disableSplit()
-      writeSplitPref(false)
-    } else {
-      enableSplit()
-      writeSplitPref(true)
-    }
-  })
-
   editButton.addEventListener('click', () => {
     if (!graph) return
     graph.setEditMode(!graph.editMode)
@@ -1120,7 +1109,6 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function clearMountedGraph() {
-    disableSplit()
     graph?.destroy()
     graph = null
     canvas?.remove()
@@ -1601,96 +1589,7 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!graph) return
     graph.computer = graphComputer()
     graph.refresh()
-    /* ONE subscription refreshes every pane: the split pane re-reads the same
-       store snapshot here rather than subscribing on its own, so the two
-       canvases can never disagree about what the fleet holds. */
-    if (splitGraph) {
-      splitGraph.computer = graphComputer()
-      splitGraph.refresh()
-    }
     refreshTreeSwitch()
-  }
-
-  /* THE SPLIT PANE (owner defect 5's "split view for side by side viewing").
-     A second, VIEW-ONLY StaticTreeGraph over the same computer: it drills,
-     zooms and routes clicks to the same rail, but offers no chips, no slots,
-     no drags and no chat card — the probe (window.__mcGraph) and the edit
-     gestures stay with the first pane, whose harness contracts predate this
-     feature. OFF by default; the preference survives reloads in one
-     localStorage key (the same storage shape metrics-layout uses, not an
-     import of it). */
-  const SPLIT_PREF_KEY = 'mc.page2.split'
-  let splitGraph = null
-  let splitPane = null
-  function readSplitPref() {
-    try { return localStorage.getItem(SPLIT_PREF_KEY) === 'on' } catch { return false }
-  }
-  function writeSplitPref(on) {
-    try { on ? localStorage.setItem(SPLIT_PREF_KEY, 'on') : localStorage.removeItem(SPLIT_PREF_KEY) } catch { /* best effort */ }
-  }
-  function enableSplit() {
-    if (splitGraph || !graph || !computer) return
-    splitPane = el('<div class="graph-wrap glass graph-pane-2"><div class="computer-tree-canvas"></div></div>')
-    graphWrap.insertAdjacentElement('afterend', splitPane)
-    root.querySelector('.comp-body')?.classList.add('is-split')
-    /* THE SECOND PANE IS A REAL TREE VIEW (owner, iteration 5: "split node
-       should use the exact same tree as the first ones setup"). Same slots,
-       same drags, same drops, same refusal sentences, same compose flow --
-       everything the first pane offers except the chip overlay, which stays
-       with pane one because window.__mcGraph and the screen-chip harness
-       contracts are singletons. Each pane keeps its own zoom, pan and drilled
-       root: that independence is the reason a split exists. */
-    splitGraph = new StaticTreeGraph(splitPane.querySelector('.computer-tree-canvas'), {
-      computer: graphComputer(),
-      screenChips: false,
-      emptySlots: liveMode === true,
-      edges: liveMode ? computer.graphEdges : null,
-      onReparent: liveMode ? handleReparent : null,
-      canDrag: agent => Boolean(agent.treeNode) || agent.role !== 'coordinator',
-      onDropRefused: (rule, detail) => {
-        const sentence = typeof MOVE_PANEL[rule] === 'function'
-          ? MOVE_PANEL[rule](detail.name, detail.parent ?? detail.target)
-          : null
-        if (sentence) setOrgStatus(sentence, 'warn')
-      },
-      onDetachToNewTree: (agentId) => {
-        if (!treeStore?.getNode(agentId)) {
-          setOrgStatus(MOVE_PANEL.mixed, 'refuse', { sticky: true })
-          return false
-        }
-        const out = treeStore.detachToNewTree(agentId)
-        if (!out.ok) {
-          setOrgStatus(out.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
-          return false
-        }
-        setOrgStatus(SECOND_TREE.detached(treeNodeName(out.node)), 'ok')
-        return true
-      },
-      canExtend: graph?.canExtend || null,
-      onEmptyPress: graph?.onEmptyPress || null,
-      treeChat: agent => treeChatConfigFor(agent.treeNode),
-      onOpenControls: (agent) => {
-        if (agent?.treeNode) {
-          setOpenTarget(null)
-          showTreeNodeControls(agent.treeNode)
-          return
-        }
-        setOpenTarget(agent)
-        showControls(agent)
-      },
-      /* The second pane's own switcher rides its root changes too. */
-      onRootChange: () => refreshTreeSwitch(),
-    })
-    buildPaneSwitch(splitPane, splitGraph)
-    root.querySelector('.graph-split-btn')?.classList.add('on')
-  }
-  function disableSplit() {
-    splitGraph?.destroy()
-    splitGraph = null
-    splitPane?.remove()
-    splitPane = null
-    root.querySelector('.comp-body')?.classList.remove('is-split')
-    root.querySelector('.graph-split-btn')?.classList.remove('on')
   }
 
   /* THE TREE SWITCHER (owner defect 5: "buttons to navigate between them").
@@ -1699,43 +1598,6 @@ export function computersView({ initialComputer = null, navigate }) {
      two or more trees: a switcher over one tree is chrome with no decision in
      it. Rebuilt from listTrees() on every store change, so a tree created,
      detached or emptied updates the row without anyone remembering to. */
-  /* A pane's own tree switcher: the same seg the main tools strip carries,
-     built against THAT pane's graph so each side of a split can look at a
-     different tree -- which is the entire point of the split. */
-  function buildPaneSwitch(pane, paneGraph) {
-    if (!pane || !paneGraph || !treeStore) return
-    let host = pane.querySelector('.graph-pane-switch')
-    const trees = treeStore.listTrees()
-    if (trees.length < 2) { host?.remove(); return }
-    if (!host) {
-      host = document.createElement('div')
-      host.className = 'seg graph-tree-switch graph-pane-switch'
-      host.setAttribute('role', 'group')
-      host.setAttribute('aria-label', 'Trees in this pane')
-      pane.prepend(host)
-    }
-    host.innerHTML = ''
-    const current = paneGraph.rootId ? treeStore.getNode(paneGraph.rootId)?.treeId ?? null : null
-    const all = document.createElement('button')
-    all.type = 'button'
-    all.textContent = 'Every tree'
-    all.classList.toggle('on', current === null)
-    all.addEventListener('click', () => { paneGraph.clearRoot(); buildPaneSwitch(pane, paneGraph) })
-    host.appendChild(all)
-    for (const tree of trees) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.textContent = treeStore.treeLabel(tree.id)
-      button.classList.toggle('on', current === tree.id)
-      button.addEventListener('click', () => {
-        const treeRoot = treeStore.rootOf(tree.id)
-        if (treeRoot) paneGraph.setRoot(treeRoot.id)
-        buildPaneSwitch(pane, paneGraph)
-      })
-      host.appendChild(button)
-    }
-  }
-
   /* Filing a whole scope under a research project: the selected tree files
      each of its sessions; "Every tree" writes the live assign-all rule that
      also covers sessions started later. One shared control (the same factory
@@ -1785,7 +1647,6 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function refreshTreeSwitch() {
-    if (splitPane && splitGraph) buildPaneSwitch(splitPane, splitGraph)
     const tools = root.querySelector('.graph-tools')
     if (!tools) return
     let host = tools.querySelector('.graph-tree-switch')
@@ -2148,10 +2009,9 @@ export function computersView({ initialComputer = null, navigate }) {
        store that outlives them all. */
     treeStoreUnsub?.()
     treeStoreUnsub = treeStore ? treeStore.subscribe(() => { if (!destroyed) refreshTree() }) : null
-    /* The split pane returns only when this person switched it on: absence of
-       the preference is single-pane, the state every harness contract runs
-       in. */
-    if (readSplitPref()) enableSplit()
+    /* A split-pane preference saved before 2026-08-16 is simply not
+       read any more: the split pane is gone (owner: "lets throw it away for
+       now"), and a key nobody reads is a key that cannot bring it back. */
     /* Aim the button before anything is clicked, so it is a way IN rather than a
        reward for having already found the way in. A computer with no agents at
        all leaves the target null and the button hidden. */

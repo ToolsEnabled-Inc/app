@@ -158,24 +158,21 @@ test('the three rail tabs exist and the chat body is first', () => {
   assert.match(view, /class="on" data-rail-tab="chat"/, 'chat is no longer the default tab (owner defect 7: conversation first)')
 })
 
-test('the split view is off by default, and the second pane is a full tree', () => {
+test('the split view is gone, and cannot come back through a saved preference', () => {
+  /* Owner, 2026-08-16: "lets throw it away for now" -- his read of the split
+     pane was that a page ends up with two views nobody keeps straight. So the
+     button, the pane, its switcher and the preference read are all absent from
+     the view, and this pins that absence: a stored 'mc.page2.split' key must
+     find nothing that reads it. The page is single-pane, the shape every
+     harness has always measured it in. */
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
-  // Absence of the preference is single-pane -- the state every harness
-  // contract runs in. Only the literal 'on' enables it.
-  assert.match(view, /localStorage\.getItem\(SPLIT_PREF_KEY\) === 'on'/, 'the split default is no longer off-unless-chosen')
-  /* Iteration 5 reversed the view-only contract on the owner's explicit
-     instruction ("split node should use the exact same tree as the first
-     ones setup"): the second pane carries slots, drags, drops and the
-     compose flow. The ONE thing that stays with pane one is the chip
-     overlay -- window.__mcGraph and the screen-chip harness contracts are
-     singletons. page2-qa green with split OFF remains the acceptance bar. */
-  const enable = view.slice(view.indexOf('function enableSplit'), view.indexOf('function disableSplit'))
-  assert.match(enable, /screenChips: false/, 'the split pane grew chips; the probe and overlay contracts belong to pane one')
-  assert.match(enable, /emptySlots: liveMode === true/, 'the split pane lost its slots; it is a viewing pane again, against the owner instruction')
-  assert.match(enable, /onReparent: liveMode \? handleReparent : null/, 'the split pane lost drag-reparenting')
-  assert.match(enable, /buildPaneSwitch\(splitPane, splitGraph\)/, 'the split pane lost its own tree switcher')
-  // Teardown kills the pane with the graph.
-  assert.match(view, /function clearMountedGraph\(\) \{\n    disableSplit\(\)/, 'clearMountedGraph no longer tears the split pane down first')
+  for (const gone of ['graph-split-btn', 'mc.page2.split', 'function enableSplit', 'function disableSplit', 'splitGraph', 'splitPane', 'buildPaneSwitch']) {
+    assert.equal(view.includes(gone), false, `${gone} is back in the computers view; the split pane was removed on the owner's instruction`)
+  }
+  const css = readFileSync(join(SRC, 'board.css'), 'utf8') + readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
+  for (const gone of ['.comp-body.is-split', '.graph-pane-2', '.graph-split-btn']) {
+    assert.equal(css.includes(gone), false, `${gone} still has a rule; the split pane it styled is gone`)
+  }
 })
 
 test('the topbar holds one position on every route', () => {
