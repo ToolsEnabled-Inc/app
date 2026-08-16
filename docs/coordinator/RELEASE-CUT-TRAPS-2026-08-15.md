@@ -120,6 +120,33 @@ fresh profiles is what broke. Hypothesis, uncontrolled: the sealed session
 is DPAPI-backed and this machine has a recorded DPAPI outage. Someone with
 vault context should check before the next fresh-install rehearsal.
 
+## 12. The setup REVIEW step intermittently never renders (2026-08-16, 1.0.16 cut)
+
+A second machine-wide class beside #11, and it is intermittent rather than
+red. Four drivers red on 1.0.16 in-suite with one signature: the walkthrough
+answers the three questions and then waits for the review that never comes
+("gave up waiting for the review" → `setup ends in the app — hash=#/setup`):
+`setup-walkthrough-qa` (timed out waiting for the review), `offline-routes-qa`
+(78/79), `first-run-recovery-qa`, and three of `stranger-onboarding-qa`'s six
+("the review can be accepted — absent" and its two dependents);
+`test-account-journey-qa`'s `route=setup` lines are the same thing. Not this
+cut: `src/` has changed only under research since 1.0.12, and STANDALONE
+against sealed 1.0.15 the same day `setup-walkthrough-qa` failed identically
+and `first-run-recovery-qa` failed 1 of 3 (the other two got past setup and
+reached the old 38/41). Frequency was uneven — 1.0.16 stalled 4 of 4,
+1.0.15 1 of 3, on a machine running other agents' Electron drivers — so it is
+recorded as intermittent-both-builds, not as proven equal. On 2026-08-15
+(the 1.0.12 logs) `setup-walkthrough-qa` was 18/18 and `offline-routes-qa`
+102/102. Whoever owns the setup flow should look at what the review step
+waits on before the next fresh-install rehearsal; a slow or absent reply
+there is a stranger stuck on the third question.
+
+Also: `chatbox-settings-qa` has a SECOND flaky signature besides #6's
+persistence race — 18/21 with "every other agent is still there — []", "the
+box says how many agents it is holding back", "…what it is showing instead".
+Seen in-suite on 1.0.16 and standalone on 1.0.15 (exit 13); 21/21 standalone
+on 1.0.16 a minute later. Same rule: intermittent, not known-red.
+
 ## 9. `agent-start-flow-qa`'s 1.0.9 attribution does not transfer
 
 The 1.0.9 document explains its red as "measured a stale working-tree
