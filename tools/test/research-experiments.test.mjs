@@ -523,3 +523,13 @@ test('the run board speaks the same words as the service board, including stalle
   assert.match(poll, /lifecycle\?\.running === true/, 'an idle dead worker goes unnoticed again')
   assert.match(poll, /active \? 5000 : 15000/, 'the idle watch lost its slower cadence')
 })
+
+test('a service experiment fed by several duplicated designs says so', () => {
+  const view = read('src/views/research.js')
+  const board = view.slice(view.indexOf('function renderServiceRunBoard'), view.indexOf("moduleEl('runboard').addEventListener"))
+  assert.match(board, /designs on this bench file their runs here/,
+    'forty runs under one heading reads as a labelling bug without this line')
+  assert.match(board, /bench\.serviceExperimentId === experiment\.experimentId/,
+    'the line must name the designs that actually feed this service experiment')
+  assert.match(board, /designs\.length > 1/, 'a single design must not be explained at')
+})

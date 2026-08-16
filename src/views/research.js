@@ -1896,9 +1896,20 @@ export function researchView() {
       if (!read) return `<div class="research-runboard-exp"><h3>${esc(experiment.name)}</h3><p class="research-observed-empty">Reading its runs.</p></div>`
       if (read.ok !== true) return `<div class="research-runboard-exp"><h3>${esc(experiment.name)}</h3>${unavailableMarkup('Its run list', read.reason)}</div>`
       const rows = read.runs.map(run => runDrillMarkup(run)).join('')
+      /* A duplicated card keeps its runner, and the service identifies an
+         experiment by its configuration — so every Duplicate files its runs
+         under the FIRST card's name. Forty runs appearing under one heading
+         reads as a labelling bug unless the page says why (installed 1.0.12).
+         It is one study with more runs; name the designs feeding it. */
+      const designs = experimentsSnapshot().experiments
+        .filter(bench => bench.serviceExperimentId === experiment.experimentId)
+      const shared = designs.length > 1
+        ? `<p class="research-observed-empty">${designs.length} designs on this bench file their runs here: ${esc(designs.map(design => design.name).join(', '))}.</p>`
+        : ''
       return `
         <div class="research-runboard-exp" data-service-exp="${esc(experiment.experimentId)}">
           <h3>${esc(experiment.name)} <span class="research-observed-empty">(queued through the service)</span></h3>
+          ${shared}
           <div class="research-runboard-cells">${rows || '<p class="research-observed-empty">No runs submitted yet.</p>'}</div>
         </div>`
     }).join('')
