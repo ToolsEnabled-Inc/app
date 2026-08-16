@@ -425,8 +425,15 @@ test('the run board and the service board cannot wipe each other, and the worker
   // Both render into [data-research-runboard]; the bench board assigns
   // innerHTML, which deletes the appended service block and the Start button.
   const runboard = view.slice(view.indexOf('function renderRunBoard'), view.indexOf('function renderResults'))
-  const calls = runboard.split('renderServiceRunBoard()').length - 1
-  assert.equal(calls, 2, 'every exit from renderRunBoard must restore the service board it just deleted')
+  // The bench board now owns ONE child block and never writes host.innerHTML,
+  // so it cannot delete the service board however it exits; the paired calls
+  // remain so the service board repaints with fresh cell words.
+  assert.match(runboard, /data-bench-runboard/, 'the bench run board must own its own block')
+  assert.doesNotMatch(runboard, /^\s*host\.innerHTML\s*=/m, 'writing the shared host deletes the service board again')
+  const results = view.slice(view.indexOf('function renderResults()'), view.indexOf('function experimentExport'))
+  assert.match(results, /data-bench-results/, 'the bench results must own their own block')
+  assert.doesNotMatch(results, /^\s*host\.innerHTML\s*=/m, 'writing the shared host blanks every service results table on save (installed 1.0.13)')
+  assert.match(results, /serviceHasResults/, '"No results have arrived yet." printed above a page of results tables')
 
   // The cache fill must repaint the bench board, or its cells stay cold.
   const refresh = view.slice(view.indexOf('async function refreshRuns'), view.indexOf('function anyRunActive'))
@@ -482,6 +489,8 @@ test('an unreadable report catalog says what failed, and does not leave three mo
   assert.match(block, /\/\^Reading \/\.test/, 'only the loading placeholder may be replaced')
   assert.match(block, /p\.research-observed-empty/,
     'the working-lists host also holds the findings block; settle the paragraph, not the host')
+  assert.match(block, /\.research-mast'\)\.insertAdjacentHTML\('afterend'/,
+    'the block says "the bench below" and must sit under the mast, not at the foot of the page')
 })
 
 test('the run board speaks the same words as the service board, including stalled', async () => {

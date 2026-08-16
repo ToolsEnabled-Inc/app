@@ -824,7 +824,11 @@ export function researchView() {
     settle('[data-research-library]', 'No report catalog could be read on this computer.')
     settle('[data-research-methods]', 'No method notes could be read on this computer.')
     settle('[data-research-worklists]', 'No working lists could be read on this computer.')
-    shell.insertAdjacentHTML('beforeend', `
+    /* Directly under the mast, not at the foot of the page: it explains the
+       mast's own "could not be read" line, and its sentence says "below" —
+       which at the foot of a 6000px page pointed at nothing (installed
+       1.0.13). */
+    root.querySelector('.research-mast').insertAdjacentHTML('afterend', `
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
         <strong>The report catalog could not be read</strong>
         <span>The bench below is not affected.</span>
@@ -1147,10 +1151,17 @@ export function researchView() {
   function renderRunBoard() {
     const host = moduleEl('runboard').querySelector('[data-research-runboard]')
     if (!host) return
+    /* Own one child block, as renderResults does; the service board is a
+       sibling this renderer must never be able to delete. */
+    let block = host.querySelector('[data-bench-runboard]')
+    if (!block) {
+      block = el('<div data-bench-runboard></div>')
+      host.prepend(block)
+    }
     const { shown: experiments, hidden } = benchExperiments()
     const active = experiments.filter(experiment => experiment.cells.some(cell => cell.status !== 'designed'))
     if (active.length === 0) {
-      host.innerHTML = `<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>${elsewhereNote(hidden)}`
+      block.innerHTML = `<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>${elsewhereNote(hidden)}`
       renderServiceRunBoard()
       return
     }
@@ -1166,7 +1177,7 @@ export function researchView() {
         ? localCellsMarkup(experiment, cellsWithServiceStatus(experiment, read.runs))
         : localCellsMarkup(experiment, cellsAwaitingService(experiment))
     }
-    host.innerHTML = `${elsewhereNote(hidden)}${active.map(experiment => `
+    block.innerHTML = `${elsewhereNote(hidden)}${active.map(experiment => `
       <div class="research-runboard-exp" data-runboard-exp="${esc(experiment.id)}">
         <h3>${esc(experiment.name)}</h3>
         <div class="research-runboard-cells">
@@ -1186,13 +1197,33 @@ export function researchView() {
   function renderResults() {
     const host = moduleEl('results').querySelector('[data-research-results]')
     if (!host) return
+    /* Two renderers share this host: the bench results (local session cells)
+       and the service results block appended by renderServiceResults. Writing
+       host.innerHTML here deleted the service block, so saving or removing an
+       experiment blanked every results table until something else happened
+       to refresh them (installed 1.0.13, measured 90s+ blank). The same
+       host-clobber had already hit the run board twice. This renderer now owns
+       ONE child block and never touches its sibling; the class of bug is gone
+       here rather than the instance. */
+    let block = host.querySelector('[data-bench-results]')
+    if (!block) {
+      block = el('<div data-bench-results></div>')
+      host.prepend(block)
+    }
     const { experiments } = experimentsSnapshot()
     const finished = experiments.filter(experiment => experiment.cells.some(cell => cell.status === 'finished' || cell.status === 'failed'))
     if (finished.length === 0) {
-      host.innerHTML = '<p class="research-observed-empty">No results have arrived yet.</p>'
+      /* "No results have arrived yet." printed above a page of service
+         results tables (installed 1.0.13). Local cells and service runs are
+         two sources; say which one is empty, and only when the other is too. */
+      const serviceHasResults = serviceExperiments().some(experiment => {
+        const read = runsByExperiment.get(experiment.experimentId)
+        return read?.ok === true && read.runs.some(run => run?.task?.status === 'succeeded')
+      })
+      block.innerHTML = serviceHasResults ? '' : '<p class="research-observed-empty">No results have arrived yet.</p>'
       return
     }
-    host.innerHTML = finished.map(experiment => `
+    block.innerHTML = finished.map(experiment => `
       <div class="research-results-exp" data-results-exp="${esc(experiment.id)}">
         <div class="research-report-head">
           <h3>${esc(experiment.name)}</h3>
