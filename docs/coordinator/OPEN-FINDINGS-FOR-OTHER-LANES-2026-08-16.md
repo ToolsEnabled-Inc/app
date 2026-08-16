@@ -34,17 +34,22 @@ surface that they describe rather than control.
 
 Owner: the settings/capability lane.
 
-## 4. A refused start still litters the tree (page 2)
+## 4. WITHDRAWN — the failed node after a refusal is deliberate
 
-Driven on installed 1.0.17: pressing Start with a Claude tier refuses correctly
-("Nothing was started. This copy starts Codex agents from the tree…", zero
-processes spawned, audit records `result: refused`) — but the page leaves a
-node reading **"Default 2 / FAILED / NO RUNTIME"** and renames the original to
-"Default 1". It is in-memory only (graph revision unchanged, no launch files
-written), so nothing is persisted; the tree still shows a failure for something
-that never started.
+Originally filed as "a refused start litters the tree": driven on installed
+1.0.17, pressing Start with a Claude tier refuses correctly (zero processes
+spawned, audit records `result: refused`) and leaves a node reading
+"Default 2 / FAILED / NO RUNTIME".
 
-Owner: page-2 / fleet-tree lane.
+**That is intended behaviour, documented at `src/views/computers.js:1770-1773`:**
+"the start is refused — the node stays, marked as failed, with the reason on
+it. It is NOT deleted: a person who just described a job should not have to
+type it again to find out what went wrong." The node is in-memory only
+(graph revision unchanged, no launch files written).
+
+Left here as a withdrawal so nobody "fixes" a deliberate decision. If the
+accumulation of failed nodes across repeated attempts ever becomes the
+complaint, that is a separate question about pruning, not about this rule.
 
 ## 5. The agent card denies a lane that completed on its own seat
 
@@ -63,7 +68,10 @@ Agent page "Hand work to an agent": `Fable`, with no qualifier — and that one
 a person reading both sees a contradiction. A one-line pointer on the tree
 door ("Claude agents start from the agent page's hand-off form") would close it.
 
-Owner: copy/fleet lane, alongside finding 4.
+Each label is correct for its own surface — the tree door genuinely cannot
+start Claude (licence fence), and the hand-off form genuinely can (lane path).
+The gap is that nothing tells a person the second surface exists, which is
+really finding 7. Owner: copy/fleet lane.
 
 ## 7. No click path to the hand-off form on a fresh install
 
