@@ -464,3 +464,22 @@ test('cells with no service answer say so instead of asserting queued', async ()
   assert.match(poll, /refreshServiceSnapshot\(\)/, 'the poll refreshes runs only; the worker control goes stale again')
   assert.match(view, /Already sent — all \$\{alreadySent\} cells/, 'the replay sentence lost its count')
 })
+
+test('an unreadable report catalog says what failed, and does not leave three modules reading for ever', () => {
+  const view = read('src/views/research.js')
+  const block = view.slice(view.indexOf('function renderUnavailable'), view.indexOf('function renderProjection'))
+  // The bench and the catalog are different sources; the copy must not claim
+  // the whole page failed while projects, runs and results are on screen.
+  assert.doesNotMatch(block, /Your research could not be loaded/,
+    'the alarming claim is back over a working bench')
+  assert.match(block, /The report catalog could not be read/)
+  assert.match(block, /The experiment bench is unaffected/)
+  assert.match(block, /report catalog: could not be read/, 'the mast must name what could not be read')
+  // The three seeded "Reading …" placeholders must be settled, not left spinning.
+  for (const module of ['data-research-library', 'data-research-methods', 'data-research-worklists']) {
+    assert.match(block, new RegExp(module), `${module} is left saying "Reading …" for ever again`)
+  }
+  assert.match(block, /\/\^Reading \/\.test/, 'only the loading placeholder may be replaced')
+  assert.match(block, /p\.research-observed-empty/,
+    'the working-lists host also holds the findings block; settle the paragraph, not the host')
+})

@@ -807,10 +807,27 @@ export function researchView() {
   function renderUnavailable(reason) {
     root.setAttribute('aria-busy', 'false')
     root.dataset.projectionState = 'unavailable'
-    root.querySelector('[data-research-source]').textContent = 'could not be read'
+    /* Name WHAT could not be read. "could not be read" under the page title,
+       over a working bench, reads as "this page is broken" — and the report
+       catalog is a different source from the projects, runs and results the
+       bench shows, which were loading fine the whole time. */
+    root.querySelector('[data-research-source]').textContent = 'report catalog: could not be read'
+    /* Settle the three catalog modules. They were seeded with "Reading …"
+       and only ever replaced by renderProjection, so on an unreadable
+       catalog they said "Reading the report catalog." for ever (measured on
+       installed 1.0.11). Replace ONLY that placeholder line: the working
+       lists host also carries the project findings block, which stays. */
+    const settle = (selector, sentence) => {
+      const loading = root.querySelector(`${selector} p.research-observed-empty`)
+      if (loading && /^Reading /.test(loading.textContent || '')) loading.textContent = sentence
+    }
+    settle('[data-research-library]', 'No report catalog could be read on this computer.')
+    settle('[data-research-methods]', 'No method notes could be read on this computer.')
+    settle('[data-research-worklists]', 'No working lists could be read on this computer.')
     shell.insertAdjacentHTML('beforeend', `
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
-        <strong>Your research could not be loaded</strong>
+        <strong>The report catalog could not be read</strong>
+        <span>The experiment bench is unaffected: projects, experiments, runs and results are read from the research service, not from this catalog.</span>
         <span>${esc(reason || 'The app was not told why.')}</span>
         <a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a>
       </section>`)
