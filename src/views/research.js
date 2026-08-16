@@ -823,7 +823,10 @@ export function researchView() {
     }
     settle('[data-research-library]', 'No report catalog could be read on this computer.')
     settle('[data-research-methods]', 'No method notes could be read on this computer.')
-    settle('[data-research-worklists]', 'No working lists could be read on this computer.')
+    /* The findings register lives in this same host and IS a working list, so
+       "No working lists could be read" directly above three findings read as
+       a contradiction (installed 1.0.15). Name what is actually missing. */
+    settle('[data-research-worklists]', 'The catalog’s working lists could not be read; the project findings below are read from the research service.')
     /* Directly under the mast, not at the foot of the page: it explains the
        mast's own "could not be read" line, and its sentence says "below" —
        which at the foot of a 6000px page pointed at nothing (installed
@@ -916,6 +919,17 @@ export function researchView() {
   let gatheredExperimentId = null
   let lastKnownPulse = null          // the last counts read whole; see renderStatusPulse
   let workerPending = null           // 'start' | 'stop' while a lifecycle call is in flight
+  /* The column a person chose to chart, per service experiment. The results
+     block re-renders on every run poll (~5s), and each re-render used to
+     rebuild the picker at its default: pick sd_of_mean, and it snapped back
+     to mean before the sentence explaining it was finished (installed
+     1.0.15, 3.7s). The choice outlives the markup now. */
+  const chartChoice = new Map()      // serviceExperimentId -> column name
+  const chosenColumn = (experimentId, model, resultSchema) => {
+    const columns = chartableColumns(model, resultSchema)
+    const wanted = chartChoice.get(experimentId)
+    return columns.find(candidate => candidate.name === wanted) || chartableColumn(model, resultSchema)
+  }
   const gatheredCharts = new Map()   // experimentId -> { resize, destroy }
 
   function localCellsMarkup(experiment, cells = experiment.cells) {
@@ -1854,6 +1868,11 @@ export function researchView() {
        thing on screen). It renders the service board itself, so it comes
        first and there is no second call. */
     renderRunBoard()
+    /* The bench results block decides whether to print "No results have
+       arrived yet." by asking whether the SERVICE has results — from this
+       same cache. Painted once cold, it said so above 57 finished rows and
+       was never asked again (installed 1.0.15). Repaint it here too. */
+    renderResults()
     renderServiceResults()
     const opened = experimentsSnapshot().experiments.find(candidate => candidate.id === gatheredExperimentId)
     if (opened?.serviceExperimentId) renderGatheredService(opened)
@@ -2075,7 +2094,7 @@ export function researchView() {
       }
       if (doneRuns.length === 0) continue
       const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
-      const column = chartableColumn(model, experiment.resultSchema)
+      const column = chosenColumn(experiment.experimentId, model, experiment.resultSchema)
       const columns = chartableColumns(model, experiment.resultSchema)
       /* Same picker the gathered view carries: without it the results-module
          chart was unlabeled bars of one column with no way to switch, and a
@@ -2126,8 +2145,9 @@ export function researchView() {
       if (doneRuns.length === 0) continue
       const model = resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
       const columns = chartableColumns(model, experiment.resultSchema)
-      mountServiceChart(experiment, model, chartableColumn(model, experiment.resultSchema))
+      mountServiceChart(experiment, model, chosenColumn(experiment.experimentId, model, experiment.resultSchema))
       block.querySelector(`[data-service-chart-column="${experiment.experimentId}"]`)?.addEventListener('change', event => {
+        chartChoice.set(experiment.experimentId, event.target.value)
         mountServiceChart(experiment, model, columns.find(candidate => candidate.name === event.target.value) || null)
       })
     }
@@ -2217,7 +2237,7 @@ export function researchView() {
     const model = doneRuns.length > 0
       ? resultTableModel({ runs: doneRuns, resultsByRun, resultSchema: experiment.resultSchema })
       : null
-    const column = model ? chartableColumn(model, experiment.resultSchema) : null
+    const column = model ? chosenColumn(serviceId, model, experiment.resultSchema) : null
     const columns = model ? chartableColumns(model, experiment.resultSchema) : []
     host.innerHTML = `
       <div class="research-runboard-cells">${drills}</div>
@@ -2249,6 +2269,7 @@ export function researchView() {
     }
     mountGatheredChart(column)
     host.querySelector(`[data-chart-column="${experiment.id}"]`)?.addEventListener('change', event => {
+      chartChoice.set(serviceId, event.target.value)
       mountGatheredChart(columns.find(candidate => candidate.name === event.target.value) || null)
     })
   }
@@ -2287,7 +2308,7 @@ export function researchView() {
       return
     }
     list.innerHTML = `<ol class="research-register-list">${findingsRead.findings.map(item => `
-      <li><span>${esc(findingStateWord(item?.status))}</span>${item?.findingId ? `<span class="research-finding-id">${esc(item.findingId)}</span>` : ''}<p>${esc(item?.claim || 'The claim text is missing.')}</p></li>`).join('')}</ol>`
+      <li><span>${esc(findingStateWord(item?.status))}${item?.findingId ? `<br><span class="research-finding-id">${esc(item.findingId)}</span>` : ''}</span><p>${esc(item?.claim || 'The claim text is missing.')}</p></li>`).join('')}</ol>`
   }
 
   async function refreshFindings() {

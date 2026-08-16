@@ -567,3 +567,22 @@ test('a seeded placeholder never survives beside live data, and each block speak
   // The register names each finding's id, so a receipt can be found again.
   assert.match(view, /research-finding-id/, 'register rows lost the finding id')
 })
+
+test('the chart choice outlives a re-render, and the cold results block is asked again once the cache fills', () => {
+  const view = read('src/views/research.js')
+  // The results block re-renders every run poll; a chosen column must survive.
+  assert.match(view, /const chartChoice = new Map\(\)/, 'the per-experiment chart choice is gone')
+  const svcStart = view.indexOf('async function renderServiceResults')
+  const svc = view.slice(svcStart, view.indexOf('/* One copy handler for the service tables', svcStart))
+  assert.match(svc, /chosenColumn\(experiment\.experimentId, model, experiment\.resultSchema\)/, 'the results module ignores the remembered choice')
+  assert.match(svc, /chartChoice\.set\(experiment\.experimentId, event\.target\.value\)/, 'a pick in the results module is not remembered')
+  const gathered = view.slice(view.indexOf('async function renderGatheredService'), view.indexOf('async function renderGatheredService') + 3500)
+  assert.match(gathered, /chartChoice\.set\(serviceId, event\.target\.value\)/, 'a pick in the gathered view is not remembered')
+  // The bench results block decides "no results yet" from the runs cache; the
+  // cache fill must repaint it or a cold verdict is permanent.
+  const refresh = view.slice(view.indexOf('async function refreshRuns'), view.indexOf('function anyRunActive'))
+  assert.match(refresh, /renderResults\(\)/, '"No results have arrived yet." stays above the tables for ever again')
+  // The finding id sits inside the first grid cell, not as a third grid child.
+  assert.match(view, /<span>\$\{esc\(findingStateWord\(item\?\.status\)\)\}\$\{item\?\.findingId \? `<br>/, 'the finding id pushed the claim into the narrow column again')
+  assert.match(view, /the project findings below are read from the research service/, 'the worklists sentence contradicts the findings beneath it again')
+})

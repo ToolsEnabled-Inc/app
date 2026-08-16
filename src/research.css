@@ -466,7 +466,7 @@
 .research-run-drill-body { padding-top: var(--s1); }
 .research-run-drill-files { margin: var(--s1) 0 0; padding-left: var(--s4); color: var(--ink-2); }
 .research-chart-pick { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.85em; }
-.research-finding-id { font-family: var(--mono, monospace); font-size: 0.8em; opacity: 0.75; margin-left: 8px; }
+.research-finding-id { font-family: var(--font-mono); font-size: 11px; opacity: 0.75; }
 .research-result-chart { height: 220px; margin-top: var(--s2); }
 .research-results-exp { padding: var(--s3) 0; border-top: 1px solid var(--line); }
 .research-results-exp:first-child { border-top: none; }
