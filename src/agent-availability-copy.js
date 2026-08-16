@@ -123,8 +123,17 @@ export const UNAVAILABLE_TEXT = Object.freeze({
   /* The three Claude rows in the tier menu are offered so a person can see
      they exist, and refused honestly when picked -- silently starting Codex
      instead of a chosen Claude model is the defect this code closed. The
-     sentence names what to pick instead, never a module or a path. */
-  AGENT_TIER_NO_LAUNCHER: 'this version can only start Codex agents from the tree, so that agent type was not started. Pick Luna, Terra or Sol and it will start now',
+     sentence names what to pick instead, never a module or a path.
+
+     IT SAYS WHY, since 2026-08-16 (owner: "claude should work too not just
+     codex"). "This version cannot" read as a missing feature; the real reason is
+     a rule. The engine's only in-app Claude launcher is fenced from the person's
+     Claude Code sign-in (docs/design/NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the
+     engine: a product may not ride that sign-in; TE-L-0006 in the legal docket),
+     and this product holds no Anthropic key by design (setup says so). Both facts
+     belong in front of the person who just picked Fable, in plain words. The
+     `local` tier reaches this code too, so the first sentence names both. */
+  AGENT_TIER_NO_LAUNCHER: 'this copy starts Codex agents from the tree, and not Claude or local agents yet. A Claude agent would need your Claude sign-in or an Anthropic key. This copy may not use your sign-in, and it keeps no key. Pick Luna, Terra or Sol and it will start now',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not

@@ -184,7 +184,13 @@ export const START_PANEL = Object.freeze({
      and refuse by name when picked -- hiding them would make a chosen model
      quietly become Codex, the exact defect the tier channel closed. */
   tierLabel: 'What does it run on?',
-  tierHelp: 'Luna is a good default. The Claude choices are listed so you can see them, and picking one tells you it cannot start yet.',
+  /* WHY THE CLAUDE ROWS SAY "cannot start here yet" IN THE MENU ITSELF, and why
+     the help says why. Owner, 2026-08-16: "claude should work too not just
+     codex." A person reads the menu, not the refusal that follows; a row that
+     looks startable and then refuses is a small lie told twice. So the fact
+     rides on the row, and the reason -- this copy may not use your Claude
+     sign-in and holds no key -- rides here, in the sentence under the menu. */
+  tierHelp: 'Luna is a good default. The Claude choices cannot start here yet: this copy may not use your Claude sign-in, and it keeps no key.',
   effortLabel: 'How hard should it think?',
   effortHelp: 'Harder thinking is slower and costs more. The tier picks a sensible default; change it here for this agent.',
   messageLabel: 'What do you want it to do?',
@@ -204,9 +210,19 @@ export const START_PANEL = Object.freeze({
    model and what it runs on; the id rides on the option value where only the
    program reads it, the same split the role menu keeps. */
 const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude', local: 'your computer' })
+/* THE ONE PROVIDER THIS TREE CAN START. shell/agent-host.cjs resolveStartTier()
+   refuses every other provider by name (AGENT_TIER_NO_LAUNCHER); the same fact
+   is written on the row so a person sees it BEFORE pressing, on every surface
+   that draws these rows -- the compose panel and the research designer's tier
+   checkboxes both render `label`. The wording matches the running-session
+   model menu in src/views/computers.js, so the product says it one way. */
+const TREE_STARTABLE_PROVIDERS = Object.freeze(['codex'])
+const TIER_CANNOT_START_HERE = 'cannot start here yet'
 export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze({
   id: tier.id,
-  label: `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider}`,
+  label: TREE_STARTABLE_PROVIDERS.includes(tier.provider)
+    ? `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider}`
+    : `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider} — ${TIER_CANNOT_START_HERE}`,
 })))
 
 /* Preselected, not prompted: the engine has a default, so the menu states it.
