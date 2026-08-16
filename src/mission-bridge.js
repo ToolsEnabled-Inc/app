@@ -20,6 +20,12 @@ import {
 const ACTION_ROUTES = Object.freeze({
   dispatch: '/v1/actions/dispatch',
   'report-read': '/v1/actions/report-read',
+  /* Read-only: what became of a launch this app already handed over. Behind no
+     write flag of its own — it is the second half of the dispatch the person
+     already made, and gating it separately would leave anyone with dispatch on
+     and this off staring at "starting on it now" for ever, which is the exact
+     defect it exists to end. */
+  'launch-status': '/v1/actions/launch-status',
   queue: '/v1/actions/queue',
   'thread-reply': '/v1/actions/thread-reply',
   decision: '/v1/actions/decision',

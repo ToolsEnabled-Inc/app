@@ -39,6 +39,9 @@ import { markRefusalCode, refusalCodeOf, refusalSentence } from './refusal-copy.
    ids and effort words in the visible text -- a second copy of a list that is
    already data, and one that would go stale silently. */
 import { LAUNCH_TIERS } from './orchestration-controls.js'
+/* The panel's words for how a job ended, and the loop that waits for them.
+   Kept in their own module so a test can drive them without a browser. */
+import { launchOutcomeCopy, watchLaunchOutcome } from './launch-outcome-copy.js'
 
 const esc = value => String(value)
   .replace(/&/g, '&amp;')
@@ -50,6 +53,7 @@ function actionState(node, kind, text) {
   node.dataset.state = kind
   node.textContent = text
 }
+
 
 /* THE ASSISTANTS, GROUPED BY WHO MAKES THEM AND ORDERED AS THEY ARE DECLARED.
  *
@@ -255,9 +259,29 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
     if (result.ok) output.dataset.launchId = result.receipt.launchId
     else delete output.dataset.launchId
     actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
-      ? 'Handed over, and written down on this computer. The assistant is starting on it now.'
+      ? 'Handed over, and written down on this computer. The assistant is working on it now.'
       : `Nothing was handed over. ${refusalSentence(refusal, { fallback: 'The audited connection refused it and gave no receipt.' })}`)
     markRefusalCode(output, refusal)
+    /* AND THEN KEEP LOOKING. Everything above happens in the first second; the
+       job runs for minutes. Without this the sentence above was the panel's last
+       word, whatever actually became of the assistant. */
+    if (!result.ok) return
+    const watchedId = result.receipt.launchId
+    void watchLaunchOutcome({
+      launchId: watchedId,
+      capMs: 20 * 60_000,
+      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+      /* `false` means stop asking: the panel is gone, or the person has handed
+         over another job and this answer is no longer the one on screen. */
+      ask: id => (destroyed || output.dataset.launchId !== watchedId
+        ? false
+        : postBridgeAction('launch-status', { launchId: id })),
+      onOutcome: receipt => {
+        if (destroyed || output.dataset.launchId !== watchedId) return
+        const copy = launchOutcomeCopy(receipt)
+        actionState(output, copy.kind === 'pending' ? 'confirmed' : copy.kind, copy.text)
+      },
+    })
   })
 
   const reportForm = surface.querySelector('[data-report-form]')
