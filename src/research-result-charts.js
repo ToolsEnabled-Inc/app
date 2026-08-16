@@ -30,13 +30,23 @@ function readToken(name, fallback) {
  */
 export function chartRows(model, column) {
   const rows = []
+  /* Label by the run's AXES, which is what the doctrine above says and what a
+     reader assumes. Labelling by "every column except the charted one" put a
+     SECOND measurement in the label: charting mean printed sd_of_mean beside
+     the bar, so the number next to a bar was not the bar's number (measured on
+     the installed build, 2026-08-15). A model that does not name its axes
+     falls back to the old behaviour rather than losing its labels. */
+  const labelNames = (Array.isArray(model.axisNames) && model.axisNames.length
+    ? model.axisNames
+    : model.columns
+  ).filter(name => name !== column.name)
   for (const row of model.rows) {
     const value = row.cells[column.index]
     if (typeof value !== 'number' || !Number.isFinite(value)) continue
-    const label = model.columns
-      .map((name, index) => ({ name, value: row.cells[index] }))
-      .filter(cell => cell.name !== column.name && cell.value !== null && cell.value !== undefined)
-      .map(cell => String(cell.value))
+    const label = labelNames
+      .map(name => row.cells[model.columns.indexOf(name)])
+      .filter(cell => cell !== null && cell !== undefined)
+      .map(cell => String(cell))
       .join(' · ')
     rows.push({ label: label || row.runId, value })
   }

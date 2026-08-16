@@ -419,3 +419,25 @@ test('the bench follows the project selector, hides nothing unreachable, and say
   assert.match(handler, /renderServiceModules\(\)/)
   assert.match(handler, /gatheredExperimentId = null/, 'a gathered panel from the project just left must close')
 })
+
+test('the run board and the service board cannot wipe each other, and the worker press is never silent', () => {
+  const view = read('src/views/research.js')
+  // Both render into [data-research-runboard]; the bench board assigns
+  // innerHTML, which deletes the appended service block and the Start button.
+  const runboard = view.slice(view.indexOf('function renderRunBoard'), view.indexOf('function renderResults'))
+  const calls = runboard.split('renderServiceRunBoard()').length - 1
+  assert.equal(calls, 2, 'every exit from renderRunBoard must restore the service board it just deleted')
+
+  // The cache fill must repaint the bench board, or its cells stay cold.
+  const refresh = view.slice(view.indexOf('async function refreshRuns'), view.indexOf('function anyRunActive'))
+  assert.match(refresh, /renderRunBoard\(\)/, 'the runs cache fills without repainting the bench board again')
+
+  // A slow lifecycle call must survive the poll's repaint as a pending state.
+  assert.match(view, /let workerPending = null/)
+  const control = view.slice(view.indexOf('function workerControlMarkup'), view.indexOf('function runDrillMarkup'))
+  assert.match(control, /if \(workerPending\)/, 'a repaint mid-call hands back an enabled button again')
+  assert.match(control, /This can take a few seconds/)
+
+  // A fully-replayed submit must say so instead of doing nothing visible.
+  assert.match(view, /Already queued — the run service recognised all/)
+})

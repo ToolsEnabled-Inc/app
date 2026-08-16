@@ -889,6 +889,7 @@ export function researchView() {
 
   let gatheredExperimentId = null
   let lastKnownPulse = null          // the last counts read whole; see renderStatusPulse
+  let workerPending = null           // 'start' | 'stop' while a lifecycle call is in flight
   const gatheredCharts = new Map()   // experimentId -> { resize, destroy }
 
   function localCellsMarkup(experiment, cells = experiment.cells) {
@@ -1128,6 +1129,7 @@ export function researchView() {
     const active = experiments.filter(experiment => experiment.cells.some(cell => cell.status !== 'designed'))
     if (active.length === 0) {
       host.innerHTML = `<p class="research-observed-empty">Nothing is running yet. Save an experiment above, then press its Run control.</p>${elsewhereNote(hidden)}`
+      renderServiceRunBoard()
       return
     }
     /* The header promises "with its live state", so a queue-dispatched cell
@@ -1149,6 +1151,13 @@ export function researchView() {
         </div>
         <p class="research-observed-empty">Session workers are nodes on the computers page; queued runs report in the service board below.</p>
       </div>`).join('')}`
+    /* The service board and the worker control are APPENDED into this same
+       host, so the assignment above deletes them. Re-render them here rather
+       than at every call site: saving an experiment used to make the service
+       board and the Start button vanish until the page was reloaded — during
+       a showing that is the finale button disappearing (measured on the
+       installed build, 2026-08-15). */
+    renderServiceRunBoard()
   }
 
   function renderResults() {
@@ -1392,7 +1401,17 @@ export function researchView() {
            re-rendered, nothing was queued, and no sentence said why. The
            designer's own status line says it, after the re-render that would
            otherwise wipe it. */
-        if (outcome.sentence) { const holdStatus = moduleEl('designer').querySelector('[data-exp-form-status]'); if (holdStatus) holdStatus.textContent = outcome.sentence }
+        /* Nothing queued and nothing refused means every cell was already
+           submitted: the service replayed them by experiment and parameters.
+           That is the idempotency working, but silence made the press look
+           broken — a saved grid has no edit, so pressing it again is exactly
+           what a person does (measured on the installed build, 2026-08-15). */
+        const said = outcome.sentence || (outcome.submitted === 0
+          ? (outcome.replayed > 0
+            ? `Already queued — the run service recognised all ${outcome.replayed} of these runs and made no duplicates. Duplicate this experiment to run a fresh set.`
+            : 'Nothing new to queue: every cell of this experiment has already been sent.')
+          : null)
+        if (said) { const holdStatus = moduleEl('designer').querySelector('[data-exp-form-status]'); if (holdStatus) holdStatus.textContent = said }
         refreshServiceSnapshot()
         return
       }
@@ -1746,7 +1765,14 @@ export function researchView() {
     for (const experiment of experiments) {
       runsByExperiment.set(experiment.experimentId, await readRuns(experiment.experimentId))
     }
-    renderServiceRunBoard()
+    /* The bench run board reads this same cache for its cells' live state, so
+       it must repaint when the cache fills. Without this it painted once with
+       a cold cache and stayed there: every cell read "queued", including a
+       9/9-finished experiment, until an unrelated re-render happened to fix
+       it (measured on the installed build, 2026-08-15 — and it is the first
+       thing on screen). It renders the service board itself, so it comes
+       first and there is no second call. */
+    renderRunBoard()
     renderServiceResults()
     const opened = experimentsSnapshot().experiments.find(candidate => candidate.id === gatheredExperimentId)
     if (opened?.serviceExperimentId) renderGatheredService(opened)
@@ -1774,6 +1800,21 @@ export function researchView() {
     if (!lifecycle) return ''
     const running = lifecycle.running === true
     const word = typeof lifecycle.status === 'string' ? lifecycle.status.replace(/_/g, ' ') : 'unknown'
+    /* A cold start takes several seconds. The pending state lives HERE rather
+       than only in the click handler because the run poll repaints this board
+       while the request is in flight, which used to wipe the "Starting the
+       worker." sentence and hand back an enabled button — seven seconds of
+       apparent dead air, and an invitation to press twice (measured on the
+       installed build, 2026-08-15). */
+    if (workerPending) {
+      const verb = workerPending === 'start' ? 'Starting' : 'Stopping'
+      return `
+        <div class="research-queue-controls" data-research-worker>
+          <span class="research-observed-empty">Run worker: ${esc(word)}.</span>
+          <button type="button" disabled data-research-worker-pending="${esc(workerPending)}">${verb} the worker…</button>
+          <span class="research-queue-form-status" data-research-worker-status role="status">${verb} the worker. This can take a few seconds.</span>
+        </div>`
+    }
     return `
       <div class="research-queue-controls" data-research-worker>
         <span class="research-observed-empty">Run worker: ${esc(word)}.</span>
@@ -1824,19 +1865,21 @@ export function researchView() {
 
   moduleEl('runboard').addEventListener('click', async event => {
     const action = event.target?.dataset?.researchWorkerToggle
-    if (!action) return
-    const status = moduleEl('runboard').querySelector('[data-research-worker-status]')
-    event.target.disabled = true
-    if (status) status.textContent = action === 'start' ? 'Starting the worker.' : 'Stopping the worker.'
+    if (!action || workerPending) return
+    workerPending = action
+    renderServiceRunBoard()
     const key = globalThis.crypto?.randomUUID?.() || `worker-${Date.now()}`
     const result = await postBridgeAction('research-lifecycle', { action, idempotencyKey: key })
+    workerPending = null
     if (result?.ok === true && result.receipt) {
       const receipt = result.receipt
-      if (status) status.textContent = `The service says: ${String(receipt.status || 'unknown').replace(/_/g, ' ')}.`
       await refreshServiceSnapshot()
+      const settled = moduleEl('runboard').querySelector('[data-research-worker-status]')
+      if (settled) settled.textContent = `The service says: ${String(receipt.status || 'unknown').replace(/_/g, ' ')}.`
       return
     }
-    event.target.disabled = false
+    renderServiceRunBoard()
+    const status = moduleEl('runboard').querySelector('[data-research-worker-status]')
     if (status) {
       const reason = String(result?.reason || 'the research service did not answer').replace(/\.$/, '')
       status.textContent = `That did not happen — ${reason}. The worker is unchanged; try once more.`

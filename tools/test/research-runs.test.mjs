@@ -202,3 +202,31 @@ test('a task whose lease expired reads stalled, not running', async () => {
     'queue-dispatched cells with no service read must count as unread, never as queued')
   assert.match(pulse, /runTaskIsStalled\(run\?\.task\)/, 'the pulse counts a stalled run as running again')
 })
+
+test('chart bars are labelled by axes only, never by another measurement', () => {
+  // Installed-build measurement 2026-08-15: charting `mean` printed the
+  // sd_of_mean value beside each bar, so the number next to a bar was not the
+  // bar's number. Labels come from the axes; other measurements stay out.
+  const model = {
+    columns: ['seed', 'n', 'mean', 'sd_of_mean'],
+    axisNames: ['seed', 'n'],
+    rows: [
+      { runId: 'rr-1', status: 'succeeded', cells: [47, 10000, 0.5012, 0.00288] },
+      { runId: 'rr-2', status: 'succeeded', cells: [11, 100, 0.4903, 0.0291] },
+    ],
+  }
+  const rows = chartRows(model, { name: 'mean', index: 2 })
+  assert.deepEqual(rows, [
+    { label: '47 · 10000', value: 0.5012 },
+    { label: '11 · 100', value: 0.4903 },
+  ], 'the label is the axes; sd_of_mean must not appear beside a mean bar')
+
+  const bySd = chartRows(model, { name: 'sd_of_mean', index: 3 })
+  assert.deepEqual(bySd.map(row => row.label), ['47 · 10000', '11 · 100'],
+    'the same axis label whichever measurement is charted')
+  assert.deepEqual(bySd.map(row => row.value), [0.00288, 0.0291])
+
+  // A model with no declared axes keeps the old labelling rather than losing it.
+  const legacy = { columns: ['axis_a', 'score'], rows: [{ runId: 'rr-3', status: 'succeeded', cells: ['x', 0.5] }] }
+  assert.deepEqual(chartRows(legacy, { name: 'score', index: 1 }), [{ label: 'x', value: 0.5 }])
+})
