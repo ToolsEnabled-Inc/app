@@ -377,13 +377,62 @@
    edge: an offset shadow made of light, not a progress sweep.
    Colour = live fleet load, three states.
    ============================================================ */
-.uring.crescent { --cres-halo-o: 0.85; }
+/* `--cres-gain` scales the corona's brightness per sheet, and it exists because
+   the two grounds need different amounts of light to say the same thing. On
+   paper the corona composites as ink and reaches 4.3-6.1:1 against the sheet on
+   its own. On the near-black sheet it ADDS light instead, and at parity of gain
+   it measured only 2.2-2.5:1 — below the 3:1 floor this mark is held to, since
+   it is a non-text graphical object carrying the page's only status. Lifting
+   the dark sheet's gain is what brings it back over. Measured, not guessed; the
+   numbers are in the header of crescent-mount.js. */
+.uring.crescent { --cres-halo-o: 0.85; --cres-gain: 1; --cres-state-gain: 1; }
 .uring.crescent .uring-rim { stroke: var(--ink-4); }
+
+/* The three layers are elements wearing the computed light field as a mask
+   (src/crescent-field.js), not stroked arcs under a blur filter. Everything
+   below this line — the opacity ladder, the per-theme hue table, the halo dose,
+   the peak pulse, the reduced-motion opt-out — is unchanged and still targets
+   the same three class names, which is the point: the design is stated here and
+   only its rendering moved.
+
+   The box is positioned by components.js from crescentSpec(), because how far
+   the light reaches is a property of the light, not a number to keep in step by
+   hand. It sits UNDER the rim, as the arcs did when they were painted before
+   the rim circle in the same SVG; absolute positioning would otherwise lift it
+   above a static sibling. */
+/* The GPU corona. It sits under the rim, as the light always did — absolute
+   positioning would otherwise lift it above a static sibling. */
+.uring.crescent .cres-gl { position: absolute; z-index: 0; pointer-events: none; }
+/* On the near-black sheet the corona ADDS light, which is what makes it read as
+   an eclipse rather than as coloured ink. On the two paper sheets there is no
+   headroom to add into — every one of these hues is darker than the page — so
+   it composites normally and reads as pigment. Same shader, two grounds. */
+:root[data-theme="black"] .uring.crescent .cres-gl { mix-blend-mode: plus-lighter; }
+
+/* The colour carrier. Hidden, but a real element, so the transition below is
+   the ONE statement of how a state change is timed: the shader samples this
+   element while the browser interpolates it. */
+.uring.crescent .cres-probe {
+  position: absolute; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+  background-color: var(--load-col, var(--s-good));
+  transition: background-color 1.4s var(--ease);
+}
+
+.uring.crescent .cres-layers { position: absolute; z-index: 0; }
+.uring.crescent > svg { position: relative; z-index: 1; }
+.uring.crescent .uring-center { z-index: 2; }
+/* Masks arrive a few frames after mount. Until then these are three solid
+   rectangles, so they do not paint at all. */
+.uring.crescent .cres-layers:not([data-ready]) { visibility: hidden; }
 .uring.crescent .cres-haze,
 .uring.crescent .cres-halo,
 .uring.crescent .cres-core {
-  stroke: var(--load-col, var(--s-good));
-  transition: stroke 1.4s var(--ease);
+  position: absolute; inset: 0;
+  background-color: var(--load-col, var(--s-good));
+  transition: background-color 1.4s var(--ease);
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
 /* three layers, each wider + softer + fainter than the one inside it —
    that gradient is what reads as light rather than a thick coloured stroke */
@@ -420,6 +469,15 @@
    quiet green "all clear". Same neutral --ink-4 the rim already uses,
    theme-aware without needing a per-theme override. */
 .uring.crescent[data-load="unknown"] { --load-col: var(--ink-4); }
+/* ...and it barely glows. Driving the PACKAGED build caught this: in `unknown`
+   the hue is neutral --ink-4, so on a paper sheet there is no colour to carry
+   the light and the corona reads as a plain grey drop shadow hanging off the
+   circle — the exact failure this design was rebuilt to escape. Quieting it is
+   also the honest reading of the state: no measurement has arrived, so there is
+   nothing for the light to say. The rim still draws the circle; the fact row
+   below still says it in words. A separate token from --cres-gain so the black
+   sheet's lift and this can both apply without a specificity fight. */
+.uring.crescent[data-load="unknown"] { --cres-state-gain: 0.28; }
 
 /* TAN (#f2e5bc) — Gruvbox Light Soft, so the states take the published faded
    family the rest of this theme is built from rather than a second palette:
@@ -434,7 +492,7 @@
    signal. Lifting the ramp costs nothing and buys headroom: 7.55 / 8.16 /
    5.11. The blurred halo is also far louder over black than over paper, so
    it comes down a step — the crescent stays a state indicator, not a bloom. */
-:root[data-theme="black"] .uring.crescent { --cres-halo-o: 0.5; }
+:root[data-theme="black"] .uring.crescent { --cres-halo-o: 0.5; --cres-gain: 1.9; }
 :root[data-theme="black"] .uring.crescent[data-load="idle"] { --load-col: #35c17c; }
 :root[data-theme="black"] .uring.crescent[data-load="busy"] { --load-col: #f0a02e; }
 :root[data-theme="black"] .uring.crescent[data-load="peak"] { --load-col: #fb4934; }

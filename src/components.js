@@ -1,6 +1,8 @@
 // Shared UI pieces: uptime ring, chat window, sparkline, tooltip.
 
 import { sim, uptimeParts } from './sim.js'
+import { crescentSpec } from './crescent-field.js'
+import { mountCrescent } from './crescent-mount.js'
 import { CHAT, CHAT_CONTEXT_REPLIES, CHAT_REPLIES, ROLES, pick } from './vocab.js'
 
 export const el = (html) => {
@@ -35,56 +37,27 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
   const r = (size - stroke * 2 - 14) / 2
   const cx = size / 2
   const gid = `uring-grad-${++gradSeq}`
-  const fid = `uring-blur-${gradSeq}`
   const circ = 2 * Math.PI * r
 
   // The sketch's hero: a plain circle with a crescent of light hugging its
-  // OUTSIDE-LEFT edge — an offset shadow made of light rather than a
-  // progress sweep. Its colour is the fleet's load: green idle, orange
-  // climbing, red full throttle. Two stacked arcs (a wide blurred halo and
-  // a tighter core) give the falloff; both are nudged left so the light
-  // reads as coming from beside the circle, not from the stroke itself.
-  const pt = (deg) => {
-    const a = (deg * Math.PI) / 180
-    return [cx + r * Math.cos(a), cx + r * Math.sin(a)]
-  }
-  // A wider sweep than the first pass (118deg->242deg rather than 133->227)
-  // so the light genuinely wraps the left flank, and THREE stacked arcs
-  // instead of two: a broad outer haze, a mid halo, and a tight bright core.
-  // Real light falls off over distance, so each layer is wider, softer and
-  // fainter than the one inside it — that gradient is what reads as "glow"
-  // rather than "a thick coloured stroke".
-  const arcOf = (a0, a1) => {
-    const [x0, y0] = pt(a0), [x1, y1] = pt(a1)
-    return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`
-  }
-  const crescentPath = arcOf(118, 242)     // outer haze: the full flank
-  const crescentMid = arcOf(126, 234)
-  const crescentCore = arcOf(139, 221)     // core: tightest, brightest
-  const off = Math.max(4, size * 0.022)
-
+  // OUTSIDE-LEFT edge — an offset shadow made of light rather than a progress
+  // sweep. Its colour is the fleet's load: green idle, orange climbing, red
+  // full throttle. Three layers — a broad outer haze, a mid halo and a tight
+  // bright core — give the falloff, each wider, softer and fainter than the one
+  // inside it, and all nudged left so the light reads as coming from beside the
+  // circle rather than from the stroke itself.
+  //
+  // The DESIGN is unchanged. What changed is that it is no longer approximated.
+  // These three layers used to be stroked arcs handed to feGaussianBlur, which
+  // cost the render four defects that were measured, not guessed: the barely
+  // blurred core ended in two blunt linecap tips; the blur radii stepped 5.5x
+  // then 2.27x and left a shoulder in the falloff; the haze's filter region
+  // cleared its own blur by 0.85px at every size; and stacked 8-bit translucent
+  // layers band. src/crescent-field.js evaluates the same light in closed form
+  // instead — see its header. The arcs' apertures, widths, blur radii, offset
+  // and opacities are all still the numbers below, read from crescentSpec().
   const svgBody = crescent
-    ? `
-        <defs>
-          <filter id="${fid}" x="-75%" y="-75%" width="250%" height="250%" color-interpolation-filters="sRGB">
-            <feGaussianBlur stdDeviation="${(size * 0.05).toFixed(2)}"/>
-          </filter>
-          <filter id="${fid}-m" x="-70%" y="-70%" width="240%" height="240%" color-interpolation-filters="sRGB">
-            <feGaussianBlur stdDeviation="${(size * 0.022).toFixed(2)}"/>
-          </filter>
-          <filter id="${fid}-c" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
-            <feGaussianBlur stdDeviation="${(size * 0.004).toFixed(2)}"/>
-          </filter>
-        </defs>
-        <g transform="translate(${-off} 0)">
-          <path class="cres-haze" d="${crescentPath}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 3.4).toFixed(1)}" filter="url(#${fid})"/>
-          <path class="cres-halo" d="${crescentMid}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 1.9).toFixed(1)}" filter="url(#${fid}-m)"/>
-          <path class="cres-core" d="${crescentCore}" fill="none" stroke-linecap="round"
-            stroke-width="${(stroke * 0.75).toFixed(1)}" filter="url(#${fid}-c)"/>
-        </g>
-        <circle class="uring-rim" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke-width="2"/>`
+    ? `<circle class="uring-rim" cx="${cx}" cy="${cx}" r="${crescentSpec(size).r}" fill="none" stroke-width="2"/>`
     : `
         <defs>
           <linearGradient id="${gid}" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -115,6 +88,16 @@ export function uptimeRing({ size = 460, epoch, colors = ['#35eab7', '#45d6ff'],
       </div>
     </div>
   `)
+
+  /* The crescent mounts itself: a GPU corona when WebGL2 is there, the CPU
+     masked layers when it is not. Either way it inserts ahead of the SVG so the
+     rim stays the topmost drawn line. */
+  const crescentMount = crescent ? mountCrescent(root, size) : null
+  if (crescentMount) {
+    root.crescentMode = crescentMount.mode
+    root.redrawCrescent = crescentMount.redraw
+    root.destroyCrescent = crescentMount.destroy
+  }
 
   const digitsEl = root.querySelector('.uring-digits')
   const arcs = root.querySelectorAll('.arc, .arc-glow')
