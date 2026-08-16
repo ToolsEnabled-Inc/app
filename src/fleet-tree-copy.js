@@ -184,13 +184,24 @@ export const START_PANEL = Object.freeze({
      and refuse by name when picked -- hiding them would make a chosen model
      quietly become Codex, the exact defect the tier channel closed. */
   tierLabel: 'What does it run on?',
-  /* WHY THE CLAUDE ROWS SAY "cannot start here yet" IN THE MENU ITSELF, and why
-     the help says why. Owner, 2026-08-16: "claude should work too not just
+  /* WHY THE CLAUDE ROWS SAY SO IN THE MENU ITSELF, and why the help says where
+     Claude DOES work. Owner, 2026-08-16: "claude should work too not just
      codex." A person reads the menu, not the refusal that follows; a row that
      looks startable and then refuses is a small lie told twice. So the fact
-     rides on the row, and the reason -- this copy may not use your Claude
-     sign-in and holds no key -- rides here, in the sentence under the menu. */
-  tierHelp: 'Luna is a good default. The Claude choices cannot start here yet: this copy may not use your Claude sign-in, and it keeps no key.',
+     rides on the row and the alternative rides here.
+
+     THE REASON THIS LINE USED TO GIVE WAS FALSE, corrected 2026-08-16. It read
+     "this copy may not use your Claude sign-in, and it keeps no key", and the
+     second clause is true while the first is not. MEASURED on the installed
+     1.0.17: handing work over on the agent page spawns the official claude
+     binary with apiKeySource "none" -- the person's own Claude subscription --
+     and the assistant answered. So this copy DOES use that sign-in, on that
+     path, today. What is fenced is the interactive tree path, whose launcher
+     runs on a throwaway config directory with no login state
+     (NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the engine; TE-L-0006). Saying "may
+     not use your sign-in" made the product contradict itself on two screens,
+     and pointed a person away from the one place Claude already works. */
+  tierHelp: 'Luna is a good default. Claude cannot start from a tree yet; to use Claude, hand the work over on the agent page instead.',
   effortLabel: 'How hard should it think?',
   effortHelp: 'Harder thinking is slower and costs more. The tier picks a sensible default; change it here for this agent.',
   messageLabel: 'What do you want it to do?',
@@ -217,7 +228,10 @@ const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude', lo
    checkboxes both render `label`. The wording matches the running-session
    model menu in src/views/computers.js, so the product says it one way. */
 const TREE_STARTABLE_PROVIDERS = Object.freeze(['codex'])
-const TIER_CANNOT_START_HERE = 'cannot start here yet'
+/* "from a tree", not "here". A person reads this row on the tree, where it is
+   true, and the same product hands work to a Claude assistant on the agent page,
+   where it is not. The old wording made those two screens contradict each other. */
+const TIER_CANNOT_START_HERE = 'cannot start from a tree yet'
 export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze({
   id: tier.id,
   label: TREE_STARTABLE_PROVIDERS.includes(tier.provider)

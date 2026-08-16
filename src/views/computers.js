@@ -2997,7 +2997,7 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="ctl-row">
             <select class="ctl-select" data-tree-model aria-label="${escapeMarkup(MODEL_PANEL.title)}">
               <option value="">${escapeMarkup(MODEL_PANEL.keep)}</option>
-              ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet')}</option>`).join('')}
+              ${LAUNCH_TIERS.map(tier => `<option value="${escapeMarkup(tier.model)}"${tier.provider !== 'codex' ? ' disabled' : ''}${sessionModelOverride.get(node.sessionId) === tier.model ? ' selected' : ''}>${escapeMarkup(tier.label)} · ${escapeMarkup(tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start from a tree yet' : 'your computer — cannot start from a tree yet')}</option>`).join('')}
             </select>
           </div>
           <div class="rail-sub" data-tree-model-note>${escapeMarkup(sessionModelOverride.has(node.sessionId) ? MODEL_PANEL.next(sessionModelOverride.get(node.sessionId)) : MODEL_PANEL.currentDefault)}</div>
