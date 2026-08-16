@@ -874,7 +874,12 @@ export function researchView() {
     return { ok: true }
   }
 
-  const CELL_WORD = Object.freeze({ designed: 'designed', starting: 'starting', running: 'running', finished: 'finished', failed: 'failed', queued: 'queued', unread: 'with the run service' })
+  const CELL_WORD = Object.freeze({
+    designed: 'designed', starting: 'starting', running: 'running', finished: 'finished',
+    failed: 'failed', queued: 'queued', unread: 'with the run service',
+    claimed: 'claimed', retrying: 'waiting to retry', cancelled: 'cancelled',
+    uncertain: 'uncertain', stalled: 'stalled',
+  })
 
   function cellDuration(cell) {
     if (!Number.isFinite(cell.startedAtMs) || !Number.isFinite(cell.endedAtMs)) return ''
@@ -1812,14 +1817,21 @@ export function researchView() {
 
   function scheduleRunPoll() {
     if (runPollTimer) { clearTimeout(runPollTimer); runPollTimer = null }
-    if (destroyed || !anyRunActive()) return
+    if (destroyed) return
     /* The poll refreshes runs; the LIFECYCLE comes from the snapshot, and
        without re-reading it the worker control keeps its old word. Measured
        on installed 1.0.11: seven minutes after the worker process died the
        control still read "Run worker: running." and offered only Stop, so
-       there was no Start to press to recover. The snapshot read is a cheap
-       one (~0.1s) and this only runs while something is actually active. */
-    runPollTimer = setTimeout(() => { refreshServiceSnapshot() }, 5000)
+       there was no Start to press to recover.
+       Polling only while RUNS are active was not enough: kill the worker
+       while its queue is empty and nothing polls at all, so the control
+       claimed "running" for six and a half minutes with no worker process
+       alive (installed 1.0.12). While the service says a worker is running,
+       keep checking — slower, because nothing is in flight. */
+    const active = anyRunActive()
+    const watchingWorker = Boolean(service?.ok && service.lifecycle?.running === true)
+    if (!active && !watchingWorker) return
+    runPollTimer = setTimeout(() => { refreshServiceSnapshot() }, active ? 5000 : 15000)
   }
 
   /* The worker control: the service's own lifecycle word beside a start/stop

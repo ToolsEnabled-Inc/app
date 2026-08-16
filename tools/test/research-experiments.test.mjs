@@ -371,8 +371,8 @@ test('the gathered chips speak service truth for queued cells, without mutation'
   ]
   const shown = cellsWithServiceStatus(experiment, runs)
   assert.deepEqual(shown.map(cell => cell.status),
-    ['finished', 'failed', 'running', 'queued', 'held', 'queued', 'finished'],
-    'succeeded reads finished, claimed reads running, unknown words pass through honestly')
+    ['finished', 'failed', 'claimed', 'queued', 'held', 'queued', 'finished'],
+    'succeeded reads finished; unknown words still pass through honestly')
   assert.ok(experiment.cells.every(cell => ['queued', 'finished'].includes(cell.status)),
     'the account rows themselves are untouched — display only')
   assert.deepEqual(cellsWithServiceStatus(experiment, undefined).map(cell => cell.status),
@@ -482,4 +482,44 @@ test('an unreadable report catalog says what failed, and does not leave three mo
   assert.match(block, /\/\^Reading \/\.test/, 'only the loading placeholder may be replaced')
   assert.match(block, /p\.research-observed-empty/,
     'the working-lists host also holds the findings block; settle the paragraph, not the host')
+})
+
+test('the run board speaks the same words as the service board, including stalled', async () => {
+  const { cellsWithServiceStatus } = await import('../../src/research-experiments.js')
+  // Installed 1.0.12: the same run read "stalled" on the service board and
+  // "uncertain" on this one, on the same screen at the same instant, because
+  // this map read only task.status and never leaseExpired. It also passed the
+  // machine's own enums through raw: retry_wait, leased, uncertain.
+  const experiment = {
+    cells: [
+      { params: { a: 1 }, status: 'queued', runId: 'rr-stalled-running' },
+      { params: { a: 2 }, status: 'queued', runId: 'rr-stalled-leased' },
+      { params: { a: 3 }, status: 'queued', runId: 'rr-retry' },
+      { params: { a: 4 }, status: 'queued', runId: 'rr-leased' },
+      { params: { a: 5 }, status: 'queued', runId: 'rr-uncertain-live' },
+    ],
+  }
+  const runs = [
+    { runId: 'rr-stalled-running', task: { status: 'uncertain', storedStatus: 'running', leaseExpired: true } },
+    { runId: 'rr-stalled-leased', task: { status: 'expired', storedStatus: 'leased', leaseExpired: true } },
+    { runId: 'rr-retry', task: { status: 'retry_wait', leaseExpired: false } },
+    { runId: 'rr-leased', task: { status: 'leased', leaseExpired: false } },
+    { runId: 'rr-uncertain-live', task: { status: 'uncertain', leaseExpired: false } },
+  ]
+  assert.deepEqual(cellsWithServiceStatus(experiment, runs).map(cell => cell.status),
+    ['stalled', 'stalled', 'retrying', 'claimed', 'uncertain'],
+    'a dead lease is stalled here too, and no raw machine enum survives')
+
+  // Every key this map can emit must have a word, or the enum reaches a person.
+  const view = read('src/views/research.js')
+  const wordBlock = view.slice(view.indexOf('const CELL_WORD'), view.indexOf('const CELL_WORD') + 500)
+  for (const key of ['stalled', 'retrying', 'claimed', 'cancelled', 'uncertain', 'unread']) {
+    assert.match(wordBlock, new RegExp(`${key}:`), `CELL_WORD has no word for ${key}`)
+  }
+
+  // And the poll must keep watching a worker the service says is running,
+  // even with nothing in flight.
+  const poll = view.slice(view.indexOf('function scheduleRunPoll'), view.indexOf('function workerControlMarkup'))
+  assert.match(poll, /lifecycle\?\.running === true/, 'an idle dead worker goes unnoticed again')
+  assert.match(poll, /active \? 5000 : 15000/, 'the idle watch lost its slower cadence')
 })

@@ -34,7 +34,7 @@ import {
 } from './fleet-trees.js'
 import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
 import { DEFAULT_RESULT_SCHEMA, cellBrief, cellLabel, gridCells } from './research-grid.js'
-import { submitRun } from './research-runs.js'
+import { runTaskIsStalled, submitRun } from './research-runs.js'
 
 export const RESEARCH_EXPERIMENTS_ROW_KEY = 'research_experiments'
 export const RESEARCH_EXPERIMENTS_EVENT = 'mc:research-experiments-changed'
@@ -488,17 +488,35 @@ export async function submitExperimentRuns(experimentId, { submit = submitRun, p
    already finished. Pure translation for rendering; nothing is mutated and
    nothing is persisted. Unknown service words pass through untranslated —
    an honest unfamiliar word beats a familiar wrong one. */
+/* Every service state this board can meet, mapped to a single-token key the
+   renderer words. Two lessons are baked in here. The map used to carry five
+   entries and pass anything else through raw, so a person read the machine's
+   own enums — `retry_wait`, `leased`, `uncertain` — on screen. And it read
+   only `task.status`, so a run whose lease had died showed "uncertain" in
+   this board while the service board beside it, reading the same data,
+   correctly said "stalled" (installed 1.0.12: same run, same screen, same
+   instant). The stalled test is shared with the other renderers now. */
 const SERVICE_CELL_WORDS = Object.freeze({
-  succeeded: 'finished', failed: 'failed', running: 'running', claimed: 'running', queued: 'queued',
+  succeeded: 'finished',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  running: 'running',
+  claimed: 'claimed',
+  leased: 'claimed',
+  queued: 'queued',
+  retry_wait: 'retrying',
+  uncertain: 'uncertain',
+  expired: 'stalled',
 })
 export function cellsWithServiceStatus(experiment, runs) {
-  const statusByRunId = new Map((Array.isArray(runs) ? runs : [])
+  const taskByRunId = new Map((Array.isArray(runs) ? runs : [])
     .filter(run => run && typeof run.runId === 'string' && run.task && typeof run.task.status === 'string')
-    .map(run => [run.runId, run.task.status]))
+    .map(run => [run.runId, run.task]))
   return experiment.cells.map(cell => {
-    if (cell.status !== 'queued' || !cell.runId || !statusByRunId.has(cell.runId)) return cell
-    const service = statusByRunId.get(cell.runId)
-    return { ...cell, status: SERVICE_CELL_WORDS[service] || service }
+    if (cell.status !== 'queued' || !cell.runId || !taskByRunId.has(cell.runId)) return cell
+    const task = taskByRunId.get(cell.runId)
+    if (runTaskIsStalled(task)) return { ...cell, status: 'stalled' }
+    return { ...cell, status: SERVICE_CELL_WORDS[task.status] || task.status }
   })
 }
 
