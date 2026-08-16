@@ -85,6 +85,37 @@ pg2-blocking, owned by other lanes:
   example-notice z-order overlap (190 over 80); a11y naming/tab-order of
   the example-data anchor.
 
+## CORRECTION 2026-08-15 (later the same day): this document undercounts
+
+Written around "16/37 red", but the reproducible red set on this machine is
+**21**, on BOTH sealed builds. Six failing drivers are absent from the lists
+above:
+
+- `agent-dispatch-packaged-qa`
+- `example-page-write-fence-qa`
+- `first-run-contract-qa`
+- `first-run-recovery-qa`
+- `onboarding-doc-qa`
+- `uninstall-reset-packaged-qa`
+
+They were measured against sealed 1.0.9 AND sealed 1.0.10, same harness, same
+machine, minutes apart: **0/6 passed on either**, with the same named checks
+failing verbatim. Their signatures are the already-attributed classes —
+`503 BRIDGE_LOCAL_RUNTIME_UNAVAILABLE` (no provider CLI present), "Codex is
+installed… but nobody is signed in", fresh-live-profile empty boards, and
+`signedIn=false`. They are environment and precondition gaps, not defects,
+and not regressions.
+
+Recorded because anyone diffing a future run against the original lists would
+see six phantom regressions and lose an afternoon to them. When the fleet and
+sign-in lanes fix their preconditions, these should turn green with the rest
+of their class.
+
+Trap for whoever runs the comparison next: `qa:packaged` writes to a SHARED
+`%TEMP%\packaged-qa-logs\`, so running a control against a second build
+overwrites the first build's detail logs. Capture the tails before the
+control run, or compare from a report rather than from disk.
+
 ## Context that made the cluster look scarier than it is
 
 There is no honest baseline: 1.0.7 was cut from a different branch
