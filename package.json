@@ -1,7 +1,7 @@
 {
   "name": "toolsenabled",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.11",
   "type": "module",
   "main": "shell/main.cjs",
   "author": "ToolsEnabled, Inc. in formation",
