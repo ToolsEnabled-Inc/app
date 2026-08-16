@@ -467,6 +467,7 @@
       "src/lib/providers/tasks.js",
       "src/lib/providers/web.js",
       "src/lib/providers/workstation.js",
+      "src/lib/r-ledger.js",
       "src/lib/repo-sync-status.js",
       "src/lib/request-context.js",
       "src/lib/request-id.js",
