@@ -310,6 +310,10 @@ export const RESUME_PANEL = Object.freeze({
   busy: 'This agent is still running — stop it first, or just keep talking to it.',
   failed: 'The resume did not happen. The saved conversation is untouched; press again to retry.',
   done: 'Resumed. A fresh agent is reading the conversation and will pick it up from there.',
+  /* The real one: the engine still held the thread, so the SAME agent came
+     back with its own memory. Nothing was re-sent and nothing was charged,
+     which is the difference worth saying out loud. */
+  continued: 'Back. This is the same agent, with everything it already remembered — nothing had to be re-sent.',
   marker: 'Resumed — the saved conversation above was sent to a fresh agent.',
 })
 
@@ -318,6 +322,9 @@ export const RESUME_PANEL = Object.freeze({
    so the menu says what really happens: a restart that re-reads the saved
    conversation at the new depth, warned before it fires. */
 export const EFFORT_SWITCH = Object.freeze({
+  /* Said when the engine changed a RUNNING thread's depth in place, which is
+     the ordinary case now: no restart, nothing re-sent, nothing charged. */
+  changed: depth => `Now thinking at ${depth}. Nothing was restarted and nothing was re-sent.`,
   title: 'How hard it thinks',
   help: 'Changing depth restarts this agent: a fresh session reads the saved conversation at the new depth.',
   warn: 'Restarting re-sends the saved conversation, which costs tokens.',
@@ -331,7 +338,13 @@ export const EFFORT_SWITCH = Object.freeze({
    the queue, visibly, until the reading turn finishes. The sentence says
    all three honest parts: what ended, what it costs, when the words go. */
 export const RECOVERED_SESSION = Object.freeze({
-  reconnecting: 'That agent’s session had ended, so a fresh one is reading the saved conversation now — re-sending it costs tokens. Your message is queued and goes the moment it catches up.',
+  /* Said BEFORE the outcome is known, so it claims nothing about cost. The
+     old wording promised a token-burning summary every time, which is now
+     the rarer of the two paths — the engine usually still holds the thread
+     and brings the same agent back for nothing. */
+  reconnecting: 'That agent’s session had ended. Bringing it back now…',
+  /* The fallback, said only when it really happened. */
+  summarised: 'Its conversation was no longer on this computer, so a fresh agent is reading the saved summary instead — that part costs tokens. Your message goes the moment it catches up.',
   bare: 'That agent’s session had ended, so a fresh one started in its place. Your message is going now.',
 })
 

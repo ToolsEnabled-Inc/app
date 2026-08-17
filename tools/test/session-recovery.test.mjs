@@ -50,10 +50,17 @@ test('the phantom you-line strips from BOTH copies before the resume reads them'
     'the resume runs before the strip — it seeds the phantom line into the fresh agent')
 })
 
-test('the typed message queues after a seeded resume and drains at the one drain site', () => {
-  const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function recoverDeadSessionSend') + 3600)
+test('a recovered message goes straight to a resumed agent, and queues only behind a summary', () => {
+  /* Iteration 7 split the two cases, because they are no longer the same.
+     A TRUE resume gives the agent its own memory back and leaves it idle,
+     so the person's message is an ordinary send. Only the fallback — a
+     fresh agent reading the saved summary as its first turn — is busy on
+     arrival, and only there does the message queue behind it. */
+  const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function recoverDeadSessionSend') + 4200)
+  assert.match(recovery, /ok === 'engine' \|\| !seeded/,
+    'the recovery stopped distinguishing a real resume from a summary; a resumed agent would be sent nothing')
   assert.match(recovery, /outboxEnqueue\(fresh\.sessionId, text\)/,
-    'the recovered message no longer queues behind the seed turn')
+    'the summary path no longer queues the message behind the seed turn')
   /* And no SECOND drain site appeared: the listener's turn-completion drain
      is the only trigger, seeded recovery included. */
   const listener = view.slice(view.indexOf('unsubs.push(window.mcAgent.onEvent'))
@@ -66,5 +73,10 @@ test('the recovery is bounded and the honest dead end survives it', () => {
   assert.match(recovery, /recentRecoveries/, 'the per-node recovery bound is gone; an instantly-dying session bounces forever')
   assert.match(recovery, /fail\(START_REFUSAL\.sessionGone\)/,
     'the sessionGone sentence no longer backs the recovery — a failed resume goes silent')
-  assert.match(recovery, /RECOVERED_SESSION\.reconnecting/, 'the recovery no longer says what it is doing or what it costs')
+  assert.match(recovery, /RECOVERED_SESSION\.reconnecting/, 'the recovery no longer says what it is doing')
+  /* The cost sentence is said only where a cost was paid. A real resume
+     re-sends nothing, so promising tokens up front would be charging him in
+     words for something that did not happen. */
+  assert.match(recovery, /ok !== 'engine' && seeded\) reply\(RECOVERED_SESSION\.summarised\)/,
+    'the token-cost sentence is back on every recovery, including the ones that cost nothing')
 })

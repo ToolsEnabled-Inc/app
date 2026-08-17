@@ -863,6 +863,16 @@ test('every refusal code in the agent host is classified as reachable from the p
        choose. Its sibling AGENT_TIER_NO_LAUNCHER is one click away for a real
        person and therefore lives in START_REFUSAL_CODES with copy instead. */
     'AGENT_TIER_UNKNOWN',
+    /* Resume refusals, iteration 7. Both are start-only for the same reason
+       the tier ones are: they answer a request the person made THROUGH a
+       control, and the sentence belongs to that control rather than to the
+       availability screen. */
+    'AGENT_RESUME_INVALID_THREAD',
+    'AGENT_RESUME_UNSUPPORTED',
+    /* Raised when the engine cannot change depth in place; the popup falls
+       back to the warned restart, so the surface never dead-ends. */
+    'AGENT_EFFORT_FIXED',
+    'AGENT_MODELS_UNAVAILABLE',
     /* Raised by resolveEffort() only for a key outside the four the effort
        menu offers -- same family and same reasoning as AGENT_TIER_UNKNOWN
        directly above: only renderer/host drift or a hand-built payload can

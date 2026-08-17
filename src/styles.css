@@ -2471,6 +2471,17 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
    gap to 16.5. Both land inside a pixel of the rows they now match. */
 .set-row:has(input[type="range"]) { gap: 0; margin-bottom: -8px; }
 .set-row.set-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
+/* Which build this is — a fact, so it reads as one: quiet, monospaced, and
+   selectable, because the first thing anybody does with it is copy it into a
+   report. */
+.set-row.set-build { gap: var(--s1); }
+.set-build-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 .set-label { font-size: 13px; font-weight: 550; color: var(--ink-2); }
 /* 13px: a three-line mono paragraph — prose, so it obeys the 13px floor */
 .drawer-note { margin-top: auto; font-size: 13px; color: var(--ink-3); line-height: 1.65; font-family: var(--font-mono); }

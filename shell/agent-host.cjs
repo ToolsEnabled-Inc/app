@@ -227,7 +227,15 @@ function loadEngine(enginePath, options = {}) {
         attempts.push(`${candidate.source}: ${modulePath} (does not export startCodexSession())`)
         continue
       }
-      return { startCodexSession: engine.startCodexSession, engineRoot: engineRootOf(modulePath) }
+      /* resumeCodexSession is taken when the payload has it and left null
+         when it does not: an older pinned engine still starts agents, it
+         simply cannot continue a conversation across a restart, and the
+         resume path says so rather than crashing on a missing export. */
+      return {
+        startCodexSession: engine.startCodexSession,
+        resumeCodexSession: typeof engine.resumeCodexSession === 'function' ? engine.resumeCodexSession : null,
+        engineRoot: engineRootOf(modulePath),
+      }
     } catch (error) {
       attempts.push(`${candidate.source}: ${modulePath} (${error.code || error.name || 'load error'}: ${error.message})`)
     }
@@ -723,7 +731,7 @@ function validateStartedSession(value) {
 }
 
 function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null } = {}) {
-  const { startCodexSession, engineRoot } = loadEngine(enginePath)
+  const { startCodexSession, resumeCodexSession, engineRoot } = loadEngine(enginePath)
   const fallbackCwd = normalizeCwd(defaultCwd, process.cwd())
   /* Resolved PER SESSION rather than once here, so that changing the permission
    * level takes effect on the next agent the user starts instead of on the next
@@ -842,28 +850,60 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return row
   }
 
-  /* EFFORT, BOUND AT SPAWN. The codex app-server protocol has no per-turn or
-   * per-thread effort field (the adapter's allowlists are strict and upstream
-   * offers nothing to map to), but the CLI accepts `-c
-   * model_reasoning_effort=<key>` -- the same lever the mission-bridge lane
-   * already uses -- and codex-process.js takes spawn args as a parameter. So
-   * effort is a START-time property of the session, defaulting to the tier's
-   * own declared effort, which START_TIERS has carried since the beginning
-   * and this path used to read and then drop. */
-  const EFFORT_KEYS = new Set(['low', 'medium', 'high', 'xhigh'])
+  /* EFFORT, BOUND AT SPAWN AND CHANGEABLE AFTERWARDS.
+   *
+   * CORRECTED 2026-08-16, because what stood here was wrong and expensive.
+   * It said "the codex app-server protocol has no per-turn or per-thread
+   * effort field ... upstream offers nothing to map to". Upstream offers
+   * both: `turn/start` takes `effort`, and `thread/settings/update` exists
+   * to "override the reasoning effort for subsequent turns". Our own
+   * adapter allowlists were what excluded them, and the method refuses
+   * unless `initialize` declares the experimentalApi capability -- which we
+   * never declared. On that false premise the product told the owner that
+   * changing depth mid-conversation required restarting the agent, and
+   * charged him the tokens to re-read the conversation. The adapter now
+   * declares the capability and exposes updateThreadSettings.
+   *
+   * The spawn flag stays: `-c model_reasoning_effort=<key>` is what sets a
+   * NEW thread's depth, proven to land (config/read and thread/start both
+   * report it back). The values are the provider's own, and the closed set
+   * is load-bearing because codex accepts an unknown value silently -- it
+   * took `banana` and echoed it back. `ultra` is here because it is the
+   * provider's switch for automatic task delegation, not a bigger number. */
+  const EFFORT_KEYS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
   function resolveEffort(effort, startTier) {
     if (effort === undefined || effort === null || effort === '') return (startTier && startTier.effort) || null
     const key = String(effort).trim()
     if (!EFFORT_KEYS.has(key)) {
-      fail('AGENT_EFFORT_UNKNOWN', `Unknown effort "${key}". Available: low, medium, high, xhigh.`)
+      fail('AGENT_EFFORT_UNKNOWN', `Unknown effort "${key}". Available: ${[...EFFORT_KEYS].join(', ')}.`)
     }
     return key
   }
 
-  function startSession({ sessionId, cwd, tier, effort } = {}) {
+  /* RESUME IS THE SAME START, CONTINUING A THREAD.
+   *
+   * It is a branch here rather than its own function on purpose: every
+   * refusal above the engine call — the tier, the effort, the confinement
+   * plan, the tool limits, the scrubbed environment — must apply to a
+   * resumed agent exactly as it applies to a new one, in the same order,
+   * with the same codes. A parallel resumeSession() would be a second copy
+   * of that ladder, and a second copy is one that drifts: the day a new
+   * refusal is added to one, the other quietly re-opens the hole. So the
+   * ONLY thing resuming changes is which engine call is made.
+   */
+  function startSession({ sessionId, cwd, tier, effort, resumeThreadId = null } = {}) {
     assertOpen()
     const startTier = resolveStartTier(tier)
     const sessionEffort = resolveEffort(effort, startTier)
+    if (resumeThreadId !== null && resumeThreadId !== undefined) {
+      if (typeof resumeThreadId !== 'string' || resumeThreadId.length === 0 || resumeThreadId.length > 512) {
+        fail('AGENT_RESUME_INVALID_THREAD', 'A resume needs the thread id of the conversation to continue.')
+      }
+      if (typeof resumeCodexSession !== 'function') {
+        fail('AGENT_RESUME_UNSUPPORTED', 'This build\'s engine cannot continue a past conversation. Start a fresh agent instead.')
+      }
+    }
+    const resumeId = resumeThreadId || null
     const id = normalizeSessionId(sessionId)
     if (sessions.has(id)) fail('AGENT_SESSION_EXISTS', `Session already exists: ${id}`)
     const sessionCwd = normalizeCwd(cwd, fallbackCwd)
@@ -954,7 +994,14 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
 
     session.startPromise = (async () => {
       try {
-        const startedValue = await startCodexSession({
+        /* One shape of arguments, two engine calls. resumeCodexSession
+           continues the named thread instead of opening a new one — routing
+           a resume through the start would materialise a throwaway thread
+           on disk first, so this is not a flag on the other call. */
+        const engineStart = resumeId
+          ? (request) => resumeCodexSession({ ...request, threadId: resumeId })
+          : startCodexSession
+        const startedValue = await engineStart({
           cwd: sessionCwd,
           clientInfo: CLIENT_INFO,
           // The spawn seam: effort has no protocol field, so it rides the
@@ -1010,6 +1057,21 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
         session.adapter = started.adapter
         session.threadId = started.threadId
         session.engineClose = started.close
+        /* WHAT THE ENGINE SAYS, not what we asked for. A resumed thread
+           reports the conversation it restored and the settings it really
+           holds; those are the only honest source for "how hard is this
+           agent thinking" and for re-rendering the history. */
+        if (resumeId) {
+          session.resumed = Object.freeze({
+            turns: Array.isArray(startedValue.turns) ? startedValue.turns : [],
+            turnCount: Number.isFinite(startedValue.turnCount) ? startedValue.turnCount : 0,
+            threadCwd: typeof startedValue.threadCwd === 'string' ? startedValue.threadCwd : null,
+          })
+          if (typeof startedValue.reasoningEffort === 'string' && startedValue.reasoningEffort) {
+            session.effort = startedValue.reasoningEffort
+          }
+          if (typeof startedValue.model === 'string' && startedValue.model) session.model = startedValue.model
+        }
 
         if (closed || session.closeRequested) {
           await closeReadySession(session)
@@ -1023,7 +1085,13 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
          * is not always the recorded one: an unreadable record fails closed to
          * the most restrictive level, and the caller must be able to see that
          * rather than report the level it hoped for. */
-        return Object.freeze({ sessionId: id, threadId: session.threadId, tier: plan.tier })
+        return Object.freeze({
+          sessionId: id,
+          threadId: session.threadId,
+          tier: plan.tier,
+          effort: session.effort,
+          ...(session.resumed ? { resumed: session.resumed } : {}),
+        })
       } catch (error) {
         let cleanupError = null
         if (session.engineClose && session.state !== 'closed') {
@@ -1152,6 +1220,41 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return Object.freeze({ sessionId: session.sessionId, threadId: forked.threadId, turnId: rewindTurnId })
   }
 
+  /* CHANGE HOW HARD A RUNNING AGENT THINKS, without restarting it.
+   * The wire's own knob (thread/settings/update). The value is checked
+   * against the same closed set a start uses, because codex accepts an
+   * unknown effort silently. What comes back is what the engine acknowledged,
+   * not what was asked for. */
+  async function setSessionEffort({ sessionId, effort } = {}) {
+    assertOpen()
+    const session = readySession(sessionId)
+    const key = String(effort || '').trim()
+    if (!EFFORT_KEYS.has(key)) {
+      fail('AGENT_EFFORT_UNKNOWN', `Unknown effort "${key}". Available: ${[...EFFORT_KEYS].join(', ')}.`)
+    }
+    if (typeof session.adapter.updateThreadSettings !== 'function') {
+      fail('AGENT_EFFORT_FIXED', 'This build\'s engine cannot change how hard an agent thinks while it runs.')
+    }
+    await session.adapter.updateThreadSettings(session.threadId, { effort: key })
+    session.effort = key
+    return Object.freeze({ sessionId: session.sessionId, effort: key })
+  }
+
+  /* THE PROVIDER'S MODEL CATALOG, as the engine reports it: every model with
+   * the reasoning efforts it really supports, each described in the
+   * provider's own words, and its default. The menu is built from this
+   * rather than from a table in the product that drifts from it. Needs no
+   * session of its own -- it asks any ready one, since they all speak to the
+   * same installed codex. */
+  async function listEngineModels({ sessionId } = {}) {
+    assertOpen()
+    const session = sessionId ? readySession(sessionId) : [...sessions.values()].find(entry => entry.state === 'ready')
+    if (!session || typeof session.adapter?.listModels !== 'function') {
+      fail('AGENT_MODELS_UNAVAILABLE', 'No running agent could be asked what this engine offers. Start one first.')
+    }
+    return session.adapter.listModels()
+  }
+
   /* THE APPROVAL REPLY PATH. approvalPolicy is 'never' at every tier, so no
    * approval fires today — and that ordering is the point: the confinement
    * module's own comment refused to enable 'on-request' while the host had no
@@ -1211,6 +1314,8 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     sendTurn,
     interrupt,
     rewindSession,
+    setSessionEffort,
+    listEngineModels,
     answerApproval,
     closeSession,
     onEvent,

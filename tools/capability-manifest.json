@@ -221,7 +221,16 @@
     }
   ],
   "$comment_pinnedSource": [
-    "The 1.0.7 payload is staged from engine ref f1cc018 -- the",
+    "The 1.0.7 payload is staged from engine ref 8140714 -- f1cc018 plus the",
+    "resume-and-effort commit: thread/resume keeps the conversation it",
+    "returns (the parser dropped Thread.turns, which is why the product",
+    "could only paste a summary into a new agent), codex-process gains",
+    "resumeCodexSession so a resume does not first materialise a throwaway",
+    "thread, initialize declares capabilities.experimentalApi so reasoning",
+    "effort can change on a running thread, and model/list is mapped so the",
+    "effort menu is built from the provider's own catalog. Proven live by",
+    "tools/agent-resume-probe.mjs. Its base remains the",
+    "free-cut/r4r5-bridge-and-pin commit: engine 1328292 plus the research",
     "free-cut/r4r5-bridge-and-pin commit: engine 1328292 plus the research",
     "bench bridge routes (task-submit/claim/get/list, role-complete, GET",
     "local-tiers-status). The adoption from bbbcb3b restored the onboarding",

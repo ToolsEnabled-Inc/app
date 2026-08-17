@@ -1241,6 +1241,34 @@ export function computersView({ initialComputer = null, navigate }) {
 
   const tierEffortOf = tierId => LAUNCH_TIERS.find(tier => tier.id === tierId)?.effort || null
 
+  /* WHAT THIS ENGINE REALLY OFFERS, asked once and kept for the window.
+     model/list is the provider's own catalog: every model, the reasoning
+     efforts it supports, each with the provider's description, and its
+     default. Read lazily from any running session — there is nothing to ask
+     before one exists — and left empty when the engine cannot answer, in
+     which case the menus fall back to the built-in names. */
+  let engineModelCatalog = null
+  let engineCatalogAsked = false
+  function readEngineCatalog(sessionId) {
+    if (engineCatalogAsked || !sessionId) return
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.models !== 'function') return
+    engineCatalogAsked = true
+    void bridge.models({ sessionId }).then(answer => {
+      if (!answer || !Array.isArray(answer.models)) return
+      engineModelCatalog = answer.models
+    }).catch(() => { engineCatalogAsked = false })
+  }
+  /* The efforts for the model this node is actually running, or the widest
+     the catalog knows when the model cannot be identified. */
+  function engineEffortsFor(node) {
+    if (!Array.isArray(engineModelCatalog) || engineModelCatalog.length === 0) return []
+    const wanted = sessionModelOverride.get(node?.sessionId) || LAUNCH_TIERS.find(tier => tier.id === node?.tier)?.model || null
+    const match = wanted ? engineModelCatalog.find(model => model.id === wanted) : null
+    const chosen = match || engineModelCatalog.find(model => Array.isArray(model.efforts) && model.efforts.length > 0)
+    return chosen && Array.isArray(chosen.efforts) ? chosen.efforts : []
+  }
+
   /* LIVENESS, NOT JUST STATUS. parseFleetTrees loads a saved 'running' node
      back as 'starting', so after an app restart every mid-turn node reads
      busy FOREVER over a dead session — the stop button would stand over a
@@ -2035,6 +2063,9 @@ export function computersView({ initialComputer = null, navigate }) {
     sessionNodeIds.set(result.sessionId, node.id)
     sessionEfforts.set(result.sessionId, draft.effort || tierEffortOf(draft.tier))
     if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
+    /* First running session of the window: ask the engine what it offers, so
+       every depth menu after this is the provider's list rather than ours. */
+    readEngineCatalog(result.sessionId)
     const attached = store.attachSession(node.id, result.sessionId)
     if (!attached.ok) {
       /* The session is real and the tree could not record it. Saying "started"
@@ -3419,26 +3450,54 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     const currentEffort = () => sessionEfforts.get(fresh().sessionId)
       || transcriptStore?.get(node.id)?.effort || tierEffortOf(current.tier)
-    const effortRows = () => EFFORT_CHOICES.map(choice => ({
-      id: `effort-${choice.id}`,
-      label: choice.label,
-      hint: choice.id === currentEffort() ? 'Its current depth.' : null,
-      current: choice.id === currentEffort(),
-      enabled: true,
-      run: ctx => {
-        if (choice.id === currentEffort()) { ctx.say(EFFORT_SWITCH.keep); return }
-        ctx.show([{
-          id: 'effort-go',
-          label: EFFORT_SWITCH.go,
-          hint: EFFORT_SWITCH.warn,
-          enabled: true,
-          run: goCtx => {
-            goCtx.close()
-            void resumeNodeSession(fresh(), { effort: choice.id, out: statusSink() })
-          },
-        }], { title: choice.label })
-      },
-    }))
+    /* THE DEPTHS ARE THE PROVIDER'S, AND SO ARE THEIR WORDS (owner: "there
+       are STANDARD per provider effort names. Use those"). The engine's
+       model/list reports what THIS model really supports, each with the
+       provider's own description — ultra's is "Maximum reasoning with
+       automatic task delegation", which is a different agent, not a bigger
+       number. The hand-written table is the fallback for an engine too old
+       to answer, and it now carries the provider's names too. */
+    const effortRows = () => {
+      const catalog = engineEffortsFor(fresh())
+      const choices = catalog.length > 0 ? catalog : EFFORT_CHOICES.map(choice => ({ id: choice.id, description: choice.label }))
+      return choices.map(choice => ({
+        id: `effort-${choice.id}`,
+        label: choice.id,
+        hint: choice.id === currentEffort() ? `${choice.description || ''} · running at this now`.trim() : (choice.description || null),
+        current: choice.id === currentEffort(),
+        enabled: true,
+        run: async ctx => {
+          if (choice.id === currentEffort()) { ctx.say(EFFORT_SWITCH.keep); return }
+          const live = fresh()
+          const bridgeNow = typeof window === 'undefined' ? null : window.mcAgent
+          /* THE ENGINE'S OWN KNOB FIRST: a running thread changes depth in
+             place — nothing restarts, nothing is re-sent, nothing is
+             charged. The restart below is the fallback for a build whose
+             engine cannot do it, and only THERE does the token warning
+             belong. */
+          if (live.sessionId && nodeBusy(live) === false && bridgeNow && typeof bridgeNow.setEffort === 'function') {
+            try {
+              const changed = await bridgeNow.setEffort({ sessionId: live.sessionId, effort: choice.id })
+              if (changed && changed.effort) {
+                sessionEfforts.set(live.sessionId, changed.effort)
+                ctx.say(EFFORT_SWITCH.changed(changed.effort))
+                return
+              }
+            } catch { /* falls through to the honest restart below */ }
+          }
+          ctx.show([{
+            id: 'effort-go',
+            label: EFFORT_SWITCH.go,
+            hint: EFFORT_SWITCH.warn,
+            enabled: true,
+            run: goCtx => {
+              goCtx.close()
+              void resumeNodeSession(fresh(), { effort: choice.id, out: statusSink() })
+            },
+          }], { title: choice.id })
+        },
+      }))
+    }
     const modelRows = () => {
       const override = sessionModelOverride.get(fresh().sessionId) || ''
       const keepRow = {
@@ -3545,7 +3604,34 @@ export function computersView({ initialComputer = null, navigate }) {
       sessionThreadIds.delete(oldSessionId)
     }
     let result
-    if (savedLines.length > 0) {
+    let engineResumed = null
+    /* THE REAL THING FIRST: codex keeps the conversation on disk, so the
+       agent can continue ITS OWN memory instead of being handed a summary.
+       No seed message, nothing re-sent, nothing charged. The excerpt path
+       below stays exactly as it was, for a thread codex no longer has (it
+       was pruned, the app moved machines, or the engine is older than the
+       resume wiring) — and for a node that never got a thread id at all. */
+    const savedThreadId = saved && typeof saved.threadId === 'string' && saved.threadId ? saved.threadId : null
+    if (savedThreadId) {
+      let started = null
+      try {
+        started = await bridge.start({
+          surface: 'fleet-tree',
+          resumeThreadId: savedThreadId,
+          ...(node.tier ? { tier: node.tier } : {}),
+          ...(chosenEffort ? { effort: chosenEffort } : {}),
+          ...(profileId ? { profileId } : {}),
+        })
+      } catch { started = null }
+      if (started && typeof started.sessionId === 'string' && started.sessionId) {
+        engineResumed = started.resumed || { turns: [], turnCount: 0 }
+        result = { ok: true, sessionId: started.sessionId, threadId: started.threadId || savedThreadId, sentence: null }
+        if (typeof started.effort === 'string' && started.effort) sessionEfforts.set(started.sessionId, started.effort)
+      }
+    }
+    if (result) {
+      /* nothing further: the engine restored the conversation itself */
+    } else if (savedLines.length > 0) {
       result = await startAgentForNode({
         text: transcriptSeedText(savedLines),
         surface: 'fleet-tree',
@@ -3579,25 +3665,40 @@ export function computersView({ initialComputer = null, navigate }) {
     sessionNodeIds.set(result.sessionId, node.id)
     if (chosenEffort) sessionEfforts.set(result.sessionId, chosenEffort)
     if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
-    /* The window's transcript continues rather than restarting: the saved
-       lines come back, a marker says what just happened, and the new agent's
-       reply lands after it through the ordinary turn completion. The old
-       reply stays on the node — it is part of the conversation being kept. */
-    if (savedLines.length > 0) {
-      sessionTranscripts.set(result.sessionId, [...savedLines, { who: 'you', text: RESUME_PANEL.marker, at: Date.now() }])
+    /* THE CONVERSATION ON SCREEN COMES FROM THE ENGINE WHEN THE ENGINE HAS
+       IT. A real resume hands back the thread's own turns — that is the
+       authoritative record, and it can be longer and truer than the excerpt
+       we kept. The excerpt is used only when the engine could not restore
+       the thread, where it is followed by the marker line saying a fresh
+       agent read it. */
+    const engineLines = engineResumed
+      ? engineResumed.turns.flatMap(turn => (turn.said || []).map(line => ({ who: line.who, text: line.text, at: null })))
+      : []
+    if (engineLines.length > 0) {
+      sessionTranscripts.set(result.sessionId, engineLines)
+    } else if (savedLines.length > 0) {
+      sessionTranscripts.set(result.sessionId, engineResumed
+        ? savedLines
+        : [...savedLines, { who: 'you', text: RESUME_PANEL.marker, at: Date.now() }])
     }
     nodeActivity.delete(node.id)
     if (treeStore) {
       treeStore.attachSession(node.id, result.sessionId)
-      treeStore.setNodeStatus(node.id, savedLines.length > 0 ? 'running' : 'finished', { note: statusNote(RESUME_PANEL.done) })
+      /* An engine-resumed agent is IDLE and waiting — it has its memory and
+         was asked nothing. A seeded one is mid-turn, reading the summary. */
+      const status = engineResumed ? 'finished' : (savedLines.length > 0 ? 'running' : 'finished')
+      treeStore.setNodeStatus(node.id, status, { note: statusNote(engineResumed ? RESUME_PANEL.continued : RESUME_PANEL.done) })
       refreshTree()
     }
     persistTranscript(result.sessionId)
-    if (out) out.textContent = RESUME_PANEL.done
+    if (out) out.textContent = engineResumed ? RESUME_PANEL.continued : RESUME_PANEL.done
     if (controlsPage.classList.contains('is-active') && currentRailTreeNode && currentRailTreeNode.id === node.id) {
       showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
     }
-    return true
+    /* The caller needs to know WHICH resume happened: an engine-resumed
+       session is idle and takes the person's message directly, while a
+       seeded one is busy reading and must queue it. */
+    return engineResumed ? 'engine' : true
   }
 
   async function runPaletteAction(id, node, out) {
@@ -4279,21 +4380,30 @@ export function computersView({ initialComputer = null, navigate }) {
       reply(seeded ? RECOVERED_SESSION.reconnecting : RECOVERED_SESSION.bare)
       const ok = await resumeNodeSession(node, {})
       if (!ok) { fail(START_REFUSAL.sessionGone); return }
+      /* The cost sentence is said only where a cost was really paid: the
+         engine usually still holds the thread and brings the same agent back
+         for nothing, and claiming otherwise would be charging him in words
+         for something that did not happen. */
+      if (ok !== 'engine' && seeded) reply(RECOVERED_SESSION.summarised)
       const fresh = treeStore ? treeStore.getNode(node.id) || node : node
       if (!fresh.sessionId) { fail(START_REFUSAL.sessionGone); return }
-      if (seeded) {
-        /* The resume seeded the transcript as the new session's first turn;
-           the person's message queues behind it and drains on that turn's
-           completion — visible in the strip the whole time. */
-        const queued = outboxEnqueue(fresh.sessionId, text)
-        if (!queued.ok) fail(queued.sentence)
-      } else {
-        /* Nothing saved: the fresh session is idle, the message goes now —
-           one retry only, and the honest dead end if that also fails. */
+      if (ok === 'engine' || !seeded) {
+        /* The engine restored the thread, so the agent is idle with its own
+           memory: the person's message goes straight to it, the same as any
+           other message. (The no-transcript case is idle for the different
+           reason that there was nothing to read.) One retry only, and the
+           honest dead end if that also fails. */
         treeCardSend(fresh, text, {
           reply,
           fail: sentence => fail(sentence || START_REFUSAL.sessionGone),
         })
+      } else {
+        /* Only the summary path is busy on arrival: the fresh agent is
+           reading the excerpt as its first turn, so the person's message
+           queues behind it and drains on that turn's completion — visible
+           in the strip the whole time. */
+        const queued = outboxEnqueue(fresh.sessionId, text)
+        if (!queued.ok) fail(queued.sentence)
       }
     } finally {
       recoveringNodes.delete(node.id)

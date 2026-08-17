@@ -238,7 +238,7 @@ test('section 8 tells the truth about profiles: ids cross the boundary, paths ne
    *    dialog, refusing everything else. */
   const shell = read('shell/main.cjs')
   const parse = shell.slice(shell.indexOf('function parseAgentStart('))
-  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId'\]/.test(parse.slice(0, 1800)),
+  assert.ok(/\['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId'\]/.test(parse.slice(0, 1800)),
     'parseAgentStart\'s allowlist moved again. Re-measure section 8 rather than editing this assertion.')
   assert.ok(/MC_AGENT_CWD_NOT_YOURS/.test(parse.slice(0, 2600)),
     'a renderer-sent working folder must be refused by name at the boundary — profiles are the one route to a folder')
