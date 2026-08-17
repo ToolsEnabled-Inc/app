@@ -70,6 +70,7 @@
  *       not run · 3 nothing failed but something could not be exercised.
  */
 
+import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { copyFileSync, existsSync, mkdirSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -1208,6 +1209,258 @@ async function driveLiveAgents(open) {
   }
 }
 
+/* ============================== run D ======================================
+ *
+ * THE PROMISE THE REFUSAL MAKES, DRIVEN.
+ *
+ * When a tree refuses a Claude tier it currently ends with: "To use Claude now,
+ * hand the work over on the agent page, which runs on that sign-in." That is a
+ * promise about a DIFFERENT screen, and its provenance is a comment in
+ * src/agent-availability-copy.js reading "MEASURED on the installed 1.0.17" --
+ * an old build doing the work of a present-tense claim in this one. A person
+ * who has just hit a wall is being sent somewhere; this asks whether the door
+ * opens.
+ *
+ * IT IS TWO QUESTIONS AND THEY SEPARATE CLEANLY.
+ *
+ *   1. IS THE MECHANISM THERE? Does handing work over with a Claude assistant
+ *      selected reach a lane that spawns the real claude binary, or is it
+ *      refused before anything is started? This needs no credential: a refusal
+ *      before the spawn falsifies the promise whatever is signed in.
+ *   2. DOES AN ANSWER COME BACK? That needs the person's own Claude sign-in,
+ *      which lives in their home directory. Run under --live-handover-signed-in
+ *      only, and reported separately, because a machine with no sign-in failing
+ *      says nothing about a machine that has one.
+ *
+ * The default is question 1, deliberately: it is the cheap half, it is the half
+ * that can prove the promise FALSE, and it copies no credential anywhere.
+ */
+
+const HANDOVER = process.argv.includes('--live-handover')
+const HANDOVER_SIGNED_IN = process.argv.includes('--live-handover-signed-in')
+
+/** Every process on this machine whose command line names claude, right now. */
+function claudeProcesses() {
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'claude' } | Select-Object -First 8 ProcessId,Name | ConvertTo-Json -Compress",
+  ], { encoding: 'utf8', windowsHide: true, timeout: 30_000 })
+  if (result.status !== 0 || !result.stdout.trim()) return []
+  try {
+    const parsed = JSON.parse(result.stdout)
+    return Array.isArray(parsed) ? parsed : [parsed]
+  } catch { return [] }
+}
+
+/* The Claude sign-in, copied the same way and for the same reason the Codex one
+   is: the real home is never written to, and the copy dies with the scratch
+   tree. Only under the signed-in flag; nothing here is read or printed. */
+function copyClaudeSignIn(profile) {
+  const realHome = process.env.USERPROFILE || ''
+  const scratchHome = path.join(profile, 'home')
+  const credential = path.join(realHome, '.claude', '.credentials.json')
+  if (!existsSync(credential)) return { ok: false, why: `no Claude sign-in at ${credential}` }
+  mkdirSync(path.join(scratchHome, '.claude'), { recursive: true })
+  copyFileSync(credential, path.join(scratchHome, '.claude', '.credentials.json'))
+  /* The onboarding record too, or the CLI treats this as a first run and stops
+     to ask questions no harness can answer. */
+  const settings = path.join(realHome, '.claude.json')
+  if (existsSync(settings)) copyFileSync(settings, path.join(scratchHome, '.claude.json'))
+  return { ok: true }
+}
+
+/** Turn a write action on the way a person does: Settings, its section, its switch. */
+async function enableWriteAction(open, settingId, label) {
+  const reached = await walkTo(open, 'settings')
+  if (!reached) return { ok: false, why: 'the settings page was never reached by pressing the arrow' }
+  /* The rail category, pressed. `dispatch` is a depth-1 row, so the section
+     alone puts it on screen -- no reveal to open. */
+  const category = await press(open, 'button[data-category="Write"]', { settleMs: 1200 })
+  if (!category.pressed) return { ok: false, why: `the Write category could not be pressed: ${JSON.stringify(category.spot)}` }
+  const toggle = `[data-setting-id="${settingId}"] .settings-toggle`
+  const before = await open.page.evaluate(`document.querySelector('[data-setting-id="${settingId}"] .settings-toggle input')?.checked`)
+  if (before === true) return { ok: true, already: true }
+  const pressed = await press(open, toggle, { settleMs: 900 })
+  if (!pressed.pressed) return { ok: false, why: `the "${label}" switch could not be pressed: ${JSON.stringify(pressed.spot)}` }
+  const after = await open.page.evaluate(`document.querySelector('[data-setting-id="${settingId}"] .settings-toggle input')?.checked`)
+  return after === true ? { ok: true } : { ok: false, why: `the "${label}" switch did not turn on` }
+}
+
+async function driveHandover(open, { signedIn }) {
+  const enabled = await enableWriteAction(open, 'write_dispatch', 'Hand out work to agents')
+  if (!enabled.ok) {
+    pending('the agent page really offers a Claude hand-over', enabled.why)
+    return
+  }
+  note(`  "Hand out work to agents" is on${enabled.already ? ' (it already was)' : ''}`)
+
+  const onBoard = await walkTo(open, 'computers')
+  if (!onBoard) {
+    pending('the agent page really offers a Claude hand-over', 'the fleet page was never reached')
+    return
+  }
+  /* HOW A PERSON REACHES AN AGENT PAGE ON THIS BOARD.
+     The "See an example agent" link only exists on the projection-unavailable
+     branch (emptyStateExample in src/views/computers.js); a machine whose
+     declared fleet resolves gets a populated board and no such link -- measured,
+     the first attempt at this run reported it simply absent. The real door is a
+     node's own page, so a node is made first. It is made with a REFUSED start:
+     a Claude tier cannot launch from a tree, the node stays and is marked
+     failed, and nothing is spawned and no quota is spent to get one. */
+  const opened = await openComposePanel(open)
+  if (!opened.opened) {
+    pending('the agent page really offers a Claude hand-over', `no compose panel to make a node with: ${opened.why}`)
+    return
+  }
+  const roleId = await open.page.evaluate(`(() => {
+    const menu = document.querySelector(${JSON.stringify(ROLE)})
+    return menu ? [...menu.options].map(option => option.value).filter(Boolean)[0] || null : null
+  })()`)
+  await press(open, ROLE, { settleMs: 300 })
+  await open.page.keyboard.press('Escape')
+  if (roleId) await chooseByKeyboard(open, ROLE, roleId)
+  await press(open, MESSAGE, { settleMs: 300 })
+  await open.page.keyboard.type('A spot on the tree, so this computer has an agent page to open.', { delay: 8 })
+  await wheelOver(open, BODY, 240, 4)
+  await press(open, TIER, { settleMs: 300 })
+  await open.page.keyboard.press('Escape')
+  const refusedTier = TIER_CHOICES.find(choice => /claude/i.test(choice.id))
+  if (refusedTier) await chooseByKeyboard(open, TIER, refusedTier.id)
+  await press(open, SUBMIT, { settleMs: 2500 })
+  await press(open, '[data-compose-action="cancel"]', { settleMs: 1200 })
+
+  const nodeSpot = await reachable(open, '.node.static-tree-node', 12_000)
+  if (nodeSpot?.state !== 'reachable') {
+    pending('the agent page really offers a Claude hand-over',
+      `no node on the canvas to open an agent page from: ${JSON.stringify(nodeSpot)}`)
+    return
+  }
+  await open.page.mouse.move(nodeSpot.x, nodeSpot.y)
+  await open.page.mouse.down()
+  await open.page.mouse.up()
+  await delay(1500)
+  /* EVERY DOOR TO THE AGENT PAGE THAT EXISTS ON THIS SCREEN RIGHT NOW.
+     The refusal on the tree sends a person to the agent page; whether they can
+     GET there from where they are standing is the first half of whether that
+     sentence is true, and it is a question about this screen, not about the
+     form on the other side. Enumerated rather than inferred. */
+  const doors = await open.page.evaluate(`(() => {
+    const links = [...document.querySelectorAll('a[href*="#/agent/"]')].map(node => ({
+      kind: 'link', href: node.getAttribute('href'), text: (node.textContent || '').trim().slice(0, 60),
+      visible: node.getBoundingClientRect().height > 0,
+    }))
+    const buttons = [...document.querySelectorAll('[data-a="open"], #open-agent, [data-open-agent]')].map(node => ({
+      kind: 'button', text: (node.textContent || '').trim().slice(0, 60),
+      disabled: node.disabled === true || node.hasAttribute('disabled'),
+      visible: node.getBoundingClientRect().height > 0,
+    }))
+    return { links, buttons, route: document.body.dataset.route }
+  })()`)
+  note(`  doors to the agent page on this screen: ${JSON.stringify(doors)}`)
+
+  const openFull = await press(open, '[data-a="open"]', { settleMs: 2500 })
+  if (!openFull.pressed) {
+    const usable = [...(doors.links || []), ...(doors.buttons || [])]
+      .filter(door => door.visible && !door.disabled)
+    check('a person refused on the tree can reach the agent page they were sent to',
+      usable.length > 0,
+      usable.length > 0
+        ? `${usable.length} door(s): ${JSON.stringify(usable)}`
+        : 'no visible, enabled control on this screen navigates to the agent page')
+    /* AND THE FORM ON THE FAR SIDE IS NOT MEASURED FROM HERE.
+       It could be reached by switching this page to its demonstration board
+       (Settings, Data & Sim), and the form there is the same form -- but that
+       is a different state from the one this check is about, and folding a
+       pass from it into this run would let "the form works somewhere" stand in
+       for "the person who was sent there can use it". The door is the finding;
+       the form is left NOT EXERCISED and said so. */
+    pending('the agent page really offers a Claude hand-over',
+      'there is no way through to it from the screen the refusal is shown on')
+    return
+  }
+  check('a person refused on the tree can reach the agent page they were sent to', true,
+    'the node\'s own page offers "Open full view"')
+  const route = await settledRoute(open, 'computers')
+  note(`  pressing the node then "Open full view" landed on ${route}`)
+  if (route !== 'agent') {
+    pending('the agent page really offers a Claude hand-over', `it landed on ${route}, not the agent page`)
+    return
+  }
+
+  const form = await reachable(open, '[data-dispatch-form]', 12_000)
+  if (form?.state === 'absent') {
+    pending('the agent page really offers a Claude hand-over',
+      'the agent page has no hand-over form on it, with the write action switched on')
+    return
+  }
+  const tiers = await open.page.evaluate(`(() => {
+    const menu = document.querySelector('[data-dispatch-form] select[name="tier"]')
+    if (!menu) return null
+    return [...menu.options].map(option => ({ value: option.value, label: option.textContent.trim(), group: option.parentElement.label || '' }))
+  })()`)
+  const claudeTier = (tiers || []).find(option => /claude/i.test(option.value) || /anthropic/i.test(option.group))
+  check('the agent page really offers a Claude hand-over', Boolean(claudeTier),
+    claudeTier ? `it offers "${claudeTier.label}" under "${claudeTier.group}"` : `the assistant menu offers: ${JSON.stringify(tiers)}`)
+  if (!claudeTier) return
+
+  /* Fill it in the way a person does. The assistant menu is a native select, so
+     it is pressed with the mouse and moved with the keyboard. */
+  const tierPress = await press(open, '[data-dispatch-form] select[name="tier"]', { settleMs: 300 })
+  await open.page.keyboard.press('Escape')
+  const picked = await chooseByKeyboard(open, '[data-dispatch-form] select[name="tier"]', claudeTier.value)
+  note(`  assistant menu: pressed=${tierPress.pressed} ${picked.before} -> ${picked.after}`)
+  if (picked.after !== claudeTier.value) {
+    pending('handing work to Claude reaches a lane rather than a refusal',
+      `the assistant menu could not be moved to ${claudeTier.value}`)
+    return
+  }
+  const briefPressed = await press(open, '[data-dispatch-form] textarea[name="brief"]', { settleMs: 300 })
+  if (!briefPressed.pressed) {
+    pending('handing work to Claude reaches a lane rather than a refusal', 'the brief box could not be pressed')
+    return
+  }
+  await open.page.keyboard.type(LIVE_JOB, { delay: 10 })
+
+  const before = claudeProcesses().length
+  const handed = await press(open, '[data-dispatch-form] button[type="submit"]', { settleMs: 2000 })
+  if (!handed.pressed) {
+    pending('handing work to Claude reaches a lane rather than a refusal', 'the hand-over button could not be pressed')
+    return
+  }
+
+  /* WHAT THE PRODUCT SAYS, and WHAT THE MACHINE DOES, watched together. */
+  let sentence = ''
+  let refusalCodeShown = ''
+  let sawClaude = 0
+  const until = Date.now() + 90_000
+  while (Date.now() < until) {
+    sentence = await textOf(open, '[data-dispatch-form] [data-action-output]')
+    refusalCodeShown = await open.page.evaluate('document.querySelector(\'[data-dispatch-form] [data-action-output]\')?.dataset.refusalCode || ""')
+    const running = claudeProcesses().length
+    if (running > before) sawClaude = Math.max(sawClaude, running - before)
+    const state = await open.page.evaluate('document.querySelector(\'[data-dispatch-form] [data-action-output]\')?.dataset.actionState || ""')
+    if (state && state !== 'pending') break
+    await delay(1500)
+  }
+  note(`  the hand-over form says: "${sentence}"`)
+  note(`  refusal code carried: ${refusalCodeShown || 'none'}`)
+  note(`  claude processes that appeared while it ran: ${sawClaude}`)
+
+  const refused = /nothing was handed over/i.test(sentence)
+  check('handing work to Claude reaches a lane rather than a refusal', !refused && Boolean(sentence),
+    refused
+      ? `the audited connection refused it: "${sentence}"${refusalCodeShown ? ` (${refusalCodeShown})` : ''}`
+      : `it answered: "${sentence}"`)
+
+  if (!signedIn) {
+    note('  question 2 (does a real answer come back) needs the Claude sign-in;'
+      + ' re-run with --live-handover-signed-in to measure it')
+    return
+  }
+  check('a real Claude child was started by the hand-over', sawClaude > 0,
+    sawClaude > 0 ? `${sawClaude} claude process(es) appeared` : 'no claude process ever appeared on this machine')
+}
+
 /* ================================ main ===================================== */
 
 async function main() {
@@ -1216,6 +1469,7 @@ async function main() {
   let runA = null
   let runB = null
   let runC = null
+  let runD = null
   try {
     const staged = await stage(scratch)
     console.log(`app:     ${staged.executable}`)
@@ -1280,6 +1534,31 @@ async function main() {
     } else {
       console.log('')
       console.log('RUN C  skipped: pass --live-agent to start real Codex sessions and spend real quota')
+    }
+
+    /* ---------- run D, only when asked ---------- */
+    if (HANDOVER || HANDOVER_SIGNED_IN) {
+      console.log('')
+      console.log('RUN D  the promise the tree refusal makes about the agent page')
+      const profileD = path.join(scratch, 'profile-d')
+      mkdirSync(profileD, { recursive: true })
+      const environmentD = liveEnvironment(profileD)
+      if (HANDOVER_SIGNED_IN) {
+        const copied = copyClaudeSignIn(profileD)
+        note(copied.ok
+          ? '  the Claude sign-in was copied into this run\'s scratch home'
+          : `  no Claude sign-in to copy: ${copied.why}`)
+      }
+      seedMachineRecord(profileD, staged.appRoot)
+      runD = await openApp(staged.executable, profileD, environmentD)
+      if (!(await waitForView(runD))) {
+        throw new HarnessError('run D never mounted a view, so there was nothing to measure')
+      }
+      await resizeTo(runD, 1512, 945)
+      await driveHandover(runD, { signedIn: HANDOVER_SIGNED_IN })
+      if (runD.thrown.length > 0) note(`run D page errors: ${runD.thrown.slice(0, 3).join(' /// ')}`)
+      await closeApp(runD)
+      runD = null
     }
 
     return report()
