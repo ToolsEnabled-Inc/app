@@ -29,7 +29,7 @@
  *   4  "TURN ON AGENT SESSIONS IN SETTINGS" LANDS ON THE SETTING. It landed at
  *      the top of a 219-control page with the control far below the fold.
  *
- * TWO RUNS, TWO ENVIRONMENTS, AND THE SECOND ONE IS WHY.
+ * THREE RUNS, THREE ENVIRONMENTS, AND EACH ONE IS A DIFFERENT FENCE.
  *
  * Run A is providerless: PATH is cut back to the Windows system directories and
  * APPDATA/LOCALAPPDATA/USERPROFILE/CODEX_HOME point into this run's scratch, so
@@ -52,17 +52,26 @@
  * mounts a view, and every check that could not be exercised is reported as NOT
  * EXERCISED rather than as a pass or a failure.
  *
+ * Run C is the opposite of run A on purpose and is OPT-IN. It starts two REAL
+ * Codex sessions on this machine's own sign-in and spends real quota, so it
+ * runs only under --live-agent. It exists because checks 2's repair was proven
+ * against REFUSED starts, which shows the hero reads the record rather than a
+ * dead projection and does NOT show that an agent's real work lands on it --
+ * two different facts, and only one of them had been measured.
+ *
  * USAGE
  *   node tools/owner-walkthrough-drive.mjs
  *   node tools/owner-walkthrough-drive.mjs --visible      show the window
  *   node tools/owner-walkthrough-drive.mjs --keep         keep the scratch tree
+ *   node tools/owner-walkthrough-drive.mjs --live-agent   start REAL agents and
+ *                                                         spend REAL quota
  *
  * EXIT  0 everything measured passed · 1 a check failed · 2 the harness could
  *       not run · 3 nothing failed but something could not be exercised.
  */
 
 import { createRequire } from 'node:module'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -726,6 +735,24 @@ async function driveFleetOverview(open) {
   const recorded = ledger?.reply?.outcomes?.starts ?? null
   note(`  the signed record holds ${recorded === null ? 'an unknown number of' : recorded} start(s); verified=${ledger?.reply?.verified}`)
 
+  /* WHAT THE PRODUCT ACTUALLY SAVED ABOUT THIS TREE. Dumped on the FREE run, so
+     the live one does not have to spend provider quota discovering that this
+     harness's reader was looking in the wrong place. */
+  const stored = await open.page.evaluate(`(() => {
+    const keys = []
+    for (let index = 0; index < localStorage.length; index += 1) keys.push(localStorage.key(index))
+    const treeKey = keys.find(key => key && key.includes('fleet.trees'))
+    return {
+      fleetKeys: keys.filter(key => key && key.includes('fleet')),
+      shape: treeKey ? String(localStorage.getItem(treeKey)).slice(0, 320) : null,
+      canvasNodes: document.querySelectorAll('.node.static-tree-node').length,
+    }
+  })()`)
+  note(`  saved keys mentioning fleet: ${JSON.stringify(stored.fleetKeys)}`)
+  note(`  saved tree shape: ${stored.shape}`)
+  note(`  nodes on the canvas: ${stored.canvasNodes}`)
+  note(`  savedNodes() reads: ${JSON.stringify(await savedNodes(open))}`)
+
   /* The count is read from the record after the page paints, so the hero is
      waited for rather than sampled the instant the rail appears. */
   let shown = ''
@@ -868,6 +895,319 @@ async function driveSettingsLink(open) {
     `pressed=${flipped.pressed} checked ${before.checked} -> ${after.checked}; stored ${before.stored} -> ${after.stored}`)
 }
 
+/* ============================== run C ======================================
+ *
+ * AN AGENT THAT REALLY RUNS, AND THE COUNTER THAT HAS TO NOTICE.
+ *
+ * WHY THIS IS SEPARATE AND OPT-IN. Runs A and B are fenced so that no assistant
+ * program can be resolved and no provider budget can be spent. This one is the
+ * opposite by construction: it starts REAL Codex sessions on the owner's own
+ * sign-in and spends real quota, so it runs only under --live-agent and never
+ * as part of an ordinary pass. Two turns, each one sentence long.
+ *
+ * WHY IT EXISTS AT ALL. The fleet overview's count was repaired and proven
+ * against REFUSED starts -- the ledger records a start intent either way. That
+ * proves the hero reads the record instead of a dead projection, and it does
+ * NOT prove the thing the owner actually asked for, which is that an agent's
+ * real work is attached to the record. A refused start and a finished agent are
+ * different facts and only one of them had been measured.
+ *
+ * WHAT IS ISOLATED AND WHAT DELIBERATELY IS NOT. The user data directory,
+ * APPDATA, LOCALAPPDATA and USERPROFILE all point into this run's scratch, so
+ * the ledger being counted is THIS run's ledger and the agent's workspace is a
+ * scratch folder -- a count taken from the machine's real installation would be
+ * a finding about the wrong computer, and an agent running in the repository
+ * would be a live process with tools inside the working tree. What is NOT
+ * isolated is the ability to resolve and sign in to Codex: the npm global
+ * directory is put back on PATH, and auth.json is COPIED into a scratch
+ * CODEX_HOME so the real ~/.codex is never written to and the owner's own
+ * config.toml -- with its MCP servers and its effort setting -- is not
+ * inherited by a test session. The file is copied by path and never read,
+ * printed or returned by this file.
+ */
+
+const PELICAN = 'PELICAN-4402'
+const LIVE_JOB = `Reply with exactly the word ${PELICAN} and nothing else.`
+const LIVE = process.argv.includes('--live-agent')
+
+/* THE ONE LINK THIS RUN CREATES, REMEMBERED SO IT CAN BE BROKEN FIRST.
+ *
+ * A junction inside the scratch tree points at the machine's REAL npm global
+ * directory. Node's rmSync unlinks a junction rather than recursing through it
+ * -- measured after the first live run: the real directory still held its 28
+ * entries and codex still resolved. But that is one implementation detail
+ * standing between this file and deleting the owner's global npm install, and
+ * "it happened to be fine" is not a fence. The link is therefore removed by
+ * name, before the tree it lives in is removed at all. */
+let liveNpmLink = null
+
+function liveEnvironment(profile) {
+  const environment = { ...process.env }
+  delete environment.ELECTRON_RUN_AS_NODE
+  delete environment.ELECTRON_NO_ATTACH_CONSOLE
+  if (VISIBLE) delete environment.MC_SMOKE_HEADLESS
+  else environment.MC_SMOKE_HEADLESS = '1'
+
+  const systemRoot = process.env.SystemRoot || 'C:\\Windows'
+  /* The npm global directory is where this machine's codex.CMD lives. It is
+     named from the REAL APPDATA before APPDATA is redirected, because the
+     redirect is what makes codexCommandIsMissing() fall through to PATH. */
+  const npmGlobal = path.join(process.env.APPDATA || '', 'npm')
+  environment.PATH = [
+    path.join(systemRoot, 'system32'),
+    systemRoot,
+    path.join(systemRoot, 'System32', 'Wbem'),
+    path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0'),
+    npmGlobal,
+  ].join(';')
+
+  const realCodexHome = path.join(process.env.USERPROFILE || '', '.codex')
+  environment.APPDATA = path.join(profile, 'roaming')
+  environment.LOCALAPPDATA = path.join(profile, 'local')
+  environment.USERPROFILE = path.join(profile, 'home')
+  environment.CODEX_HOME = path.join(profile, 'home', '.codex')
+  for (const leaf of ['roaming', 'local', 'home', path.join('home', '.codex'), 'userdata']) {
+    mkdirSync(path.join(profile, leaf), { recursive: true })
+  }
+  /* THE ONLY THING TAKEN FROM THE REAL HOME. Copied rather than pointed at, so
+     nothing this run does can touch the owner's Codex sign-in, and copied ALONE
+     so his config.toml is not inherited. Never opened by this file. */
+  const credential = path.join(realCodexHome, 'auth.json')
+  if (!existsSync(credential)) {
+    throw new HarnessError(
+      `no Codex sign-in at ${credential}, so a live agent cannot start.`
+      + ' Run `codex login` in a terminal, or drop --live-agent.',
+    )
+  }
+  copyFileSync(credential, path.join(environment.CODEX_HOME, 'auth.json'))
+
+  /* AND THE NPM GLOBAL LAYOUT, WHICH IS NOT THE SAME QUESTION AS PATH.
+   *
+   * MEASURED, and it cost a run. With APPDATA redirected and only PATH carrying
+   * codex.CMD, the app's readiness probe answered {ok:true, AGENT_ENGINE_READY}
+   * -- codexCommandIsMissing() stats PATH -- and the PRESS then refused with
+   * "Codex is the program that actually runs an agent, and this computer does
+   * not have it yet". The engine's own resolver prefers
+   * %APPDATA%/npm/node_modules/@openai/codex, which the redirect had emptied.
+   * A real user's APPDATA has it, so refusing to reproduce that layout would
+   * have measured a machine nobody has.
+   *
+   * A junction rather than a copy: it needs no administrator, it is read-only
+   * as far as this run is concerned, and it goes away with the scratch tree.
+   * APPDATA itself stays scratch, deliberately -- pointing it at the real
+   * Roaming would let shell/userdata-adoption.cjs find the machine's own
+   * legacy data and adopt it into this profile, which would both pollute the
+   * count this run exists to measure and write to the owner's data. */
+  const realNpmGlobal = path.join(process.env.APPDATA || '', 'npm')
+  const scratchNpmGlobal = path.join(environment.APPDATA, 'npm')
+  if (existsSync(realNpmGlobal) && !existsSync(scratchNpmGlobal)) {
+    try {
+      symlinkSync(realNpmGlobal, scratchNpmGlobal, 'junction')
+      liveNpmLink = scratchNpmGlobal
+    } catch (error) {
+      throw new HarnessError(
+        `could not link the npm global directory into the scratch profile (${error.message}).`
+        + ' Without it the engine cannot resolve Codex and no live agent can start.',
+      )
+    }
+  }
+  return environment
+}
+
+/** What the product itself saved about this tree, read from its own store. */
+async function savedNodes(open) {
+  return open.page.evaluate(`(() => {
+    const out = []
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (!key || !key.startsWith('mc.fleet.trees.v1:')) continue
+      let parsed
+      try { parsed = JSON.parse(localStorage.getItem(key)) } catch { continue }
+      /* NODES ARE A SIBLING OF TREES, NOT A CHILD OF ONE. The record is
+         {version, computerId, trees: [...], nodes: [...]} -- see record() in
+         src/fleet-trees.js. Reading them as tree.nodes returned an empty list on
+         a tree with two nodes visibly on the canvas, and the live run reported
+         "0 finished, 0 failed, of 0 node(s)" about agents that had genuinely
+         started and been recorded. That was this reader, not the product. */
+      for (const node of (parsed && parsed.nodes) || []) {
+        out.push({ id: node.id, status: node.status, session: Boolean(node.sessionId), reply: String(node.reply || '').slice(0, 160) })
+      }
+    }
+    return out
+  })()`)
+}
+
+async function startOneLiveAgent(open, ordinal) {
+  const opened = await openComposePanel(open)
+  if (!opened.opened) return { ok: false, why: opened.why }
+
+  const rolePressed = await press(open, ROLE, { settleMs: 300 })
+  await open.page.keyboard.press('Escape')
+  const roleId = await open.page.evaluate(`(() => {
+    const menu = document.querySelector(${JSON.stringify(ROLE)})
+    return menu ? [...menu.options].map(option => option.value).filter(Boolean)[0] || null : null
+  })()`)
+  if (!rolePressed.pressed || !roleId) return { ok: false, why: 'the role menu could not be worked' }
+  await chooseByKeyboard(open, ROLE, roleId)
+
+  const messagePressed = await press(open, MESSAGE, { settleMs: 300 })
+  if (!messagePressed.pressed) return { ok: false, why: 'the brief could not be pressed' }
+  await open.page.keyboard.type(LIVE_JOB, { delay: 10 })
+
+  /* The engine menu is left exactly as the product set it: luna, the Codex
+     default. Touching it would be measuring a choice nobody made. */
+  const tier = await open.page.evaluate(`document.querySelector(${JSON.stringify(TIER)})?.value || ''`)
+  note(`  agent ${ordinal}: role=${roleId} engine=${tier} brief typed by keystroke`)
+
+  const submitted = await press(open, SUBMIT, { settleMs: 1500 })
+  if (!submitted.pressed) return { ok: false, why: `Start could not be pressed: ${JSON.stringify(submitted.spot)}` }
+  return { ok: true, tier }
+}
+
+/**
+ * Wait for the product to say, in its own saved state, that N agents are done.
+ *
+ * COUNTED, NOT "ANY". The obvious version returns as soon as SOME node is
+ * terminal, which is true the instant the first agent finishes -- so the second
+ * agent's wait would return immediately, before it had answered anything, and
+ * report the first agent's success as the second's.
+ */
+async function waitForFinished(open, expected, budgetMs = 240_000) {
+  const until = Date.now() + budgetMs
+  let last = []
+  while (Date.now() < until) {
+    last = await savedNodes(open)
+    const terminal = last.filter(node => node.status === 'finished' || node.status === 'failed')
+    if (terminal.length >= expected) return last
+    await delay(2000)
+  }
+  return last
+}
+
+async function driveLiveAgents(open) {
+  const reached = await walkTo(open, 'computers')
+  if (!reached) {
+    pending('an agent that really runs is added to the record', 'the fleet page was never reached')
+    return
+  }
+  await resizeTo(open, 1512, 945)
+
+  /* PREFLIGHT, IN THE MAIN PROCESS, because a start that refuses with "Codex is
+     not installed" is either a true statement about this machine or a hole in
+     this run's environment, and those two need different people. Read from the
+     Electron main process itself -- the one that resolves the CLI -- rather
+     than inferred from the renderer. */
+  /* The env is READ from the main process and the file checks are done here:
+     Playwright's main-process evaluate has no `require` in scope, and reaching
+     for one would be this harness fighting its own tool rather than measuring
+     the product. */
+  const seen = await open.app.evaluate(({ app }) => ({
+    path: process.env.PATH || process.env.Path || '',
+    pathExt: process.env.PATHEXT || '',
+    codexHome: process.env.CODEX_HOME || '',
+    appData: process.env.APPDATA || '',
+    version: app.getVersion(),
+  }))
+  const extensions = (seen.pathExt || '.COM;.EXE;.BAT;.CMD').split(';').map(value => value.trim()).filter(Boolean)
+  const hits = []
+  for (const directory of seen.path.split(path.delimiter)) {
+    if (!directory) continue
+    for (const extension of extensions) {
+      if (existsSync(path.join(directory, `codex${extension}`))) hits.push(path.join(directory, `codex${extension}`))
+    }
+  }
+  note(`  the main process would resolve codex at: ${JSON.stringify(hits)}`)
+  note(`  CODEX_HOME=${seen.codexHome} auth.json present: ${existsSync(path.join(seen.codexHome, 'auth.json'))}`)
+  note(`  APPDATA the app sees: ${seen.appData}`)
+  const availability = await open.page.evaluate(`(async () => {
+    try { return await globalThis.mcAgent.availability() } catch (error) { return { threw: String(error && error.message || error) } }
+  })()`)
+  note(`  the app's own readiness probe answers: ${JSON.stringify(availability)}`)
+  if (availability?.ok !== true) {
+    pending('an agent that really runs is added to the record',
+      `this machine is not ready to start one: ${JSON.stringify(availability)}`)
+    return
+  }
+
+  for (const ordinal of [1, 2]) {
+    /* WHICH NODE IS THE NEW ONE, decided before the start rather than by
+       position afterwards. On the second pass the canvas already holds the
+       first agent, and "the first .node on the canvas" would have measured
+       agent 1 twice and called it agent 2. */
+    const before = new Set((await savedNodes(open)).map(node => node.id))
+    const started = await startOneLiveAgent(open, ordinal)
+    if (!started.ok) {
+      pending(`agent ${ordinal} really runs and finishes`, started.why)
+      pending(`the fleet overview counts ${ordinal} agent(s) that really ran`, 'no live agent was started')
+      return
+    }
+
+    const nodes = await waitForFinished(open, ordinal)
+    const mine = nodes.find(node => !before.has(node.id)) || null
+    const sentence = await textOf(open, '[data-org-status], .org-status')
+    note(`  agent ${ordinal} node: ${mine ? `${mine.status}, session ${mine.session}` : 'not found in the saved tree'}`)
+    if (!mine || mine.status === 'failed') {
+      /* A refused live start is a real answer about THIS MACHINE -- quota, a
+         sign-in, a CLI version -- and it is not evidence about the counter
+         either way. Reported as unexercised, in the product's own words. */
+      pending(`agent ${ordinal} really runs and finishes`,
+        mine
+          ? `this machine refused the start: ${sentence || 'no sentence on the status line'}`
+          : 'the start left no node in the saved tree')
+      pending(`the fleet overview counts ${ordinal} agent(s) that really ran`, 'no live agent finished')
+      return
+    }
+    check(`agent ${ordinal} really runs and finishes`, mine.status === 'finished',
+      `the saved tree says this node is "${mine.status}" with a session: ${mine.session}`)
+
+    /* WHAT THE AGENT ACTUALLY SAID, because "it finished" and "it did the work"
+       are different claims. Read twice: from what the product SAVED, and from
+       the node's own page after pressing that node on the canvas. */
+    check(`agent ${ordinal}'s answer is the work that was asked for`,
+      String(mine.reply || '').includes(PELICAN),
+      mine.reply ? `it replied "${String(mine.reply).slice(0, 120)}"` : 'the saved node carries no reply')
+
+    let said = ''
+    const nodeSelector = `.node.static-tree-node[data-agent-id="${mine.id}"]`
+    const nodeSpot = await reachable(open, nodeSelector, 12_000)
+    if (nodeSpot?.state === 'reachable') {
+      await open.page.mouse.move(nodeSpot.x, nodeSpot.y)
+      await open.page.mouse.down()
+      await open.page.mouse.up()
+      for (let step = 0; step < 30; step += 1) {
+        await delay(500)
+        said = await textOf(open, '[data-tree-said]')
+        if (said && said.includes(PELICAN)) break
+      }
+    } else {
+      note(`  the node could not be pressed on the canvas: ${JSON.stringify(nodeSpot)}`)
+    }
+    note(`  agent ${ordinal} answered on screen: "${said.slice(0, 160)}"`)
+    check(`agent ${ordinal}'s own answer is on the screen`, said.includes(PELICAN),
+      said ? `the reply panel reads "${said.slice(0, 120)}"` : 'the reply panel was empty')
+
+    /* NAVIGATE AWAY AND BACK, which is the gesture the count now re-reads on. */
+    const back = await press(open, '.rail-back', { settleMs: 1200 })
+    note(`  pressed the rail's back control: ${back.pressed}`)
+    let shown = ''
+    let state = ''
+    for (let step = 0; step < 30; step += 1) {
+      shown = await textOf(open, '#agent-count')
+      state = await open.page.evaluate('document.querySelector("#agent-count")?.dataset.recordState || ""')
+      if (state && state !== 'reading') break
+      await delay(400)
+    }
+    const ledger = await open.page.evaluate(`(async () => {
+      try { return await globalThis.mcAgent.history({ limit: 200 }) } catch (error) { return { threw: String(error && error.message || error) } }
+    })()`)
+    const recorded = ledger?.outcomes?.starts ?? null
+    note(`  after agent ${ordinal}: the overview shows "${shown}" (state ${state}); the signed record holds ${recorded} start(s)`)
+    check(`the fleet overview counts ${ordinal} agent(s) that really ran`,
+      shown === String(ordinal) && recorded === ordinal,
+      `the screen says ${shown}, the record holds ${recorded}, and ${ordinal} agent(s) have run`)
+  }
+}
+
 /* ================================ main ===================================== */
 
 async function main() {
@@ -875,6 +1215,7 @@ async function main() {
   console.log(`scratch: ${scratch}`)
   let runA = null
   let runB = null
+  let runC = null
   try {
     const staged = await stage(scratch)
     console.log(`app:     ${staged.executable}`)
@@ -919,6 +1260,28 @@ async function main() {
     await closeApp(runB)
     runB = null
 
+    /* ---------- run C, only when asked ---------- */
+    if (LIVE) {
+      console.log('')
+      console.log('RUN C  two agents that really run, and the count that has to notice')
+      console.log('       (real Codex sessions on this machine\'s own sign-in; real quota)')
+      const profileC = path.join(scratch, 'profile-c')
+      mkdirSync(profileC, { recursive: true })
+      const environmentC = liveEnvironment(profileC)
+      seedMachineRecord(profileC, staged.appRoot)
+      runC = await openApp(staged.executable, profileC, environmentC)
+      if (!(await waitForView(runC))) {
+        throw new HarnessError('run C never mounted a view, so there was nothing to measure')
+      }
+      await driveLiveAgents(runC)
+      if (runC.thrown.length > 0) note(`run C page errors: ${runC.thrown.slice(0, 3).join(' /// ')}`)
+      await closeApp(runC)
+      runC = null
+    } else {
+      console.log('')
+      console.log('RUN C  skipped: pass --live-agent to start real Codex sessions and spend real quota')
+    }
+
     return report()
   } catch (error) {
     if (error instanceof HarnessError) {
@@ -930,6 +1293,14 @@ async function main() {
   } finally {
     await closeApp(runA)
     await closeApp(runB)
+    await closeApp(runC)
+    /* THE LINK COMES OUT FIRST, ALWAYS -- before the scratch tree is removed
+       and whether or not the tree is being kept. See liveNpmLink above: on the
+       far side of this junction is the machine's real global npm install. */
+    if (liveNpmLink) {
+      try { unlinkSync(liveNpmLink) } catch { try { rmdirSync(liveNpmLink) } catch { /* already gone */ } }
+      liveNpmLink = null
+    }
     if (!KEEP) {
       try { rmSync(scratch, { recursive: true, force: true }) } catch { /* windows holds handles */ }
     } else {
