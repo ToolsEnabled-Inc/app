@@ -272,3 +272,42 @@ question for whoever owns `first-run-contract-qa`: decide whether "draws this
 computer" means an agent node (then a fresh profile can never satisfy it) or a
 canvas a person can act on (then count slots too). The diagnosis is now printed
 either way, so the next reader gets the answer instead of the ambiguity.
+
+## 13. UNRESOLVED, for the settings lane: can a write action be switched on from Settings?
+
+`refusal-copy-qa` against installed 1.0.23 reported:
+
+```
+write toggles: {"pressed":["Dispatch agent lanes: no control",
+                           "Launch Codex Cloud tasks: pressed"],
+                "dispatch":"enabled","cloud":"disabled"}
+```
+
+Two things in one line: it found **no control** in the Dispatch row, and it
+**pressed** the Codex Cloud control and the flag **stayed disabled**. Its
+"Dispatch can be switched on" check then PASSED only because that flag was
+already enabled — so that pass proves nothing about switchability.
+
+This matters because of the owner's own doctrine: a user setting needs a row,
+real enforcement, AND a control in the software, or it is a lie.
+`setWriteEnabled` (`src/write-flags.js:42-51`) has no refusal path — it always
+writes — so a correctly wired toggle should have taken effect.
+
+**NOT ESTABLISHED, deliberately.** Two probes of my own failed to settle it and
+neither failure was the product's: the first assigned `location.hash` without a
+reload and measured the home page (the router reads the hash at boot); the
+second found the label inside a `div.fleet-profile-status` — a status line, not
+a settings row — and a third attempt timed out scanning the DOM. So I cannot
+say whether those rows carry a working control, and the harness's own selector
+(`row.querySelector('button, input[type=checkbox], [role=switch]')`) may be
+missing it exactly as mine did.
+
+**What would settle it in one pass:** open `#/settings` in the packaged app
+(set the hash then RELOAD), locate the write-action rows by whatever selector
+`src/views/settings.js` actually renders, and report their controls. If a
+control exists and pressing it leaves the flag disabled, that is a real defect
+against the doctrine. If no control is rendered at all, that is a bigger one.
+If the harness was simply looking in the wrong place, fix the harness — three
+false defects were nearly filed tonight on exactly that mistake.
+
+Owner: settings lane. Recorded as a question, not as a defect, on purpose.
