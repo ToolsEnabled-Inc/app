@@ -10,6 +10,11 @@ import { sessionEventText, sessionTurnStatus } from '../../src/agent-session-eve
 import { MISSING_MODULE, UNAVAILABLE_TEXT, refusalCode, unavailableReason } from '../../src/agent-availability-copy.js'
 import { confinementNote } from '../../src/agent-confinement-copy.js'
 import { ENGINE_REASON, readAgentEngine } from '../../src/local-activity.js'
+/* The compose panel's own composer, because the defect this file now also
+   covers is not "the code has no copy" but "the code reaches THAT surface as
+   the sentence for a refusal nobody explained". Only startRefusalSentence()
+   can answer that. */
+import { START_REFUSAL, startRefusalSentence } from '../../src/fleet-tree-copy.js'
 
 // The interface can start an agent only if three things hold at once: the
 // renderer can reach the agent channels, the surface can tell whether an
@@ -809,6 +814,76 @@ test('the two surfaces name the same fault in their own register', () => {
   }
   for (const text of Object.values(UNAVAILABLE_TEXT)) {
     assert.doesNotMatch(text, /[\\]|[A-Za-z]:\//, 'no refusal sentence may carry a filesystem path')
+  }
+})
+
+test('every refusal the start CHANNEL raises reaches the person as a reason, not as "we were not told why"', () => {
+  /* THE GAP THIS CLOSES, and it is one level up from the two walks above.
+   *
+   * Those walk what the HOST and the RECORDER can answer. Ten more refusals are
+   * raised by shell/main.cjs on the mc-agent:start channel itself, before the
+   * host is ever reached: the trusted-sender check, the payload parse, the
+   * session-profile resolve, the session limit, and the spawn recorder. Every
+   * one of them crossed the IPC boundary correctly -- rendererSafeAgentError
+   * makes the message the code precisely so it survives -- and then fell
+   * through startRefusalSentence() to START_REFUSAL.noReasonGiven, "Nothing was
+   * started, and this copy was not told why. Try once more."
+   *
+   * The copy WAS told why. And "try once more" is worse than saying nothing,
+   * because not one of these clears on a second press: the limit is still
+   * reached, the folder is still gone, the record still cannot be written.
+   *
+   * THE LIST IS READ FROM THE SOURCE, never typed here, so a refusal added to
+   * that channel later fails this test instead of quietly reaching a person as
+   * the no-reason sentence. The profile family is read the same way: the start
+   * path rethrows sessionProfiles.resolveCwd's code with an MC_AGENT_ prefix,
+   * so the codes come from shell/session-profiles.cjs. */
+  const main = read('shell/main.cjs')
+  const channelCodes = new Set([...main.matchAll(/'(MC_AGENT_[A-Z_]+)'/g)].map(match => match[1]))
+  /* `'MC_AGENT_' + error.code` -- the prefix is a literal on its own and is not
+     a code. Dropping it here rather than loosening the pattern keeps the
+     pattern honest about what a code looks like. */
+  channelCodes.delete('MC_AGENT_')
+  const profiles = read('shell/session-profiles.cjs')
+  for (const [, code] of profiles.matchAll(/refusal\('(PROFILE_[A-Z_]+)'/g)) {
+    /* Only the ones a START can reach: resolveCwd is what mc-agent:start calls,
+       and the create/remove refusals belong to their own controls. */
+    if (code === 'PROFILE_UNKNOWN' || code.startsWith('PROFILE_FOLDER_')) channelCodes.add(`MC_AGENT_${code}`)
+  }
+
+  assert.ok(channelCodes.size >= 10,
+    `only ${channelCodes.size} refusal codes were found in the start channel; the reader has drifted from the source`)
+
+  /* NOT EVERY CODE ON THESE CHANNELS IS A START, and composing a send refusal
+     behind "Nothing was started." would be the product asserting something it
+     does not know. Each entry here is send-only for a stated reason and is
+     still required to carry copy, one assertion further down. */
+  const sendOnly = new Set([
+    // Raised by mc-agent:send when a message names a file that was not picked
+    // in that session. A session IS open and running; what failed is the
+    // message.
+    'MC_AGENT_ATTACHMENT_UNKNOWN',
+    // Raised by send, interrupt and close for a session this RUN does not
+    // hold. It already has its own sentence in the start table too, because a
+    // tree node can outlive its session.
+    'MC_AGENT_UNKNOWN_SESSION',
+  ])
+
+  for (const code of channelCodes) {
+    assert.equal(refusalCode(new Error(code)), code,
+      `${code} does not survive the IPC boundary: refusalCode() cannot recover it, so the panel shows AGENT_SESSION_FAILED instead`)
+    assert.ok(Object.hasOwn(UNAVAILABLE_TEXT, code),
+      `${code} has no sentence, so a person who hits it is told this copy was not told why`)
+    if (sendOnly.has(code)) continue
+    const sentence = startRefusalSentence({ ok: false, code })
+    assert.notEqual(sentence, START_REFUSAL.noReasonGiven,
+      `${code} reaches the compose panel as the no-reason sentence, which also tells the person to try again when trying again cannot work`)
+    assert.ok(sentence.length > 40, `the sentence for ${code} is too short to act on: ${sentence}`)
+    /* Rule 3 of the flow's copy: every failure sentence ends with something to
+       do. Asserted as "the sentence has a second clause", which is the weakest
+       thing that can distinguish a diagnosis from a diagnosis plus a remedy. */
+    assert.ok(sentence.split(/(?<=[.!?])\s/).length >= 2,
+      `the sentence for ${code} states a problem and offers no next step: ${sentence}`)
   }
 })
 

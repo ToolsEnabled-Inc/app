@@ -115,6 +115,70 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      was the old fallback here, and retrying is the one thing that can never
      work -- the truthful move is a fresh agent. */
   MC_AGENT_UNKNOWN_SESSION: 'the session this was meant for is not open in this copy. Sessions end when ToolsEnabled closes, so nothing was delivered. Start a new agent and ask there',
+
+  /* THE OTHER TEN WAYS A START IS REFUSED BEFORE IT EVER REACHES THE ENGINE,
+   * and until now not one of them had a sentence anywhere.
+   *
+   * WHAT WAS MEASURED. Ten codes are raised by shell/main.cjs on the
+   * mc-agent:start channel itself -- the trusted-sender check, the payload
+   * parse, the session-profile resolve, the session limit, and the spawn
+   * recorder -- and every one of them arrived at src/fleet-tree-copy.js
+   * startRefusalSentence() with no entry in this table and no entry in its own,
+   * so all ten fell through to START_REFUSAL.noReasonGiven: "Nothing was
+   * started, and this copy was not told why. Try once more." The copy WAS told
+   * why. It was told by name, over a channel built for exactly that
+   * (rendererSafeAgentError makes the message the code so it survives the IPC
+   * boundary), and then threw the answer away at the last step because nobody
+   * had written the sentence.
+   *
+   * "TRY ONCE MORE" IS THE PART THAT MAKES IT WORSE THAN SILENCE. Not one of
+   * these clears by pressing Start again: the session limit is still reached,
+   * the folder is still gone, the record still cannot be written. That sentence
+   * sends a person round a loop with no exit, which is the dead end the whole
+   * start-refusal vocabulary exists to remove.
+   *
+   * Each sentence below names the ACTION. They are lower-case first and carry
+   * no full stop of their own because startRefusalSentence() composes them
+   * behind "Nothing was started." and unavailableReason() renders them after
+   * "unavailable · " -- the same shape every other entry in this table has. */
+
+  /* The person is not doing anything wrong and there is nothing to repair: this
+     is a queue, and it is worded as one. */
+  MC_AGENT_SESSION_LIMIT: 'this copy is already running as many agents at once as it allows, so it did not start another. Wait for one to finish, or stop one in the tree, and then start this again',
+  MC_AGENT_SESSION_EXISTS: 'an agent is already open under that name in this copy, so nothing new was started. Open the one that is already running, or start a fresh agent from another spot in the tree',
+  /* A start that cannot be written down does not happen -- the same rule the
+     SPAWN_RECORD_ codes above state, reached through the channel rather than
+     through the probe. */
+  MC_AGENT_RECORD_UNAVAILABLE: 'ToolsEnabled writes down every agent it starts before starting it, and this one could not be written down, so nothing was started. Close ToolsEnabled and open it again; if it still refuses, reinstall from a complete build',
+  /* The three session-profile refusals a start can hit. A profile is a folder
+     the person picked in the OS dialog, so every remedy is "pick it again" --
+     said in the words of what went wrong, because a person whose folder was
+     renamed and a person whose folder is now a file need different things
+     checked before they re-pick. */
+  MC_AGENT_PROFILE_UNKNOWN: 'the session profile this tree works in is not on this computer any more, so nothing was started. Open the fleet overview and choose a folder for this tree again',
+  MC_AGENT_PROFILE_FOLDER_MISSING: 'the folder this tree works in is not there any more, so nothing was started. Open the fleet overview and pick the folder again',
+  MC_AGENT_PROFILE_FOLDER_INVALID: 'the folder this tree works in cannot be used as a working folder, so nothing was started. Open the fleet overview and pick a different folder',
+  MC_AGENT_PROFILE_FOLDER_NOT_DIRECTORY: 'the session profile for this tree points at a file rather than a folder, so nothing was started. Open the fleet overview and pick a folder instead',
+  /* The working folder was named by the renderer and is not one this session
+     may use. A person reaches it through a profile, so the remedy is the
+     profile's. */
+  MC_AGENT_CWD_NOT_YOURS: 'the folder this agent would have worked in is not one you picked for this tree, so nothing was started. Open the fleet overview and choose the folder for this tree again',
+  /* Reachable only if the depth menu and the engine disagree about the list --
+     renderer and shell drift, not something the person chose wrongly. The
+     remedy is still theirs and still works: pick another depth. */
+  MC_AGENT_EFFORT_UNKNOWN: 'the thinking depth this copy asked for is not one the engine accepts, so nothing was started. Choose a different depth on this panel and start again',
+  /* The request did not come from the application's own window. Nothing the
+     person did, and nothing they can repair from inside the page. */
+  MC_AGENT_SENDER_REFUSED: 'this request did not come from the ToolsEnabled window itself, so it was refused and nothing was started. Close ToolsEnabled, open it again, and start from the panel in its own window',
+  /* THE ONE ON THIS LIST THAT IS NOT A START. It is raised when a message names
+     an attachment that was not picked in that session, and it reaches a person
+     through the SEND composer rather than the start one -- so it is worded for
+     a message that did not go, and the walk in
+     tools/test/agent-session-surface.test.mjs names it as send-only rather than
+     letting it be composed behind "Nothing was started." It is here because
+     without an entry refusalCode() cannot even recover it from the boundary,
+     and the send surface showed a bare identifier instead of a sentence. */
+  MC_AGENT_ATTACHMENT_UNKNOWN: 'one of the files attached to this message was not picked in this session, so the message was not sent. Attach the file again with the picker in this conversation, then send it',
   /* The two refusals the tool checkboxes can raise at a start. Both refuse
      rather than widen: a session that cannot read the limits the person
      recorded must not run without them. */

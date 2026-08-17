@@ -670,6 +670,43 @@ async function driveComposePanel(open, sizes) {
       ? 'it painted the "this copy was not told why · try once more" sentence'
       : 'no "try once more" for a refusal that retrying cannot clear')
 
+  /* THE SECOND PROVIDER THE TREE CANNOT START, pressed rather than reasoned
+     about. `local` reaches the same refusal in shell/agent-host.cjs by a
+     different branch of the same check, and a run that measured only the Claude
+     rows would not have shown that the sentence names both. */
+  const localRow = TIER_CHOICES.find(choice => choice.id === 'local')
+  if (!localRow) {
+    pending('the same refusal answers the other engine a tree cannot start', 'this build offers no local tier')
+    return { started: true }
+  }
+  await wheelOver(open, BODY, 240, 4)
+  const secondTier = await press(open, TIER, { settleMs: 300 })
+  await open.page.keyboard.press('Escape')
+  const secondPicked = await chooseByKeyboard(open, TIER, 'local')
+  if (!secondTier.pressed || secondPicked.after !== 'local') {
+    pending('the same refusal answers the other engine a tree cannot start',
+      `the tier menu could not be moved to local (${secondPicked.before} -> ${secondPicked.after})`)
+    return { started: true }
+  }
+  const secondSubmit = await press(open, SUBMIT, { settleMs: 1200 })
+  if (!secondSubmit.pressed) {
+    pending('the same refusal answers the other engine a tree cannot start',
+      `Start could not be pressed: ${JSON.stringify(secondSubmit.spot)}`)
+    return { started: true }
+  }
+  let secondSentence = ''
+  for (let step = 0; step < 40; step += 1) {
+    secondSentence = await textOf(open, NOTICE)
+    if (secondSentence) break
+    await delay(500)
+  }
+  note(`  on the local engine the panel says: "${secondSentence}"`)
+  check('the same refusal answers the other engine a tree cannot start',
+    Boolean(secondSentence)
+      && secondSentence.toLowerCase().includes(realFragment)
+      && !secondSentence.includes(START_REFUSAL.noReasonGiven),
+    secondSentence ? `it said: "${secondSentence}"` : 'the panel said nothing at all')
+
   return { started: true }
 }
 
