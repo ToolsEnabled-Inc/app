@@ -26,15 +26,49 @@
    Start ended up unreachable. The nav row is fixed at the top; the form
    scrolls beneath it. `min-height: 0` on both is what lets the body shrink
    below its content height instead of pushing the button into the clip. */
+/* NO SECOND FRAME, AND THAT IS THE FIX FOR THE ONE CONTROL NOBODY COULD PRESS.
+ *
+ * WHAT WAS MEASURED, on the packaged build at 1512x945 with a role chosen --
+ * the state a person is in when they reach the last menu:
+ *
+ *   the form wants          587px
+ *   the scroller gives      560px
+ *   "How hard should it think?"   823px..855px
+ *   the scroller's bottom edge    828px
+ *   the pinned Start bar          836px..885px
+ *
+ * So five pixels of the menu were visible and its centre, at 839px, was inside
+ * the Start bar: document.elementFromPoint at the middle of the effort menu
+ * returned div.agent-compose-actions. A press aimed at where the menu appears
+ * to be pressed START instead, which is the worst possible substitution on this
+ * panel -- the person loses the choice AND submits the form.
+ *
+ * WHY A GUTTER BETWEEN THE FORM AND THE BUTTON IS NOT THE FIX, since that is
+ * the obvious move and it was measured before this one was written. The Start
+ * bar is bottom-anchored: its top is the panel's inner bottom minus its own
+ * height, so it sits at 836px whatever margin is put above it. Adding a gutter
+ * only shrinks the scroller and cuts the menu FURTHER, while the button stays
+ * exactly where it was. There is no separation that moves the collision.
+ *
+ * THE ROOM WAS ALREADY THERE, SPENT TWICE. This panel is the only thing in its
+ * rail page, and `.computers .rail-page` (src/tree-graph.css) already pays
+ * var(--s5) of padding on every edge and sits on `aside.rail.glass`, which is
+ * already a surface. This panel then drew a SECOND card inside that one: 1px of
+ * border and var(--s4) of padding all round, 34px of it vertical. Every other
+ * rail page -- the stats page, the board page -- renders straight into the
+ * padded page and looks right. Giving this one the same treatment hands the
+ * form 34px it was never using and makes the fields wider as well, which costs
+ * the hints a wrapped line each.
+ *
+ * NOTHING IS REMOVED HERE. Every control, every hint and every sentence stays;
+ * the panel keeps its own scroller and its pinned Start bar. What goes is a
+ * border and a padding drawn on top of a page that had already drawn both. */
 .agent-compose {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: var(--s4);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  background: var(--surface);
+  padding: 0;
   color: var(--ink);
   font-family: var(--font-ui);
 }
@@ -44,10 +78,28 @@
   gap: var(--s3);
   align-content: start;
   min-height: 0;
-  /* .rail-scroll supplies flex:1 and overflow-y:auto; the panel adds only
-     the room the scrollbar needs so it never sits on the fields. */
+  /* THE SCROLLING IS DECLARED HERE, not borrowed. The class this element also
+     carries, `.rail-scroll`, is only ever DEFINED in this tree under
+     `.board-page` and `.agentv-panels` (src/board.css, src/agent.css), and the
+     compose page is neither -- so the panel was relying on a rule that does not
+     select it. It scrolled anyway, because these two lines were what it needed;
+     stating them here means a lane editing board.css cannot silently take the
+     panel's scrolling away, which would put Start back below the fold. */
+  flex: 1 1 0%;
+  overflow-y: auto;
+  /* The room the scrollbar needs, so it never sits on the fields. */
   padding-right: 2px;
-  margin-top: var(--s3);
+  /* WHERE A CONTROL LANDS WHEN IT IS SCROLLED TO. Without this, focusing the
+     last menu with the keyboard scrolls it until its edge touches the clip --
+     measured: after scrolling to the end the menu's bottom sat exactly ON the
+     scroller's bottom edge, flush against the Start bar. The scroll padding
+     keeps a control clear of that edge whenever anything scrolls it into view. */
+  scroll-padding-block-end: var(--s4);
+  /* Separated from the nav row above, at var(--s2) rather than var(--s3):
+     `.rail-title-row` carries no bottom margin of its own, so the form does
+     need a gap here -- it just does not need twelve pixels of one in a form
+     that was twenty-seven pixels short. */
+  margin-top: var(--s2);
 }
 
 .agent-compose-title {
