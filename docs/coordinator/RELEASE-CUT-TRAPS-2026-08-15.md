@@ -155,3 +155,45 @@ the glass") with the SEALED build's own dist swapped in, so that explanation
 does not apply any more. Not a research-lane delta (the cut touched only the
 research view), but do not quote the 1.0.9 reason for it again; it belongs
 to the fleet/compose lane to re-attribute.
+
+## 13. The silent install auto-launches the app, and the NEXT install half-applies (2026-08-16)
+
+`Start-Process "<Setup>.exe" -ArgumentList "/S" -Verb RunAs -Wait` returns, and
+about four minutes later six `ToolsEnabled` processes appear: NSIS ran the app
+itself. A process check taken *before* the install is therefore worthless — it
+was clean, and the app still ended up running.
+
+The install after that one exits **2** and leaves a MIXED tree. Measured on the
+1.0.20 attempt:
+
+```
+ToolsEnabled.exe        ProductVersion 1.0.7.0   (stale)
+resources\app.asar      3,170,219 bytes          (replaced, new build)
+resources\capability\   PLAYWRIGHT_PACKAGE_SPEC = 0   (NOT replaced, old payload)
+```
+
+A renderer from one build over an engine payload from another, with nothing on
+any surface saying so. The fix is `Get-Process ToolsEnabled | Stop-Process
+-Force` immediately before installing, then install again — exit 0, exe 1.0.20.0,
+and the payload needles present.
+
+**The exe's ProductVersion is not proof the install applied.** It read 1.0.7.0
+while `app.asar` was already the new one. The only check that caught this was
+grepping the INSTALLED `resources\capability\` for a needle unique to the new
+payload, controlled against the previous build (which must NOT contain it).
+
+## 14. `--known-fix` exists, and omitting it makes the declaration say nothing (2026-08-16)
+
+`cut-release-candidate.mjs` takes
+`--known-fix "<description>::<source-only|observed|both>[::evidence]"`,
+repeatable. Omit it and the DECLARATION's own "Known fixes" section reads *"No
+specific fix claims were declared for this candidate"* — which, on a build
+carrying four measured defect fixes (1.0.19), reads as a build that fixed
+nothing. Pass one per fix, and reserve `observed` for what was actually driven
+on a running installed build; `source-only` renders as "NOT observed against a
+running installed app", which is the distinction the section exists to keep.
+
+Caveat worth stating when it applies: if the observation was made on the
+PREVIOUS candidate, say so in the evidence text. The generated label is generic
+("observed directly against the built/running artifact") and will otherwise
+claim more than was measured for the candidate it ships with.
