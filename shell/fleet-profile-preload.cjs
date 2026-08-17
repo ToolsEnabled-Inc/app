@@ -86,6 +86,21 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   },
 }))
 
+/* THE THREE ASSISTANT PROGRAMS, AS THIS COMPUTER ACTUALLY HAS THEM.
+ *
+ * Its own name rather than a fourth method on mcAgent, because it is not about
+ * an agent session: it answers a question about the MACHINE that is true before
+ * any session exists and stays true after one ends. A person reads it on the
+ * guide page while deciding whether to install anything at all.
+ *
+ * Read-only, and there is deliberately no setter beside it. This product never
+ * asks for a provider sign-in and never keeps one; the only thing it may know is
+ * whether one is there. A `signIn()` on this bridge would be the first step
+ * toward handling a credential, and the absence of it is the design. */
+contextBridge.exposeInMainWorld('mcProviders', Object.freeze({
+  presence: () => ipcRenderer.invoke('mc-providers:presence'),
+}))
+
 /* Fleet data is resolved while the renderer's module graph is evaluating. An
    async-only bridge paints the sample first and leaves sim.js, vocab.js and
    the ledger frozen on it even after userData answers. The one synchronous

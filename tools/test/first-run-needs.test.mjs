@@ -29,6 +29,7 @@ import {
   GUIDE_ACTION,
   GUIDE_HREF,
   PROVIDER_SETUP,
+  presenceSentence,
   SETTINGS_HREF,
   WORKS_HERE,
   hostAbsentMarkup,
@@ -330,5 +331,56 @@ test('the page never asks a person for a credential', () => {
     .toLowerCase()
   for (const ask of ['paste your', 'enter your key', 'api key here', 'copy your token']) {
     assert.ok(!prose.includes(ask), `the guide asks for a credential: "${ask}"`)
+  }
+})
+
+/* ------------------------------------------------------------------
+   The sentence beside each program's name, and the one way it turns cruel.
+
+   The failure worth a test is not a wrong word, it is a CONFIDENT wrong word.
+   Claude and Gemini can both authenticate in ways a file check cannot see, so
+   "no sign-in file here" is not "you are signed out". A page that says the
+   second sends somebody to re-run a command that already worked, and they
+   conclude the product is broken. Every uncertain state must therefore read as
+   uncertain, and must still point at the command that settles it.
+   ------------------------------------------------------------------ */
+
+test('a machine that is ready says so, and only when it really is', () => {
+  assert.equal(presenceSentence({ installed: 'yes', signedIn: 'yes' }), 'Installed here, and signed in.')
+  /* Every other combination must NOT claim a sign-in. */
+  for (const signedIn of ['no', 'unknown']) {
+    const said = presenceSentence({ installed: 'yes', signedIn })
+    assert.ok(!/and signed in/.test(said), `"${said}" claims a sign-in it has not got`)
+  }
+})
+
+test('uncertainty never reads as a verdict', () => {
+  const unknownSignIn = presenceSentence({ installed: 'yes', signedIn: 'unknown' })
+  /* It must not tell the person they are signed out... */
+  assert.ok(!/nobody is signed in/.test(unknownSignIn), unknownSignIn)
+  /* ...and it must still give them the way to find out. */
+  assert.match(unknownSignIn, /command below/)
+
+  const unknownInstall = presenceSentence({ installed: 'unknown', signedIn: 'unknown' })
+  assert.match(unknownInstall, /could not tell/)
+  assert.ok(!/not on this computer/i.test(unknownInstall), unknownInstall)
+})
+
+test('a missing program is stated plainly, because that one IS known', () => {
+  assert.equal(presenceSentence({ installed: 'no', signedIn: 'no' }), 'Not on this computer yet.')
+  /* The install answer does not depend on the sign-in answer: a machine with no
+     program cannot have a meaningful sign-in state, and reporting one would be
+     two claims where there is one fact. */
+  for (const signedIn of ['yes', 'no', 'unknown']) {
+    assert.equal(presenceSentence({ installed: 'no', signedIn }), 'Not on this computer yet.')
+  }
+})
+
+test('an unreadable answer produces no sentence at all', () => {
+  /* The page hides the slot on null. Saying nothing is correct here: a status
+     line that appeared with an apology in it would be the product reporting its
+     own plumbing to somebody who wanted to install Codex. */
+  for (const value of [null, undefined, '', 42, 'yes', []]) {
+    assert.equal(presenceSentence(value), null, `${JSON.stringify(value)} produced a sentence`)
   }
 })

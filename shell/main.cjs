@@ -16,6 +16,7 @@ const fs = require('fs')
 const { randomBytes, randomUUID, createHash } = require('crypto')
 const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
 const { readAgentConfinement, listAgentTools } = require('./agent-confinement-read.cjs')
+const { providerCliPresence } = require('./provider-cli-presence.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { recordCanonical: recordCanonicalIn } = require('./canonical-audit.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
@@ -988,6 +989,39 @@ ipcMain.handle('mc-agent:confinement', async (event) => {
 ipcMain.handle('mc-agent:tools', async (event) => {
   assertTrustedAgentSender(event)
   return listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
+})
+
+/* WHICH ASSISTANT PROGRAMS ARE ON THIS COMPUTER, AND WHICH ARE SIGNED IN.
+ *
+ * The third channel that starts nothing. It exists because the product could
+ * not answer the first question a person has after being told an agent needs
+ * Codex, Claude or Gemini: have I got it, and am I signed in. The guide printed
+ * the commands and could not say whether they had already been run.
+ *
+ * IT READS NO CREDENTIAL AND SPAWNS NOTHING, and neither is a promise made
+ * here. shell/provider-cli-presence.cjs contains no call that returns file
+ * contents and none that starts a process; tools/test/provider-cli-presence.test.mjs
+ * reads that source and fails on eighteen of them, because the property is an
+ * ABSENCE of code and no behavioural test can observe an absence.
+ *
+ * IT CARRIES NO PATH, exactly like the two channels above it. The answer is
+ * {ok, providers:[{id, installed, signedIn}]} and every value is a word from a
+ * closed set -- so the resolution can look at %APPDATA%, at PATH, and at a home
+ * directory without any of those reaching a renderer. That is the BLOCKER 2 rule
+ * this file already applies to the engine resolver's own message.
+ *
+ * SAME SENDER CHECK AS EVERY OTHER AGENT CHANNEL. What is installed on this
+ * machine and who is signed in to it is not something any frame that happens to
+ * be loaded may ask for, even though nothing here can change anything.
+ *
+ * IT CANNOT FAIL, which is why there is no {ok:false} branch to write. Every
+ * uncertainty this read can suffer is already expressed as 'unknown' on the one
+ * provider it applies to; an envelope-level failure would be a second way of
+ * saying the same thing, and a caller branching on it would be branching on
+ * nothing. */
+ipcMain.handle('mc-providers:presence', async (event) => {
+  assertTrustedAgentSender(event)
+  return providerCliPresence()
 })
 
 /* The second agent channel that starts nothing, and the only one that reads

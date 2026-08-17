@@ -227,6 +227,125 @@ async function main() {
     const text = await screenText(window)
     note('info', `the guide mentions Claude ${(text.match(/Claude/g) || []).length} time(s) and Gemini ${(text.match(/Gemini/g) || []).length} time(s)`)
     note('info', 'NOT MEASURED HERE: pressing Start on a Claude tier. That control and its refusal copy are being changed by another lane in this worktree this pass; the lane that owns it is driving it.')
+
+    /* ---------------------------------------------------------------
+       4. Does the page report what THIS machine actually has?
+
+       THE PROFILE MAKES THIS A REAL TEST RATHER THAN A TAUTOLOGY. The harness
+       runs the build against an isolated USERPROFILE, so none of the three
+       sign-in files exist -- while PATH is still the real one, so the programs
+       themselves ARE resolvable. That is precisely the "installed here, but
+       nobody is signed in" state, which is the most useful one to get right and
+       the hardest to reach on the machine this is written on, where all three
+       are signed in.
+
+       The read crosses a preload bridge into the main process and back, so a
+       missing handler, a refused sender or a renderer that never calls it all
+       show up here as a line that stayed hidden.
+       --------------------------------------------------------------- */
+    console.log('\n[4] what the page says about THIS machine')
+    /* Waited for rather than sampled: the read is asynchronous and the page is
+       painted before it answers. A single sample here would report a hidden line
+       as a defect, which is the harness being wrong about the product. */
+    const presence = await (async () => {
+      const until = Date.now() + 9000
+      for (;;) {
+        const seen = await window.evaluate(`(() => {
+          return [...document.querySelectorAll('.guide-provider')].map(node => {
+            const slot = node.querySelector('.guide-presence')
+            return {
+              id: node.dataset.provider,
+              hidden: slot ? slot.hidden : null,
+              text: slot ? (slot.textContent || '').trim() : null,
+              installed: slot ? slot.dataset.installed || null : null,
+              signedIn: slot ? slot.dataset.signedIn || null : null,
+            }
+          })
+        })()`)
+        if ((Array.isArray(seen) && seen.some(row => row.hidden === false)) || Date.now() >= until) return seen
+        await delay(300)
+      }
+    })()
+
+    if (!Array.isArray(presence) || presence.every(row => row.hidden !== false)) {
+      note('FAIL', 'no provider reported what this machine has: the read never reached the page')
+    } else {
+      for (const row of presence) {
+        note(row.hidden === false ? 'ok' : 'FAIL',
+          `${row.id}: installed=${row.installed} signedIn=${row.signedIn} -> "${row.text}"`)
+        /* The cruel failure this guards: a confident "you are signed out" for a
+           provider whose sign-in this product cannot actually see. */
+        if (row.signedIn === 'unknown' && /nobody is signed in/i.test(row.text || '')) {
+          note('FAIL', `${row.id}: reported a sign-out it could not have known`)
+        }
+      }
+      /* On this isolated profile the sign-in files are absent by construction,
+         so nothing may claim to be signed in. A "signed in" here would mean the
+         probe is reading the REAL home instead of the profile it was given,
+         which would also be a privacy fault. */
+      const claimed = presence.filter(row => /and signed in/i.test(row.text || ''))
+      note(claimed.length === 0 ? 'ok' : 'FAIL',
+        `no provider claims a sign-in on a profile that has none (${claimed.map(row => row.id).join(', ') || 'none did'})`)
+    }
+
+    /* ---------------------------------------------------------------
+       5. The page rebuilt from scratch, and why the absent-bridge case is NOT
+          driven here.
+
+       WHAT I TRIED FIRST AND WHY IT WAS WRONG. This section used to `delete
+       window.mcProviders`, route away, route back, and assert the page stayed
+       useful with no status lines. It reported three status lines shown and I
+       nearly wrote that down as a product defect. It is not one. MEASURED
+       directly afterwards, in this same packaged build:
+
+         typeof window.mcProviders  before delete -> "object"
+         typeof window.mcProviders  after  delete -> "object"
+         Object.getOwnPropertyDescriptor(window, 'mcProviders')
+                                    -> configurable: false, writable: false
+
+       contextBridge.exposeInMainWorld defines a non-configurable, non-writable
+       property, so `delete` fails silently in non-strict mode. The bridge was
+       never removed, the page was right, and the harness was wrong. The
+       absent-bridge state therefore CANNOT be simulated from inside the page,
+       and a driver that pretends otherwise is measuring nothing.
+
+       WHERE THAT GUARD IS COVERED INSTEAD. It is structural, not behavioural:
+       fillPresence() reaches the bridge through `window.mcProviders?.presence()`
+       inside a try/catch and returns on any falsy or malformed answer, and
+       presenceSentence() returns null for every value that is not a real
+       presence record -- which tools/test/first-run-needs.test.mjs asserts
+       against null, undefined, '', 42, 'yes' and []. A hidden slot is the
+       default state in the markup, so "no answer" needs no code to go right.
+
+       WHAT IS DRIVEN HERE INSTEAD IS STILL WORTH DRIVING: the view is rebuilt
+       from scratch on every navigation (src/main.js `case 'guide'` calls
+       guideView() fresh, with no cache), so leaving and returning must produce a
+       correctly filled page a second time. A read that only worked on first
+       mount would be invisible to section 4.
+       --------------------------------------------------------------- */
+    console.log('\n[5] leaving the page and coming back rebuilds it correctly')
+    await window.evaluate(`(async () => {
+      location.hash = '#/'
+      await new Promise(resolve => setTimeout(resolve, 700))
+      location.hash = '#/guide'
+      await new Promise(resolve => setTimeout(resolve, 1600))
+      return true
+    })()`)
+    const revisit = await window.evaluate(`(() => {
+      const blocks = [...document.querySelectorAll('.guide-provider')]
+      return {
+        blocks: blocks.length,
+        commands: [...document.querySelectorAll('.guide-provider .guide-command')].length,
+        shown: blocks.filter(node => node.querySelector('.guide-presence')?.hidden === false).length,
+        errorish: /error|failed|undefined|\\[object/i.test(
+          document.querySelector('[data-need="provider-accounts"]')?.innerText || '',
+        ),
+      }
+    })()`)
+    note(revisit?.blocks === 3 ? 'ok' : 'FAIL', `all three programs render again after leaving and returning (${revisit?.blocks})`)
+    note(revisit?.commands >= 8 ? 'ok' : 'FAIL', `the commands are on the glass again (${revisit?.commands})`)
+    note(revisit?.shown === 3 ? 'ok' : 'FAIL', `and the machine was read again on the second visit (${revisit?.shown} of 3)`)
+    note(revisit?.errorish === false ? 'ok' : 'FAIL', 'no error text leaked onto the page')
   } finally {
     if (window) {
       await closeWindow(window).catch(() => {})

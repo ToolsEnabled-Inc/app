@@ -258,6 +258,44 @@ export const PROVIDER_SETUP = Object.freeze([
   }),
 ])
 
+/* WHAT THE MACHINE ACTUALLY SAYS ABOUT ONE PROGRAM, IN ONE SENTENCE.
+ *
+ * THE GAP THIS CLOSES. The list above tells a person what to type. It could not
+ * tell them whether they had already typed it, so somebody who installed Codex
+ * last week still met three commands and no acknowledgement. shell/provider-cli-presence.cjs
+ * answers presence; this turns that answer into the sentence beside the name.
+ *
+ * 'unknown' GETS A SENTENCE OF ITS OWN AND IS NOT ROUNDED DOWN. Claude and
+ * Gemini can both authenticate in ways a file check cannot see -- the operating
+ * system keychain, a key in the environment -- so "no sign-in file here" is not
+ * "you are signed out". Printing the confident version would tell somebody to
+ * re-run a command that already worked, and they would conclude the product is
+ * broken. So the uncertain case says what IS known, and points at the one
+ * command that answers it properly.
+ *
+ * IT NEVER CONTRADICTS THE COMMANDS BELOW IT. A program reported installed and
+ * signed in still shows its install line, because that line is also the answer
+ * to "how do I get this on my other computer". What changes is the sentence at
+ * the top, which is the part a person reads first.
+ */
+export function presenceSentence(presence) {
+  /* An ARRAY reaches this branch too, and the first version let it through:
+     `typeof [] === 'object'` is true, its `installed` is undefined, and the
+     function answered "could not tell whether it is installed" about a value
+     that was not a presence record at all. A malformed answer must produce
+     NOTHING, so the page hides the line, rather than a sentence that reads like
+     a real reading of the machine. The field is checked rather than the shape,
+     because that is the thing actually being relied on. */
+  if (!presence || typeof presence !== 'object' || Array.isArray(presence)) return null
+  const { installed, signedIn } = presence
+  if (typeof installed !== 'string' || installed.length === 0) return null
+  if (installed === 'no') return 'Not on this computer yet.'
+  if (installed !== 'yes') return 'This copy could not tell whether it is installed here.'
+  if (signedIn === 'yes') return 'Installed here, and signed in.'
+  if (signedIn === 'no') return 'Installed here, but nobody is signed in to it.'
+  return 'Installed here. Run the last command below to see whether you are signed in.'
+}
+
 /* What DOES work on one computer with nothing connected. A page of things that
    are missing, and nothing else, reads as a broken product; these are real, they
    are reachable from this window, and each one was checked on a sterile profile

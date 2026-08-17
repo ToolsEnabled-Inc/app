@@ -176,6 +176,19 @@
   font-weight: 620;
   letter-spacing: -0.01em;
 }
+/* WHAT THIS MACHINE ACTUALLY HAS. Monospace and small, because it is a reading
+   of the computer rather than the product's voice -- the same distinction the
+   quote block above draws. It carries `hidden` until the read answers, so a
+   build with no bridge behind it shows nothing rather than an empty line. */
+.guide-presence {
+  margin: var(--s3) 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.guide-presence[data-presence="ready"] { color: var(--s-good); }
+
 .guide-provider[data-reach="tree"] .guide-need-tag { color: var(--s-good); }
 .guide-provider[data-reach="handover"] .guide-need-tag { color: var(--ink-2); }
 .guide-provider[data-reach="none"] .guide-need-tag { color: var(--ink-3); }

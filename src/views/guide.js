@@ -27,6 +27,7 @@ import {
   PROVIDER_SETUP,
   SETTINGS_HREF,
   WORKS_HERE,
+  presenceSentence,
 } from '../first-run-needs.js'
 import '../guide.css'
 
@@ -94,14 +95,61 @@ const REACH_WORDS = Object.freeze({
 })
 
 function providerMarkup(provider) {
+  /* The status line is EMPTY until the machine answers, never "checking..." and
+     never a guess. A page that paints "Not installed" for a moment and corrects
+     itself has told a person something false, and on a slow disk they will read
+     it and act on it before it changes. So the slot is here, holds nothing, and
+     is filled once by fillPresence() below -- or stays empty forever, which is
+     the honest state when the read is unavailable. */
   return `<section class="guide-provider" data-provider="${esc(provider.id)}" data-reach="${esc(provider.reach)}">
     <header class="guide-need-head">
       <h3>${esc(provider.name)}</h3>
       <p class="guide-need-tag">${esc(REACH_WORDS[provider.reach] || '')}</p>
     </header>
+    <p class="guide-presence" data-presence="pending" hidden></p>
     <p class="guide-need-body">${esc(provider.doesHere)}</p>
     <ol class="guide-steps">${provider.steps.map(stepMarkup).join('')}</ol>
   </section>`
+}
+
+/* ASK THE MACHINE WHAT IT HAS, AND SAY NOTHING IF IT CANNOT BE ASKED.
+ *
+ * THE ABSENT-BRIDGE CASE IS THE ONE THAT MATTERS, and it is not hypothetical:
+ * `npm run dev` serves this page in a plain browser with no preload, so
+ * window.mcProviders is undefined every time a designer opens it. It is also
+ * what a future build with this channel removed would look like. Both must
+ * leave the page exactly as it renders now -- the commands are useful without
+ * the status line, and an error banner about a missing bridge would be the
+ * product reporting its own plumbing to a person who wanted to install Codex.
+ *
+ * So every failure path here is the same path: leave the slot hidden. This is
+ * the one place in this file that talks to anything outside it, and it is
+ * written so that nothing it touches can prevent the page from being useful.
+ */
+async function fillPresence(root) {
+  let answer = null
+  try {
+    answer = await window.mcProviders?.presence()
+  } catch {
+    return
+  }
+  if (!answer || answer.ok !== true || !Array.isArray(answer.providers)) return
+  if (!root.isConnected) return
+
+  for (const presence of answer.providers) {
+    const sentence = presenceSentence(presence)
+    if (!sentence) continue
+    const slot = root.querySelector(`.guide-provider[data-provider="${presence.id}"] .guide-presence`)
+    if (!slot) continue
+    slot.textContent = sentence
+    /* The state is carried as data as well as prose so a driver and a support
+       conversation can read it without parsing a sentence, which is the same
+       rule `data-refusal-code` follows elsewhere. */
+    slot.dataset.presence = presence.installed === 'yes' && presence.signedIn === 'yes' ? 'ready' : 'incomplete'
+    slot.dataset.installed = presence.installed
+    slot.dataset.signedIn = presence.signedIn
+    slot.hidden = false
+  }
 }
 
 export function guideView() {
@@ -140,10 +188,24 @@ export function guideView() {
       </div>
     </main>`)
 
-  /* Nothing on this page is asynchronous and nothing subscribes: it is a
-     statement about what this build IS, not a reading of what the machine is
-     doing. destroy() exists because the router calls it, and is honest about
-     having nothing to release rather than pretending to unsubscribe. */
+  /* ONE ASYNCHRONOUS READ, AND IT IS THE ONLY ONE.
+   *
+   * This page used to be a pure statement about what the build IS. It now also
+   * reports one thing about the machine -- whether each assistant program is
+   * here and signed in -- because "what does this copy need" cannot be answered
+   * honestly without it. Everything else on the page is still static, and
+   * deliberately so.
+   *
+   * NOTHING SUBSCRIBES. It is a single read at mount, not a live feed: a person
+   * who installs Codex in another window and comes back gets the new answer by
+   * arriving at the page again, which is when they would look. A subscription
+   * would be a timer on a page nobody keeps open.
+   *
+   * destroy() has nothing to release and says so rather than pretending. The
+   * read guards on root.isConnected instead, so a person who navigates away
+   * before the machine answers cannot have a detached page written into. */
+  fillPresence(root)
+
   return {
     el: root,
     destroy() {},
