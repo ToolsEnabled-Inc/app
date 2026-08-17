@@ -24,6 +24,14 @@ npm-install.log
 # engine tree already ignores this filename; this worktree carries its own
 # .gitignore and did not, so the same file was safe there and a blocker here.
 error.log
+# The gated-dist run writes .dist-gated.log beside the repo root. Same trap as
+# error.log directly above: a diagnostic artifact, never product bytes, and as
+# an untracked file it makes `git status --porcelain` non-empty -- which
+# require-clean-tree.mjs reads as "any output at all means dirty" and refuses,
+# so one build's log blocks the NEXT build in that tree. Found 2026-08-17 with
+# the file sitting untracked in this checkout after a dist run.
+.dist-gated.log
+.dist.log
 /private/
 # The staged capability payload. Derived output, like dist/ and release/:
 # `npm run pack:capability` cuts it fresh from the capability-layer source
