@@ -105,3 +105,61 @@ without being wired into any aggregate, so the committed tree alone stands at
 5. Refresh the stale schema fixtures to V21.
 
 None of this blocks the 1.0.21 candidate: none of it ships.
+
+---
+
+# What this lane then fixed (same night, measured after)
+
+The recommended order above was worked top to bottom. The claim of improvement
+is a re-measurement, not an impression: the 42 failing files were re-run
+individually afterwards, and **15 now pass**. Engine commits, in order:
+
+| # | Commit | What it was |
+|---|---|---|
+| 1 | `bc307c8` | **FRA manifests re-pinned.** Both machines pinned a digest of a 263-tool registry that no longer existed, so `r204-fra-surface-security` died at module load before asserting anything. Re-pinned through the repo's own authorization tool, which recovered the baseline from history and required the reviewed digest to be named. The delta was 11 added `research.*` tools (this lane's) and 4 removed Stripe tools (owner-directed, 6e906f2); neither set appears in either manifest's allowed/excluded lists, so the surface is unchanged at 37/13. Unblocked 4 files. |
+| 2 | `9fd8cae` | **The owner's own two CLIs.** `tools/r-ledger.js` (behind /Request) and `tools/owner-spool-draft.js` called `execFileSync` without `windowsHide` — his R193 quiet-desktop rule, broken in the tools he touches most — and both handed the child the full environment. Now hidden and scrubbed via `safeLaunchEnvironment()`. Unblocked 2 files; env-scrub gate 5 sites → 3. |
+| 3 | `5232d0d` | **Four migration fixtures predated research.** Each fakes an old schema by dropping every table a later version added; V21's six `research_*` tables were never added, so migration replayed onto an unexpected shape and threw a DDL fingerprint mismatch that named neither the fixture nor the tables. Unblocked 7 files (4 fixtures + 3 shims). `task-state` now also names anything left behind that a v1 database could not have held, so the next schema addition fails with an instruction instead of rotting silently. |
+| 4 | `8aef028` | **Thirteen files claimed.** The research run machinery, the whole R-ledger surface, and the bridge's research actions were in the tree and in no package — so their imports were invisible to the charter checker. Claiming them exposed 8 always-imported, never-declared dependencies, now declared with reasons. Charter omissions **62 → 60** while claiming 13 more files; unclaimed files **16 → 3**. |
+| 5 | `48285b2` | **Three committed tests ran in no script.** `r-ledger-check`, `owner-spool-draft` (this lane's, 12h old) and `agent-lane` (26h). All three were run first — wiring a red test into the chain is worse than leaving it orphaned — then wired into `test:red-gates-orphans`. Orphans **15 → 12**. |
+| 6 | `13a9ce5` | **A test red over punctuation.** `status-injection` pinned the exact argument `hookEnvelope(event.hook_event_name, rendered)`; `f8f58c1` began prefixing a launch note four days ago, so the test was red while the behaviour it protects was intact. It now pins that `rendered` REACHES the envelope, and the looser pin was proved to still fail when it genuinely does not. |
+
+## The 27 still failing, and whose they are
+
+**Six are other lanes' uncommitted work** and will clear the moment those lanes
+commit or revert: the half-finished `CONFINED_LANE_DISALLOWED_TOOLS` rename in
+`actions.js` (takes down `mission-bridge`, `agent-session-confinement`,
+`loop-guided-child-confinement`), and two extra depth-1 settings rows against a
+pinned catalogue of 60 (`settings-registry`, `settings-enforcement-honesty`),
+plus the in-flight `no-blocking-prompt-registration` gate that fails by design
+until the owner applies its proposed settings file.
+
+**Three are blocked on other lanes' debt, and one of those blocks everyone:**
+
+- `package-check` (+ its shim) cannot go green until
+  `tools/no-blocking-prompt-hook.js` is **committed** — it is untracked, so a
+  claim for it would resolve to nothing on a clean checkout and turn the gate
+  red for everybody. `src/lib/tool-packs/paddle-checkout.js` and
+  `tools/settings-set.js` each need one line from their owning lane.
+- `package-charters` / `provider-charters` are at 60 omissions across many
+  packages. Note they are **themselves orphaned**: the charter gates run only
+  when someone remembers to type them. They were deliberately NOT wired here,
+  because wiring a red gate trades an over-ceiling ratchet for a permanently
+  red chain.
+- `spawn-env-scrub-gate` has 3 sites left. Two are `tools/launch-readiness/`
+  (launch lane). The third, `src/lib/research/runners.js`, is a genuine
+  tension rather than a bug: it never inherits ambient environment (ten OS
+  names, or a registered account's launch environment, with credential-shaped
+  `envKeys` refused) but it spawns a caller-supplied command, which the
+  allowlist's own criterion says is never exempt. Applying the scrub there
+  would strip the deliberate codex-account auth seam — removing a feature to
+  make a gate green. **This needs the gate owner's ruling, not a unilateral
+  edit.**
+
+**The rest are environmental** on this machine: absent local config
+(`aicalendar` is explicitly a builder-only fixture), missing project roots, or
+services that are not running.
+
+`test-census` remains over its ceiling at 12 against 9 — the residue is the
+untracked in-flight files above plus the two orphaned charter gates.
+
+**Nothing in this list ships.** The 1.0.21 candidate is unaffected.
