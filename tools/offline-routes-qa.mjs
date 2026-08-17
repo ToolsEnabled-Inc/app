@@ -431,20 +431,31 @@ async function walkSetup({ evaluate, until, clickVisible, clickLastVisible }, ch
     return landed
   }
   check('a fresh profile opens on the permission question', onSetup, `hash=${await evaluate('location.hash')}`)
-  await clickVisible('[data-setup-continue]')
+  /* Records what each press actually did. See the long note on the same helper
+     in tools/first-run-recovery-qa.mjs: a discarded click answer is why every
+     RELEASE-CUT-TRAPS section 12 failure reads "gave up waiting for the review"
+     and none of them can say whether the review failed to draw or the click
+     before it never landed. */
+  const press = async (click, selector, what) => {
+    const outcome = await click(selector)
+    const ok = outcome === 'clicked'
+    check(`the walk can press ${what}`, ok, `${selector} -> ${outcome}`)
+    return ok
+  }
+  await press(clickVisible, '[data-setup-continue]', 'Continue on the permission question')
   await until('the folder question', `document.querySelector('[data-setup-section]')?.innerText.includes('Which folder')`)
   await until('the folder to resolve', `document.querySelector('.setup-root-path') !== null`)
-  await clickLastVisible('[data-setup-next]')
+  await press(clickLastVisible, '[data-setup-next]', 'Continue on the folder question')
   await until('the sign-in step',
     `document.querySelector('[data-setup-section]')?.innerText.includes('Who is using this copy') || document.querySelector('[data-setup-section]')?.innerText.includes('Signed in as')`)
-  await clickLastVisible('[data-setup-next]')
+  await press(clickLastVisible, '[data-setup-next]', 'Continue on the sign-in step')
   await until('the autonomy question', `document.querySelector('[data-setup-section]')?.innerText.includes('without asking')`)
-  await clickVisible('[data-setup-set="autonomy"][data-setup-value="assisted"]')
-  await clickVisible('[data-setup-next="review"]')
+  await press(clickVisible, '[data-setup-set="autonomy"][data-setup-value="assisted"]', 'the assisted autonomy level')
+  await press(clickVisible, '[data-setup-next="review"]', 'Continue through to the review')
   await until('the review', `document.querySelector('[data-setup-section]')?.innerText.includes('what those answers set')`)
   await until('the readiness answer on the review',
     `!document.querySelector('[data-setup-section]')?.innerText.includes('Checking whether Codex')`)
-  await clickVisible('[data-setup-next="finish"]')
+  await press(clickVisible, '[data-setup-next="finish"]', 'Finish on the review')
   const intoApp = await until('the app itself', `location.hash === '#/' || location.hash === ''`, 120)
   check('setup ends in the app', intoApp, `hash=${await evaluate('location.hash')}`)
   return intoApp

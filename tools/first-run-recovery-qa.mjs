@@ -373,23 +373,47 @@ const SCREEN = `(() => {
 })()`
 
 async function walkSetup({ evaluate, until, clickVisible, clickLastVisible }, check) {
+  /* A CLICK WHOSE ANSWER IS THROWN AWAY turns "the control was not there" into
+   * twenty seconds of silence blamed on whatever we polled for NEXT.
+   *
+   * Every red driver in RELEASE-CUT-TRAPS-2026-08-15 section 12 reports the
+   * same sentence -- "gave up waiting for the review" -- and not one of them
+   * can say whether the review failed to draw or the click before it never
+   * landed. That is not a small difference: the first is a product defect and
+   * the second is a harness defect, and a whole diagnostic pass was spent
+   * without being able to tell them apart. clickVisible already answers
+   * absent / not-visible / clicked for exactly this reason. The walk simply
+   * discarded it.
+   *
+   * This records the answer and keeps walking rather than returning early: the
+   * abort would be a control-flow change these packaged drivers cannot be
+   * re-run here to validate, and the diagnostic value is the same either way --
+   * the named failure lands in the log BEFORE the misattributed one, so the
+   * reader can see which came first. */
+  const press = async (click, selector, what) => {
+    const outcome = await click(selector)
+    const ok = outcome === 'clicked'
+    check(`the walk can press ${what}`, ok, `${selector} -> ${outcome}`)
+    return ok
+  }
+
   const onSetup = await until('the permission question', `location.hash === '#/setup'`)
   check('a fresh profile opens on the permission question', onSetup, `hash=${await evaluate('location.hash')}`)
   if (!onSetup) return false
-  await clickVisible('[data-setup-continue]')
+  await press(clickVisible, '[data-setup-continue]', 'Continue on the permission question')
   await until('the folder question', `document.querySelector('[data-setup-section]')?.innerText.includes('Which folder')`)
   await until('the folder to resolve', `document.querySelector('.setup-root-path') !== null`)
-  await clickLastVisible('[data-setup-next]')
+  await press(clickLastVisible, '[data-setup-next]', 'Continue on the folder question')
   await until('the sign-in step',
     `document.querySelector('[data-setup-section]')?.innerText.includes('Who is using this copy') || document.querySelector('[data-setup-section]')?.innerText.includes('Signed in as')`)
-  await clickLastVisible('[data-setup-next]')
+  await press(clickLastVisible, '[data-setup-next]', 'Continue on the sign-in step')
   await until('the autonomy question', `document.querySelector('[data-setup-section]')?.innerText.includes('without asking')`)
-  await clickVisible('[data-setup-set="autonomy"][data-setup-value="assisted"]')
-  await clickVisible('[data-setup-next="review"]')
+  await press(clickVisible, '[data-setup-set="autonomy"][data-setup-value="assisted"]', 'the assisted autonomy level')
+  await press(clickVisible, '[data-setup-next="review"]', 'Continue through to the review')
   await until('the review', `document.querySelector('[data-setup-section]')?.innerText.includes('what those answers set')`)
   await until('the readiness answer on the review',
     `!document.querySelector('[data-setup-section]')?.innerText.includes('Checking whether Codex')`)
-  await clickVisible('[data-setup-next="finish"]')
+  await press(clickVisible, '[data-setup-next="finish"]', 'Finish on the review')
   const intoApp = await until('the app itself', `location.hash === '#/' || location.hash === ''`, 120)
   check('setup ends in the app', intoApp, `hash=${await evaluate('location.hash')}`)
   return intoApp
