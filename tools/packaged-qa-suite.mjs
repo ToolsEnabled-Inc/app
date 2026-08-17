@@ -61,6 +61,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { UNMEASURABLE_MARK } from './machine-steadiness.mjs'
+
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
 const require_ = createRequire(import.meta.url)
@@ -261,9 +263,18 @@ function lastMatch(text, pattern) {
 
 export function verdictFor({ timedOut, code, output = '' }) {
   if (timedOut) return 'TIMEOUT'
-  if (code !== 0) return 'FAIL'
 
   const text = typeof output === 'string' ? output : ''
+
+  /* A DRIVER THAT COULD NOT MEASURE IS NOT A PRODUCT FAILURE, and it outranks
+     the exit code in both directions. Identical fixed work on this machine
+     varied from 356ms to 5408ms on 2026-08-16, which is enough to fail a fixed
+     budget on its own; reporting that as FAIL blames the product for the
+     weather, and reporting it as PASS hides that nothing was measured. Neither
+     is true, so it is neither. See tools/machine-steadiness.mjs. */
+  if (text.includes(UNMEASURABLE_MARK)) return 'INCONCLUSIVE'
+
+  if (code !== 0) return 'FAIL'
 
   /* A driver that counted its own failures has already answered, and exiting 0
      afterwards does not withdraw the count. */

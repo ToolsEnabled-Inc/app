@@ -73,6 +73,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+import { createSteadinessTracker, unmeasurableLine } from './machine-steadiness.mjs'
 
 const execFile = promisify(execFileCallback)
 const SELF = fileURLToPath(import.meta.url)
@@ -146,7 +147,26 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 class HarnessError extends Error {}
 
 const say = (line) => process.stdout.write(`${line}\n`)
-const note = (line) => process.stdout.write(`  ..    ${line}\n`)
+
+/* WHETHER THIS COMPUTER CAN BE TIMED AT ALL, sampled through the whole run.
+ *
+ * Every budget below is a fixed number of milliseconds. On 2026-08-16 identical
+ * fixed CPU work on this machine ran anywhere from 356ms to 5408ms, and the
+ * product's own account create took 3.3s one day and 13.7s the next on
+ * byte-identical builds. Against that, a fixed budget measures the machine, not
+ * the product -- and a red that means "your computer was busy" teaches everyone
+ * to ignore reds.
+ *
+ * The sample rides `note` deliberately. Steadiness cannot be established by one
+ * reading before the run: the slowdown is a state change that sustained work
+ * BRINGS ON, so a pre-flight probe reads a cool machine and then the scenarios
+ * do the heating. `note` is called once per measurement line, which spreads the
+ * samples across the entire run for about 20ms each. */
+const steadiness = createSteadinessTracker()
+const note = (line) => {
+  steadiness.sample()
+  process.stdout.write(`  ..    ${line}\n`)
+}
 
 /* ---------- stage a real packaged copy, with the CURRENT tree inside it ----------
  * Borrows the built binary and swaps in the working tree's dist/ and shell/, so
@@ -1196,6 +1216,9 @@ async function main() {
   const record = { measuredAt: new Date().toISOString(), budgets: BUDGETS, scenarios: {} }
   let staged
   const failures = []
+  /* The subset of `failures` that counts things rather than timing things, and
+     so still means something on a computer that could not be timed. */
+  const countedFailures = []
   try {
     say('== staging the packaged product with the current tree inside it ==')
     staged = await stageApp(scratch)
@@ -1285,15 +1308,21 @@ async function main() {
       say(`   heap ${record.scenarios.memory.heapGrowthPerLapMb}MB/lap, ` +
         `${record.scenarios.memory.nodeGrowthPerLap} nodes/lap, ` +
         `${record.scenarios.memory.listenerGrowthPerLap} listeners/lap`)
+      /* COUNTS, NOT CLOCKS. Leaked nodes, listeners and heap are the same
+         number on a busy computer as on an idle one, so these two survive an
+         unsteady machine while every millisecond budget above does not. */
       if (record.scenarios.memory.heapGrowthPerLapMb > BUDGETS.heapGrowthPerLapMb) {
-        failures.push(`the JS heap grows ${record.scenarios.memory.heapGrowthPerLapMb}MB per lap, over the ${BUDGETS.heapGrowthPerLapMb}MB budget`)
+        const line = `the JS heap grows ${record.scenarios.memory.heapGrowthPerLapMb}MB per lap, over the ${BUDGETS.heapGrowthPerLapMb}MB budget`
+        failures.push(line); countedFailures.push(line)
       }
       if (record.scenarios.memory.nodeGrowthPerLap > BUDGETS.nodeGrowthPerLap) {
-        failures.push(`${record.scenarios.memory.nodeGrowthPerLap} DOM nodes are left behind per lap, over the ${BUDGETS.nodeGrowthPerLap} budget`)
+        const line = `${record.scenarios.memory.nodeGrowthPerLap} DOM nodes are left behind per lap, over the ${BUDGETS.nodeGrowthPerLap} budget`
+        failures.push(line); countedFailures.push(line)
       }
     }
 
     record.failures = failures
+    record.steadiness = steadiness.read()
     if (JSON_OUT) {
       writeFileSync(path.resolve(JSON_OUT), JSON.stringify(record, null, 2))
       say(`\nmeasurement record written to ${path.resolve(JSON_OUT)}`)
@@ -1305,12 +1334,34 @@ async function main() {
       process.exitCode = 0
       return
     }
+    /* A BUDGET IS A CONSTANT, AND IT CAN ONLY JUDGE A COMPUTER THAT HELD ONE.
+       When this machine changed speed while measuring, the millisecond budgets
+       above tested the weather; saying FAIL there blames the product for it,
+       which is exactly how the account failure spent three days attributed to
+       DPAPI. So they are reported as observations and the run declares itself
+       unmeasurable. The counted budgets -- leaked nodes, listeners, heap -- are
+       unaffected by how busy the machine was, so they still fail on their own. */
+    const reading = record.steadiness
+    if (reading.steady === false) {
+      say(`  ${unmeasurableLine(reading)}`)
+      for (const failure of failures) {
+        if (!countedFailures.includes(failure)) say(`  ..    over budget, but not measurable here: ${failure}`)
+      }
+      if (countedFailures.length) {
+        for (const failure of countedFailures) say(`  FAIL  ${failure}`)
+        process.exitCode = 1
+        return
+      }
+      process.exitCode = 0
+      return
+    }
+
     if (failures.length) {
       for (const failure of failures) say(`  FAIL  ${failure}`)
       process.exitCode = 1
       return
     }
-    say('  PASS  every measured budget held.')
+    say(`  PASS  every measured budget held. (fixed work stayed within ${reading.ratio}x over ${reading.count} samples)`)
     process.exitCode = 0
   } catch (error) {
     if (error instanceof HarnessError) {

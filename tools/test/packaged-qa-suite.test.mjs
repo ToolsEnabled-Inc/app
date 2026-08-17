@@ -216,6 +216,27 @@ test('7. an exit code of 0 is a CLAIM, and the driver\'s own output is cross-exa
     'the runner must pass the driver output to verdictFor, or the cross-examination never runs')
 })
 
+test('7b. a driver that could not measure is neither a pass nor a product failure', async () => {
+  const { UNMEASURABLE_MARK } = await import('../machine-steadiness.mjs')
+  const declared = `${UNMEASURABLE_MARK} This computer's speed changed by about 8.3 times while the test ran.\n`
+
+  /* It outranks the exit code in BOTH directions. Blaming the product for the
+     machine's weather is how the account failure spent three days attributed to
+     DPAPI; calling it green hides that nothing was measured. */
+  assert.equal(verdictFor({ timedOut: false, code: 1, output: `${declared}4 of 9 checks failed\n` }), 'INCONCLUSIVE',
+    'a budget missed on an unmeasurable machine must not be reported as a product failure')
+  assert.equal(verdictFor({ timedOut: false, code: 0, output: `${declared}9/9 checks passed\n` }), 'INCONCLUSIVE',
+    'and a green on an unmeasurable machine must not be believed either')
+
+  /* A timeout is still decided first: a driver killed at its ceiling produced
+     no result at all, whatever it managed to print before it died. */
+  assert.equal(verdictFor({ timedOut: true, code: 0, output: declared }), 'TIMEOUT')
+
+  /* And the mark must be the module's, not a copy that can drift out of step. */
+  assert.match(runnerSource, /import \{ UNMEASURABLE_MARK \} from '\.\/machine-steadiness\.mjs'/,
+    'the suite must import the mark rather than restate it')
+})
+
 test('8. a non-PASS verdict of any kind fails the suite, so INCONCLUSIVE cannot be a quiet green', () => {
   assert.match(runnerSource, /results\.filter\(result => result\.verdict !== 'PASS'\)/,
     'the suite must count anything that is not a PASS as a failure; an allowlist of tolerated verdicts is how ' +
