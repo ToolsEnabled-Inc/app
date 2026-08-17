@@ -492,17 +492,46 @@ async function main() {
         /* Find each write toggle by the words next to it, press it, and report
            what the storage says afterwards -- so "the toggle moved" and "the
            product believes it" are two facts, not one assumption. */
-        const wanted = ['Dispatch agent lanes', 'Launch Codex Cloud tasks']
+        const wanted = [
+          { label: 'Dispatch agent lanes', settingId: 'write_dispatch' },
+          { label: 'Launch Codex Cloud tasks', settingId: 'write_cloud-launch' },
+        ]
         const pressed = []
-        for (const label of wanted) {
-          const row = [...document.querySelectorAll('*')].find(node =>
-            node.children.length <= 6
-            && (node.innerText || '').trim().startsWith(label)
-            && node.querySelector('button, input[type=checkbox], [role=switch]'))
-          const control = row?.querySelector('button, input[type=checkbox], [role=switch]')
+        for (const { label, settingId } of wanted) {
+          /* THE ROW, NOT AN ANCESTOR OF IT. This used to be a
+             querySelectorAll('*') sweep with .find(), which walks in DOCUMENT
+             ORDER and therefore returns the OUTERMOST element whose text starts
+             with the label -- a section container, not the row. Its first
+             control in document order can be a reveal button, so this pressed
+             the wrong thing and reported the write flag unmoved, which reads
+             exactly like a product defect and is not one. Measured 2026-08-17.
+             src/views/settings.js:395 gives every row a data-setting-id; use it,
+             and keep the old sweep only as a fallback for a renamed row. */
+          const row = document.querySelector('article[data-setting-id="' + settingId + '"]')
+            || [...document.querySelectorAll('*')].reverse().find(node =>
+              node.children.length <= 6
+              && (node.innerText || '').trim().startsWith(label)
+              && node.querySelector('button, input[type=checkbox], [role=switch]'))
+          /* The toggle first: a row may carry other controls, and only this one
+             is the setting. */
+          const control = row?.querySelector('input[type=checkbox], [role=switch]')
+            || row?.querySelector('button')
           if (!control) { pressed.push(label + ': no control'); continue }
+          /* Report what the press DID, not just that one happened: a toggle
+             that was already on reads the same as one that refuses to move. */
+          /* ASK THE QUESTION THE CHECK'S NAME ASKS. Pressing blindly turned an
+             already-ON toggle OFF and then reported that it "cannot be switched
+             on" -- a green product reading as a defect. So: press only when it
+             is off, and prove the control MOVES by pressing twice when it is
+             already on, ending enabled either way. */
+          const key = 'mc.write.' + settingId.replace('write_', '')
+          const before = { checked: control.checked ?? null, stored: localStorage.getItem(key) }
           control.click()
-          pressed.push(label + ': pressed')
+          const mid = { checked: control.checked ?? null, stored: localStorage.getItem(key) }
+          if (mid.stored !== 'enabled') control.click()
+          const after = { checked: control.checked ?? null, stored: localStorage.getItem(key) }
+          pressed.push(label + ': ' + before.stored + ' -> ' + mid.stored + ' -> ' + after.stored
+            + (mid.stored !== before.stored ? ' (the control moves)' : ' (THE CONTROL DID NOT MOVE)'))
         }
         return JSON.stringify({
           pressed,
