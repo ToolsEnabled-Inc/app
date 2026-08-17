@@ -163,3 +163,33 @@ services that are not running.
 untracked in-flight files above plus the two orphaned charter gates.
 
 **Nothing in this list ships.** The 1.0.21 candidate is unaffected.
+
+## Correction: one "environmental" dismissal was hiding real work
+
+The triage sent every *defect* claim to a refuter but never checked the
+*dismissals*, and dismissals are where errors hide. Spot-checking the
+machine-environment bucket afterwards found the label right in effect but
+imprecise, with one item of genuine work inside it.
+
+**`smoke.js`, `allowlist.js` and `grepsaver/allowlist.js` share ONE root
+cause**, not three environmental quirks: this session's MCP wire exposes a
+narrowed tool surface, so tests asserting the full registry (e.g.
+`chrome_web_store.upload`) fail. They pass from an unrestricted permission
+session.
+
+**The real work hiding there:** `tools/grepsaver-tooldigest.js`'s generated
+output is genuinely STALE — it describes **242 tools against a live registry of
+270** (the 28 include this lane's 11 `research.*` tools). That digest is the map
+agents read *instead of grepping*, so a stale one silently under-reports what
+the product can do.
+
+It cannot be regenerated from a narrow session, and the generator knows it:
+run from here it exits 3 and refuses, saying regenerating from a partial wire
+"would silently drop every missing tool, write-class tools included" — and it
+leaves the existing file untouched. That is a fail-closed generator behaving
+exactly as it should.
+
+**Action for whoever holds an unrestricted session:** run
+`node tools/grepsaver-tooldigest.js`, confirm it reports 270, commit the
+regenerated digest. Until then `allowlist.js` stays red for a real reason, not
+a machine quirk.
