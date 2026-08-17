@@ -45,19 +45,43 @@ const READ = `(() => {
 
 async function main() {
   const scratch = scratchDirectory('agent-really-starts')
-  /* --installed drives THE BYTES THE OWNER ACTUALLY RUNS, from the shortcut on
-     his desktop, with no staging and no repo dist copied over them. Every other
-     harness here restages the packaged build with the working tree's renderer
-     inside it, which is right for testing a change and WRONG for answering "why
-     is the thing on my desktop broken" -- it silently swaps out the very bytes
-     in question. Measured 2026-08-17: the owner is on the installed build and
-     nothing in this checkout had ever reached him. */
-  const installedRoot = process.argv.includes('--installed')
-    ? path.join(process.env.LOCALAPPDATA, 'Programs', 'ToolsEnabled')
-    : null
-  const staged = installedRoot
-    ? { executable: path.join(installedRoot, 'ToolsEnabled.exe'), appRoot: installedRoot }
-    : await stage(scratch, releaseDirectory())
+  /* `--installed` USED TO EXIST HERE. IT IS REFUSED, AND THIS IS WHY.
+   *
+   * It launched `%LOCALAPPDATA%\\Programs\\ToolsEnabled` directly, so the run
+   * would exercise the exact bytes on the owner's desktop rather than a
+   * restaged copy. The reasoning was sound and the mechanism was not: the
+   * window was isolated with `--user-data-dir`, but the ENVIRONMENT was
+   * isolated with APPDATA/LOCALAPPDATA/USERPROFILE -- and Electron resolves
+   * appData through the Win32 shell API, NOT the environment. So the
+   * capability layer the app spawned wrote into the owner's REAL
+   * %APPDATA%\\ToolsEnabled\\capability.
+   *
+   * Measured cost, 2026-08-17: mission-bridge-{bootstrap-proof,runtime,token}
+   * .json rewritten at 12:38 and audit.sqlite3 at 13:36 in his live state, and
+   * his canonical audit ledger ended the day desynced from its protected head,
+   * with the product correctly refusing every external write until it was
+   * repaired. audit.js:270-299 already documented this exact incident class
+   * from 2026-08-10 -- a probe redirecting the ledger but not the vault -- and
+   * closes with "prevention is the only real fix". This is that prevention.
+   *
+   * If a future lane needs to know why the INSTALLED build misbehaves, stage it
+   * (`stage()` copies the packaged build and overlays dist/ + shell/) or point
+   * `--release` at the installed directory. Both exercise the same bytes
+   * without the app ever resolving to the owner's state root. */
+  if (process.argv.includes('--installed')) {
+    console.error([
+      'REFUSED: --installed was removed on 2026-08-17.',
+      '',
+      'It launched the real installation, and Electron resolves appData through the',
+      'Win32 shell API rather than the environment -- so the capability layer wrote',
+      "into the owner's live state and desynced his audit ledger.",
+      '',
+      'Use --release <win-unpacked> instead, or stage() for a build carrying your changes.',
+    ].join('\n'))
+    process.exitCode = 2
+    return
+  }
+  const staged = await stage(scratch, releaseDirectory())
   /* THE PERMISSION RECORD IS SEEDED RATHER THAN CLICKED. The first draft tried
      to press a "Skip" that is not on the permission question, so the run never
      left setup and reported five failures that were entirely this harness's
