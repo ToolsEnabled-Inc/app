@@ -28,6 +28,7 @@ import {
   FIRST_RUN_NEEDS,
   GUIDE_ACTION,
   GUIDE_HREF,
+  PROVIDER_SETUP,
   SETTINGS_HREF,
   WORKS_HERE,
   hostAbsentMarkup,
@@ -232,4 +233,102 @@ test('a host page can keep a class an existing probe reads', () => {
   assert.match(html, /class="host-absent-reason projection-unavailable graph-empty-reason"/)
   /* And omitting it adds no stray whitespace class. */
   assert.match(hostAbsentMarkup('r'), /class="host-absent-reason projection-unavailable"/)
+})
+
+/* ------------------------------------------------------------------
+   The three assistant programs, and the two ways this list turns into a lie.
+
+   1. IT PROMISES SOMETHING THAT CANNOT START. The rule the owner set is that a
+      menu entry which cannot run is worse than no entry. Gemini is on this page
+      on purpose -- a person comparing the three deserves an answer about the
+      third -- and the entire safety of that decision is the word "none" and the
+      sentence beside it. If a later lane flips `reach` without wiring anything,
+      this page starts telling people to install a program it will not use.
+   2. IT REPEATS THE HALF-TRUTH THE TIER MENU ALREADY TOLD. "Claude cannot start
+      from a tree" was on the menu for a release with nowhere in the product
+      saying where Claude DOES work, so a person read it as "Claude is not
+      supported" and never found the agent page. Claude's entry must carry both
+      halves or it reproduces that defect on the one screen meant to fix it.
+   ------------------------------------------------------------------ */
+
+const PROVIDERS = Object.fromEntries(PROVIDER_SETUP.map(provider => [provider.id, provider]))
+
+test('all three assistant programs are named, and none is invented', () => {
+  assert.deepEqual(PROVIDER_SETUP.map(provider => provider.id), ['codex', 'claude', 'gemini'])
+  for (const provider of PROVIDER_SETUP) {
+    assert.ok(provider.name.length > 0, `${provider.id} has no name a person could read`)
+    assert.ok(provider.doesHere.length > 0, `${provider.id} does not say what it does here`)
+    assert.ok(provider.steps.length > 0, `${provider.id} gives a person nothing to type`)
+  }
+})
+
+test('reach is one of the three known values, and Gemini is not offered', () => {
+  for (const provider of PROVIDER_SETUP) {
+    assert.ok(
+      ['tree', 'handover', 'none'].includes(provider.reach),
+      `${provider.id} claims a reach this product has no rendering for`,
+    )
+  }
+  assert.equal(PROVIDERS.codex.reach, 'tree')
+  assert.equal(PROVIDERS.claude.reach, 'handover')
+
+  /* THE ONE THAT GUARDS THE OWNER'S RULE. Nothing in this product starts Gemini
+     -- there is no adapter at the engine seam and no lane row for it -- so this
+     page may not imply otherwise. The day something can start it, this assertion
+     is the thing that has to be changed deliberately, by somebody who has driven
+     it. */
+  assert.equal(
+    PROVIDERS.gemini.reach,
+    'none',
+    'Gemini was marked as reachable: nothing in this copy starts it, so this page would be telling people to set up something it will not use',
+  )
+  assert.match(PROVIDERS.gemini.doesHere, /nothing in this copy starts gemini/i)
+})
+
+test('the Claude entry carries both halves, not only the refusal', () => {
+  const said = PROVIDERS.claude.doesHere.toLowerCase()
+  /* Where it DOES work. Measured on the installed build: handing work over on
+     the agent page spawns the official claude program on the person's own
+     sign-in. A page that omitted this would send somebody away from the one
+     screen where the thing they want already happens. */
+  assert.match(said, /agent page/)
+  assert.match(said, /sign-in/)
+  /* And where it does not, so the tier menu's refusal is explained rather than
+     contradicted. */
+  assert.match(said, /tree/)
+})
+
+test('every command is one that exists, and no sign-in command is invented', () => {
+  const commands = PROVIDER_SETUP.flatMap(provider => provider.steps
+    .filter(step => step.kind === 'command')
+    .map(step => step.text))
+
+  for (const command of commands) {
+    assert.equal(command, command.trim(), `"${command}" carries stray spacing`)
+    assert.ok(command.length > 0)
+  }
+
+  /* Read off each program's own help before it was written down, not
+     remembered. The negative is the load-bearing one: gemini 0.53.0 has no
+     sign-in subcommand at all, so a `gemini auth login` here would be a command
+     a person cannot run, printed by the screen that exists to stop that. */
+  assert.ok(commands.includes('claude auth login'))
+  assert.ok(commands.includes('claude auth status'))
+  assert.ok(commands.includes('codex login status'))
+  for (const invented of ['gemini auth login', 'gemini auth status', 'gemini login']) {
+    assert.ok(!commands.includes(invented), `"${invented}" is not a command gemini has`)
+  }
+})
+
+test('the page never asks a person for a credential', () => {
+  /* The product's promise is that it starts these programs and never handles
+     their sign-ins. A step that asked for a key or a token would break it on the
+     one screen where a person is most primed to hand one over. */
+  const prose = PROVIDER_SETUP
+    .flatMap(provider => [provider.doesHere, ...provider.steps.map(step => `${step.text} ${step.note || ''}`)])
+    .join(' ')
+    .toLowerCase()
+  for (const ask of ['paste your', 'enter your key', 'api key here', 'copy your token']) {
+    assert.ok(!prose.includes(ask), `the guide asks for a credential: "${ask}"`)
+  }
 })

@@ -149,6 +149,37 @@
 }
 .guide-step-link:hover { color: var(--ink); }
 
+/* THE THREE ASSISTANT PROGRAMS.
+ *
+ * Indented behind a left rule so the three read as parts of one answer rather
+ * than as three more sections of the page -- the guide is already a long column
+ * of blocks, and a person scanning for "what about Claude" needs the group to be
+ * findable as a group.
+ *
+ * THE REACH COLOURS ARE THE POINT AND THE MIDDLE ONE IS NOT AMBER. Green is "you
+ * can use it here now". Grey is "nothing here starts it", which is a fact and not
+ * a fault, exactly as data-fix="none" above is grey. The middle value gets the
+ * ordinary ink instead of a warning colour, because Claude working on one screen
+ * and not another is a limit of this version and not something wrong with the
+ * person's computer. Painting any of these amber would send somebody hunting for
+ * a fault that is not there, which is the mistake the block above this one
+ * already documents. */
+.guide-provider {
+  margin: var(--s5) 0 0;
+  padding-left: var(--s4);
+  border-left: 2px solid var(--line-2);
+}
+.guide-provider .guide-need-head h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15.5px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+.guide-provider[data-reach="tree"] .guide-need-tag { color: var(--s-good); }
+.guide-provider[data-reach="handover"] .guide-need-tag { color: var(--ink-2); }
+.guide-provider[data-reach="none"] .guide-need-tag { color: var(--ink-3); }
+
 .guide-works-list {
   margin: var(--s4) 0 0;
   padding: 0;

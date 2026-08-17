@@ -24,6 +24,7 @@
 import { el } from '../components.js'
 import {
   FIRST_RUN_NEEDS,
+  PROVIDER_SETUP,
   SETTINGS_HREF,
   WORKS_HERE,
 } from '../first-run-needs.js'
@@ -72,6 +73,37 @@ function needMarkup(need) {
   </section>`
 }
 
+/* THE THREE ASSISTANT PROGRAMS, EACH WITH A STRAIGHT ANSWER ABOUT WHAT IT DOES
+   HERE.
+
+   `reach` is drawn as a visible phrase and not only as a class, for the same
+   reason `fix` is above it: the one thing a person must not misread on this page
+   is what will happen when they finish following the instructions. "Nothing here
+   starts it yet" printed beside Gemini is what stops somebody installing a
+   program, signing in, and then hunting this window for the switch that would
+   use it.
+
+   The word for each reach is here rather than in the data because it is a
+   rendering of the value, the way the guide's "You can do this now" is a
+   rendering of `fix`. The SENTENCE that explains it lives in the data and is
+   asserted there. */
+const REACH_WORDS = Object.freeze({
+  tree: 'Works here now',
+  handover: 'Works on the agent page',
+  none: 'Nothing here starts it yet',
+})
+
+function providerMarkup(provider) {
+  return `<section class="guide-provider" data-provider="${esc(provider.id)}" data-reach="${esc(provider.reach)}">
+    <header class="guide-need-head">
+      <h3>${esc(provider.name)}</h3>
+      <p class="guide-need-tag">${esc(REACH_WORDS[provider.reach] || '')}</p>
+    </header>
+    <p class="guide-need-body">${esc(provider.doesHere)}</p>
+    <ol class="guide-steps">${provider.steps.map(stepMarkup).join('')}</ol>
+  </section>`
+}
+
 export function guideView() {
   const root = el(`
     <main class="view-pad guide-page">
@@ -83,6 +115,15 @@ export function guideView() {
         </header>
 
         ${FIRST_RUN_NEEDS.map(needMarkup).join('')}
+
+        <section class="guide-need guide-accounts" data-need="provider-accounts">
+          <header class="guide-need-head">
+            <h2>Your own assistant sign-ins</h2>
+            <p class="guide-need-tag">You can do this now</p>
+          </header>
+          <p class="guide-need-body">An agent runs on one of these programs. Each one is a separate install with its own sign-in. ToolsEnabled never asks for those sign-ins and never keeps one. It starts the program, and the program uses the account you signed in to. Here is what to type, and what this copy can do with each one today.</p>
+          ${PROVIDER_SETUP.map(providerMarkup).join('')}
+        </section>
 
         <section class="guide-need guide-works" data-need="works-here">
           <header class="guide-need-head">

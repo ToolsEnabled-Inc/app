@@ -178,6 +178,86 @@ export const FIRST_RUN_NEEDS = Object.freeze([
   }),
 ])
 
+/* THE THREE ASSISTANT PROGRAMS, WHAT EACH ONE COSTS A PERSON TO SET UP, AND
+ * WHAT THIS COPY CAN ACTUALLY DO WITH IT.
+ *
+ * THE DEFECT. The owner's requirement is that a person can add their Claude,
+ * Codex and Gemini sign-ins easily and then have agents run on them. Measured on
+ * the packaged product: Codex was the only one of the three named anywhere in
+ * the product, Gemini appeared nowhere at all, and the only sentence about
+ * sign-ins was in Settings, saying this product never asks for them. That is
+ * true and it reads as "there is nothing here for you to do". A person then
+ * meets a tier menu where every Claude row says it cannot start, with no screen
+ * anywhere that explains what Claude CAN do here or how to set it up.
+ *
+ * `reach` IS THE HONEST FIELD AND IT IS WHY THIS IS DATA. It says what this copy
+ * does with the program TODAY, and the three values are different in kind:
+ *
+ *   'tree'     the research page starts one from a tree. Codex only.
+ *   'handover' work handed over on the agent page runs on it, and a tree start
+ *              refuses. Claude. MEASURED on the installed build: that hand-over
+ *              spawns the official claude program on the person's own sign-in.
+ *   'none'     nothing in this copy starts it. Gemini. Signing in changes
+ *              nothing here, and saying so is the whole of the help.
+ *
+ * A MENU ENTRY THAT CANNOT START IS THE THING THIS MUST NOT BECOME. Gemini is
+ * listed because a person comparing the three deserves a straight answer about
+ * the third, and the straight answer is "not built". It is not offered as a
+ * choice anywhere, and it must not be until something can start it.
+ *
+ * EVERY COMMAND BELOW WAS RUN OR READ OFF THE PROGRAM'S OWN HELP, never
+ * remembered. `claude auth login` and `claude auth status` are subcommands of
+ * claude 2.1.186, read from `claude auth --help`. `codex login status` is
+ * checked the same way. Gemini 0.53.0 has NO sign-in subcommand at all -- its
+ * help lists mcp, extensions, skills, hooks and gemma and nothing else -- so its
+ * entry says to run the program, because inventing a command a person cannot run
+ * is worse than the silence this replaces.
+ */
+export const PROVIDER_SETUP = Object.freeze([
+  Object.freeze({
+    id: 'codex',
+    name: 'Codex',
+    reach: 'tree',
+    /* The only one that runs work from start to finish inside this window, so it
+       is first. The commands are imported rather than retyped for the reason the
+       guide entry below already gives: three screens print them now. */
+    doesHere: 'Starts an agent from the research page and runs the work here. This is the one that works end to end in this copy today.',
+    steps: Object.freeze([
+      Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.install, note: 'in Windows Terminal. If you already have Node, "' + CODEX_SETUP_COMMANDS.installWithNode + '" does the same thing.' }),
+      Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in the same window, once the install finishes.' }),
+      Object.freeze({ kind: 'command', text: 'codex login status', note: 'tells you whether you are signed in. Nothing here reads your sign-in.' }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'claude',
+    name: 'Claude',
+    reach: 'handover',
+    /* BOTH HALVES, AND THE ORDER MATTERS. The product used to say only the
+       second half, on the tier menu, with nowhere to read the first. A person
+       was told Claude does not work and sent away from the one screen where it
+       already does. */
+    doesHere: 'Runs the work you hand over on the agent page, using your own Claude sign-in. It cannot be started from a tree in this copy yet.',
+    steps: Object.freeze([
+      Object.freeze({ kind: 'command', text: 'npm install -g @anthropic-ai/claude-code', note: 'in Windows Terminal. This one needs Node on the computer first.' }),
+      Object.freeze({ kind: 'command', text: 'claude auth login', note: 'in the same window. It opens your browser and signs in to your own account.' }),
+      Object.freeze({ kind: 'command', text: 'claude auth status', note: 'tells you whether you are signed in, and on which plan.' }),
+    ]),
+  }),
+  Object.freeze({
+    id: 'gemini',
+    name: 'Gemini',
+    reach: 'none',
+    /* THE ONE THAT MUST NOT BE OVERSOLD, and the reason this list is not a menu.
+       The program is real and installs fine. Nothing in ToolsEnabled starts it.
+       Saying so is the help; offering it would be the defect. */
+    doesHere: 'Nothing in this copy starts Gemini yet. You can install it and sign in, and no screen here will use it. It is listed so you are not left guessing.',
+    steps: Object.freeze([
+      Object.freeze({ kind: 'command', text: 'npm install -g @google/gemini-cli', note: 'in Windows Terminal, if you want it for your own use outside this window.' }),
+      Object.freeze({ kind: 'command', text: 'gemini', note: 'run it once. It asks how you want to sign in the first time it starts.' }),
+    ]),
+  }),
+])
+
 /* What DOES work on one computer with nothing connected. A page of things that
    are missing, and nothing else, reads as a broken product; these are real, they
    are reachable from this window, and each one was checked on a sterile profile
