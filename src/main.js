@@ -39,6 +39,7 @@ import { LIVE_FLAGS_EVENT } from './live-flags.js'
 import { WRITE_FLAGS_EVENT } from './write-flags.js'
 import { SETUP_RESOLUTION, firstRunPending, shouldOpenSetup } from './setup-state.js'
 import { mountSettingsRecoveryNotice } from './settings-recovery-notice.js'
+import { sameRoute } from './route-identity.js'
 import {
   CHECKOUT_SURFACE_EVENT,
   checkoutSurfaceAvailable,
@@ -267,6 +268,30 @@ function render() {
     return
   }
 
+  /* SAME ROUTE, SO THE CHROME IS BROUGHT UP TO DATE AND THE VIEW IS LEFT ALONE.
+   *
+   * render() is not only called for navigation. A background probe answering
+   * calls it too (the CHECKOUT_SURFACE_EVENT listener below), and without this
+   * it rebuilt whatever the person was in the middle of -- their half-answered
+   * setup, their open settings drawer -- because swapView always constructs a
+   * new view and destroys the old one.
+   *
+   * The codebase already knew this hazard: the LIVE and WRITE flag listeners
+   * below skip render() when the current route is settings, so their inline
+   * controls are not torn out mid-use. That is this same fix, applied to two
+   * events by hand. Doing it here covers every caller, including the ones
+   * nobody has added yet.
+   *
+   * The probe's whole purpose is that the ring can GAIN a stop, and the arrows
+   * are written from ringOrder() inside syncChrome -- so the chrome still
+   * updates and the new stop appears. Guarding the LISTENER instead would have
+   * been the wrong fix: it hides a surface when the answer goes the other way,
+   * which is removing a capability to silence a symptom. */
+  if (current && sameRoute(current.route, route)) {
+    syncChrome(route)
+    return
+  }
+
   // a view can hand us a shared element to morph through (e.g. the agent
   // bubble behind "Open full view"); it only ever affects motion, never a route
   const morph = takeViewMorph()
@@ -341,6 +366,17 @@ function swapView(route, morph, zoom, snapshotted) {
   }
   current = { el: wrap, view, route }
 
+  syncChrome(route)
+}
+
+/* THE CHROME AROUND THE VIEW: breadcrumb, route stamp, ring arrows, title.
+ *
+ * Split out of swapView so it can be brought up to date WITHOUT tearing down a
+ * live view. The ring is the reason: it can GROW a stop when a background probe
+ * answers (src/checkout-visibility.js), and ringOrder() is read here, so before
+ * this split the only way to update the arrows was to rebuild whatever the
+ * person was in the middle of. See render()'s same-route path. */
+function syncChrome(route) {
   if (crumb) crumb.innerHTML = crumbFor(route)
   // Route stamp on <body>. It was added to gate the aurora drift to Home;
   // the aurora is gone and no sheet reads it today, but it stays as the
