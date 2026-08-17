@@ -344,7 +344,6 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   tierField.appendChild(tierLabelNode)
   tierField.appendChild(tierHint)
   tierField.appendChild(tierSelect)
-  body.appendChild(tierField)
 
   /* EFFORT RIDES BESIDE THE TIER (owner, iteration 5: "I need to be able to
      choose effort levels when starting an agent … just like vscode"). The
@@ -380,7 +379,6 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   effortField.appendChild(effortLabelNode)
   effortField.appendChild(effortHint)
   effortField.appendChild(effortSelect)
-  body.appendChild(effortField)
 
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
@@ -396,7 +394,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   messageInput.className = 'agent-compose-text'
   messageInput.setAttribute('id', `${id}-message`)
   messageInput.setAttribute('data-compose-field', 'message')
-  messageInput.setAttribute('rows', '6')
+  messageInput.setAttribute('rows', '4')
   /* An example of a real job, not a label in disguise: the question is in the
      bound label above, which stays on screen once typing starts. */
   messageInput.setAttribute('placeholder', START_PANEL.messagePlaceholder)
@@ -411,7 +409,16 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   messageField.appendChild(messageHint)
   messageField.appendChild(messageInput)
   messageField.appendChild(messageProblem)
+  /* THE TWO ANSWERS FIRST. This file's own header calls the panel "two fields
+     and two buttons": a role and a brief. The assistant and effort choices were
+     added later and both carry two lines of help, which pushed the brief -- the
+     one thing a person opens this panel to write -- off the bottom of the rail
+     at first paint. Measured on installed 1.0.22: role visible, brief not.
+     Nothing is removed by this order; the later choices keep their defaults and
+     their words, and now sit under the question they qualify. */
   body.appendChild(messageField)
+  body.appendChild(tierField)
+  body.appendChild(effortField)
 
   /* START DOES NOT SCROLL. IT IS THE POINT OF THE PANEL.
      Owner, twice, months apart: "I cant scroll down to even press start" and

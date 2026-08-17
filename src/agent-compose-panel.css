@@ -134,10 +134,15 @@
 }
 
 .agent-compose-text {
-  min-height: 7.5em;
+  /* FOUR ROWS, NOT SIX. Six rows spent ~40px that the rail does not have:
+     with Start pinned below the form, the message box itself fell out of
+     first paint, which is the same defect one field further up. Nothing is
+     lost by starting shorter -- the box scrolls internally, so a long brief
+     still types and still reads; only its opening height changed. */
+  min-height: 5em;
   /* Vertical resize is gone deliberately: dragging it taller inside a rail
      that clips only pushed Start further out of reach. The body scrolls
-     now, and the box is a comfortable fixed six rows. */
+     now, and the box is a comfortable fixed four rows. */
   resize: none;
 }
 

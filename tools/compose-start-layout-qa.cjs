@@ -39,7 +39,7 @@ const PANEL_HTML = `
         <div class="agent-compose-field"><label>What should it be?</label><p class="agent-compose-hint">Pick the role.</p><select class="agent-compose-select"><option>helper</option></select><p class="agent-compose-summary">A helper does one job.</p><p class="agent-compose-problem"></p></div>
         <div class="agent-compose-field"><label>Which assistant?</label><p class="agent-compose-hint">Luna is a good default. Claude cannot start from a tree yet; to use Claude, hand the work over on the agent page instead.</p><select class="agent-compose-select"><option>Luna</option></select></div>
         <div class="agent-compose-field"><label>How hard should it think?</label><p class="agent-compose-hint">Harder thinking is slower and costs more. The tier picks a sensible default; change it here for this agent.</p><select class="agent-compose-select"><option>Default</option></select></div>
-        <div class="agent-compose-field"><label>What do you want it to do?</label><p class="agent-compose-hint">Write it the way you would ask a person. One clear job is enough to start.</p><textarea class="agent-compose-text" rows="4"></textarea><p class="agent-compose-problem"></p></div>
+        <div class="agent-compose-field"><label>What do you want it to do?</label><p class="agent-compose-hint">Write it the way you would ask a person. One clear job is enough to start.</p><textarea class="agent-compose-text" rows="4"></textarea><!-- height comes from the stylesheet min-height, matching the real panel --><p class="agent-compose-problem"></p></div>
         <p class="agent-compose-notice" hidden></p>
       </div>
       <div class="agent-compose-actions"><button class="ctl-btn agent-compose-submit" data-compose-action="submit">Start this agent</button></div>
@@ -77,6 +77,8 @@ app.whenReady().then(async () => {
       const rail = document.querySelector('.rail')
       const body = document.querySelector('[data-compose-body]')
       const submit = document.querySelector('[data-compose-action="submit"]')
+      const message = document.querySelector('.agent-compose-text')
+      const m = message.getBoundingClientRect()
       const r = rail.getBoundingClientRect()
       const s = submit.getBoundingClientRect()
       const hit = document.elementFromPoint(Math.round(s.left + s.width / 2), Math.round(s.top + s.height / 2))
@@ -88,6 +90,9 @@ app.whenReady().then(async () => {
         formScrollHeight: body.scrollHeight, formClientHeight: body.clientHeight,
         visibleWithoutScrolling: s.top >= r.top - 1 && s.bottom <= r.bottom + 1 && s.height > 0,
         pressable: Boolean(hit && (hit === submit || submit.contains(hit))),
+        messageTop: Math.round(m.top), messageBottom: Math.round(m.bottom),
+        messageVisible: m.top < r.bottom && m.bottom > r.top,
+        messageFullyVisible: m.top >= r.top - 1 && m.bottom <= r.bottom + 1,
         hitElement: hit ? (hit.className || hit.tagName) : null,
       }
     })()`)
@@ -101,6 +106,10 @@ app.whenReady().then(async () => {
       `submit ${measured.submitTop}..${measured.submitBottom} within rail ${measured.railTop}..${measured.railBottom}`)
     check(`[${size.label}] Start is PRESSABLE where it is drawn`,
       measured.pressable === true, measured.pressable ? 'the centre point reaches it' : `centre hits ${measured.hitElement}`)
+    check(`[${size.label}] the message box is at least partly on screen at first paint`,
+      measured.messageVisible === true,
+      `message ${measured.messageTop}..${measured.messageBottom}, rail ${measured.railTop}..${measured.railBottom}` +
+      (measured.messageFullyVisible ? ' (fully visible)' : ' (needs a scroll to see all of it)'))
     check(`[${size.label}] Start is pinned beside the scroller, not inside it`,
       measured.insideScroller === false, measured.insideScroller ? 'inside: it can fall below the fold again' : 'pinned')
     window.destroy()
