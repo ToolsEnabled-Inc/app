@@ -244,3 +244,31 @@ then nobody should go fix a fleet page that may be behaving correctly.
 
 Recorded rather than deleted, because the original reading was mine and a lane
 reading only the first version would chase a defect that may not exist.
+
+### Finding 12 CLOSED — measured, not argued: the canvas is not bare
+
+Instrumented `first-run-contract-qa` to print the empty-slot count beside the
+agent-node count and re-ran it against installed 1.0.23. The failing line now
+reads:
+
+> `FAIL the recommended path draws this computer on the fleet page --
+> nodes=0; empty slots on the canvas=1 -- the canvas is NOT bare: a slot is
+> there to press`
+
+So after the recommended setup path, on a fresh profile, the fleet page **does**
+offer a pressable slot. And in the SAME run, this passes:
+
+> `ok the recommended path reaches a startable agent within 12 clicks --
+> 7 clicks including Start; budget 12`
+
+**A stranger can start an agent in seven clicks from first paint.** The three
+failures are the harness asserting on `.static-tree-node` — the running-agent
+class that `src/tree-graph.js:67-75` deliberately withholds from slots — and the
+two downstream checks that depend on an agent node existing to reveal
+`.graph-open-btn`.
+
+Nothing for the fleet/onboarding lane to fix here. What remains is a harness
+question for whoever owns `first-run-contract-qa`: decide whether "draws this
+computer" means an agent node (then a fresh profile can never satisfy it) or a
+canvas a person can act on (then count slots too). The diagnosis is now printed
+either way, so the next reader gets the answer instead of the ambiguity.

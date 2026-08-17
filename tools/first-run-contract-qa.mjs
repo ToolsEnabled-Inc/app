@@ -982,7 +982,18 @@ async function driveRecommended(executable, scratch, attempt) {
     await until('the computers page', `document.body.dataset.route === 'computers'`)
     await settle(700, 15000)
     const nodes = await evaluate(`document.querySelectorAll('.computers .static-tree-node').length`)
-    check('the recommended path draws this computer on the fleet page', nodes >= 1, `nodes=${nodes}`)
+    /* SAY WHAT IS ACTUALLY ON THE CANVAS WHEN THIS FAILS. `.static-tree-node`
+       means "a running agent" and, by src/tree-graph.js:67-75, an empty slot
+       deliberately does NOT wear it. So a fresh profile with no agents reports
+       nodes=0 whether the page is genuinely bare or correctly showing a slot to
+       press -- two very different verdicts behind one number. Measured
+       2026-08-17: that ambiguity had a lane one step from "fix" a page that may
+       be behaving exactly as designed. The slot count decides it, so it is
+       printed beside the failure rather than left to be re-derived. */
+    const slots = await evaluate(`document.querySelectorAll('.computers .tree-empty-node').length`)
+    check('the recommended path draws this computer on the fleet page', nodes >= 1,
+      `nodes=${nodes}; empty slots on the canvas=${slots}`
+      + (nodes === 0 && slots > 0 ? ' -- the canvas is NOT bare: a slot is there to press, so read this as an agent-node question, not an empty page' : ''))
 
     const openedAgent = await clickVisible('.computers .graph-open-btn')
     check('the door into the agent page can be pressed', openedAgent === 'clicked', openedAgent)
