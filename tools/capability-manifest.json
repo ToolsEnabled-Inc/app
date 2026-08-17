@@ -222,7 +222,7 @@
     }
   ],
   "$comment_pinnedSource": [
-    "The payload is staged from the engine merge that carries BOTH lanes'",
+    "The payload is staged from engine merge 714622a, which carries BOTH lanes'",
     "work, cut on the owner's 2026-08-16 direction: \"ok incorporate all and",
     "cut\". Its two parents are 073ef11 (this lane) and 8140714 (free-cut/r7).",
     "",
