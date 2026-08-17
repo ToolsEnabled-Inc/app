@@ -89,3 +89,34 @@ entry points.
 
 `Page.captureScreenshot` intermittently hangs >45s in the headless config used
 for driving; retries were needed on nearly every shot during the 1.0.17 drive.
+
+## 9. The state root is decided at module load — a probe/test that sets `TOOLSENABLED_STATE_ROOT` too late silently targets the REAL user state
+
+`runtime-state-root.js` memoises `stateRootRecord()` once per process, and the
+record is resolved by the time the engine modules finish loading. Consequence,
+measured 2026-08-16: a probe that `require()`d the installed payload's
+`r-ledger.js` BEFORE setting `TOOLSENABLED_STATE_ROOT` wrote 76 test entries
+into the owner's real `%APPDATA%\ToolsEnabled\capability\reports\R-LEDGER.md`
+(cleaned the same hour; verified 76/76 entries probe-stamped before deletion).
+Four probes confirmed the rule both ways: env set before require → isolated;
+require first → real root, regardless of env set later.
+
+Rule for any test or tool touching payload/engine modules: set
+`TOOLSENABLED_STATE_ROOT` (and any root overrides) BEFORE the first require,
+or use `resetStateRootForTests()` where exported. Worth a guard: a debug-only
+warning when the env var changes after memoisation, since the failure is
+silent and writes to real user data.
+
+Owner: engine runtime lane; every lane writing tests against the payload.
+
+## 10. FIXED in engine 073ef11 — filed /Requests could brick every agent boot
+
+Follow-on from the install read-root fix: the pinned owner-requests block had
+no cap, and the packet fails closed over its ceiling. Measured on installed
+1.0.19: ~36 average /Request entries → AGENT_ONBOARDING_PACKET_TOO_LARGE for
+EVERY packet, all scopes — no lane could start and every checkout hook
+refused, with nothing on any surface saying why. Engine commit `073ef11` caps
+the block at 40% of the scope ceiling (withhold thread → trees → session
+whole with path-naming notices; global sheds oldest-first, newest always
+survives; trim announced in the packet and `unknowns`). Ships with the next
+payload re-pin; until then an installed build carries the vulnerability.
