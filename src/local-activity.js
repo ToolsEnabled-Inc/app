@@ -669,7 +669,16 @@ function describePanel(mode, sessions, engine, chatbox) {
            that says what the whole product needs, which is the question a person
            in that state is actually asking. */
         action: engine.ready
-          ? (engine.sessionsEnabled ? null : { label: 'Turn on agent sessions in Settings', href: '#/settings' })
+          /* THE ADDRESS NAMES THE SWITCH, because the page it opens has 219
+             controls on it. `engine.sessionsEnabled` is isWriteEnabled('agent-session'),
+             so the row this sentence is about is `write_agent-session` -- "Run
+             an agent session", in the Write section. Measured on the packaged
+             build before this carried the id: following this link put a person
+             at the top of Settings with that row 10170px below them AND inside
+             a collapsed tier carrying `inert`, so scrolling could not reach it
+             either. src/views/settings.js reads the id, opens the section to the
+             depth the row lives at, and scrolls to it. */
+          ? (engine.sessionsEnabled ? null : { label: 'Turn on agent sessions in Settings', href: '#/settings?setting=write_agent-session' })
           : { ...GUIDE_ACTION },
       }
     } else {

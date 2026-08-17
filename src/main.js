@@ -125,7 +125,13 @@ function parse() {
   if (parts[0] === 'ledger') return { name: 'ledger' }
   if (parts[0] === 'approvals') return { name: 'approvals' }
   if (parts[0] === 'checkout') return { name: 'checkout' }
-  if (parts[0] === 'settings') return { name: 'settings' }
+  /* THE QUERY TRAVELS FOR SETTINGS TOO, and it is the difference between a link
+     that names a switch and a link that drops a person at the top of a page
+     with 219 controls on it. `?setting=<id>` is read by src/views/settings.js,
+     which opens the section that holds it and scrolls to it. Same mechanism the
+     subscribe route already uses; nothing else about this stop changes, and a
+     plain `#/settings` still lands where it always did. */
+  if (parts[0] === 'settings') return { name: 'settings', query }
   if (parts[0] === 'setup') return { name: 'setup' }
   if (parts[0] === 'account') return { name: 'account' }
   /* The one address every empty screen's door points at. It is a real stop in
@@ -182,7 +188,7 @@ function makeView(route) {
     case 'ledger': return ledgerView()
     case 'approvals': return approvalsView()
     case 'checkout': return checkoutView({ navigate })
-    case 'settings': return settingsView()
+    case 'settings': return settingsView({ query: route.query })
     case 'setup': return setupView({ navigate })
     case 'account': return accountView({ navigate })
     case 'guide': return guideView()

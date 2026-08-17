@@ -755,7 +755,13 @@ async function driveSettingsLink(open) {
     if (!row) return { present: false }
     const box = row.getBoundingClientRect()
     const inert = Boolean(row.closest('[inert]'))
-    const control = row.querySelector('input, button, select')
+    /* THE VISIBLE SWITCH, NOT THE INPUT. A toggle row is a label.settings-toggle
+       wrapping a hidden checkbox and an i element; the i is the thing a person
+       sees and presses, and the label carries the press to the input. Measuring
+       the INPUT's centre reports the i sitting on top of it and reads like a
+       covered control -- which is this harness misreading a perfectly ordinary
+       styled checkbox, not a defect. So the label is the control here. */
+    const control = row.querySelector('.settings-toggle, .settings-seg, select, .settings-range, button')
     const controlBox = control ? control.getBoundingClientRect() : null
     const point = controlBox
       ? document.elementFromPoint(controlBox.x + controlBox.width / 2, controlBox.y + controlBox.height / 2)
@@ -785,7 +791,27 @@ async function driveSettingsLink(open) {
       : `the row "${landing.name}" sits at y=${Math.round(landing.top)} in a ${landing.viewport}px viewport`)
   check('and the switch it landed on can be reached by a mouse',
     landing.controlReachable === true,
-    landing.controlReachable === true ? 'elementFromPoint returns the control' : `elementFromPoint returns ${landing.under}`)
+    landing.controlReachable === true
+      ? `elementFromPoint returns ${landing.under}, inside the control`
+      : `elementFromPoint returns ${landing.under}`)
+
+  /* AND IT IS A SWITCH, NOT A PICTURE OF ONE. Landing on the row is only half
+     the promise the sentence made; the other half is that the person can turn
+     the thing on from where they were sent. Pressed with the mouse, and the
+     answer is read from the product's own stored flag rather than from the
+     checkbox's own property. */
+  const before = await open.page.evaluate(`(() => {
+    const input = document.querySelector('[data-setting-id="write_agent-session"] .settings-toggle input')
+    return { checked: input ? input.checked : null, stored: localStorage.getItem('mc.write.agent-session') }
+  })()`)
+  const flipped = await press(open, '[data-setting-id="write_agent-session"] .settings-toggle', { settleMs: 900 })
+  const after = await open.page.evaluate(`(() => {
+    const input = document.querySelector('[data-setting-id="write_agent-session"] .settings-toggle input')
+    return { checked: input ? input.checked : null, stored: localStorage.getItem('mc.write.agent-session') }
+  })()`)
+  check('and agent sessions can actually be turned on from where the link landed',
+    flipped.pressed && before.checked === false && after.checked === true && after.stored === 'enabled',
+    `pressed=${flipped.pressed} checked ${before.checked} -> ${after.checked}; stored ${before.stored} -> ${after.stored}`)
 }
 
 /* ================================ main ===================================== */

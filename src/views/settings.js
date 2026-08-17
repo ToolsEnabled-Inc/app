@@ -489,7 +489,26 @@ function setTierFocusable(tier, open) {
   }
 }
 
-export function settingsView() {
+/**
+ * The one row a link asked for, or null.
+ *
+ * A LINK MAY NAME A SWITCH, AND ONLY A SWITCH THIS PAGE HAS. The id arrives off
+ * the address bar, so it is looked up in this page's own table and anything
+ * else is ignored -- an unknown id lands the person at the top of Settings,
+ * which is exactly where they landed before this existed, rather than throwing
+ * an error at somebody who followed a link.
+ */
+function requestedSetting(query) {
+  const id = query && typeof query.get === 'function' ? query.get('setting') : null
+  if (typeof id !== 'string' || id.length === 0) return null
+  return byId.get(id) || null
+}
+
+/* NOT NAMED `query`: this view already has a local `query` holding what is
+   typed in the search box, and a parameter of the same name is a redeclaration
+   the module would not even parse. */
+export function settingsView({ query: routeQuery = null } = {}) {
+  const landing = requestedSetting(routeQuery)
   const profileController = createFleetProfileSettings()
   const setupController = createSetupProfileSettings()
   const chatboxController = createChatboxSettings()
@@ -589,6 +608,7 @@ export function settingsView() {
     wireControls()
     updateFooter()
     syncRail()
+    markLanding()
   }
 
   function renderSearch() {
@@ -796,6 +816,36 @@ export function settingsView() {
     })
   })
 
+  /* The row a link named, marked so the eye finds it. Re-applied on every
+     render rather than only on the first, because the capability probes answer
+     a second or two after this page paints and re-render it -- without this the
+     mark a person was following vanished under them. */
+  function markLanding() {
+    if (!landing) return
+    const row = sectionsNode.querySelector(`[data-setting-id="${landing.id}"]`)
+    if (row) row.classList.add('is-landed')
+  }
+
+  /* INSTANT, NOT SMOOTH, and that is a decision rather than an oversight. The
+     row this lands on measured 10170px down the page; a smooth scroll over that
+     distance is a long animated journey past two hundred controls, which reads
+     as the page running away from the person who followed the link. Arriving is
+     what was asked for. */
+  function scrollToLanding() {
+    if (!landing) return
+    requestAnimationFrame(() => {
+      const row = sectionsNode.querySelector(`[data-setting-id="${landing.id}"]`)
+      if (!row) return
+      row.scrollIntoView({ behavior: 'auto', block: 'center' })
+      /* Focus goes to the CONTROL, so somebody who followed the link with the
+         keyboard arrives on the switch itself and can press space. preventScroll
+         because the line above is what decides where the page sits; letting
+         focus scroll as well moves the row off centre again. */
+      const control = row.querySelector('input, select, button')
+      control?.focus?.({ preventScroll: true })
+    })
+  }
+
   function updateActiveFromScroll() {
     scrollFrame = 0
     if (query.trim()) return
@@ -844,7 +894,28 @@ export function settingsView() {
      on the page, which is exactly what made it look like it had worked. */
   setupController.bind(root)
   chatboxController.bind(root)
+
+  /* LANDING ON THE SWITCH A LINK NAMED, and the reason this is more than a
+     scroll.
+     MEASURED on the packaged build, following "Turn on agent sessions in
+     Settings" from the home screen with a real mouse press: the row it means
+     (write_agent-session, "Run an agent session") sat at y=10170 in a 946px
+     viewport AND inside a collapsed depth-2 tier carrying `inert`. So it was
+     not merely below the fold -- no amount of scrolling reached it, because the
+     tier it lives in renders closed and `inert` removes it from hit testing and
+     from the tab order. A person who followed that link had to know to open the
+     "Write" section's reveal first, which is the one thing the link did not
+     say.
+     So the section is opened to the depth the row lives at BEFORE the first
+     render, which is what makes the row exist un-inert at all, and the scroll
+     happens after. Both halves are required; either alone leaves the link
+     landing somewhere the control is not. */
+  if (landing) {
+    activeSection = landing.section
+    levels.set(landing.section, Math.max(levels.get(landing.section) || 1, landing.depth))
+  }
   renderSectioned()
+  if (landing) scrollToLanding()
   void refreshCapabilityProbes()
 
   return {

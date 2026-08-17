@@ -193,6 +193,23 @@ body[data-route="settings"] .fleet-profile-notice { display: none; }
 }
 
 .settings-row + .settings-row { margin-top: var(--s1); }
+
+/* THE ROW A LINK SENT SOMEBODY TO. A page with 219 controls scrolled to the
+   right one still looks like a page with 219 controls, so the row that was
+   asked for says so. It is a rule and an inset, not a colour on its own: the
+   accent is the second signal, and the row is already centred in the viewport
+   by the scroll, which is the first.
+   It persists rather than fading. A flash that has finished by the time the eye
+   arrives has told nobody anything, and this row is the answer to a question
+   the person asked one screen ago -- it stays until they render the page some
+   other way. */
+.settings-row.is-landed {
+  border-left: 2px solid var(--focus-ring, var(--ink-2));
+  padding-left: var(--s3);
+  margin-left: calc(-1 * var(--s3) - 2px);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border-radius: var(--r-sm, 4px);
+}
 .settings-copy { min-width: 0; }
 .settings-name {
   color: var(--ink-2);

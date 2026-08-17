@@ -778,7 +778,11 @@ test('a screen that cannot run agents offers a way to find out what it needs', (
     engine: readAgentEngine({ ok: true }, false),
     nowMs: NOW,
   })
-  assert.equal(readySwitchOff.panel.empty.action?.href, '#/settings')
+  /* THE ADDRESS CARRIES THE SWITCH'S ID, and that is the assertion rather than
+     the bare route. A link that only says "#/settings" is satisfied by dropping
+     somebody at the top of a 219-control page with the row they want 10170px
+     below them, inside a collapsed tier -- measured on the packaged build. */
+  assert.equal(readySwitchOff.panel.empty.action?.href, '#/settings?setting=write_agent-session')
   const readySwitchOn = describeHome({
     fleetConfigured: false,
     sessions: readLocalSessions({ ok: true, total: 0, verified: true, entries: [] }),
