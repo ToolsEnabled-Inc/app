@@ -120,3 +120,32 @@ wrong. Measured: `enabled -> disabled -> enabled (the control moves)`.
 defect from a harness, check what the selector means and whether its
 precondition holds. Four of tonight's five false defects were one selector
 each.
+
+## Late find: every declaration named a build ref git could delete
+
+Worth knowing before the next cut, because it had been true for months.
+
+The packager makes its version-bump commit inside a throwaway worktree and
+removes that worktree on success, so the commit each `DECLARATION.md` cites as
+its **build ref** was unreferenced the instant a cut succeeded — garbage
+awaiting the next `git gc`, not deleted but not safe either.
+
+**Eight candidates were already in that state**: 1.0.4, both 1.0.7 builds,
+1.0.8, 1.0.12, and all three cut tonight — including 1.0.23, the build then
+installed on the owner's machine. A declaration whose build ref no longer
+resolves is a provenance claim nobody can check.
+
+Fixed at the cause: `cut-release-candidate.mjs` now calls `tagCommit(repo,
+'build/<version>', buildRef)` **before** releasing the junction and removing the
+worktree. The eight existing refs were tagged by hand with the same names, and
+all eight are mirrored (`refs=124 -> 132`).
+
+The same lane's engine merge `714622a` — the payload behind 1.0.21-1.0.23 — was
+dangling for the same reason and is now on branch
+`payload/shipped-1.0.21-to-1.0.23`.
+
+**How it was found, and the lesson:** `node tools/check-single-copy-work.js`
+run IN FULL. The warning printed after every commit only inspects the branch
+you are standing on, so it never mentioned any of this. Run the sweep, not the
+reminder. Verified after: no dangling tips in either repo, 150/150 engine
+branches and 36/36 app branches present in the D: mirrors, zero missing.
