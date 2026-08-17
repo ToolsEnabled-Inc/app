@@ -659,6 +659,10 @@
    is what mono is for. Long tokens wrap instead of clipping against the
    rail's overflow-x fence. */
 .rail-prose {
+  /* `display: block` because several of these are <output>, which is inline
+     by default — the margin below was being discarded on exactly the status
+     lines that most needed separating from what follows. */
+  display: block;
   font-family: var(--font-ui);
   font-size: 13px;
   line-height: 1.55;
@@ -666,6 +670,8 @@
   overflow-wrap: anywhere;
   margin-bottom: var(--s4);
 }
+.rail-prose:last-child { margin-bottom: 0; }
+.rail-prose:empty { display: none; }
 
 .comms .projection-unavailable {
   color: var(--ink-2);

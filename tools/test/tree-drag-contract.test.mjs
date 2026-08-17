@@ -97,6 +97,30 @@ test('the override veto sees words at their TRUE width, not only circles', () =>
   assert.match(graph, /record\.labelMax = label\?\.maxWidth \|\| null/, 'labelMax is no longer recorded at layout time, so _labelBox measures a stale width')
 })
 
+test('a status tick moves nothing: geometry follows structure, not events', () => {
+  /* Owner, iteration 7: "the tree action is a mess like the way it moves and
+     such". Every reply, usage reading and status change ran the full layout
+     — packers plus the vertical fitter, which may rescale every radius —
+     and nodes carry no transition on left/top, so each one was an instant
+     jump. The reconcile now skips the layout when the shape is unchanged. */
+  const graph = graphNow()
+  const reconcile = graph.slice(graph.indexOf('_reconcile({'), graph.indexOf('_structureKey() {'))
+  assert.match(reconcile, /this\._layoutKey === this\._structureKey\(\)/,
+    'the reconcile lays out unconditionally again; a reply will move the tree')
+  const key = graph.slice(graph.indexOf('_structureKey() {'), graph.indexOf('_structureKey() {') + 900)
+  for (const part of ['this.rootId', 'this.editMode', 'this.W', 'this.H', '_positionsRevision', 'agent.parentId']) {
+    assert.ok(key.includes(part), `the structure key stopped reading ${part}; a real shape change would not re-lay out`)
+  }
+  /* Nothing that only changes what a node SAYS may enter the key, or the
+     skip is defeated and we are back to laying out on every tick. */
+  for (const forbidden of ['status', 'runtime', 'reply', 'usage']) {
+    assert.ok(!key.includes(forbidden), `the structure key reads ${forbidden}; status ticks will re-lay out the tree again`)
+  }
+  assert.match(graph, /this\._layoutKey = this\._structureKey\(\)/, 'a completed layout no longer stamps its key; the skip check goes stale')
+  assert.match(graph.slice(graph.indexOf('_writePositions() {'), graph.indexOf('_writePositions() {') + 300), /_positionsRevision \+= 1/,
+    'a saved or cleared nudge no longer bumps the revision, so a drag would not re-lay out')
+})
+
 test('a collision revert returns to the layout position verbatim', () => {
   const graph = graphNow()
   /* Anchor past the veto's geometry helpers: the FIRST _clearPosition call

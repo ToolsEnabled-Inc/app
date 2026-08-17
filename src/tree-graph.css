@@ -728,7 +728,12 @@
   background-image: none;
 }
 .computers .board-page .agent-head .role-dot { background: var(--role); }
-.computers .board-page .board-box { background: var(--sheet); box-shadow: none; }
+/* The box keeps board.css's own fill here. This rule used to force
+   `background: var(--sheet)`, which overwrote the ink-mix fill on the ONE
+   page the fill was added for — five boxes reading as five hairlines around
+   identical grey text, which is what "unreadable" looked like. Only the
+   shadow is dropped, because the canvas beside it is flat. */
+.computers .board-page .board-box { box-shadow: none; }
 .computers .board-page .ctl-btn.armed {
   background: color-mix(in oklab, var(--role) 8%, var(--sheet));
   box-shadow: none;

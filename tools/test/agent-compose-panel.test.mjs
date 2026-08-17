@@ -811,6 +811,34 @@ test('it is a pure component: no window, no starting, nothing outside the docume
   }
 })
 
+/* ---------- the fold ---------- */
+
+test('the form scrolls, so Start can always be reached', () => {
+  /* Owner, verbatim: "I also cant scroll down to even press start." The rail
+     clips (`.rail { overflow: hidden }`) and its pages are absolutely
+     positioned, so this panel can never make the rail taller — it can only
+     overflow and be cut off. Twice now the answer was to buy pixels back by
+     deleting content (a heading, once), and the next field spent them. The
+     fix that cannot be spent is a scroller, and the class is the one every
+     other rail page already scrolls with. */
+  const { handle } = open()
+  const body = handle.element().find(node => node.getAttribute('data-compose-body') === 'form')
+  assert.ok(body, 'the panel body is gone; the form is unscrollable again')
+  assert.ok(String(body.className).includes('rail-scroll'),
+    'the panel body lost .rail-scroll — the class that carries flex:1, min-height:0 and overflow-y:auto')
+  /* Start must live INSIDE that scroller, not beside it. */
+  const submit = actionNamed(handle, 'submit')
+  assert.ok(submit, 'the Start button vanished')
+  assert.ok(body.find(node => node === submit),
+    'the Start button sits outside the scroller, which is exactly how it became unreachable')
+  const css = readFileSync(path.resolve(path.dirname(MODULE_PATH), 'agent-compose-panel.css'), 'utf8')
+  const rootRule = css.slice(css.indexOf('.agent-compose {'), css.indexOf('.agent-compose {') + 400)
+  assert.match(rootRule, /flex-direction: column/, 'the panel root stopped being a column; the body cannot own the scroll')
+  assert.match(rootRule, /min-height: 0/, 'the panel root lost min-height:0 and will push its body past the clip')
+  assert.ok(!/\.agent-compose-text \{[^}]*resize: vertical/s.test(css),
+    'the message box can be dragged taller again, which only deepens the clip')
+})
+
 /* ---------- the gate ---------- */
 
 test('every string in this module passes the plain-language gate', () => {

@@ -80,10 +80,19 @@
   color: var(--role-ink);
   letter-spacing: -0.005em;
 }
+/* SENTENCE CASE, because this line is sometimes a person's own words.
+   The base rule uppercases and letterspaces `.ar` (styles.css) — right for a
+   role word, wrong for anything a person typed, and this override restated
+   size, tracking, colour and weight while silently leaving the caps in
+   force. The owner's brief was therefore painted as a 60-character
+   letterspaced capital sentence in a 240px column: most of "an ugly
+   unreadable mess" on its own. */
 .board-page .agent-head .ar {
-  margin-top: 2px;
-  font-size: 12.5px; letter-spacing: 0.12em;
-  color: var(--ink-2); font-weight: 620;
+  margin-top: 3px;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--ink-2); font-weight: 600;
 }
 
 /* --- circled runtime --- */
@@ -138,11 +147,16 @@
     0 1px 2px rgba(var(--shadow-rgb), calc(0.035 * var(--shadow-k)));
 }
 
+/* A HEADER HAS TO OUTRANK ITS BODY. This was `--ink-2` — the same token
+   `.rail-prose` uses — with no margin beneath it, so a 12.5px uppercase line
+   sat flush on a 13px line of the same colour and nothing read as a heading.
+   Brightest ink and a real gap are the two cheapest signals there are. */
 .board-page .board-box-h,
 .computers .stats-page .board-box-h {
   display: flex; align-items: center; gap: 8px;
-  font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--ink-2); font-weight: 650;
+  margin-bottom: 7px;
+  font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink); font-weight: 650;
 }
 .board-page .board-box-h .bh-v {
   margin-left: auto;
@@ -162,12 +176,20 @@
 }
 
 /* section rules inside a box */
+/* A SUB-LABEL, NOT A SECOND HEADER. `.rail-sec` rendered at the same size,
+   case, tracking and weight as `.board-box-h`, so "SETUP" and "WORKS IN"
+   read as two headings of equal rank stacked 40px apart. It is subordinate,
+   and now looks it: sentence case, no tracking, quieter ink, with the rule
+   above it doing the dividing. */
 .board-page .board-box .rail-sec {
-  margin: 14px 0 9px;
+  margin: 14px 0 7px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
-  font-size: 12.5px; letter-spacing: 0.1em;
-  color: var(--ink-2); font-weight: 650;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  font-weight: 640;
 }
 
 /* ------------------------------------------------------------
@@ -751,6 +773,26 @@
    their place. Deliberately styled as copy rather than as a control: no border
    that reads as a button, nothing that invites a click, because the whole point
    is that this board starts nothing. See exampleControlsAbsentBox(). */
+/* THE ANSWER IS CAPPED, so everything under it stays reachable. A full agent
+   reply is written straight into this box; unbounded, one long answer pushed
+   the Setup controls hundreds of pixels down the rail's scroller. It keeps
+   its own inner scroll instead — the reply is fully readable in the Chat tab,
+   which is where a conversation belongs. */
+.board-page .board-box .rail-said {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* The engine note inside an ordinary box. Without this it fell through to
+   the document default — 13.5px at full --ink with no margins, the loudest
+   and tightest prose on the rail, wedged between a value row and a rule. */
+.board-page .board-box .board-absent-copy {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  margin: 6px 0 2px;
+}
 .computers .board-ctl-absent .board-absent-copy {
   margin: 8px 0 0;
   color: var(--ink-2);

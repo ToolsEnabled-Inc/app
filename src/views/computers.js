@@ -3105,42 +3105,37 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>`}
       </div>
       <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
-        <!-- Name first, brief as the caption. The name is now the role-ordinal
-             identity; the ar row carries the brief's first line so a person
-             still sees at a glance what this agent is for — in caption size,
-             not shouted as a title. Falls back to the role word when the node
-             has no brief yet. -->
-        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar" title="${escapeMarkup(node.message || '')}">${escapeMarkup(treeNodeBrief(node) || roleLabel(node.role))}</div></div></div>
-        <!-- SENTENCES IN THE PROSE VOICE, VALUES IN MONO (iteration 6:
-             "Details is completely unreadable" — it was one style for
-             everything, 13px mono, one colour, in boxes whose fill vanished
-             on dark). .rail-prose is the readable body voice; .is-dim is the
-             visibly quieter register for notes and narration. -->
+        <!-- The head names the agent and its ROLE — never its brief. The brief
+             is the person's own sentence: it belongs in prose below, once, and
+             it was being printed twice (here in letterspaced capitals, and
+             again in its own box) which is most of what "unreadable mess"
+             meant. -->
+        <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
+        <!-- TWO BOXES, NOT FOUR (iteration 7). Each of the old four carried an
+             uppercase header over one word — "finished", "DELTA" — so the tab
+             was mostly chrome shouting at its own contents. What it is doing
+             now holds the whole run (status, note, narration, usage); the
+             conversation holds the brief and the latest answer, which are the
+             two halves of one exchange. -->
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
           <div class="rail-prose">${escapeMarkup(treeNodeStatusWord(node))}</div>
           ${node.statusNote ? `<div class="rail-prose is-dim">${escapeMarkup(node.statusNote)}</div>` : ''}
           <div class="rail-prose is-dim" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
+          ${node.sessionId ? `
+          <div class="rail-prose is-dim" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>` : ''}
         </div>
         <div class="board-box board-ctl-box">
-          <!-- "The brief you started it with", not "what you asked for": this
-               box shows node.message, which is written ONCE at start (no
-               setNodeMessage exists) — while the reply box below shows the
-               LATEST answer, overwritten every turn. The old headings implied
-               the two were one exchange; these say what each really is. -->
-          <div class="board-box-h"><span class="bh-t">The brief you started it with</span></div>
+          <div class="board-box-h"><span class="bh-t">The conversation</span></div>
+          <!-- The brief is written ONCE at start (no setNodeMessage exists);
+               the answer below is overwritten every turn. The sub-labels say
+               which is which without a second heading rank. -->
+          <div class="rail-sec">What you asked for</div>
           <div class="rail-prose">${escapeMarkup(node.message || '')}</div>
+          ${node.sessionId ? `
+          <div class="rail-sec">${escapeMarkup(SAID_PANEL.title)}</div>
+          <div class="rail-prose rail-said" data-tree-said></div>` : ''}
         </div>
-        ${node.sessionId ? `
-        <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">${escapeMarkup(SAID_PANEL.title)}</span></div>
-          <div class="rail-prose" data-tree-said></div>
-        </div>
-        <div class="board-box board-ctl-box">
-          <div class="board-box-h"><span class="bh-t">What it has used</span></div>
-          <div class="rail-prose" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>
-          <div class="rail-prose is-dim"${sessionUsage.has(node.sessionId) ? ' hidden' : ''}>The engine reports usage as the agent works; nothing has been reported yet.</div>
-        </div>` : ''}
         <!-- SETUP: the two controls that describe the node rather than the
              conversation — its folder and its place in the tree — moved here
              when the Actions tab retired (iteration 6). Every data hook keeps

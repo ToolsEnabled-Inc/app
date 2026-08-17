@@ -254,6 +254,36 @@ test('Details reads as prose, dims really dim, and the boxes have a floor', () =
   assert.match(box, /background: color-mix\(in oklab, var\(--ink\)/, 'the box fill rides white-alpha again; on dark themes the boxes vanish')
 })
 
+test('the rail never shouts a person\'s own words, and a header outranks its body', () => {
+  /* Iteration 7, owner: the pane is "an ugly unreadable mess of nonsense".
+     Measured causes, pinned so they cannot come back:
+       · the brief was painted in letterspaced CAPITALS by the base .ar rule,
+         which the board override restated everything EXCEPT text-transform;
+       · the same brief was then printed a second time in its own box;
+       · header and body shared one ink token, so nothing read as a heading;
+       · .rail-sec was typographically identical to .board-box-h — two
+         heading ranks that looked the same;
+       · the fleet page overwrote the box fill added for this very page. */
+  const board = readFileSync(join(SRC, 'board.css'), 'utf8')
+  const arRule = board.slice(board.indexOf('.board-page .agent-head .ar {'), board.indexOf('.board-page .agent-head .ar {') + 400)
+  assert.match(arRule, /text-transform: none/, "the rail head shouts again — that line can carry a person's own words")
+  const headerRule = board.slice(board.indexOf('.board-page .board-box-h,'), board.indexOf('.board-page .board-box-h,') + 400)
+  assert.match(headerRule, /color: var\(--ink\)/, 'the box header shares its body ink again; nothing reads as a heading')
+  assert.match(headerRule, /margin-bottom/, 'the box header sits flush on its body again')
+  const secRule = board.slice(board.indexOf('.board-page .board-box .rail-sec {'), board.indexOf('.board-page .board-box .rail-sec {') + 400)
+  assert.match(secRule, /text-transform: none/, 'the sub-label impersonates a box header again')
+  assert.match(board, /\.board-page \.board-box \.rail-said \{[^}]*max-height/s, 'the answer box is unbounded again; Setup falls off the scroller')
+  assert.match(board, /\.board-page \.board-box \.board-absent-copy \{/, 'the engine note is unstyled again — it renders as the loudest prose on the rail')
+  const graphCss = readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
+  assert.ok(!/\.computers \.board-page \.board-box \{[^}]*background: var\(--sheet\)/s.test(graphCss),
+    'the fleet page re-flattens the boxes, overwriting the fill that exists for this page')
+  /* The brief appears once, as prose — never in the head. */
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  const details = view.slice(view.indexOf('data-rail-body="details"'), view.indexOf('data-tree-move>'))
+  assert.ok(!/class="ar"[^>]*>\$\{escapeMarkup\(treeNodeBrief/.test(details), 'the head prints the brief again, in capitals')
+  assert.equal((details.match(/escapeMarkup\(node\.message/g) || []).length, 1, 'the brief is printed more than once in Details')
+})
+
 test('every theme block declares its color-scheme', () => {
   const css = readFileSync(join(SRC, 'styles.css'), 'utf8')
   assert.match(css, /color-scheme: light/, 'the light color-scheme vanished; native popups guess again')

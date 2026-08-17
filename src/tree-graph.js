@@ -283,6 +283,10 @@ export class StaticTreeGraph {
     this._layoutVisibleIds = new Set()
     this._culled = new Set()
     this._layoutResult = null
+    /* A nudge saved or cleared is a geometry change the structure key cannot
+       see from the agent list, so the store bumps this counter. */
+    this._positionsRevision = 0
+    this._layoutKey = null
     /* Density is a fact about the FLEET, so it is measured on a layout of the
        fleet alone — see _layoutNow for the loop this closes. */
     this._realDrillRequired = false
@@ -369,6 +373,9 @@ export class StaticTreeGraph {
   }
 
   _writePositions() {
+    /* Every save and every clear passes through here, so this is the one
+       place the structure key needs to hear about a nudge. */
+    this._positionsRevision += 1
     try {
       if (Object.keys(this._positions).length) {
         localStorage.setItem(this._positionKey(), JSON.stringify(this._positions))
@@ -498,8 +505,44 @@ export class StaticTreeGraph {
       }
       this._createRecord(agent, !initial || addIds.has(agent.id))
     }
+    /* GEOMETRY FOLLOWS STRUCTURE, NOT TICKS (owner, iteration 7: "the tree
+       action is a mess like the way it moves and such").
+       Every reply, usage reading and status change reached this line, and
+       _layoutNow re-runs the packers AND the vertical fitter — which is
+       allowed to rescale every radius in the tree. Nodes carry no transition
+       on left/top, so each of those re-packs was an instant jump: circles
+       moving and changing size while the person watched an agent talk.
+       Nothing about a status word can change where a circle belongs, so the
+       layout is skipped unless the SHAPE changed. The renderers above have
+       already refreshed what those events actually alter — the ring, the
+       runtime, the chip preview. */
+    if (this._layoutResult && this._layoutKey === this._structureKey()) {
+      this._publishNodeCount()
+      return
+    }
     this._layoutNow()
     this._publishNodeCount()
+  }
+
+  /* What a layout is a function of. Two passes with the same key must produce
+     the same geometry, so everything the placement reads is in here — and
+     nothing that merely changes what a node SAYS. */
+  _structureKey() {
+    const shape = this._layoutAgents()
+      .map(agent => `${agent.id}|${agent.parentId || ''}|${agent.role || ''}|${agent.name || ''}`)
+      .join(';')
+    const edges = (this.declaredEdges || [])
+      .map(edge => `${edge.from || edge.source || ''}>${edge.to || edge.target || ''}`)
+      .join(',')
+    return [
+      this.rootId || '',
+      this.editMode ? 'edit' : 'view',
+      Math.round(this.W),
+      Math.round(this.H),
+      this._positionsRevision,
+      edges,
+      shape,
+    ].join('~')
   }
 
   _publishNodeCount() {
@@ -1045,6 +1088,10 @@ export class StaticTreeGraph {
     this._layoutResult = result
     this._culled = result.culled
     this._layoutVisibleIds = new Set(agents.map(agent => agent.id))
+    /* Stamped by the layout itself, so every route into here — a drag, a
+       resize, a drill, a direct call — leaves the skip-check above holding
+       the key of the geometry actually on screen. */
+    this._layoutKey = this._structureKey()
 
     /* BELOW THE RADIUS FLOOR, THE ONLY HONEST ANSWER IS MORE HEIGHT.
        The layout says how much (minHeight, from the vertical fitter's own
