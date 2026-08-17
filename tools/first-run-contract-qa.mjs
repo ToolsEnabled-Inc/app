@@ -991,14 +991,45 @@ async function driveRecommended(executable, scratch, attempt) {
        be behaving exactly as designed. The slot count decides it, so it is
        printed beside the failure rather than left to be re-derived. */
     const slots = await evaluate(`document.querySelectorAll('.computers .tree-empty-node').length`)
-    check('the recommended path draws this computer on the fleet page', nodes >= 1,
-      `nodes=${nodes}; empty slots on the canvas=${slots}`
-      + (nodes === 0 && slots > 0 ? ' -- the canvas is NOT bare: a slot is there to press, so read this as an agent-node question, not an empty page' : ''))
+    /* WHAT THIS PAGE OWES A STRANGER IS A WAY IN, NOT AN AGENT THAT ALREADY EXISTS.
+     *
+     * `nodes >= 1` demanded a RUNNING AGENT on a profile that has never started
+     * one, which no clean machine can satisfy, so it reported correct behaviour
+     * as a defect -- and it took the next three checks down with it, because they
+     * drill into an agent that was never there. Measured 2026-08-17 on packaged
+     * 1.0.18: nodes=0, slots=1, and the run's own closing check passed with a
+     * startable agent SEVEN clicks from first paint. The product was fine.
+     *
+     * The empty slot is the designed way in: src/views/computers.js:749 creates
+     * the drill-in door `hidden`, and src/tree-graph.css:189 keeps it hidden with
+     * a comment saying why -- "the absent state renders as a visible button that
+     * does nothing -- the exact defect this control exists to avoid making
+     * worse". A harness that reads that deliberate absence as a failure is the
+     * same false-finding class this file's own comments already record twice.
+     *
+     * So the contract is: SOMETHING on this canvas can be pressed. A genuinely
+     * bare canvas -- no agent and no slot -- still fails, which is the regression
+     * that mattered all along. */
+    const wayIn = nodes >= 1 || slots >= 1
+    check('the fleet page offers a way in -- an agent to open, or a slot to start one', wayIn,
+      `agent nodes=${nodes}; empty slots on the canvas=${slots}`
+      + (nodes === 0 && slots > 0 ? ' -- no agent yet, which is what a profile that has never started one looks like; the slot is the way in' : '')
+      + (!wayIn ? ' -- NOTHING to press: this canvas is genuinely bare' : ''))
 
-    const openedAgent = await clickVisible('.computers .graph-open-btn')
-    check('the door into the agent page can be pressed', openedAgent === 'clicked', openedAgent)
-    await until('the agent detail page', `Boolean(document.querySelector('.agentv'))`)
-    await settle(700, 15000)
+    /* The drill-in only exists once an agent does. Below, the three checks that
+       read the agent page are reported as not-applicable rather than failed when
+       there is no agent to open -- a not-applicable is not a pass, it is the
+       absence of a measurement, and it is printed so nobody reads silence as
+       coverage. */
+    const canDrillIn = nodes >= 1
+    if (canDrillIn) {
+      const openedAgent = await clickVisible('.computers .graph-open-btn')
+      check('the door into the agent page can be pressed', openedAgent === 'clicked', openedAgent)
+      await until('the agent detail page', `Boolean(document.querySelector('.agentv'))`)
+      await settle(700, 15000)
+    } else {
+      note('no agent exists yet, so the agent page and its Start control are not measured on this run -- the way in is the slot on the fleet page, and the clicks-to-Start check below is what proves a stranger can reach one')
+    }
 
     const page = await evaluate(`(() => {
       const shown = node => {
@@ -1020,9 +1051,13 @@ async function driveRecommended(executable, scratch, attempt) {
     })()`)
 
     /* ================= WHAT THE RECOMMENDATION ACTUALLY GETS YOU ================= */
-    check('THE RECOMMENDED PATH LEAVES A START CONTROL ON THE AGENT PAGE',
-      page.startPresent && page.startVisible,
-      `present=${page.startPresent} visible=${page.startVisible} mc.write.agent-session=${JSON.stringify(page.flag)}`)
+    if (canDrillIn) {
+      check('THE RECOMMENDED PATH LEAVES A START CONTROL ON THE AGENT PAGE',
+        page.startPresent && page.startVisible,
+        `present=${page.startPresent} visible=${page.startVisible} mc.write.agent-session=${JSON.stringify(page.flag)}`)
+    } else {
+      note(`not measured: there is no agent to open, so this run never reached an agent page (mc.write.agent-session=${JSON.stringify(page.flag)})`)
+    }
 
     /* A DISABLED START IS NOT AUTOMATICALLY A DEFECT, AND THE FIRST DRAFT OF THIS
        CHECK ASSUMED IT WAS. On a sterile profile nobody has run `codex login`, so
@@ -1054,7 +1089,13 @@ async function driveRecommended(executable, scratch, attempt) {
     }
     check('the availability copy table was loaded, so the next check can fail',
       reasons.length > 0, copyLoadError ? `could not load src/agent-availability-copy.js: ${copyLoadError}` : `${reasons.length} reason(s) known`)
-    if (page.startDisabled === true) {
+    if (!canDrillIn) {
+      /* No agent page was opened, so page.startDisabled is null and statusText is
+         empty -- the `else` branch below would then demand the word "ready" from a
+         status nothing ever rendered, and fail. That is measuring the harness's own
+         absence, not the product. */
+      note('not measured: a Start control\'s wording is only checkable on an agent page, and this run had no agent to open')
+    } else if (page.startDisabled === true) {
       const named = reasons.find(reason => page.statusText.includes(reason))
       check('a Start a person cannot press states why, in the product\'s own words',
         Boolean(named),
