@@ -1769,14 +1769,35 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function refreshTreeSwitch() {
-    const tools = root.querySelector('.graph-tools')
-    if (!tools) return
-    let host = tools.querySelector('.graph-tree-switch')
   /* A per-pane tree switcher arrived here in the packaging lane's merge; its
      only caller was the second pane. That pane went out on the owner's
      2026-08-16 direction, so its switcher goes with it rather than sitting
      unreferenced. rail-chrome.test.mjs scans this file for the pane's own
-     identifiers, which is why none of them are named here. */
+     identifiers, which is why none of them are named here.
+
+     THE SECOND TREE KILLED THE WHOLE PAGE. Measured on the owner's own installed
+     build, 2026-08-17, with real mouse input: the pane removal deleted this
+     function's `const slot = ...` declaration and left `slot.prepend(host)`
+     behind. refreshTreeSwitch() runs at mount, so on any computer holding TWO
+     OR MORE trees the ReferenceError aborted the entire computers view before
+     it drew anything -- no tree, no nodes, no chips, no empty slot, no zoom
+     controls. The page reported "the fleet record could not be fetched: slot is
+     not defined" and nothing on it could be pressed, which is why BOTH "agents
+     do not launch" and "the chat bubbles do not open" were the same defect.
+     The `trees.length < 2` guard below is why it hid: it is invisible until the
+     person owns a second tree, and pressing the empty slot beside an existing
+     top-level agent silently creates one. The owner's saved state records his
+     second tree appearing at 16:12:38Z; his app was dead from that minute.
+
+     Both lookups were also aimed at the wrong element. `.graph-bar-trees` and
+     `.graph-tools` are SIBLING slots inside `.graph-bar` (see the markup around
+     :737), and board.css:870 styles the switcher as
+     `.graph-bar-trees .graph-tree-switch` -- so reading and writing it through
+     `.graph-tools` would have produced an unstyled switcher in the wrong place
+     even once the crash was gone. */
+  const slot = root.querySelector('.graph-bar-trees')
+  if (!slot) return
+  let host = slot.querySelector('.graph-tree-switch')
 
     const trees = treeStore ? treeStore.listTrees() : []
     if (trees.length < 2) {
