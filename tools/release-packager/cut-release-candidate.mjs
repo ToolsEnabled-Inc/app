@@ -46,6 +46,7 @@ import {
   isClean,
   listTrackedFiles,
   porcelainStatus,
+  tagCommit,
   revParse,
   showFile,
   worktreeAddDetached,
@@ -453,6 +454,12 @@ async function main() {
          "vite not found" and npm ci cost the cycle the reuse existed to save.
          rmdirSync on the junction removes only the reparse point; the shared
          node_modules is never entered. */
+      /* TAG BEFORE REMOVING. buildRef is made inside this worktree and is
+         reachable from nothing else, so removing the worktree turns the commit
+         the DECLARATION names into garbage collectable objects. Eight earlier
+         candidates were already in that state when this was found. */
+      tagCommit(repo, `build/${version}`, buildRef)
+      console.log(`[cut-release-candidate] tagged build ref as build/${version} so it stays reachable`)
       releaseNodeModulesJunction(worktreePath)
       worktreeRemove(repo, worktreePath)
       worktreeRemoved = true
