@@ -243,3 +243,44 @@ confidently wrong one is a false record. Pinned by
 reappearing from any environment.
 
 Set the two variables before cutting, or accept the honest blank.
+
+## 17. THREE WAYS AN ELECTRON DRIVER FAILS FOR REASONS THAT ARE NOT THE PRODUCT (2026-08-17)
+
+Each of these cost a run tonight, and each produces output that reads like a
+defect in the app.
+
+**`ELECTRON_RUN_AS_NODE` is set in this environment.** Run an Electron
+main-process driver with `npx electron tools/x.cjs` and it executes as plain
+Node: `app` is undefined and you get
+`TypeError: Cannot read properties of undefined (reading 'whenReady')` — which
+looks like a broken driver and is a broken invocation. Clear it:
+`env -u ELECTRON_RUN_AS_NODE -u ELECTRON_NO_ATTACH_CONSOLE npx electron ...`.
+`tools/packaged-qa-suite.mjs` gets this right for registered drivers; a driver
+run BY HAND does not.
+
+**`app.exit()` truncates stdout.** A driver that prints its report then calls
+`app.exit()` can produce a completely empty log — the process dies before the
+pipe drains, and the run looks like a silent crash. Use
+`process.stdout.write(...)` plus `app.quit()`, and set `process.exitCode`
+rather than passing a code to `exit`. `tools/page2-qa.cjs` has always done it
+this way; copy it.
+
+**A failed page load quits the app silently.** If `loadURL` fails and the
+window closes, Electron's default `window-all-closed` handler quits, so the
+driver exits 0 having measured nothing. Add `app.on('window-all-closed', () => {})`
+in any driver that creates more than one window or retries a load.
+
+## 18. THE RENDERER FRESHNESS GUARD FIRES WHEN ANOTHER LANE COMMITS MID-SESSION (2026-08-17)
+
+`tools/agent-start-flow-qa.mjs` (and its siblings) refuse to run when `dist/`
+is older than the source it was built from — *"this run would measure a renderer
+that no longer exists"*. That is the guard working, and on a SHARED checkout it
+fires for a reason that has nothing to do with you: another session committed
+to `src/` after your build. Measured tonight — a lane landed a `src/main.js`
+change three minutes before a driver run.
+
+Rebuild (`npm run build`, ~35s) and re-run. Do NOT reach for `--force` or edit
+the guard: its own header records the day it was absent, when a harness measured
+a bundle compiled eight minutes before the fix it was testing and reported the
+fix as broken. The danger is not the wasted run; it is that the next person
+reverts a change that works.
