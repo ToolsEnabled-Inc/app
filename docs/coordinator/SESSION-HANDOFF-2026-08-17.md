@@ -84,3 +84,39 @@ can SEE it. See finding 11 for the transferable rule.
 - `ELECTRON_RUN_AS_NODE` is set in this environment; an electron driver run
   without clearing it fails as plain Node with a confusing error.
 - `app.exit()` truncates stdout; use `process.stdout.write` + `app.quit()`.
+
+## Added after the first draft: what the drivers actually said
+
+Everything below was driven against **installed 1.0.23**, not built from source.
+
+| Driver | Result |
+|---|---|
+| `smoke-packaged` | PASS — a real tool call round-tripped and landed a **signed** audit row |
+| `research-walkthrough-qa` | **23/23** — the showing path, end to end |
+| `agent-start-flow-qa` | **24/26, zero failures** (was 14/26 with *"no send control in the panel"*); the 2 are NOT EXERCISED because the harness cannot fake a start reply through a locked contextBridge |
+| `compose-start-layout-qa` | **12/12** at three window sizes, real stylesheet |
+| `first-run-contract-qa` | **81/85** — the whole setup path passes; the 4 are the pattern below |
+| `refusal-copy-qa` | both settings checks now PASS; 3 remain UNMEASURED for the same reason |
+| `page2-qa` | PASS (source-level, not the packaged app — do not read it as install proof) |
+
+### The one thing to take from tonight
+
+**One real product defect, found and shipped. Five false ones, caught.**
+
+Five checks across three drivers assume `.static-tree-node` — which means
+*a running agent* — exists on a fresh profile. It never does; an empty slot is
+`.tree-empty-node`. Asserting on its absence produces a defect report about a
+product behaving exactly as designed. That single assumption generated: "a
+stranger has no way to start", the zero-size door, the missing start control,
+and three unmeasured refusal drives.
+
+The settings toggles were the same story from a different angle: the harness
+found the row with a document-order sweep (returning an ancestor, not the row),
+then pressed blindly — which turns an already-ON toggle OFF and reports that it
+cannot be switched on. Both are fixed; both now pass; the product was never
+wrong. Measured: `enabled -> disabled -> enabled (the control moves)`.
+
+**So the rule for the next person driving this product:** before filing a
+defect from a harness, check what the selector means and whether its
+precondition holds. Four of tonight's five false defects were one selector
+each.
