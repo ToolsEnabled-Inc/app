@@ -385,7 +385,13 @@
    it is a non-text graphical object carrying the page's only status. Lifting
    the dark sheet's gain is what brings it back over. Measured, not guessed; the
    numbers are in the header of crescent-mount.js. */
-.uring.crescent { --cres-halo-o: 0.85; --cres-gain: 1; --cres-state-gain: 1; }
+/* `--cres-chroma` is how much extra saturation rides the middle of the paper
+   ramp. The corona's composited colour is mixed from the sheet to the status hue
+   in OKLab rather than being left to the compositor, which fades in gamma space
+   and slides through desaturated grey — the mid-tone is most of the mark's area,
+   so that grey path is what made it read as a stain. 0.35 is the owner's choice
+   from a rendered comparison at 0 / 0.35 / 0.7. */
+.uring.crescent { --cres-halo-o: 0.85; --cres-gain: 1; --cres-state-gain: 1; --cres-chroma: 0.35; }
 .uring.crescent .uring-rim { stroke: var(--ink-4); }
 
 /* The three layers are elements wearing the computed light field as a mask

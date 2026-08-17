@@ -21,7 +21,7 @@
    those rules are still in home.css.
 */
 
-import { createCorona, cssColorToLinear } from './corona-gl.js'
+import { createCorona, cssColorToSrgb } from './corona-gl.js'
 import { crescentSpec } from './crescent-field.js'
 import { crescentMasks } from './crescent-render.js'
 
@@ -125,7 +125,10 @@ export function mountCrescent(root, size) {
       centre: [boxHalf, boxHalf],
       rim,
       unit: rim,
-      color: cssColorToLinear(colour),
+      color: cssColorToSrgb(colour),
+      paper: cssColorToSrgb(getComputedStyle(document.body).backgroundColor),
+      paperMode: document.documentElement.dataset.theme !== 'black',
+      chroma: num(cs, '--cres-chroma', 0.35),
       gain: BASE_GAIN * glow * sheetGain * stateGain,
       hazeDose: dose,
       shape: SHAPE,
@@ -149,21 +152,40 @@ export function mountCrescent(root, size) {
     if (!breathing) { const wants = paint(); if (wants) { breathing = true; raf = requestAnimationFrame(loop) } }
   }
 
-  /* A state change re-tints over 1.4s in CSS; sample it each frame until the
-     transition finishes. */
-  probe.addEventListener('transitionstart', () => {
-    if (!breathing && !raf) {
-      const tick = (now) => {
-        paint(now)
-        raf = requestAnimationFrame(tick)
-      }
-      raf = requestAnimationFrame(tick)
+  /* Repaint every frame for a while. Used wherever the inputs change over time
+     rather than at an instant: a slider being dragged, a theme swap and its
+     colour transitions, the 1.4s state re-tint. Cheap because it is bounded and
+     because an untouched page never enters it. */
+  let settleUntil = 0
+  function settle(ms = 500) {
+    if (corona.lost) return
+    settleUntil = Math.max(settleUntil, performance.now() + ms)
+    if (raf) return
+    const tick = (now) => {
+      const breath = paint(now)
+      if (breath || now < settleUntil) { raf = requestAnimationFrame(tick); breathing = breath }
+      else { raf = 0; breathing = false }
     }
-  })
-  probe.addEventListener('transitionend', () => {
-    if (raf && !breathing) { cancelAnimationFrame(raf); raf = 0 }
-    redraw()
-  })
+    raf = requestAnimationFrame(tick)
+  }
+
+  probe.addEventListener('transitionstart', () => settle(1600))
+  probe.addEventListener('transitionend', () => settle(120))
+
+  /* THE GLOW SLIDER. Both Settings and the quick-settings drawer apply it by
+     writing an inline `--glow` onto the document element. A CSS custom property
+     changing does not repaint a canvas — nothing in this file would ever hear
+     about it — so before this observer the slider moved and the corona did not,
+     which is precisely the "a setting that does not do anything" defect the
+     house forbids. Watching the attribute rather than calling into either
+     settings module keeps the coupling at zero and cannot be missed by a third
+     caller appearing later. The same observer catches the theme swap, which
+     changes the hue, the per-sheet gain and the blend mode together. */
+  const rootObs = new MutationObserver(() => settle(700))
+  rootObs.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'data-theme'] })
+  /* ...and reduced motion, which is a class on the body. */
+  const bodyObs = new MutationObserver(() => settle(120))
+  bodyObs.observe(document.body, { attributes: true, attributeFilter: ['class'] })
 
   /* The stored colour is only readable once styles have resolved. */
   requestAnimationFrame(() => redraw())
@@ -174,6 +196,8 @@ export function mountCrescent(root, size) {
     redraw,
     destroy() {
       if (raf) cancelAnimationFrame(raf)
+      rootObs.disconnect()
+      bodyObs.disconnect()
       corona.destroy()
       canvas.remove()
       probe.remove()

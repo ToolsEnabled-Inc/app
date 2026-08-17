@@ -38,7 +38,7 @@
   <script type="module">
     import '/src/styles.css'
     import '/src/home.css'
-    import { createCorona, cssColorToLinear } from '/src/corona-gl.js'
+    import { createCorona, cssColorToSrgb } from '/src/corona-gl.js'
 
     const q = new URLSearchParams(location.search)
     const size  = Number(q.get('size') || 520)
@@ -107,15 +107,40 @@
       a2i: deg(q.get('a2i') || 30), a2x: deg(q.get('a2x') || 60),
     }
 
+    /* Variants for the side-by-side. `crest` lifts toward a colour lighter than
+       the sheet; `trough` lays the status hue down further out. Together they
+       are the Cornsweet dipole. `control` is the positive control the research
+       demanded: full crest, NO trough — if that still reads as light, the
+       trough is not the mechanism and the recipe is mis-attributed. */
+    const VARIANTS = {
+      current: { crestAmp: 0,    troughAmp: 0    },
+      gentle:  { crestAmp: 0.10, troughAmp: 0.07 },
+      full:    { crestAmp: 0.30, troughAmp: 0.34 },
+      control: { crestAmp: 0.30, troughAmp: 0    },
+    }
+    const variant = q.get('variant') || 'current'
+    const dip = VARIANTS[variant] || VARIANTS.current
+    /* The crest paints toward near-white with a breath of the sheet's own
+       warmth, so the lift does not read as a cold grey hole in cream. */
+    const CREST = theme === 'tan' ? [1.0, 0.995, 0.965] : [1.0, 1.0, 1.0]
+    const dipole = theme === 'black'
+      ? {}                                    // the dark sheet already works
+      : { ...dip, crestColor: CREST, crestPos: 0.022, crestW: 0.020,
+          troughPos: 0.085, troughW: 0.045 }
+
     const corona = createCorona(canvas)
     window.__coronaOk = !!corona
     if (corona) {
       corona.draw({
+        dipole,
         scale: dpr,
         centre: [boxHalf, boxHalf],   // ring centre within the canvas box, CSS px
         rim,
         unit: rim,
-        color: cssColorToLinear(hue),
+        color: cssColorToSrgb(hue),
+        paper: cssColorToSrgb(getComputedStyle(document.body).backgroundColor),
+        paperMode: theme !== 'black',
+        chroma: Number(q.get('chroma') || 0.35),
         gain,
         hazeDose: theme === 'black' ? 0.5 : 0.85,
         shape,
