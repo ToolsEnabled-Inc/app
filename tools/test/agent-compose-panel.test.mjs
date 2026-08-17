@@ -830,15 +830,34 @@ test('the form scrolls, so Start can always be reached', () => {
   assert.ok(body, 'the panel body is gone; the form is unscrollable again')
   assert.ok(String(body.className).includes('rail-scroll'),
     'the panel body lost .rail-scroll — the class that carries flex:1, min-height:0 and overflow-y:auto')
-  /* Start must live INSIDE that scroller, not beside it. */
+  /* START IS PINNED BESIDE THE SCROLLER, AND BOTH FAILURES ARE PINNED HERE.
+     This assertion used to demand the opposite -- that Start live INSIDE the
+     scroller -- because the earlier defect was a panel that overflowed the
+     clipping rail and cut the button off. Putting it in the scroller fixed
+     reachability and lost VISIBILITY: measured on installed 1.0.21, the form
+     wants ~765px against a rail of 560-700, so Start began ~100px below the
+     fold and the owner reported, again, "there is no way to start an agent".
+     A control that is off-screen at first paint is absent to the person
+     looking at it.
+     Beside the scroller is safe precisely because of the two rules asserted
+     below: the root is a bounded flex column, so a `flex: none` row after a
+     `flex: 1; min-height: 0` scroller is laid out inside the rail rather than
+     past it. Keep all four assertions together -- each one alone permits one
+     of the two defects. */
   const submit = actionNamed(handle, 'submit')
   assert.ok(submit, 'the Start button vanished')
-  assert.ok(body.find(node => node === submit),
-    'the Start button sits outside the scroller, which is exactly how it became unreachable')
+  assert.ok(!body.find(node => node === submit),
+    'Start went back inside the scroller, which is how it fell below the fold and read as missing')
+  assert.ok(handle.element().find(node => node === submit),
+    'Start left the panel entirely')
   const css = readFileSync(path.resolve(path.dirname(MODULE_PATH), 'agent-compose-panel.css'), 'utf8')
   const rootRule = css.slice(css.indexOf('.agent-compose {'), css.indexOf('.agent-compose {') + 400)
   assert.match(rootRule, /flex-direction: column/, 'the panel root stopped being a column; the body cannot own the scroll')
   assert.match(rootRule, /min-height: 0/, 'the panel root lost min-height:0 and will push its body past the clip')
+  /* The pinned row is only safe while it refuses to be squeezed: without
+     `flex: none` a tall form pushes it back off the bottom of the rail. */
+  const actionsRule = css.slice(css.indexOf('.agent-compose-actions {'), css.indexOf('.agent-compose-actions {') + 300)
+  assert.match(actionsRule, /flex: none/, 'the action row can be squeezed again; Start returns to below the fold')
   assert.ok(!/\.agent-compose-text \{[^}]*resize: vertical/s.test(css),
     'the message box can be dragged taller again, which only deepens the clip')
 })

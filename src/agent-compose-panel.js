@@ -413,6 +413,19 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   messageField.appendChild(messageProblem)
   body.appendChild(messageField)
 
+  /* START DOES NOT SCROLL. IT IS THE POINT OF THE PANEL.
+     Owner, twice, months apart: "I cant scroll down to even press start" and
+     then "there is no way to start an agent". The first was answered by making
+     the form scroll -- which fixed reachability and NOT visibility, because the
+     button went into the scroller with everything else. Measured on the
+     installed 1.0.21: the form wants about 765px, the rail gives 560-700, so
+     the action row began roughly 100px BELOW the fold and the first thing a
+     person saw was a form with no way to finish it. A control that exists but
+     is off-screen at first paint is, to the person looking at it, absent.
+     So Start lives OUTSIDE the scroller, as a sibling of it, exactly as the
+     nav row above does: the form scrolls between them and both ends stay put.
+     Keep it here -- moving it back into `body` re-creates the owner's defect
+     without changing a single visible pixel in a unit test. */
   const actions = doc.createElement('div')
   actions.className = 'agent-compose-actions'
   const submit = doc.createElement('button')
@@ -424,18 +437,21 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   /* Cancel is built with the nav row at the top of this function; only Start
      remains down here, full-width in the action row. */
   actions.appendChild(submit)
-  body.appendChild(actions)
+  root.appendChild(actions)
 
   /* Progress, not problems, and polite on purpose. The wait is the part people
      distrust: a start crosses a background service and a program that is not
      this one, and a button that goes quiet is where somebody presses it a
      second time. */
+  /* The progress line rides WITH the button, outside the scroller, for the same
+     reason the button does: it answers the press, and an answer a person has to
+     scroll to find reads as no answer at all. */
   const status = doc.createElement('p')
   status.className = 'agent-compose-status'
   status.setAttribute('data-compose-status', 'panel')
   status.setAttribute('role', 'status')
   status.setAttribute('hidden', 'hidden')
-  body.appendChild(status)
+  root.appendChild(status)
 
   return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
 }

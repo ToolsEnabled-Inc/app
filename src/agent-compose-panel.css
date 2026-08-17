@@ -197,10 +197,19 @@
   color: var(--ink-3);
 }
 
+/* PINNED UNDER THE SCROLLER, NEVER INSIDE IT. The panel is a column: nav row,
+   scrolling form, then this. `flex: none` is what stops the form's overflow
+   from squeezing the button to nothing -- without it a tall form and a short
+   rail put Start back where the owner could not see it. The top rule separates
+   it from the form the way the nav row is separated from above. */
 .agent-compose-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s2);
+  flex: none;
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
 }
 
 .agent-compose-actions .ctl-btn {
