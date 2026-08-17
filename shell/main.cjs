@@ -991,6 +991,27 @@ ipcMain.handle('mc-agent:tools', async (event) => {
   return listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
 })
 
+/* WHICH TIERS THIS INSTALLATION CAN ACTUALLY START.
+ *
+ * The renderer used to answer this from a frozen list of provider names, so the
+ * tier menu said "cannot start from a tree yet" on a build that could, and would
+ * have kept saying it after the engine shipped. This is the shell answering with
+ * what it really resolved: startableTiers() runs the SAME resolveStartTier() the
+ * press runs, so the menu and the press cannot disagree.
+ *
+ * FAIL-CLOSED AT THE OTHER END. A renderer that gets no answer, or an answer it
+ * cannot parse, must fall back to codex-only -- exactly today's behaviour -- so
+ * an older payload or a browser with no bridge is unchanged. This end simply
+ * refuses to invent one: if the host cannot be built, the invoke rejects and the
+ * renderer takes its fallback.
+ *
+ * It starts nothing and carries no path; tier ids are the renderer's own words. */
+ipcMain.handle('mc-agent:startable-tiers', async (event) => {
+  assertTrustedAgentSender(event)
+  const host = await getAgentHost()
+  return host.startableTiers()
+})
+
 /* WHICH ASSISTANT PROGRAMS ARE ON THIS COMPUTER, AND WHICH ARE SIGNED IN.
  *
  * The third channel that starts nothing. It exists because the product could

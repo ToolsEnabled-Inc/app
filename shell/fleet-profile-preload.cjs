@@ -45,6 +45,10 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      posture as confinement(): read-only, registry identifiers only, and
      {ok:false, code} on every failure. */
   tools: () => ipcRenderer.invoke('mc-agent:tools'),
+  /* Which tiers this installation can really start, from the shell rather than
+     from a list the renderer keeps. The caller must fall back to codex-only on
+     any failure; see the note on the handler in shell/main.cjs. */
+  startableTiers: () => ipcRenderer.invoke('mc-agent:startable-tiers'),
   /* Read-only, and the reason the home screen has something true to show on a
      computer with nothing else connected. Returns bounded records of what has
      run here: sequence, time, action. No path, no hash, no signature -- see

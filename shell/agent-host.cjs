@@ -8,6 +8,9 @@ const path = require('node:path')
 // capability-layer.cjs is itself Electron-free (node:child_process, node:fs,
 // node:path only), so requiring it here preserves the property above.
 const { resolveCapabilityRoot } = require('./capability-layer.cjs')
+/* Per-provider presence, so one provider's missing prerequisite cannot speak
+   for the others. Electron-free like this module and like capability-layer. */
+const { providerCliPresence } = require('./provider-cli-presence.cjs')
 
 const CLIENT_INFO = Object.freeze({
   name: 'toolsenabled',
@@ -627,16 +630,55 @@ function engineAvailability({ enginePath, defaultCwd = process.cwd(), ...options
     const { engineRoot } = loadEngine(enginePath, options)
     normalizeCwd(defaultCwd, defaultCwd)
     const planner = loadConfinementPlanner(engineRoot)
+
+    /* THE TWO CHECKS BELOW ARE ABOUT CODEX, AND THEY USED TO REFUSE EVERYTHING.
+     *
+     * THE DEFECT, MEASURED. On a profile with no ~/.codex/auth.json this
+     * function answered {ok:false, AGENT_CONFINEMENT_SIGNED_OUT} and the page
+     * offered no start AT ALL -- for every tier, including Claude, which never
+     * reads that file. codexCommandIsMissing() above has the same shape. So a
+     * person who has installed Claude and signed into it, and has no Codex, is
+     * told this copy cannot run an agent. That is the product calling itself
+     * broken on a machine that is correctly set up for the thing the owner
+     * actually asked for.
+     *
+     * IT IS ONLY SAFE TO STEP AROUND THEM WHEN A CLAUDE START IS GENUINELY
+     * POSSIBLE, and both halves of that are proved rather than assumed:
+     *   - the payload really carries the engine (a require() that exports
+     *     startClaudeSession -- the same handle resolveStartTier gates on), and
+     *   - the `claude` program really resolves on this machine.
+     * Neither is a provider name or a flag. If either is missing we fall through
+     * to the Codex answers unchanged, which is exactly today's behaviour.
+     *
+     * IT DOES NOT WEAKEN THE CODEX PATH. A Codex tier still fails at the start
+     * on both of these -- startSession builds the confined home and spawns the
+     * binary -- and those refusals have their own copy. What changes is only
+     * that ONE provider's missing prerequisite no longer speaks for the others.
+     *
+     * FAIL-CLOSED ON ITS OWN UNCERTAINTY, like every other branch of this
+     * function: presence answering 'unknown' is not proof of anything and does
+     * NOT open the door. Only a positive 'yes' does. */
+    const claudeCouldStart = (() => {
+      try {
+        if (!loadClaudeEngine(engineRoot)) return false
+        const presence = providerCliPresence()
+        const claude = presence && presence.providers.find(row => row.id === 'claude')
+        return Boolean(claude && claude.installed === 'yes')
+      } catch {
+        return false
+      }
+    })()
+
     /* Before the sign-in, deliberately: `codex login` is a subcommand of this
      * binary, so a machine missing both must be told about the binary first or
      * the instruction it gets cannot be carried out. See codexCommandIsMissing(). */
-    if (codexCommandIsMissing()) {
+    if (!claudeCouldStart && codexCommandIsMissing()) {
       fail(
         'AGENT_CODEX_CLI_NOT_INSTALLED',
         'The Codex command-line program is not installed on this computer, so there is nothing for a session to run.',
       )
     }
-    if (confinedSessionIsSignedOut(planner)) {
+    if (!claudeCouldStart && confinedSessionIsSignedOut(planner)) {
       fail(
         'AGENT_CONFINEMENT_SIGNED_OUT',
         'The assistant is not signed in on this computer, so no confined session can be started for it.',
@@ -1414,6 +1456,33 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     if (failures.length) throw new AggregateError(failures, 'One or more Codex sessions failed to close')
   }
 
+  /* WHICH TIERS THIS INSTALLATION CAN ACTUALLY START, asked rather than guessed.
+   *
+   * THE DEFECT THIS CLOSES. src/fleet-tree-copy.js carried
+   * TREE_STARTABLE_PROVIDERS = ['codex'], hardcoded, and every surface that
+   * draws a tier row took its label from it -- so the menu said "cannot start
+   * from a tree yet" on a build that could, and would have gone on saying it
+   * after the engine shipped. Meanwhile this shell already knew the truth:
+   * resolveStartTier() gates on `claudeEngine`, which is a real require() of the
+   * payload module confirming it exports startClaudeSession. One side knew and
+   * the other was guessing, and the guess is what a person read.
+   *
+   * IT DERIVES FROM THE SAME VALUES THE START PATH USES -- the START_TIERS table
+   * and the same `claudeEngine` handle -- rather than a second list. A parallel
+   * list is one that drifts, and the drift is invisible: it shows up as a menu
+   * that disagrees with the press, which is precisely today's bug.
+   *
+   * IT STARTS NOTHING and returns no path: tier ids, which are already the
+   * renderer's own vocabulary. */
+  function startableTiers() {
+    return Object.freeze({
+      ok: true,
+      tiers: Object.freeze(Object.keys(START_TIERS).filter((id) => {
+        try { resolveStartTier(id); return true } catch { return false }
+      })),
+    })
+  }
+
   return Object.freeze({
     startSession,
     sendTurn,
@@ -1425,6 +1494,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     closeSession,
     onEvent,
     closeAll,
+    startableTiers,
   })
 }
 
