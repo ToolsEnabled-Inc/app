@@ -349,3 +349,29 @@ I could not run that myself: a fresh profile boots into the setup flow and my
 probes never reached `#/settings` (route came back empty every time), while
 these harnesses complete the walkthrough first. Recorded as evidence, not as a
 verdict.
+
+### The three UNMEASURED drives are the same precondition, not a defect
+
+`refusal-copy-qa.mjs:590-591` waits for `.static-tree-node` and clicks into it
+to reach the controls rail. On a sterile profile **no agent has ever run**, so
+that class is absent (it means "a running agent"; empty slots are
+`.tree-empty-node`), the rail is never reached, and the three driven refusals
+report **UNMEASURED**.
+
+That is the harness behaving correctly — it refuses to call an unmeasured
+control a pass — and it is the same precondition behind finding 12. It is a
+COVERAGE gap: nothing in these runs ever starts an agent, so the refusal copy
+of Dispatch and the two Codex Cloud reads is never exercised on a fresh
+profile.
+
+Closing it means one of: seed a profile that already has an agent, or start one
+inside the run before driving the refusals. Worth doing — refusal copy is
+exactly the surface a stranger meets when something is switched off — but it is
+a harness investment, not a product fix, and it belongs to whoever owns these
+drivers.
+
+**Pattern worth naming, because it cost this lane most of a night:** five
+separate harness checks assume `.static-tree-node` exists on a fresh profile.
+It never does. Any driver that needs an agent must either create one or say
+UNMEASURED; asserting on its absence produces a defect report about a product
+that is behaving exactly as designed.
