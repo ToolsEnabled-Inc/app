@@ -319,7 +319,18 @@ export const ENGINE_REASON = Object.freeze({
   AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not check whether an agent can run here',
   AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down',
-  AGENT_TIER_NO_LAUNCHER: 'A Claude or local agent type was chosen, and this copy will not start one from the tree. A Claude agent would need your Claude sign-in or an Anthropic key, and this copy may use neither. The Codex agent types run today',
+  /* THE SAME FALSE CLAIM LIVED HERE TOO, IN DIFFERENT WORDS, AND WAS MISSED.
+     This read "A Claude agent would need your Claude sign-in or an Anthropic key,
+     and this copy may use neither." The key half is true; the sign-in half is not.
+     MEASURED on the installed 1.0.19: handing work over on the agent page spawns
+     the official claude binary with apiKeySource "none" -- the person's own
+     subscription -- and the assistant answered. The lane path passes no credential
+     and does NOT redirect CLAUDE_CONFIG_DIR, so the child reads the signed-in
+     user's own Claude credentials. What is fenced is the INTERACTIVE launcher a
+     tree would use, which runs on a throwaway config directory with no login state.
+     agent-availability-copy.js was corrected first and this table was not, so the
+     product shipped one true and one false answer to the same question. */
+  AGENT_TIER_NO_LAUNCHER: 'A Claude or local agent type was chosen, and this copy will not start one from the tree. To use Claude, hand the work over on the agent page, which runs on your own Claude sign-in. The Codex agent types run from the tree today',
   SPAWN_RECORD_NO_KEYSTORE: 'This copy cannot reach the Windows keystore that protects the record of what runs here, so it will not start an agent',
   SPAWN_RECORD_NO_DIRECTORY: 'ToolsEnabled has nowhere to keep its record of what runs here, so it will not start an agent',
   SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let ToolsEnabled protect its record of what runs here, so it will not start an agent',
