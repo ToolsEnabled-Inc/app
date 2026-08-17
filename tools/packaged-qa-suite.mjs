@@ -113,6 +113,11 @@ const LOG_DIR = path.resolve(argument('--logs') || path.join(tmpdir(), 'packaged
 const SETTINGS = new Map([
   ['home-screen-qa.cjs', { runner: 'node', timeoutMs: 240_000 }],
   ['page2-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
+  /* Electron, because it measures LAYOUT: whether the panel's Start button and
+     brief box are on screen when it opens. node --test cannot answer that -- a
+     fake DOM has no layout, which is how 'there is no way to start an agent'
+     survived two fixes and shipped twice. */
+  ['compose-start-layout-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
   ['owner-popup-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
   ['checkout-privacy-packaged-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
   ['owner-account-packaged-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
