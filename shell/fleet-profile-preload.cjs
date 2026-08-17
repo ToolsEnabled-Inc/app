@@ -66,6 +66,10 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   /* Fork this session's thread at one of your own turns and continue from
      there — proven by tools/agent-rewind-probe.mjs before it shipped. */
   rewind: request => ipcRenderer.invoke('mc-agent:rewind', request),
+  /* Change a running agent's thinking depth, and ask the engine what depths
+     it really offers. Both are the provider's answers, not ours. */
+  setEffort: request => ipcRenderer.invoke('mc-agent:effort', request),
+  models: request => ipcRenderer.invoke('mc-agent:models', request || {}),
   /* Answer a pending approval with one of the decisions the request itself
      named. Nothing fires approvals today (policy is 'never' at every tier);
      the reply path exists first, by design. */

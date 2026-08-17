@@ -17,3 +17,8 @@
 # repo-wide rule here would change the checkout bytes of every file for all
 # worktrees sharing this repository — a far larger change than the problem.
 /.githooks/** text eol=lf
+
+# Font binaries must never be line-ending normalised: autocrlf rewriting a
+# CRLF byte pair inside a woff2 stream corrupts it silently (the website lane
+# hit exactly this shipping the same files).
+*.woff2 binary

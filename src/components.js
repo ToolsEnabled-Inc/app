@@ -324,7 +324,24 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
    placeholder attribute on the line below. The label stays verbatim on purpose
    (mangling somebody's words in the one place they compare them against what
    they typed is worse), so every sink escapes instead. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null }) {
+/* Four OPTIONAL powers a live-agent caller may hand this composer (every
+   existing caller compiles unchanged; the component stays outbox- and
+   fleet-agnostic — the closures own the mechanisms):
+     status  — { busy(), subscribe(onChange) → unsubscribe }: whether the
+               agent is mid-turn. Drives the send↔stop morph.
+     queue   — { list(), add(text) → {ok, sentence?}, cancel(id),
+               subscribe(onChange) → unsubscribe }: messages waiting to send.
+               While busy, a typed send QUEUES — no "me" bubble, because the
+               strip above the composer is the preview and a bubble would
+               claim the words were sent.
+     actions — () → rows of { id, label, hint, enabled, run(ctx) }: the
+               popup's content, built FRESH at every open. run's ctx has
+               say(sentence), close(), and show(rows, {title}) for two-stage
+               quick-picks (effort, model, rewind) inside one popup.
+     onStop  — () → Promise<sentence|void>: pressed as the STOP face of the
+               send button (busy + empty input). The sentence lands as an
+               agent bubble. */
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null }) {
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
     <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
@@ -341,6 +358,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       </div>
       <div class="chat-log"></div>
       <div class="chat-attach-strip" hidden></div>
+      ${queue ? '<div class="chat-queue-strip" hidden></div>' : ''}
       <div class="chat-input">
         ${onAttach ? `<button class="chat-tool" data-chat-attach aria-label="Attach an image" title="Attach an image — it rides with your next message">
           <svg viewBox="0 0 24 24"><path d="M8 12.5 15.2 5.3a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a5.4 5.4 0 0 1-7.6-7.6L11 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -348,9 +366,13 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         ${onMention ? `<button class="chat-tool" data-chat-mention aria-label="Mention a file" title="Mention a file — its path is written into your message">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.2 12v1.8a2.4 2.4 0 0 0 4.8 0V12a9 9 0 1 0-3.5 7.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>` : ''}
+        ${actions ? `<button class="chat-tool" data-chat-actions aria-haspopup="true" aria-expanded="false" aria-label="Actions" title="Actions for this agent — stop, thinking depth, model, rewind and more">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.2" cy="7" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="12" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="17" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>` : ''}
         <input type="text" placeholder="Message ${escapeMarkup(title)}…" />
         <button class="chat-send" aria-label="Send">
-          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="chat-send-go" viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="chat-send-halt" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="currentColor"/></svg>
         </button>
       </div>
     </div>
@@ -382,6 +404,70 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     input.value = input.value ? `${input.value} ${path}` : `Read ${path} and use it for what I ask next.`
     input.focus()
   })
+
+  /* ---- the live composer state machine (status/queue/onStop callers) ----
+     One repaint function decides the trailing button's face and the queue
+     strip's contents. The rules, exactly as the owner spoke them: stop
+     replaces send while the agent is replying; the moment the person types,
+     it turns back into send; a send while busy queues, and the waiting words
+     are PREVIEWED in the strip rather than claimed as sent. */
+  const queueStrip = root.querySelector('.chat-queue-strip')
+  const actionsButton = root.querySelector('[data-chat-actions]')
+  const isBusy = () => {
+    try { return Boolean(status && typeof status.busy === 'function' && status.busy() === true) }
+    catch { return false }
+  }
+  const paintQueueStrip = () => {
+    if (!queueStrip || !queue) return
+    let entries = []
+    try { entries = queue.list() || [] } catch { entries = [] }
+    queueStrip.hidden = entries.length === 0
+    queueStrip.textContent = ''
+    for (const entry of entries) {
+      const row = document.createElement('div')
+      row.className = 'chat-queue-row'
+      const text = document.createElement('span')
+      text.className = 'chat-queue-text'
+      /* The person's own words: textContent, never markup. */
+      text.textContent = entry.text
+      text.title = entry.text
+      const cancel = document.createElement('button')
+      cancel.type = 'button'
+      cancel.className = 'chat-queue-cancel'
+      cancel.textContent = 'Unqueue'
+      cancel.setAttribute('aria-label', 'Remove this waiting message')
+      cancel.addEventListener('click', () => {
+        try { queue.cancel(entry.id) } catch { /* an already-sent entry is the goal state */ }
+        paintQueueStrip()
+        syncComposer()
+      })
+      row.append(text, cancel)
+      queueStrip.appendChild(row)
+    }
+  }
+  const syncComposer = () => {
+    if (disposed) return
+    const stopMode = isBusy() && !input.value.trim() && typeof onStop === 'function'
+    sendButton.classList.toggle('is-stop', stopMode)
+    sendButton.setAttribute('aria-label', stopMode ? 'Stop this reply' : 'Send')
+    sendButton.title = stopMode ? 'Stop what it is writing now — the session stays open' : ''
+    paintQueueStrip()
+  }
+  let stopping = false
+  const runStop = async () => {
+    if (stopping || typeof onStop !== 'function') return
+    stopping = true
+    sendButton.disabled = true
+    try {
+      const said = await onStop()
+      if (!disposed && said) addMsg(roleKey, String(said))
+    } catch {
+      if (!disposed) addMsg(roleKey, 'Nothing was stopped; the turn may already be over.')
+    }
+    sendButton.disabled = false
+    stopping = false
+    syncComposer()
+  }
 
   const addTimeDivider = (at) => {
     const divider = document.createElement('time')
@@ -658,7 +744,28 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   const send = () => {
     if (disposed) return
     const v = input.value.trim()
-    if (!v) return
+    /* Empty input while the agent writes: this press IS the stop button —
+       the same physical button, wearing its stop face. */
+    if (!v) {
+      if (isBusy() && typeof onStop === 'function') void runStop()
+      return
+    }
+    /* Typed words while the agent writes: they QUEUE, visibly. No "me"
+       bubble — the strip above the composer is the preview, and a bubble
+       here would claim the words already reached the agent. A caller
+       without a queue (the sample surfaces, the agent page) keeps its
+       old behavior below. */
+    if (isBusy() && queue) {
+      let queued = null
+      try { queued = queue.add(v) } catch { queued = null }
+      if (queued && queued.ok) {
+        input.value = ''
+        syncComposer()
+      } else {
+        addMsg(roleKey, (queued && queued.sentence) || 'That was not queued. Try it again in a moment.')
+      }
+      return
+    }
     input.value = ''
     pinned = true
     if (attachStrip && !attachStrip.hidden) {
@@ -725,6 +832,21 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   input.addEventListener('keydown', onInputKeydown)
   if (onClose) root.querySelector('.chat-close').addEventListener('click', onCloseClick)
 
+  /* The composer repaints when the person types (stop⇄send), when the
+     caller's status changes (turn started or ended), and when the queue
+     changes from ANY surface — all three feeds land on one function. */
+  const onInputTyped = () => syncComposer()
+  input.addEventListener('input', onInputTyped)
+  let statusUnsub = null
+  let queueUnsub = null
+  if (status && typeof status.subscribe === 'function') {
+    try { statusUnsub = status.subscribe(() => syncComposer()) } catch { statusUnsub = null }
+  }
+  if (queue && typeof queue.subscribe === 'function') {
+    try { queueUnsub = queue.subscribe(() => syncComposer()) } catch { queueUnsub = null }
+  }
+  syncComposer()
+
   let unregisterLifecycle = () => {}
   const dispose = () => {
     if (disposed) return
@@ -748,6 +870,10 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     sendButton.removeEventListener('click', send)
     input.removeEventListener('keydown', onInputKeydown)
+    input.removeEventListener('input', onInputTyped)
+    try { statusUnsub?.() } catch { /* a dead subscription is the goal state */ }
+    try { queueUnsub?.() } catch { /* likewise */ }
+    closeActionsPop()
     if (onClose) root.querySelector('.chat-close')?.removeEventListener('click', onCloseClick)
     unregisterLifecycle()
     bumpChatDebug('activeChats', -1)
@@ -790,6 +916,136 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       }
     },
   })
+
+  /* ---- THE ACTIONS POPUP: a quick-pick anchored over the composer. ----
+     Rows come from the caller's actions() — built FRESH at every open, so
+     enabled states are never stale. A row's run(ctx) may repaint the popup
+     in place with ctx.show(rows, {title}) — that is how thinking depth,
+     model and rewind are two-stage picks inside ONE panel — and may speak
+     an outcome through ctx.say, which lands on the status line at the
+     bottom. Escape and any press outside close it; so does dispose. */
+  let popEl = null
+  let popStack = []
+  let popTopRows = []
+  const onDocPointer = (event) => {
+    if (!popEl) return
+    if (popEl.contains(event.target)) return
+    if (actionsButton && (event.target === actionsButton || actionsButton.contains(event.target))) return
+    closeActionsPop()
+  }
+  const onPopKeydown = (event) => { if (event.key === 'Escape') closeActionsPop() }
+  function closeActionsPop() {
+    if (!popEl) return
+    popEl.remove()
+    popEl = null
+    popStack = []
+    popTopRows = []
+    actionsButton?.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('pointerdown', onDocPointer, true)
+    document.removeEventListener('keydown', onPopKeydown, true)
+  }
+  const renderPopStage = () => {
+    if (!popEl) return
+    const list = popEl.querySelector('.chat-actions-list')
+    const filter = popEl.querySelector('.chat-actions-filter')
+    const titleLine = popEl.querySelector('.chat-actions-title')
+    const stage = popStack.length ? popStack[popStack.length - 1] : null
+    /* The filter belongs to the top stage; a sub-stage is a short pick
+       list with a Back row instead. */
+    filter.hidden = Boolean(stage)
+    titleLine.hidden = !stage?.title
+    if (stage?.title) titleLine.textContent = stage.title
+    list.textContent = ''
+    const wanted = stage ? '' : filter.value.trim().toLowerCase()
+    const rows = stage ? stage.rows : popTopRows.filter(row =>
+      !wanted || row.label.toLowerCase().includes(wanted) || String(row.hint || '').toLowerCase().includes(wanted))
+    if (stage) {
+      const back = document.createElement('button')
+      back.type = 'button'
+      back.className = 'chat-actions-row chat-actions-back'
+      back.textContent = '‹ Back'
+      back.addEventListener('click', () => { popStack.pop(); renderPopStage() })
+      list.appendChild(back)
+    }
+    if (!rows.length && !stage) {
+      const none = document.createElement('p')
+      none.className = 'chat-actions-hint'
+      none.textContent = 'No action matches that. Clear the filter to see them all.'
+      list.appendChild(none)
+    }
+    const out = popEl.querySelector('.chat-actions-out')
+    const ctx = {
+      say: sentence => { if (out) out.textContent = String(sentence ?? '') },
+      close: closeActionsPop,
+      show: (nextRows, { title: stageTitle = null } = {}) => {
+        popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
+        renderPopStage()
+      },
+    }
+    for (const row of rows) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'chat-actions-row'
+      button.disabled = row.enabled === false
+      const label = document.createElement('div')
+      label.textContent = row.label
+      button.appendChild(label)
+      if (row.hint) {
+        const hint = document.createElement('div')
+        hint.className = 'chat-actions-hint'
+        hint.textContent = row.hint
+        button.appendChild(hint)
+      }
+      if (row.current) button.classList.add('is-current')
+      button.addEventListener('click', () => {
+        if (typeof row.run !== 'function') return
+        Promise.resolve()
+          .then(() => row.run(ctx))
+          .then(said => { if (said && out && popEl) out.textContent = String(said) })
+          .catch(() => { if (out && popEl) out.textContent = 'That did not happen. Try it again.' })
+      })
+      list.appendChild(button)
+    }
+  }
+  const openActions = (sectionId = null) => {
+    if (typeof actions !== 'function' || disposed) return
+    closeActionsPop()
+    popEl = el(`
+      <div class="chat-actions-pop" aria-label="Actions">
+        <div class="chat-actions-title" hidden></div>
+        <input type="text" class="chat-actions-filter" placeholder="Filter actions…" aria-label="Filter actions">
+        <div class="chat-actions-list"></div>
+        ${actionsNote ? `<p class="chat-actions-hint chat-actions-note">${escapeMarkup(actionsNote)}</p>` : ''}
+        <output class="chat-actions-out" role="status"></output>
+      </div>`)
+    root.appendChild(popEl)
+    actionsButton?.setAttribute('aria-expanded', 'true')
+    try { popTopRows = actions() || [] } catch { popTopRows = [] }
+    popStack = []
+    renderPopStage()
+    const filter = popEl.querySelector('.chat-actions-filter')
+    filter.addEventListener('input', () => renderPopStage())
+    document.addEventListener('pointerdown', onDocPointer, true)
+    document.addEventListener('keydown', onPopKeydown, true)
+    if (sectionId) {
+      const target = popTopRows.find(row => row.id === sectionId && row.enabled !== false && typeof row.run === 'function')
+      if (target) {
+        const out = popEl.querySelector('.chat-actions-out')
+        void Promise.resolve().then(() => target.run({
+          say: sentence => { if (out && popEl) out.textContent = String(sentence ?? '') },
+          close: closeActionsPop,
+          show: (nextRows, { title: stageTitle = null } = {}) => {
+            popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
+            renderPopStage()
+          },
+        })).catch(() => {})
+        return
+      }
+    }
+    filter.focus()
+  }
+  actionsButton?.addEventListener('click', () => { popEl ? closeActionsPop() : openActions() })
+  Object.defineProperty(root, 'openActions', { value: openActions })
 
   return root
 }

@@ -68,6 +68,7 @@ import {
   START_REFUSAL,
   TIER_CHOICES,
   EFFORT_CHOICES,
+  effortOptionLabel,
   roleLabel,
   startingLine,
 } from './fleet-tree-copy.js'
@@ -193,12 +194,29 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   root.appendChild(nav.row)
   const cancel = nav.backButton
 
+  /* EVERYTHING BELOW THE NAV ROW SCROLLS, and it has to.
+     The rail is a fixed box (`.rail { overflow: hidden }`) whose pages are
+     `position: absolute; inset: 0`, so this panel can never make the rail
+     taller -- it can only overflow it and be clipped. That is exactly what
+     happened: the owner reported "I cant scroll down to even press start",
+     because this panel wants ~810px and the rail gives 560-700 on an
+     ordinary window. The previous answer was to buy 30px by deleting a
+     heading, and the next feature (the effort row) spent it 3.6x over.
+     A budget is not a fix; a scroller is. `.rail-scroll` is the same class
+     the stats page and the Details tab already scroll with, so this panel
+     now behaves like every other rail page: the nav row stays put and the
+     form scrolls under it. */
+  const body = doc.createElement('div')
+  body.className = 'rail-scroll agent-compose-body'
+  body.setAttribute('data-compose-body', 'form')
+  root.appendChild(body)
+
   /* "Two answers and it runs" -- a person looking at a new panel is deciding
      whether this is a form they can finish, and the length is the answer. */
   const intro = doc.createElement('p')
   intro.className = 'agent-compose-intro'
   intro.textContent = START_PANEL.intro
-  root.appendChild(intro)
+  body.appendChild(intro)
 
   /* WHERE THIS AGENT IS GOING, which is the one question a person has after
      pressing a spot in a tree. Absent on an empty tree: there is nothing to go
@@ -209,7 +227,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
     under.setAttribute('data-compose-under', 'parent')
     /* textContent, so a node named by nobody on this team is characters. */
     under.textContent = underLine
-    root.appendChild(under)
+    body.appendChild(under)
   }
 
   /* THE FIRST AGENT ON AN EMPTY TREE IS THE ONE EVERYTHING ELSE HANGS UNDER, so
@@ -222,7 +240,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
     suggestion.className = 'agent-compose-suggestion'
     suggestion.setAttribute('data-compose-suggestion', 'first-role')
     suggestion.textContent = FIRST_ROLE_SUGGESTION.line
-    root.appendChild(suggestion)
+    body.appendChild(suggestion)
   }
 
   /* THE PANEL-WIDE LINE, and it carries two different kinds of news. A refusal
@@ -235,7 +253,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   notice.className = 'agent-compose-notice'
   notice.setAttribute('data-compose-notice', 'panel')
   notice.setAttribute('hidden', 'hidden')
-  root.appendChild(notice)
+  body.appendChild(notice)
 
   const roleField = doc.createElement('div')
   roleField.className = 'agent-compose-field'
@@ -292,7 +310,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   roleField.appendChild(roleSelect)
   roleField.appendChild(roleSummary)
   roleField.appendChild(roleProblem)
-  root.appendChild(roleField)
+  body.appendChild(roleField)
 
   /* THE MODEL MENU. Unlike the role menu it arrives ANSWERED -- the engine has
      a default, so the default is preselected and there is no placeholder row
@@ -326,7 +344,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   tierField.appendChild(tierLabelNode)
   tierField.appendChild(tierHint)
   tierField.appendChild(tierSelect)
-  root.appendChild(tierField)
+  body.appendChild(tierField)
 
   /* EFFORT RIDES BESIDE THE TIER (owner, iteration 5: "I need to be able to
      choose effort levels when starting an agent … just like vscode"). The
@@ -351,7 +369,9 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   for (const choice of EFFORT_CHOICES) {
     const option = doc.createElement('option')
     option.value = choice.id
-    option.textContent = choice.label
+    /* The provider's name leads, its own sentence explains — and the line is
+       composed in the copy module, which owns every word this panel shows. */
+    option.textContent = effortOptionLabel(choice)
     effortSelect.appendChild(option)
   }
   const tierEffort = (tierId) => LAUNCH_TIERS.find(tier => tier.id === tierId)?.effort || 'medium'
@@ -360,7 +380,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   effortField.appendChild(effortLabelNode)
   effortField.appendChild(effortHint)
   effortField.appendChild(effortSelect)
-  root.appendChild(effortField)
+  body.appendChild(effortField)
 
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
@@ -391,7 +411,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   messageField.appendChild(messageHint)
   messageField.appendChild(messageInput)
   messageField.appendChild(messageProblem)
-  root.appendChild(messageField)
+  body.appendChild(messageField)
 
   const actions = doc.createElement('div')
   actions.className = 'agent-compose-actions'
@@ -404,7 +424,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   /* Cancel is built with the nav row at the top of this function; only Start
      remains down here, full-width in the action row. */
   actions.appendChild(submit)
-  root.appendChild(actions)
+  body.appendChild(actions)
 
   /* Progress, not problems, and polite on purpose. The wait is the part people
      distrust: a start crosses a background service and a program that is not
@@ -415,7 +435,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   status.setAttribute('data-compose-status', 'panel')
   status.setAttribute('role', 'status')
   status.setAttribute('hidden', 'hidden')
-  root.appendChild(status)
+  body.appendChild(status)
 
   return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
 }

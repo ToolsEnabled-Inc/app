@@ -252,10 +252,46 @@ function appRows() {
     <span class="set-label">Reduce motion</span>
     <span class="toggle"><input type="checkbox" id="set-motion" ${motion ? 'checked' : ''}/><i></i></span>
   </label>
-  ${note('reduce_motion', 'Motion & Effects')}`
+  ${note('reduce_motion', 'Motion & Effects')}
+  <div class="set-row set-build" data-build-row>
+    <span class="set-label">This build</span>
+    <span class="set-build-value" data-build-value>reading…</span>
+  </div>`
+}
+
+/* WHICH BUILD IS THIS? Nothing in the app answered that, and it cost a whole
+   walkthrough: a build from a different branch was installed over this one
+   and neither the owner nor I could tell by looking — he reported defects
+   against surfaces that had already been replaced. The packaged artifact has
+   always carried dist/build-info.json (version, refs, and whether the tree
+   was dirty when it was built); it simply had no reader. This is the reader.
+   Absence is stated, never guessed: a copy served without the file says so
+   rather than inventing a version. */
+async function fillBuildRow(body) {
+  const slot = body.querySelector('[data-build-value]')
+  if (!slot) return
+  let info = null
+  try {
+    const answer = await fetch('/build-info.json', { cache: 'no-store' })
+    if (answer.ok) info = await answer.json()
+  } catch { info = null }
+  if (!info) {
+    slot.textContent = 'not recorded in this copy'
+    return
+  }
+  const shortRef = typeof info.app?.ref === 'string' ? info.app.ref.slice(0, 7) : null
+  const built = typeof info.checkedAt === 'string' ? info.checkedAt.slice(0, 16).replace('T', ' ') : null
+  const parts = [
+    typeof info.version === 'string' ? info.version : null,
+    shortRef,
+    built,
+    info.dirty === true ? 'built with uncommitted changes' : null,
+  ].filter(Boolean)
+  slot.textContent = parts.length > 0 ? parts.join(' · ') : 'recorded, but names no version'
 }
 
 function wire(body) {
+  void fillBuildRow(body)
   const themeSeg = body.querySelector('#theme-seg')
   themeSeg?.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-theme]')

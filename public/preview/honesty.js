@@ -49,9 +49,19 @@
  * fixed seed.
  */
 
-/** The exact sentence the disclosure banner must carry. Asserted, not suggested. */
+/** The exact sentence the disclosure banner must carry. Asserted, not
+ *  suggested. Three elements, each required by the legal lane's clearance of
+ *  this simulation (legal/reports/R-009-simulation-disclosure.md §2, via
+ *  reports/lanes/preview-disclosure-two-missing-elements.md):
+ *    (a) simulated, generated in the browser — no real activity anywhere;
+ *    (b) WHAT it simulates: the free local product — the sentence that stops
+ *        a visitor reading the simulation's fluency as a property of the
+ *        hosted service;
+ *    (c) the clock: ~7 wall seconds render a simulated minute, so the
+ *        timeline-compression note applies and is said. */
 export const DISCLOSURE =
-  'Simulated preview. Nothing on this page is live, nothing is running on any computer, '
+  'Simulated preview of the free local product, with the timeline compressed. '
+  + 'Nothing on this page is live, nothing is running on any computer, '
   + 'and every value below was generated in your browser from a fixed seed.'
 
 /** The complete state vocabulary the preview is able to paint. Frozen, and every

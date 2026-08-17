@@ -20,15 +20,34 @@
  * keeps and recolours. tools/a11y-keyboard-qa.mjs measures exactly this.
  */
 
+/* A COLUMN WITH A SCROLLING BODY, not one tall grid.
+   The rail clips (`.rail { overflow: hidden }`) and its pages are absolutely
+   positioned, so this panel can only ever overflow the rail -- which is how
+   Start ended up unreachable. The nav row is fixed at the top; the form
+   scrolls beneath it. `min-height: 0` on both is what lets the body shrink
+   below its content height instead of pushing the button into the clip. */
 .agent-compose {
-  display: grid;
-  gap: var(--s3);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   padding: var(--s4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--ink);
   font-family: var(--font-ui);
+}
+
+.agent-compose-body {
+  display: grid;
+  gap: var(--s3);
+  align-content: start;
+  min-height: 0;
+  /* .rail-scroll supplies flex:1 and overflow-y:auto; the panel adds only
+     the room the scrollbar needs so it never sits on the fields. */
+  padding-right: 2px;
+  margin-top: var(--s3);
 }
 
 .agent-compose-title {
@@ -116,7 +135,10 @@
 
 .agent-compose-text {
   min-height: 7.5em;
-  resize: vertical;
+  /* Vertical resize is gone deliberately: dragging it taller inside a rail
+     that clips only pushed Start further out of reach. The body scrolls
+     now, and the box is a comfortable fixed six rows. */
+  resize: none;
 }
 
 .agent-compose-select[aria-invalid="true"],

@@ -269,6 +269,11 @@ const AGENT_EVENT_CHANNEL = 'mc-agent:event'
 const MAX_AGENT_SESSIONS = 8
 const MAX_SESSION_ID_LENGTH = 128
 const MAX_CWD_LENGTH = 32_768
+/* The provider's own reasoning-effort vocabulary (codex-cli 0.146.0). The
+   authoritative per-model list comes from model/list at runtime; this is the
+   boundary's closed set, kept because codex itself accepts values outside
+   its own catalog without complaint. */
+const AGENT_EFFORT_VALUES = Object.freeze(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
 const MAX_SURFACE_LENGTH = 64
 const MAX_TURN_TEXT_LENGTH = 200_000
 
@@ -387,7 +392,7 @@ function parseAgentStart(value) {
   // startSession(), which resolves it, and the compose panel, which must offer
   // it. Shipping any one of them alone leaves a control that looks real and is
   // not, which is the defect f1ce3ec removed three sliders for.
-  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId'])
+  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId'])
   const sessionId = Object.prototype.hasOwnProperty.call(payload, 'sessionId')
     ? payload.sessionId
     : `chat-${randomUUID()}`
@@ -423,14 +428,32 @@ function parseAgentStart(value) {
     // Same doctrine as tier: refused AT THE BOUNDARY with the available set
     // named, never silently defaulted -- a control that accepts anything and
     // starts something else is the defect the tier comment above records.
+    //
+    // THE SET IS THE PROVIDER'S, not one we invented. Measured against
+    // codex-cli 0.146.0 (2026-08-16): model/list reports each model's own
+    // supported efforts, and `codex` accepts every value below. It also
+    // accepts a value that is NOT one of them -- `-c
+    // model_reasoning_effort=banana` was taken and echoed back untouched --
+    // so this list is load-bearing: the engine will not catch a bad value
+    // for us. `ultra` is the one that is not merely "more thinking": it is
+    // the provider's switch for automatic task delegation, and refusing it
+    // here was why the product could never start that agent at all.
     const effort = boundedAgentString(payload.effort, 'effort', 8)
-    if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) {
+    if (!AGENT_EFFORT_VALUES.includes(effort)) {
       agentIpcError(
         'MC_AGENT_EFFORT_UNKNOWN',
-        'effort must be one of: low, medium, high, xhigh',
+        `effort must be one of: ${AGENT_EFFORT_VALUES.join(', ')}`,
       )
     }
     result.effort = effort
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'resumeThreadId')) {
+    // The name of a conversation codex already holds on disk. It is an
+    // opaque id like every other identifier that crosses here, and the host
+    // hands it straight to thread/resume -- which refuses an id it does not
+    // have, so a forged one buys a refusal rather than somebody else's
+    // conversation. Bounded to the adapter's own threadId ceiling.
+    result.resumeThreadId = boundedAgentString(payload.resumeThreadId, 'resumeThreadId', 512)
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'profileId')) {
     // An ID, never a path: the main-process profile store resolves it after
@@ -1190,6 +1213,47 @@ ipcMain.handle('mc-agent:rewind', async (event, value) => {
     }
     ownedAgentSession(event.sender, request.sessionId)
     return await agentHost.rewindSession(request)
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* HOW HARD A RUNNING AGENT THINKS. The engine's own knob, so this changes a
+   live thread rather than restarting it — the restart the product used to
+   perform, and charge for, on a premise that was wrong. */
+ipcMain.handle('mc-agent:effort', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['sessionId', 'effort'])
+    const effort = boundedAgentString(payload.effort, 'effort', 8)
+    if (!AGENT_EFFORT_VALUES.includes(effort)) {
+      agentIpcError('MC_AGENT_EFFORT_UNKNOWN', `effort must be one of: ${AGENT_EFFORT_VALUES.join(', ')}`)
+    }
+    const request = {
+      sessionId: boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH),
+      effort,
+    }
+    ownedAgentSession(event.sender, request.sessionId)
+    return await agentHost.setSessionEffort(request)
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* WHAT THIS ENGINE ACTUALLY OFFERS: the provider's model catalog, each
+   model's real reasoning efforts in the provider's own words, and its
+   default. The menus are built from this instead of from a table in the
+   renderer that quietly disagrees with the engine. */
+ipcMain.handle('mc-agent:models', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value || {}, ['sessionId'])
+    const request = {}
+    if (Object.prototype.hasOwnProperty.call(payload, 'sessionId')) {
+      request.sessionId = boundedAgentString(payload.sessionId, 'sessionId', MAX_SESSION_ID_LENGTH)
+      ownedAgentSession(event.sender, request.sessionId)
+    }
+    return await agentHost.listEngineModels(request)
   } catch (error) {
     throw rendererSafeAgentError(error)
   }

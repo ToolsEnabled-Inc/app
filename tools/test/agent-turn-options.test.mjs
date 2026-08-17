@@ -85,15 +85,26 @@ test('the host passes images and narrowed options to the adapter, and the plan i
 })
 
 test('effort is a start-time property: boundary-validated, tier-defaulted, bound at spawn', () => {
-  // Iteration 5, W10. The codex app-server protocol has no effort field, so
-  // effort rides the CLI's own -c flag on the spawn -- and every layer of the
-  // chain is pinned, because a control that looks real and is not is the
-  // defect the tier comment in main.cjs records.
+  // Iteration 5 W10, CORRECTED in iteration 7. The spawn flag is real and
+  // proven to land (config/read and thread/start both report it back), so
+  // every layer of that chain stays pinned -- a control that looks real and
+  // is not is the defect the tier comment in main.cjs records. What was
+  // WRONG was the claim that the protocol has no effort field: it has two
+  // (turn/start's `effort`, and thread/settings/update), and the app now
+  // uses the latter so a running agent can change depth without a restart.
+  // The values are the provider's own, and the closed set is load-bearing
+  // because codex accepts an unknown effort silently -- measured: it took
+  // `banana` and echoed it back untouched.
   const mainSource = readFileSync(new URL('../../shell/main.cjs', import.meta.url), 'utf8')
   assert.match(mainSource, /'sessionId', 'cwd', 'surface', 'tier', 'effort'/, 'the start IPC no longer accepts effort')
+  assert.match(mainSource, /const AGENT_EFFORT_VALUES = Object\.freeze\(\['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'\]\)/,
+    "the boundary's effort set drifted from the provider's own vocabulary")
   assert.match(mainSource, /MC_AGENT_EFFORT_UNKNOWN/, 'the boundary no longer refuses unknown efforts by name')
   const hostSource = readFileSync(new URL('../../shell/agent-host.cjs', import.meta.url), 'utf8')
-  assert.match(hostSource, /const EFFORT_KEYS = new Set\(\['low', 'medium', 'high', 'xhigh'\]\)/, 'the host lost its closed effort set')
+  assert.match(hostSource, /const EFFORT_KEYS = new Set\(\['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'\]\)/,
+    "the host's effort set drifted from the provider's own vocabulary")
+  assert.match(hostSource, /async function setSessionEffort/,
+    'the host lost the in-place depth change, so the product is back to restarting an agent to think harder')
   assert.match(hostSource, /resolveEffort\(effort, startTier\)/, 'startSession no longer resolves effort against the tier default')
   assert.match(hostSource, /model_reasoning_effort=\$\{sessionEffort\}/, 'the spawn seam no longer binds effort; the dead tier field is dead again')
   assert.match(hostSource, /effort: sessionEffort/, 'the session record no longer keeps the spawned effort')

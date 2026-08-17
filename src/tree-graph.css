@@ -50,23 +50,63 @@
     0 0 0 3.5px var(--focus-ring);
 }
 
+/* ONE REAL BAR PER PANE (owner, iteration 6). The title, the switcher and
+   the tools used to be absolute siblings sharing one band over the canvas —
+   right-anchored shrink-to-fit vs a left-anchored title, kept apart by
+   nothing but luck in their widths, and the strip painted over the title the
+   moment enough trees existed. Normal flow ends that argument for good: the
+   bar has three slots in a fixed order, the title ellipsises, the TREES slot
+   alone scrolls sideways behind edge fades, and the tools keep their fixed
+   width on the right. */
+.computers .graph-wrap { display: flex; flex-direction: column; }
+.computers .graph-bar {
+  flex: none;
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 10px 0 15px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--sheet);
+}
+.computers .graph-canvas-slot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 .computers .graph-title {
-  position: absolute;
-  top: 17px;
-  left: 18px;
-  z-index: 8;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--ink);
-  font-size: 18px;
+  font-size: 15.5px;
   font-weight: 650;
   letter-spacing: -0.01em;
-  pointer-events: none;
 }
-.computers .graph-crumb {
-  top: 46px;
-  left: 10px;
+/* The scroll function the owner asked for lives HERE and only here: the
+   trees slot slides its buttons sideways with the scrollbar hidden (the
+   .agentv-panels recipe) and tells the eye there is more via edge fades.
+   The seg inside must keep its natural width — a shrunken seg is how the
+   squashed glitch box happened. */
+.computers .graph-bar-trees {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
+.computers .graph-bar-trees::-webkit-scrollbar { display: none; }
 .computers .graph-hint {
-  top: 17px;
+  top: 12px;
   background: var(--sheet);
   border: 1px solid var(--line-2);
   box-shadow: none;
@@ -78,23 +118,12 @@
 .computers .graph-hint.show { transform: translateX(-50%); }
 
 .computers .graph-tools {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-  z-index: 9;
+  position: static;
+  margin-left: auto;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  /* THE STRIP IS BOUNDED, or it is not a strip. Shrink-to-fit with no left
-     bound let the tools row grow leftward across the title and crumb, and a
-     child's max-width:40% then resolved against that already-oversized run --
-     the squashed glitch box beside the zoomer (owner walkthrough). The strip
-     may never exceed the canvas minus the title's own margin; children shrink
-     (min-width:0) instead of the strip growing. */
-  max-width: calc(100% - 34px);
-  justify-content: flex-end;
-  flex-wrap: nowrap;
-  min-width: 0;
 }
 .computers .graph-edit-btn,
 .computers .graph-reset-btn {
@@ -697,7 +726,12 @@
   background-image: none;
 }
 .computers .board-page .agent-head .role-dot { background: var(--role); }
-.computers .board-page .board-box { background: var(--sheet); box-shadow: none; }
+/* The box keeps board.css's own fill here. This rule used to force
+   `background: var(--sheet)`, which overwrote the ink-mix fill on the ONE
+   page the fill was added for — five boxes reading as five hairlines around
+   identical grey text, which is what "unreadable" looked like. Only the
+   shadow is dropped, because the canvas beside it is flat. */
+.computers .board-page .board-box { box-shadow: none; }
 .computers .board-page .ctl-btn.armed {
   background: color-mix(in oklab, var(--role) 8%, var(--sheet));
   box-shadow: none;
@@ -888,6 +922,7 @@
 
 /* Zoom: a control he can see. The fit button used to appear only once he was
    already lost; the cluster is always there, and states the factor. */
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer {
   position: static;
   z-index: 9;
@@ -898,6 +933,7 @@
   background: var(--sheet);
   overflow: hidden;
 }
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer button {
   min-width: 26px;
   min-height: 28px;
@@ -909,12 +945,17 @@
   cursor: pointer;
   transition: background 160ms var(--ease), color 160ms var(--ease);
 }
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer button + button { border-left: 1px solid var(--line-2); }
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer button:hover { background: color-mix(in oklab, var(--ink) 5%, var(--sheet)); color: var(--ink); }
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer .gz-level { min-width: 54px; font-size: 11.5px; color: var(--ink-3); }
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer .gz-level.is-off { color: var(--ink); }
 /* the cluster's own reset button is always available, unlike the old floating
    fit chip that only appeared once the reader was already displaced */
+.graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer .graph-fit {
   position: static;
   left: auto;

@@ -249,12 +249,42 @@ export const DEFAULT_TIER = 'luna'
    this register: "thinks a little / harder / hardest"). The menu defaults
    from the chosen tier's own effort, so leaving it alone means the tier's
    judgment, not a hidden fifth value. */
+/* THE PROVIDER'S OWN DEPTHS, IN THE PROVIDER'S OWN WORDS.
+ *
+ * Owner, iteration 7: "there are STANDARD per provider effort names. Use
+ * those" — and he was right that these had been invented here. What stood
+ * in this list was four made-up labels ("Quick — thinks briefly, cheapest")
+ * over four of the eight values codex accepts, which meant the product could
+ * not even ask for the other four. `ultra` was the costly one to miss: it is
+ * not a bigger number, it is the switch for automatic task delegation, and
+ * his own ~/.codex/config.toml runs it.
+ *
+ * Ids and descriptions below are transcribed from `model/list` on
+ * codex-cli 0.146.0 (gpt-5.6 line, 2026-08-16). This list is the FALLBACK:
+ * a running session lets the app ask the engine what the chosen model
+ * really supports, and that answer wins — see readEngineCatalog in
+ * src/views/computers.js. The name is the label; the provider's sentence is
+ * the help text beside it. */
 export const EFFORT_CHOICES = Object.freeze([
-  Object.freeze({ id: 'low', label: 'Quick — thinks briefly, cheapest' }),
-  Object.freeze({ id: 'medium', label: 'Standard — thinks a little' }),
-  Object.freeze({ id: 'high', label: 'Thorough — thinks harder, slower' }),
-  Object.freeze({ id: 'xhigh', label: 'Deepest — thinks hardest, slowest and costliest' }),
+  Object.freeze({ id: 'low', label: 'low', description: 'Fast responses with lighter reasoning' }),
+  Object.freeze({ id: 'medium', label: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' }),
+  Object.freeze({ id: 'high', label: 'high', description: 'Greater reasoning depth for complex problems' }),
+  Object.freeze({ id: 'xhigh', label: 'xhigh', description: 'Extra high reasoning depth for complex problems' }),
+  Object.freeze({ id: 'max', label: 'max', description: 'Maximum reasoning depth for the hardest problems' }),
+  Object.freeze({ id: 'ultra', label: 'ultra', description: 'Maximum reasoning with automatic task delegation' }),
 ])
+
+/** One depth, as a menu row reads it: the provider's name, then the
+ *  provider's own sentence. Composed HERE rather than in the panel, because
+ *  this module owns every word the start flow puts on screen — a panel that
+ *  assembles its own line is a second voice, which is the drift this file
+ *  exists to prevent. */
+export function effortOptionLabel(choice) {
+  if (!choice || typeof choice !== 'object') return ''
+  const name = typeof choice.label === 'string' && choice.label ? choice.label : String(choice.id || '')
+  const description = typeof choice.description === 'string' ? choice.description.trim() : ''
+  return description ? `${name} — ${description}` : name
+}
 
 /* ---------------------------------------------------------------
    Starting, and running.
@@ -340,6 +370,10 @@ export const RESUME_PANEL = Object.freeze({
   busy: 'This agent is still running — stop it first, or just keep talking to it.',
   failed: 'The resume did not happen. The saved conversation is untouched; press again to retry.',
   done: 'Resumed. A fresh agent is reading the conversation and will pick it up from there.',
+  /* The real one: the engine still held the thread, so the SAME agent came
+     back with its own memory. Nothing was re-sent and nothing was charged,
+     which is the difference worth saying out loud. */
+  continued: 'Back. This is the same agent, with everything it already remembered — nothing had to be re-sent.',
   marker: 'Resumed — the saved conversation above was sent to a fresh agent.',
 })
 
@@ -348,6 +382,9 @@ export const RESUME_PANEL = Object.freeze({
    so the menu says what really happens: a restart that re-reads the saved
    conversation at the new depth, warned before it fires. */
 export const EFFORT_SWITCH = Object.freeze({
+  /* Said when the engine changed a RUNNING thread's depth in place, which is
+     the ordinary case now: no restart, nothing re-sent, nothing charged. */
+  changed: depth => `Now thinking at ${depth}. Nothing was restarted and nothing was re-sent.`,
   title: 'How hard it thinks',
   help: 'Changing depth restarts this agent: a fresh session reads the saved conversation at the new depth.',
   warn: 'Restarting re-sends the saved conversation, which costs tokens.',
@@ -355,9 +392,26 @@ export const EFFORT_SWITCH = Object.freeze({
   keep: 'Keep its current depth',
 })
 
-/* THE ACTIONS PALETTE. Every row is an action this build really performs on
-   this node, today. What the product cannot do is one honest sentence in the
-   footer, never a disabled control pretending — the temperature-slider rule.
+/* MESSAGING A DEAD AGENT JUST WORKS (iteration 6, owner: "We still get this
+   message" — the sessionGone refusal). The send now recovers by itself: a
+   fresh agent reads the saved conversation and the typed message waits in
+   the queue, visibly, until the reading turn finishes. The sentence says
+   all three honest parts: what ended, what it costs, when the words go. */
+export const RECOVERED_SESSION = Object.freeze({
+  /* Said BEFORE the outcome is known, so it claims nothing about cost. The
+     old wording promised a token-burning summary every time, which is now
+     the rarer of the two paths — the engine usually still holds the thread
+     and brings the same agent back for nothing. */
+  reconnecting: 'That agent’s session had ended. Bringing it back now…',
+  /* The fallback, said only when it really happened. */
+  summarised: 'Its conversation was no longer on this computer, so a fresh agent is reading the saved summary instead — that part costs tokens. Your message goes the moment it catches up.',
+  bare: 'That agent’s session had ended, so a fresh one started in its place. Your message is going now.',
+})
+
+/* THE ACTIONS PALETTE — now the chat composer's popup. Every row is an
+   action this build really performs on this node, today. What the product
+   cannot do is one honest sentence in the footer, never a disabled control
+   pretending — the temperature-slider rule.
    Refusal/confirmation sentences follow the house register. */
 export const PALETTE_PANEL = Object.freeze({
   title: 'Actions',
@@ -366,9 +420,9 @@ export const PALETTE_PANEL = Object.freeze({
   none: 'No action matches that. Clear the filter to see them all.',
   footer: 'Not possible yet, so not listed: attaching a text file’s contents — mention the file instead, and the agent reads it itself.',
   rewind: 'Rewind to one of your messages',
-  rewindHint: 'Goes to the rewind menu on the agent page. The agent forgets everything after the message you pick.',
+  rewindHint: 'Pick one of your messages; the agent forgets everything said after it.',
   switchModel: 'Switch model',
-  switchModelHint: 'Goes to the model menu on the agent page. The change holds until you change it back; the conversation continues.',
+  switchModelHint: 'The change holds until you change it back; the conversation continues.',
   attach: 'Attach an image',
   attachHint: 'Opens a file picker. The picked image rides with your next message.',
   attachPicked: 'Attached. It rides with the next message you send.',
@@ -389,9 +443,9 @@ export const PALETTE_PANEL = Object.freeze({
   child: 'Start an agent under this one',
   childHint: 'Opens the start panel with this agent as the parent.',
   queueFocus: 'Queue a message',
-  queueFocusHint: 'Goes to the queue box on the agent page.',
+  queueFocusHint: 'Focuses the message box — while the agent works, a send waits its turn and shows above the box.',
   moveFocus: 'Change who it reports to',
-  moveFocusHint: 'Goes to the Reports-to menu on the agent page.',
+  moveFocusHint: 'Opens the Reports-to menu on the Details tab.',
   copyBrief: 'Copy what you asked for',
   copyReply: 'Copy what it said',
   copied: 'Copied.',

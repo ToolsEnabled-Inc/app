@@ -29,6 +29,15 @@
  *     is exactly how the operator's private purchase list once reached every
  *     installer.
  *
+ * THE LEGAL CLEARANCE IS CONDITIONAL AND LAPSES WITH THE ARCHITECTURE. The
+ * legal lane cleared this simulation for publication
+ * (legal/reports/R-009-simulation-disclosure.md) on the strength of exactly
+ * the properties this guard and honesty.js enforce. Their standing note,
+ * recorded here so it is mechanical rather than remembered: if the honesty
+ * architecture is ever weakened — a stateChip bypass, an unfrozen
+ * vocabulary, a non-terminal refusal, a shortened disclosure — the
+ * determination lapses and the page comes down until re-reviewed.
+ *
  * EXIT CODES follow tools/check-no-owner-data.mjs and tools/check-product-naming.mjs
  * deliberately, because the build chains these together:
  *   0  clean

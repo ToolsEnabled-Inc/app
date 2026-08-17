@@ -98,13 +98,16 @@ test("this phase's own chrome classes are strictly styled", () => {
 test('every rail page that renders board pieces carries board-page', () => {
   // board.css scopes its box padding, overflow fence and .ctl-select styling
   // to .board-page. A rail page using those pieces without the class renders
-  // them inert -- the second half of defect 8.
+  // them inert -- the second half of defect 8. The palette page retired with
+  // the Actions tab (iteration 6: actions live in the chat composer's popup);
+  // the ctl-page is the one board-piece renderer left, and it must keep the
+  // class.
   const pages = [...view.matchAll(/class="rail-page([^"]*)"/g)].map(match => match[1])
-  assert.ok(pages.length >= 4, `expected the rail's pages, found ${pages.length}`)
-  // The palette page is the one that regressed; it must carry the class.
-  const palette = pages.find(rest => rest.includes('palette-page'))
-  assert.ok(palette, 'palette page missing')
-  assert.ok(palette.includes('board-page'), 'the palette page lost board-page; board.css is inert on it again')
+  assert.ok(pages.length >= 3, `expected the rail's pages, found ${pages.length}`)
+  assert.ok(!pages.some(rest => rest.includes('palette-page')), 'the palette page is back; actions belong to the chat popup now')
+  const controls = pages.find(rest => rest.includes('ctl-page'))
+  assert.ok(controls, 'controls page missing')
+  assert.ok(controls.includes('board-page'), 'the controls page lost board-page; board.css is inert on it')
 })
 
 test('one title-row definition, and no hand-built rail-title markup remains in the view', () => {
@@ -148,14 +151,24 @@ test('the rail chat streams once and closes once', () => {
   assert.ok(disposeAt !== -1, 'showTreeNodeControls no longer disposes the rail chat before rebuilding its markup')
 })
 
-test('the three rail tabs exist and the chat body is first', () => {
+test('two rail tabs, chat first — the Actions page stays retired', () => {
+  /* Iteration 6, owner verbatim: "Actions again just shouldnt be its own
+     page it should be a button on the chat." The rail is Chat | Details;
+     the verbs live in the composer's popup (data-chat-actions in
+     components.js) with runPaletteAction still the one engine. */
   const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
-  for (const tab of ['chat', 'details', 'actions']) {
+  for (const tab of ['chat', 'details']) {
     assert.match(view, new RegExp(`data-rail-tab="${tab}"`), `the ${tab} tab vanished`)
     assert.match(view, new RegExp(`data-rail-body="${tab}"`), `the ${tab} body vanished`)
   }
+  assert.ok(!/data-rail-tab="actions"/.test(view), 'the Actions tab is back as its own page — the owner retired it twice')
+  assert.match(view, /chatActionRowsFor/, 'the chat popup lost its action rows; the verbs have no surface')
   // Chat is the default tab: its button carries .on in the markup.
   assert.match(view, /class="on" data-rail-tab="chat"/, 'chat is no longer the default tab (owner defect 7: conversation first)')
+  // The setup controls the Actions tab used to hold live on in Details.
+  for (const hook of ['data-tree-profile', 'data-tree-move-select']) {
+    assert.match(view, new RegExp(hook), `${hook} vanished with the Actions tab instead of moving to Details`)
+  }
 })
 
 test('the split view is gone, and cannot come back through a saved preference', () => {
@@ -190,13 +203,86 @@ test('the topbar holds one position on every route', () => {
   assert.ok(!/data-route[^}]*--topbar-max/.test(css), 'a route overrides --topbar-max; the chevrons move again')
 })
 
-test('the switcher can never become a scroll strip again', () => {
+test('the pane bar scrolls its trees slot and nowhere else', () => {
+  /* Iteration 6 (owner): "one nice bar per split and it should have a scroll
+     function. you have to place it nicely though." The bar is normal flow
+     with three fixed slots, so the strip-over-the-title collision is
+     structurally impossible; the SCROLL lives on the trees slot with its
+     scrollbar hidden — never inside the seg, whose fixed 32px box rendered
+     an inner scrollbar as the squashed glitch strip (iteration 5). */
   const board = readFileSync(join(SRC, 'board.css'), 'utf8')
-  const block = board.slice(board.indexOf('.graph-tools .graph-tree-switch {'), board.indexOf('.graph-tools .graph-tree-switch {') + 700)
-  assert.ok(!/overflow-x:\s*auto/.test(block), 'the switcher regained an inner scroller; the 32px seg box cannot hold one')
-  assert.match(block, /text-overflow: ellipsis/, 'the switcher buttons lost their ellipsis budget')
+  const seg = board.slice(board.indexOf('.graph-bar-trees .graph-tree-switch {'), board.indexOf('.graph-bar-trees .graph-tree-switch {') + 700)
+  assert.ok(seg.length > 100, 'the switcher seg rules left the trees slot; re-measure this bar contract')
+  assert.ok(!/overflow-x:\s*auto/.test(seg.slice(0, seg.indexOf('> button'))), 'the switcher seg regained an inner scroller; the 32px box cannot hold one')
+  assert.match(seg, /text-overflow: ellipsis/, 'the switcher buttons lost their ellipsis budget')
   const graphCss = readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
-  assert.match(graphCss, /\.computers \.graph-tools \{[^}]*max-width: calc\(100% - 34px\)/s, 'the tools strip is unbounded again; it will grow across the title')
+  const bar = graphCss.slice(graphCss.indexOf('.computers .graph-bar {'), graphCss.indexOf('.computers .graph-bar {') + 500)
+  assert.ok(!/position:\s*absolute/.test(bar), 'the bar floated over the canvas again; the title collision returns')
+  const trees = graphCss.slice(graphCss.indexOf('.computers .graph-bar-trees {'), graphCss.indexOf('.computers .graph-bar-trees {') + 700)
+  assert.match(trees, /overflow-x: auto/, "the trees slot lost its scroll — many trees squeeze the bar again")
+  assert.match(trees, /scrollbar-width: none/, 'the trees slot shows a raw scrollbar inside the 46px bar')
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  assert.match(view, /<div class="graph-bar">/, 'the main pane lost its bar')
+  /* "One nice bar PER SPLIT" was iteration 6's ask, and its second half was
+     pinned here until 2026-08-16, when the owner threw the split pane away
+     ("lets throw it away for now"). A contract on a pane that no longer
+     exists can only fail, so that one clause retired with the pane; every
+     other rule in this test is about the bar that remains and still holds. */
+  /* The switcher must build AT MOUNT: every other caller is a change
+     handler, and a quietly-loaded page with saved trees stood bare until
+     the first store write — found driving the installed build. */
+  const mount = view.slice(view.indexOf('function mountGraph'), view.indexOf('REDRAW THE PAGE FROM WHAT IS ACTUALLY SAVED'))
+  assert.match(mount, /refreshTreeSwitch\(\)/, 'mountGraph no longer builds the switcher; a quiet load shows an empty trees slot over a forest')
+})
+
+test('Details reads as prose, dims really dim, and the boxes have a floor', () => {
+  /* Iteration 6: "Details is completely unreadable". Four measured causes,
+     four pins: the undefined --mono token (the dim class silently inherited
+     its font); the specificity tie that made dimmed lines identical to body
+     lines; the mono wall (sentences now speak .rail-prose, the UI voice);
+     and box fills that resolved to ~4% white on dark (ink-mix now, so the
+     lift survives every theme). */
+  const css = readFileSync(join(SRC, 'styles.css'), 'utf8')
+  assert.ok(!/font-family: var\(--mono\)/.test(css), 'var(--mono) is back — that token does not exist, the declaration is silently invalid')
+  assert.match(css, /\.rail-sub\.projection-unavailable,[\r\n]+\.rail-prose\.is-dim \{/, 'the compound dim rule is gone; dimmed lines tie and lose again')
+  assert.match(css, /\.rail-prose \{[^}]*font-family: var\(--font-ui\)/s, 'the rail prose voice is gone; Details is a mono wall again')
+  assert.match(css, /\.rail-prose \{[^}]*overflow-wrap: anywhere/s, 'long ids clip against the rail overflow fence again')
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  const details = view.slice(view.indexOf('data-rail-body="details"'), view.indexOf('data-tree-move-out'))
+  assert.ok(!/class="rail-sub"/.test(details), 'a bare rail-sub is back in the Details body; sentences belong to the prose voice')
+  const board = readFileSync(join(SRC, 'board.css'), 'utf8')
+  const box = board.slice(board.indexOf('.board-page .board-box,'), board.indexOf('.board-page .board-box,') + 1200)
+  assert.match(box, /background: color-mix\(in oklab, var\(--ink\)/, 'the box fill rides white-alpha again; on dark themes the boxes vanish')
+})
+
+test('the rail never shouts a person\'s own words, and a header outranks its body', () => {
+  /* Iteration 7, owner: the pane is "an ugly unreadable mess of nonsense".
+     Measured causes, pinned so they cannot come back:
+       · the brief was painted in letterspaced CAPITALS by the base .ar rule,
+         which the board override restated everything EXCEPT text-transform;
+       · the same brief was then printed a second time in its own box;
+       · header and body shared one ink token, so nothing read as a heading;
+       · .rail-sec was typographically identical to .board-box-h — two
+         heading ranks that looked the same;
+       · the fleet page overwrote the box fill added for this very page. */
+  const board = readFileSync(join(SRC, 'board.css'), 'utf8')
+  const arRule = board.slice(board.indexOf('.board-page .agent-head .ar {'), board.indexOf('.board-page .agent-head .ar {') + 400)
+  assert.match(arRule, /text-transform: none/, "the rail head shouts again — that line can carry a person's own words")
+  const headerRule = board.slice(board.indexOf('.board-page .board-box-h,'), board.indexOf('.board-page .board-box-h,') + 400)
+  assert.match(headerRule, /color: var\(--ink\)/, 'the box header shares its body ink again; nothing reads as a heading')
+  assert.match(headerRule, /margin-bottom/, 'the box header sits flush on its body again')
+  const secRule = board.slice(board.indexOf('.board-page .board-box .rail-sec {'), board.indexOf('.board-page .board-box .rail-sec {') + 400)
+  assert.match(secRule, /text-transform: none/, 'the sub-label impersonates a box header again')
+  assert.match(board, /\.board-page \.board-box \.rail-said \{[^}]*max-height/s, 'the answer box is unbounded again; Setup falls off the scroller')
+  assert.match(board, /\.board-page \.board-box \.board-absent-copy \{/, 'the engine note is unstyled again — it renders as the loudest prose on the rail')
+  const graphCss = readFileSync(join(SRC, 'tree-graph.css'), 'utf8')
+  assert.ok(!/\.computers \.board-page \.board-box \{[^}]*background: var\(--sheet\)/s.test(graphCss),
+    'the fleet page re-flattens the boxes, overwriting the fill that exists for this page')
+  /* The brief appears once, as prose — never in the head. */
+  const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
+  const details = view.slice(view.indexOf('data-rail-body="details"'), view.indexOf('data-tree-move>'))
+  assert.ok(!/class="ar"[^>]*>\$\{escapeMarkup\(treeNodeBrief/.test(details), 'the head prints the brief again, in capitals')
+  assert.equal((details.match(/escapeMarkup\(node\.message/g) || []).length, 1, 'the brief is printed more than once in Details')
 })
 
 test('every theme block declares its color-scheme', () => {

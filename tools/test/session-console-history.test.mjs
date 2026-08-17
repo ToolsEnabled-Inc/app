@@ -78,16 +78,21 @@ test('a typo is caught, a path is not eaten, plain text passes through', () => {
   assert.equal(parseSlashCommand('  plain words  '), null)
 })
 
-test('the view intercepts the vocabulary at both inputs, before anything sends', () => {
+test('the view intercepts the vocabulary at both send paths, before anything queues', () => {
+  /* Two paths carry typed words to an agent now (iteration 6): an idle send
+     through treeCardSend, and a busy send through the composer's queue.add
+     closure. BOTH must parse the console vocabulary before anything queues —
+     /interrupt while busy is exactly when it matters, and the old queue box
+     this test once pinned retired into the second path. */
   const view = read('src/views/computers.js')
   const card = view.slice(view.indexOf('function treeCardSend'))
   assert.ok(card.indexOf('parseSlashCommand') !== -1
     && card.indexOf('parseSlashCommand') < card.indexOf('outboxEnqueue'),
     'the card parses commands after it queues — /interrupt while busy is exactly when it matters')
-  const queue = view.slice(view.indexOf('const submitQueued'))
-  assert.ok(queue.indexOf('parseSlashCommand') !== -1
-    && queue.indexOf('parseSlashCommand') < queue.indexOf('outboxEnqueue'),
-    'the queue box no longer understands the vocabulary')
+  const queueAdd = view.slice(view.indexOf('add: text => {'))
+  assert.ok(queueAdd.indexOf('parseSlashCommand') !== -1
+    && queueAdd.indexOf('parseSlashCommand') < queueAdd.indexOf('outboxEnqueue'),
+    'the composer queue closure no longer understands the vocabulary — a busy /interrupt would wait in line behind the turn it exists to stop')
 })
 
 test('the conversation is kept and the card opens over it, never empty and never simulated', () => {
