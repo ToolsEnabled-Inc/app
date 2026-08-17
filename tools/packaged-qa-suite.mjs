@@ -211,10 +211,73 @@ export function staleSettings(names) {
  * like an ordinary failure -- and on some shapes like a success. Exported so
  * the guard suite can exercise the decision instead of grepping this file for
  * the shape of it, which is the kind of instrument that goes green on prose.
+ *
+ * AN EXIT CODE IS A CLAIM, NOT A RESULT (2026-08-16).
+ * Measured: test-account-journey-qa reported PASS while its own log carried
+ * eleven FAIL lines -- the driver stopped part-way, so createLedger's finish()
+ * never ran, so nothing ever set process.exitCode, so the corpse said 0 and
+ * this suite believed it. A gate that believes a half-finished driver is worse
+ * than no gate, because every other green in the release is measured by it.
+ *
+ * So exit 0 is now cross-examined against what the driver actually said:
+ *   - it summarised, and the summary is short of total  -> FAIL, whatever the
+ *     code says. The driver counted its own failures and exited 0 anyway.
+ *   - it started a check ledger and never summarised    -> INCONCLUSIVE. It
+ *     stopped somewhere in the middle; the checks it never reached are
+ *     unmeasured, and unmeasured is not passed.
+ *   - it said nothing this function recognises          -> the exit code, as
+ *     before.
+ *
+ * HONEST LIMIT, stated rather than implied: the shapes below are the shared
+ * ledger's (tools/test-account-harness.mjs createLedger). A driver that prints
+ * neither is still judged on its exit code alone and can still lie the same
+ * way. Closing that needs every driver to declare an end, which is a contract
+ * change across ~44 drivers and belongs in its own commit -- not a silent
+ * widening of this one.
  */
-export function verdictFor({ timedOut, code }) {
+
+/* THE SUMMARY VOCABULARY IS MEASURED, NOT DECREED. Replaying 37 real driver
+   logs found three closing conventions in use, and a rule that knew only the
+   first would have marked research-walkthrough-qa and setup-walkthrough-qa red
+   for the crime of ending differently. A gate that cries wolf gets switched
+   off, so the vocabulary matches what the drivers already write:
+     `1/2 checks passed`        createLedger's finish()
+     `research walkthrough: 23/23 checks`  the walkthrough drivers
+     `4 of 85 CHECK(S) FAILED`  first-run-contract-qa
+   Adding a fourth convention means adding it here, with a log that shows it. */
+const RATIO_SUMMARY = /^[^\n]*?(\d+)\s*\/\s*(\d+)\s+checks?\b[^\n]*$/gm
+const FAILED_COUNT = /^[^\n]*?(\d+) of (\d+) CHECK\(S\) FAILED/gim
+/* `  ok  <name>` / `  FAIL <name>`, as createLedger's check() writes it. The
+   two leading spaces are load-bearing: they keep prose that merely contains the
+   word FAIL from being read as a failing check. */
+const CHECK_LINE = /^ {2}(?:ok {2}|FAIL )/m
+
+/* The last match, not the first: a driver may summarise a sub-phase before it
+   summarises itself, and the closing count is the one that speaks. */
+function lastMatch(text, pattern) {
+  const all = [...text.matchAll(pattern)]
+  return all.length ? all[all.length - 1] : null
+}
+
+export function verdictFor({ timedOut, code, output = '' }) {
   if (timedOut) return 'TIMEOUT'
-  return code === 0 ? 'PASS' : 'FAIL'
+  if (code !== 0) return 'FAIL'
+
+  const text = typeof output === 'string' ? output : ''
+
+  /* A driver that counted its own failures has already answered, and exiting 0
+     afterwards does not withdraw the count. */
+  const failedCount = lastMatch(text, FAILED_COUNT)
+  if (failedCount) return Number(failedCount[1]) > 0 ? 'FAIL' : 'PASS'
+
+  const ratio = lastMatch(text, RATIO_SUMMARY)
+  if (ratio) return ratio[1] === ratio[2] ? 'PASS' : 'FAIL'
+
+  /* Checks ran and nothing closed them out: the driver stopped somewhere in the
+     middle. What it never reached is unmeasured, and unmeasured is not passed. */
+  if (CHECK_LINE.test(text)) return 'INCONCLUSIVE'
+
+  return 'PASS'
 }
 
 function electronBinary() {
@@ -269,7 +332,7 @@ async function runDriver(entry, environment) {
   const logPath = path.join(LOG_DIR, `${entry.key}.log`)
   writeFileSync(logPath, text, 'utf8')
 
-  const verdict = verdictFor({ timedOut, code })
+  const verdict = verdictFor({ timedOut, code, output: text })
   return { ...entry, verdict, exitCode: code, durationMs, logPath, tail: text.trim().split('\n').slice(-4).join(' | ') }
 }
 
