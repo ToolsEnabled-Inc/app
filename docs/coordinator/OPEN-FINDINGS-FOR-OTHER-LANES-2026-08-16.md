@@ -123,3 +123,50 @@ worktree (`C:\lanes\free-cut-engine-src`) is already advanced to `073ef11`
 (clean fast-forward from `8075a8d`, verified by ancestry) — the next cut
 ships it with no further action. Until that cut installs, an installed
 build carries the vulnerability.
+
+## 11. FIXED — "there is no way to start an agent", and why two fixes missed it
+
+The owner reported this twice, months apart: *"I cant scroll down to even press
+start"*, then *"there is no way to start an agent"*. Both times the panel was
+correct in the DOM and wrong on the glass.
+
+**The shape of it.** The compose panel holds more than the rail is tall (~765px
+of form against 560-700px of rail). Whatever sits at the bottom of that column
+is invisible at first paint. Fix #1 made the form scroll, which made Start
+*reachable* and left it *unseen* — that commit was called "Start is reachable".
+Fix #2 (mine) pinned Start beside the scroller, which fixed the button and
+pushed the BRIEF BOX below the fold instead: same defect, one field up. Only
+the third change held, and it was not a layout trick — it was ORDER. The panel
+is designed as "two fields and two buttons"; the assistant and effort choices
+added later carried two lines of help each and crowded out the one thing a
+person opens the panel to write. Role and brief now come first.
+
+**Why every test stayed green through all of it.** A fake DOM has no layout.
+`node --test` can prove a control EXISTS and can never prove a person can SEE
+it. 53 panel tests passed while the button was off-screen, twice.
+
+**What now exists so it cannot recur quietly:**
+
+- `tools/compose-start-layout-qa.cjs` — measures the real built stylesheet
+  against the real panel structure in a rail-sized box at three window heights,
+  and PRINTS which sizes actually overflowed, so a green run cannot be mistaken
+  for coverage it did not have.
+- `tools/test/agent-compose-panel.test.mjs` now pins BOTH failure modes
+  together: Start must not be inside the scroller (falls below the fold) and
+  must not be unpinned (clipped by the rail), and the action row must keep
+  `flex: none`. Each assertion alone permits one of the two defects — which is
+  exactly how the first fix traded one for the other.
+
+**The transferable lesson for any rail surface:** if a panel can be taller than
+its container, the control that completes the task must live OUTSIDE the
+scroller, and something with layout has to measure it. A unit test cannot.
+
+**Verified on the installed build**, not in a harness:
+`node tools/agent-start-flow-qa.mjs --release <installed 1.0.23>` reports role,
+brief and "Start this agent" all present and shown — 24/26 checks, zero
+failures. The same driver reported 14/26 and "no send control in the panel"
+before the work. The two remaining checks are NOT EXERCISED because the harness
+cannot substitute a start reply through `window.mcAgent`, a non-configurable
+contextBridge property; that is the sandbox working.
+
+Shipped in 1.0.23 (`094d0d5`, `0369dcf`).
