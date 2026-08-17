@@ -726,9 +726,20 @@ async function driveFleetOverview(open) {
   const recorded = ledger?.reply?.outcomes?.starts ?? null
   note(`  the signed record holds ${recorded === null ? 'an unknown number of' : recorded} start(s); verified=${ledger?.reply?.verified}`)
 
-  const shown = await textOf(open, '#agent-count')
+  /* The count is read from the record after the page paints, so the hero is
+     waited for rather than sampled the instant the rail appears. */
+  let shown = ''
+  let state = ''
+  for (let step = 0; step < 24; step += 1) {
+    shown = await textOf(open, '#agent-count')
+    state = await open.page.evaluate('document.querySelector("#agent-count")?.dataset.recordState || ""')
+    if (state && state !== 'reading') break
+    await delay(400)
+  }
   const label = await textOf(open, '.stat-hero .l')
-  note(`  the fleet overview shows "${shown}" under "${label}"`)
+  const recordNote = await textOf(open, '[data-agent-record-note]')
+  note(`  the fleet overview shows "${shown}" under "${label}" (state ${state || 'none'})`)
+  note(`  and says: "${recordNote}"`)
 
   if (recorded === null) {
     pending('the fleet overview counts what is actually on record',
@@ -785,8 +796,14 @@ async function driveSettingsLink(open) {
   check('pressing the link reaches the settings page', landed === 'settings', `landed on ${landed}`)
 
   /* Where the person is now, measured the way a person judges it: is the
-     control they were sent to actually on the screen in front of them? */
-  await delay(1500)
+     control they were sent to actually on the screen in front of them?
+     WAITED FOR, NOT SAMPLED ONCE. The landing scrolls 10000px and the settings
+     page re-renders when its capability probes answer, so a single sample a
+     fixed delay after the press caught the page mid-settle and reported
+     elementFromPoint returning <html> -- while the press immediately after it
+     worked. That is this harness reading too early, and reporting it as a
+     covered control would have been the fourth false finding of the day. */
+  await reachable(open, '[data-setting-id="write_agent-session"] .settings-toggle', 10_000)
   const landing = await open.page.evaluate(`(() => {
     const row = document.querySelector('[data-setting-id="write_agent-session"]')
     if (!row) return { present: false }

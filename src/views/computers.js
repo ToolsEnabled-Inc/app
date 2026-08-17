@@ -902,7 +902,17 @@ export function computersView({ initialComputer = null, navigate }) {
     /* The compose panel is a page here like the other two, so exactly one of the
        three is ever on screen and none of them has to know about the others. */
     composePage.classList.toggle('is-active', page === composePage)
-    if (page === statsPage) railDisposeTimer = setTimeout(clearBoard, 200)
+    if (page === statsPage) {
+      railDisposeTimer = setTimeout(clearBoard, 200)
+      /* RE-READ THE RECORD ON THE WAY BACK. The overview is painted once when
+         the board mounts, and coming back to it from the compose panel does not
+         re-render it -- so a person who started an agent and pressed Cancel was
+         looking at the count as it stood BEFORE they started anything. Measured
+         on the packaged build: two starts in the signed ledger, hero still
+         reading 0, which is the owner's report exactly. Returning to this page
+         is a gesture, not a poll, so this costs one read per visit. */
+      void paintAgentsOnRecord()
+    }
   }
 
   function syncResetButton() {
@@ -2266,8 +2276,9 @@ export function computersView({ initialComputer = null, navigate }) {
     statsPage.innerHTML = `
       ${railTitleRow({ title: 'Fleet overview' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
-        <div class="stat-hero"><span class="v" id="agent-count">${computer.spawnedTotal}</span><span class="l">Agents on record</span></div>
-        <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
+        <div class="stat-hero"><span class="v" id="agent-count" data-record-state="reading">—</span><span class="l">Agents on record</span></div>
+        <div class="rail-sub" data-agent-record-note>Reading this computer’s own record of what has run here.</div>
+        <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · ${computer.spawnedTotal} described in the fleet record · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
         ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">The live fleet data could not be read · ${escapeMarkup(declaredOnlyReason)} These are the agents this computer has on record, not agents seen running.</div>
         <a class="rail-sub host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>` : ''}
         <div class="rail-sec">Services</div>
@@ -2287,6 +2298,84 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
     void mountProfilePanel(statsPage.querySelector('[data-profile-slot]'))
+    void paintAgentsOnRecord()
+  }
+
+  /* "AGENTS ON RECORD" NOW COUNTS THE RECORD, WHICH IT DID NOT BEFORE.
+   *
+   * WHAT WAS MEASURED. Three nodes on the canvas, an agent that really ran, and
+   * this hero reading 0. It was printing `computer.spawnedTotal`, which is
+   * `agents.length` off the FLEET PROJECTION -- a build-time file that ships
+   * `ok:false` and describes nothing on a customer machine, which is the whole
+   * argument in the header of src/declared-fleet.js. So the number was not
+   * wrong about the record; it was never about the record at all. On the
+   * packaged build with two starts in the signed ledger it still said 0.
+   *
+   * WHERE THE TRUE NUMBER LIVES. The app writes every start into its own
+   * hash-chained agent-spawn-records.jsonl before it starts anything
+   * (shell/spawn-record.cjs, called by mc-agent:start), and reads it back
+   * through mcAgent.history(). src/views/home.js already counts exactly this,
+   * through readLocalSessions() -- the same function is used here rather than a
+   * second reading of the same file, so the two screens cannot disagree about
+   * how many agents this computer has run.
+   *
+   * AN UNREADABLE RECORD IS NOT ZERO, and that distinction is the reason this
+   * is asynchronous rather than a swapped expression. Zero is a claim: it says
+   * nothing has ever run here. A record that could not be opened is the absence
+   * of a claim, and painting it as 0 would be the same lie this repair is for,
+   * wearing the other sign. So the hero starts as an em dash, and every branch
+   * below either produces a number it can defend or says in words why there is
+   * none.
+   *
+   * THE PROJECTION'S OWN COUNT IS NOT DELETED. It moved to the line beneath,
+   * under a label that says what it actually is -- what the fleet record
+   * DESCRIBES, rather than what has run. */
+  async function paintAgentsOnRecord() {
+    const hero = statsPage.querySelector('#agent-count')
+    const note = statsPage.querySelector('[data-agent-record-note]')
+    if (!hero || !note) return
+
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    let raw
+    if (!bridge || typeof bridge.history !== 'function') raw = undefined
+    else {
+      /* 200 is the recorder's own ceiling. The count itself comes from the
+         whole-chain tally rather than from these rows, but when that tally is
+         missing the rows are what is left to count, and a bigger page makes
+         that fallback less of an understatement. */
+      try { raw = await bridge.history({ limit: 200 }) } catch { raw = null }
+    }
+    if (destroyed || !hero.isConnected) return
+
+    const sessions = readLocalSessions(raw)
+    if (!sessions.supported) {
+      hero.textContent = '—'
+      hero.dataset.recordState = 'unsupported'
+      note.textContent = 'This page is not running inside the installed application, so there is no record here to read.'
+      return
+    }
+    if (!sessions.readable) {
+      hero.textContent = '—'
+      hero.dataset.recordState = 'unreadable'
+      note.textContent = 'This copy could not open its record of what has run here, so this is not a count yet. Nothing has been lost; new runs are still written down.'
+      return
+    }
+    /* `started` is null exactly when the recorder returned no whole-chain
+       tally, and `total` is only a start count when that tally is present --
+       without it the ledger's line count includes the outcome records too and
+       would report roughly twice as many agents as ever ran. */
+    const tallied = sessions.started !== null
+    const count = tallied ? sessions.total : sessions.runs.length
+    hero.textContent = String(count)
+    hero.dataset.recordState = tallied ? 'counted' : 'partial'
+    const verified = sessions.verified === true
+      ? 'The record checks out as unbroken.'
+      : (sessions.verified === false
+        ? 'The record does not check out as unbroken, so treat this count as a floor.'
+        : 'This copy did not say whether the record checks out.')
+    note.textContent = tallied
+      ? `From this computer’s own signed record of every agent it has started. ${verified}`
+      : `Counted from the most recent runs this copy could read, so it may be short. ${verified}`
   }
 
   /* SESSION PROFILES, MANAGED WHERE THE FLEET IS DESCRIBED. A profile is a
