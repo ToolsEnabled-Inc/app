@@ -170,3 +170,42 @@ cannot substitute a start reply through `window.mcAgent`, a non-configurable
 contextBridge property; that is the sandbox working.
 
 Shipped in 1.0.23 (`094d0d5`, `0369dcf`).
+
+## 12. Finding 7 confirmed by three independent drivers: after setup, a stranger has no visible way to start anything
+
+Filed originally as "no click path to the hand-off form on a fresh install".
+Three packaged drivers, run against installed 1.0.23, now say it harder and
+from three different directions:
+
+- `first-run-contract-qa`: *"the recommended path draws this computer on the
+  fleet page"* — **nodes=0**; *"the door into the agent page can be pressed"* —
+  **zero-size**; *"THE RECOMMENDED PATH LEAVES A START CONTROL ON THE AGENT
+  PAGE"* — **present=false visible=false**, with `mc.write.agent-session`
+  reported as `"enabled"`, so the write flag is NOT the reason.
+- `stranger-onboarding-qa`: *"the door into the agent page can be pressed"* —
+  **not-visible**; *"the agent page is reachable by clicking"* — fails;
+  *"a start control is on the page it reached"* — `startControls: 0`.
+- `refusal-copy-qa`: two driven refusal paths report **UNMEASURED — the control
+  could not be reached**.
+
+**A door that is zero-size is the same defect class as the Start button
+(finding 11): present in the DOM, absent on the glass.** That is now three
+surfaces in one night with the same shape, which makes it a pattern rather
+than a coincidence, and worth a rule: any door this product ships should be
+measured for SIZE and VISIBILITY, not for existence.
+
+**Two honest qualifications**, so nobody over-reads this:
+
+1. These drivers run sterile profiles where **Codex is not installed**, and
+   the same runs show the product being truthful about that — home says *"Codex
+   is not installed on this computer, and it is the program that runs agents"*,
+   gives the exact `winget install` command, and readiness answers
+   `AGENT_CODEX_CLI_NOT_INSTALLED`. Some of the missing controls may be correct
+   refusals rather than gaps. The drivers assert they are contract violations;
+   the fleet/onboarding lane owns that judgement.
+2. Everything above pre-dates tonight's compose-panel work and is not caused by
+   it: the string "compose" appears **zero** times in either failing log.
+
+Owner: fleet/onboarding lane. Setup itself is in good shape — the whole
+stranger path (permission question, folder, autonomy, review, accept, land in
+the app) passes, and names Codex before it finishes.
