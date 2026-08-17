@@ -231,3 +231,44 @@ asserting a pack tool. Choosing one unilaterally would either erase a
 classification or weaken a "must not ship" boundary that another lane drew on
 purpose six days ago. It needs their ruling; the evidence is here so they do
 not have to re-derive it.
+
+## The verified account of the digest failure (supersedes both notes above)
+
+Three passes at this were wrong before measurement settled it. The wrong
+versions stay above because the sequence is the lesson; this section is what
+the numbers actually say.
+
+**Measured, all on this tree:**
+
+| Source | Count |
+|---|---|
+| `context/toolsenabled-tools.md`, committed, generated 2026-08-11 by `911a8af` | **309** |
+| `tools/grepsaver-tooldigest.js --stdout`, run now, no allowlist | **242** |
+| the same generator run under a deliberately narrow allowlist | **242** (identical) |
+| base module registry `TOOL_REGISTRY.length` | **270** |
+| registry as `tests/grepsaver/allowlist.js` loads it (packs included) | **319** |
+
+**Session narrowing is NOT the cause.** The generator emits the same 242 with
+and without `TOOLSENABLED_TOOL_ALLOWLIST`, which is precisely the property that
+test exists to prove — and that property holds. My earlier "narrow wire"
+explanation was wrong twice, in both directions.
+
+**What actually happened:** `911a8af` moved a set of tools out of the
+registry's require() graph into `src/lib/tool-packs/`. The digest generator
+walks that graph, so its view dropped from 309 to 242. The test's expectation
+is `TOOL_REGISTRY.length` as loaded through `tests/helpers/owner-dispatch`,
+which loads the packs and therefore still counts 319. **The generator and the
+test have disagreed since the pack boundary was drawn, and neither was
+updated.**
+
+**Consequence that matters:** regenerating the digest does NOT fix this. A
+successful regeneration writes 242 and the test still fails expecting 319. The
+committed 309 is stale in the sense of describing a pre-pack world, but no
+regeneration reconciles the two numbers. (The write path also refuses from a
+partial session — exit 3, artifact untouched — which is correct and separate.)
+
+**Whose call:** the same pack-boundary lane. Either the digest counts pack
+tools (they are real tools agents may be granted), or the test expects the base
+registry rather than the pack-loaded one. One of those two numbers has to move,
+and which one is a product decision about whether the map agents read
+instead of grepping should describe tools that are not in the shipped payload.
