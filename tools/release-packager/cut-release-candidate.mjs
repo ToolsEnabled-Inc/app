@@ -59,7 +59,7 @@ import { readExeVersionInfo } from './lib/version-info.mjs'
 import { computeNextVersion, writePackageVersion } from './lib/version-bump.mjs'
 import { toDeclarableFacts, portablePath } from './lib/portable-paths.mjs'
 import { assertNoOwnerData } from '../check-declaration-privacy.mjs'
-import { cuttingAttribution, writeDeclaration } from './generate-declaration.mjs'
+import { attributionBlocksCommit, cuttingAttribution, writeDeclaration } from './generate-declaration.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_REPO = path.resolve(HERE, '..', '..') // wt-installer
@@ -267,6 +267,16 @@ async function main() {
   const branch = currentBranch(repo)
 
   console.log(`[cut-release-candidate] repo=${repo} sourceRef=${sourceRef} branch=${branch} test=${args.test}`)
+
+  /* Refuse in a second rather than at the commit, four minutes in, with a
+     build worktree stranded for postmortem. Measured on the 1.0.22 cut. */
+  if (attributionBlocksCommit()) {
+    throw new Error(
+      'nobody is named as the cutter, and this repo\'s commit-msg hook refuses a commit with no Co-Authored-By trailer, '
+      + 'so the version bump would fail after the build. Set TOOLSENABLED_CUT_MODEL (and ideally TOOLSENABLED_CUT_SESSION '
+      + 'and TOOLSENABLED_CUT_LANE) to whoever is cutting, then run this again.',
+    )
+  }
 
   // --- version -------------------------------------------------------------
   const packageJsonAtRef = JSON.parse(showFile(repo, sourceRef, 'package.json'))

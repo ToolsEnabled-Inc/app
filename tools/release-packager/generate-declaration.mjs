@@ -359,6 +359,19 @@ export function cuttingAttribution(environment = process.env) {
   return `${who}\nLane: ${lane}${session ? ` (session ${session})` : ' (session not recorded)'}`
 }
 
+/* SAY IT BEFORE THE BUILD, NOT AFTER IT.
+ *
+ * The honest-attribution change above has a cost the first run paid in full:
+ * with no cutter named, the version-bump commit carries no `Co-Authored-By`,
+ * the repo's commit-msg hook refuses it, and the cut dies AT THE COMMIT --
+ * after staging the payload, several minutes in, with a build worktree left
+ * behind for postmortem. The refusal was correct and the timing was cruel.
+ * So the caller asks this first and stops in a second instead of four minutes.
+ */
+export function attributionBlocksCommit(environment = process.env) {
+  return !cuttingAttribution(environment).includes('Co-Authored-By:')
+}
+
 /* THE GATE IS INSIDE THE WRITE, NOT BESIDE IT.
  *
  * Putting the check in cut-release-candidate.mjs instead would leave this
