@@ -153,6 +153,63 @@ const PAYLOAD_CONFINEMENT_MODULE = 'src/lib/agent-session-confinement.js'
  * every provider, and that union is what safeLaunchEnvironment() returns. */
 const PAYLOAD_LAUNCH_ENVIRONMENT_MODULE = 'src/lib/providers/subscription-launch-env.js'
 
+/* THE SECOND ENGINE, AND THE REASON THERE WAS ONLY EVER ONE.
+ *
+ * Until this constant the payload carried a single agent engine, so every
+ * non-Codex tier in START_TIERS was refused BY NAME. That refusal was honest --
+ * there was genuinely nothing to call -- and it was routinely misread as a
+ * policy about Claude. It was not: it was an absence.
+ *
+ * IT IS NOT claude-process.js AND MUST NEVER BE. That module spawns a
+ * third-party wrapper (@agentclientprotocol/claude-agent-acp) onto a throwaway
+ * config directory with no login state, which is a licence fence (TE-L-0006)
+ * and which means it cannot authenticate at all. Loading it here would trade a
+ * clear refusal for a session that always fails to sign in.
+ *
+ * claude-cli-process.js launches the OFFICIAL binary and overrides no
+ * configuration, so the child signs itself in on the person's own subscription
+ * exactly as it does in their own terminal. The recorded council reading of
+ * TE-L-0006 is that this is first-party use. Nothing in this shell reads,
+ * copies or forwards a credential to make it work -- there is nothing to read,
+ * which is the point.
+ *
+ * IT IS OPTIONAL WHERE THE CODEX ONE IS NOT. A build whose payload predates
+ * this module keeps working and keeps refusing Claude by name; it does not
+ * fail to start, and it does not report itself broken. That is what lets the
+ * payload and this shell ship on different days without a dead window in
+ * between. */
+const PAYLOAD_CLAUDE_ENGINE_MODULE = 'src/lib/agent-engine/claude-cli-process.js'
+
+/* Resolve the Claude engine from the SAME tree the Codex engine came out of.
+ *
+ * The same rule the confinement and launch-environment modules follow, for the
+ * same reason: a session started by one installation's engine and confined by
+ * another installation's answer would be two products pretending to be one.
+ *
+ * IT ANSWERS null RATHER THAN THROWING. Absence is the ordinary case on any
+ * build cut before this module existed, and the caller turns a null into the
+ * same named refusal Claude tiers have always produced. An exception here would
+ * turn "this build cannot start Claude" into "this build cannot start
+ * anything", which is a far worse failure and would be caused by the payload
+ * being OLDER rather than broken. */
+function loadClaudeEngine(engineRoot) {
+  if (!engineRoot) return null
+  const modulePath = path.join(engineRoot, PAYLOAD_CLAUDE_ENGINE_MODULE)
+  try {
+    if (!fs.existsSync(modulePath)) return null
+    const engine = require(modulePath)
+    if (!engine || typeof engine.startClaudeSession !== 'function') return null
+    return {
+      startClaudeSession: engine.startClaudeSession,
+      resumeClaudeSession: typeof engine.resumeClaudeSession === 'function' ? engine.resumeClaudeSession : null,
+    }
+  } catch {
+    /* A payload that cannot load its Claude engine refuses Claude, and still
+       starts Codex. Same reason as the null above. */
+    return null
+  }
+}
+
 function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot() } = {}) {
   // An explicit path is useful to embedders and focused tests.
   //
@@ -732,6 +789,11 @@ function validateStartedSession(value) {
 
 function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null } = {}) {
   const { startCodexSession, resumeCodexSession, engineRoot } = loadEngine(enginePath)
+  /* Loaded ONCE beside the Codex engine, and allowed to be absent. See the note
+     above loadClaudeEngine(): a payload cut before that module existed keeps
+     starting Codex and keeps refusing Claude by name, rather than failing to
+     start anything. */
+  const claudeEngine = loadClaudeEngine(engineRoot)
   const fallbackCwd = normalizeCwd(defaultCwd, process.cwd())
   /* Resolved PER SESSION rather than once here, so that changing the permission
    * level takes effect on the next agent the user starts instead of on the next
@@ -842,10 +904,31 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       fail('AGENT_TIER_UNKNOWN',
         `Unknown tier "${tier}". Available: ${Object.keys(START_TIERS).join(', ')}.`)
     }
+    /* THE GATE OPENS ON THE ENGINE BEING THERE, NEVER ON THE NAME OF A PROVIDER.
+     *
+     * `claudeEngine` is not a flag, a version string or a configuration value.
+     * It is the result of resolving a file inside THIS installation's payload,
+     * require()ing it, and confirming it exports startClaudeSession -- see
+     * loadClaudeEngine(). So the only thing that opens this gate is a build that
+     * genuinely carries the module.
+     *
+     * WHY THAT DISTINCTION IS THE WHOLE SAFETY OF THIS CHANGE. A gate that
+     * opened because somebody typed "claude", or because a tier table listed the
+     * provider, would let a person press Start on a build with nothing behind it
+     * and get a crash instead of a sentence. A tier that half-starts is worse
+     * for them than one that refuses honestly, because a refusal tells them
+     * where they are and a crash does not.
+     *
+     * A build cut before the module existed therefore still refuses, with the
+     * same code and the same copy it has always used. Nothing about this change
+     * makes an older payload report itself broken. */
+    if (row.provider === 'claude' && claudeEngine) return row
     if (row.provider !== 'codex') {
+      const startable = Object.keys(START_TIERS)
+        .filter(id => START_TIERS[id].provider === 'codex' || (START_TIERS[id].provider === 'claude' && claudeEngine))
       fail('AGENT_TIER_NO_LAUNCHER',
-        `The ${tier} tier runs on ${row.provider}, and this app can only start Codex agents today. `
-        + `Codex tiers: ${Object.keys(START_TIERS).filter(id => START_TIERS[id].provider === 'codex').join(', ')}.`)
+        `The ${tier} tier runs on ${row.provider}, and this copy carries no launcher for it. `
+        + `Startable tiers: ${startable.join(', ')}.`)
     }
     return row
   }
@@ -998,15 +1081,37 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
            continues the named thread instead of opening a new one — routing
            a resume through the start would materialise a throwaway thread
            on disk first, so this is not a flag on the other call. */
-        const engineStart = resumeId
-          ? (request) => resumeCodexSession({ ...request, threadId: resumeId })
-          : startCodexSession
+        /* WHICH ENGINE, decided from the tier the person picked and from
+         * nothing else. `claudeEngine` is only ever non-null when this
+         * installation's payload really carries the module, and resolveStartTier
+         * has already refused a Claude tier when it does not -- so by here the
+         * branch cannot select an engine that is not present.
+         *
+         * The two engines take the SAME arguments on purpose. That is the whole
+         * value of engine-contract.js: the confinement plan, the scrubbed
+         * environment, the working directory and the event callback are computed
+         * once, above, and neither engine gets a private path through this
+         * function where a refusal could be skipped. */
+        const useClaude = startTier && startTier.provider === 'claude'
+        const engineStart = useClaude
+          ? (resumeId && claudeEngine.resumeClaudeSession
+            ? (request) => claudeEngine.resumeClaudeSession({ ...request, threadId: resumeId })
+            : claudeEngine.startClaudeSession)
+          : (resumeId
+            ? (request) => resumeCodexSession({ ...request, threadId: resumeId })
+            : startCodexSession)
         const startedValue = await engineStart({
           cwd: sessionCwd,
           clientInfo: CLIENT_INFO,
           // The spawn seam: effort has no protocol field, so it rides the
           // CLI's own config flag on the app-server process itself.
-          ...(sessionEffort ? { args: ['app-server', '-c', `model_reasoning_effort=${sessionEffort}`] } : {}),
+          //
+          // CODEX ONLY, and not because Claude has no notion of effort -- it has
+          // `--effort` -- but because `app-server` is a codex subcommand and
+          // this argv is codex's. The Claude engine builds its own argv from the
+          // same threadOptions below. Handing these strings to it would spawn a
+          // program with flags it does not have.
+          ...(sessionEffort && !useClaude ? { args: ['app-server', '-c', `model_reasoning_effort=${sessionEffort}`] } : {}),
           // What the OS enforces on the agent process itself. MEASURED against a
           // user config that says danger-full-access: the thread option wins.
           // The chosen model rides in threadOptions, which the adapter already
