@@ -311,3 +311,41 @@ If the harness was simply looking in the wrong place, fix the harness — three
 false defects were nearly filed tonight on exactly that mistake.
 
 Owner: settings lane. Recorded as a question, not as a defect, on purpose.
+
+### Finding 13, the likely cause — read this before suspecting the product
+
+The harness finds a settings row like this
+(`tools/refusal-copy-qa.mjs:497-501`):
+
+```js
+const row = [...document.querySelectorAll('*')].find(node =>
+  node.children.length <= 6
+  && (node.innerText || '').trim().startsWith(label)
+  && node.querySelector('button, input[type=checkbox], [role=switch]'))
+const control = row?.querySelector('button, input[type=checkbox], [role=switch]')
+```
+
+`querySelectorAll('*')` is in **document order**, so `.find()` returns the
+**outermost** element that matches — an ancestor container, not the row — as
+long as that container has ≤6 children and starts with the same text. Its first
+control in document order can then be something else entirely (a section reveal
+button, for instance). That fits the observed report exactly: *"Launch Codex
+Cloud tasks: pressed"* with the flag unchanged, and *"Dispatch agent lanes: no
+control"*.
+
+The product's own markup argues the same way: `src/views/settings.js:395-403`
+renders each row as `article.settings-row[data-setting-id]` with the control in
+`div.settings-control`, and a toggle is a real
+`<input type="checkbox">` (`:372`). The row carries **no button** — the guidance
+beside it is `<details>/<summary>` (`src/guided-step.js`) — so a correct row
+lookup would find the checkbox, and `setWriteEnabled` has no refusal path.
+
+**The one-line fix to try first:** select by
+`article[data-setting-id="write_cloud-launch"]` and click its
+`input[type=checkbox]`. If the flag then flips, the harness was pressing the
+wrong element and there is no product defect.
+
+I could not run that myself: a fresh profile boots into the setup flow and my
+probes never reached `#/settings` (route came back empty every time), while
+these harnesses complete the walkthrough first. Recorded as evidence, not as a
+verdict.
