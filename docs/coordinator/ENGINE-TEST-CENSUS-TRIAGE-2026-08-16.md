@@ -193,3 +193,41 @@ exactly as it should.
 `node tools/grepsaver-tooldigest.js`, confirm it reports 270, commit the
 regenerated digest. Until then `allowlist.js` stays red for a real reason, not
 a machine quirk.
+
+## Correction to the correction: those tools were MOVED, not deleted
+
+Auditing further overturned part of what is written above, so both versions
+stay on the record rather than the tidier one replacing the truth.
+
+`chrome_web_store.*`, `license.key_*`, `vertex.gemini_complete`,
+`digitalocean.app_spec_apply` and the four `billing.*` Stripe tools are absent
+from the module registry (270 tools) — but they were **not all deleted**.
+Commit `911a8af` (2026-08-11, *"Move what must not ship out of the registry's
+require() graph"*) moved a set of them verbatim into
+`src/lib/tool-packs/owner-release-automation.js`. That file's own header is
+explicit: it drives the publication of a Chrome extension the builder ships
+separately, it was riding inside the installer payload only because
+`tool-registry.js` required every provider at the top of the file, and *"nothing
+was deleted and no behaviour was changed"*. The Stripe four are different: those
+really were removed, by the owner, in `6e906f2`.
+
+**So two things I reported earlier are wrong, and this is the correction:**
+
+1. `smoke.js` does NOT fail because of this session's narrow wire. It asserts
+   `chrome_web_store.upload` appears in the listed tools, and that tool now
+   lives in a pack outside the base registry. The narrow-wire explanation fit
+   the symptom and was not the cause — the exact error my own notes warn me
+   about most.
+2. `approval-gate-classification.js` is not simply a stale artifact with four
+   dead Stripe entries. Twelve of its 62 classified actions no longer resolve,
+   and most of those tools still exist in the pack. Deleting them from the
+   review record would erase real approval-gate classifications for tools that
+   are still real.
+
+**Not fixed here, deliberately.** The right resolution depends on what the
+pack-boundary lane intends: either the artifact records pack membership, or the
+test resolves pack tools as well as registry tools, or `smoke.js` stops
+asserting a pack tool. Choosing one unilaterally would either erase a
+classification or weaken a "must not ship" boundary that another lane drew on
+purpose six days ago. It needs their ruling; the evidence is here so they do
+not have to re-derive it.
