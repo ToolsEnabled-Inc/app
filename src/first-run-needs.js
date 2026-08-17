@@ -236,7 +236,14 @@ export const PROVIDER_SETUP = Object.freeze([
        second half, on the tier menu, with nowhere to read the first. A person
        was told Claude does not work and sent away from the one screen where it
        already does. */
-    doesHere: 'Runs the work you hand over on the agent page, using your own Claude sign-in. It cannot be started from a tree in this copy yet.',
+    /* "It cannot be started from a tree in this copy yet" was the first version
+       and it named the wrong thing. Beside the sign-in readout -- which now says
+       Claude is installed here and signed in -- "cannot ... yet" reads as a
+       fault in the program the person just installed. The constraint is in THIS
+       BUILD: the part that drives Claude from a tree is not shipped in it. Said
+       that way it stays true the day somebody ships that part, and it stops
+       sending a person to check an install that is already correct. */
+    doesHere: 'Runs the work you hand over on the agent page, using your own Claude sign-in. This copy does not carry the part that starts Claude from a tree.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: 'npm install -g @anthropic-ai/claude-code', note: 'in Windows Terminal. This one needs Node on the computer first.' }),
       Object.freeze({ kind: 'command', text: 'claude auth login', note: 'in the same window. It opens your browser and signs in to your own account.' }),

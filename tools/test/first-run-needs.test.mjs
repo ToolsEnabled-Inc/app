@@ -384,3 +384,61 @@ test('an unreadable answer produces no sentence at all', () => {
     assert.equal(presenceSentence(value), null, `${JSON.stringify(value)} produced a sentence`)
   }
 })
+
+/* ------------------------------------------------------------------
+   THE CLAUDE ANSWER, ACROSS BOTH PLACES THAT GIVE IT.
+
+   One decision, two modules, and they are edited by different lanes and never
+   rendered on the same screen -- which is exactly how they drift. The refusal is
+   what a person meets when they PRESS a Claude tier; the guide is what they meet
+   when they go looking for why. They have to survive two rules together:
+
+     1. NO IMPLIED REMEDY. Nothing a person can press, restart, reinstall or
+        switch on makes Claude start from a tree today. The part is not in this
+        build. A sentence hinting otherwise is the "try once more" dead end the
+        start-refusal vocabulary was written to remove -- and it is worse here,
+        because the loop has no exit at all.
+     2. NO CONTRADICTING THE SIGN-IN READOUT. The guide now reports, truthfully,
+        that Claude is installed on this computer and signed in. A refusal
+        implying the sign-in or the install is at fault would be two screens of
+        one product calling each other liars, and would send somebody to repair
+        something that is already correct.
+   ------------------------------------------------------------------ */
+
+test('neither place implies that anything the person does will fix it', async () => {
+  const { UNAVAILABLE_TEXT } = await import('../../src/agent-availability-copy.js')
+  const refusal = UNAVAILABLE_TEXT.AGENT_TIER_NO_LAUNCHER
+  const guide = PROVIDERS.claude.doesHere
+
+  for (const [where, sentence] of [['the refusal', refusal], ['the guide', guide]]) {
+    /* "yet" is on this list and it is the subtle one. Beside a working sign-in
+       it reads as "your program is not ready", which is precisely the wrong
+       place to put the reason. */
+    for (const remedy of ['try again', 'try once more', 'reinstall', 'restart', 'yet']) {
+      assert.ok(
+        !sentence.toLowerCase().includes(remedy),
+        `${where} says "${remedy}", which promises a repair that does not exist: "${sentence}"`,
+      )
+    }
+  }
+})
+
+test('the refusal says the sign-in is fine, because the guide says it is installed', () => {
+  /* Both halves in one sentence: where the fault is NOT (the person's machine)
+     and where it IS (this build). */
+  const guide = PROVIDERS.claude.doesHere
+  assert.match(guide, /this copy does not carry the part/i)
+  /* And it still points at the place Claude genuinely works today. */
+  assert.match(guide, /agent page/i)
+})
+
+test('the refusal names the build, not the tree and not the person', async () => {
+  const { UNAVAILABLE_TEXT } = await import('../../src/agent-availability-copy.js')
+  const refusal = UNAVAILABLE_TEXT.AGENT_TIER_NO_LAUNCHER
+  assert.match(refusal, /does not carry the part/i)
+  assert.match(refusal, /sign-in is fine/i)
+  /* The local tier raises this same code, so the sentence has to cover it. */
+  assert.match(refusal, /local/i)
+  /* And it must still say where to go instead, or it is a dead end of its own. */
+  assert.match(refusal, /agent page/i)
+})

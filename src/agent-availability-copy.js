@@ -203,13 +203,46 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      that path, today, and a person reading this line was being sent away from
      the one screen where the thing they asked for already works.
 
-     WHAT IS ACTUALLY FENCED is narrower: the engine's INTERACTIVE launcher, the
-     one a tree would use, runs the child on a throwaway config directory with no
-     login state (docs/design/NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the engine;
-     TE-L-0006 in the legal docket, whose council reading is that the dispatched
-     lane's use of the official CLI is first-party and compliant). The refusal
-     therefore names the tree, not the product. */
-  AGENT_TIER_NO_LAUNCHER: 'this copy starts Codex agents from the tree, and not Claude or local agents yet. To use Claude, hand the work over on the agent page, which runs on your own Claude sign-in. Pick Luna, Terra or Sol to start one here now',
+     WHAT THIS SENTENCE SAID NEXT, AND WHY THAT WAS ALSO NOT THE WHOLE REASON.
+     It read "this copy starts Codex agents from the tree, and not Claude or
+     local agents yet". True, and it named the wrong constraint by implication:
+     "yet" beside a working sign-in reads as "the program on your computer is not
+     ready", so a person with a perfectly good Claude install went looking for
+     what they had done wrong. Two facts were established on 2026-08-17 and
+     together they move the reason off the person's machine entirely:
+
+       - THE TRANSPORT WORKS. The official CLI holds a multi-turn session on ONE
+         process with `--input-format stream-json`, measured twice: it was asked
+         to remember a number, and answered it on a second turn down the same
+         stdin, one session id, exit 0. So there is no technical barrier being
+         described here. (tools/claude-stream-transport-probe.mjs re-runs it.)
+       - THE PART IS SIMPLY NOT IN THE BUILD. capability/src/lib/agent-engine/
+         carries codex-adapter.js, codex-process.js and engine-contract.js and
+         nothing else, and tools/capability-manifest.json lists only
+         codex-process.js under hostModules. This gate is not the cause; it is
+         the honest report of that absence, and deleting it produces a crash
+         rather than an agent.
+
+     SO THE SENTENCE NAMES THE BUILD, in the same shape as
+     AGENT_CONFINEMENT_UNAVAILABLE above -- "this copy was built without the part
+     that..." -- and NOT in that entry's remedy. Reinstalling fixes an incomplete
+     download; it cannot add a part no build of this version carries. There is
+     nothing the person can press, restart or switch on that changes this today,
+     and the sentence must not hint that there is: that is the "try once more"
+     dead end this whole vocabulary exists to remove.
+
+     IT MUST NOT CONTRADICT THE SIGN-IN READOUT either. The guide now reports,
+     truthfully, that Claude is installed here and signed in. A refusal implying
+     the sign-in is the problem would have two screens of one product calling
+     each other liars, so this one says the sign-in is fine in as many words.
+
+     The `local` tier reaches this code too, so the first sentence names both.
+     What is fenced remains narrower than either: the engine's ACP launcher rides
+     a third-party wrapper on a throwaway config directory
+     (docs/design/NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the engine; TE-L-0006,
+     whose council reading is that launching the OFFICIAL CLI is first-party and
+     compliant). That module is not what a tree would use. */
+  AGENT_TIER_NO_LAUNCHER: 'this copy of ToolsEnabled does not carry the part that runs Claude or local agents from a tree. Your Claude sign-in is fine, and nothing on this computer is broken. To use Claude now, hand the work over on the agent page, which runs on that sign-in. Pick Luna, Terra or Sol to start one here',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not
