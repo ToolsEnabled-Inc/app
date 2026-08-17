@@ -197,3 +197,49 @@ Caveat worth stating when it applies: if the observation was made on the
 PREVIOUS candidate, say so in the evidence text. The generated label is generic
 ("observed directly against the built/running artifact") and will otherwise
 claim more than was measured for the candidate it ships with.
+
+## 15. YOU CANNOT GREP A SEALED INSTALLER. Extract it, or you will "prove" the build is empty (2026-08-16)
+
+Byte verification of a candidate must read the payload, not the `.exe`. NSIS
+compresses everything into `$PLUGINSDIR\app-64.7z`, so scanning the installer
+for source needles returns **zero for every needle** — including a control that
+is definitely present. Measured tonight on 1.0.21: six needles, all zero, and
+the honest reading was "my method is broken", not "the build is empty".
+
+The extraction is two steps, and any 7-Zip works
+(`node_modules/electron-winstaller/vendor/7z.exe` ships with this repo):
+
+```
+7z x "ToolsEnabled Setup <v>.exe" -o<dir>            # yields $PLUGINSDIR, $R0
+7z x "<dir>/$PLUGINSDIR/app-64.7z" -o<dir2> "resources/*"
+```
+
+Then grep `<dir2>/resources/app.asar` (renderer half) and
+`<dir2>/resources/capability/**` (engine half). This is also the ONLY way to
+verify a candidate without installing it — which matters when the owner has the
+app open, because installing over a running app is trap 13.
+
+**A needle only counts if it discriminates.** Take the counts on the PREVIOUS
+installed build first: a needle already present there (1.0.21's
+`data-research-file-box`, present in 1.0.20) proves nothing about the new one.
+Three of six needles discriminated on 1.0.21; the other three were reported as
+carried-forward rather than dressed up as evidence.
+
+## 16. The DECLARATION credited a session that had nothing to do with the build (2026-08-16, FIXED)
+
+`generate-declaration.mjs` and `cut-release-candidate.mjs` both hardcoded
+`Co-Authored-By: Claude Sonnet 5` / `Lane: release-packager (session 6f84bf9b)`
+— the session that first wrote the generator. Every declaration and every
+version-bump commit since carried that name, whoever actually cut. A document
+whose entire purpose is honest provenance was misreporting its own, in the one
+field nobody re-reads.
+
+Now read from the environment (`TOOLSENABLED_CUT_MODEL` /
+`TOOLSENABLED_CUT_SESSION` / `TOOLSENABLED_CUT_LANE`, falling back to
+`CLAUDE_MODEL_NAME` / `CLAUDE_SESSION_ID`). **When nothing says who cut it, the
+declaration says so** rather than naming anyone: an unnamed cutter is a gap, a
+confidently wrong one is a false record. Pinned by
+`tools/test/release-packager.test.mjs`, which also forbids the old identity
+reappearing from any environment.
+
+Set the two variables before cutting, or accept the honest blank.

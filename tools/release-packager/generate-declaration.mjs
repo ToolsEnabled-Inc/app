@@ -336,9 +336,27 @@ Not evaluated by this tool, and not implied by anything above:
 ${bulletList(NOT_RUN_ITEMS)}
 
 ---
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
-Lane: release-packager (session 6f84bf9b)
+${cuttingAttribution()}
 `
+}
+
+/* WHO ACTUALLY CUT THIS, NOT WHO WROTE THE TOOL.
+ *
+ * These two lines were hardcoded to "Claude Sonnet 5 / session 6f84bf9b" --
+ * the session that first wrote this generator. Every declaration since has
+ * carried that name, including builds cut by other models in other sessions
+ * months later, so a document whose entire purpose is honest provenance was
+ * misreporting its own. Read from the environment the cutting session sets;
+ * when nothing says, SAY nothing rather than inventing a name. An unnamed
+ * cutter is a gap; a confidently wrong one is a false record. */
+export function cuttingAttribution(environment = process.env) {
+  const model = environment.TOOLSENABLED_CUT_MODEL || environment.CLAUDE_MODEL_NAME || ''
+  const session = environment.TOOLSENABLED_CUT_SESSION || environment.CLAUDE_SESSION_ID || ''
+  const lane = environment.TOOLSENABLED_CUT_LANE || 'release-packager'
+  const who = model
+    ? `Co-Authored-By: ${model} <noreply@anthropic.com>`
+    : 'Cut by: an unnamed session -- neither TOOLSENABLED_CUT_MODEL nor CLAUDE_MODEL_NAME was set when this ran.'
+  return `${who}\nLane: ${lane}${session ? ` (session ${session})` : ' (session not recorded)'}`
 }
 
 /* THE GATE IS INSIDE THE WRITE, NOT BESIDE IT.

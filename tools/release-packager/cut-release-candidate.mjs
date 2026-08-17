@@ -59,7 +59,7 @@ import { readExeVersionInfo } from './lib/version-info.mjs'
 import { computeNextVersion, writePackageVersion } from './lib/version-bump.mjs'
 import { toDeclarableFacts, portablePath } from './lib/portable-paths.mjs'
 import { assertNoOwnerData } from '../check-declaration-privacy.mjs'
-import { writeDeclaration } from './generate-declaration.mjs'
+import { cuttingAttribution, writeDeclaration } from './generate-declaration.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_REPO = path.resolve(HERE, '..', '..') // wt-installer
@@ -347,8 +347,7 @@ async function main() {
       `package.json: bump version to ${version} for release candidate\n\n` +
         `Automated by tools/release-packager/cut-release-candidate.mjs. Built from ${sourceRef} in an isolated, ` +
         `detached worktree; the day-to-day worktree (with another lane's uncommitted work in it) was never entered.\n\n` +
-        `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n` +
-        `Lane: release-packager (session 6f84bf9b)\n`,
+        `${cuttingAttribution()}\n`,
     )
     console.log(`[cut-release-candidate] version-bump commit: ${buildRef}`)
 
