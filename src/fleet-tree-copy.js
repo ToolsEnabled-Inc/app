@@ -227,17 +227,71 @@ const TIER_PROVIDER_WORDS = Object.freeze({ codex: 'Codex', claude: 'Claude', lo
    that draws these rows -- the compose panel and the research designer's tier
    checkboxes both render `label`. The wording matches the running-session
    model menu in src/views/computers.js, so the product says it one way. */
-const TREE_STARTABLE_PROVIDERS = Object.freeze(['codex'])
+/* WHAT THIS COPY CAN START, WHEN NOBODY HAS ASKED THE SHELL YET.
+ *
+ * This list used to be the ANSWER -- a frozen ['codex'] that decided the label
+ * on every surface drawing these rows. The shell stopped agreeing with it: since
+ * the tier gate opens on the payload genuinely carrying an engine (an actual
+ * require() that must export a start function), a build WITH the Claude engine
+ * would start a Claude tier while these rows went on saying it could not. A menu
+ * that contradicts the button is worse than either answer alone.
+ *
+ * So this is now only the FALLBACK, and it is the pessimistic one on purpose: a
+ * renderer with no bridge behind it (a plain browser), a payload older than the
+ * channel, or a reply this build cannot parse all land here, and all of them are
+ * builds where exactly the three Codex tiers start. Guessing wider would put
+ * "startable" under a row that refuses. */
+export const TREE_DEFAULT_STARTABLE_TIERS = Object.freeze(['luna', 'terra', 'sol'])
 /* "from a tree", not "here". A person reads this row on the tree, where it is
    true, and the same product hands work to a Claude assistant on the agent page,
    where it is not. The old wording made those two screens contradict each other. */
 const TIER_CANNOT_START_HERE = 'cannot start from a tree yet'
-export const TIER_CHOICES = Object.freeze(LAUNCH_TIERS.map(tier => Object.freeze({
-  id: tier.id,
-  label: TREE_STARTABLE_PROVIDERS.includes(tier.provider)
-    ? `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider}`
-    : `${tier.label} · ${TIER_PROVIDER_WORDS[tier.provider] || tier.provider} — ${TIER_CANNOT_START_HERE}`,
-})))
+/**
+ * Which tiers this copy can really start, out of what the shell answered.
+ *
+ * THE SHELL IS THE ONLY PARTY THAT KNOWS. mc-agent:startable-tiers does not
+ * keep a list; it runs the SAME resolveStartTier() the press resolves from, so
+ * the menu and the button cannot disagree by construction. This function's only
+ * job is to refuse to believe anything else.
+ *
+ * AN EMPTY ARRAY IS AN ANSWER, NOT A FAILURE, and it is the one case worth
+ * spelling out. `{ok: true, tiers: []}` means the shell resolved every tier and
+ * none of them can start -- so every row says so. It does NOT fall back to the
+ * three Codex tiers: that would be this file overruling the shell on the one
+ * question the shell was asked, and it would put "startable" under a row that
+ * refuses. A reply that is missing, rejected, malformed, or names tiers this
+ * build has never heard of is a different thing entirely -- nothing was
+ * learned -- and that lands on the pessimistic default above.
+ */
+export function startableTierIds(reply) {
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.tiers)) {
+    return TREE_DEFAULT_STARTABLE_TIERS
+  }
+  const known = reply.tiers.filter(id => typeof id === 'string' && LAUNCH_TIERS.some(tier => tier.id === id))
+  /* Every entry unrecognised while the list was not empty means this renderer
+     and that shell do not share a tier table -- an answer about a product this
+     one is not, so it is discarded rather than half-read. */
+  if (reply.tiers.length > 0 && known.length === 0) return TREE_DEFAULT_STARTABLE_TIERS
+  return Object.freeze(known)
+}
+
+/** The menu rows, labelled by what this copy can actually start. */
+export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS) {
+  const canStart = new Set(Array.isArray(startable) ? startable : TREE_DEFAULT_STARTABLE_TIERS)
+  return Object.freeze(LAUNCH_TIERS.map(tier => {
+    const provider = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    return Object.freeze({
+      id: tier.id,
+      label: canStart.has(tier.id)
+        ? `${tier.label} · ${provider}`
+        : `${tier.label} · ${provider} — ${TIER_CANNOT_START_HERE}`,
+    })
+  }))
+}
+
+/* The rows a surface gets when it has not asked. Same value this constant has
+   always had, so every existing importer is unchanged. */
+export const TIER_CHOICES = tierChoicesFor()
 
 /* Preselected, not prompted: the engine has a default, so the menu states it.
    An empty first row here would be a question the product already answers. */

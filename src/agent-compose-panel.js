@@ -167,7 +167,7 @@ export function composeDraftProblems({ role = '', message = '', roles = ROLE_CHO
    comes from src/fleet-tree-copy.js. `underLine` is the one place a name the
    caller supplied reaches the page, already wrapped in the copy module's own
    sentence before it gets here. */
-function buildPanel(doc, { choices, newTree, underLine }) {
+function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) {
   const id = `agent-compose-${panelSequence += 1}`
 
   const root = doc.createElement('section')
@@ -332,7 +332,7 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   tierSelect.setAttribute('id', `${id}-tier`)
   tierSelect.setAttribute('data-compose-field', 'tier')
   tierSelect.setAttribute('aria-describedby', `${id}-tier-hint`)
-  for (const choice of TIER_CHOICES) {
+  for (const choice of tiers) {
     const option = doc.createElement('option')
     /* Same split as the role menu: the id rides on the value, the label is the
        only part with a reader. */
@@ -508,10 +508,22 @@ export function mountAgentComposePanel({
   onSubmit = null,
   onCancel = null,
   unavailableReason = '',
+  /* THE ENGINE ROWS, WHICH THIS FILE NO LONGER DECIDES. They arrive already
+     labelled from src/fleet-tree-copy.js tierChoicesFor(), because only the
+     shell knows which engines this payload can actually start and only the
+     caller holds a bridge to ask it. A caller that does not pass them gets the
+     module's own pessimistic default, which is what every surface got before
+     this parameter existed. */
+  tiers = TIER_CHOICES,
 } = {}) {
   if (!doc || typeof doc.createElement !== 'function' || !container) return null
 
-  let current = { parent, roles, unavailableReason: asTrimmed(unavailableReason) }
+  let current = {
+    parent,
+    roles,
+    tiers: Array.isArray(tiers) && tiers.length > 0 ? tiers : TIER_CHOICES,
+    unavailableReason: asTrimmed(unavailableReason),
+  }
   let nodes = null
   let destroyed = false
   let busy = false
@@ -706,6 +718,7 @@ export function mountAgentComposePanel({
       choices: assignableRoles(current.roles),
       newTree: !isRecord(current.parent),
       underLine,
+      tiers: current.tiers,
     })
 
     nodes.submit.addEventListener('click', () => attemptSubmit())
@@ -753,6 +766,7 @@ export function mountAgentComposePanel({
       current = {
         parent: 'parent' in next ? next.parent : current.parent,
         roles: 'roles' in next ? next.roles : current.roles,
+        tiers: 'tiers' in next && Array.isArray(next.tiers) && next.tiers.length > 0 ? next.tiers : current.tiers,
         unavailableReason: 'unavailableReason' in next ? asTrimmed(next.unavailableReason) : current.unavailableReason,
       }
       return render()

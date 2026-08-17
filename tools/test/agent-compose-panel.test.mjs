@@ -46,6 +46,8 @@ import {
   START_PANEL,
   START_REFUSAL,
   TIER_CHOICES,
+  startableTierIds,
+  tierChoicesFor,
   EFFORT_CHOICES,
   effortOptionLabel,
   roleLabel,
@@ -872,4 +874,61 @@ test('every string in this module passes the plain-language gate', () => {
   const findings = []
   for (const entry of extracted.visible) findings.push(...findingsInText(entry.text, entry.sourceLine))
   assert.deepEqual(findings, [], findings.map(finding => `${finding.rule}: ${finding.detail}`).join('\n'))
+})
+
+/* ------------------------------------------------------------------------
+   WHICH ENGINES THE MENU SAYS IT CAN START, AND WHO DECIDES.
+
+   The renderer used to decide this itself, from a frozen ['codex'] in
+   src/fleet-tree-copy.js. The shell's tier gate now opens on the payload
+   genuinely carrying an engine, so a build WITH the Claude engine would start a
+   Claude tier while these rows went on saying it could not -- a menu
+   contradicting the button, which is worse than either answer alone. These pin
+   the renderer's whole half of that: believe the shell, and refuse to believe
+   anything else.
+   ------------------------------------------------------------------------ */
+
+test('the menu believes the shell about which engines can start', () => {
+  const rows = tierChoicesFor(startableTierIds({ ok: true, tiers: ['luna', 'terra', 'sol', 'claude-fable'] }))
+  const claude = rows.find(row => row.id === 'claude-fable')
+  const luna = rows.find(row => row.id === 'luna')
+  const local = rows.find(row => row.id === 'local')
+  assert.ok(claude, 'the Claude row vanished from the menu instead of being relabelled')
+  assert.ok(!/cannot start/i.test(claude.label),
+    `a tier the shell says it can start is still labelled unstartable: ${claude.label}`)
+  assert.ok(!/cannot start/i.test(luna.label), luna.label)
+  /* The one that proves it reads real launchers rather than provider names. */
+  assert.ok(/cannot start/i.test(local.label),
+    `local was not in the shell's list and must still say so: ${local.label}`)
+})
+
+test('a shell that answers nothing leaves the menu exactly where it was', () => {
+  /* Every one of these learned NOTHING about what this copy can start -- no
+     bridge, no channel, a rejected call, a malformed reply, a tier table from
+     some other product. None of them may widen the menu, and none of them may
+     narrow it either: the fallback is the three Codex tiers, which is what
+     every build could always start. */
+  for (const reply of [null, undefined, {}, { ok: false }, { ok: true }, { ok: true, tiers: 'luna' },
+    { ok: true, tiers: ['not-a-tier', 'also-not'] }]) {
+    assert.deepEqual([...startableTierIds(reply)], ['luna', 'terra', 'sol'],
+      `an unusable reply changed the menu: ${JSON.stringify(reply)}`)
+  }
+})
+
+test('an empty answer is an answer, and is not read as "everything starts"', () => {
+  /* {ok:true, tiers:[]} means the shell resolved every tier and none can start.
+     Falling back to the Codex three here would be the renderer overruling the
+     shell on the one question it was asked, and would put "startable" under a
+     row that refuses. */
+  const rows = tierChoicesFor(startableTierIds({ ok: true, tiers: [] }))
+  assert.ok(rows.every(row => /cannot start/i.test(row.label)),
+    `an empty answer left some row claiming it can start: ${JSON.stringify(rows.map(row => row.label))}`)
+})
+
+test('the compose panel renders the engine rows it is handed, not a list of its own', () => {
+  const handed = tierChoicesFor(['luna', 'claude-opus'])
+  const { handle } = open({ tiers: handed })
+  const labels = fieldNamed(handle, 'tier').children.map(option => option.textContent)
+  assert.deepEqual(labels, handed.map(choice => choice.label),
+    'the panel drew its own tier list instead of the one it was given')
 })

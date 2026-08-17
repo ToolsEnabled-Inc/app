@@ -61,6 +61,9 @@ import {
   RECOVERED_SESSION,
   EFFORT_SWITCH,
   EFFORT_CHOICES,
+  TIER_CHOICES,
+  startableTierIds,
+  tierChoicesFor,
   activityLine,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
@@ -695,6 +698,44 @@ export function computersView({ initialComputer = null, navigate }) {
      click. clearBoard() below destroys it with the rest of the rail. */
   let boardCloudBox = null
   let railDisposeTimer = 0
+  /* THE ENGINE ROWS THE COMPOSE PANEL WILL SHOW. Starts as the module's own
+     pessimistic default -- the three Codex tiers -- and is replaced once the
+     shell answers. A press that lands before the answer therefore shows what
+     every build could always start, never a row that promises more than this
+     payload carries. */
+  let startableTierChoices = TIER_CHOICES
+  /* ASK THE SHELL WHICH TIERS THIS COPY CAN REALLY START.
+   *
+   * THE DEFECT THIS CLOSES. This renderer used to decide startability from a
+   * frozen list of provider names, so the menu said "cannot start from a tree
+   * yet" on a build that could, and would have gone on saying it after the
+   * engine shipped. The shell has always had the real answer:
+   * mc-agent:startable-tiers runs the SAME resolveStartTier() the press runs, so
+   * the menu and the button cannot disagree by construction.
+   *
+   * EVERY FAILURE PATH IS THE SAME PATH, and it is the pessimistic one. No
+   * bridge (a plain browser during `npm run dev`), a rejected invoke, a reply
+   * that is not the shape promised, or an answer that arrives after this view is
+   * gone -- all leave the Codex-only default exactly as it is today. The one
+   * thing this must never do is guess upward: a row that says "startable" over a
+   * press that refuses is the half-start that is worse than an honest refusal.
+   * startableTierIds() in src/fleet-tree-copy.js owns that judgement, including
+   * the one case worth spelling out -- an EMPTY list is an answer and is
+   * honoured, while a malformed one is not.
+   *
+   * It is fetched once per view rather than per node click: the payload cannot
+   * change while the window is open, and a probe per click would be a request
+   * per press for an answer that cannot have moved. */
+  async function startableTiersNow() {
+    let reply = null
+    try {
+      reply = await window.mcAgent?.startableTiers?.()
+    } catch {
+      return
+    }
+    if (destroyed) return
+    startableTierChoices = tierChoicesFor(startableTierIds(reply))
+  }
   let destroyed = false
   let fetchVersion = 0
   const unsubs = []
@@ -1891,6 +1932,35 @@ export function computersView({ initialComputer = null, navigate }) {
     return ''
   }
 
+  /* ASK THE SHELL WHICH ENGINES START, ONCE PER MOUNT.
+   *
+   * The renderer used to answer this itself, from a frozen ['codex'] in
+   * src/fleet-tree-copy.js. The shell's tier gate now opens on the payload
+   * genuinely carrying an engine -- a require() that must export a start
+   * function -- so a build WITH the Claude engine would start a Claude tier
+   * while the menu went on saying it could not. A menu that contradicts the
+   * button is worse than either answer alone.
+   *
+   * Read once at mount rather than per press: the answer is a property of the
+   * installed payload, which cannot change while this page is open, and a round
+   * trip on every press of an empty node would be paid for nothing. Every
+   * failure -- no bridge, no channel, a rejected call, an unparseable reply --
+   * leaves the pessimistic default in place, because none of them learned
+   * anything about what this copy can start.
+   */
+  async function readStartableTiers() {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.startableTiers !== 'function') return
+    let reply
+    try { reply = await bridge.startableTiers() } catch { reply = null }
+    if (destroyed) return
+    startableTierChoices = tierChoicesFor(startableTierIds(reply))
+    /* A panel already on screen is re-opened over the same node so its menu
+       carries the answer, rather than leaving the person reading rows that were
+       drawn before the shell replied. */
+    if (composePanel?.isOpen?.()) composePanel.open({ tiers: startableTierChoices })
+  }
+
   function openComposeFor(detail) {
     if (destroyed || !computer) return
     syncTreeStore()
@@ -1912,6 +1982,9 @@ export function computersView({ initialComputer = null, navigate }) {
          when the words change, and its refusals name the button by its real
          name. */
       unavailableReason: unavailable,
+      /* WHICH ENGINES THIS COPY CAN REALLY START, asked of the shell rather
+         than assumed by the renderer. See startableTiersNow() below. */
+      tiers: startableTierChoices,
       onSubmit: draft => submitCompose(draft, detail),
       onCancel: () => closeComposePanel(),
     })
@@ -2166,6 +2239,9 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     graph.onDensity = (dense) => hintElement.classList.toggle('show', dense)
     graph.updateDensity()
+    /* Asked as the board comes up, so the answer is usually in hand before the
+       first empty node is pressed. */
+    void readStartableTiers()
     window.__mcGraph = graph
     renderCrumb(null)
     syncEditButton()
@@ -4640,6 +4716,13 @@ export function computersView({ initialComputer = null, navigate }) {
 
   if (liveMode) loadProjection()
   else mountSimulation()
+
+  /* Asked once, here, and deliberately NOT awaited. The tree must draw whether
+     or not the shell ever answers; a panel opened before the reply lands shows
+     the pessimistic default, which is what every build could always start. The
+     promise is allowed to settle after the view is gone -- startableTiersNow()
+     checks `destroyed` before it writes. */
+  void startableTiersNow()
 
   return {
     el: root,

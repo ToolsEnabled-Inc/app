@@ -620,6 +620,22 @@ async function driveComposePanel(open, sizes) {
   if (panelState !== 'open') return { started: false }
 
   /* ---- the refusal, on the panel the person is looking at ---- */
+  /* WHAT THE SHELL SAID, AND WHAT THE MENU DREW. The renderer used to decide
+     this from a frozen list; it now asks. Both halves are recorded so a menu
+     that quietly fell back to its default is visible as one. */
+  const startable = await open.page.evaluate(`(async () => {
+    const bridge = globalThis.mcAgent
+    if (!bridge || typeof bridge.startableTiers !== 'function') return { channel: false }
+    try { return { channel: true, reply: await bridge.startableTiers() } }
+    catch (error) { return { channel: true, threw: String(error && error.message || error) } }
+  })()`)
+  const drawn = await open.page.evaluate(`(() => {
+    const menu = document.querySelector('[data-compose-field="tier"]')
+    return menu ? [...menu.options].map(option => option.textContent) : null
+  })()`)
+  note(`  the shell answers startable: ${JSON.stringify(startable)}`)
+  note(`  the menu draws: ${JSON.stringify(drawn)}`)
+
   const claudeRow = TIER_CHOICES.find(choice => /claude/i.test(choice.id))
   if (!claudeRow) {
     pending('a refusal names its real reason', 'this build offers no Claude tier to refuse')
