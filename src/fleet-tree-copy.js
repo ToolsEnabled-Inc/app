@@ -219,12 +219,42 @@ export const DEFAULT_TIER = 'luna'
    this register: "thinks a little / harder / hardest"). The menu defaults
    from the chosen tier's own effort, so leaving it alone means the tier's
    judgment, not a hidden fifth value. */
+/* THE PROVIDER'S OWN DEPTHS, IN THE PROVIDER'S OWN WORDS.
+ *
+ * Owner, iteration 7: "there are STANDARD per provider effort names. Use
+ * those" — and he was right that these had been invented here. What stood
+ * in this list was four made-up labels ("Quick — thinks briefly, cheapest")
+ * over four of the eight values codex accepts, which meant the product could
+ * not even ask for the other four. `ultra` was the costly one to miss: it is
+ * not a bigger number, it is the switch for automatic task delegation, and
+ * his own ~/.codex/config.toml runs it.
+ *
+ * Ids and descriptions below are transcribed from `model/list` on
+ * codex-cli 0.146.0 (gpt-5.6 line, 2026-08-16). This list is the FALLBACK:
+ * a running session lets the app ask the engine what the chosen model
+ * really supports, and that answer wins — see readEngineCatalog in
+ * src/views/computers.js. The name is the label; the provider's sentence is
+ * the help text beside it. */
 export const EFFORT_CHOICES = Object.freeze([
-  Object.freeze({ id: 'low', label: 'Quick — thinks briefly, cheapest' }),
-  Object.freeze({ id: 'medium', label: 'Standard — thinks a little' }),
-  Object.freeze({ id: 'high', label: 'Thorough — thinks harder, slower' }),
-  Object.freeze({ id: 'xhigh', label: 'Deepest — thinks hardest, slowest and costliest' }),
+  Object.freeze({ id: 'low', label: 'low', description: 'Fast responses with lighter reasoning' }),
+  Object.freeze({ id: 'medium', label: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' }),
+  Object.freeze({ id: 'high', label: 'high', description: 'Greater reasoning depth for complex problems' }),
+  Object.freeze({ id: 'xhigh', label: 'xhigh', description: 'Extra high reasoning depth for complex problems' }),
+  Object.freeze({ id: 'max', label: 'max', description: 'Maximum reasoning depth for the hardest problems' }),
+  Object.freeze({ id: 'ultra', label: 'ultra', description: 'Maximum reasoning with automatic task delegation' }),
 ])
+
+/** One depth, as a menu row reads it: the provider's name, then the
+ *  provider's own sentence. Composed HERE rather than in the panel, because
+ *  this module owns every word the start flow puts on screen — a panel that
+ *  assembles its own line is a second voice, which is the drift this file
+ *  exists to prevent. */
+export function effortOptionLabel(choice) {
+  if (!choice || typeof choice !== 'object') return ''
+  const name = typeof choice.label === 'string' && choice.label ? choice.label : String(choice.id || '')
+  const description = typeof choice.description === 'string' ? choice.description.trim() : ''
+  return description ? `${name} — ${description}` : name
+}
 
 /* ---------------------------------------------------------------
    Starting, and running.

@@ -3459,7 +3459,7 @@ export function computersView({ initialComputer = null, navigate }) {
        to answer, and it now carries the provider's names too. */
     const effortRows = () => {
       const catalog = engineEffortsFor(fresh())
-      const choices = catalog.length > 0 ? catalog : EFFORT_CHOICES.map(choice => ({ id: choice.id, description: choice.label }))
+      const choices = catalog.length > 0 ? catalog : EFFORT_CHOICES.map(choice => ({ id: choice.id, description: choice.description }))
       return choices.map(choice => ({
         id: `effort-${choice.id}`,
         label: choice.id,

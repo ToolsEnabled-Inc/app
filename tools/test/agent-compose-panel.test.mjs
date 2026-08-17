@@ -47,6 +47,7 @@ import {
   START_REFUSAL,
   TIER_CHOICES,
   EFFORT_CHOICES,
+  effortOptionLabel,
   roleLabel,
   startingLine,
 } from '../../src/fleet-tree-copy.js'
@@ -84,6 +85,9 @@ const APPROVED_WORDS = new Set([
   ...ROLE_CHOICES.map(choice => startingLine(choice.role)),
   ...TIER_CHOICES.map(choice => choice.label),
   ...EFFORT_CHOICES.map(choice => choice.label),
+  /* The depth rows read "<provider name> — <provider sentence>", composed by
+     the copy module so the panel still writes none of it. */
+  ...EFFORT_CHOICES.map(choice => effortOptionLabel(choice)),
 ])
 
 class FakeElement {

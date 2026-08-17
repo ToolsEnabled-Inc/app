@@ -68,6 +68,7 @@ import {
   START_REFUSAL,
   TIER_CHOICES,
   EFFORT_CHOICES,
+  effortOptionLabel,
   roleLabel,
   startingLine,
 } from './fleet-tree-copy.js'
@@ -368,7 +369,9 @@ function buildPanel(doc, { choices, newTree, underLine }) {
   for (const choice of EFFORT_CHOICES) {
     const option = doc.createElement('option')
     option.value = choice.id
-    option.textContent = choice.label
+    /* The provider's name leads, its own sentence explains — and the line is
+       composed in the copy module, which owns every word this panel shows. */
+    option.textContent = effortOptionLabel(choice)
     effortSelect.appendChild(option)
   }
   const tierEffort = (tierId) => LAUNCH_TIERS.find(tier => tier.id === tierId)?.effort || 'medium'
