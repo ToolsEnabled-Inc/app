@@ -294,7 +294,26 @@ export function ledgerView() {
       const door = source.kind === 'unavailable'
         ? `<p class="ledger-empty"><a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a></p>`
         : ''
-      register.innerHTML = `<p class="ledger-empty projection-unavailable">the ledger could not be read yet · ${esc(reason)}</p>${door}`
+      /* SAY WHAT THIS REGISTER IS, RATHER THAN THAT A FILE WOULD NOT OPEN.
+       *
+       * "could not be read yet" reads as a fault a person could fix, and the
+       * "yet" promises it will fill in. Neither is true. Measured against the
+       * shipped payload on 2026-08-17: the register is written only by the
+       * builder command run inside a ToolsEnabled source checkout -- there is no
+       * call that files an entry anywhere in the payload, and the only thing
+       * that reads it is the packet an agent gets at boot. So a copy that is not
+       * a development checkout has nothing here today and will still have
+       * nothing here after any amount of use.
+       *
+       * The product already writes this kind of sentence honestly in
+       * src/first-run-needs.js: "this copy of ToolsEnabled does not include one
+       * ... nothing you do will fill those screens today." This is that, for the
+       * register. The reason string is kept for the loading case, where it is
+       * genuinely about a read still in flight. */
+      const body = source.kind === 'unavailable'
+        ? 'This register lists requests recorded while ToolsEnabled itself is being built. This copy does not keep one, so there is nothing here to show.'
+        : `the ledger could not be read yet · ${esc(reason)}`
+      register.innerHTML = `<p class="ledger-empty projection-unavailable">${body}</p>${door}`
       root.querySelector('[data-visible-count]').textContent = source.kind === 'loading' ? 'reading…' : 'could not be read'
       root.dataset.projectionState = source.kind
       return
