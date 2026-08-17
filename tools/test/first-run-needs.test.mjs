@@ -266,12 +266,12 @@ test('all three assistant programs are named, and none is invented', () => {
 test('reach is one of the three known values, and Gemini is not offered', () => {
   for (const provider of PROVIDER_SETUP) {
     assert.ok(
-      ['tree', 'handover', 'none'].includes(provider.reach),
+      ['tree', 'not-from-tree', 'none'].includes(provider.reach),
       `${provider.id} claims a reach this product has no rendering for`,
     )
   }
   assert.equal(PROVIDERS.codex.reach, 'tree')
-  assert.equal(PROVIDERS.claude.reach, 'handover')
+  assert.equal(PROVIDERS.claude.reach, 'not-from-tree')
 
   /* THE ONE THAT GUARDS THE OWNER'S RULE. Nothing in this product starts Gemini
      -- there is no adapter at the engine seam and no lane row for it -- so this
@@ -286,17 +286,22 @@ test('reach is one of the three known values, and Gemini is not offered', () => 
   assert.match(PROVIDERS.gemini.doesHere, /nothing in this copy starts gemini/i)
 })
 
-test('the Claude entry carries both halves, not only the refusal', () => {
+test('the Claude entry claims only what has been measured', () => {
   const said = PROVIDERS.claude.doesHere.toLowerCase()
-  /* Where it DOES work. Measured on the installed build: handing work over on
-     the agent page spawns the official claude program on the person's own
-     sign-in. A page that omitted this would send somebody away from the one
-     screen where the thing they want already happens. */
-  assert.match(said, /agent page/)
-  assert.match(said, /sign-in/)
-  /* And where it does not, so the tier menu's refusal is explained rather than
-     contradicted. */
+  /* IT MUST NOT NAME THE AGENT PAGE. That clause was driven on 2026-08-17 from
+     the exact state this copy is read in -- a set-up machine, a tree, a refused
+     start -- and there were ZERO doors to it: no link, no enabled control, and
+     the agent route is not on the ring either. A direction with no route is a
+     dead end wearing the costume of help. */
+  assert.ok(!said.includes('agent page'), `the guide names a page with no route to it: "${said}"`)
+  /* And it must not claim the hand-over works, because nobody has driven it end
+     to end. The lane that tried was blocked before reaching the form and
+     reported NOT EXERCISED rather than passing it from a demonstration board. */
+  assert.ok(!/hand (the )?work over/.test(said), 'the guide claims a hand-over nobody has measured')
+  /* What it MAY say: the limit, and that the person is not at fault. */
+  assert.match(said, /does not carry the part/)
   assert.match(said, /tree/)
+  assert.match(said, /sign-in is fine/)
 })
 
 test('every command is one that exists, and no sign-in command is invented', () => {
@@ -428,8 +433,12 @@ test('the refusal says the sign-in is fine, because the guide says it is install
      and where it IS (this build). */
   const guide = PROVIDERS.claude.doesHere
   assert.match(guide, /this copy does not carry the part/i)
-  /* And it still points at the place Claude genuinely works today. */
-  assert.match(guide, /agent page/i)
+  /* IT NO LONGER POINTS ANYWHERE, and that is the repair rather than a
+     regression. This used to require the sentence to name the agent page as
+     "the place Claude genuinely works today". Driven 2026-08-17 from the state
+     this copy is read in: zero doors to that page. A test that REQUIRES a
+     direction is how a dead end gets held in place by its own suite. */
+  assert.ok(!/agent page/i.test(guide), 'the guide points at a page with no route to it')
 })
 
 test('the refusal names the build, not the tree and not the person', async () => {
@@ -439,6 +448,11 @@ test('the refusal names the build, not the tree and not the person', async () =>
   assert.match(refusal, /sign-in is fine/i)
   /* The local tier raises this same code, so the sentence has to cover it. */
   assert.match(refusal, /local/i)
-  /* And it must still say where to go instead, or it is a dead end of its own. */
-  assert.match(refusal, /agent page/i)
+  /* IT MUST NOT NAME THE AGENT PAGE. Same measurement as above: from a set-up
+     machine with a tree and a refused start there are no links and no enabled
+     controls that reach it, and the agent route is not on the ring. */
+  assert.ok(!/agent page/i.test(refusal), 'the refusal sends people to a page with no door on it')
+  /* It must still END on something the reader can do HERE, or removing the
+     direction would have turned it into a dead end of a different kind. */
+  assert.match(refusal, /Pick Luna, Terra or Sol/i)
 })

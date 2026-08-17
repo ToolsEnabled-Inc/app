@@ -90,7 +90,10 @@ function needMarkup(need) {
    asserted there. */
 const REACH_WORDS = Object.freeze({
   tree: 'Works here now',
-  handover: 'Works on the agent page',
+  /* It used to read 'Works on the agent page'. That named a destination the
+     reader has no route to -- driven, zero doors from the state this is shown
+     in -- so the word now describes the LIMIT, which is the part that is known. */
+  'not-from-tree': 'Not from a tree in this copy',
   none: 'Nothing here starts it yet',
 })
 

@@ -66,7 +66,10 @@ const PROVIDERS = ['codex', 'claude', 'gemini']
    which is the whole reason to drive rather than to unit-test. */
 const EXPECTED_REACH = Object.freeze({
   codex: 'Works here now',
-  claude: 'Works on the agent page',
+  /* Was 'Works on the agent page' until 2026-08-17, when that page was driven
+     from the state this row is read in and found to have no door. The word now
+     describes the LIMIT, which is the part that is actually known. */
+  claude: 'Not from a tree in this copy',
   gemini: 'Nothing here starts it yet',
 })
 
@@ -207,21 +210,28 @@ async function main() {
       .catch(() => null)
 
     note(guideSays.length > 0 ? 'ok' : 'FAIL', `the guide's Claude sentence is on the glass: "${guideSays.slice(0, 110)}..."`)
-    /* Both halves, on the guide, measured on the rendered text rather than the
-       source: where it works, and where it does not. */
-    note(/agent page/i.test(guideSays) ? 'ok' : 'FAIL', 'the guide says where Claude DOES work (the agent page)')
-    note(/tree/i.test(guideSays) ? 'ok' : 'FAIL', 'the guide says where Claude does NOT work (from a tree)')
-    note(/sign-in/i.test(guideSays) ? 'ok' : 'FAIL', 'the guide says it runs on the person\'s OWN sign-in')
+    /* THIS USED TO REQUIRE THE SENTENCE TO NAME THE AGENT PAGE, as "where Claude
+       DOES work". Another lane drove that page on 2026-08-17 from the state this
+       copy is read in -- a set-up machine, a tree, a refused start -- and found
+       ZERO doors to it: no link, no enabled control, and the agent route is not
+       on the ring. So the assertion is inverted. A driver that DEMANDS a
+       direction is how a dead end gets held in place by the thing meant to catch
+       it, which is worse than having no check at all. */
+    note(!/agent page/i.test(guideSays) ? 'ok' : 'FAIL', 'the guide does NOT send a person to a page with no route to it')
+    note(/tree/i.test(guideSays) ? 'ok' : 'FAIL', 'the guide says where Claude does not work (from a tree)')
+    note(/sign-in/i.test(guideSays) ? 'ok' : 'FAIL', 'the guide says the person\'s own sign-in is not the problem')
 
     if (refusalSays === null) {
       note('info', 'the refusal sentence could not be read from the running bundle, so the two could not be compared')
     } else {
       note('info', `the refusal would say: "${refusalSays.slice(0, 130)}..."`)
-      /* They need not be word for word -- they are different registers, one is a
-         page and one is a control -- but they must not CONTRADICT. Both have to
-         send a person to the agent page. */
-      const agree = /agent page/i.test(refusalSays)
-      note(agree ? 'ok' : 'FAIL', 'the refusal and the guide both send a person to the agent page')
+      /* They need not be word for word -- one is a page and one is a control --
+         but they must not CONTRADICT, and neither may name a destination that
+         has no route from where it is read. */
+      const neitherDirects = !/agent page/i.test(refusalSays) && !/agent page/i.test(guideSays)
+      note(neitherDirects ? 'ok' : 'FAIL', 'neither the refusal nor the guide points at a page with no door on it')
+      const bothNameTheBuild = /does not carry the part/i.test(refusalSays) && /does not carry the part/i.test(guideSays)
+      note(bothNameTheBuild ? 'ok' : 'FAIL', 'both put the reason in THIS BUILD rather than on the person or their sign-in')
     }
 
     const text = await screenText(window)

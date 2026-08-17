@@ -190,7 +190,7 @@
 .guide-presence[data-presence="ready"] { color: var(--s-good); }
 
 .guide-provider[data-reach="tree"] .guide-need-tag { color: var(--s-good); }
-.guide-provider[data-reach="handover"] .guide-need-tag { color: var(--ink-2); }
+.guide-provider[data-reach="not-from-tree"] .guide-need-tag { color: var(--ink-2); }
 .guide-provider[data-reach="none"] .guide-need-tag { color: var(--ink-3); }
 
 .guide-works-list {

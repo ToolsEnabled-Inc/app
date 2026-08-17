@@ -242,7 +242,26 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      (docs/design/NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the engine; TE-L-0006,
      whose council reading is that launching the OFFICIAL CLI is first-party and
      compliant). That module is not what a tree would use. */
-  AGENT_TIER_NO_LAUNCHER: 'this copy of ToolsEnabled does not carry the part that runs Claude or local agents from a tree. Your Claude sign-in is fine, and nothing on this computer is broken. To use Claude now, hand the work over on the agent page, which runs on that sign-in. Pick Luna, Terra or Sol to start one here',
+  /* THE CLAUSE THAT WAS HERE NAMED A PLACE THE READER CANNOT GET TO.
+     It ended "To use Claude now, hand the work over on the agent page, which
+     runs on that sign-in." DRIVEN 2026-08-17 on a staged packaged build, by
+     mouse and keyboard, from the exact state this sentence is read in -- a
+     set-up machine, a tree, a refused start:
+         doors to the agent page: {"links":[],"buttons":[],"route":"computers"}
+     Zero. Every route to that page lives on the fleet page's projection boards
+     or on the projection-unavailable branch, and `agent` is not on the ring, so
+     the arrows do not lead there either. A person refused on the tree has no way
+     through from where they are standing.
+     A direction with no route is a dead end wearing the costume of help, which
+     is the exact failure this whole vocabulary exists to remove -- the same
+     defect as "try once more" on something retrying cannot fix. So the sentence
+     stops giving directions and ends on the thing the reader CAN do here.
+     WHAT IS DELIBERATELY NOT CLAIMED NOW: whether handing work over spawns a
+     real Claude child and answers. Nobody has driven that end to end. The lane
+     that tried was blocked before reaching the form and reported it NOT
+     EXERCISED rather than passing it from a demonstration board. Until somebody
+     measures it, this sentence asserts nothing about it either way. */
+  AGENT_TIER_NO_LAUNCHER: 'this copy of ToolsEnabled does not carry the part that runs Claude or local agents from a tree. Your Claude sign-in is fine, and nothing on this computer is broken. Pick Luna, Terra or Sol to start one here',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not

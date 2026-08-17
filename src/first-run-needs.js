@@ -231,7 +231,7 @@ export const PROVIDER_SETUP = Object.freeze([
   Object.freeze({
     id: 'claude',
     name: 'Claude',
-    reach: 'handover',
+    reach: 'not-from-tree',
     /* BOTH HALVES, AND THE ORDER MATTERS. The product used to say only the
        second half, on the tier menu, with nowhere to read the first. A person
        was told Claude does not work and sent away from the one screen where it
@@ -243,7 +243,16 @@ export const PROVIDER_SETUP = Object.freeze([
        BUILD: the part that drives Claude from a tree is not shipped in it. Said
        that way it stays true the day somebody ships that part, and it stops
        sending a person to check an install that is already correct. */
-    doesHere: 'Runs the work you hand over on the agent page, using your own Claude sign-in. This copy does not carry the part that starts Claude from a tree.',
+    /* THIS SENTENCE HAS NOW BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS.
+       First it said Claude "cannot start from a tree yet", which read as a fault
+       in the program the person had just installed. Then it said Claude "runs
+       the work you hand over on the agent page" -- and that page was DRIVEN on
+       2026-08-17 and found to have no door from where a refused person stands:
+       zero links, zero enabled controls, and `agent` is not on the ring.
+       Whether the hand-over itself works is still NOT MEASURED by anyone.
+       So it now claims only what is known: the tree cannot start Claude in this
+       build, and the person's own sign-in is not the problem. */
+    doesHere: 'This copy does not carry the part that starts Claude from a tree. Your sign-in is fine; it is this build that cannot drive it.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: 'npm install -g @anthropic-ai/claude-code', note: 'in Windows Terminal. This one needs Node on the computer first.' }),
       Object.freeze({ kind: 'command', text: 'claude auth login', note: 'in the same window. It opens your browser and signs in to your own account.' }),
