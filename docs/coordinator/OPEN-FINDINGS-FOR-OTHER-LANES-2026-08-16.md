@@ -118,5 +118,8 @@ EVERY packet, all scopes — no lane could start and every checkout hook
 refused, with nothing on any surface saying why. Engine commit `073ef11` caps
 the block at 40% of the scope ceiling (withhold thread → trees → session
 whole with path-naming notices; global sheds oldest-first, newest always
-survives; trim announced in the packet and `unknowns`). Ships with the next
-payload re-pin; until then an installed build carries the vulnerability.
+survives; trim announced in the packet and `unknowns`). The payload source
+worktree (`C:\lanes\free-cut-engine-src`) is already advanced to `073ef11`
+(clean fast-forward from `8075a8d`, verified by ancestry) — the next cut
+ships it with no further action. Until that cut installs, an installed
+build carries the vulnerability.
