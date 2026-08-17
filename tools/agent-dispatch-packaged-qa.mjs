@@ -117,11 +117,26 @@ const KEEP = process.argv.includes('--keep')
 /* THE TIERS THE PRODUCT OFFERS, read off the engine's own table rather than
    listed here. A tier this file forgot is a tier nothing measures, and the
    table is the one place that knows which exist. */
-function tierNames(payload) {
+/* The tier table, with each row's KIND, because the kinds do not behave alike and
+   this file used to assume they did. A tier's kind decides how far a dispatch gets
+   before the payload refuses it, and asserting one uniform depth for all of them
+   made the local tier read as a defect when it was doing exactly what it should.
+   See the two checks that reference `kind` below. */
+function tierTable(payload) {
   const source = readFileSync(path.join(payload, 'src', 'lib', 'mission-bridge', 'actions.js'), 'utf8')
   const table = source.slice(source.indexOf('const TIERS'), source.indexOf('});', source.indexOf('const TIERS')))
-  const names = [...table.matchAll(/^\s*'?([a-z][a-z0-9-]*)'?:\s*Object\.freeze/gm)].map(match => match[1])
-  return [...new Set(names)]
+  const rows = new Map()
+  for (const match of table.matchAll(/^\s*'?([a-z][a-z0-9-]*)'?:\s*Object\.freeze\(\{([^}]*)\}/gm)) {
+    const kind = /\bkind:\s*'([a-z]+)'/.exec(match[2])
+    /* A row whose kind cannot be read is reported as such rather than defaulted:
+       guessing 'codex' here would silently reinstate the assumption above. */
+    rows.set(match[1], kind ? kind[1] : 'unreadable')
+  }
+  return rows
+}
+
+function tierNames(payload) {
+  return [...tierTable(payload).keys()]
 }
 
 /* A plain label and a queue phase id. The second one is the only shape that
@@ -341,18 +356,47 @@ async function main() {
         answer.started ? 'A REAL AGENT STARTED -- the environment fence failed' : 'refused at the provider')
       /* AND IT GOT ALL THE WAY THERE. Without this, a refusal from any earlier
          gate would satisfy the two checks above while proving nothing. */
-      check(`${where}: it was refused only because no provider CLI is installed`,
-        [
-          'BRIDGE_CODEX_NATIVE_PAIR_UNAVAILABLE', 'BRIDGE_CODEX_UNAVAILABLE', 'BRIDGE_CODEX_SPAWN_REFUSED',
-          'BRIDGE_CLAUDE_UNAVAILABLE', 'BRIDGE_CLAUDE_SPAWN_REFUSED', 'BRIDGE_AGENT_LANE_START_FAILED',
-        ].includes(answer.code),
-        `${answer.status} ${answer.code || 'started'}`)
+      /* PER KIND, NOT ONE LIST FOR ALL OF THEM. A local node has no provider CLI
+         to be missing; what it lacks is a model runtime, and the payload says so
+         with its own code. Accepting that code for a CODEX tier would be wrong --
+         it would mean the codex lane had somehow taken the local branch -- so the
+         allowed set is chosen by the tier's kind rather than merged into one list. */
+      const kinds = tierTable(payload)
+      const REFUSALS_BY_KIND = {
+        codex: ['BRIDGE_CODEX_NATIVE_PAIR_UNAVAILABLE', 'BRIDGE_CODEX_UNAVAILABLE', 'BRIDGE_CODEX_SPAWN_REFUSED', 'BRIDGE_AGENT_LANE_START_FAILED'],
+        claude: ['BRIDGE_CLAUDE_UNAVAILABLE', 'BRIDGE_CLAUDE_SPAWN_REFUSED', 'BRIDGE_AGENT_LANE_START_FAILED'],
+        local: ['BRIDGE_LOCAL_RUNTIME_UNAVAILABLE'],
+      }
+      const kind = kinds.get(answer.tier)
+      const allowed = REFUSALS_BY_KIND[kind] || []
+      check(`${where}: it was refused only because this kind of agent has nothing installed to run it`,
+        allowed.includes(answer.code),
+        `kind=${kind || 'unknown'} ${answer.status} ${answer.code || 'started'}`)
     }
 
     /* ---------- 3. THE POSITIVE EVIDENCE, FROM THE AUDIT CHAIN ---------- */
-    check('every dispatch reached the launch record, which is past the lane resolver',
-      measured.launches.length === dispatches.length,
-      `launch records = ${measured.launches.length}, dispatches = ${dispatches.length}`)
+    /* NOT EVERY DISPATCH IS SUPPOSED TO REACH THE LAUNCH RECORD, AND ASSUMING SO
+       MADE THIS FILE GO RED ON CORRECT BEHAVIOUR.
+       A local tier resolves its runtime BEFORE anything is recorded, deliberately.
+       The payload says why, verbatim: "'Do not offer a node that cannot start' has
+       to be enforced at the earliest point that can tell ... Resolving after
+       createLaunch would leave a launch record and an audit event for a lane that
+       never existed, and would report the failure as a spawn problem rather than
+       as 'you have no local runtime installed, here is the command'."
+       So the count is taken over the kinds that DO record, and the local tier's
+       silence is asserted as the intended outcome rather than quietly excused. */
+    const kindOf = tierTable(payload)
+    const recording = dispatches.filter(d => kindOf.get(d.tier) !== 'local')
+    const earlyRefusing = dispatches.filter(d => kindOf.get(d.tier) === 'local')
+    check('every dispatch that is meant to reach the launch record did, which is past the lane resolver',
+      measured.launches.length === recording.length,
+      `launch records = ${measured.launches.length}, dispatches that record = ${recording.length}`
+      + (earlyRefusing.length ? ` (${earlyRefusing.length} local dispatch(es) refuse before recording, by design)` : ''))
+    check('a local tier left no launch record, because it refuses before anything is written',
+      earlyRefusing.length > 0 && !measured.launches.some(record => record.model?.startsWith('local/')),
+      earlyRefusing.length
+        ? `${earlyRefusing.length} local dispatch(es), ${measured.launches.filter(r => r.model?.startsWith('local/')).length} local launch record(s)`
+        : 'no local tier in the table -- this check measured nothing')
     const declaredIds = new Set(declared.agents.map(agent => agent.id))
     check('every launch record names a seat the shipped organisation declares',
       measured.launches.length > 0 && measured.launches.every(record => declaredIds.has(record.targetAgentId)),
