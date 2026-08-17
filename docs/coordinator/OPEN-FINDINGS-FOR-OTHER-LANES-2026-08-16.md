@@ -209,3 +209,38 @@ measured for SIZE and VISIBILITY, not for existence.
 Owner: fleet/onboarding lane. Setup itself is in good shape — the whole
 stranger path (permission question, folder, autonomy, review, accept, land in
 the app) passes, and names Codex before it finishes.
+
+### Correction to finding 12: it is not established as a product defect
+
+Read further before acting on the above. `src/tree-graph.js:67-75` says, in
+capitals and for a documented reason, that an empty slot **is not**
+`.static-tree-node`:
+
+> AND IT IS NOT `.static-tree-node`. That class means "a running agent" to nine
+> QA harnesses on this tree [...] A slot wearing that class would make all nine
+> quietly measure something that is not an agent.
+
+`first-run-contract-qa.mjs:984` counts exactly that class:
+`document.querySelectorAll('.computers .static-tree-node').length`, and asserts
+`>= 1` under the name *"the recommended path draws this computer on the fleet
+page"*. On a fresh profile there are **no running agents**, so 0 is the correct
+answer to what it measures, and the page may well be showing the empty slot it
+is supposed to show. `extensionPoints()` (`src/fleet-trees.js:628-644`) always
+offers a `kind:'tree'` point while under the tree cap, so a fresh profile HAS a
+new-tree slot to draw.
+
+The two downstream failures inherit the same doubt: `.graph-open-btn` ships
+`hidden` and is revealed by selecting an agent node, so with no agent nodes it
+is correctly hidden and correctly measures zero-size.
+
+**Corroborating evidence the page is not empty:** on the SAME installed build,
+`agent-start-flow-qa` found an empty node, pressed it, and opened the compose
+panel — *"the fleet page offers at least one EMPTY node — 1 found (declared)"*.
+
+So finding 12 stands only as **"three harnesses disagree with the product's own
+documented design"**, which is a harness question first. What would settle it:
+count slots by their real selector in those drivers, or drive a press. Until
+then nobody should go fix a fleet page that may be behaving correctly.
+
+Recorded rather than deleted, because the original reading was mine and a lane
+reading only the first version would chase a defect that may not exist.
