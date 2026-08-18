@@ -157,6 +157,36 @@ export async function stage(scratch, release = releaseDirectory()) {
   })
   cpSync(path.join(REPO_ROOT, 'package.json'), path.join(unpacked, 'package.json'))
   await asar.createPackage(unpacked, path.join(app, 'resources', 'app.asar'))
+  /* AND THE CAPABILITY PAYLOAD, WHICH THIS FUNCTION USED TO LEAVE BEHIND.
+   *
+   * THE GAP, MEASURED ON THE DAY IT MATTERED. dist/ and shell/ were overlaid
+   * from this tree and `resources/capability` was whatever the last
+   * `npm run dist` happened to leave in release/win-unpacked. On 2026-08-17 that
+   * directory was cut at 13:06 and capability/src/lib/agent-engine/ took the
+   * Claude engine at 18:55, so every packaged driver in this repo was driving a
+   * payload with NO claude-cli-process.js in it. shell/agent-host.cjs gates the
+   * Claude tiers on a require() of exactly that file, so every one of those runs
+   * would have reported "this copy carries no launcher" -- about a build that
+   * ships one. A lane was one report away from certifying a cut against an
+   * engine it had never once loaded.
+   *
+   * IT IS THE SAME PROMISE THE FUNCTION ALREADY MAKES. package.json's
+   * electron-builder config maps extraResources capability -> capability, and
+   * `npm run dist` runs pack:capability immediately before electron-builder. So
+   * these bytes ARE the bytes the installer would carry; copying them here is
+   * reproducing the ship path, not stepping around it. The asar is left alone
+   * because the payload is a sibling of it, never inside it.
+   *
+   * NOT CURRENCY-CHECKED HERE, DELIBERATELY. tools/check-payload-current.mjs
+   * owns "is capability/ newer than the source it was packed from", it is in the
+   * dist chain, and a driver that wants the guarantee runs it. Re-deriving that
+   * comparison here would be a second opinion that can disagree with the first. */
+  const capability = path.join(REPO_ROOT, 'capability')
+  if (existsSync(capability)) {
+    const staged = path.join(app, 'resources', 'capability')
+    rmSync(staged, { recursive: true, force: true })
+    cpSync(capability, staged, { recursive: true })
+  }
   return { executable: appExecutable(app), appRoot: app, archive: path.join(app, 'resources', 'app.asar') }
 }
 

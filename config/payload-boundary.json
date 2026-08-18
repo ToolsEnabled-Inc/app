@@ -299,6 +299,8 @@
       "src/lib/agent-digest/lock.js",
       "src/lib/agent-engine/codex-adapter.js",
       "src/lib/agent-engine/codex-process.js",
+      "src/lib/agent-engine/claude-cli-adapter.js",
+      "src/lib/agent-engine/claude-cli-process.js",
       "src/lib/agent-engine/engine-contract.js",
       "src/lib/agent-lane.js",
       "src/lib/agent-onboarding.js",
