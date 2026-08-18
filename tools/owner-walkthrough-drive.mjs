@@ -943,8 +943,21 @@ async function driveSettingsLink(open) {
  * printed or returned by this file.
  */
 
-const PELICAN = 'PELICAN-4402'
-const LIVE_JOB = `Reply with exactly the word ${PELICAN} and nothing else.`
+/* THE ANSWER MUST NOT BE INSIDE THE QUESTION, and this file got that wrong once.
+ *
+ * The first version asked the agent to "reply with exactly the word
+ * PELICAN-4402" and then searched the screen for PELICAN-4402. That string was
+ * typed into the box by this harness, so a run where NOTHING started could pass
+ * on the echo of its own prompt -- a sibling lane proved exactly that failure on
+ * its own driver, twice, and excluding form fields was not enough for them
+ * because the tree re-renders the asked-line outside the form.
+ *
+ * So the prompt now contains a question and NOT its answer. Nothing this harness
+ * types anywhere contains "391"; the only way that string can reach the screen
+ * is an engine that multiplied. assertAnswerNotInQuestion() below refuses to run
+ * at all if that ever stops being true, because the whole proof rests on it. */
+const LIVE_ANSWER = '391'
+const LIVE_JOB = 'What is 17 multiplied by 23? Reply with only the number.'
 const LIVE = process.argv.includes('--live-agent')
 
 /* THE ONE LINK THIS RUN CREATES, REMEMBERED SO IT CAN BE BROKEN FIRST.
@@ -1047,7 +1060,14 @@ async function savedNodes(open) {
          "0 finished, 0 failed, of 0 node(s)" about agents that had genuinely
          started and been recorded. That was this reader, not the product. */
       for (const node of (parsed && parsed.nodes) || []) {
-        out.push({ id: node.id, status: node.status, session: Boolean(node.sessionId), reply: String(node.reply || '').slice(0, 160) })
+        out.push({
+          id: node.id,
+          status: node.status,
+          session: Boolean(node.sessionId),
+          reply: String(node.reply || '').slice(0, 160),
+          /* Carried so the check can prove the answer is NOT in what was asked. */
+          message: String(node.message || '').slice(0, 200),
+        })
       }
     }
     return out
@@ -1101,7 +1121,27 @@ async function waitForFinished(open, expected, budgetMs = 240_000) {
   return last
 }
 
+/* THE PROOF RESTS ON THIS, SO IT IS CHECKED BEFORE ANYTHING IS SPENT.
+ *
+ * If the expected answer ever appears in the prompt -- or in any other text this
+ * harness types -- then a run where nothing started can pass on the echo of its
+ * own question, which is precisely the failure this file shipped once. A
+ * refusal here is a harness fault and exits 2; it is never a finding about the
+ * product. */
+function assertAnswerNotInQuestion() {
+  const typed = [LIVE_JOB, 'A spot on the tree, so this computer has an agent page to open.']
+  for (const text of typed) {
+    if (text.includes(LIVE_ANSWER)) {
+      throw new HarnessError(
+        `the expected answer "${LIVE_ANSWER}" appears in text this harness types (${JSON.stringify(text)}),`
+        + ' so a run where nothing started could pass on its own echo. Refusing to measure.',
+      )
+    }
+  }
+}
+
 async function driveLiveAgents(open) {
+  assertAnswerNotInQuestion()
   const reached = await walkTo(open, 'computers')
   if (!reached) {
     pending('an agent that really runs is added to the record', 'the fleet page was never reached')
@@ -1180,9 +1220,18 @@ async function driveLiveAgents(open) {
     /* WHAT THE AGENT ACTUALLY SAID, because "it finished" and "it did the work"
        are different claims. Read twice: from what the product SAVED, and from
        the node's own page after pressing that node on the canvas. */
+    /* THE REPLY FIELD, NOT THE BRIEF. node.message is what this harness typed;
+       node.reply is what the engine said, written by setNodeReply() from the
+       turn event. They are different fields, and the check asserts the answer is
+       in the second and absent from the first -- so an echo of the prompt cannot
+       satisfy it even if the two ever became the same string. */
+    const saidBack = String(mine.reply || '')
+    const asked = String(mine.message || '')
     check(`agent ${ordinal}'s answer is the work that was asked for`,
-      String(mine.reply || '').includes(PELICAN),
-      mine.reply ? `it replied "${String(mine.reply).slice(0, 120)}"` : 'the saved node carries no reply')
+      saidBack.includes(LIVE_ANSWER) && !asked.includes(LIVE_ANSWER),
+      saidBack
+        ? `it replied "${saidBack.slice(0, 120)}"; the brief it was given does not contain the answer: ${!asked.includes(LIVE_ANSWER)}`
+        : 'the saved node carries no reply')
 
     let said = ''
     const nodeSelector = `.node.static-tree-node[data-agent-id="${mine.id}"]`
@@ -1194,13 +1243,13 @@ async function driveLiveAgents(open) {
       for (let step = 0; step < 30; step += 1) {
         await delay(500)
         said = await textOf(open, '[data-tree-said]')
-        if (said && said.includes(PELICAN)) break
+        if (said && said.includes(LIVE_ANSWER)) break
       }
     } else {
       note(`  the node could not be pressed on the canvas: ${JSON.stringify(nodeSpot)}`)
     }
     note(`  agent ${ordinal} answered on screen: "${said.slice(0, 160)}"`)
-    check(`agent ${ordinal}'s own answer is on the screen`, said.includes(PELICAN),
+    check(`agent ${ordinal}'s own answer is on the screen`, said.includes(LIVE_ANSWER),
       said ? `the reply panel reads "${said.slice(0, 120)}"` : 'the reply panel was empty')
 
     /* NAVIGATE AWAY AND BACK, which is the gesture the count now re-reads on. */
