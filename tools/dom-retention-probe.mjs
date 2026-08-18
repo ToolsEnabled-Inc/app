@@ -228,6 +228,7 @@ export const PROBE = `(() => {
   window.__retention = {
     census() {
       const bySite = new Map()
+      const byLiveSite = new Map()
       let detachedListeners = 0
       let liveListeners = 0
       let collected = 0
@@ -241,7 +242,23 @@ export const PROBE = `(() => {
         const node = record.ref.deref()
         if (!node) { collected += 1; continue }
         kept.push(record)
-        if (node.isConnected) { liveListeners += 1; continue }
+        if (node.isConnected) {
+          liveListeners += 1
+          /* WHERE THE LIVE ONES ARE PILING UP, and why that is not a
+             contradiction in terms. A listener on window, document or any
+             node that never leaves the page is attached FOR EVER by
+             definition -- so a page whose detached census is flat can still
+             be leaking listeners, one more per visit, on targets nothing ever
+             detaches. The gate counts every registered listener, so that is
+             exactly the shape that keeps its number red while the node count
+             falls. Counted per site so accumulation is visible; a site that
+             registers once and stays at one is doing its job. */
+          if (!record.removed) {
+            const liveKey = record.site + '  <' + record.tag + ' ' + record.type + '>'
+            byLiveSite.set(liveKey, (byLiveSite.get(liveKey) || 0) + 1)
+          }
+          continue
+        }
         /* THE NODE IS RETAINED WHATEVER THE LISTENER DID. A weak reference that
            still answers is proof that SOMETHING in JavaScript holds this node,
            which is the finding. Whether THIS listener is that something is a
@@ -294,11 +311,27 @@ export const PROBE = `(() => {
         listeners: { onDetachedNodes: detachedListeners, onLiveNodes: liveListeners, collectedSinceLast: collected },
         listenerSites: [...bySite.entries()].map(([site, count]) => ({ site, count }))
           .sort((left, right) => right.count - left.count).slice(0, 20),
+        liveListenerSites: [...byLiveSite.entries()].map(([site, count]) => ({ site, count }))
+          .sort((left, right) => right.count - left.count).slice(0, 12),
         detachedTrees: detachedTrees.slice(0, 20),
         detachedNodesHeldByListeners: detachedTrees.reduce((sum, tree) => sum + tree.nodes, 0),
         observers: liveObservers.sort((left, right) => right.detached - left.detached).slice(0, 20),
         intervals: [...intervals.entries()].map(([id, site]) => ({ id, site })).slice(0, 20),
-        pendingFrames: [...frames.values()].slice(0, 10),
+        /* FRAMES THE PAGE HAS PROMISED AND NOT YET RUN, counted per call site.
+           A pending requestAnimationFrame callback is retained BY THE BROWSER
+           (ScriptedAnimationController holds the callback, the callback's scope
+           holds whatever it closed over), so on a page that never gets a frame
+           it is a leak with a call site -- and the site is the fix's address.
+           Counted rather than listed because the question is whether a site
+           ACCUMULATES: one pending frame is a page mid-animation, five more of
+           the same site per lap of the ring is a queue nothing will service. */
+        pendingFrameSites: (() => {
+          const bySite = new Map()
+          for (const site of frames.values()) bySite.set(site, (bySite.get(site) || 0) + 1)
+          return [...bySite.entries()].map(([site, count]) => ({ site, count }))
+            .sort((left, right) => right.count - left.count).slice(0, 12)
+        })(),
+        pendingFrames: frames.size,
         documentNodes: document.getElementsByTagName('*').length,
       }
     },

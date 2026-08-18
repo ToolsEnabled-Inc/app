@@ -41,6 +41,17 @@
 //             loop forever. That is the defect class this scenario exists to
 //             find, so it must be measured on a window that is genuinely shown.
 //
+//             AND "SHOWN" IS NOT THE SAME AS "DRAWING", which is the trap this
+//             file fell into. Measured 2026-08-18: this harness spawns with
+//             windowsHide:true, and a window created that way reports
+//             IsWindowVisible=False; even spawned with windowsHide:false and
+//             genuinely shown, a second copy of the product lands at the SAME
+//             default bounds and covers it. Either way the page reports
+//             document.visibilityState === 'hidden' and rAF stops. So the API
+//             is not lying to you -- ask the PAGE what it thinks it is, never
+//             the window handle, and treat an idle number taken on a page that
+//             reports hidden as softer than this scenario claims.
+//
 //   memory    Repeated laps of the ring, reading the JS heap, the DOM node
 //             count and the live listener count after each lap. A product left
 //             open all day on a weak PC must not creep; a per-lap slope is what
@@ -66,7 +77,7 @@
 //   --json <file>     write the full measurement record for a before/after diff
 
 import { execFile as execFileCallback, spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -117,6 +128,29 @@ const CENSUS = flag('--census')
    tools/retention-instrument-check.mjs is the fixture that says what each
    setting can be trusted to report. */
 const COLLECT_PASSES = Number(argument('--collect-passes', 1))
+/* WHO HOLDS THE DEAD VIEWS. The census (--census) names WHAT is retained per
+   lap; it cannot name the object that keeps it reachable. --snapshot <dir>
+   writes a full V8 heap snapshot (with retainer edges) into <dir> after each
+   memory lap, taken through the same session the gate measures with, AFTER the
+   gate's own forced collection -- so anything in the snapshot is retained by
+   the product, not awaiting a sweep. Investigation only, never part of the
+   verdict: tools/heap-snapshot-retainers.mjs is the reader that walks a
+   detached view back to the GC root and names the holder. */
+const SNAPSHOT_DIR = argument('--snapshot', null)
+/* THE MODE-B DIAL. The memory scenario on this tree was BIMODAL on identical
+   bytes: ~-400 nodes/lap on a quiet machine, the same +15,5xx to the digit on
+   a loaded one. The heap snapshots settled what the second mode is: the
+   window had been covered, Chromium stopped giving the page rendering frames,
+   and every retirement step that only completes on a rendering lifecycle
+   update (the exit transition's cancellation, the removed wrapper's layout
+   teardown) was deferred forever -- the DocumentTimeline then holds a
+   CSSTransition per retired wrapper and the wrapper holds the whole dead
+   view. --occluded turns that machine state into a switch: the window is
+   minimised after it settles, which is exactly what a taskbar or another
+   window does to a real person's copy all day long. A leak that only needs a
+   covered window is still a leak; this flag is what makes it a reproducible
+   one instead of weather. */
+const OCCLUDED = flag('--occluded')
 const SCENARIOS = argument('--scenario')
   ? argument('--scenario').split(',')
   /* `scale` and `weakpc` are investigations rather than gates -- they answer
@@ -301,6 +335,12 @@ function createSession(child, userDataDir) {
   let socket = null
   let nextId = 1
   const pending = new Map()
+  /* Replies carry an id; EVENTS do not, and until --snapshot existed every
+     event was dropped on the floor. HeapProfiler.takeHeapSnapshot delivers its
+     entire payload as addHeapSnapshotChunk events before the reply, so a
+     session that ignores events can ask for a snapshot and receive an empty
+     acknowledgement of it. One handler per method is all the file needs. */
+  const eventHandlers = new Map()
   return {
     async open(budgetMs) {
       const started = Date.now()
@@ -321,7 +361,11 @@ function createSession(child, userDataDir) {
             })
             socket.addEventListener('message', (event) => {
               const packet = JSON.parse(event.data)
-              if (packet.id === undefined) return
+              if (packet.id === undefined) {
+                const handler = eventHandlers.get(packet.method)
+                if (handler) handler(packet.params)
+                return
+              }
               const handler = pending.get(packet.id)
               if (handler) { pending.delete(packet.id); handler(packet) }
             })
@@ -342,6 +386,8 @@ function createSession(child, userDataDir) {
       socket.send(JSON.stringify({ id, method, params }))
       return new Promise((resolve) => pending.set(id, resolve))
     },
+    on(method, handler) { eventHandlers.set(method, handler) },
+    off(method) { eventHandlers.delete(method) },
     close() { try { socket?.close() } catch { /* already gone */ } },
   }
 }
@@ -1201,6 +1247,21 @@ async function measureMemory(executable, scratch) {
       await delay(4000)
     }
     await firstViewThenSettle(app.session, 260, 30_000)
+    if (OCCLUDED) {
+      /* Minimised AFTER the first view settles, so what is being measured is a
+         working page that loses its rendering frames -- the state the heap
+         snapshots caught -- not a page that booted blind. */
+      let state = ''
+      let asked = ''
+      for (let attempt = 0; attempt < 40 && state !== 'hidden'; attempt += 1) {
+        asked = await minimizeAppWindow(app.child)
+        if (asked.startsWith('failed')) throw new HarnessError(`--occluded: the window could not be minimised (${asked})`)
+        await delay(250)
+        state = await evaluate(app.session, 'document.visibilityState')
+      }
+      if (state !== 'hidden') throw new HarnessError(`--occluded: the page never reported visibilityState=hidden (last minimise pass: ${asked}), so the occluded state cannot be claimed`)
+      note(`    the window is occluded (${asked}); the page reports visibilityState=hidden`)
+    }
     const laps = []
     for (let lap = 0; lap < LAPS; lap += 1) {
       const seen = new Set()
@@ -1229,6 +1290,11 @@ async function measureMemory(executable, scratch) {
         alive,
       }
       laps.push(record)
+      if (SNAPSHOT_DIR) {
+        const file = path.join(path.resolve(SNAPSHOT_DIR), `memory-lap${record.lap}.heapsnapshot`)
+        const bytes = await writeHeapSnapshot(app.session, file)
+        note(`    heap snapshot (${Math.round(bytes / 1024 / 1024)}MB) -> ${file}`)
+      }
       if (CENSUS) {
         const census = await evaluate(app.session, '(window.__retention ? window.__retention.census() : null)')
         /* WHICH CORONA THIS WINDOW GOT. The ring mounts a WebGL corona when
@@ -1252,6 +1318,9 @@ async function measureMemory(executable, scratch) {
           for (const tree of census.detachedTrees.slice(0, 6)) note(`      ${String(tree.nodes).padStart(6)} nodes  <${tree.tag}>  ${tree.what || ''}`)
           for (const site of census.listenerSites.slice(0, 8)) note(`      ${String(site.count).padStart(5)}x  ${site.site}`)
           for (const observer of census.observers.slice(0, 6)) note(`      ${observer.kind} watching ${observer.watching} (${observer.detached} detached)  ${observer.site}`)
+          for (const site of (census.liveListenerSites || []).slice(0, 8)) note(`      ${String(site.count).padStart(5)}x  still-attached listener  ${site.site}`)
+          note(`      ${census.pendingFrames} animation frame callback(s) queued and not yet run`)
+          for (const frame of (census.pendingFrameSites || []).slice(0, 8)) note(`      ${String(frame.count).padStart(5)}x  pending frame  ${frame.site}`)
         }
       }
       note(`lap ${record.lap}: ${record.stops} stops, heap ${record.heapMb}MB, ` +
@@ -1274,6 +1343,88 @@ async function measureMemory(executable, scratch) {
   } finally {
     await app.teardown()
   }
+}
+
+/* Minimise the app's window the way the OS would -- user32's own verb, not a
+   CDP emulation, because the state under investigation IS the real occluded
+   window. The handle comes from enumerating the process's own top-level
+   windows: Get-Process.MainWindowHandle is 0 for a window that was never
+   shown, and "never shown" is one of the two ways this product's window ends
+   up frameless in the wild (spawned with a hidden STARTUPINFO, or covered by
+   another window at the same default bounds -- both measured on this machine,
+   2026-08-18). Returns what happened rather than asserting: the caller owns
+   the verdict, and it verifies through the page's own visibilityState. */
+async function minimizeAppWindow(child) {
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class Occl {
+  public delegate bool EnumCb(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumCb cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n);
+  [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder t, int c);
+  public static int MinimizeAll(uint pid) {
+    var asked = 0;
+    EnumWindows(delegate (IntPtr h, IntPtr l) {
+      uint winPid;
+      GetWindowThreadProcessId(h, out winPid);
+      if (winPid == pid) {
+        var t = new System.Text.StringBuilder(64);
+        GetWindowText(h, t, 64);
+        if (t.Length > 0) { ShowWindowAsync(h, 6); asked += 1; }
+      }
+      return true;
+    }, IntPtr.Zero);
+    return asked;
+  }
+}
+'@
+[Console]::Out.Write("asked=" + [Occl]::MinimizeAll(${child.pid}))`
+  try {
+    const { stdout } = await execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 30_000 })
+    return String(stdout).trim()
+  } catch (error) {
+    return `failed: ${error?.message || error}`
+  }
+}
+
+/* A FULL HEAP SNAPSHOT, STREAMED TO DISK AS IT ARRIVES.
+ *
+ * The chunks are written to a stream rather than joined, because a renderer
+ * heap of tens of MB serialises to hundreds of MB of JSON and a single joined
+ * string of that size is over V8's own string ceiling -- the instrument would
+ * die of the very thing it measures. The protocol delivers every chunk before
+ * the takeHeapSnapshot reply, but that ordering is Chromium's habit rather
+ * than its contract, so after the reply the writer waits for the chunk stream
+ * to go quiet before closing the file.
+ *
+ * takeHeapSnapshot forces a full collection of its own, on top of the lap's
+ * session_collect -- so a detached view present in this file is RETAINED,
+ * with its retainer edges recorded, which is the one thing the census cannot
+ * see. */
+async function writeHeapSnapshot(session, file) {
+  mkdirSync(path.dirname(file), { recursive: true })
+  const stream = createWriteStream(file)
+  let lastChunkAt = Date.now()
+  session.on('HeapProfiler.addHeapSnapshotChunk', (params) => {
+    lastChunkAt = Date.now()
+    stream.write(params.chunk)
+  })
+  try {
+    await session.send('HeapProfiler.enable')
+    const reply = await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false })
+    if (reply && reply.error) {
+      throw new HarnessError(`the renderer refused a heap snapshot: ${reply.error.message || JSON.stringify(reply.error)}`)
+    }
+    while (Date.now() - lastChunkAt < 600) await delay(150)
+  } finally {
+    session.off('HeapProfiler.addHeapSnapshotChunk')
+    await new Promise((resolve) => stream.end(resolve))
+  }
+  return statSync(file).size
 }
 
 /* A COLLECTION THAT DID NOT HAPPEN MUST NOT BE REPORTED AS A LEAK.
