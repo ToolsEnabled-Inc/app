@@ -24,6 +24,7 @@
 import { createCorona, cssColorToSrgb } from './corona-gl.js'
 import { crescentSpec } from './crescent-field.js'
 import { crescentMasks } from './crescent-render.js'
+import { onNextFrame } from './page-frames.js'
 
 const rad = (d) => (d * Math.PI) / 180
 
@@ -187,8 +188,13 @@ export function mountCrescent(root, size) {
   const bodyObs = new MutationObserver(() => settle(120))
   bodyObs.observe(document.body, { attributes: true, attributeFilter: ['class'] })
 
-  /* The stored colour is only readable once styles have resolved. */
-  requestAnimationFrame(() => redraw())
+  /* The stored colour is only readable once styles have resolved -- and on a
+     page that never gets a frame, "once styles have resolved" is NOW: this
+     callback was one of the five that sat in the browser's queue for ever,
+     holding this canvas and its GL context (+1 per lap of the ring,
+     measured). onNextFrame draws immediately on such a page and takes the
+     ordinary frame when there is going to be one. */
+  onNextFrame(() => redraw())
 
   return {
     el: canvas,

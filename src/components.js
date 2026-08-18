@@ -3,6 +3,7 @@
 import { sim, uptimeParts } from './sim.js'
 import { crescentSpec } from './crescent-field.js'
 import { mountCrescent } from './crescent-mount.js'
+import { onNextFrame } from './page-frames.js'
 import { CHAT, CHAT_CONTEXT_REPLIES, CHAT_REPLIES, ROLES, pick } from './vocab.js'
 
 export const el = (html) => {
@@ -621,8 +622,16 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   let firstPinFrame = 0
   let settledPinFrame = 0
   const pinAfterMount = () => {
-    firstPinFrame = requestAnimationFrame(() => {
-      settledPinFrame = requestAnimationFrame(pinToBottom)
+    /* Two frames because the webfont swap grows the text a frame after it
+       lands. On a page that gets NO frames both callbacks were pending for
+       ever and held this chat's whole tree -- the largest single contributor
+       at +3 per lap of the ring, measured. onNextFrame applies the pin at
+       once on such a page (off a flushed layout, so the height is the real
+       one) and behaves exactly as requestAnimationFrame when the page can
+       draw. The handles are still stored, so the existing teardown that
+       cancels them keeps working unchanged. */
+    firstPinFrame = onNextFrame(() => {
+      settledPinFrame = onNextFrame(pinToBottom)
     })
   }
   const onFontsLoaded = () => pinAfterMount()

@@ -35,6 +35,7 @@
 // SOURCE" on a live screen, which is the same defect in miniature.
 
 import { el, uptimeRing } from '../components.js'
+import { onNextFrame } from '../page-frames.js'
 import { fetchStatus, fetchCoordinator } from '../live-status.js'
 import { ownerPromptSnapshot } from '../mission-bridge.js'
 /* A decision the owner made on #/approvals whose answer arrived after he had
@@ -306,8 +307,18 @@ export function homeView() {
   let firstPinFrame = 0
   let settledPinFrame = 0
   const pinAfterMount = () => {
-    firstPinFrame = requestAnimationFrame(() => {
-      settledPinFrame = requestAnimationFrame(pinToBottom)
+    /* ONE HANDLE SLOT, THREE CALLERS -- and on a frameless page that was a
+       leak with a number. pinAfterMount runs immediately, again from
+       fonts.ready, and again on every later loadingdone; each call overwrites
+       these two slots, so destroy() below can only cancel the LAST pair and
+       any earlier frame stays queued holding this whole view. On a page that
+       never gets a frame nothing ever drains that queue: measured at +3
+       pending frames per lap of the ring, the last site still accumulating
+       after the other four were fixed. onNextFrame queues nothing on such a
+       page -- it pins at once off a flushed layout -- and is the ordinary
+       requestAnimationFrame, handles and all, when the page can draw. */
+    firstPinFrame = onNextFrame(() => {
+      settledPinFrame = onNextFrame(pinToBottom)
     })
   }
   const onFontsLoaded = () => pinAfterMount()

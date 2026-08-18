@@ -27,6 +27,7 @@
 
 import { sim } from '../sim.js'
 import { el, countUp, buildChat, attachSeg } from '../components.js'
+import { onNextFrame } from '../page-frames.js'
 import { pick, ROLES } from '../vocab.js'
 import { FLEET } from '../fleet-profile.js'
 import { isLiveView } from '../live-flags.js'
@@ -601,7 +602,12 @@ export function commsView() {
       state.pinnedToBottom = true
       state.newCount = 0
       updateChip()
-      requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+      /* PIN AFTER LAYOUT, NOT AFTER A FRAME THAT MAY NEVER COME. A covered
+         window gets no frames, so this callback -- and the log it closed
+         over -- stayed in the browser's queue for ever (measured: +2 per lap
+         of the ring at this site). onNextFrame flushes layout and pins now on
+         such a page, and is the ordinary requestAnimationFrame otherwise. */
+      onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
       return
     }
     topicEl.innerHTML = `key <b>${esc(def.key)}</b> — ${esc(def.topic)}`
@@ -621,7 +627,7 @@ export function commsView() {
     state.pinnedToBottom = true
     state.newCount = 0
     updateChip()
-    requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+    onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
   }
 
   function updateChip() {
@@ -675,7 +681,7 @@ export function commsView() {
       if (dk !== state.lastDayKey) { logEl.appendChild(dividerEl(dk)); state.lastDayKey = dk }
       logEl.appendChild(msgEl(m, true))
       if (state.pinnedToBottom) {
-        requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight })
+        onNextFrame(() => { logEl.scrollTop = logEl.scrollHeight })
       } else {
         state.newCount += 1
         updateChip()
@@ -861,7 +867,7 @@ export function commsView() {
     if (d.unavailable) pv.appendChild(projectionUnavailableEl(d.unavailable))
     else if (d.hist.length) for (const m of d.hist.slice(-14)) pv.appendChild(previewLineEl(d, m))
     else if (liveMode) pv.appendChild(projectionNoticeEl('No messages have been seen for this exact channel.'))
-    requestAnimationFrame(() => { pv.scrollTop = pv.scrollHeight })
+    onNextFrame(() => { pv.scrollTop = pv.scrollHeight })
 
     box._pvFollow = true
     box._chatFollow = true
@@ -1476,7 +1482,7 @@ export function commsView() {
        (the gap only closes), wrong when shrinking (the gap keeps opening
        after the pin; measured 72-124px adrift on the S step). The second
        pass lands after the transition settles. */
-    requestAnimationFrame(repin)
+    onNextFrame(repin)
     clearTimeout(setSize._repinTimer)
     setSize._repinTimer = setTimeout(repin, 520)
   }

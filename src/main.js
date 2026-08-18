@@ -7,6 +7,7 @@
    unimported font is dead bytes in the payload. JetBrains Mono serves both
    the data accents (--font-mono) and the all-mono interface choice. */
 import '@fontsource-variable/ibm-plex-sans'
+import { pageCanDraw } from './page-frames.js'
 import '@fontsource-variable/space-grotesk'
 import '@fontsource-variable/jetbrains-mono'
 import './glow.css'
@@ -276,12 +277,12 @@ function render() {
   // a view can hand us a shared element to morph through (e.g. the agent
   // bubble behind "Open full view"); it only ever affects motion, never a route
   const morph = takeViewMorph()
-  const zoom = !!(morph && current && morph.kind === 'zoom' && performance.now() - morph.at < 900)
+  const zoom = !!(morph && current && morph.kind === 'zoom' && performance.now() - morph.at < 900) && pageCanAnimate()
 
   // The zoom morph needs both views genuinely on screen (the outgoing one
   // scales into the node the incoming one fades up through), so it keeps the
   // class path; so does the first paint, which has nothing to fade from.
-  if (supportsViewTransition && current && !zoom && !motionReduced()) {
+  if (supportsViewTransition && current && !zoom && !motionReduced() && pageCanAnimate()) {
     const vt = document.startViewTransition(() => swapView(route, morph, zoom, true))
     // Navigating again mid-transition SKIPS the running one, which rejects
     // all three promises. Verified in headless Chromium: leaving `ready`
@@ -293,6 +294,97 @@ function render() {
     return
   }
   swapView(route, morph, zoom, false)
+}
+
+/**
+ * CAN THIS PAGE ACTUALLY DRAW A FRAME RIGHT NOW?
+ *
+ * A window whose page reports visibilityState 'hidden' gets NO rendering
+ * frames from Chromium. Measured on this machine, 2026-08-18: a packaged copy
+ * spawned with a hidden STARTUPINFO reports hidden, and so does one spawned
+ * shown — a second copy of the product lands at the SAME default bounds and
+ * covers it. (Minimising is what the harness ASKS for and verifies through
+ * the page; it was not isolated as an independent cause, because the windows
+ * measured were already reporting hidden.) Every piece of motion this router
+ * schedules is then a promise the browser can never keep, and worse than
+ * useless: work parked on "the next frame" is parked forever, and what it
+ * references is retained forever. Heap snapshots of the packaged build
+ * (tools/performance-budget-qa.mjs --snapshot, read by
+ * tools/heap-snapshot-retainers.mjs) caught both forms of that debt, one
+ * whole dead view per navigation, +15,607 DOM nodes and +145 listeners per
+ * lap of the ring:
+ *
+ *   - the `exit` class starts a CSS transition, and a removed element's
+ *     transition is only cancelled by a rendering lifecycle update; with no
+ *     frames the chain DocumentTimeline -> HeapHashTable<Member<Animation>>
+ *     -> CSSTransition -> dead wrapper -> entire dead view persists. Trying
+ *     to undo it later was measured and does not work: explicit
+ *     Animation.cancel() at retirement freed lap 1 and neither lap after it,
+ *     so the transition must not be STARTED rather than cancelled;
+ *   - the double-rAF that lifts `enter` is the same shape as seven view-level
+ *     sites the pending-frame census DID name and measure
+ *     (src/page-frames.js): a queued callback holds its closure, the closure
+ *     holds the view. This particular callback was gated with the rest of the
+ *     motion before that census existed, so it is guarded for a proven
+ *     pattern rather than as a separately measured holder.
+ *
+ * So the rule is decided ONCE, here, at the moment of navigation: a page that
+ * cannot draw does not animate. No transition classes, no rAF choreography,
+ * no view-transition — the swap happens at its resting state immediately, and
+ * the 420ms retirement grace (which Setup's async handlers genuinely need —
+ * see the inert comment below) is kept identical in both worlds, because it
+ * is a LIFETIME contract, not a motion.
+ *
+ * Read per navigation rather than cached: the same window is covered and
+ * uncovered all day, and each swap answers for the state it actually runs in.
+ */
+/* THE RULE ITSELF LIVES IN src/page-frames.js, so the router and the view
+   code that schedules frames cannot drift apart about what "this page can
+   draw" means. The local name is kept because this file reads better with it. */
+const pageCanAnimate = pageCanDraw
+
+/* THE SAME RULE FOR EVERY SHEET-DECLARED TRANSITION, not only the router's.
+ *
+ * Gating the router's own motion (above) removed its wrappers from the leak
+ * and the next heap snapshot promptly named a different holder: the settings
+ * page's .seg-ind indicator, whose width/transform transition is created
+ * while the view is BUILT — the page sets inline styles, product code forces
+ * a style flush, and a hidden page then owns one more CSSTransition it can
+ * never run, finish, or cancel. Both were tried with explicit
+ * Animation.cancel() at retirement, and both times the cancelled transition
+ * stayed registered on the DocumentTimeline anyway: unregistering is itself
+ * frame work. There are ~50 transition declarations across the sheets, and
+ * every one of them is this bug on a page that cannot draw.
+ *
+ * So while the page is frameless, stylesheet transitions are switched off at
+ * the root (body.frameless, styles.css) and nothing is created — there is
+ * nothing to see them with anyway. The moment the window is uncovered the
+ * class lifts and every FUTURE change animates exactly as designed: this is
+ * a guard on when motion may start, never a removal of it. */
+const syncFramelessMotion = () => document.body.classList.toggle('frameless', !pageCanAnimate())
+document.addEventListener('visibilitychange', syncFramelessMotion)
+/* From the first line, not the first change of state: a window spawned hidden
+   (a real spawn mode — measured) builds its every view frameless. */
+syncFramelessMotion()
+
+/**
+ * Take a retired view out of the page completely — including the browser's
+ * own account of it. destroy() honours the view's contract; cancelling the
+ * subtree's animations lets the DocumentTimeline drop anything a VISIBLE
+ * window was still transitioning when the element left mid-motion (hidden
+ * windows never start one — see pageCanAnimate); the forced layout read lets
+ * the layout tree release the retired wrapper (an attached ancestor's
+ * InlineItems kept referencing the removed wrapper's layout objects in the
+ * same snapshots) without waiting for a frame that may never come. It runs
+ * in the exit timer, off the interaction path.
+ */
+function retireView(el, view) {
+  view.destroy?.()
+  if (typeof el.getAnimations === 'function') {
+    for (const animation of el.getAnimations({ subtree: true })) animation.cancel()
+  }
+  el.remove()
+  void stage.offsetWidth
 }
 
 /**
@@ -308,9 +400,14 @@ function swapView(route, morph, zoom, snapshotted) {
   wrap.appendChild(view.el)
   stage.appendChild(wrap)
 
-  if (snapshotted) {
+  if (snapshotted || !pageCanAnimate()) {
     // the pseudo-elements carry the motion; the real DOM must already be at
-    // its resting state when the browser captures the "new" frame
+    // its resting state when the browser captures the "new" frame. A hidden
+    // page takes the same branch for the opposite reason: there will BE no
+    // frame, so a double-rAF parked here would hold this wrapper (and the
+    // whole view under it) in the callback registry until the window is next
+    // uncovered — measured as part of the retention this file's retireView
+    // comment documents.
     wrap.classList.remove('enter')
   } else if (zoom) {
     // incoming view fades up through the outgoing one — both are present for
@@ -331,18 +428,22 @@ function swapView(route, morph, zoom, snapshotted) {
        it takes no more input. */
     old.el.inert = true
     if (snapshotted) {
-      old.view.destroy?.()
-      old.el.remove()
+      retireView(old.el, old.view)
     } else if (zoom) {
       const r = old.el.getBoundingClientRect()
       const ox = Math.max(0, Math.min(r.width, morph.x - r.left))
       const oy = Math.max(0, Math.min(r.height, morph.y - r.top))
       old.el.style.transformOrigin = `${ox}px ${oy}px`   // the node's own position
       old.el.classList.add('mc-zoom-exit')
-      setTimeout(() => { old.view.destroy?.(); old.el.remove() }, VIEW_MORPH_MS + 40)
+      setTimeout(() => retireView(old.el, old.view), VIEW_MORPH_MS + 40)
     } else {
-      old.el.classList.add('exit')
-      setTimeout(() => { old.view.destroy?.(); old.el.remove() }, 420)
+      /* The class is the animation, so only a page that can draw gets it: on
+         a hidden page it would start a CSS transition no frame will ever run
+         or cancel, and the DocumentTimeline would hold this wrapper — view
+         and all — until the window is next uncovered. The retirement TIMER is
+         identical either way; only the motion is conditional. */
+      if (pageCanAnimate()) old.el.classList.add('exit')
+      setTimeout(() => retireView(old.el, old.view), 420)
     }
   }
   current = { el: wrap, view, route }

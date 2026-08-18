@@ -1049,6 +1049,45 @@ body {
 /* 82px is not spacing — it is the topbar's height plus its offset, and .view
    below repeats it as an inset. The two must agree, so both stay literal. */
 #stage { position: relative; z-index: 1; height: 100vh; padding-top: 82px; }
+/* A PAGE THAT CANNOT DRAW MUST NOT START MOTION. src/main.js stamps
+   body.frameless while document.visibilityState is hidden (a covered,
+   minimised, or hidden-spawned window — Chromium gives such a page no
+   rendering frames). A CSS transition created in that state can never run,
+   finish, or be cancelled — even Animation.cancel() needs a frame to leave
+   the DocumentTimeline — so each one pins its target element, and through it
+   the target's whole detached tree, in memory until the window is next
+   uncovered. Measured on the packaged build via heap-snapshot retainer
+   paths: one entire retired view per navigation (+15,607 DOM nodes per lap
+   of the ring), held first by the router's own exit transition and, once
+   that was gated, by a settings indicator's width/transform transition.
+   Suppressing CREATION at the root is the only variant that survived
+   measurement. Nothing is lost: nothing is painted while hidden, and every
+   change AFTER the window returns animates exactly as declared. */
+body.frameless *, body.frameless *::before, body.frameless *::after {
+  transition-property: none !important;
+  /* KEYFRAME ANIMATIONS ARE THE SAME BUG WITH A DIFFERENT OBJECT, and the
+     snapshots named one after the transitions were dealt with: a CSSAnimation
+     on a retired comms pane, holding the pane and the whole sheet under it.
+     An animation on a frameless page never advances, so a one-shot never
+     finishes and an infinite one (cueSlide, chatDotPulse, liveBreathe) never
+     could -- either way it stays registered on the DocumentTimeline.
+     COLLAPSING THE DURATION TO 0s WAS TRIED FIRST AND MEASURED: it does not
+     help. The object is created and registered either way, and taking it off
+     the timeline is itself frame work -- lap 1 read 4 retained trees / 340
+     nodes with and without it. So creation has to be prevented, exactly as it
+     is for transitions above.
+     THAT IS SAFE FOR THESE ANIMATIONS SPECIFICALLY, and the check is worth
+     writing down rather than assuming: every entrance animation in this sheet
+     is a `from`-only or 0%->100% shape whose FINAL keyframe is the element's
+     ordinary resting style (chipIn, msgIn, frostIn, nodeTextIn, nodeIn all end
+     at opacity 1 / no transform, which is what the base rule already says), so
+     an element that never animates lands exactly where the finished animation
+     would have left it. The rest (chatDotPulse, cueSlide, liveBreathe) are
+     infinite and have no final state to lose. If a future animation ENDS
+     somewhere its base rule does not, it must not rely on this guard. */
+  animation-name: none !important;
+}
+
 .view {
   position: absolute; inset: 82px 0 0 0;
   overflow: hidden;
