@@ -67,12 +67,41 @@ const PAYLOAD_SEAM = 'src/lib/proc/hidden-spawn.js'
    down is an exemption nobody can argue with later. */
 const SHELL_EXEMPT = new Set(['launch.cjs'])
 
+/* Blank comments so the rules match CODE, not the prose explaining them.
+ *
+ * LINE COMMENTS COME OFF FIRST, AND THE ORDER IS LOAD-BEARING. The shape used
+ * elsewhere in this directory strips block comments with one whole-file regex
+ * before touching line comments. That reads the slash-star inside a glob written
+ * in a LINE comment -- `tests/agent-comms/*.js`, and this tree is full of them --
+ * as opening a block, finds no close, and blanks everything up to the next one.
+ * Measured in the engine repo's sibling fence: it swallowed a plain
+ * `require('node:child_process')` fifty lines down and reported zero violations.
+ *
+ * Removing the line comment first deletes that text before it can be mistaken
+ * for anything, and walking line by line means the stripper can never cross a
+ * newline it did not intend to. It may under-strip; it must never over-strip. */
 function codeOnly(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .split('\n')
-    .map(line => line.replace(/(^|[^:'"`\\])\/\/.*$/, '$1'))
-    .join('\n')
+  const lines = []
+  let inBlock = false
+  for (const original of source.split('\n')) {
+    let text = original
+    if (inBlock) {
+      const close = text.indexOf('*/')
+      if (close === -1) { lines.push(''); continue }
+      text = text.slice(close + 2)
+      inBlock = false
+    }
+    text = text.replace(/(^|[^:'"`\\])\/\/.*$/, '$1')
+    for (let guard = 0; guard < 100; guard += 1) {
+      const open = text.indexOf('/*')
+      if (open === -1) break
+      const close = text.indexOf('*/', open + 2)
+      if (close === -1) { text = text.slice(0, open); inBlock = true; break }
+      text = `${text.slice(0, open)} ${text.slice(close + 2)}`
+    }
+    lines.push(text)
+  }
+  return lines.join('\n')
 }
 
 /* Every spawn/spawnSync call in `source`, each read to its balanced closing
