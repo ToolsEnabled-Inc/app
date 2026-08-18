@@ -39,11 +39,13 @@ if (REFERENCE && fs.existsSync(BASELINE) && !process.argv.includes('--force')) {
   console.error(
     'Refusing to re-record the baseline.\n\n' +
     `  ${path.relative(ROOT, BASELINE)}\n\n` +
-    'holds the SHIPPED feGaussianBlur render, measured before src/crescent-field.js\n' +
-    'existed. It is the only record of what the design looked like before the\n' +
-    'rendering changed, and it cannot be reproduced from this tree — re-recording\n' +
-    'would capture the new renderer and silently make the drift check compare the\n' +
-    'current code against itself, which always passes.\n\n' +
+    'holds the render this design is measured against. Re-recording it captures the\n' +
+    'CURRENT renderer, which makes the drift check compare the code against itself,\n' +
+    'and that always passes.\n\n' +
+    'IT IS NOT LOST WHEN IT IS REPLACED, which is the only reason --force exists: the\n' +
+    'file is tracked, so every render it has ever held is still in git. The original\n' +
+    'feGaussianBlur measurement, taken before src/crescent-field.js existed, is at\n' +
+    'a0c7ffb; the corona rewrite it was replaced for is 8344899.\n\n' +
     'Run without --reference to measure against it. Pass --force only if you\n' +
     'genuinely mean to adopt today\'s render as the new baseline.'
   )
@@ -297,13 +299,42 @@ await capture()
 const now = analyse(OUT)
 fs.writeFileSync(path.join(OUT, 'metrics.json'), JSON.stringify(now, null, 2))
 
-/* The baseline lives in tools/test/fixtures, tracked, NOT in artifacts/ —
-   artifacts/ is gitignored and this file cannot be regenerated. It records the
-   shipped feGaussianBlur render as it was before src/crescent-field.js existed;
-   running --reference today would capture the new renderer and quietly destroy
-   the only thing the drift check is measured against. */
+/* The baseline lives in tools/test/fixtures, TRACKED, never in artifacts/ —
+   artifacts/ is gitignored, and a baseline git cannot see is one that vanishes
+   with the next clean checkout.
+ *
+ * WHAT IT RECORDS TODAY, and why it was re-recorded on 2026-08-18. It held the
+ * feGaussianBlur render measured at a0c7ffb (2026-08-16 12:01), and 8344899
+ * (2026-08-16 21:48, "Home corona: the colour-space bug, the dead glow slider,
+ * and the crushed core") deliberately rewrote the renderer nine hours later:
+ * the shader stopped gamma-decoding into an sRGB-encoded canvas, and the tone
+ * knee went from 0.55 to 0.22 because it "crushed the core". That commit
+ * re-measured contrast across all nine STATUS cells and quoted every number; it
+ * did not re-record this file. So every run since reported 44 of 60 invariants
+ * outside tolerance — a gate crying wolf about a change its own commit message
+ * explains, which is the state in which gates get switched off.
+ *
+ * ONE FRAME'S DRIFT IS RECORDED HERE RATHER THAN VOUCHED FOR. The three hued
+ * states narrowed, which is what a softened knee should do. The `unknown` state
+ * did the opposite on ALL THREE themes — span 53deg -> 101.7deg over a
+ * radialHalfWidth that collapsed to about 2.2px, so it is now a thin wide ring
+ * where it was a thick short crescent. That is consistent with what 8344899
+ * says that state is ("neutral --ink-4 and quieted to 0.28 gain"), and 8344899
+ * measured no number for it. It is captured here so the NEXT change to it is
+ * visible. Nobody has yet looked at that frame and said it is the design. */
+/* `--reference` NOW WRITES THE FILE IT SAYS IT WROTE.
+ *
+ * MEASURED 2026-08-18: `--reference --force` printed "recorded as the
+ * reference." and wrote metrics.json into artifacts/ only — never BASELINE,
+ * which is the file the comparison twenty lines below reads. So the documented
+ * way to re-record a baseline recorded nothing, the next plain run reported the
+ * same 44 drifts, and the operator's own eyes told them the tool had done the
+ * job. A guard that refuses to overwrite a file the flag cannot write either is
+ * protecting nothing; the refusal above is real only now. */
+if (REFERENCE) fs.writeFileSync(BASELINE, `${JSON.stringify(now, null, 2)}\n`, 'utf8')
 const ref = !REFERENCE && fs.existsSync(BASELINE)
   ? JSON.parse(fs.readFileSync(BASELINE, 'utf8'))
   : null
 const drifted = report(now, ref)
+if (REFERENCE) console.log(`  written to ${path.relative(ROOT, BASELINE)}\n`)
 process.exitCode = drifted > 0 ? 1 : 0
