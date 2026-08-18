@@ -120,6 +120,25 @@ import { createAssignmentControl } from '../research-assignment-control.js'
    can ever answer. See the header of src/declared-fleet.js for the measurement:
    the fleet projection is a BUILD-TIME file and ships `ok:false` forever. */
 import { declaredAgentsData, declaredFleetData } from '../declared-fleet.js'
+/* THE OTHER HALF OF declaredFleetData(), AND THE ONE THIS PAGE NEVER HANDED IT.
+ *
+ * src/declared-fleet.js takes `started` as its second argument and says in its
+ * own header why: it is pure, the registry is a live singleton, and "the caller
+ * holds the live half and hands it over". This page is that caller, and from
+ * 6f0a34a until 2026-08-18 it called `declaredFleetData(org)` at BOTH sites with
+ * no second argument at all -- so `started` was null on every call, `running`
+ * was always empty, and the declared fallback drew a tree that could never have
+ * a node in it no matter what the person did.
+ *
+ * WHAT THAT COST, and it is not the tree. Press Start on an agent's own page
+ * (#/agent/<computer>/<agent>, which src/agent-session.js publishes the live
+ * record from) and come back here: "Nothing has run on this computer yet", over
+ * a session that is running. And because showProjectionControls() -- the only
+ * builder of Dispatch, Team, Loop and Codex Cloud -- is reached by SELECTING A
+ * NODE, a page that can never draw a node is a page on which those four
+ * controls do not exist. The declared fallback is what every customer install
+ * gets (public/data/fleet.json ships ok:false), so that was all of them. */
+import { onLiveSession, readLiveSession } from '../agent-session-registry.js'
 /* The editing surface for the DECLARED organisation. It is a separate module
    for the reason given at the top of that file: it is the only part of this
    page that writes, and it is the only part that has to keep a role's wording
@@ -2516,7 +2535,7 @@ export function computersView({ initialComputer = null, navigate }) {
        node set with the new relationships laid over it, which is a second
        renderer of the same fact and the one that drifts. */
     const source = declaredOnlyReason && orgReady()
-      ? (declaredFleetData(orgAvailability.org) || lastFleetData)
+      ? (declaredFleetData(orgAvailability.org, readLiveSession()) || lastFleetData)
       : lastFleetData
     mountProjection(source, { preferComputerId: computerId })
     if (rootId && graph?.nodes.has(rootId)) graph.setRoot(rootId)
@@ -3548,8 +3567,17 @@ export function computersView({ initialComputer = null, navigate }) {
           </div>
           <output class="rail-prose" role="status" data-tree-move-out></output>
         </div>
+        <!-- Launch, Team, Loop and Codex Cloud. See mountStartWorkControls():
+             this is the rail a person actually reaches for an agent they
+             started on this computer, and until 2026-08-18 those four controls
+             were built only on a rail nothing could open. -->
+        <div class="board-start-work-slot"></div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
+    mountStartWorkControls(
+      { id: node.id, name: treeNodeName(node) },
+      controlsPage.querySelector('.board-start-work-slot'),
+    )
     /* Filing this session under a research project. The projects list was read
        once at mount; a refusal renders as its sentence, never as an empty
        select. The session reference is the OBSERVED id — the one identity a
@@ -4373,6 +4401,63 @@ export function computersView({ initialComputer = null, navigate }) {
     activateRail(controlsPage)
   }
 
+  /**
+   * THE FOUR ANSWERS TO "HOW DOES WORK GET STARTED FROM THIS COMPUTER",
+   * MOUNTED ON EVERY RAIL THAT IS ENTITLED TO THEM.
+   *
+   * WHAT WAS MEASURED, 2026-08-18, on a staged packaged build with a sterile
+   * profile, driving with real input:
+   *
+   *   fleet page, nothing started        .static-tree-node 0, one empty slot
+   *   press the slot, pick a role,       a node appears (status "did not start"
+   *     write a brief, press Start       -- the engine is signed out) and its
+   *                                      rail carries What it is doing / The
+   *                                      conversation / Setup and NOTHING ELSE
+   *   agent page, press Start            session opens; navigate to the fleet
+   *                                      page and the surface's own teardown
+   *                                      has closed it again, by design
+   *
+   * So the projection rail -- the ONLY builder of Launch, Team, Loop and Codex
+   * Cloud -- was reached by selecting a node that is drawn only for a LIVE
+   * session on a declared seat, and a live session cannot outlive the page that
+   * owns it (src/agent-session.js's teardown calls publishLiveSession(null), and
+   * src/agent-session-registry.js explains why it must). Those four controls
+   * were therefore unreachable on every install, in every state, for anyone.
+   * Four packaged drivers had been reporting it from four directions:
+   * team-panel ("clicking an agent opens the rail board: absent"), loop, the
+   * live half of example-page-write-fence, and refusal-copy's three
+   * "UNMEASURED -- the control could not be reached".
+   *
+   * THE RAIL A PERSON ACTUALLY REACHES IS THE TREE NODE'S. That is the node the
+   * fleet page's own start path creates, it is on the board that reads THIS
+   * computer, and it is absent from the example board by construction --
+   * graphComputer() returns the untouched example computer when the page is not
+   * live, so no tree node and no empty slot can appear there. The fence
+   * tools/example-page-write-fence-qa measures is structural, not a flag, and it
+   * still holds: the example rail goes through showControls(), which builds
+   * exampleControlsAbsentBox() and never calls this function.
+   *
+   * `live: true` is stated HERE and nowhere else, for the reason it was stated
+   * on the projection rail: only a rail reading this computer may build a
+   * control that reaches the audited bridge. One builder for both rails, so the
+   * entitlement rule has one place to be right and the two rails cannot drift
+   * into offering different controls for the same computer.
+   */
+  function mountStartWorkControls(agent, slot) {
+    if (!slot) return
+    const launchBox = launchControlsBox(agent, { live: true })
+    slot.replaceWith(launchBox)
+    const teamBox = teamControlsBox(agent, { live: true })
+    launchBox.after(teamBox)
+    const loopBox = loopControlsBox(agent, { live: true })
+    teamBox.after(loopBox)
+    /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
+       answer to the same question -- how does work get started from this
+       computer -- and the first one whose answer is "somewhere else". */
+    boardCloudBox = cloudControlsBox()
+    loopBox.after(boardCloudBox)
+  }
+
   function showProjectionControls(agent) {
     clearBoard()
     const role = ROLES[agent.role] || ROLES.default
@@ -4412,22 +4497,7 @@ export function computersView({ initialComputer = null, navigate }) {
       </div>`
     mountRailChat(agent, role)
     mountRoleControl(agent, controlsPage.querySelector('.board-role-slot'))
-    /* `live: true` is stated here and nowhere else. This is the projection rail
-       -- the one reading declared topology from this computer -- and it is the
-       only caller entitled to build a control that reaches the bridge. */
-    const projectionLaunchBox = launchControlsBox(agent, { live: true })
-    controlsPage.querySelector('.board-launch-slot').replaceWith(projectionLaunchBox)
-    const projectionTeamBox = teamControlsBox(agent, { live: true })
-    projectionLaunchBox.after(projectionTeamBox)
-    const projectionLoopBox = loopControlsBox(agent, { live: true })
-    projectionTeamBox.after(projectionLoopBox)
-    /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
-       answer to the same question -- how does work get started from this
-       computer -- and the first one whose answer is "somewhere else".
-       ONLY ON THIS RAIL. The simulated rail above gets no cloud box: it is the
-       example copy, and its own banner says nothing on it is real. */
-    boardCloudBox = cloudControlsBox()
-    projectionLoopBox.after(boardCloudBox)
+    mountStartWorkControls(agent, controlsPage.querySelector('.board-launch-slot'))
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
     controlsPage.querySelector('[data-a="open"]').addEventListener('click', () => navigate(`#/agent/${computer.id}/${agent.id}`))
     activateRail(controlsPage)
@@ -4658,7 +4728,7 @@ export function computersView({ initialComputer = null, navigate }) {
          is no organisation to draw: a plain browser, or a store that refused. */
       if (result.ok) mountProjection(result.data.data, { declaredReason: null })
       else {
-        const declared = orgReady() ? declaredFleetData(orgAvailability.org) : null
+        const declared = orgReady() ? declaredFleetData(orgAvailability.org, readLiveSession()) : null
         if (declared) mountProjection(declared, { declaredReason: result.reason })
         else showProjectionUnavailable(result.reason)
       }
@@ -4676,6 +4746,30 @@ export function computersView({ initialComputer = null, navigate }) {
   }
   window.addEventListener(LIVE_FLAGS_EVENT, onLiveFlag)
   unsubs.push(() => window.removeEventListener(LIVE_FLAGS_EVENT, onLiveFlag))
+
+  /* A SESSION THAT STARTS WHILE THIS PAGE IS OPEN IS DRAWN WITHOUT A RELOAD.
+   *
+   * Reading readLiveSession() at the two projection sites is enough for the
+   * ordinary journey -- start on the agent page, navigate back, loadProjection()
+   * reads the record fresh. It is NOT enough for a session that begins or ends
+   * while the fleet page is on screen, and that case is real: the rail's own
+   * chat and the compose panel both live here, and the agent page can be open in
+   * a second window against the same renderer registry.
+   *
+   * IT REDRAWS ON THE SET, NOT ON THE PHASE. The registry publishes on every
+   * transition (starting -> open -> working -> stopping), and reprojecting on
+   * each of those would rebuild the canvas four times for one start -- the node
+   * reshuffle src/declared-fleet.js keeps declared order to avoid, done to the
+   * whole graph. The only thing that changes what is DRAWN is which agent has a
+   * session, so that is what is compared. */
+  let lastStartedAgentId = readLiveSession()?.agentId ?? null
+  unsubs.push(onLiveSession(record => {
+    const agentId = record?.agentId ?? null
+    if (agentId === lastStartedAgentId) return
+    lastStartedAgentId = agentId
+    if (destroyed || !liveMode || !declaredOnlyReason || !orgReady()) return
+    reprojectFromOrg()
+  }))
 
   loadRailRuns()
   /* THE COMPACT CARD'S SEND. Busy agent: the words join the queue and the

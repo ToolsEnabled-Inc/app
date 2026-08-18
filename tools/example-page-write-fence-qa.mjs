@@ -74,6 +74,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+/* The live board opens with an EMPTY tree by the product's own rule, so the
+   node this fence is measured on has to be made first. See tools/lib/fleet-node.mjs. */
+import { createPresser, startFleetNode } from './lib/fleet-node.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require_ = createRequire(import.meta.url)
@@ -406,15 +409,30 @@ async function drive(executable, scratch, { live }) {
     let board = { present: false, reachedRail: false }
     if (onBoard) {
       await delay(2000)
-      const opened = await evaluate(`(() => {
-        const node = document.querySelector('.computers .static-tree-node')
-        if (!node) return 'no-node'
-        node.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }))
-        return 'opened'
-      })()`)
+      /* HOW THE RAIL IS OPENED, AND WHY THE TWO BOARDS DIFFER.
+       *
+       * This dispatched a synthetic dblclick at whatever `.static-tree-node`
+       * it found. On the EXAMPLE board that node is one of the demonstration
+       * fleet's own circles and it is there on arrival. On the LIVE board there
+       * is no node at all until this person has started something -- "the node
+       * tree should be empty unless a user has started a session" -- so the
+       * live half of this fence reported `no-node` and then measured an
+       * unopened rail, which is how "launch controls EXIST on the live board"
+       * came to fail on a build whose controls were fine. The live walk now
+       * starts an agent the way a person does (nothing is spent: CODEX_HOME is
+       * an empty scratch directory, so the engine refuses and the node is
+       * written before the engine is asked). Both halves press for real. */
+      let opened = 'no-node'
+      if (live) {
+        const reached = await startFleetNode({ session, evaluate, delay })
+        opened = reached.ok ? 'opened' : `${reached.at}: ${reached.detail}`
+      } else {
+        const { press } = createPresser({ session, evaluate, delay })
+        opened = (await press('.computers .static-tree-node')) === 'clicked' ? 'opened' : 'not-pressable'
+      }
       await until('the controls rail', `Boolean(document.querySelector('.computers .board-ctl-box'))`, 40)
       await delay(1500)
-      board = { ...(await evaluate(READ_BOARD)), reachedRail: opened === 'opened' }
+      board = { ...(await evaluate(READ_BOARD)), reachedRail: opened === 'opened', railDetail: opened }
     }
     return { page, board }
   } finally {

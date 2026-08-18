@@ -45,6 +45,7 @@ const orgControls = readFileSync(join(SRC, 'org-controls.js'), 'utf8')
 const HOOK_ONLY_ELEMENTS = new Set([
   'board-org-slot',    // org library mount, filled by mountOrgLibrary
   'board-launch-slot', // launch panel mount
+  'board-start-work-slot', // Launch/Team/Loop/Cloud mount on the tree-node rail
   'board-role-slot',   // role panel mount
   'board-chart-slot',  // echarts host; the chart engine owns its pixels
   'bc-canvas',         // echarts canvas host, sized by its plot parent

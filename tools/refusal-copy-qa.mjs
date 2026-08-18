@@ -63,6 +63,11 @@ import { fileURLToPath } from 'node:url'
    the product's. Both modules are plain data with no DOM. */
 import { IDENTIFIER_RE } from '../src/refusal-copy.js'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
+/* The fleet page opens with an EMPTY tree by the product's own rule, so the
+   node these controls hang off has to be made first. See tools/lib/fleet-node.mjs;
+   nothing is spent, because the start is refused by a signed-out engine and the
+   node is written before the engine is asked. */
+import { startFleetNode } from './lib/fleet-node.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..')
@@ -266,7 +271,7 @@ async function openApp(executable, scratch, label) {
     return 'clicked'
   })()`)
 
-  return { evaluate, until, clickVisible, clickLastVisible, clickByText, teardown, noise }
+  return { evaluate, until, clickVisible, clickLastVisible, clickByText, teardown, noise, session }
 }
 
 function createSession(child, userDataDir, say) {
@@ -495,6 +500,10 @@ async function main() {
         const wanted = [
           { label: 'Dispatch agent lanes', settingId: 'write_dispatch' },
           { label: 'Launch Codex Cloud tasks', settingId: 'write_cloud-launch' },
+          /* The controls below hang off a node, and a node only exists once
+             this person has started an agent on this computer. This is the
+             switch that decides whether the product will let anything start. */
+          { label: 'Run an agent session', settingId: 'write_agent-session' },
         ]
         const pressed = []
         for (const { label, settingId } of wanted) {
@@ -537,6 +546,7 @@ async function main() {
           pressed,
           dispatch: localStorage.getItem('mc.write.dispatch'),
           cloud: localStorage.getItem('mc.write.cloud-launch'),
+          agentSession: localStorage.getItem('mc.write.agent-session'),
         })
       })()`)
       note(`write toggles: ${flagsOn}`)
@@ -546,6 +556,8 @@ async function main() {
     const cloudOn = storage.cloud === 'enabled'
     check('the Dispatch write action can be switched on from Settings', dispatchOn, `mc.write.dispatch=${storage.dispatch}`)
     check('the Codex Cloud write action can be switched on from Settings', cloudOn, `mc.write.cloud-launch=${storage.cloud}`)
+    check('the Run-an-agent-session write action can be switched on from Settings',
+      storage.agentSession === 'enabled', `mc.write.agent-session=${storage.agentSession}`)
 
     /* Back to the fleet page by pressing, then into an agent's controls rail,
        then the control itself. Every step reports what it found so a run that
@@ -587,15 +599,14 @@ async function main() {
         await delay(500)
       }
       if (!await app.until('the fleet page', `location.hash === '#/computers'`)) return false
-      await app.until('the graph', `document.querySelectorAll('.static-tree-node').length > 0`)
-      if (await app.clickVisible('.static-tree-node .node-glass') !== 'clicked') return false
-      await delay(900)
-      if (await app.clickByText('button', 'controls') !== 'clicked'
-        && await app.clickVisible('[data-a="controls"], .rail-controls') !== 'clicked') {
-        /* Some builds open the rail straight onto the controls page. */
-        note('no separate Controls step; looking for the launch box directly')
-      }
-      await delay(900)
+      /* THIS USED TO WAIT FOR A CIRCLE THAT WAS NEVER GOING TO APPEAR. A
+         sterile profile has started nothing, the tree is empty by the product's
+         own rule, and the wait simply timed out -- so all three drives below it
+         reported "the control could not be reached", which is UNMEASURED and
+         reads, correctly, as a red. The node is made the way a person makes
+         one, and the walk names the step that stopped if it stops. */
+      const reached = await startFleetNode({ session: app.session, evaluate: app.evaluate, delay })
+      if (!reached.ok) { note(`the fleet node walk stopped at ${reached.at}: ${reached.detail}`); return false }
       const there = await app.until('the launch control', `document.querySelector('[data-launch="dispatch"]:not([disabled])') !== null`, 40)
       if (!there) return false
       return await app.clickVisible('[data-launch="dispatch"]') === 'clicked'

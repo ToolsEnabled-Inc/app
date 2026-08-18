@@ -273,8 +273,21 @@ function mountSessionControls(root, {
       <form class="write-form" data-session-form>
         <span class="write-form-title">Start an agent</span>
         <label class="write-wide">Prompt<textarea name="text" maxlength="16000" rows="2" required></textarea></label>
-        <button type="submit" data-session-start aria-describedby="${statusId}" disabled>Start</button>
-        <button type="button" data-session-stop aria-describedby="${statusId}" disabled>Stop</button>
+        <!-- THE WORD ON THE BUTTON IS NOT THE NAME OF THE ACTION.
+             Measured by tools/a11y-keyboard-qa on the packaged build: the
+             accessible name Chromium handed the platform was exactly "Start" --
+             five characters that name no object. A screen-reader user landing
+             here in scan mode is told "Start, button" and has to go looking for
+             what it starts; a person reading the visible layout has the form
+             title "Start an agent" six pixels above it and never notices the
+             gap. aria-label supplies the object the visible word borrows from
+             its surroundings, and it is the SAME object -- an agent session
+             from the prompt in this form -- so nothing is announced that the
+             screen does not also show. The visible word stays "Start", because
+             a button that reads "Start an agent session using the prompt above"
+             on the glass would not fit the control it labels. -->
+        <button type="submit" data-session-start aria-label="Start an agent session using the prompt above" aria-describedby="${statusId}" disabled>Start</button>
+        <button type="button" data-session-stop aria-label="Stop the agent session started here" aria-describedby="${statusId}" disabled>Stop</button>
         <!-- THE SIGN-IN PRECONDITION IS NOT RESTATED HERE, and that is a
              decision rather than an omission. This lane built a second notice
              for it, and while it was being built a peer lane repaired the
