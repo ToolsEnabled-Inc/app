@@ -4554,7 +4554,30 @@ export function computersView({ initialComputer = null, navigate }) {
         ${hostAbsentMarkup(`The live fleet data could not be read · ${reason}`, { reasonClass: 'graph-empty-reason' })}
         ${emptyStateExample()}
       </div>`)
-    graphWrap.insertBefore(emptyPanel, graphTitle)
+    /* THE SLOT, NOT THE WRAP — and this line THREW for as long as the graph bar
+       has existed.
+     *
+     * What stood here was `graphWrap.insertBefore(emptyPanel, graphTitle)`, and
+     * `.graph-title` has not been a child of `.graph-wrap` since the title, the
+     * tree switcher and the tool buttons were gathered into `.graph-bar` (see
+     * the markup above). It is a GRANDCHILD, so the browser answered
+     * `NotFoundError: Failed to execute 'insertBefore' on 'Node': The node
+     * before which the new node is to be inserted is not a child of this node.`
+     *
+     * MEASURED, 2026-08-18, on a staged packaged build: the throw is raised
+     * inside loadProjection()'s `.then`, which sends it to the `.catch` beside
+     * it, which calls this same function again, which throws again — an
+     * unhandled rejection and NOT ONE WORD PAINTED. This is the branch a fresh
+     * customer install reaches every time (public/data/fleet.json ships
+     * `ok:false`), so the person whose fleet could not be read was shown a blank
+     * area where the sentence explaining that was supposed to be, plus the
+     * example that tells them what the page is for.
+     *
+     * The canvas slot is where the CANVAS goes (mountProjection, above), which
+     * is exactly what the declaration of `emptyPanel` promises: "It occupies the
+     * same slot the graph canvas does, so the two can never be on screen
+     * together." Same slot, same prepend, one rule. */
+    graphWrap.querySelector('.graph-canvas-slot').prepend(emptyPanel)
   }
 
   function mountProjection(data, { preferComputerId = null, declaredReason = declaredOnlyReason } = {}) {
