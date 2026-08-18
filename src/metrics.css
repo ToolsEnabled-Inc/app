@@ -1137,3 +1137,70 @@ body.reduce-motion .gate-event i { transition: none; }
 }
 .metrics .m-pool-usage,
 .metrics .m-burn-usage { padding-top: var(--s2); }
+
+/* ================= telling the two faces apart =================
+ *
+ * THE DEFECT THIS CLOSES, in the owner's own words: "simulation routing still
+ * seems to have the old version so im just confused whats happening." He was
+ * looking at two pages that both said `live`, with a pulsing green dot, one of
+ * which is a demonstration built from made-up numbers. The word and the dot are
+ * now the demonstration's own, in its own colour, and the measured face wears
+ * the name of the thing it is actually reading. One glance decides it.
+ */
+.m-filter .mf-face {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid currentColor;
+  flex: none;
+  margin-right: var(--s3);
+}
+.metrics[data-face="demonstration"] .mf-face { color: var(--s-warn); }
+.metrics[data-face="this-computer"] .mf-face { color: var(--s-good); }
+/* The demonstration's own dot: the same 4px mark, in the same colour as the
+   word beside it, and deliberately NOT breathing -- the breath is what read as
+   a live signal. */
+.m-filter .sim-dot {
+  display: inline-block;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--s-warn);
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+.metrics[data-face="demonstration"] .mf-note b { color: var(--s-warn); }
+
+/* ================= measured chart hosts =================
+   The outcome split is an engine host now, and an engine host cannot inherit
+   the 10px track the hand-drawn bar wore: it needs a real box to fill and no
+   background of its own behind transparent series. */
+.metrics .m-outcome-bar.echart {
+  display: block;
+  height: 22px;
+  background: none;
+  overflow: visible;
+}
+/* A sentence that belongs to a panel but not inside its chart host -- the money
+   statement under pool burn, the derived-total note under token routing. The
+   hosts are fixed-height boxes an engine fills, so a paragraph inside one would
+   be drawn over. */
+.metrics .m-panel-aside {
+  margin-top: var(--s3);
+  padding-top: 0;
+}
+
+/* A LEGEND THAT WAS TOLD TO HIDE AND DID NOT.
+ *
+ * The measured failure panel counts runs; it does not draw the <2% / 2-5% / >5%
+ * severity scale the demonstration's bars use, so renderRefusals() sets
+ * `legend.hidden = true` on those three chips rather than deleting them (the
+ * demonstration still needs them). `hidden` is a UA rule of display:none, and
+ * `.chart-legend { display: flex }` in the shared stylesheet outranks it -- so
+ * the three chips stayed on screen above a panel with no percentages on it,
+ * measured on the packaged build. Scoped to .metrics so the fix cannot reach
+ * another surface's legend.
+ */
+.metrics .chart-legend[hidden] { display: none; }
