@@ -127,7 +127,14 @@ function declaredAgentProjection(compId, agentId, data) {
       ...(declaredAgent.id === agentId ? { controlTarget: declaredAgent.controlTarget } : {}),
       context: [
         labels.length ? `Relationship · ${labels.join('; ')}` : 'No recorded relationship',
-        `On record · ${declaredAgent.enabled ? 'enabled' : 'disabled'} · ${declaredAgent.provider}`,
+        /* WHAT THE RECORD SAYS, IN WORDS. This was "On record · enabled · none"
+           -- three fragments joined by middots, ending in a raw provider value
+           that reads as a missing field rather than as the fact that no engine
+           is named for this agent. Same rule as the fleet rail: a person is
+           owed the meaning, not the row. */
+        declaredAgent.provider && declaredAgent.provider !== 'none'
+          ? `On record as ${declaredAgent.enabled ? 'enabled' : 'disabled'}, running on ${declaredAgent.provider}`
+          : `On record as ${declaredAgent.enabled ? 'enabled' : 'disabled'}, with no engine named`,
       ],
     }
   }

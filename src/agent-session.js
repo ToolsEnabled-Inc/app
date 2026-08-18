@@ -143,7 +143,7 @@ export function mountAgentSessionSurface(root, options = {}) {
  * form, because there is nothing to submit. */
 function mountSessionSwitchedOff(root, remount) {
   const surface = el(`<section class="write-surface agent-session-surface" data-session-off aria-label="Agent session">
-    <header><strong>Agent session</strong><span data-session-status role="status">off · this computer cannot start an assistant</span></header>
+    <header><strong>Agent session</strong><span data-session-status role="status">Off</span></header>
     <div class="write-surface-grid">
       <div class="write-form">
         <span class="write-form-title">Running agents is switched off</span>
@@ -202,8 +202,15 @@ function switchedOffReason() {
   /* THREE SENTENCES, NOT ONE. This was a single thirty-word run-on carrying
      three separate facts: that nothing runs yet, that the switch starts nothing
      by itself, and where the switch is. One idea per sentence is the whole of
-     the change; not a word of meaning was dropped. */
-  return `${because} Nothing runs on this computer until you turn it on. Turning it on starts nothing by itself: it puts the Start control here, and you decide what to run. The same switch is in Settings → Write → Run an agent session.`
+     the change; not a word of meaning was dropped.
+
+     THEN ONE OF THE THREE WENT, on the owner's "open agent detail is a mess".
+     "Nothing runs on this computer until you turn it on" is the first sentence
+     said twice: `because` has already stated that the answer he recorded
+     switches starting off. The Settings route stays HERE, unlike on the fleet
+     page's panel, because this surface is also where somebody comes to turn the
+     thing back off again and that lives in Settings. */
+  return `${because} Turning it on starts nothing by itself, it just puts the Start control here and you decide what to run. The same switch is in Settings, under Write.`
 }
 
 function mountSessionControls(root, {

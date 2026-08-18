@@ -381,7 +381,19 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         ${actions ? `<button class="chat-tool" data-chat-actions aria-haspopup="true" aria-expanded="false" aria-label="Actions" title="Actions for this agent — stop, thinking depth, model, rewind and more">
           <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.2" cy="7" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="12" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="17" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>` : ''}
-        <input type="text" placeholder="${cannotSend ? 'Not now' : `Message ${escapeMarkup(title)}…`}"${cannotSend ? ' disabled' : ''} />
+        <input type="text" ${cannotSend
+          /* "NOT NOW" WAS NOT A LEAKED LABEL (owner: "why is it saying not
+             now?"). It was typed here, and it is the whole of what a disabled
+             box says for itself: two words that read like a button, sitting
+             under a sentence that has already explained the situation
+             properly. The identical words in src/fleet-tree-copy.js are the
+             compose panel's cancel button and are a coincidence; nothing joins
+             the two.
+             The input carries no label of any kind, so this placeholder is
+             also its entire accessible name -- which is why the switched-off
+             state gets the REASON as an aria-label rather than nothing. */
+          ? `placeholder="You cannot send a message here" aria-label="${escapeMarkup(composerReason)}" disabled`
+          : `placeholder="Message ${escapeMarkup(title)}…" aria-label="Message ${escapeMarkup(title)}"`} />
         <button class="chat-send" aria-label="Send"${cannotSend ? ' disabled' : ''}>
           <svg class="chat-send-go" viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <svg class="chat-send-halt" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="currentColor"/></svg>

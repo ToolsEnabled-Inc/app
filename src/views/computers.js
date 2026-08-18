@@ -2276,15 +2276,18 @@ export function computersView({ initialComputer = null, navigate }) {
      off, that turning it on starts nothing by itself, and where the switch is.
      The first sentence is shared with the agent page's switched-off surface,
      which is the other place this same flag is explained. */
+  /* SHORT ON PURPOSE, AND THE COMMENT IS SHORT FOR A REASON TOO: the gate that
+     guards this sentence (start-control-flag-gates-the-tree.test.mjs) reads a
+     700-character window from this function, so a long note here pushes the
+     code out of its own test. The rest of the reasoning is in the commit.
+
+     Four sentences became three (owner, on this panel: "messy"). What went was
+     the JOURNEY -- "Settings -> Write -> Run an agent session" -- spelled out in
+     prose directly above a button that does it in one press. Settings is still
+     named, because a refusal that names nowhere to change a thing is a dead end
+     and that gate is right. */
   function startControlOffReason() {
-    /* THE LAST CLAUSE CHANGED WHEN THE SWITCH ARRIVED HERE. It used to end
-       "The switch is in Settings → Write → Run an agent session" -- true, and a
-       journey to another screen for a person who is already looking at the
-       panel they wanted. The switch is now beside this sentence, so the
-       sentence points at it; Settings is named after it, because that is still
-       where the answer lives afterwards and a person who wants to change it
-       back needs to know. */
-    return `${startControlOffBecause()} Nothing on this computer starts an assistant until you turn it on. Turning it on starts nothing by itself: it puts the Start control back, and you decide what to run. Press ${START_CONTROL_ON.label} below, or find the same switch in Settings → Write → Run an agent session.`
+    return `${startControlOffBecause()} Turning it on starts nothing by itself, it just puts the Start control back. You can change this later in Settings.`
   }
 
   /* THE ONE-PRESS WAY OUT, offered only for the one reason a press can undo.

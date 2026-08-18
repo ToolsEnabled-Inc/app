@@ -696,17 +696,40 @@
 }
 .static-tree-chip-overlay .monitor-brace > svg + svg { margin-top: -1px; }
 
+/* THE OPEN CARD, AND THE ROOM ITS BRACES ASKED FOR (owner, 2026-08-18: "the
+   chatbox ui when open the border how the braces go it needs a bit more
+   space"). Measured on the staged build before the change: the gap between a
+   brace's inner edge and the chat beside it was 2px, on both sides. The brace
+   sits at x 1..13 and the content began at 15.
+
+   TWO EDGES WERE ALSO DRAWING THE SAME LINE. `.static-tree-chip::before` is the
+   role rim, a 2px bar at left:13px -- right on top of the brace. It earns its
+   place on the COLLAPSED chip, which shows no role anywhere else; the open card
+   already names the role in its header beside a role-coloured dot, so here the
+   rim was a second border crowding the first. The braces own this edge now. */
 .static-tree-chip-overlay .static-tree-chip.as-chat {
-  padding: 12px 15px;
+  padding: 13px 26px;
   background: var(--sheet);
   border: 1px solid var(--line-2);
   box-shadow: none;
   overflow: hidden;
 }
+.static-tree-chip-overlay .static-tree-chip.as-chat::before { display: none; }
 .static-tree-chip-overlay .static-tree-chip.as-chat .chip-preview { display: none; }
 .static-tree-chip-overlay .static-tree-chip .chat { display: none; }
 .static-tree-chip-overlay .static-tree-chip.as-chat .chat { display: flex; animation: none; }
-.static-tree-chip-overlay .static-tree-chip.as-chat .monitor-brace { top: 10px; bottom: 10px; }
+/* 7px of air on each side instead of 2, and the arms stop just short of the
+   card's own corners so the curl at each end reads as a brace rather than as a
+   hairline running the full height. */
+.static-tree-chip-overlay .static-tree-chip.as-chat .monitor-brace {
+  top: 12px;
+  bottom: 12px;
+  left: 7px;
+}
+.static-tree-chip-overlay .static-tree-chip.as-chat .monitor-brace.is-right {
+  left: auto;
+  right: 7px;
+}
 
 .static-tree-host .graph-fit {
   position: absolute;

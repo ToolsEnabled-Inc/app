@@ -292,7 +292,7 @@ function offSwitch() {
  * ---------------------------------------------------------------- */
 function mountCloudSwitchedOff(root, anchor, availability) {
   const surface = el(`<section class="write-surface cloud-surface" data-cloud-off aria-label="Codex Cloud">
-    <header><strong>Codex Cloud</strong><span data-cloud-status role="status">off · this computer cannot start a cloud task</span></header>
+    <header><strong>Codex Cloud</strong><span data-cloud-status role="status">Off</span></header>
     <div class="write-surface-grid">
       <div class="write-form">
         <span class="write-form-title">Launching cloud tasks is switched off</span>

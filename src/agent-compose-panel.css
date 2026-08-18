@@ -131,11 +131,18 @@
 }
 
 /* The line offered on an empty tree only. Set apart from the intro so it reads
-   as a suggestion rather than as another instruction. */
+   as a suggestion rather than as another instruction.
+
+   ITS LEFT RULE IS GONE (owner, 2026-08-18, on this panel: "messy"). Three
+   blocks opened this panel in a row -- the intro, this suggestion behind a grey
+   left rule, and the switched-off notice behind an amber one -- at two indents
+   and with no headings between them, so they read as a stack of look-alike
+   quotations and a person had to read all three to find which one mattered.
+   Only ONE thing in this panel has a rule down its side now, and it is the one
+   that changes what the panel can do. A suggestion is quieter than an
+   instruction, so quiet ink says it. */
 .agent-compose-suggestion {
   margin: 0;
-  padding-left: var(--s2);
-  border-left: 2px solid var(--line-2);
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--ink-3);
@@ -232,12 +239,20 @@
   display: none;
 }
 
+/* THE ONE BLOCK IN THIS PANEL THAT IS ALLOWED TO LOOK LIKE A BLOCK, and it now
+   looks like one: a tinted card with a real border rather than a paragraph with
+   a coloured edge, so it separates from the prose above it by shape and not
+   only by a 2px line. The button that answers it sits immediately below and is
+   read as part of it. */
 .agent-compose-notice {
   margin: 0;
   padding: var(--s2) var(--s3);
-  border-left: 2px solid var(--s-warn);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--s-warn);
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--ink) 3%, var(--sheet));
   font-size: 12.5px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
@@ -245,6 +260,15 @@
 .agent-compose-notice[role="alert"] {
   border-left-color: var(--s-serious);
   color: var(--ink);
+}
+
+/* THE WAY OUT, TIED TO THE SENTENCE THAT NEEDED IT. The button is a sibling of
+   the notice rather than a child, so without this it floated in the panel's own
+   row rhythm and read as a third unrelated control. Pulled up under the notice
+   it reads as that block's answer, which is what it is. */
+.agent-compose-enable {
+  align-self: flex-start;
+  margin-top: calc(-1 * var(--s2));
 }
 
 .agent-compose-status {

@@ -522,7 +522,7 @@ export const CHAT_NOT_RUNNING = Object.freeze({
   refused: reason => `${reason} Nothing can be sent to an agent that did not start.`,
   /* No refusal on file: the start was never attempted, or the record predates
      status notes. Never says the start failed, because nothing says it did. */
-  neverStarted: 'This agent is not running, so there is nothing here to send a message to. What you asked for is above; when it runs, its answer arrives here.',
+  neverStarted: 'This agent is not running, so there is nothing here to send a message to. What you asked for is above, and its answer arrives here when it runs.',
 })
 
 /* CHANGING HOW HARD IT THINKS, MID-CONVERSATION (iteration 5 W10). The wire

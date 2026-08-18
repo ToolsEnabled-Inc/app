@@ -465,6 +465,56 @@
   line-height: 1.4;
   color: var(--ink-3);
 }
+/* A SWITCHED-OFF SURFACE IS ONE COLUMN OF PROSE, NOT A FORM (owner, 2026-08-18,
+   on the agent detail page: "open agent detail is a mess").
+ *
+ * WHAT THE MESS ACTUALLY WAS, and all three parts are this one grid. Both
+ * `.write-surface-grid` and `.write-form` are two-column grids, which is right
+ * for a form with fields in it and wrong for a panel whose entire content is a
+ * heading, a sentence and a button. Measured on the staged build at 1512x945:
+ * the whole explanation sat in the left half of the outer grid with the right
+ * half empty, and the "what turning it on would let you do" block -- a grid
+ * child with no field beside it -- was thrown into the second inner column,
+ * where it rendered as a bordered box floating in the middle of the page with a
+ * column of whitespace to its left. It reads as debris. It is a two-column
+ * layout with one column of content.
+ *
+ * Both off-surfaces in this product carry their own marker already, so this
+ * names them rather than guessing at a `:has()` rule about which forms have
+ * fields. One column, and everything lands under the thing it belongs to. */
+.write-surface[data-session-off] > .write-surface-grid,
+.write-surface[data-cloud-off] > .write-surface-grid,
+.write-surface[data-session-off] .write-form,
+.write-surface[data-cloud-off] .write-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* And its sentences read in the UI face. The mono above is right for a short
+   state token in the header; a paragraph explaining a switch is prose, and this
+   page had it in code type from top to bottom. */
+.write-surface[data-session-off] .write-form output,
+.write-surface[data-cloud-off] .write-form output {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+/* ONE SHOUT PER SECTION. `.write-surface > header strong` and
+   `.write-form-title` share a rule, so an off surface opened with two tracked
+   all-caps lines stacked on top of each other -- "CODEX CLOUD" and then
+   "LAUNCHING CLOUD TASKS IS SWITCHED OFF" -- naming the same thing twice at the
+   same rank, with the state word to the right of the first making three labels
+   for one fact. The surface's NAME keeps the small-caps label, because that is
+   the page's section vocabulary; the sentence under it becomes a heading that
+   reads like a sentence, which is what it is. */
+.write-surface[data-session-off] .write-form-title,
+.write-surface[data-cloud-off] .write-form-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--ink);
+}
 /* The answer to a write this form already sent, carried over from a moment when
    this panel did not exist to show it. Its own line rather than the <output>,
    because the output is written by the bridge handshake and the queue snapshot a
