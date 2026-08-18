@@ -804,38 +804,61 @@ export function researchView() {
     if (liveMode) host.appendChild(findingsBlock)
   }
 
+  /* WHAT THE THREE CATALOG MODULES SAY ON A COPY THAT HAS NO CATALOG.
+   *
+   * THE DEFECT, and it is the metrics page's defect wearing a different hat. The
+   * banner said "The report catalog could not be read", and under it quoted the
+   * envelope's own reason -- which on every installed copy is "No local agent
+   * fleet host detected on this machine." The owner read that beside an empty
+   * library and asked whether something was broken.
+   *
+   * NOTHING IS BROKEN, AND NOTHING WILL EVER FILL IT. tools/gen-research.mjs
+   * builds this catalog from a directory of curated documents on the builder's
+   * own machine (MC_RESEARCH_ROOT). Those documents are deliberately NOT
+   * shipped -- a previous release carried their titles and absolute paths into
+   * the installer, and T4c replaced every projection with an honest empty
+   * envelope for exactly that reason. So a customer's copy has no catalog by
+   * design, no setting creates one, and "could not be read" describes a failure
+   * that did not happen.
+   *
+   * SO THE WORDS CHANGE AND THE STRUCTURE DOES NOT. Every repair already made
+   * here stays: the mast names what is absent rather than saying the page is
+   * broken, the three seeded "Reading …" lines are still settled so none of them
+   * says "Reading" for ever, the working-lists line still distinguishes the
+   * catalog's registers from the project findings read live below it, and the
+   * banner still sits directly under the mast where its "below" points at
+   * something. What is gone is the claim of failure and the quoted reason. */
+  const CATALOG_ABSENT = Object.freeze({
+    mast: 'no report library on this computer',
+    library: 'A report library is a set of documents kept for research, and this copy was not shipped with one. Nothing on this computer is missing or broken.',
+    methods: 'The method notes are written alongside those documents, so there are none here either.',
+    worklists: 'The catalog’s own registers come with those documents. The project findings below are read live from this computer.',
+    title: 'There is no report library in this copy',
+    bench: 'Everything below is read live from this computer and is not affected.',
+  })
+
   function renderUnavailable(reason) {
     root.setAttribute('aria-busy', 'false')
     root.dataset.projectionState = 'unavailable'
-    /* Name WHAT could not be read. "could not be read" under the page title,
-       over a working bench, reads as "this page is broken" — and the report
-       catalog is a different source from the projects, runs and results the
-       bench shows, which were loading fine the whole time. */
-    root.querySelector('[data-research-source]').textContent = 'report catalog: could not be read'
-    /* Settle the three catalog modules. They were seeded with "Reading …"
-       and only ever replaced by renderProjection, so on an unreadable
-       catalog they said "Reading the report catalog." for ever (measured on
-       installed 1.0.11). Replace ONLY that placeholder line: the working
-       lists host also carries the project findings block, which stays. */
+    root.querySelector('[data-research-source]').textContent = CATALOG_ABSENT.mast
     const settle = (selector, sentence) => {
       const loading = root.querySelector(`${selector} p.research-observed-empty`)
       if (loading && /^Reading /.test(loading.textContent || '')) loading.textContent = sentence
     }
-    settle('[data-research-library]', 'No report catalog could be read on this computer.')
-    settle('[data-research-methods]', 'No method notes could be read on this computer.')
-    /* The findings register lives in this same host and IS a working list, so
-       "No working lists could be read" directly above three findings read as
-       a contradiction (installed 1.0.15). Name what is actually missing. */
-    settle('[data-research-worklists]', 'The catalog’s working lists could not be read; the project findings below are read from the research service.')
-    /* Directly under the mast, not at the foot of the page: it explains the
-       mast's own "could not be read" line, and its sentence says "below" —
-       which at the foot of a 6000px page pointed at nothing (installed
-       1.0.13). */
+    settle('[data-research-library]', CATALOG_ABSENT.library)
+    settle('[data-research-methods]', CATALOG_ABSENT.methods)
+    settle('[data-research-worklists]', CATALOG_ABSENT.worklists)
+    /* `reason` is still taken and still deliberately NOT printed. It is the
+       envelope's internal account of a file written on somebody else's machine;
+       it named a mechanism this reader has never heard of and pointed at nothing
+       they could do. The parameter stays so the caller's shape is unchanged and
+       a future envelope that fails for a reason a person CAN act on has a place
+       to arrive. */
     root.querySelector('.research-mast').insertAdjacentHTML('afterend', `
       <section class="research-envelope-unavailable projection-state projection-unavailable" data-research-unavailable role="status">
-        <strong>The report catalog could not be read</strong>
-        <span>The bench below is not affected.</span>
-        <span>${esc(reason || 'The app was not told why.')}</span>
+        <strong>${esc(CATALOG_ABSENT.title)}</strong>
+        <span>${esc(CATALOG_ABSENT.library)}</span>
+        <span>${esc(CATALOG_ABSENT.bench)}</span>
         <a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a>
       </section>`)
   }

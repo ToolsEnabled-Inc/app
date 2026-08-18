@@ -472,16 +472,40 @@ test('cells with no service answer say so instead of asserting queued', async ()
   assert.match(view, /Already sent — all \$\{alreadySent\} cells/, 'the replay sentence lost its count')
 })
 
-test('an unreadable report catalog says what failed, and does not leave three modules reading for ever', () => {
+/* THE COPY THIS TEST PINS CHANGED, AND EVERY PROPERTY IT PINNED IS STILL PINNED.
+ *
+ * It used to require the words "The report catalog could not be read" and the
+ * mast line "report catalog: could not be read". Both describe a FAILURE, and on
+ * every installed copy there is no failure to describe: tools/gen-research.mjs
+ * builds that catalog from a directory of curated documents on the builder's own
+ * machine, and those documents are deliberately never shipped (T4c — a previous
+ * release carried their titles and absolute paths into the installer). So a
+ * customer's copy has no catalog by design, no setting creates one, and the
+ * banner told the owner his product was broken. It was not.
+ *
+ * What this test is FOR survives unchanged: the copy must not claim the whole
+ * page failed while a live bench is on screen, the mast must name what is
+ * absent, the three seeded "Reading …" lines must be settled, only the loading
+ * paragraph may be replaced, and the banner must sit under the mast because its
+ * own sentence says "below". Two clauses are added: the block may not print the
+ * envelope's internal reason, and may not describe a failure at all. */
+test('a copy with no report library says so plainly, and does not leave three modules reading for ever', () => {
   const view = read('src/views/research.js')
-  const block = view.slice(view.indexOf('function renderUnavailable'), view.indexOf('function renderProjection'))
+  const block = view.slice(view.indexOf('const CATALOG_ABSENT'), view.indexOf('function renderProjection'))
   // The bench and the catalog are different sources; the copy must not claim
   // the whole page failed while projects, runs and results are on screen.
   assert.doesNotMatch(block, /Your research could not be loaded/,
     'the alarming claim is back over a working bench')
-  assert.match(block, /The report catalog could not be read/)
-  assert.match(block, /The bench below is not affected/)
-  assert.match(block, /report catalog: could not be read/, 'the mast must name what could not be read')
+  assert.match(block, /There is no report library in this copy/)
+  assert.match(block, /read live from this computer and is not affected/)
+  assert.match(block, /no report library on this computer/, 'the mast must name what is absent')
+  // A failure that did not happen must not be reported as one, and the
+  // envelope's own reason must not be quoted at a person: on every install it is
+  // the fleet-host sentence, about a file on somebody else's machine.
+  assert.doesNotMatch(block, /could not be read/,
+    'the banner is claiming a failure again, over a catalog that was never shipped')
+  assert.doesNotMatch(block, /esc\(reason/,
+    'the envelope reason is back on the glass')
   // The three seeded "Reading …" placeholders must be settled, not left spinning.
   for (const module of ['data-research-library', 'data-research-methods', 'data-research-worklists']) {
     assert.match(block, new RegExp(module), `${module} is left saying "Reading …" for ever again`)
@@ -584,5 +608,9 @@ test('the chart choice outlives a re-render, and the cold results block is asked
   assert.match(refresh, /renderResults\(\)/, '"No results have arrived yet." stays above the tables for ever again')
   // The finding id sits inside the first grid cell, not as a third grid child.
   assert.match(view, /<span>\$\{esc\(findingStateWord\(item\?\.status\)\)\}\$\{item\?\.findingId \? `<br>/, 'the finding id pushed the claim into the narrow column again')
-  assert.match(view, /the project findings below are read from the research service/, 'the worklists sentence contradicts the findings beneath it again')
+  /* Same property, new words: the worklists line sits directly above a findings
+     register that IS readable, so it must name the catalog's own registers as
+     the absent thing and say where the findings below come from. The sentence it
+     pinned reported a read failure the shipped product never has. */
+  assert.match(view, /The project findings below are read live from this computer/, 'the worklists sentence contradicts the findings beneath it again')
 })
