@@ -491,6 +491,21 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       return
     }
     await loadAccount()
+    /* Tell the settings store who is signed in now, exactly as
+       src/views/account.js does after its own sign-in. Without this poke the
+       durable store spends the WHOLE FIRST SESSION believing nobody is signed
+       in (it hydrates the account asynchronously at launch, and this walkthrough
+       is the launch), so every account-scoped setting the person chooses in
+       their first hour -- the theme, the settings page, the purchase selection
+       -- is written to the DEVICE record. On the next launch the store hydrates
+       the account correctly, consults ONLY the account overlay for those keys
+       (the no-leak rule in public/durable-storage.js), finds nothing, and the
+       person opens an app wearing none of the choices they just made. Measured
+       on the staged packaged build, 2026-08-18: theme chosen black after an
+       in-walkthrough account creation, renderer-prefs.json carrying a bare
+       `mc.theme` device key, and both relaunches painting white. Optional and
+       guarded because a plain browser has no storage layer to tell. */
+    try { if (globalThis.mcDurableStorage) globalThis.mcDurableStorage.onAccountChanged() } catch (error) { /* storage layer is optional */ }
     goTo('autonomy')
   }
 
