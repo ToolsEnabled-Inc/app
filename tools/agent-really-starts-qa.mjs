@@ -115,6 +115,103 @@ async function main() {
     const composeOpen = await window.evaluate(`Boolean(document.querySelector('[data-compose], .compose-panel, [data-agent-compose]'))`)
     ledger.check('pressing it opens something to start an agent from', composeOpen === true, `compose panel present=${composeOpen}`)
 
+    /* THE SWITCH THE PANEL CARRIES, PRESSED BEFORE START IS ASKED FOR.
+     *
+     * Starting an assistant ships switched off (`mc.write.agent-session`), so on
+     * a fresh profile the panel opens with Start DISABLED and a sentence saying
+     * why. Until 0e43eb3 the remedy was a trip to Settings; that commit put the
+     * switch in the panel, where the person already is, and reopens the panel
+     * over the same slot after the write.
+     *
+     * This driver pressed Start on that first frame, found it disabled, watched
+     * nothing happen and reported SILENCE -- which is this file's own definition
+     * of the defect it exists to catch. The panel was not silent: it had painted
+     * "Starting an assistant is switched off for this computer" and offered the
+     * button that undoes it. Pressing that button is what a person does, so it
+     * is what this driver does, and the silence check below now measures the
+     * state a person actually reaches.
+     *
+     * Absent is reported, never assumed: on a profile where starting is already
+     * on there is no switch and this is a no-op, but a build that LOST the
+     * switch reads here rather than passing quietly. */
+    const turnOn = await window.evaluate(`(() => {
+      const node = document.querySelector('[data-compose-unavailable-action="panel"]')
+      if (!node) return { pressed: false, why: 'no switch in the panel (starting may already be on)' }
+      const box = node.getBoundingClientRect()
+      const style = getComputedStyle(node)
+      if (box.width < 1 || box.height < 1 || style.visibility === 'hidden' || style.display === 'none') {
+        return { pressed: false, why: 'the switch is in the panel but not on the glass' }
+      }
+      if (node.disabled === true) return { pressed: false, why: 'the switch is on the glass but disabled' }
+      const x = box.left + box.width / 2
+      const y = box.top + box.height / 2
+      const hit = document.elementFromPoint(x, y)
+      if (!hit || !(hit === node || node.contains(hit))) {
+        return { pressed: false, why: 'nothing reaches the switch; ' + (hit ? hit.tagName + ' is on top of it' : 'elementFromPoint found nothing') }
+      }
+      node.click()
+      return { pressed: true, label: node.textContent.trim().slice(0, 60) }
+    })()`)
+    ledger.check('a panel that says starting is switched off carries the switch that turns it on',
+      turnOn.pressed === true || /already be on/.test(turnOn.why || ''),
+      turnOn.pressed ? `pressed ${JSON.stringify(turnOn.label)}` : String(turnOn.why))
+    if (turnOn.pressed) await delay(2600)
+
+    /* ANSWER THE FORM BEFORE PRESSING ITS BUTTON.
+     *
+     * THE FALSE FINDING THIS RETIRES, and it is one this repository has already
+     * paid for once (see tools/claude-tree-start-proof.mjs, same mistake, same
+     * write-up). Start on this panel refuses an INCOMPLETE form: with no role
+     * chosen, attemptSubmit() paints "Pick a role first, then press Start" and
+     * returns before any IPC. This driver pressed Start on an empty form, saw no
+     * session and no status line, and reported SILENCE -- the exact defect it
+     * exists to catch, manufactured by itself. The panel was answering; it was
+     * answering the question the driver had actually asked.
+     *
+     * REAL INPUT, INCLUDING THE MENU. A native <select> takes arrow keys only
+     * after the press-opened operating-system popup is dismissed, so the order
+     * is press, Escape, then arrows -- the one keystroke whose absence cost
+     * another lane a false claim about real input. */
+    const dispatchKey = async (name, keyCode) => {
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await window.session.send('Input.dispatchKeyEvent', {
+          type, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, code: name, key: name,
+        })
+      }
+    }
+    const roleWanted = await window.evaluate(`(() => {
+      const node = document.querySelector('[data-compose-field="role"]')
+      if (!node) return null
+      return [...node.options].map(option => option.value).find(value => value && value.length > 0) || null
+    })()`)
+    let roleChosen = { ok: false, why: 'the panel offers no role menu' }
+    if (roleWanted) {
+      const focused = await window.clickVisible('[data-compose-field="role"]')
+      if (focused !== 'clicked') roleChosen = { ok: false, why: `could not focus the role menu: ${focused}` }
+      else {
+        await dispatchKey('Escape', 27)
+        await delay(140)
+        roleChosen = { ok: false, why: `never reached ${roleWanted}` }
+        for (let attempt = 0; attempt < 24; attempt += 1) {
+          const current = await window.evaluate(`document.querySelector('[data-compose-field="role"]')?.value`)
+          if (current === roleWanted) { roleChosen = { ok: true, value: current }; break }
+          await dispatchKey('ArrowDown', 40)
+          await delay(130)
+        }
+      }
+    }
+    ledger.check('a role can be chosen on the panel with the keyboard',
+      roleChosen.ok === true, roleChosen.ok ? `chose ${JSON.stringify(roleChosen.value)}` : roleChosen.why)
+
+    /* The brief is typed, not assigned: a field that validates as you type would
+       never see an assignment, and this panel does exactly that. */
+    const BRIEF = 'Say only the word ready.'
+    const typed = await window.typeInto('[data-compose-field="message"]', BRIEF)
+    const landed = await window.evaluate(`document.querySelector('[data-compose-field="message"]')?.value || ''`)
+    ledger.check('the brief can be typed into the panel',
+      typed === 'typed' && String(landed).includes(BRIEF),
+      typed === 'typed' ? JSON.stringify(String(landed).slice(0, 60)) : String(typed))
+
     /* Find and press the actual Start. */
     const startPress = await window.evaluate(`(() => {
       const vis = n => { const b = n.getBoundingClientRect(); const s = getComputedStyle(n)

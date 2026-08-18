@@ -1724,6 +1724,39 @@ export function computersView({ initialComputer = null, navigate }) {
       }
     }
     let history = sessionTranscripts.get(node.sessionId) || []
+    /* THE RECORD IS READ BACK, AND UNTIL NOW IT NEVER WAS.
+     *
+     * MEASURED ON A STAGED PACKAGED BUILD, 2026-08-18, three separate runs. A
+     * node with two real Codex turns holds five lines in the durable store --
+     * the brief, the tree context, "391", the second question, "81". Close the
+     * app, open it again, press the circle: BOTH surfaces drew two bubbles, the
+     * FIRST question above the SECOND answer. The conversation a person comes
+     * back to was not the conversation they had, and it did not merely lose
+     * lines -- it paired a question with an answer to a different question. On
+     * a research machine that is a fabricated result, not a rendering glitch.
+     *
+     * THE CAUSE WAS ONE MAP. `sessionTranscripts` is window memory, keyed by
+     * session id, and a new window has none. So `history` was empty for every
+     * node on every restart and the `!history.length` fallback below fired --
+     * that fallback composes `node.message` (the brief) with `node.reply` (the
+     * LATEST reply), which is the pairing that was observed. The fallback is
+     * right for what it was written for, a node whose conversation was never
+     * recorded; it was standing in for a record that exists.
+     *
+     * IT IS THE SAME READ THE RESUME PATH ALREADY MAKES -- resumeNodeSession()
+     * takes `transcriptStore.get(node.id).lines` and seeds the map with it, so
+     * the store was already trusted for the harder job of feeding an agent its
+     * own past. Reading it to SHOW a person that past is the smaller claim.
+     *
+     * THE MAP IS NOT SEEDED FROM HERE, deliberately. transcriptAppend() writes
+     * whatever the map holds back to the store, so seeding it under a session id
+     * this window never opened would put the read back on the write path, and
+     * one appended line could then rewrite the record. Reading is reading. */
+    if (!history.length) {
+      const saved = transcriptStore ? transcriptStore.get(node.id) : null
+      const savedLines = saved && Array.isArray(saved.lines) ? saved.lines : []
+      if (savedLines.length) history = savedLines
+    }
     if (!history.length) {
       history = []
       if (node.message) history.push({ who: 'you', text: node.message, at: null })

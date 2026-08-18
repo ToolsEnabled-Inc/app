@@ -1088,6 +1088,51 @@ function pressEmptyNodeScript() {
 })()`
 }
 
+/* THE SWITCH THE PANEL ITSELF NOW CARRIES.
+ *
+ * WHY THIS STEP EXISTS, with the commit that made it necessary. Starting an
+ * assistant ships switched OFF (`mc.write.agent-session`), and until 0e43eb3
+ * the compose panel said so and sent the person to Settings to find the remedy.
+ * That commit moved the remedy INTO the panel: the person presses "Turn on
+ * running agents" where they are standing, the flag is written by the click
+ * handler and by nothing else, and the panel reopens over the same slot with
+ * Start live.
+ *
+ * So on a fresh profile the panel's first frame legitimately has a disabled
+ * Start and a message box nobody may type into. This driver read that frame and
+ * reported "the panel offers no MESSAGE to write" and "no way to SEND it" --
+ * three reds about a panel that was working exactly as designed, and a fourth
+ * (the spawn ledger never recorded a start) that followed from never sending.
+ * The question this file asks is unchanged and is now asked of the state a
+ * person reaches: press the switch the product offers, then judge the panel.
+ *
+ * It is a NO-OP when the switch is absent, which is the case on any profile
+ * where starting is already on -- and absence is reported rather than assumed,
+ * so a build that loses the switch cannot pass this by silently skipping it. */
+function pressComposeSwitchScript() {
+  return `(() => {
+  ${PAGE_HELPERS}
+  const node = document.querySelector('[data-compose-unavailable-action="panel"]')
+  if (!node) return { pressed: false, why: 'the panel offers no switch (starting may already be on)' }
+  if (!shown(node)) return { pressed: false, why: 'the switch is in the panel but not on the glass' }
+  if (!enabled(node)) return { pressed: false, why: 'the switch is on the glass but disabled' }
+  const hit = hitTest(node)
+  if (hit.hits === 0) {
+    return { pressed: false, why: 'nothing reaches the switch; ' + (hit.blockedBy ? hit.blockedBy + ' is on top of it' : 'elementFromPoint found nothing') }
+  }
+  const box = node.getBoundingClientRect()
+  const x = box.left + box.width / 2
+  const y = box.top + box.height / 2
+  const options = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', isPrimary: true }
+  node.dispatchEvent(new PointerEvent('pointerdown', options))
+  node.dispatchEvent(new MouseEvent('mousedown', options))
+  node.dispatchEvent(new PointerEvent('pointerup', { ...options, buttons: 0 }))
+  node.dispatchEvent(new MouseEvent('mouseup', { ...options, buttons: 0 }))
+  node.click()
+  return { pressed: true, label: nameOf(node).slice(0, 60) }
+})()`
+}
+
 /* THE PANEL, AND WHETHER IT OFFERS THE TWO THINGS A PERSON MUST SUPPLY. */
 function readPanelScript() {
   return `(() => {
@@ -1614,6 +1659,19 @@ async function main() {
       if (panel.present) {
         check('the panel is on the RIGHT of the window', panel.onTheRight,
           `panel spans x=${panel.left}..${panel.right} of ${found.viewportWidth}`)
+        /* A fresh profile has starting switched off, and since 0e43eb3 the way
+           back on is a control in this panel rather than a trip to Settings.
+           Press it before judging what the panel offers -- see
+           pressComposeSwitchScript() for the three reds this step retires. */
+        const composeSwitch = await app.evaluate(pressComposeSwitchScript())
+        check('a panel that says starting is switched off carries the switch, and it can be pressed',
+          composeSwitch.pressed === true || /already be on/.test(composeSwitch.why || ''),
+          composeSwitch.pressed ? `pressed ${JSON.stringify(composeSwitch.label)}` : composeSwitch.why)
+        if (composeSwitch.pressed) {
+          await app.until(`(() => { try { return document.querySelector(${JSON.stringify(PANEL_SELECTOR)}) !== null } catch { return false } })()`, PANEL_BUDGET_MS)
+          await app.settle()
+          panel = await app.evaluate(readPanelScript())
+        }
         /* A ROLE, AND SPECIFICALLY A ROLE. The fallback selectors would accept
            the launch box's assistant-TIER menu here, and being asked which
            assistant to spend is not being asked what the agent is; the values
@@ -1642,7 +1700,9 @@ async function main() {
           `send "${panel.submit.name}" (declared "${DECLARED_COPY.submitLabel}")`
             + (panel.cancel.present ? `; cancel "${panel.cancel.name}" (declared "${DECLARED_COPY.cancelLabel}")` : '; no cancel control'))
       } else {
-        for (const name of ['the panel is on the RIGHT of the window', 'the panel offers a ROLE to choose, and the choices are roles this product declares',
+        for (const name of ['the panel is on the RIGHT of the window',
+          'a panel that says starting is switched off carries the switch, and it can be pressed',
+          'the panel offers a ROLE to choose, and the choices are roles this product declares',
           'the panel offers a MESSAGE to write', 'the panel offers a way to SEND it',
           'the send and cancel controls carry the words this product declares']) {
           pending(name, 'no panel opened')
@@ -1650,7 +1710,9 @@ async function main() {
       }
     } else {
       pending('pressing an empty node opens a panel that was not open before', 'nothing pressable to press')
-      for (const name of ['the panel is on the RIGHT of the window', 'the panel offers a ROLE to choose, and the choices are roles this product declares',
+      for (const name of ['the panel is on the RIGHT of the window',
+        'a panel that says starting is switched off carries the switch, and it can be pressed',
+        'the panel offers a ROLE to choose, and the choices are roles this product declares',
         'the panel offers a MESSAGE to write', 'the panel offers a way to SEND it',
           'the send and cancel controls carry the words this product declares']) {
         pending(name, 'no panel could be opened')

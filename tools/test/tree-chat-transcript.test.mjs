@@ -77,6 +77,25 @@ test('the durable half is written from the same lines, so a resume carries the b
   assert.match(append, /persistTranscript\(sessionId\)/, 'appends no longer reach the durable excerpt')
 })
 
+test('and the durable half is READ BACK, so a restart shows the conversation rather than rebuilding one', () => {
+  /* THE MEASUREMENT THIS PINS. On a staged packaged build, a node holding five
+     recorded lines drew TWO bubbles after the app was restarted -- the first
+     question above the second answer -- on both the rail chat and the compact
+     card. `sessionTranscripts` is window memory; a new window has none; so the
+     `!history.length` fallback composed node.message with node.reply and
+     produced a conversation that never happened.
+     This asserts the store is consulted BEFORE that fallback, and that the
+     fallback is still there for a node whose conversation was never recorded. */
+  const config = view.slice(view.indexOf('function treeChatConfigFor'), view.indexOf('function treeChatConfigFor') + 6400)
+  const live = config.indexOf('sessionTranscripts.get(node.sessionId)')
+  const stored = config.indexOf('transcriptStore.get(node.id)')
+  const fallback = config.indexOf('nodeReplies.get(node.id) || node.reply', live)
+  assert.ok(live > -1, 'the live map read is gone; this test is pinned to the wrong function')
+  assert.ok(stored > -1, 'a session with no window memory never reads the durable record, so a restart rebuilds the conversation from the brief and the latest reply')
+  assert.ok(stored > live, 'the durable record must be the fallback for an empty window, not the first source')
+  assert.ok(fallback > stored, 'the brief-plus-latest-reply fallback must come AFTER the record, or it will keep standing in for one that exists')
+})
+
 /* ---------------------------------------------------------------
    B. Where one turn ends and the next begins.
    --------------------------------------------------------------- */

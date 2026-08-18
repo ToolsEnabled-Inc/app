@@ -196,6 +196,20 @@ const SETTINGS = new Map([
   /* Launches a real Codex Cloud task and follows it to a terminal state. Real
      provider budget, real network. Never in the default set. */
   ['cloud-launch-packaged-qa.mjs', { runner: 'node', timeoutMs: 1_500_000, costly: true }],
+  /* DRIVES ONE REAL CODEX `luna` TURN THROUGH THE PACKAGED SHELL and then asks
+     the metrics page what it shows. It spends the owner's own quota, and it
+     REFUSES without an engine path: "This driver measures a REAL agent turn and
+     needs a real engine to run one. Pass --engine <path…>" -- exit 2, nothing
+     measured.
+     Unregistered, it took the defaults, was run with no argument, and sat in the
+     FAIL column of a 43-driver run having measured nothing (2026-08-18). That is
+     the same shape google-signin-live-qa is held back for, stated four entries
+     up: a driver that cannot run on its own is costly, not failing. It is
+     `costly` for BOTH reasons here -- the budget and the argument -- and the
+     free path is not lost, because tools/test/*.test.mjs cover the writer and
+     the readings, and a live reconciliation against the engine's own rollout
+     files is an operator run. */
+  ['metrics-usage-live-qa.mjs', { runner: 'node', timeoutMs: 900_000, costly: true }],
 ])
 
 const DEFAULT_SETTINGS = Object.freeze({ runner: 'node', timeoutMs: 900_000, costly: false, needs: [] })
