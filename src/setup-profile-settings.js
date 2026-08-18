@@ -45,7 +45,7 @@ import { TIER_CHOICES, TIER_IDS, noteTierRecorded, SETUP_RESOLUTION } from './se
    taken weeks ago (owner, R1529). */
 import { withheldMarkup } from './guided-step.js'
 import { LIVE_VIEW_FLAGS, setLiveView } from './live-flags.js'
-import { WRITE_ACTION_FLAGS, setWriteEnabled } from './write-flags.js'
+import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from './write-flags.js'
 import {
   AUTONOMY_CHOICES,
   PROFILE_INTENT,
@@ -342,37 +342,70 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     busy = 'tier'
     feedback = null
     refresh()
-    let result
+    /* ONE EXIT, AND IT ALWAYS REPAINTS.
+     *
+     * This body used to clear `busy` in the middle and then return through five
+     * separate `refresh()` calls. Measured on the packaged build 2026-08-16: a
+     * throw between the disk write and the repaint -- one unbound identifier
+     * was enough -- left the machine on its NEW permission level, this row
+     * showing the OLD one, and every button in the section painted `disabled`
+     * with nothing left to run that could re-enable them. Clearing `busy` early
+     * did not help: the flag was already null, so the section was dead only
+     * because the DOM still said so, and the next repaint (typing in the
+     * settings search) handed back a live control that wrote a further level to
+     * disk on every press while still showing the original.
+     *
+     * So the state is restored and the section repainted in `finally`, for
+     * every path including one nobody predicted, and a failure the code did not
+     * expect arrives as a sentence rather than as a section that stops
+     * answering. */
     try {
-      result = await globalThis.mcSetup.chooseTier(value)
-    } catch (error) {
-      result = { ok: false, reason: error?.message || String(error) }
-    }
-    busy = null
-    if (!result?.ok) {
-      feedback = { tone: 'serious', title: 'The permission level was not changed', detail: `${result?.reason || 'The application did not say why.'} Nothing on this computer was changed.` }
+      let result
+      try {
+        result = await globalThis.mcSetup.chooseTier(value)
+      } catch (error) {
+        result = { ok: false, reason: error?.message || String(error) }
+      }
+      if (!result?.ok) {
+        feedback = { tone: 'serious', title: 'The permission level was not changed', detail: `${result?.reason || 'The application did not say why.'} Nothing on this computer was changed.` }
+        return
+      }
+      /* THE MACHINE HAS ALREADY MOVED, so the level this screen believes in
+         moves FIRST. Everything below is bookkeeping on top of a record that is
+         already the new one; a step that failed with the level unrecorded would
+         leave the row naming a level this computer no longer has, which is the
+         one thing a permission control may never do. */
+      noteTierRecorded(result.tier || value)
+      /* Read the flags as they ACTUALLY ARE before the derivation moves them.
+         Deriving "before" would be wrong twice over: the ceiling has already
+         changed by the time this runs, so a derived before is a derived after;
+         and a flag the person turned on by hand in Settings -> Write is not in
+         the derivation at all. What was on is a question only storage can
+         answer, and storage is not affected by the line above. */
+      const wasOn = new Map(WRITE_ACTION_FLAGS.map(flag => [flag.id, isWriteEnabled(flag.id)]))
+      /* Re-derive against the NEW ceiling and write the result. A smaller level
+         that left the bigger level's switches on would be a level in name only. */
+      persist(answers)
+      const after = derived()
+      const dropped = WRITE_ACTION_FLAGS
+        .filter(flag => wasOn.get(flag.id) && !after.writeFlags[flag.id])
+        .map(flag => flag.label)
+      feedback = dropped.length
+        ? { tone: 'warn', title: 'Permission level changed, and some switches went off with it', detail: `${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not part of this level, so ${dropped.length === 1 ? 'it was' : 'they were'} turned off.` }
+        : { tone: 'good', title: 'Permission level changed', detail: 'Everything below is unchanged; this level permits all of it.' }
+    } catch {
+      /* The words carry no identifier and no path, the same rule every other
+         refusal in this product keeps: what a person can act on is which level
+         this computer now holds and which screen shows the switches. */
+      feedback = {
+        tone: 'serious',
+        title: 'The level changed, and this screen could not finish the change',
+        detail: 'This computer now records the level shown above. The switches below it may not have been brought into line with it. Open Settings → Write to check them.',
+      }
+    } finally {
+      busy = null
       refresh()
-      return
     }
-    /* Read the flags as they ACTUALLY ARE before the level moves.
-       Deriving "before" would be wrong twice over: noteTierRecorded has already
-       changed the ceiling by the time it ran, so a derived before is a derived
-       after; and a flag the person turned on by hand in Settings -> Write is not
-       in the derivation at all. What was on is a question only storage can
-       answer. */
-    const wasOn = new Map(WRITE_ACTION_FLAGS.map(flag => [flag.id, isWriteEnabled(flag.id)]))
-    noteTierRecorded(result.tier || value)
-    /* Re-derive against the NEW ceiling and write the result. A smaller level
-       that left the bigger level's switches on would be a level in name only. */
-    persist(answers)
-    const after = derived()
-    const dropped = WRITE_ACTION_FLAGS
-      .filter(flag => wasOn.get(flag.id) && !after.writeFlags[flag.id])
-      .map(flag => flag.label)
-    feedback = dropped.length
-      ? { tone: 'warn', title: 'Permission level changed, and some switches went off with it', detail: `${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not part of this level, so ${dropped.length === 1 ? 'it was' : 'they were'} turned off.` }
-      : { tone: 'good', title: 'Permission level changed', detail: 'Everything below is unchanged; this level permits all of it.' }
-    refresh()
   }
 
   function setAnswer(target, value) {
