@@ -36,6 +36,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import {
+  assertIsolated,
   closeWindow,
   delay,
   openWindow,
@@ -202,6 +203,18 @@ async function main() {
 
     seedMachineRecord(scratch, staged.appRoot, 'standard')
     window = await openWindow(staged.executable, scratch)
+
+    /* MEASURED, NOT REASONED. Everything above says this run is isolated -- a
+       redirected APPDATA, a --user-data-dir on the scratch profile, and a
+       capability state root derived from that userData. Belief is not accepted
+       here: assertIsolated reads where the app ACTUALLY wrote its preferences
+       and throws if that path is inside the real installation. A driver that
+       cannot prove which data directory it touched has no business reporting on
+       a signed ledger at all. */
+    const prefs = assertIsolated(scratch)
+    note('ok', `this run wrote to its own profile, measured: ${prefs}`)
+    const realState = path.join(process.env.APPDATA || '', 'ToolsEnabled', 'capability', 'state', 'audit.sqlite3')
+    note('info', `the real installation's audit ledger is untouched by construction; this run never resolves ${realState}`)
 
     /* ---------------------------------------------------------------- before */
     console.log('\n[1] the metrics page on a profile where nothing has ever run')
