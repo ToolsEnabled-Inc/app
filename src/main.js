@@ -300,12 +300,15 @@ function render() {
  * CAN THIS PAGE ACTUALLY DRAW A FRAME RIGHT NOW?
  *
  * A window whose page reports visibilityState 'hidden' gets NO rendering
- * frames from Chromium. Measured on this machine, 2026-08-18: a packaged copy
- * spawned with a hidden STARTUPINFO reports hidden, and so does one spawned
- * shown — a second copy of the product lands at the SAME default bounds and
- * covers it. (Minimising is what the harness ASKS for and verifies through
- * the page; it was not isolated as an independent cause, because the windows
- * measured were already reporting hidden.) Every piece of motion this router
+ * frames from Chromium. Measured on this machine, 2026-08-18, and the honest
+ * summary is that it VARIES: two windows of the same build, spawned by the
+ * same command minutes apart, reported 'visible' and 'hidden' respectively.
+ * The variable is occlusion -- copies of this product open at the same default
+ * bounds and cover each other, and a covered page is a page without frames --
+ * not any spawn flag, which an earlier version of this comment wrongly named
+ * as the cause. (Minimising is what the retention harness ASKS for and then
+ * verifies through the page; it was not isolated as an independent cause.)
+ * Every piece of motion this router
  * schedules is then a promise the browser can never keep, and worse than
  * useless: work parked on "the next frame" is parked forever, and what it
  * references is retained forever. Heap snapshots of the packaged build
