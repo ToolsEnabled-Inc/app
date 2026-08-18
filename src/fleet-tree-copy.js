@@ -184,24 +184,26 @@ export const START_PANEL = Object.freeze({
      and refuse by name when picked -- hiding them would make a chosen model
      quietly become Codex, the exact defect the tier channel closed. */
   tierLabel: 'What does it run on?',
-  /* WHY THE CLAUDE ROWS SAY SO IN THE MENU ITSELF, and why the help says where
-     Claude DOES work. Owner, 2026-08-16: "claude should work too not just
-     codex." A person reads the menu, not the refusal that follows; a row that
-     looks startable and then refuses is a small lie told twice. So the fact
-     rides on the row and the alternative rides here.
-
-     THE REASON THIS LINE USED TO GIVE WAS FALSE, corrected 2026-08-16. It read
-     "this copy may not use your Claude sign-in, and it keeps no key", and the
-     second clause is true while the first is not. MEASURED on the installed
-     1.0.17: handing work over on the agent page spawns the official claude
-     binary with apiKeySource "none" -- the person's own Claude subscription --
-     and the assistant answered. So this copy DOES use that sign-in, on that
-     path, today. What is fenced is the interactive tree path, whose launcher
-     runs on a throwaway config directory with no login state
-     (NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the engine; TE-L-0006). Saying "may
-     not use your sign-in" made the product contradict itself on two screens,
-     and pointed a person away from the one place Claude already works. */
-  tierHelp: 'Luna is a good default. Claude cannot start from a tree yet; to use Claude, hand the work over on the agent page instead.',
+  /* THE LAST PLACE THE DEAD END WAS STILL WRITTEN DOWN.
+   *
+   * This line read "Claude cannot start from a tree yet; to use Claude, hand the
+   * work over on the agent page instead." Both halves were removed everywhere
+   * else on 2026-08-17 and this one survived, because it is help text under the
+   * menu rather than a refusal, so no test about refusals looked at it. It was
+   * found by DRIVING the panel and reading what was actually on the glass.
+   *
+   * BOTH HALVES WERE WRONG BY THEN. The destination was driven from the state a
+   * person reads this in -- a set-up machine, a tree -- and had ZERO doors:
+   * no link, no enabled control, and the agent route is not on the ring. And
+   * "cannot start from a tree" is now decided per build by the shell, not by
+   * this file: tierChoicesFor() labels each row from what
+   * mc-agent:startable-tiers actually answered, so a build carrying the engine
+   * shows "Sonnet · Claude" while this sentence underneath still said it could
+   * not start. The menu and its own help contradicted each other on one screen.
+   *
+   * So the help says only what is true of every build: which row is a good
+   * default. What a given row can do is on the row, where it is computed. */
+  tierHelp: 'Luna is a good default. Each row says so if this copy cannot start it.',
   effortLabel: 'How hard should it think?',
   effortHelp: 'Harder thinking is slower and costs more. The tier picks a sensible default; change it here for this agent.',
   messageLabel: 'What do you want it to do?',

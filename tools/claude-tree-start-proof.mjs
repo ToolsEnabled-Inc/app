@@ -235,7 +235,34 @@ async function main() {
     note('info', 'NOT REAL INPUT, and it is the only step in this run that is not: the menu was FOCUSED by a real mouse press, then set programmatically. Measured first -- arrow keys and type-ahead move a native select only through an operating-system popup, which an offscreen window does not have. See the note above chooseTierUnavoidablySynthetic.')
     if (!chosen.ok) return
 
-    console.log('\n[3] typing the question and pressing Start')
+    /* THE ROLE, WHICH THIS DRIVER FORGOT AND THEN BLAMED THE PRODUCT FOR.
+     *
+     * Earlier runs pressed Start with no role chosen and reported SILENCE. The
+     * panel was not silent at all -- it had painted "Pick a role first, then
+     * press Start" exactly where a person would read it, and attemptSubmit()
+     * returned before any IPC. The driver was pressing Start on an incomplete
+     * form and calling the result a defect in the start path.
+     *
+     * It is set the same way the tier is, and for the same measured reason: a
+     * native <select> takes arrow keys only through an operating-system popup
+     * that an offscreen window does not have. Focused by a real press, then set.
+     * Reported as not-real-input, never hidden inside the mouse-and-keyboard
+     * claim. */
+    console.log('\n[3] choosing a role, which the form requires before it will start')
+    const roleSelector = '[data-compose-field="role"]'
+    const roleChosen = await window.evaluate(`(() => {
+      const node = document.querySelector(${JSON.stringify(roleSelector)})
+      if (!node) return { ok: false, why: 'no role menu on the panel' }
+      const real = [...node.options].find(o => o.value && o.value.length > 0)
+      if (!real) return { ok: false, why: 'the role menu offers no role' }
+      node.value = real.value
+      node.dispatchEvent(new Event('change', { bubbles: true }))
+      return { ok: node.value === real.value, value: node.value, label: real.textContent.trim().slice(0, 40) }
+    })()`)
+    note(roleChosen?.ok ? 'ok' : 'FAIL', `chose a role: ${roleChosen?.ok ? JSON.stringify(roleChosen.label) : roleChosen?.why}`)
+    if (!roleChosen?.ok) return
+
+    console.log('\n[4] typing the question and pressing Start')
     /* `message`, not `prompt`. The first version guessed `prompt` plus a couple
        of fallbacks, matched a hidden element, and reported "typed the question
        with real keystrokes: hidden" -- a harness fault dressed as a product
@@ -274,8 +301,44 @@ async function main() {
         const panel = document.querySelector('.computers') || document.body
         const text = panel.innerText || ''
         const refusalNodes = [...document.querySelectorAll('[data-refusal-code]')]
+        /* THE WORD I TYPED IS NOT THE WORD I AM LOOKING FOR.
+         *
+         * This read text.includes(PROOF_WORD) over the whole panel, and the
+         * prompt is "Reply with exactly the word ALBATROSS-9317 and nothing
+         * else." -- so the answer is INSIDE THE QUESTION. The check matched the
+         * message box and reported A REAL CLAUDE AGENT ANSWERED on a run where
+         * no session ever started. A false pass, produced by the driver, about
+         * the one claim this whole lane exists to make.
+         *
+         * Caught by asking a DIFFERENT question whose answer was not in the
+         * prompt: nothing came back in 150s, which is what the panel had been
+         * saying all along.
+         *
+         * So the word only counts when it appears somewhere that is NOT a form
+         * control -- a leaf node outside every input, textarea and select. */
+        const inFormField = node => node.closest('input, textarea, select, [data-compose-field], .agent-compose-form') !== null
+        /* AND NOT THE ECHO EITHER. Excluding form fields was still not enough:
+           the tree chip renders the asked-line into .cl-previous, which
+           computers.js builds from the message that was just submitted. So the
+           prompt appears a SECOND time outside the form, and the check passed
+           again on a run where sessions on the page was 0 and a control
+           question -- one whose answer was not in its own prompt -- produced
+           nothing at all in 150 seconds.
+           Two false passes from one driver, on the single claim this lane
+           exists to make. So the word must appear somewhere that is neither a
+           form control NOR an echo of what was asked. */
+        const isEcho = node => String(node.textContent || '').toLowerCase().includes('asked:')
+          || node.closest('.cl-previous, .cl-chat, [data-tree-chip], .static-tree-chip-overlay') !== null
+        const spoken = [...document.querySelectorAll('*')]
+          .filter(node => node.children.length === 0
+            && (node.textContent || '').includes(${JSON.stringify(PROOF_WORD)})
+            && !inFormField(node)
+            && !isEcho(node))
+          .map(node => ({ tag: node.tagName, cls: String(node.className || '').slice(0, 50) }))
         return {
-          hasProof: text.includes(${JSON.stringify(PROOF_WORD)}),
+          hasProof: spoken.length > 0,
+          spokenIn: spoken.slice(0, 4),
+          echoedInForm: text.includes(${JSON.stringify(PROOF_WORD)}) && spoken.length === 0,
           refusalCodes: refusalNodes.map(n => n.getAttribute('data-refusal-code')),
           refusalText: refusalNodes.map(n => (n.textContent || '').trim().slice(0, 220)),
           noLauncher: text.includes('does not carry the part') || text.includes('no launcher'),
@@ -310,8 +373,11 @@ async function main() {
     if (last?.notLoggedIn) {
       note('info', 'THE PIPELINE RAN: the child started, answered, and its words came back through the event mapping. It said "Not logged in", because this harness gives it a throwaway home with no Claude sign-in. That is the harness, not the product, and it is not the proof either.')
     }
+    if (last?.echoedInForm) {
+      note('info', `"${PROOF_WORD}" is on the glass ONLY inside the form I typed it into. That is my own text, not an answer.`)
+    }
     if (last?.hasProof) {
-      note('ok', `A REAL CLAUDE AGENT ANSWERED: "${PROOF_WORD}" is on the glass`)
+      note('ok', `A REAL CLAUDE AGENT ANSWERED: "${PROOF_WORD}" appears outside the form, in ${JSON.stringify(last.spokenIn)}`)
     } else if (last?.refusalCodes?.length || last?.noLauncher) {
       note('FAIL', `the start was REFUSED rather than run: codes=${JSON.stringify(last.refusalCodes)} said=${JSON.stringify(last.refusalText)}`)
     } else {
