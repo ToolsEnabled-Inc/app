@@ -51,7 +51,25 @@ import {
 } from './test-account-harness.mjs'
 
 const findings = []
-const note = (level, text) => { findings.push({ level, text }); console.log(`  ${level.padEnd(5)} ${text}`) }
+/* The negative control below is run once, on the first node that opens a card:
+   it is a statement about the measurement, not about any one node. */
+let controlProven = false
+/* THE EXIT CODE IS SET WHEN THE FINDING IS MADE, not at the end.
+ *
+ * Measured on this driver 2026-08-18: a run that printed three FAIL lines
+ * exited 0 and never reached its own summary. The teardown awaits
+ * closeWindow(), a debugger call resolves only when the debugger answers and
+ * never rejects when the socket is already gone, so the promise cannot
+ * settle, Node's event loop empties and the process exits 0 with the verdict
+ * unwritten. tools/uninstall-reset-packaged-qa.mjs carries the same hazard
+ * and documents it. Recording the failure into process.exitCode at the
+ * moment it is observed means the worst this can now do is lose the summary,
+ * never the answer. */
+const note = (level, text) => {
+  findings.push({ level, text })
+  if (level === 'FAIL') process.exitCode = 1
+  console.log(`  ${level.padEnd(5)} ${text}`)
+}
 
 /* The four states, and what each one is meant to prove. `running` is stored and
    comes back as `starting` by design (src/fleet-trees.js: nothing comes back off
@@ -151,6 +169,76 @@ const READ_CHAT = `function readChat(nodeId) {
     railChatHost: Boolean(railHost),
     railChat: describe(railHost && railHost.querySelector('.chat')),
     railChatTabWords: railBody ? (railBody.innerText || '').trim().slice(0, 200) : null,
+  }
+}`
+
+/* CAN THE SEND BUTTON BE PRESSED, MEASURED IN POINTS RATHER THAN IN CLASSES?
+ *
+ * The compact card is `overflow: hidden` and is far narrower than the page
+ * composer .chat-input was written for. `.chat-input input` carried `flex: 1`
+ * and no `min-width`, so it kept its default `min-width: auto` -- the field's
+ * MIN-CONTENT width, which is the widest word of its placeholder
+ * ("Message <agent name>...") -- and refused to shrink. The row then overflowed
+ * the card and Send was pushed past the clipped edge: present in the DOM,
+ * carrying its aria-label, counted by every check that asks whether the button
+ * EXISTS, and unpressable by a person.
+ *
+ * So this asks the only question that distinguishes those two worlds: over a
+ * 9x5 grid inside the button's own box, does a press at that point reach the
+ * button? `document.elementFromPoint` answers for the real compositor, and the
+ * rule is the harness's own -- the target itself or one of its descendants,
+ * never an ancestor, because a click bubbles UP from what it hits.
+ *
+ * The button's box is ALSO compared against the card's clipped box, so a
+ * failure says which of the two it is: covered by something, or outside the
+ * card entirely. A disabled Send is measured exactly the same way -- nothing in
+ * the stylesheet takes its pointer events away, and a person on a node that
+ * cannot send still has to be able to see where the control is. */
+const SEND_REACH = `function sendReach(nodeId) {
+  const chip = document.querySelector('.chip[data-agent-id="' + nodeId + '"]')
+  const card = chip && chip.querySelector('.chat')
+  const button = chip && chip.querySelector('.chat-send')
+  if (!chip || !card || !button) return { points: 0, hits: 0, absent: true }
+  const box = button.getBoundingClientRect()
+  const cardBox = chip.getBoundingClientRect()
+  /* SAMPLED INSIDE THE SHAPE, NOT ACROSS THE BOUNDING BOX.
+     The first version put its outermost points one pixel in from each edge and
+     reported 44/45 with the miss always at the same corner, hitting
+     DIV.chat-input -- the row behind the button. That is not a defect: this
+     control is rounded and its box's corner belongs to whatever is underneath,
+     and a fractional layout box puts the last column a fraction outside the
+     painted edge. An instrument that calls a rounded corner a clipped button
+     is manufacturing reds. The grid therefore spans the middle 80% in each
+     direction -- for this 38px button that is a ~3.8px margin, clear of both
+     the 3px corner radius and any subpixel edge -- and still walks the whole
+     face, which is what the measurement is about. */
+  const points = []
+  for (let column = 0; column < 9; column += 1) {
+    for (let row = 0; row < 5; row += 1) {
+      points.push({
+        x: box.left + box.width * (0.1 + (0.8 * column) / 8),
+        y: box.top + box.height * (0.1 + (0.8 * row) / 4),
+      })
+    }
+  }
+  const missed = []
+  let hits = 0
+  for (const point of points) {
+    const hit = document.elementFromPoint(point.x, point.y)
+    if (hit && (hit === button || button.contains(hit))) { hits += 1; continue }
+    missed.push({
+      x: Math.round(point.x), y: Math.round(point.y),
+      hit: hit ? hit.tagName + (hit.className ? '.' + String(hit.className).split(' ')[0] : '') : 'nothing',
+    })
+  }
+  return {
+    points: points.length,
+    hits,
+    missed: missed.slice(0, 4),
+    box: { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) },
+    card: { x: Math.round(cardBox.x), y: Math.round(cardBox.y), w: Math.round(cardBox.width), h: Math.round(cardBox.height) },
+    insideCard: box.right <= cardBox.right + 0.5 && box.left >= cardBox.left - 0.5,
+    disabled: button.disabled === true,
   }
 }`
 
@@ -283,6 +371,49 @@ async function main() {
             `the card refuses to send and says why: disabled=${card.inputDisabled} said=${JSON.stringify(card.nosend || '')}`)
         }
 
+        /* THE CLIPPED SEND BUTTON, measured before anything is pressed. */
+        const reach = readOrThrow(await window.evaluate(`(${SEND_REACH})(${JSON.stringify(nodeId)})`), 'the send button reach')
+        note(reach.points > 0 && reach.hits === reach.points ? 'ok' : 'FAIL',
+          `the card's Send button is reachable: ${reach.hits}/${reach.points} hit points`
+          + `${reach.absent ? ' — NO SEND BUTTON IN THE CARD' : ''}`
+          + ` (button ${JSON.stringify(reach.box)} in card ${JSON.stringify(reach.card)}, `
+          + `insideCard=${reach.insideCard}, disabled=${reach.disabled})`
+          + `${reach.missed && reach.missed.length ? ` missed: ${JSON.stringify(reach.missed)}` : ''}`)
+
+        /* THE NEGATIVE CONTROL, REBUILT ON THE SPOT.
+         *
+         * 45/45 is only worth reading if the same instrument can be made to
+         * report the defect. `min-width: 0` in src/styles.css is the whole fix,
+         * so putting `auto` back on this one field restores the exact
+         * pre-fix layout -- the field refuses to shrink below its placeholder's
+         * min-content width and pushes Send past the card's clipped edge -- and
+         * the count has to fall. It is set inline on ONE card, measured, and
+         * removed again, so nothing after this line is measured on a page this
+         * driver changed. Run once, on the first state that has a card.
+         */
+        if (!controlProven) {
+          await window.evaluate(`(() => {
+            const input = document.querySelector('.chip[data-agent-id="${nodeId}"] .chat-input input')
+            if (!input) return false
+            input.style.minWidth = 'auto'
+            return true
+          })()`)
+          await delay(260)
+          const broken = readOrThrow(await window.evaluate(`(${SEND_REACH})(${JSON.stringify(nodeId)})`), 'the send button reach with the fix removed')
+          await window.evaluate(`(() => {
+            const input = document.querySelector('.chip[data-agent-id="${nodeId}"] .chat-input input')
+            if (input) input.style.minWidth = ''
+            return true
+          })()`)
+          await delay(260)
+          const restored = readOrThrow(await window.evaluate(`(${SEND_REACH})(${JSON.stringify(nodeId)})`), 'the send button reach after restoring the fix')
+          controlProven = true
+          note(broken.hits < broken.points && restored.hits === restored.points ? 'ok' : 'FAIL',
+            `the measurement can still see the defect: with the field's min-width put back to auto, `
+            + `${broken.hits}/${broken.points} hit points (button ${JSON.stringify(broken.box)}, insideCard=${broken.insideCard}); `
+            + `restored, ${restored.hits}/${restored.points}`)
+        }
+
         const opened = await press(window, `.chip[data-agent-id="${nodeId}"] [data-chat-actions]`, 5000)
         const afterActions = readOrThrow(await window.evaluate(`(${READ_CHAT})(${JSON.stringify(nodeId)})`), 'the state after the actions press')
         const rows = afterActions.chipChat?.popRows || []
@@ -318,7 +449,13 @@ async function main() {
     }
   } finally {
     if (window) {
-      await closeWindow(window).catch(() => {})
+      /* BOUNDED. See the note on `note` above: an unbounded await here is what
+         swallowed a whole run's verdict. Reaping by pid is what actually ends
+         the process, and it does not need the debugger's cooperation. */
+      await Promise.race([
+        closeWindow(window).catch(() => {}),
+        delay(15_000),
+      ])
       reap(window.timeline?.pid)
     }
     try { rmSync(scratch, { recursive: true, force: true, maxRetries: 5 }) } catch { /* the profile outlives the run */ }

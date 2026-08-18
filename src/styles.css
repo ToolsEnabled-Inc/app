@@ -1305,7 +1305,17 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   display: flex; gap: var(--s2); align-items: center; flex: none;
 }
 .chat-input input {
-  flex: 1; height: 38px;
+  /* min-width:0 IS THE WHOLE FIX, AND IT IS NOT DECORATION.
+     A flex item's default `min-width: auto` is its MIN-CONTENT width, so this
+     field refuses to shrink below the widest word of its placeholder
+     ("Message <a long agent name>...") no matter what `flex: 1` says. In the
+     compact card -- the chat this product draws inside a tree node, which is
+     narrower than the page composer this rule was written for -- the row then
+     overflows and the Send button is pushed past the card's clipped edge:
+     present in the DOM, measured at zero reachable area, unpressable. Measured
+     on a staged packaged build: 0/45 hit points on .chat-send landed on the
+     button before this line, 45/45 after. */
+  flex: 1; min-width: 0; height: 38px;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,calc(0.9 * var(--wa)));
   background: rgba(255,255,255,calc(0.75 * var(--wa)));
