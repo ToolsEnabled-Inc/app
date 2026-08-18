@@ -183,6 +183,51 @@ const PAYLOAD_LAUNCH_ENVIRONMENT_MODULE = 'src/lib/providers/subscription-launch
  * between. */
 const PAYLOAD_CLAUDE_ENGINE_MODULE = 'src/lib/agent-engine/claude-cli-process.js'
 
+/* THE TWO MODULES THAT LET ONE AGENT ON THIS COMPUTER WRITE TO ANOTHER.
+ *
+ * THE OWNER'S FINDING: "This is just the issue with trying to have it reach
+ * coordinator through agent comms it didnt work." A child started under a
+ * manager on the tree was told its manager's name, handed a messaging tool, and
+ * refused every time. The messenger it was handed is CROSS-MACHINE and refuses
+ * a local recipient by design; on a one-machine installation that is every
+ * recipient it can name.
+ *
+ * The engine now carries a local sibling, and it needs exactly one thing this
+ * process is the only holder of: WHICH SESSION IS WHICH CIRCLE ON THE TREE. The
+ * tree lives in the window, the sessions live here, and until now the two never
+ * met -- which is the third and least obvious of the three walls.
+ *
+ * OPTIONAL, LIKE THE CLAUDE ENGINE ABOVE, AND FOR THE SAME REASON. A payload cut
+ * before these modules existed keeps starting sessions exactly as it does today
+ * and simply carries no local channel. A host that refused to start without them
+ * would turn a missing feature into a dead product. */
+const PAYLOAD_TREE_DIRECTORY_MODULE = 'src/lib/agent-comms/tree-node-directory.js'
+const PAYLOAD_LOCAL_MESSAGE_MODULE = 'src/lib/providers/agent-comms-local.js'
+
+/* WHAT A TREE SESSION IS TOLD ABOUT ITS OWN PLACE, READ BACK OUT.
+ *
+ * This is a CONTRACT WITH src/tree-node-brief.js, and it is pinned by
+ * tools/test/tree-address-contract.test.mjs, which composes a real brief with
+ * that module and asserts this expression recovers the two names. Two files
+ * agreeing by inspection is how it drifts; a test that runs both is how it does
+ * not.
+ *
+ * WHY THE BRIEF AND NOT THE START REQUEST. The obvious place to carry a node's
+ * identity is the start call, and it cannot go there: shell/main.cjs narrows the
+ * renderer's start request through parseAgentStart() before this host sees it,
+ * and both that file and the view that would have to send it belong to other
+ * lanes tonight. The brief already crosses the same boundary, already carries
+ * exactly these two names, and is already the thing the person can read on
+ * screen -- so the identity travels on the one channel that was never blocked. */
+/* THE TRAILING FULL STOP IS NOT PART OF THE MATCH, AND THAT WAS A REAL BUG.
+ * A node at the TOP of the tree writes `... you are "X", at the top of your
+ * tree.` -- no manager clause, and a comma where an expression anchored on a
+ * full stop expected one. So the manager in the owner's own screenshot, the one
+ * circle that most needs to be addressable, would never have registered at all
+ * while every child registered fine. Found by the contract test running both
+ * halves rather than by reading them. */
+const TREE_ADDRESS_RE = /^Tree address: you are "([^"\n]{1,120})"(?:, and your manager is "([^"\n]{1,120})")?/m
+
 /* Resolve the Claude engine from the SAME tree the Codex engine came out of.
  *
  * The same rule the confinement and launch-environment modules follow, for the
@@ -880,6 +925,32 @@ function validateStartedSession(value) {
  * unchanged. A computer with no account list must not be able to tell that any
  * of this shipped, so "no account" is not a branch with its own behaviour -- it
  * is the absence of an argument. */
+/* Resolve the local-message pair out of the engine tree, or answer null.
+ *
+ * BOTH OR NEITHER. The directory without the provider is an address book with
+ * nothing to send through; the provider without the directory has nothing to
+ * address. Loading one of the two would produce a session that registers itself
+ * as reachable and then cannot be reached, which is worse than no channel at
+ * all -- the person would see a manager listed and never get an answer. */
+function loadTreeMessaging(engineRoot) {
+  const directoryPath = path.join(engineRoot, PAYLOAD_TREE_DIRECTORY_MODULE)
+  const providerPath = path.join(engineRoot, PAYLOAD_LOCAL_MESSAGE_MODULE)
+  if (!fs.existsSync(directoryPath) || !fs.existsSync(providerPath)) return null
+  try {
+    const directoryModule = require(directoryPath)
+    const provider = require(providerPath)
+    if (typeof directoryModule.createTreeNodeDirectory !== 'function'
+      || typeof provider.inbox !== 'function') return null
+    return { directory: directoryModule.createTreeNodeDirectory(), provider }
+  } catch {
+    /* A payload whose local-message modules do not load is a payload with no
+       local channel, and that is all it is. It must not stop a session from
+       starting: the channel is an addition to what an agent can do, never a
+       precondition for it running at all. */
+    return null
+  }
+}
+
 function confinementPlanFor(planner, { provider = 'codex', account = null } = {}) {
   if (provider === 'codex' || typeof planner.resolveAgentConfinement !== 'function') {
     /* The account reaches the Codex plan because that is where it MEANS
@@ -948,6 +1019,140 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
   const sessions = new Map()
   const listeners = new Set()
   let closed = false
+
+  /* ------------------------------------------------------------------ *
+   * THE LOCAL CHANNEL: one agent on this computer writing to another.
+   *
+   * WHAT THIS BLOCK IS AND IS NOT. It is not a messenger -- the engine's
+   * agent-comms fabric is, and it was already built, already durable, and
+   * already opened no socket. This is the two things only the main process
+   * knows: WHICH RUNNING SESSION IS WHICH CIRCLE on the person's tree, and WHEN
+   * a message that arrived for one of them should be put in front of it.
+   *
+   * DELIVERY IS A TURN, AND THAT IS THE ONLY HONEST SHAPE. An agent is not a
+   * mailbox that can be topped up between thoughts; it takes turns. So an
+   * arriving message becomes a turn addressed to the receiving agent, exactly
+   * as if the person had typed it, and the receiving agent may answer it by
+   * calling the same tool back. Both halves land in both transcripts.
+   *
+   * AND IT WAITS ITS TURN. sendTurn() refuses an overlapping turn by name
+   * (AGENT_TURN_ACTIVE), correctly -- so an arriving message queues while the
+   * receiver is busy and goes in at the next boundary, rather than being
+   * dropped or crashing a turn the person is watching.
+   * ------------------------------------------------------------------ */
+  const treeMessaging = loadTreeMessaging(engineRoot)
+  const TREE_POLL_MS = 1200
+  const TREE_HEARTBEAT_MS = 30_000
+  let treePollTimer = null
+
+  /* A session announces itself the first time it is told who it is, which is
+     the first turn it is ever sent -- the brief. Registration is deliberately
+     NOT part of startSession(): a session that is started and never briefed has
+     no place on the tree and must not be addressable as though it had one. */
+  function registerTreeSession(session, text) {
+    if (!treeMessaging || session.treeAddress) return
+    const match = TREE_ADDRESS_RE.exec(String(text || ''))
+    if (!match) return
+    const selfName = match[1]
+    const managerName = match[2] || null
+    try {
+      const entry = treeMessaging.directory.registerNode({
+        sessionId: session.sessionId,
+        nodeName: selfName,
+        managerName,
+        pid: process.pid,
+      })
+      session.treeAddress = Object.freeze({ agentId: entry.agentId, selfName, managerName })
+      session.treeCursor = 0
+      session.treeQueue = []
+      session.treeBeatAt = Date.now()
+      startTreePolling()
+    } catch {
+      /* A name this directory will not hold -- empty, over-long, control
+         characters -- is a session with no local address, not a session that
+         cannot run. The refusal it produces later names the node honestly. */
+    }
+  }
+
+  function forgetTreeSession(session) {
+    if (!treeMessaging || !session.treeAddress) return
+    try { treeMessaging.directory.unregisterNode({ sessionId: session.sessionId }) } catch { /* the sweep clears it */ }
+    session.treeAddress = null
+  }
+
+  /* WHAT ARRIVED, PUT WHERE THE PERSON CAN SEE IT.
+   *
+   * The event is shaped as the engine's own assistant text so it reaches the
+   * transcript through the mapping the renderer already has. That is a
+   * compromise and it is stated rather than hidden: this line is not the
+   * receiving model speaking, it is what was said TO it, and the only reader
+   * the transcript offers today is `assistant_text_delta`
+   * (src/agent-session-events.js). It is prefixed with the sender's circle
+   * name by the engine provider, so what appears on screen reads as
+   * "Default: ..." and a person can tell who wrote it. Giving it its own event
+   * type needs the renderer's reader, which another lane holds tonight. */
+  function showIncoming(session, text) {
+    emit(session, Object.freeze({
+      type: 'assistant_text_delta',
+      text: `\n${text}\n`,
+    }))
+  }
+
+  async function pumpTreeSession(session) {
+    if (!treeMessaging || !session.treeAddress || session.state !== 'ready') return
+    const now = Date.now()
+    if (now - (session.treeBeatAt || 0) >= TREE_HEARTBEAT_MS) {
+      session.treeBeatAt = now
+      try { treeMessaging.directory.heartbeatNode({ sessionId: session.sessionId }) } catch { /* next beat */ }
+    }
+    try {
+      const { page } = await treeMessaging.provider.inbox({
+        agentId: session.treeAddress.agentId,
+        cursor: session.treeCursor || 0,
+        limit: 10,
+      })
+      for (const record of (page && page.records) || []) {
+        const body = record && record.message && typeof record.message.body === 'string' ? record.message.body : null
+        if (body) {
+          showIncoming(session, body)
+          session.treeQueue.push(body)
+        }
+        if (Number.isFinite(record.sequence)) session.treeCursor = record.sequence
+      }
+    } catch {
+      /* A durable read that fails is retried on the next tick. It is never
+         reported as an empty inbox, which would silently lose a message. */
+    }
+    if (session.treeQueue.length === 0) return
+    if (session.sendPromise || session.activeTurnId) return
+    const next = session.treeQueue.shift()
+    try {
+      await sendTurn({ sessionId: session.sessionId, text: next })
+    } catch (error) {
+      /* Put it back unless the session itself is gone. A message that could not
+         be handed over because the receiver was mid-turn must not evaporate. */
+      if (!error || error.code === 'AGENT_TURN_ACTIVE') session.treeQueue.unshift(next)
+    }
+  }
+
+  function startTreePolling() {
+    if (treePollTimer || closed) return
+    treePollTimer = setInterval(() => {
+      for (const session of [...sessions.values()]) {
+        pumpTreeSession(session).catch(() => { /* one session's failure is not another's */ })
+      }
+    }, TREE_POLL_MS)
+    /* NEVER HOLD THE PROCESS OPEN. This is a background courier, not work the
+       application owes anybody; an app whose only remaining reason to live is a
+       poll loop should exit. */
+    if (typeof treePollTimer.unref === 'function') treePollTimer.unref()
+  }
+
+  function stopTreePolling() {
+    if (!treePollTimer) return
+    clearInterval(treePollTimer)
+    treePollTimer = null
+  }
 
   /* A TURN IS UNDER WAY, ANNOUNCED BY THE TURN'S OWN FIRST EVENT.
    *
@@ -1033,6 +1238,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     const closePromise = (async () => {
       if (session.engineClose) await Promise.resolve(session.engineClose())
       session.state = 'closed'
+      /* Off the tree the moment the session is really gone, so a sibling
+         addressing it is told "its session has stopped" rather than being told
+         the message was delivered to something that will never read it. */
+      forgetTreeSession(session)
       if (sessions.get(session.sessionId) === session) sessions.delete(session.sessionId)
     })()
     session.closePromise = closePromise
@@ -1573,6 +1782,14 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     session.completedDuringSend.clear()
     session.completedWithoutTurnId = false
 
+    /* THE FIRST TURN A TREE SESSION IS SENT IS ITS BRIEF, and the brief is the
+       only place its place on the tree is written down. Reading it here, rather
+       than at start, means a session is addressable from the moment it knows
+       who it is and never before. A turn that carries no tree address -- every
+       agent started from the single-agent page, every later turn on a tree
+       session -- passes through untouched. */
+    registerTreeSession(session, turnText)
+
     /* THIS RESOLVES WHEN THE TURN IS UNDER WAY, NEVER WHEN IT IS OVER. See
        announceTurn() above for the measurement that made the difference matter.
        Whichever of the two the engine offers first wins:
@@ -1784,6 +2001,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       if (session.state !== 'closed' && session.engineClose) await closeReadySession(session)
     })
     const results = await Promise.allSettled(pending)
+    stopTreePolling()
     listeners.clear()
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason)
     if (failures.length) throw new AggregateError(failures, 'One or more Codex sessions failed to close')

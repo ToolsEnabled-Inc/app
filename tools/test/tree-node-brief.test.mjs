@@ -6,9 +6,18 @@
  *
  * Two properties are pinned here and they pull against each other, which is
  * why they are in one file. The brief must NAME the manager -- that is the
- * defect -- and it must not promise a channel that does not exist. The product
- * ships a cross-machine messenger that refuses a local recipient by design, so
- * a brief mentioning it would send a child to call a number that never rings.
+ * defect -- and it must not promise a channel that does not exist.
+ *
+ * BOTH HALVES MOVED WHEN THE CHANNEL BECAME REAL, and the second one is now the
+ * sharper test. This file used to pin the sentence "there is no direct message
+ * channel to another agent on this computer", which was TRUE: the product's
+ * messenger is cross-machine and refuses a local recipient by design, so on a
+ * one-machine installation a brief mentioning it would have sent a child to
+ * call a number that never rings. There is now a local channel, so the brief
+ * names it -- and the pin becomes the harder question. It is no longer "does
+ * the brief stay silent" but "is the tool the brief names actually registered
+ * and actually allowed at the level this computer runs at". A promise checked
+ * against the registry cannot rot into the old defect quietly.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -21,8 +30,8 @@ import { composeNodeBrief, nodeManagerContext } from '../../src/tree-node-brief.
 
 test('a child is told who its manager is, by the name on the canvas', () => {
   const text = composeNodeBrief({ message: 'Count the files.', selfName: 'Default', parentName: 'Manager' })
-  assert.match(text, /Your manager is Manager\./)
-  assert.match(text, /Begin your report with "Manager:"/)
+  assert.match(text, /your manager is "Manager"/)
+  assert.match(text, /Tree address: you are "Default", and your manager is "Manager"\./)
 })
 
 test('the person\'s words come first and are not altered', () => {
@@ -35,26 +44,41 @@ test('the person\'s words come first and are not altered', () => {
 
 test('a node at the top is told it has no manager, and who it does report to', () => {
   const text = composeNodeBrief({ message: 'Plan the work.', selfName: 'Coordinator' })
-  assert.match(text, /no agent manages you/)
+  assert.match(text, /No agent manages you/)
   assert.match(text, /You report to the person running this tree\./)
-  assert.doesNotMatch(text, /Your manager is/)
+  assert.match(text, /Tree address: you are "Coordinator", at the top of your tree\./)
+  assert.doesNotMatch(text, /and your manager is/)
 })
 
-test('every brief says plainly that there is no agent-to-agent channel here', () => {
+test('a child is told, by name, the tool that reaches its manager', () => {
   const text = composeNodeBrief({ message: 'Go.', selfName: 'Default', parentName: 'Manager' })
-  assert.match(text, /no direct message channel to another agent on this computer/)
+  assert.match(text, /agent_comms\.send_local/)
+  assert.match(text, /from "Default"/)
+  assert.match(text, /to "Manager"/)
+  /* The old sentence is gone and must not creep back on any path: it is now
+     false, and a false disclaimer is worse than none because an agent believes
+     it and stops trying. */
+  assert.doesNotMatch(text, /no direct message channel/)
 })
 
-test('the cross-machine messenger is never named, on any path', () => {
-  // capability/src/lib/providers/agent-comms.js answers accepted:false with a
-  // code meaning "pick a recipient on another machine" for a local recipient.
-  // Naming it here would be the product inventing a capability.
+test('the brief states the limit of the channel rather than overselling it', () => {
+  const text = composeNodeBrief({ message: 'Go.', selfName: 'Default', parentName: 'Manager' })
+  assert.match(text, /and nobody else/)
+  assert.match(text, /permission level does not allow it/)
+})
+
+test('the CROSS-MACHINE messenger is still never named, on any path', () => {
+  /* agent_comms.send is unchanged and still answers accepted:false with a code
+     meaning "pick a recipient on another machine". Only the LOCAL sibling may
+     appear in a brief; naming the other one would be the product inventing a
+     capability, which is the original defect wearing new words. */
   for (const options of [
     { message: 'Go.', selfName: 'Default', parentName: 'Manager' },
     { message: 'Go.', selfName: 'Coordinator' },
   ]) {
     const text = composeNodeBrief(options)
-    assert.doesNotMatch(text, /agent_comms|agent-comms/, 'the brief names a channel that refuses local recipients')
+    assert.doesNotMatch(text, /agent_comms\.send/, 'the brief names the messenger that refuses local recipients')
+    assert.doesNotMatch(text, /agent_comms\.read|agent_comms\.acknowledge/)
   }
 })
 
@@ -67,7 +91,7 @@ test('no brief offers a second channel, because there is not one to offer', () =
      reporting sentence, and this pins that it stays that way. */
   const source = readFileSync(join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'src', 'tree-node-brief.js'), 'utf8')
   const offered = source.match(/said\.push\(/g) || []
-  assert.ok(offered.length <= 8, 'the brief grew another clause; check it names a channel that really works')
+  assert.ok(offered.length <= 12, 'the brief grew another clause; check it names a channel that really works')
   for (const options of [
     { message: 'Go.', selfName: 'Default', parentName: 'Manager' },
     { message: 'Go.', selfName: 'Coordinator' },

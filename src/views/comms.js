@@ -1498,9 +1498,105 @@ export function commsView() {
   headName.textContent = defOf(state.active)?.name || ''
   renderLog(state.active)
   if (liveMode) {
-    fetchOps().then(applyLiveProjection).catch((err) => {
-      applyLiveProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
-    })
+    /* THE MESSAGE PANE, READ AT RUN TIME INSTEAD OF FROZEN AT BUILD TIME.
+     *
+     * THE OWNER'S FINDING: "i couldnt verify if the comms page is wired because
+     * i couldnt get the agents to communicate." Both halves were real, and this
+     * is the second one. Every readout on this page came from
+     * public/data/ops.json, which tools/gen-ops.mjs writes on the machine that
+     * CUTS THE RELEASE and which then lives inside the application archive.
+     * A customer's agent messages do not exist when that runs, and the file
+     * cannot be written afterwards -- it is inside the asar. So the message
+     * pane could never have shown a message, however well the channel worked,
+     * and no amount of work on the channel would have changed that. That is why
+     * this needs a second source rather than a better generator.
+     *
+     * THE STATIC PROJECTION STAYS. Services on record, channels seen running
+     * and the tool-link counts are genuinely build-time-and-CLI facts and are
+     * still read exactly as before; only the messages are read live, and only
+     * they are merged in below. Nothing that legitimately used ops.json lost it.
+     *
+     * DEGRADES BY SAYING SO. A build whose shell exposes no message reader --
+     * an older payload, a window that is not the app -- takes the same path the
+     * page already had for an unreadable source, and the pane says the messages
+     * could not be read WITH the reason. It never shows an empty conversation
+     * as though the agents had nothing to say. */
+    const readLiveMessages = async () => {
+      const bridge = typeof window !== 'undefined' ? window.mcAgent : null
+      /* EVERY SENTENCE BELOW SAYS WHAT TO DO NEXT, and that is a standing bar
+         rather than a nicety: a page whose failure text ends at the failure is
+         what the owner filed as a finding in its own right. A person reading
+         this pane wants to know whether their agents are silent or the page is,
+         and each answer points at the one thing that would tell them. */
+      if (!bridge || typeof bridge.localMessages !== 'function') {
+        return { ok: false, reason: 'this copy of the program cannot read messages between agents yet — update it, and until then read each agent\'s own conversation on the Computers page' }
+      }
+      try {
+        const answer = await bridge.localMessages({ limit: 200 })
+        if (!answer || answer.ok !== true || !Array.isArray(answer.messages)) {
+          return {
+            ok: false,
+            reason: (answer && answer.reason)
+              || 'the program did not answer when asked for messages between agents. Start an agent from the tree; if this keeps saying so, restart the program.',
+          }
+        }
+        return { ok: true, messages: answer.messages }
+      } catch (error) {
+        return {
+          ok: false,
+          reason: `messages between agents could not be read (${error?.message || error}) — this pane will try again on its own in a few seconds, and the Computers page still shows each agent's own conversation`,
+        }
+      }
+    }
+
+    /* The live messages are folded into the SAME envelope shape the projection
+       already renders, so applyLiveProjection is unchanged: one code path draws
+       the page whether the messages came from a file or from the fabric. */
+    const LIVE_CHANNEL_ID = 'agent-tree'
+    const withLiveMessages = (result, live) => {
+      const envelope = result.ok ? result.data : null
+      if (!envelope?.data) return result
+      const data = { ...envelope.data }
+      if (!live.ok) {
+        data.messages = { ok: false, reason: live.reason, observedAt: null, value: null }
+        return { ...result, data: { ...envelope, data } }
+      }
+      data.messages = {
+        ok: true,
+        reason: null,
+        observedAt: new Date().toISOString(),
+        value: live.messages.map(message => ({ ...message, channelId: LIVE_CHANNEL_ID })),
+      }
+      /* A message needs a channel to land in -- messageRows() above filters by
+         id -- and the agents on this computer are not a declared service and
+         not something the preflight CLI can see. They are their own channel. */
+      const channels = data.channels.ok && Array.isArray(data.channels.value) ? [...data.channels.value] : []
+      if (!channels.some(channel => channel.id === LIVE_CHANNEL_ID)) {
+        channels.push({
+          id: LIVE_CHANNEL_ID,
+          name: 'agents on this computer',
+          state: 'healthy',
+          observedAt: new Date().toISOString(),
+          detail: `${live.messages.length} message${live.messages.length === 1 ? '' : 's'} between agents on this computer's tree`,
+        })
+      }
+      data.channels = { ok: true, reason: null, observedAt: new Date().toISOString(), value: channels }
+      return { ...result, data: { ...envelope, data } }
+    }
+
+    const loadLive = () => Promise.all([fetchOps(), readLiveMessages()])
+      .then(([ops, live]) => { if (!destroyed) applyLiveProjection(withLiveMessages(ops, live)) })
+      .catch((err) => {
+        if (!destroyed) applyLiveProjection({ ok: false, reason: `ops projection request failed: ${err?.message || err}` })
+      })
+
+    loadLive()
+    /* A CONVERSATION IS NOT A SNAPSHOT. The page was fetch-once, which is
+       correct for a file that never changes and wrong for the thing the owner
+       wanted to watch. The interval is cleared by destroy() through the same
+       unsubscribe list every other subscription on this page uses. */
+    const liveTimer = setInterval(loadLive, 4000)
+    unsubs.push(() => clearInterval(liveTimer))
   }
 
   return {
