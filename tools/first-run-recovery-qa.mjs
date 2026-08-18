@@ -489,11 +489,33 @@ async function main() {
     await delay(1800)
     const computers = await evaluate(SCREEN)
     note(`fleet graph: ${computers.screen.slice(0, 500)}`)
-    check('the fleet graph explains what has not reported, in the copy module\'s words',
-      computers.screen.includes(EXPLAINS_CLAUSE), computers.screen.slice(0, 300))
-    check('the fleet graph still reports what it looked for, verbatim',
-      /No local agent fleet host detected on this machine/i.test(computers.screen),
+    /* WHAT THIS CHECK USED TO ASK FOR, AND WHY THE PAGE NO LONGER OWES IT.
+     *
+     * It required the envelope explanation -- "a program that watches the agents
+     * running on a group of computers" -- on this screen, because when it was
+     * written the fleet graph's whole answer to a fresh install was the
+     * unavailable state, and an unexplained refusal was the defect. 6f0a34a
+     * ("Page 2: put THIS computer on the fleet page, so a fresh install has an
+     * agent") changed what the screen IS: it now draws this computer from the
+     * organisation this copy declares, so the person is looking at their own
+     * machine rather than at a sentence about a host that is missing. Demanding
+     * the explanation of a missing host on a page that is no longer describing
+     * one would be asking the product to apologise for something it now does.
+     *
+     * What it still owes, and what is asserted instead: the machine in front of
+     * the person is ON the page, the page says where that came from rather than
+     * letting it read as observed telemetry, and the way out is still offered.
+     * The verbatim refusal is kept as a NOTE: the projection still carries it
+     * (declaredAgentsData's observedSessions.reason) and the drill-in still
+     * prints it, but it is no longer required to be on this screen. */
+    check('the fleet graph puts this computer on the page rather than a missing host',
+      /this computer/i.test(computers.screen), computers.screen.slice(0, 300))
+    check('the fleet graph says where what it is showing came from',
+      /(signed record|team record saved on this computer|declar)/i.test(computers.screen),
       computers.screen.slice(0, 300))
+    if (/No local agent fleet host detected on this machine/i.test(computers.screen)) {
+      note('the fleet graph also still carries the verbatim host refusal')
+    }
     await shoot('02-fleet-graph')
     check('the fleet graph offers the guide',
       computers.guideLinks > 0, JSON.stringify(computers.exits))
@@ -517,8 +539,17 @@ async function main() {
        paragraph is on it. */
     check('the metrics page offers the guide',
       onTheWay.metrics.guideLinks > 0, JSON.stringify(onTheWay.metrics.exits))
-    check('the research page explains what has not reported',
-      onTheWay.research.screen.includes(EXPLAINS_CLAUSE), onTheWay.research.screen.slice(0, 260))
+    /* 61262ac: "The research page said its report library 'could not be read'.
+       It was never shipped." The envelope explanation belonged to the old
+       sentence, which described a read that failed. There was no failed read:
+       this copy ships with no report library at all, and the page now says that
+       and says what a report library is. Requiring the old clause here would be
+       requiring the page to go back to explaining a failure that never
+       happened. */
+    check('the research page says its report library was never shipped, rather than that a read failed',
+      /was not shipped with one|no report library/i.test(onTheWay.research.screen)
+        && !/could not be read/i.test(onTheWay.research.screen),
+      onTheWay.research.screen.slice(0, 260))
     check('the research page offers the guide',
       onTheWay.research.guideLinks > 0, JSON.stringify(onTheWay.research.exits))
     await delay(1800)
@@ -539,8 +570,15 @@ async function main() {
     await delay(1600)
     const ledger = await evaluate(SCREEN)
     note(`ledger: ${ledger.screen.slice(0, 260)}`)
-    check('the ledger explains what has not reported',
-      ledger.screen.includes(EXPLAINS_CLAUSE), ledger.screen.slice(0, 260))
+    /* 1bdcce7: "The ledger promised it would fill in, and it never will." The
+       envelope explanation carried an implicit promise -- that this is a view
+       onto a fleet which, once connected, would populate this register. It will
+       not: this register lists requests recorded while ToolsEnabled itself is
+       being built, and on a customer's machine it is empty for good. So the
+       page says what the register IS, and that is what is checked. */
+    check('the ledger says what this register is, instead of promising it will fill in',
+      /requests recorded while ToolsEnabled itself is being built/i.test(ledger.screen),
+      ledger.screen.slice(0, 260))
     check('the ledger offers the guide', ledger.guideLinks > 0, JSON.stringify(ledger.exits))
 
     /* ---------- SETTINGS ---------- */

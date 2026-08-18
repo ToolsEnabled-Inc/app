@@ -648,9 +648,62 @@ export async function createAccountOnScreen(window, person, password) {
   if (secret !== 'typed') return `password-field:${secret}`
   const submitted = await window.clickVisible('[data-account-form="create"] button[type="submit"]')
   if (submitted !== 'clicked') return `submit:${submitted}`
-  /* scrypt at N=2^17 twice -- once to create, once to sign in. */
-  await delay(11000)
-  return 'submitted'
+  /* WAITED FOR, NOT SLEPT THROUGH.
+   *
+   * This was `await delay(11000)` with the note "scrypt at N=2^17 twice -- once
+   * to create, once to sign in". The number was a guess at how long two key
+   * derivations take on the machine that happens to be running, and it is the
+   * wrong SHAPE of answer: a fixed sleep is right only on a machine exactly as
+   * fast as the one it was written on. Measured 2026-08-18 on a staged packaged
+   * build, tools/owner-account-packaged-qa read the screen at 11s and found the
+   * create question still on it, and reported "the window says who is signed in
+   * -- Who is using this copy?" -- four failures, on a run whose OWN later
+   * checks proved the account existed, was signed in, and took a payment card.
+   * The product had repainted; the harness had stopped looking.
+   *
+   * So the screen is polled for the outcome the person is waiting for, and the
+   * wait ENDS on a refusal too: src/views/account.js paints "That did not work."
+   * on a refused create, and a harness that waited out the full budget for that
+   * would turn a fast, correct refusal into a slow timeout. */
+  const settled = await waitForAccountOutcome(window)
+  return settled.signedIn ? 'submitted' : `create-did-not-settle:${settled.detail}`
+}
+
+/**
+ * Wait until the account screen has an ANSWER on it: signed in, or a refusal.
+ *
+ * The budget is generous rather than tuned. Two scrypt derivations at the
+ * shipped cost are seconds of real work, and a slower machine is not a defect;
+ * what would be a defect is the screen never changing, and that is what running
+ * out of budget here reports.
+ */
+export async function waitForAccountOutcome(window, { timeoutMs = 60_000 } = {}) {
+  const until = Date.now() + timeoutMs
+  let last = null
+  for (;;) {
+    last = await window.evaluate(`(() => {
+      const title = document.querySelector('.setup-title')
+      const notice = document.querySelector('[data-account-notice], .setup-notice')
+      return {
+        title: title ? title.textContent.trim() : '',
+        notice: notice ? notice.textContent.trim().slice(0, 160) : '',
+        tone: notice ? (notice.getAttribute('data-tone') || notice.className) : '',
+      }
+    })()`)
+    if (/^Signed in as /.test(last?.title || '')) return { signedIn: true, detail: last.title, waitedMs: timeoutMs - (until - Date.now()) }
+    if (/did not work/i.test(last?.notice || '')) return { signedIn: false, detail: `refused: ${last.notice}` }
+    if (Date.now() >= until) {
+      /* SAY WHAT THE SCREEN ACTUALLY HAS ON IT. "the screen still reads X" was
+         not enough to act on: it cannot tell a create that was refused in words
+         this poll does not recognise from one that never answered at all. */
+      const wider = await window.evaluate(`(() => {
+        const body = document.querySelector('.setup-shell, .account-page, main') || document.body
+        return (body.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+      })()`)
+      return { signedIn: false, detail: `after ${Math.round(timeoutMs / 1000)}s the screen still reads ${JSON.stringify(last?.title || '(no title)')}; notice=${JSON.stringify(last?.notice || '')}; screen=${JSON.stringify(wider)}` }
+    }
+    await delay(400)
+  }
 }
 
 export async function signInOnScreen(window, person, password) {
@@ -668,8 +721,10 @@ export async function signInOnScreen(window, person, password) {
   if (secret !== 'typed') return `password-field:${secret}`
   const submitted = await window.clickVisible('[data-account-form="sign-in"] button[type="submit"]')
   if (submitted !== 'clicked') return `submit:${submitted}`
-  await delay(7000)
-  return 'submitted'
+  /* Same reasoning as createAccountOnScreen: one derivation here, not two, but
+     a fixed sleep is the wrong shape of answer either way. */
+  const settled = await waitForAccountOutcome(window)
+  return settled.signedIn ? 'submitted' : `sign-in-did-not-settle:${settled.detail}`
 }
 
 export async function signOutOnScreen(window, { everywhere = false } = {}) {

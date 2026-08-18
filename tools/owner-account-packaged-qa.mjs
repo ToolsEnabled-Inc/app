@@ -381,6 +381,40 @@ const READ_SCREEN = `() => {
   }
 }`
 
+
+/* WAITED FOR, NOT SLEPT THROUGH.
+ *
+ * Both create steps below read the screen after `await delay(6000)` with the
+ * note "scrypt at N=2^17 costs about a second, twice". Measured on a staged
+ * packaged build 2026-08-18: at six seconds the create question was still on
+ * the glass, so four checks reported "the window says who is signed in -- Who
+ * is using this copy?" on a run whose own later checks then read the new
+ * account's id, attached a payment card to it, and found both accounts on disk
+ * in their own partitions. The product had repainted; this file had stopped
+ * looking. A fixed sleep is a claim about how fast the machine running the
+ * suite is, and it is the only claim in this file nobody measured.
+ *
+ * The poll ends on an ANSWER -- signed in, or the refusal the view paints --
+ * and reports how long it waited, so a create that gets slower has somewhere to
+ * show it before it becomes a red. Running out of budget IS a red, and the
+ * right one: a screen that never repaints after its own action is the defect
+ * these checks were written for. */
+async function settledAfterCreate(window, { timeoutMs = 60_000 } = {}) {
+  const startedAt = Date.now()
+  for (;;) {
+    const seen = await window.evaluate(`(() => {
+      const title = document.querySelector('.setup-title')
+      const notice = document.querySelector('[data-account-notice], .setup-notice')
+      return { title: title ? title.textContent.trim() : '', notice: notice ? notice.textContent.trim().slice(0, 140) : '' }
+    })()`)
+    const waitedMs = Date.now() - startedAt
+    if (/^Signed in as /.test(seen.title)) return { ok: true, waitedMs, title: seen.title }
+    if (/did not work/i.test(seen.notice)) return { ok: false, waitedMs, title: seen.title, notice: seen.notice }
+    if (waitedMs >= timeoutMs) return { ok: false, waitedMs, title: seen.title, notice: seen.notice || 'the screen never changed' }
+    await delay(400)
+  }
+}
+
 async function main() {
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'owner-account-qa-'))
   const profile = path.join(scratch, 'profile')
@@ -412,8 +446,8 @@ async function main() {
 
     const submitted = await window.clickVisible('[data-account-form="create"] button[type="submit"]')
     check('the create button is clickable', submitted === 'clicked', submitted)
-    /* scrypt at N=2^17 costs about a second, twice (create, then sign in). */
-    await delay(6000)
+    const createSettled = await settledAfterCreate(window)
+    console.log(`  ..   the create settled after ${Math.round(createSettled.waitedMs / 1000)}s${createSettled.ok ? '' : ` WITHOUT signing in: ${createSettled.notice}`}`)
 
     const afterCreate = await window.evaluate(`(${READ_SCREEN})()`)
     check('the window says who is signed in', /Signed in as/.test(afterCreate.title || ''), afterCreate.title || 'no title')
@@ -493,7 +527,8 @@ async function main() {
     await window.typeInto('[data-account-form="create"] input[name="username"]', SECOND_USERNAME)
     await window.typeInto('[data-account-form="create"] input[name="password"]', secondPassword)
     await window.clickVisible('[data-account-form="create"] button[type="submit"]')
-    await delay(6000)
+    const secondSettled = await settledAfterCreate(window)
+    console.log(`  ..   the second create settled after ${Math.round(secondSettled.waitedMs / 1000)}s${secondSettled.ok ? '' : ` WITHOUT signing in: ${secondSettled.notice}`}`)
 
     const second = await window.evaluate(`(${READ_SCREEN})()`)
     check('a second account can be made on the same computer', /Signed in as/.test(second.title || ''), second.title || 'no title')

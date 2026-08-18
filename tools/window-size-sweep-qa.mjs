@@ -661,6 +661,12 @@ const MEASURE = `(() => {
           display: cs.display,
           onGlass: cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) !== 0
             && r.width > 0 && r.height > 0 && r.right > 0 && r.left < vw,
+          /* See the DECORATIVE BLEED note below: the author's own declaration
+             that this element carries nothing a person is meant to receive. It
+             travels on the CULPRIT rather than on the clipping box, because the
+             box doing the clipping is an ordinary container -- div.view -- and
+             what is spilling out of it is the thing that knows what it is. */
+          decorative: child.closest('[aria-hidden="true"]') !== null,
           text: norm(child.textContent).slice(0, 70),
         }
       }
@@ -728,6 +734,28 @@ const MEASURE = `(() => {
     const tag = node.tagName.toUpperCase()
     if (visuallyHidden(node, style, box)) continue
 
+    /* --- DECORATIVE BLEED IS NOT CUT-OFF CONTENT ---
+     *
+     * MEASURED: canvas.cres-gl, the corona behind the home ring, is about 3.4x
+     * the ring's radius by owner-reviewed constants (src/crescent-mount.js), it
+     * is aria-hidden="true" with pointer-events: none, and .view's
+     * overflow: hidden clips it against a box flush with the window edge. A
+     * person sees a clean ring with a faded glow: no scrollbar, nothing
+     * reachable lost, nothing to read cut in half. This sweep reported it as
+     * content cut off with no way to reach it, at every window size, because its
+     * rule is "clipped, and no SCROLLABLE ancestor" and an overflow: hidden
+     * ancestor is never an exemption -- correctly, for real content.
+     *
+     * aria-hidden="true" is the narrow exemption, and it is narrow on purpose:
+     * it is the author's own declaration that the element carries nothing a
+     * person is meant to receive, and it is the same declaration a screen reader
+     * acts on. An element with words in it that somebody is supposed to read
+     * cannot carry that attribute without already being a defect of its own. The
+     * exemption is not extended to overflow: hidden ancestors in general, which
+     * would excuse every genuinely clipped thing on every screen. */
+    const decorativeOnly = node.closest('[aria-hidden="true"]') !== null
+
+
     /* --- wide content that CAN be scrolled: the passing case --- */
     if (scrollsX(node)) {
       scrollers.push({ at: describe(node), box: boxOf(node), scrollWidth: node.scrollWidth, clientWidth: node.clientWidth })
@@ -743,6 +771,13 @@ const MEASURE = `(() => {
       const ink = inkPast(node, axis)
       const record = { at: describe(node), box: boxOf(node), by, axis, culprit, ink, text: norm(node.textContent).slice(0, 90) }
       if (axis === 'x' && style.textOverflow === 'ellipsis') { ellipsised.push(record); return }
+      /* See the note on decorativeOnly above: a glow the author marked as carrying
+         nothing to receive, clipped by a box flush with the window, is not
+         content a person cannot reach. Reported, never counted. */
+      if (decorativeOnly || (culprit && culprit.decorative)) {
+        blankPainted.push({ ...record, why: 'decorative bleed the author marked aria-hidden' })
+        return
+      }
       /* CLIPPED CONTENT NOBODY COULD SEE ANYWAY. A box can overflow because of
          a descendant that is display:none-adjacent -- visibility:hidden, parked
          off-screen, zero-opacity -- and clipping THAT hides nothing from
@@ -770,7 +805,7 @@ const MEASURE = `(() => {
       for (let parent = node.parentElement; parent; parent = parent.parentElement) {
         if (scrollsX(parent)) { scrollableAncestor = describe(parent); break }
       }
-      if (!scrollableAncestor) {
+      if (!scrollableAncestor && !decorativeOnly) {
         pastEdge.push({ at: describe(node), box: boxOf(node), right: Math.round(box.right), left: Math.round(box.left), vw, text: norm(node.textContent).slice(0, 90) })
       }
     }

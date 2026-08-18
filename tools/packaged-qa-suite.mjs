@@ -119,6 +119,11 @@ const SETTINGS = new Map([
      survived two fixes and shipped twice. */
   ['compose-start-layout-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
   ['owner-popup-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
+  /* Electron, not node: it draws the purchase list in a real renderer under the
+     real stylesheets, because the deadline's BOX is the thing under test and a
+     fake DOM has no layout. It carries its own fixture cart, so it measures
+     something whether or not the owner is deciding a purchase this hour. */
+  ['purchase-cart-readable-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
   ['checkout-privacy-packaged-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
   ['owner-account-packaged-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],
   ['test-account-journey-qa.mjs', { runner: 'node', timeoutMs: 600_000 }],

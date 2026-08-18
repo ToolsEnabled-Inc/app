@@ -15,7 +15,11 @@
    so a weighted row keeps its exact fr recipe.) */
 .m-srow {
   display: grid;
-  grid-template-columns: var(--srow-cols, 1fr);
+  /* The fallback carries the same minmax(0, ...) floor the layout engine writes
+     into --srow-cols; a fallback without it is the one path that can still
+     widen the page. */
+  grid-template-columns: var(--srow-cols, minmax(0, 1fr));
+  min-width: 0;
   gap: var(--s4) 44px;
   align-items: start;
 }

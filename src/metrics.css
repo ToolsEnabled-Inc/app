@@ -284,6 +284,21 @@
 .metrics #fail-chart { height: 192px; }
 .metrics #heartbeat-chart { height: 184px; }
 .metrics #burn-chart { height: 176px; }
+/* THE CHART HOST CONTAINS ITS OWN PIXELS, AND UNTIL 2026-08-18 ONLY THE TABLE DID.
+ *
+ * MEASURED at 1403x900 on the packaged build: `.view-pad` scrolled sideways on
+ * /metrics -- the whole page could be dragged horizontally, which is a thing a
+ * page must never do. The width comes from zrender: it writes a RAW INLINE PIXEL
+ * width onto the div it renders into (zrender/lib/svg/Painter.js), sized from
+ * whatever the slot measured at the moment it initialised, and nothing in this
+ * sheet ever targeted that div. One section had an overflow wrapper -- the agent
+ * table, inline in views/metrics.js -- and every `.echart` host had none, so a
+ * host that came back one measurement too wide pushed the page out from under
+ * the grid. `max-width: 100%` is the containment: it lets the host be narrower
+ * than its slot, never wider, whatever pixel value zrender left on it. The
+ * overflow rule is the belt: a chart that still overruns scrolls inside its own
+ * box rather than taking the page with it. */
+.metrics .echart { max-width: 100%; overflow-x: auto; }
 .metrics .echart svg { width: 100%; height: 100%; }
 
 /* A missing live route keeps the hero's full measured slot. Two hairlines and
@@ -986,11 +1001,17 @@ body.reduce-motion .gate-event i { transition: none; }
   flex-direction: column;
   gap: var(--s3);
 }
+/* `minmax(0, ...)` on both tracks, for the reason .m-strip and .m-pools already
+   carry it: a bare `1fr` track has an automatic MINIMUM of its content's own
+   min-content width, so one long unbroken refusal sentence widens the grid past
+   its container instead of wrapping inside it. This head arrived with the
+   metrics rewrite without the floor its siblings have. */
 .metrics .m-refusal-head {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
   gap: var(--s2);
   align-items: baseline;
+  min-width: 0;
 }
 .metrics .m-refusal-head b {
   font-family: var(--font-mono);

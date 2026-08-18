@@ -29,6 +29,25 @@
 
 import { el } from './components.js'
 import { bridgeStatus, bridgeReachable, postBridgeAction } from './mission-bridge.js'
+/* THE ANSWER TO A WRITE THIS SURFACE ALREADY SENT AND NEVER GOT TO SHOW.
+ *
+ * Three keys -- BRIDGE_DISPATCH, BRIDGE_DECISION, BRIDGE_QUEUE -- were declared
+ * in ./write-outcomes.js and consumed by NOTHING. Every settle path in this file
+ * returned on `destroyed` BEFORE it had a sentence, so an audited dispatch, an
+ * approval or a queue close whose answer arrived a moment after the person left
+ * the page ended in silence, and silence about a write reads as "it did not
+ * happen". The three sibling controllers that got this right -- agent-loops,
+ * agent-teams, cloud-tasks-controller, mission-bridge's archive -- file the
+ * outcome first and ask about their own screen second. So does this file now,
+ * and the stylesheet's `.write-restated` rules, which have shipped for a line no
+ * code rendered, finally have one to colour. */
+import {
+  WRITE_OUTCOME_KEYS,
+  clearUndeliveredWrite,
+  recordUndeliveredWrite,
+  restatedMessage,
+  undeliveredWrite,
+} from './write-outcomes.js'
 import { retryWhileUnavailable } from './bridge-retry.js'
 import { isWriteEnabled } from './write-flags.js'
 /* The identifier goes on the node as `data-refusal-code`, never into the
@@ -192,6 +211,50 @@ async function prepareSurface(surface) {
   return result
 }
 
+/**
+ * The carried-over answer, drawn into the form that would have shown it.
+ *
+ * ITS OWN LINE, NEVER THE <output>. prepareSurface() finishes a fraction of a
+ * second after mount and writes the bridge handshake's state into every
+ * `[data-action-output]` on the surface, and configureQueueSnapshots() writes
+ * the ready line after that. A restatement placed in the output is erased by
+ * both, which is exactly the race tools/write-outcome-restate-qa.cjs was written
+ * to catch. It sits ABOVE the output so the two read in the order they happened.
+ *
+ * `role="status"` and not `alert`: this is something that already finished. An
+ * assertive live region interrupts whatever a screen reader is reading to
+ * announce a result the person can act on at their leisure, which is shouting.
+ */
+function restateInto(form, key) {
+  if (!form) return
+  const missedOutcome = undeliveredWrite(key)
+  if (!missedOutcome) return
+  const line = el(`<p class="write-restated" role="status" data-undelivered-outcome="true"></p>`)
+  line.dataset.state = missedOutcome.tone
+  line.textContent = restatedMessage(missedOutcome)
+  const output = form.querySelector('[data-action-output]')
+  if (output) output.insertAdjacentElement('beforebegin', line)
+  else form.appendChild(line)
+}
+
+/**
+ * File the outcome, THEN ask whether this screen is still here.
+ *
+ * The order is the whole repair. Every caller below used to read
+ * `if (destroyed) return` before it had composed its sentence, so the sentence
+ * was never composed and the outcome was never filed -- and a refusal that
+ * vanishes is indistinguishable from a write that succeeded quietly, which is
+ * the direction this project has decided never to guess in.
+ *
+ * Returns whether the surface survived, so the caller paints only when there is
+ * something to paint on.
+ */
+function settleWrite({ destroyed, key, tone, message }) {
+  if (destroyed) recordUndeliveredWrite(key, { tone, message })
+  else clearUndeliveredWrite(key)
+  return !destroyed
+}
+
 export function mountAgentWriteSurface(root, { agentId, live = false }) {
   /* SAME FENCE, SAME REASON as mountAgentSessionSurface -- see the long note at
      its head for the measurement. This surface dispatches a real audited agent
@@ -235,6 +298,7 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
   void prepareSurface(surface).then(() => { if (destroyed) surface.remove() })
 
   const dispatchForm = surface.querySelector('[data-dispatch-form]')
+  restateInto(dispatchForm, WRITE_OUTCOME_KEYS.BRIDGE_DISPATCH)
   dispatchForm?.addEventListener('submit', async event => {
     event.preventDefault()
     const output = dispatchForm.querySelector('[data-action-output]')
@@ -246,8 +310,6 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
       tier: data.get('tier'), objectiveRef: data.get('objectiveRef'), brief: data.get('brief'),
       cap: { kind: 'turns', value: 8, capMs: 20 * 60_000 },
     })
-    if (destroyed) return
-    setBusy(dispatchForm, false)
     /* The code is resolved ONCE and used for both channels. Resolving it matters
        on the sentence side too: an unresolved code falls to the generic remedy,
        and `BRIDGE_REFUSED` has a curated one. */
@@ -256,11 +318,17 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
        a 20-character key, in front of a person who had just handed a job to an
        assistant and wanted to know whether it had started. The id is kept where
        a support conversation can still reach it and out of the sentence. */
+    const tone = result.ok ? 'confirmed' : 'refused'
+    const message = result.ok
+      ? 'Handed over, and written down on this computer. The assistant is working on it now.'
+      : `Nothing was handed over. ${refusalSentence(refusal, { fallback: 'The audited connection refused it and gave no receipt.' })}`
+    /* A REAL LANE MAY HAVE STARTED. Composed and filed before this asks whether
+       its own screen survived -- see settleWrite(). */
+    if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_DISPATCH, tone, message })) return
+    setBusy(dispatchForm, false)
     if (result.ok) output.dataset.launchId = result.receipt.launchId
     else delete output.dataset.launchId
-    actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
-      ? 'Handed over, and written down on this computer. The assistant is working on it now.'
-      : `Nothing was handed over. ${refusalSentence(refusal, { fallback: 'The audited connection refused it and gave no receipt.' })}`)
+    actionState(output, tone, message)
     markRefusalCode(output, refusal)
     /* AND THEN KEEP LOOKING. Everything above happens in the first second; the
        job runs for minutes. Without this the sentence above was the panel's last
@@ -350,6 +418,7 @@ export function mountLedgerWriteSurface(root) {
   void prepareSurface(surface).then(() => { if (destroyed) surface.remove() })
 
   const decisionForm = surface.querySelector('[data-decision-form]')
+  restateInto(decisionForm, WRITE_OUTCOME_KEYS.BRIDGE_DECISION)
   decisionForm?.addEventListener('click', async event => {
     const button = event.target.closest('button[data-decision]')
     if (!button || !decisionForm.reportValidity()) return
@@ -361,20 +430,24 @@ export function mountLedgerWriteSurface(root) {
       idempotencyKey: crypto.randomUUID(), target: data.get('target'),
       decision: button.dataset.decision, reason: data.get('reason'),
     })
-    if (destroyed) return
-    setBusy(decisionForm, false)
     /* A REVISION NUMBER IS NOT AN ANSWER. What a person wants to know, having
        just approved something, is that it is recorded and that other parts of
        the system will act on it. The revision is kept on the node. */
+    const tone = result.ok ? 'confirmed' : 'refused'
+    const message = result.ok
+      ? `${button.dataset.decision === 'approve' ? 'Approved' : 'Declined'}, with your reason, on the permanent record. This is what the rest of the system acts on.`
+      : `Nothing was recorded, so nothing was ${button.dataset.decision === 'approve' ? 'approved' : 'declined'}. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`
+    /* An approval is permanent. Filed before this asks about its own screen. */
+    if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_DECISION, tone, message })) return
+    setBusy(decisionForm, false)
     if (result.ok) output.dataset.revision = String(result.receipt.revision)
     else delete output.dataset.revision
-    actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
-      ? `${button.dataset.decision === 'approve' ? 'Approved' : 'Declined'}, with your reason, on the permanent record. This is what the rest of the system acts on.`
-      : `Nothing was recorded, so nothing was ${button.dataset.decision === 'approve' ? 'approved' : 'declined'}. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`)
+    actionState(output, tone, message)
     markRefusalCode(output, result.ok ? null : result)
   })
 
   const queueForm = surface.querySelector('[data-queue-form]')
+  restateInto(queueForm, WRITE_OUTCOME_KEYS.BRIDGE_QUEUE)
   queueForm?.addEventListener('click', async event => {
     const button = event.target.closest('button[data-queue-operation]')
     if (!button || !queueForm.reportValidity()) return
@@ -388,16 +461,20 @@ export function mountLedgerWriteSurface(root) {
       expectedHash: data.get('expectedHash'), phaseId: data.get('phaseId'),
       operation: button.dataset.queueOperation, reason: data.get('reason') || undefined,
     })
-    if (destroyed) return
-    setBusy(queueForm, false)
     /* `result.receipt.action` is the operation's own key, so the confirmation
        used to answer a press of Claim with the word "claim". It said nothing the
        press had not already said, and nothing about what it now means. */
-    actionState(output, result.ok ? 'confirmed' : 'refused', result.ok
+    const tone = result.ok ? 'confirmed' : 'refused'
+    const message = result.ok
       ? (claiming
         ? 'Claimed. It is yours now, and nobody else will pick it up.'
         : 'Closed. Everything else in the system now treats this work as finished.')
-      : `${claiming ? 'It was not claimed' : 'It was not closed'}, and nothing changed. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`)
+      : `${claiming ? 'It was not claimed' : 'It was not closed'}, and nothing changed. ${refusalSentence(result, { fallback: 'The audited connection refused it and did not say why.' })}`
+    /* A claim other people are now excluded from, or a close the whole system
+       acts on. Filed before this asks about its own screen. */
+    if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_QUEUE, tone, message })) return
+    setBusy(queueForm, false)
+    actionState(output, tone, message)
     markRefusalCode(output, result.ok ? null : result)
     if (result.ok) queueForm.elements.expectedHash.value = result.receipt.nextHash
   })
