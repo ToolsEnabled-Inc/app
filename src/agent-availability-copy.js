@@ -184,84 +184,49 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      recorded must not run without them. */
   AGENT_TOOL_LIMITS_UNREADABLE: 'the tool limits saved for this account could not be read, so no session was started at a wider surface than you chose. Open the research page settings and set the tool checkboxes again',
   AGENT_TOOLS_ALL_DISABLED: 'every tool is switched off for this account, and an agent with no tools cannot do anything. Switch at least one tool on in the research page settings, then start again',
-  /* The three Claude rows in the tier menu are offered so a person can see
-     they exist, and refused honestly when picked -- silently starting Codex
-     instead of a chosen Claude model is the defect this code closed. The
-     sentence names what to pick instead, never a module or a path.
-
-     IT SAYS WHERE CLAUDE DOES WORK, since 2026-08-16 (owner: "claude should work
-     too not just codex"). "This version cannot" read as a missing feature. The
-     `local` tier reaches this code too, so the first sentence names both.
-
-     WHAT THIS SENTENCE USED TO CLAIM, AND WHY IT WAS WRONG. It read "A Claude
-     agent would need your Claude sign-in or an Anthropic key. This copy may not
-     use your sign-in, and it keeps no key." The key half is true; the sign-in
-     half is not, and it was the product calling itself a liar. MEASURED on the
-     installed 1.0.17: handing work over on the agent page spawns the official
-     claude binary with apiKeySource "none" -- the person's own subscription --
-     and the assistant answered READY. So this copy DOES ride that sign-in, on
-     that path, today, and a person reading this line was being sent away from
-     the one screen where the thing they asked for already works.
-
-     WHAT THIS SENTENCE SAID NEXT, AND WHY THAT WAS ALSO NOT THE WHOLE REASON.
-     It read "this copy starts Codex agents from the tree, and not Claude or
-     local agents yet". True, and it named the wrong constraint by implication:
-     "yet" beside a working sign-in reads as "the program on your computer is not
-     ready", so a person with a perfectly good Claude install went looking for
-     what they had done wrong. Two facts were established on 2026-08-17 and
-     together they move the reason off the person's machine entirely:
-
-       - THE TRANSPORT WORKS. The official CLI holds a multi-turn session on ONE
-         process with `--input-format stream-json`, measured twice: it was asked
-         to remember a number, and answered it on a second turn down the same
-         stdin, one session id, exit 0. So there is no technical barrier being
-         described here. (tools/claude-stream-transport-probe.mjs re-runs it.)
-       - THE PART IS SIMPLY NOT IN THE BUILD. capability/src/lib/agent-engine/
-         carries codex-adapter.js, codex-process.js and engine-contract.js and
-         nothing else, and tools/capability-manifest.json lists only
-         codex-process.js under hostModules. This gate is not the cause; it is
-         the honest report of that absence, and deleting it produces a crash
-         rather than an agent.
-
-     SO THE SENTENCE NAMES THE BUILD, in the same shape as
-     AGENT_CONFINEMENT_UNAVAILABLE above -- "this copy was built without the part
-     that..." -- and NOT in that entry's remedy. Reinstalling fixes an incomplete
-     download; it cannot add a part no build of this version carries. There is
-     nothing the person can press, restart or switch on that changes this today,
-     and the sentence must not hint that there is: that is the "try once more"
-     dead end this whole vocabulary exists to remove.
-
-     IT MUST NOT CONTRADICT THE SIGN-IN READOUT either. The guide now reports,
-     truthfully, that Claude is installed here and signed in. A refusal implying
-     the sign-in is the problem would have two screens of one product calling
-     each other liars, so this one says the sign-in is fine in as many words.
-
-     The `local` tier reaches this code too, so the first sentence names both.
-     What is fenced remains narrower than either: the engine's ACP launcher rides
-     a third-party wrapper on a throwaway config directory
-     (docs/design/NATIVE-CLAUDE-TRANSPORT-CONTRACT.md in the engine; TE-L-0006,
-     whose council reading is that launching the OFFICIAL CLI is first-party and
-     compliant). That module is not what a tree would use. */
-  /* THE CLAUSE THAT WAS HERE NAMED A PLACE THE READER CANNOT GET TO.
-     It ended "To use Claude now, hand the work over on the agent page, which
-     runs on that sign-in." DRIVEN 2026-08-17 on a staged packaged build, by
-     mouse and keyboard, from the exact state this sentence is read in -- a
-     set-up machine, a tree, a refused start:
-         doors to the agent page: {"links":[],"buttons":[],"route":"computers"}
-     Zero. Every route to that page lives on the fleet page's projection boards
-     or on the projection-unavailable branch, and `agent` is not on the ring, so
-     the arrows do not lead there either. A person refused on the tree has no way
-     through from where they are standing.
-     A direction with no route is a dead end wearing the costume of help, which
-     is the exact failure this whole vocabulary exists to remove -- the same
-     defect as "try once more" on something retrying cannot fix. So the sentence
-     stops giving directions and ends on the thing the reader CAN do here.
-     WHAT IS DELIBERATELY NOT CLAIMED NOW: whether handing work over spawns a
-     real Claude child and answers. Nobody has driven that end to end. The lane
-     that tried was blocked before reaching the form and reported it NOT
-     EXERCISED rather than passing it from a demonstration board. Until somebody
-     measures it, this sentence asserts nothing about it either way. */
-  AGENT_TIER_NO_LAUNCHER: 'this copy of ToolsEnabled does not carry the part that runs Claude or local agents from a tree. Your Claude sign-in is fine, and nothing on this computer is broken. Pick Luna, Terra or Sol to start one here',
+  /* WHICH ENGINE IS ABSENT IS DECIDED PER BUILD, SO THIS SENTENCE NAMES NONE.
+   *
+   * WHAT SHIPPED, AND WAS FALSE ON THE BUILD IT SHIPPED IN. This entry read
+   * "this copy of ToolsEnabled does not carry the part that runs Claude or local
+   * agents from a tree. Your Claude sign-in is fine ... Pick Luna, Terra or Sol
+   * to start one here." Every clause of that was true when it was written and
+   * the first clause was false by the time it was installed. The Claude engine
+   * now ships in the payload as capability/src/lib/agent-engine/
+   * claude-cli-process.js and claude-cli-adapter.js -- confirmed present in the
+   * installed 1.0.20 under resources/capability -- and resolveStartTier() in
+   * shell/agent-host.cjs opens the three Claude tiers on a real require() of
+   * exactly that module. So on the build a person is holding, this code is
+   * raised by the `local` tier and by nothing else, while the sentence beside it
+   * went on naming Claude as the thing that could not start. The owner's hardest
+   * rule is that the product never tells him something untrue, and this was the
+   * product telling him something untrue about its own contents.
+   *
+   * THE GATE IS THE ONLY PARTY THAT KNOWS WHICH ENGINE IS MISSING, and it
+   * decides that per tier, per build, at the moment of the press. A frozen
+   * string cannot hold that answer: the same code covers a provider this build
+   * carries no launcher for today and a different one after the next payload
+   * moves. So this sentence states only what is true of EVERY build that raises
+   * it -- the type that was picked has no launcher here -- and leaves naming the
+   * provider to the surface that has the tier in hand. src/fleet-tree-copy.js
+   * tierNoLauncherSentence() is that surface: it names the picked tier's
+   * provider, only that one, and only when that tier is the one that was
+   * refused. tools/test/refusal-engine-honesty.test.mjs fails if any refusal
+   * sentence claims this build lacks an engine the payload actually carries.
+   *
+   * THE TWO REMOVED CLAUSES, AND WHY NEITHER IS REPLACED. "Your Claude sign-in
+   * is fine" existed so this refusal would not contradict the sign-in readout on
+   * the setup screen; with no provider named there is nothing left to
+   * contradict, and volunteering that a sign-in is fine for a provider the
+   * sentence is not about is noise a person has to read past. "Pick Luna, Terra
+   * or Sol" named the three Codex tiers as the whole startable set, which is
+   * exactly the claim the Claude engine falsified -- so it points at the menu,
+   * whose rows tierChoicesFor() labels from what mc-agent:startable-tiers really
+   * answered, instead of at a list frozen in this file.
+   *
+   * IT STILL MUST NOT HINT AT A REPAIR. Nothing a person can press, restart or
+   * switch on adds a launcher to a build that does not carry one, and
+   * tools/test/first-run-needs.test.mjs holds this string to that. */
+  AGENT_TIER_NO_LAUNCHER: 'this copy of ToolsEnabled carries no launcher for the agent type that was picked, so nothing was started. Nothing on this computer is broken. The model menu marks every type this copy cannot start; pick one it does not mark',
 
   /* THE OTHER HALF OF THE ANSWER. mc-agent:availability composes the recorder's
      verdict with the engine's, and a start that cannot be RECORDED does not

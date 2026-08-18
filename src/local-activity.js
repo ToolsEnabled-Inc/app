@@ -319,18 +319,19 @@ export const ENGINE_REASON = Object.freeze({
   AGENT_HOST_INVALID_CWD: 'ToolsEnabled cannot use its own workspace folder, so an agent has nowhere to run',
   AGENT_HOST_INVALID_ARGUMENT: 'ToolsEnabled could not check whether an agent can run here',
   AGENT_HOST_CLOSED: 'ToolsEnabled is shutting down',
-  /* THE SAME FALSE CLAIM LIVED HERE TOO, IN DIFFERENT WORDS, AND WAS MISSED.
-     This read "A Claude agent would need your Claude sign-in or an Anthropic key,
-     and this copy may use neither." The key half is true; the sign-in half is not.
-     MEASURED on the installed 1.0.19: handing work over on the agent page spawns
-     the official claude binary with apiKeySource "none" -- the person's own
-     subscription -- and the assistant answered. The lane path passes no credential
-     and does NOT redirect CLAUDE_CONFIG_DIR, so the child reads the signed-in
-     user's own Claude credentials. What is fenced is the INTERACTIVE launcher a
-     tree would use, which runs on a throwaway config directory with no login state.
-     agent-availability-copy.js was corrected first and this table was not, so the
-     product shipped one true and one false answer to the same question. */
-  AGENT_TIER_NO_LAUNCHER: 'A Claude or local agent type was chosen, and this copy will not start one from the tree. To use Claude, hand the work over on the agent page, which runs on your own Claude sign-in. The Codex agent types run from the tree today',
+  /* THE SAME FALSE CLAIM LIVED HERE TOO, AND ITS SECOND CORRECTION WAS ALSO
+     OVERTAKEN. It has now named Claude as unstartable through three rewrites,
+     and the reason it was wrong changed underneath each one. The last version
+     read "A Claude or local agent type was chosen, and this copy will not start
+     one from the tree." The Claude engine ships in the payload now
+     (capability/src/lib/agent-engine/claude-cli-process.js, present in the
+     installed 1.0.20), and resolveStartTier() opens the Claude tiers on a
+     require() of it -- so the provider this code is actually raised for is
+     decided by what a given build carries, and this table cannot know it.
+     A home screen has no tier in hand and therefore names no provider at all.
+     tools/test/refusal-engine-honesty.test.mjs is what stops a fourth version
+     of this sentence from naming an engine the payload is carrying. */
+  AGENT_TIER_NO_LAUNCHER: 'An agent type was chosen that this copy carries no launcher for, so it will not start one. The model menu on the tree marks which types this copy can start',
   SPAWN_RECORD_NO_KEYSTORE: 'This copy cannot reach the Windows keystore that protects the record of what runs here, so it will not start an agent',
   SPAWN_RECORD_NO_DIRECTORY: 'ToolsEnabled has nowhere to keep its record of what runs here, so it will not start an agent',
   SPAWN_RECORD_KEYSTORE_UNAVAILABLE: 'Windows will not let ToolsEnabled protect its record of what runs here, so it will not start an agent',

@@ -654,7 +654,11 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       needsApp: false,
       sessionId: null,
       code: refusal.code,
-      sentence: startRefusalSentence(refusal),
+      /* THE TIER RIDES WITH THE REFUSAL. AGENT_TIER_NO_LAUNCHER is raised for
+         whichever provider this build has no launcher for, and only the press
+         knows which one was asked for -- see tierNoLauncherSentence(). Every
+         other code ignores it. */
+      sentence: startRefusalSentence(refusal, { tier }),
       needsAssistantProgram: refusalNeedsAssistantProgram(refusal),
     }
   }
@@ -668,7 +672,7 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       needsApp: false,
       sessionId: null,
       code: refusalCodeOf(started),
-      sentence: startRefusalSentence(started),
+      sentence: startRefusalSentence(started, { tier }),
       needsAssistantProgram: refusalNeedsAssistantProgram(started),
     }
   }

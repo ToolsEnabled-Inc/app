@@ -218,10 +218,20 @@ export const PROVIDER_SETUP = Object.freeze([
     id: 'codex',
     name: 'Codex',
     reach: 'tree',
-    /* The only one that runs work from start to finish inside this window, so it
-       is first. The commands are imported rather than retyped for the reason the
-       guide entry below already gives: three screens print them now. */
-    doesHere: 'Starts an agent from the research page and runs the work here. This is the one that works end to end in this copy today.',
+    /* First because it is the default the tier menu preselects, not because it
+       is the only one that works. The commands are imported rather than retyped
+       for the reason the guide entry below already gives: three screens print
+       them now.
+
+       "THIS IS THE ONE THAT WORKS END TO END IN THIS COPY TODAY" CAME OUT, and
+       the sentence it left behind is deliberately not exclusive. That clause was
+       true while Codex was the only engine in the payload. DRIVEN 2026-08-17 on
+       a staged packaged build, real mouse and keyboard, on a profile with a
+       Claude sign-in and NO Codex sign-in at all: Sonnet picked from the menu,
+       Start pressed, and the agent answered 391 to "What is 17 multiplied by
+       23?" -- a number that appears nowhere in what was typed. So the clause was
+       a claim about scarcity that the same build disproves. */
+    doesHere: 'Starts an agent from a tree on the research page and runs the work here, on your own Codex sign-in.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.install, note: 'in Windows Terminal. If you already have Node, "' + CODEX_SETUP_COMMANDS.installWithNode + '" does the same thing.' }),
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in the same window, once the install finishes.' }),
@@ -231,28 +241,29 @@ export const PROVIDER_SETUP = Object.freeze([
   Object.freeze({
     id: 'claude',
     name: 'Claude',
-    reach: 'not-from-tree',
-    /* BOTH HALVES, AND THE ORDER MATTERS. The product used to say only the
-       second half, on the tier menu, with nowhere to read the first. A person
-       was told Claude does not work and sent away from the one screen where it
-       already does. */
-    /* "It cannot be started from a tree in this copy yet" was the first version
-       and it named the wrong thing. Beside the sign-in readout -- which now says
-       Claude is installed here and signed in -- "cannot ... yet" reads as a
-       fault in the program the person just installed. The constraint is in THIS
-       BUILD: the part that drives Claude from a tree is not shipped in it. Said
-       that way it stays true the day somebody ships that part, and it stops
-       sending a person to check an install that is already correct. */
-    /* THIS SENTENCE HAS NOW BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS.
-       First it said Claude "cannot start from a tree yet", which read as a fault
-       in the program the person had just installed. Then it said Claude "runs
-       the work you hand over on the agent page" -- and that page was DRIVEN on
-       2026-08-17 and found to have no door from where a refused person stands:
-       zero links, zero enabled controls, and `agent` is not on the ring.
-       Whether the hand-over itself works is still NOT MEASURED by anyone.
-       So it now claims only what is known: the tree cannot start Claude in this
-       build, and the person's own sign-in is not the problem. */
-    doesHere: 'This copy does not carry the part that starts Claude from a tree. Your sign-in is fine; it is this build that cannot drive it.',
+    /* MOVED FROM 'not-from-tree' ON 2026-08-17, and this is the deliberate change
+       the reach test asks for. The payload now carries
+       capability/src/lib/agent-engine/claude-cli-process.js and
+       claude-cli-adapter.js -- present in the installed 1.0.20 under
+       resources/capability -- and resolveStartTier() in shell/agent-host.cjs
+       opens the three Claude tiers on a real require() of that module. Asked of
+       the shell itself rather than read off a list: startableTiers() answers
+       luna, terra, sol, claude-fable, claude-sonnet, claude-opus. Only `local`
+       is refused now. */
+    reach: 'tree',
+    /* THIS SENTENCE HAS NOW BEEN WRONG THREE TIMES, EACH FOR A DIFFERENT REASON.
+       First "it cannot be started from a tree yet", which read as a fault in the
+       program the person had just installed. Then "it runs the work you hand
+       over on the agent page", naming a page that was driven on 2026-08-17 and
+       found to have no door from where a refused person stands. Then "this copy
+       does not carry the part that starts Claude from a tree" -- true when
+       written, false by the time it installed, and still on screen beside a menu
+       that offers three Claude models.
+       It now says what the build actually contains, which is the one claim that
+       can be checked without driving anything, and
+       tools/test/refusal-engine-honesty.test.mjs fails if a fourth version ever
+       claims the opposite of what the payload carries. */
+    doesHere: 'Starts an agent from a tree on the research page, on your own Claude sign-in. Nothing here asks for a key or reads your sign-in.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: 'npm install -g @anthropic-ai/claude-code', note: 'in Windows Terminal. This one needs Node on the computer first.' }),
       Object.freeze({ kind: 'command', text: 'claude auth login', note: 'in the same window. It opens your browser and signs in to your own account.' }),

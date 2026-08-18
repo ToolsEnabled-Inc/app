@@ -23,6 +23,9 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   FIRST_RUN_NEEDS,
@@ -254,6 +257,21 @@ test('a host page can keep a class an existing probe reads', () => {
 
 const PROVIDERS = Object.fromEntries(PROVIDER_SETUP.map(provider => [provider.id, provider]))
 
+/* DOES THIS BUILD START CLAUDE FROM A TREE? Asked of the shell, which answers it
+   by require()ing the payload engine module and confirming it exports the start
+   function -- the same resolution a press runs. This file must not answer it
+   from a list, because a list is what went stale. */
+function claudeStartsFromATree() {
+  const require_ = createRequire(import.meta.url)
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const { createAgentHost } = require_(path.join(root, 'shell', 'agent-host.cjs'))
+  const host = createAgentHost({
+    enginePath: path.join(root, 'capability', 'src', 'lib', 'agent-engine', 'codex-process.js'),
+    defaultCwd: root,
+  })
+  return host.startableTiers().tiers.some(id => id.startsWith('claude-'))
+}
+
 test('all three assistant programs are named, and none is invented', () => {
   assert.deepEqual(PROVIDER_SETUP.map(provider => provider.id), ['codex', 'claude', 'gemini'])
   for (const provider of PROVIDER_SETUP) {
@@ -271,7 +289,13 @@ test('reach is one of the three known values, and Gemini is not offered', () => 
     )
   }
   assert.equal(PROVIDERS.codex.reach, 'tree')
-  assert.equal(PROVIDERS.claude.reach, 'not-from-tree')
+  /* MOVED DELIBERATELY, WHICH IS WHAT THE NOTE BELOW ASKS FOR. This asserted
+     'not-from-tree' until the Claude engine shipped in the payload. It is not
+     re-pinned to a value read off the source: the check is against the SHELL,
+     which resolves each tier by require()ing the engine module the press
+     requires. A build that drops the engine fails this, and so does a guide that
+     claims a reach the gate does not open. */
+  assert.equal(PROVIDERS.claude.reach, claudeStartsFromATree() ? 'tree' : 'not-from-tree')
 
   /* THE ONE THAT GUARDS THE OWNER'S RULE. Nothing in this product starts Gemini
      -- there is no adapter at the engine seam and no lane row for it -- so this
@@ -286,7 +310,7 @@ test('reach is one of the three known values, and Gemini is not offered', () => 
   assert.match(PROVIDERS.gemini.doesHere, /nothing in this copy starts gemini/i)
 })
 
-test('the Claude entry claims only what has been measured', () => {
+test('the Claude entry claims only what this build can be asked to prove', () => {
   const said = PROVIDERS.claude.doesHere.toLowerCase()
   /* IT MUST NOT NAME THE AGENT PAGE. That clause was driven on 2026-08-17 from
      the exact state this copy is read in -- a set-up machine, a tree, a refused
@@ -298,10 +322,20 @@ test('the Claude entry claims only what has been measured', () => {
      to end. The lane that tried was blocked before reaching the form and
      reported NOT EXERCISED rather than passing it from a demonstration board. */
   assert.ok(!/hand (the )?work over/.test(said), 'the guide claims a hand-over nobody has measured')
-  /* What it MAY say: the limit, and that the person is not at fault. */
-  assert.match(said, /does not carry the part/)
-  assert.match(said, /tree/)
-  assert.match(said, /sign-in is fine/)
+  /* WHAT IT MAY SAY IS NOW DECIDED BY THE GATE, NOT BY THIS FILE. The previous
+     version required /does not carry the part/ and /sign-in is fine/ -- a suite
+     REQUIRING the sentence that had gone false, which is how the false one
+     survived a sweep that corrected three of its siblings. So the requirement is
+     the pairing: the guide may claim a tree start exactly when the shell opens
+     one, and must claim the opposite when it does not. */
+  if (claudeStartsFromATree()) {
+    assert.match(said, /tree/)
+    assert.ok(!/does not carry/.test(said), `the guide says this build has no Claude launcher, and the shell starts one: "${said}"`)
+  } else {
+    assert.match(said, /does not carry the part/)
+  }
+  /* Either way it must not put the fault on the person's own install. */
+  assert.ok(!/you (have not|did not|need to) install/.test(said))
 })
 
 test('every command is one that exists, and no sign-in command is invented', () => {
@@ -428,11 +462,15 @@ test('neither place implies that anything the person does will fix it', async ()
   }
 })
 
-test('the refusal says the sign-in is fine, because the guide says it is installed', () => {
-  /* Both halves in one sentence: where the fault is NOT (the person's machine)
-     and where it IS (this build). */
+test('the guide names the sign-in the session actually runs on', () => {
+  /* WHAT THIS USED TO REQUIRE. `assert.match(guide, /this copy does not carry the
+     part/i)` -- the exact sentence that went false when the engine shipped, held
+     in place by the test written to protect it.
+     What matters underneath it has not changed: the person's own sign-in is what
+     the session runs on, and the guide has to say so, because the refusal beside
+     it must never read as "your Claude install is at fault". */
   const guide = PROVIDERS.claude.doesHere
-  assert.match(guide, /this copy does not carry the part/i)
+  assert.match(guide, /your own claude sign-in/i)
   /* IT NO LONGER POINTS ANYWHERE, and that is the repair rather than a
      regression. This used to require the sentence to name the agent page as
      "the place Claude genuinely works today". Driven 2026-08-17 from the state
@@ -441,18 +479,55 @@ test('the refusal says the sign-in is fine, because the guide says it is install
   assert.ok(!/agent page/i.test(guide), 'the guide points at a page with no route to it')
 })
 
-test('the refusal names the build, not the tree and not the person', async () => {
+test('the refusal names the build, and names no engine this build carries', async () => {
   const { UNAVAILABLE_TEXT } = await import('../../src/agent-availability-copy.js')
   const refusal = UNAVAILABLE_TEXT.AGENT_TIER_NO_LAUNCHER
-  assert.match(refusal, /does not carry the part/i)
-  assert.match(refusal, /sign-in is fine/i)
-  /* The local tier raises this same code, so the sentence has to cover it. */
-  assert.match(refusal, /local/i)
-  /* IT MUST NOT NAME THE AGENT PAGE. Same measurement as above: from a set-up
+  /* WHAT THESE ASSERTIONS USED TO REQUIRE, AND WHY REQUIRING IT WAS THE DEFECT.
+     They pinned /does not carry the part/, /sign-in is fine/, /local/ and
+     /Pick Luna, Terra or Sol/ -- a sentence naming Claude and local as the two
+     things this build cannot start, and the three Codex tiers as the whole
+     startable set. All four were true when they were written. The Claude engine
+     then shipped in the payload, resolveStartTier() opened the Claude tiers on a
+     require() of it, and this suite went on REQUIRING the false version. A test
+     that pins what a build carries is a test that holds the lie in place on the
+     day the build changes.
+     So the shared sentence names no provider at all, and these assertions are
+     about that property rather than about a provider list.
+     tools/test/refusal-engine-honesty.test.mjs is the mechanical half: it reads
+     the payload and fails on any refusal claiming this build lacks an engine the
+     payload is carrying. */
+  assert.match(refusal, /carries no launcher/i)
+  for (const provider of [/\bclaude\b/i, /\bcodex\b/i, /\bgemini\b/i]) {
+    assert.ok(!provider.test(refusal),
+      `the shared refusal names a provider it cannot know is the missing one: "${refusal}"`)
+  }
+  /* IT MUST NOT NAME THE AGENT PAGE. Same measurement as before: from a set-up
      machine with a tree and a refused start there are no links and no enabled
      controls that reach it, and the agent route is not on the ring. */
   assert.ok(!/agent page/i.test(refusal), 'the refusal sends people to a page with no door on it')
   /* It must still END on something the reader can do HERE, or removing the
-     direction would have turned it into a dead end of a different kind. */
-  assert.match(refusal, /Pick Luna, Terra or Sol/i)
+     provider name would have made it a dead end of a different kind. */
+  assert.match(refusal, /pick one it does not mark/i)
+})
+
+test('the tree names the provider of the tier that was actually refused', async () => {
+  const { tierNoLauncherSentence, startRefusalSentence } = await import('../../src/fleet-tree-copy.js')
+  /* The specific half of the answer, and the reason the shared table can afford
+     to name nobody: the press knows which tier it asked for, so the tree names
+     that one provider and no other. The sentence is only ever produced for a
+     tier the shell just refused, which is what makes it true by construction
+     rather than by upkeep. */
+  const local = tierNoLauncherSentence('local')
+  assert.match(local, /an agent on this computer itself/i)
+  assert.ok(!/\bclaude\b/i.test(local), `a refused local tier is being told about Claude: "${local}"`)
+  const claude = tierNoLauncherSentence('claude-sonnet')
+  assert.match(claude, /a Claude agent/i)
+  assert.ok(!/\bcodex\b/i.test(claude), `a refused Claude tier is being told about Codex: "${claude}"`)
+  /* A tier this module does not recognise falls back to the shared sentence
+     rather than inventing a provider for it. */
+  assert.equal(tierNoLauncherSentence('not-a-tier'), null)
+  assert.equal(tierNoLauncherSentence(undefined), null)
+  const fallback = startRefusalSentence({ ok: false, code: 'AGENT_TIER_NO_LAUNCHER' })
+  assert.match(fallback, /carries no launcher/i)
+  assert.ok(!/\bclaude\b/i.test(fallback))
 })

@@ -813,8 +813,56 @@ function readableReason(result) {
  *      Falling through to the shared generic remedy here produced two "Nothing"
  *      sentences back to back, which is the density this flow exists to remove.
  */
-export function startRefusalSentence(result) {
+/* WHAT IS MISSING FOR THE TIER THAT WAS ACTUALLY REFUSED, AND NOTHING ELSE.
+ *
+ * THE DEFECT THIS CLOSES. AGENT_TIER_NO_LAUNCHER is raised by resolveStartTier()
+ * for whichever provider THIS build carries no launcher for, and the shared
+ * table in src/agent-availability-copy.js is keyed by the code alone -- so its
+ * sentence had to describe every provider the code could ever be raised for. It
+ * named Claude and local together, and then the Claude engine shipped
+ * (capability/src/lib/agent-engine/claude-cli-process.js, present in the
+ * installed 1.0.20) and the gate stopped raising it for Claude. The sentence
+ * went on naming Claude anyway, on a build that runs Claude.
+ *
+ * THE TREE IS THE ONE SURFACE THAT KNOWS WHICH TIER WAS PICKED, because the
+ * press carried it: startAgentForNode() has the tier in hand when it calls this,
+ * and passes it back in. So this names the provider of the tier that was
+ * refused, which the refusal itself proves has no launcher here, and never a
+ * provider that was not asked for.
+ *
+ * IT IS TRUE BY CONSTRUCTION RATHER THAN BY UPKEEP. The sentence is only ever
+ * produced for a tier the shell just refused, and the refusal MEANS this build
+ * has no launcher for that tier. A build that gains an engine stops raising the
+ * code for it and this sentence stops being said about it, with no edit here.
+ * An unknown or absent tier returns null and the caller falls back to the shared
+ * table, which names no provider at all.
+ */
+const TIER_PROVIDER_MISSING = Object.freeze({
+  codex: 'the part that runs a Codex agent',
+  claude: 'the part that runs a Claude agent',
+  /* Not "a local agent": the phrase a person can act on is what the machine
+     would be doing, and "on this computer itself" is the distinction from the
+     two above -- both of which also run on this computer, through a program
+     signed in to a service. */
+  local: 'the part that runs an agent on this computer itself',
+})
+
+export function tierNoLauncherSentence(tier) {
+  const row = LAUNCH_TIERS.find(candidate => candidate.id === tier)
+  const missing = row ? TIER_PROVIDER_MISSING[row.provider] : null
+  if (!missing) return null
+  return `Nothing was started. This copy of ToolsEnabled does not carry ${missing}, and nothing on this computer is broken. The model menu marks every type this copy cannot start; pick one it does not mark.`
+}
+
+export function startRefusalSentence(result, { tier = null } = {}) {
   const code = refusalCodeOf(result)
+  /* Before the tables, because both of them answer this code without the one
+     fact that makes the answer specific. A tier this module does not recognise
+     falls through to the shared sentence rather than inventing a provider. */
+  if (code === 'AGENT_TIER_NO_LAUNCHER') {
+    const named = tierNoLauncherSentence(tier)
+    if (named) return named
+  }
   if (code && Object.prototype.hasOwnProperty.call(REFUSAL_BY_CODE, code)) return REFUSAL_BY_CODE[code]
   if (code && Object.prototype.hasOwnProperty.call(UNAVAILABLE_TEXT, code)) {
     return `${NOTHING_STARTED} ${startCapital(endSentence(unavailableReason(code)))}`
