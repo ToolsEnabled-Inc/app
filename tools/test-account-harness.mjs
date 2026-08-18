@@ -321,8 +321,22 @@ const VISIBLE_FN = `(selector) => {
     return { state: 'offscreen', box: { x: box.x, y: box.y, w: box.width, h: box.height }, viewport: { w: innerWidth, h: innerHeight } }
   }
   const hit = document.elementFromPoint(x, y)
-  if (!hit || !(hit === node || node.contains(hit) || hit.contains(node))) {
-    return { state: 'covered', by: hit ? (hit.tagName + (hit.className ? '.' + String(hit.className).split(' ')[0] : '')) : 'nothing' }
+  /* WHO ACTUALLY RECEIVES THE PRESS. A dispatched click goes to \`hit\` and
+     bubbles UP from it. So it reaches the target only when hit IS the target or
+     one of the target's own descendants. An ANCESTOR hit means the target never
+     receives the event -- pointer-events:none, a clip, or the target simply not
+     painting at that point -- and the old rule (\`hit.contains(node)\`) accepted
+     exactly that and printed "clicked" over a press the control never felt: a
+     silent false green in every drive this harness ran (found 2026-08-18 by the
+     rotation lane). The one honest exception is kept: a <label> whose control
+     IS the target forwards activation by spec, so a press on the label is a
+     real press on the control. */
+  if (!hit) return { state: 'covered', by: 'nothing' }
+  const labelFor = hit.closest ? hit.closest('label') : null
+  const receives = hit === node || node.contains(hit) || (labelFor && labelFor.control === node)
+  if (!receives) {
+    const name = hit.tagName + (hit.className ? '.' + String(hit.className).split(' ')[0] : '')
+    return { state: 'covered', by: hit.contains(node) ? ('own-ancestor-' + name) : name }
   }
   return { state: 'visible', x, y }
 }`
