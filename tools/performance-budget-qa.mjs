@@ -836,6 +836,47 @@ async function measureIdle(executable, scratch, routes) {
         route = (await evaluate(app.session, ROUTE_NOW)).route
       }
       if (route !== target) throw new HarnessError(`could not reach route ${target} by clicking; stopped at ${route}`)
+
+      /* THE PAGE HAS TO SAY IT CAN DRAW, OR THIS SCENARIO HAS NO VERDICT.
+       *
+       * This file's header has always argued that idle is only meaningful on a
+       * genuinely shown window, because Chromium throttles or stops
+       * requestAnimationFrame in one that is hidden -- a page burning a frame
+       * loop for ever, the exact defect this scenario exists to find, reports a
+       * clean 0%. What the header did NOT say is that the harness never checked
+       * whether it GOT such a window -- and measured 2026-08-18, it varies from
+       * one spawn to the next on the same machine and the same command: in a
+       * single run of this scenario the home window reported 'visible' and a
+       * later route's window reported 'hidden'. The variable is occlusion, not
+       * a flag: sibling copies of this product open at the SAME default bounds
+       * and cover each other, and a covered page is a page without frames. So
+       * the number this scenario printed was sometimes a product fact and
+       * sometimes a machine fact, with nothing on the page to tell them apart.
+       *
+       * THAT IS ALSO WHAT MADE THE RETENTION GATE LOOK BIMODAL for days: the
+       * runs that reported +15,500 nodes per lap were the ones whose window was
+       * covered, and the runs that reported a flat page were the ones that were
+       * not. Same bytes, different window.
+       *
+       * ASKING THE PAGE IS THE ONLY HONEST TEST. A window handle can be visible
+       * while the page behind it is not being drawn; document.visibilityState is
+       * the renderer's own account of whether frames are coming.
+       *
+       * AND THE COST OF GETTING THIS WRONG JUST WENT UP. The product now
+       * suppresses its own motion while it cannot draw (body.frameless, see
+       * src/page-frames.js), which is a real fix and makes a hidden window do
+       * genuinely LESS work. So an idle number taken on a hidden window would
+       * IMPROVE because the measurement got more wrong -- a metric that rewards
+       * the measurement being broken is worse than no metric, which is why this
+       * refuses instead of reporting. */
+      const drawable = await evaluate(app.session, 'document.visibilityState')
+      if (drawable !== 'visible') {
+        throw new HarnessError(
+          `the idle scenario cannot measure this window: the page reports visibilityState="${drawable}", `
+          + 'so Chromium is not giving it frames and an idle cost read here would describe the MACHINE, not the product. '
+          + 'Close other copies of the app (a sibling at the same default bounds covers this one) and run it again.')
+      }
+
       // Let anything the arrival kicked off finish before the window opens.
       await delay(2_000)
 
