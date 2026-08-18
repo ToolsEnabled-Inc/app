@@ -101,8 +101,17 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
  * asks for a provider sign-in and never keeps one; the only thing it may know is
  * whether one is there. A `signIn()` on this bridge would be the first step
  * toward handling a credential, and the absence of it is the design. */
+/* The person's OWN accounts for those programs live on the same bridge, for the
+   same reason: they are facts about the machine rather than about a session, and
+   the guide page reads them beside the presence line. Three thin arrows and
+   nothing else -- there is still no signIn(), and its absence is still the
+   design. accountAdd() records a name and a folder; the SIGNING IN happens in
+   the provider's own program, from a command the person runs themselves. */
 contextBridge.exposeInMainWorld('mcProviders', Object.freeze({
   presence: () => ipcRenderer.invoke('mc-providers:presence'),
+  accounts: () => ipcRenderer.invoke('mc-accounts:list'),
+  accountAdd: request => ipcRenderer.invoke('mc-accounts:add', request),
+  accountRemove: request => ipcRenderer.invoke('mc-accounts:remove', request),
 }))
 
 /* Fleet data is resolved while the renderer's module graph is evaluating. An

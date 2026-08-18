@@ -58,6 +58,10 @@ import {
   profileCanStartAnAgent,
   readStoredProfile,
   writeStoredProfile,
+  INTENT_BANNER_BODY,
+  INTENT_BANNER_TITLE,
+  INTENT_IN_USE,
+  INTENT_RECORDED_ONLY,
 } from './setup-profile.js'
 
 /* Counted for the settings footer, which states how many settings exist. The
@@ -246,7 +250,11 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
         )}
         ${PROFILE_INTENT.map(field => rowMarkup(
           field.name,
-          `${field.desc} Recorded, not yet acted on.`,
+          /* PER ROW, because they are no longer all the same. One of these is
+             acted on now and three are not, and printing one sentence over all
+             four would make the screen wrong about whichever half it did not
+             mean. The row itself is what knows. */
+          `${field.desc} ${field.enforced ? INTENT_IN_USE : INTENT_RECORDED_ONLY}`,
           segMarkup(`intent:${field.id}`, field.order.map(value => ({ value, label: field.labels[value] })), profile.intent[field.id], field.name),
           field.id,
         )).join('')}
@@ -260,8 +268,8 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       </div>
       ${withheldSectionMarkup(profile, currentTier)}
       <div class="fleet-profile-status is-warn" role="status">
-        <strong>What the last four rows do today.</strong>
-        <span>This program records them and keeps them. The parts that would act on them are still being built. So today they change what is remembered, not what happens. Each is set to its cautious end unless you moved it.</span>
+        <strong>${INTENT_BANNER_TITLE}</strong>
+        <span>${INTENT_BANNER_BODY}</span>
         <span>This screen asks for no subscription, key or password for Claude, ChatGPT or Google, and this program stores none. Those stay in their own programs. The account for this computer is its own setting, not one of these.</span>
       </div>
     </section>`

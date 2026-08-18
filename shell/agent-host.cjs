@@ -874,9 +874,21 @@ function validateStartedSession(value) {
  * THE CODEX PATH IS UNTOUCHED. provider 'codex' (and an absent tier, which is
  * the agent page's own start) goes through confinedSessionPlan() exactly as
  * before, including its refusal when the Codex credential is missing. */
-function confinementPlanFor(planner, { provider = 'codex' } = {}) {
+/* `account` is what the payload's rotation module chose, or null.
+ *
+ * NULL IS THE ORDINARY CASE and takes the path this function already took,
+ * unchanged. A computer with no account list must not be able to tell that any
+ * of this shipped, so "no account" is not a branch with its own behaviour -- it
+ * is the absence of an argument. */
+function confinementPlanFor(planner, { provider = 'codex', account = null } = {}) {
   if (provider === 'codex' || typeof planner.resolveAgentConfinement !== 'function') {
-    return planner.confinedSessionPlan({})
+    /* The account reaches the Codex plan because that is where it MEANS
+       something: it says which of the person's own signed-in homes the
+       credential is linked from, and gives that account a confined home of its
+       own so two sessions cannot re-sign each other. A payload that predates
+       the option ignores the extra key, which is the same fail-closed shape
+       every other option here has. */
+    return planner.confinedSessionPlan(account ? { account } : {})
   }
   const resolved = planner.resolveAgentConfinement({})
   if (!resolved || typeof resolved !== 'object') {
@@ -892,13 +904,33 @@ function confinementPlanFor(planner, { provider = 'codex' } = {}) {
        this session is not a Codex session. */
     isolated: resolved.isolated === true,
     threadOptions: Object.freeze({ sandbox: resolved.sandbox, approvalPolicy: resolved.approvalPolicy }),
+    /* STILL NULL, AND THAT IS NOT AN OVERSIGHT. `plan.env` is layered over the
+       scrubbed environment, and the Claude engine does not read an environment
+       variable to find its sign-in -- it is handed the folder as an argument
+       (`configDir`). Putting the same fact in two places would create two ways
+       for a session to disagree with itself about whose account it is on. */
     env: null,
     codexHome: null,
     servers: Object.freeze([]),
+    account: account ? account.name : null,
+    /* The one thing the Claude path needs the account FOR, carried on the plan
+       so the start has a single object to read rather than two. */
+    configDir: account ? account.resolvedHome : null,
   })
 }
 
-function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null } = {}) {
+/* `accountResolver` answers WHICH of the person's own provider sign-ins this
+ * session runs on. It is an async function of `{ provider }` returning the
+ * payload rotation module's record, or null.
+ *
+ * OPTIONAL, AND ITS ABSENCE IS THE BEHAVIOUR THAT SHIPPED BEFORE IT. A host
+ * built without one -- every test, every embedder -- plans exactly as it always
+ * did. It is a constructor option rather than something this file resolves for
+ * itself because the account list is the MAIN process's business: it lives
+ * beside the machine record, the accounts page writes it, and a host that went
+ * looking for it would be a second reader that could answer differently from
+ * the surface the person is looking at. */
+function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null, accountResolver = null } = {}) {
   const { startCodexSession, resumeCodexSession, engineRoot } = loadEngine(enginePath)
   /* Loaded ONCE beside the Codex engine, and allowed to be absent. See the note
      above loadClaudeEngine(): a payload cut before that module existed keeps
@@ -1168,10 +1200,32 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
      * plan -- the tier is the only thing that can move it off that. See
      * confinementPlanFor(): a Claude tier is no longer gated on a Codex
      * credential it never reads. */
-    const plan = planConfinement({ provider: (startTier && startTier.provider) || 'codex' })
-    if (!plan || plan.ok !== true) {
+    const sessionProvider = (startTier && startTier.provider) || 'codex'
+
+    /* THE RECORDED LEVEL, BINDING THIS SESSION -- RESOLVED SYNCHRONOUSLY, AND
+     * THE TIMING IS THE SECURITY PROPERTY.
+     *
+     * `plan.ok === false` means the level was resolved but the confinement it
+     * requires could not be built. That REFUSES the start. The alternative --
+     * starting anyway with the process sandbox but the user's own MCP servers --
+     * is the shape that has cost this project three separate findings: a missing
+     * security input treated as consent.
+     *
+     * IT IS PLANNED WITHOUT AN ACCOUNT FIRST, AND THAT IS DELIBERATE. An earlier
+     * version of this change moved the whole plan into the asynchronous start so
+     * the chosen account could arrive before it. That turned FIVE refusals from
+     * throws into rejections -- an unbuildable confinement, a missing enforcement
+     * module, a missing or wrong-shaped launch-environment module, and an account
+     * pin that reintroduced a credential after the scrub. Their suites caught it
+     * ("Missing expected exception"), which is the only reason it is not in this
+     * file. Every one of those is a refusal a caller must receive BEFORE it holds
+     * anything it could mistake for a running agent, and none of them depends on
+     * WHICH account was picked -- so none of them has any business waiting for an
+     * answer that takes a child process to obtain. */
+    const basePlan = planConfinement({ provider: sessionProvider })
+    if (!basePlan || basePlan.ok !== true) {
       fail(
-        (plan && plan.code) || 'AGENT_CONFINEMENT_UNAVAILABLE',
+        (basePlan && basePlan.code) || 'AGENT_CONFINEMENT_UNAVAILABLE',
         'This session could not be confined to the permission level recorded on this computer, so it was not started.',
       )
     }
@@ -1210,9 +1264,12 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       envExtras = extrasResult.env || null
     }
 
-    const sessionEnv = sessionLaunchEnvironment(
+    /* Built here for the same reason the plan is: assertNoBillingCredentials()
+       runs inside this call, and a credential that survived the scrub must be a
+       refusal the caller receives immediately, not one that arrives later. */
+    const baseEnv = sessionLaunchEnvironment(
       loadLaunchEnvironment(engineRoot),
-      plan,
+      basePlan,
       { context: 'ToolsEnabled agent session', extras: envExtras },
     )
 
@@ -1240,8 +1297,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       startPromise: null,
       /* The confinement the session was started under, kept so per-turn
          options are narrowed against the SAME plan — never a re-read that
-         could drift from what actually bound the thread. */
-      planThreadOptions: plan.threadOptions || null,
+         could drift from what actually bound the thread. Filled in below, as
+         could drift from what actually bound the thread. Re-pointed below if an
+         account is chosen, which happens strictly before any turn can be sent. */
+      planThreadOptions: basePlan.threadOptions || null,
     }
     // Reserve before the asynchronous engine start so duplicate starts cannot
     // race and leak a second child process.
@@ -1249,6 +1308,80 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
 
     session.startPromise = (async () => {
       try {
+        /* WHOSE SIGN-IN THIS SESSION RUNS ON, resolved before anything is planned
+         * and before anything is spawned.
+         *
+         * IT IS ASKED HERE, INSIDE THE START, BECAUSE THE ANSWER TAKES TIME. The
+         * resolver asks the provider's own free account surface which of the
+         * accounts can serve, which is a real child process and cannot be done in
+         * a synchronous constructor. Everything above this line still refuses
+         * synchronously; what moved is the plan, which now depends on the answer.
+         *
+         * IT NEVER RAISES. A resolver that throws, or that is absent, answers
+         * null, and null is the path this host took before any of this existed --
+         * the whole promise of the feature is that a person who has one sign-in
+         * cannot tell it shipped.
+         *
+         * A BLOCKED ANSWER IS A REFUSAL WITH A NEXT STEP, not a silent switch.
+         * That is the "stop and let me switch" setting doing what it says: the
+         * account is spent, the person asked to be the one who decides, so the
+         * start stops and says which account is spent and which one is ready. */
+        /* WHOSE SIGN-IN THIS SESSION RUNS ON.
+         *
+         * ASKED HERE BECAUSE THE ANSWER COSTS A CHILD PROCESS. The resolver asks
+         * the provider's own free account surface which accounts can serve, which
+         * cannot be done in the synchronous section above. What IS above is every
+         * refusal that does not depend on the answer, so nothing security-shaped
+         * waits on this.
+         *
+         * IT NEVER RAISES. A resolver that throws, or that is absent, answers null,
+         * and null keeps the plan already built -- the exact path this host took
+         * before any of this existed. A person with one sign-in cannot tell this
+         * shipped.
+         *
+         * A BLOCKED ANSWER IS A REFUSAL WITH A NEXT STEP, not a silent switch. That
+         * is the "stop and let me switch" setting doing what it says: the account
+         * is spent, the person asked to be the one who decides, so the start stops
+         * and names which account is spent and which is ready.
+         *
+         * ONE KNOWN ORDERING CONSEQUENCE, STATED RATHER THAN DISCOVERED LATER: the
+         * base plan above links the credential from the DEFAULT home, so a machine
+         * whose default home is signed out still refuses at that point even if a
+         * registered account is signed in. Rotation cannot rescue that case, and
+         * making it able to would mean deferring the sign-out refusal -- trading a
+         * narrow, loud, correct refusal for a late one. */
+        let plan = basePlan
+        let sessionEnv = baseEnv
+        if (accountResolver) {
+          let resolvedAccount = null
+          try { resolvedAccount = await accountResolver({ provider: sessionProvider }) } catch { resolvedAccount = null }
+          if (resolvedAccount && resolvedAccount.blocked === true) {
+            fail(
+              resolvedAccount.code || 'AGENT_ACCOUNT_UNAVAILABLE',
+              resolvedAccount.reason || 'No account on this computer can run right now, so this session was not started.',
+            )
+          }
+          const account = (resolvedAccount && resolvedAccount.rotated === true && resolvedAccount.account) || null
+          if (account) {
+            /* Re-planned rather than patched: the account changes which home the
+               credential is linked FROM and gives that account its own confined
+               home, and both of those are decisions the planner makes. */
+            const pinned = planConfinement({ provider: sessionProvider, account })
+            if (!pinned || pinned.ok !== true) {
+              fail(
+                (pinned && pinned.code) || 'AGENT_CONFINEMENT_UNAVAILABLE',
+                'This session could not be confined to the permission level recorded on this computer, so it was not started.',
+              )
+            }
+            plan = pinned
+            session.planThreadOptions = plan.threadOptions || null
+            sessionEnv = sessionLaunchEnvironment(
+              loadLaunchEnvironment(engineRoot),
+              plan,
+              { context: 'ToolsEnabled agent session', extras: envExtras },
+            )
+          }
+        }
         /* One shape of arguments, two engine calls. resumeCodexSession
            continues the named thread instead of opening a new one — routing
            a resume through the start would materialise a throwaway thread
@@ -1323,6 +1456,11 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
           // it still means: sandbox danger-full-access, the widest reach the
           // engine offers; isolation is about whose home, not about reach.
           env: sessionEnv,
+          /* WHICH SIGN-IN, for the engine that takes it as an argument rather
+             than as an environment variable. Omitted entirely when no account
+             was chosen, so the child signs itself in exactly as it does in the
+             person's own terminal -- the path that is proven to work. */
+          ...(useClaude && plan.configDir ? { configDir: plan.configDir } : {}),
           onEvent: (event) => emit(session, event),
         })
         // Retain a usable close handle before validating the rest of the
@@ -1367,6 +1505,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
           threadId: session.threadId,
           tier: plan.tier,
           effort: session.effort,
+          /* WHICH ACCOUNT SERVED, reported from the plan that actually bound the
+             session rather than re-read afterwards. A name, never a credential,
+             and null on a computer with one sign-in. */
+          account: plan.account || null,
           ...(session.resumed ? { resumed: session.resumed } : {}),
         })
       } catch (error) {

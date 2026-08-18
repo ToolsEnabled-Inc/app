@@ -393,6 +393,13 @@ const SHIPPED_COPY = [
      search for it -- and it is named account-* so the discovery above picks it
      up without anybody remembering to add it. */
   read('src/account-reset-copy.js'),
+  /* THE OTHER MEANING OF "ACCOUNT", and it is on screen too.
+     The person's own Codex and Claude sign-ins are also called accounts -- the
+     engine's rotation calls them that -- and the panel that lists them makes its
+     own absolute promise about what this product does with them. Discovery below
+     already scans the module because it is named account-*; including its words
+     here is what lets that promise be REGISTERED rather than merely scanned. */
+  read('src/account-panel-copy.js'),
 ].join('\n')
 
 const REGISTERED_CLAIMS = Object.freeze([
@@ -511,10 +518,36 @@ const REGISTERED_CLAIMS = Object.freeze([
          the copy names those providers precisely in order to say it is not
          them. A guard that refuses its own promise gets deleted by the next
          person. What must stay absent is a KEY. */
-      const subscriptionCredential = /anthropic|sk-ant|openai|api[_-]?key|ANTHROPIC_API_KEY|OPENAI_API_KEY/i
+      /* THE SAME NARROWING THIS ENTRY ALREADY MADE FOR `chatgpt`, NOW FOR THE
+         COMPANY NAMES, and it is made for the second time by the same defect.
+         A bare /anthropic/ fired on src/account-panel-copy.js -- the provider
+         risk warning, whose whole job is to name the company that can act on a
+         person's own subscription. That is prose naming a provider in order to
+         be honest about it, which is exactly the case the paragraph above
+         describes, and satisfying the guard by deleting the company's name would
+         be satisfying it by saying less.
+
+         SO THE COMPANY NAMES ARE MATCHED IN CODE SHAPES ONLY -- an import, a
+         require, a constructor, a host name, an environment variable -- the
+         technique the licensing pin two entries up already uses and for the same
+         stated reason. Every CREDENTIAL shape stays a bare match, because those
+         appear in no honest sentence. And a provider API call remains impossible
+         here whatever it is named: the network pin above bars fetch, sockets and
+         every node networking module in these same files. */
+      const subscriptionCredential = [
+        /sk-ant/i,
+        /api[_-]?key/i,
+        /ANTHROPIC_API_KEY|OPENAI_API_KEY/,
+        /from\s+['"][^'"]*(?:anthropic|openai)[^'"]*['"]/i,
+        /require\(\s*['"][^'"]*(?:anthropic|openai)[^'"]*['"]/i,
+        /\bnew\s+(?:Anthropic|OpenAI)\b/,
+        /api\.(?:anthropic|openai)\.com/i,
+      ]
       for (const [name, source] of Object.entries(ACCOUNT_SOURCES)) {
-        assert.ok(!subscriptionCredential.test(source),
-          `${name} touches a provider subscription credential, so "not a login to Claude or ChatGPT" is no longer true`)
+        for (const pattern of subscriptionCredential) {
+          assert.ok(!pattern.test(source),
+            `${name} touches a provider subscription credential (${pattern}), so "not a login to Claude or ChatGPT" is no longer true`)
+        }
       }
       /* And the scopes, checked against the constant the flow actually sends
          rather than against the sentence. A widened scope list is what would
@@ -917,6 +950,32 @@ const REGISTERED_CLAIMS = Object.freeze([
       assert.ok(/epoch: entry\.epoch \+ 1/.test(revoke), 'sign-out-everywhere no longer advances the epoch')
     },
   },
+  {
+    /* THE PROVIDER PANEL'S OWN PROMISE, and it is the strongest sentence on that
+       surface. The panel prints the exact command a person runs to sign one of
+       their own provider homes in. Printing a command beside a folder full of
+       credentials is only safe while the product genuinely does neither of the
+       two things it would be natural to do next -- run it, or read what it
+       leaves behind -- so the sentence says both, and this pins both. */
+    claim: 'Nothing here runs that line, and nothing here reads what it writes',
+    stillTrueBecause: 'shell/account-registry.cjs starts no child process at all, and the single call in it that returns bytes is fenced by a value comparison to this product\'s own two files, so no sign-in path can reach it. Asserted against the source and behaviourally against an injected file layer in tools/test/account-registry.test.mjs.',
+    pin() {
+      const store = ACCOUNT_SOURCES['shell/account-registry.cjs']
+      assert.ok(store, 'the provider account store is no longer being scanned by these guards')
+      for (const spawner of ['child_process', 'spawn', 'execFile', 'execSync']) {
+        assert.ok(!store.includes(spawner),
+          `the provider account store can start a program (${spawner}), so "nothing here runs that line" is no longer true`)
+      }
+      for (const reader of ['createReadStream', 'openSync', 'readSync', 'readdirSync']) {
+        assert.ok(!store.includes(reader),
+          `the provider account store can read bytes another way (${reader}), so "nothing here reads what it writes" is no longer true`)
+      }
+      /* One reader, inside the function that refuses every path except our own
+         two files. A second occurrence is a second door. */
+      assert.equal(store.split('readFileSync').length - 1, 1,
+        'the provider account store has more than one call that returns bytes')
+    },
+  },
 ])
 
 for (const entry of REGISTERED_CLAIMS) {
@@ -1028,6 +1087,18 @@ const REPORTED_STATE = Object.freeze([
   ['Nothing was measured, so nothing is offered', 'reports that the measurement itself failed, and it is the branch that exists so an unreadable answer cannot render as "there is nothing here to delete" -- which would be a claim about somebody\'s vault made from ignorance.'],
   ['This page cannot delete anything', 'reports that this build has no removal channel on its bridge -- the same shape as the Google and rename lines above. Said instead of a button that would appear to work.'],
   ['There is no installed application here to remove data from', 'reports where the page is running: in a browser there is no shell, no userData directory and nothing to sweep.'],
+  /* THE PROVIDER SIGN-IN PANEL. A different meaning of "account" -- the person's
+     own Codex and Claude sign-ins -- on a module the discovery above scans
+     because of its name. Each of these describes a state that was just read or a
+     rule that is really enforced; the one PROMISE that surface makes is
+     registered above, with a pin, rather than parked here. */
+  ['so two accounts never write over each other', 'states a rule that IS enforced: two accounts of one provider may not share a folder, refused in shell/account-registry.cjs and pinned behaviourally in tools/test/account-registry.test.mjs.'],
+  ['Nothing is listed here, so this copy uses the one sign-in already on this computer', 'reports that this computer has no account list. Absence is the ordinary state and means no rotation, which is why it is said as a fact rather than as a fault.'],
+  ['This copy could not read its list of accounts, so none are shown', 'reports a damaged account list. It is the fail-closed message, and adding an account refuses in that state rather than replacing what could not be read.'],
+  ['That folder cannot be resolved on this computer', 'reports that a relative folder could not be joined to a home directory -- a fact about this machine, said when the addition is refused.'],
+  ['That folder cannot be used for an account', 'reports a refused folder: empty, over-long, or carrying a character a path may not hold.'],
+  ['That kind of account cannot be added here', 'reports that the named provider is not one the engine\'s rotation understands. Only Codex and Claude are, and offering a third would write a file nothing reads.'],
+  ['That kind of account cannot be removed here', 'the same report on the way out; the removal names a provider too, so it can refuse one that does not exist.'],
 ])
 
 test('every absolute-shaped sentence in the account copy is classified', () => {

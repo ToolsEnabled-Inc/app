@@ -22,6 +22,7 @@
  */
 
 import { el } from '../components.js'
+import { ACCOUNT_PANEL, CLAUDE_ACCOUNT_RISK } from '../account-panel-copy.js'
 import {
   FIRST_RUN_NEEDS,
   PROVIDER_SETUP,
@@ -112,7 +113,150 @@ function providerMarkup(provider) {
     <p class="guide-presence" data-presence="pending" hidden></p>
     <p class="guide-need-body">${esc(provider.doesHere)}</p>
     <ol class="guide-steps">${provider.steps.map(stepMarkup).join('')}</ol>
+    ${claudeRiskMarkup(provider)}
+    ${accountsSlotMarkup(provider)}
   </section>`
+}
+
+/* THE PROGRAMS THAT CAN HOLD MORE THAN ONE ACCOUNT HERE, and it is not all
+   three. The engine's account list understands Codex and Claude only, so a
+   Gemini panel would be a control writing a file nothing reads. Gemini already
+   says "nothing here starts it"; offering it accounts would contradict that on
+   the same screen. */
+const ACCOUNT_PROVIDERS = Object.freeze(new Set(['codex', 'claude']))
+
+/* THE WARNING SHIPS WITH THE SURFACE, NOT WITH THE READ.
+ *
+ * It is drawn here, in the static markup, and NOT by the asynchronous fill
+ * below. That is the whole difference between a warning and a decoration: the
+ * fill can fail silently -- no bridge, a browser with no preload, a read that
+ * never answers -- and every one of those cases still shows a person the four
+ * things they are owed before they run Claude on their own account. A warning
+ * that only appears when a read succeeds is a warning that is absent exactly
+ * when something is already wrong.
+ *
+ * It sits ABOVE the account list on purpose. A person reads it before they add
+ * a second Claude account, not after. */
+function claudeRiskMarkup(provider) {
+  if (provider.id !== 'claude') return ''
+  return `<section class="guide-risk" data-risk="claude">
+    <h4 class="guide-risk-head">${esc(CLAUDE_ACCOUNT_RISK.heading)}</h4>
+    <ol class="guide-risk-points">${CLAUDE_ACCOUNT_RISK.points.map(point => `<li>${esc(point)}</li>`).join('')}</ol>
+    <p class="guide-risk-today">${esc(CLAUDE_ACCOUNT_RISK.today)}</p>
+  </section>`
+}
+
+/* An EMPTY, HIDDEN slot, filled once by fillAccounts() or left as it is.
+ *
+ * Same rule as the presence line above it, and for the same reason. `npm run
+ * dev` serves this page in a plain browser with no preload, so there is no
+ * bridge to answer; a build with the channel removed looks identical. Drawing
+ * the add row statically would put a name field and a button in front of a
+ * person in both cases, and pressing it would do nothing at all. So the controls
+ * arrive only with the answer that proves they can work. */
+function accountsSlotMarkup(provider) {
+  if (!ACCOUNT_PROVIDERS.has(provider.id)) return ''
+  return `<div class="guide-accounts-panel"
+    data-accounts-provider="${esc(provider.id)}"
+    data-accounts-program="${esc(provider.name)}" hidden></div>`
+}
+
+function accountRowMarkup(account, activeName) {
+  const inUse = Boolean(activeName) && String(account.name).toLowerCase() === activeName.toLowerCase()
+  const signedIn = account.signedIn === 'yes' ? ACCOUNT_PANEL.signedIn : ACCOUNT_PANEL.notSignedIn
+  return `<li class="guide-account" data-account="${esc(account.name)}" data-signed-in="${esc(account.signedIn)}">
+    <p class="guide-account-line">
+      <b class="guide-account-name">${esc(account.name)}</b>
+      ${inUse ? `<span class="guide-account-tag" data-account-active="yes">${esc(ACCOUNT_PANEL.inUse)}</span>` : ''}
+      <span class="guide-account-state">${esc(signedIn)}</span>
+    </p>
+    <p class="guide-account-folder">${esc(account.directory)}</p>
+    <p class="guide-step-note">${esc(ACCOUNT_PANEL.commandLead)}</p>
+    <code class="guide-command">${esc(account.command || '')}</code>
+    <p class="guide-step-note">${esc(ACCOUNT_PANEL.commandNote)}</p>
+    <button class="guide-account-btn" type="button" data-account-remove="${esc(account.name)}">${esc(ACCOUNT_PANEL.remove)}</button>
+  </li>`
+}
+
+/* ONE PROGRAM'S ACCOUNTS, PAINTED AND WIRED.
+ *
+ * The whole panel is redrawn after every change rather than patched, which is
+ * the shape mountProfilePanel() in src/views/computers.js already uses: a list
+ * whose rows carry buttons has exactly one honest state after a write, and that
+ * is whatever the store says next. */
+function paintAccounts(root, panel, answer) {
+  const providerId = panel.dataset.accountsProvider
+  const program = panel.dataset.accountsProgram || providerId
+  const mine = answer.accounts.filter(account => account && account.provider === providerId)
+  const activeName = answer.active && typeof answer.active.name === 'string' ? answer.active.name : ''
+
+  panel.innerHTML = `
+    <h4 class="guide-accounts-head">${esc(ACCOUNT_PANEL.heading)}</h4>
+    <p class="guide-step-note">${esc(ACCOUNT_PANEL.help)}</p>
+    ${answer.damaged === true ? `<p class="guide-accounts-note">${esc(ACCOUNT_PANEL.unreadable)}</p>` : ''}
+    ${mine.length
+      ? `<ul class="guide-account-list">${mine.map(account => accountRowMarkup(account, activeName)).join('')}</ul>
+         <p class="guide-step-note">${esc(ACCOUNT_PANEL.activeNote)}</p>`
+      : `<p class="guide-accounts-note">${esc(ACCOUNT_PANEL.none)}</p>`}
+    <div class="guide-account-add">
+      <input class="guide-account-field" type="text" data-account-name
+        placeholder="${esc(ACCOUNT_PANEL.namePlaceholder)}" aria-label="${esc(ACCOUNT_PANEL.nameLabel)}">
+      <input class="guide-account-field" type="text" data-account-folder
+        placeholder="${esc(ACCOUNT_PANEL.folderPlaceholder)}" aria-label="${esc(ACCOUNT_PANEL.folderLabel)}">
+      <button class="guide-account-btn" type="button" data-account-add>${esc(ACCOUNT_PANEL.add(program))}</button>
+    </div>
+    <output class="guide-accounts-note" role="status" data-account-out></output>`
+  panel.hidden = false
+
+  const out = panel.querySelector('[data-account-out]')
+  panel.querySelector('[data-account-add]')?.addEventListener('click', async () => {
+    const name = panel.querySelector('[data-account-name]')?.value?.trim() || ''
+    const directory = panel.querySelector('[data-account-folder]')?.value?.trim() || ''
+    if (!name || !directory) {
+      if (out) out.textContent = ACCOUNT_PANEL.needBoth
+      return
+    }
+    const added = await window.mcProviders?.accountAdd({ name, provider: providerId, directory })
+      .catch(() => null)
+    if (!added || added.ok !== true) {
+      if (out) out.textContent = ACCOUNT_PANEL.refused
+      return
+    }
+    void fillAccounts(root)
+  })
+
+  for (const button of panel.querySelectorAll('[data-account-remove]')) {
+    button.addEventListener('click', async () => {
+      const gone = await window.mcProviders?.accountRemove({ name: button.dataset.accountRemove, provider: providerId })
+        .catch(() => null)
+      if (!gone || gone.ok !== true) {
+        if (out) out.textContent = ACCOUNT_PANEL.removeRefused
+        return
+      }
+      void fillAccounts(root)
+    })
+  }
+}
+
+/* THE SECOND READ ON THIS PAGE, held to the first one's rules exactly.
+ *
+ * Every failure path leaves the panels hidden and the page useful: the commands
+ * above them, and the Claude warning beside them, are already drawn and do not
+ * depend on this. An absent list is NOT a failure and never paints as one --
+ * `accounts: []` is the ordinary answer on a computer with one sign-in, and the
+ * panel says so in words rather than reporting nothing. */
+async function fillAccounts(root) {
+  let answer = null
+  try {
+    answer = await window.mcProviders?.accounts()
+  } catch {
+    return
+  }
+  if (!answer || answer.ok !== true || !Array.isArray(answer.accounts)) return
+  if (!root.isConnected) return
+  for (const panel of root.querySelectorAll('.guide-accounts-panel')) {
+    paintAccounts(root, panel, answer)
+  }
 }
 
 /* ASK THE MACHINE WHAT IT HAS, AND SAY NOTHING IF IT CANNOT BE ASKED.
@@ -208,6 +352,11 @@ export function guideView() {
    * read guards on root.isConnected instead, so a person who navigates away
    * before the machine answers cannot have a detached page written into. */
   fillPresence(root)
+  /* The second one, added with the account panels. It is a separate read rather
+     than a field on the first because they answer different questions and fail
+     apart: a machine can report its programs and still have no account list, and
+     an account list must not be able to blank the presence line. */
+  fillAccounts(root)
 
   return {
     el: root,

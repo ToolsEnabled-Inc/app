@@ -76,7 +76,23 @@ test('the send channel takes model and images, and images only from the picker',
 
 test('the host passes images and narrowed options to the adapter, and the plan is per-session state', () => {
   const host = read('shell/agent-host.cjs')
-  assert.match(host, /planThreadOptions: plan\.threadOptions/, 'the session no longer keeps the plan it was started under')
+  /* TWO WRITE SITES SINCE 2026-08-18, AND BOTH ARE PINNED.
+
+     This read `planThreadOptions: plan.threadOptions`, one literal, back when
+     there was one plan. There are now two: the session is CONSTRUCTED holding the
+     plan built synchronously, and if account switching picks one of the several
+     sign-ins a person has, the session is RE-planned onto that account and the
+     field is re-pointed at the plan that actually bound the thread.
+
+     Matching only the first would let the second drift; matching only the second
+     would allow a session to exist holding no plan at all between construction and
+     the re-plan, which is the window a turn must never be sent in. Requiring both
+     is a STRICTER pin than the one it replaces, not an accommodation of the change
+     that broke it. */
+  assert.match(host, /planThreadOptions: basePlan\.threadOptions/,
+    'the session is no longer constructed holding the plan it was started under')
+  assert.match(host, /session\.planThreadOptions = plan\.threadOptions/,
+    'a session re-planned onto a chosen account no longer keeps the plan that actually bound it')
   const send = host.slice(host.indexOf('async function sendTurn'))
   assert.match(send.slice(0, 1200), /narrowTurn\(session\.planThreadOptions, options\)/,
     'per-turn options are no longer narrowed against the SAME plan that bound the thread')

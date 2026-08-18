@@ -33,6 +33,9 @@ import { after, test } from 'node:test'
 
 import {
   AUTONOMY_CHOICES,
+  INTENT_BANNER_BODY,
+  INTENT_IN_USE,
+  INTENT_RECORDED_ONLY,
   PROFILE_INTENT,
   PROFILE_SCHEMA_VERSION,
   PROFILE_STORAGE_KEY,
@@ -396,13 +399,62 @@ test('every setting the questions produce is reachable in Settings afterwards', 
   }
 })
 
-test('a setting that is recorded but not yet acted on says so where it is shown', () => {
+/* WHAT THIS PINNED BEFORE, AND WHY IT HAD TO CHANGE RATHER THAN BE DELETED.
+ *
+ * Until 2026-08-18 this asserted `field.enforced === false` for EVERY intent
+ * row, and it was right to: all four were recorded and none was read, and the
+ * screens said so. `failover` is now genuinely acted on -- the answer reaches
+ * the payload's rotation module as its mode, and decides whether a spent
+ * account may hand a session to the next one. So the old assertion would now
+ * be pinning a lie in the other direction.
+ *
+ * THE REPLACEMENT IS STRICTER, NOT LOOSER, AND THAT IS DELIBERATE. Flipping a
+ * boolean is the cheapest possible way to claim a setting is real, so this
+ * asserts BOTH populations exist and BOTH sentences appear. A change that
+ * marked every row enforced to make a test pass would fail here, and so would
+ * one that quietly marked this row unenforced again while leaving the code
+ * that reads it in place. */
+test('each recorded setting says truthfully whether it is acted on yet', () => {
   const SECTION = read('src/setup-profile-settings.js')
-  for (const field of PROFILE_INTENT) assert.equal(field.enforced, false)
+  const enforced = PROFILE_INTENT.filter(field => field.enforced === true)
+  const recordedOnly = PROFILE_INTENT.filter(field => field.enforced !== true)
+
+  /* Neither population may be empty, or one of the two sentences below would
+     be asserted against a screen that never prints it. */
+  assert.ok(enforced.length > 0, 'no intent row is acted on; the settings list would be claiming nothing works')
+  assert.ok(recordedOnly.length > 0, 'every intent row claims to be acted on; check that is really true before changing this')
+
+  /* An enforced row must NAME where it is acted on. A boolean alone is a claim
+     nobody can check, which is the failure this whole change is about. */
+  for (const field of enforced) {
+    assert.equal(typeof field.enforcedBy, 'string')
+    assert.ok(field.enforcedBy.trim().length > 0,
+      `${field.id} says it is enforced but names nothing that enforces it`)
+  }
+
   /* The same honesty rule src/setup-state.js applies to the permission level's
      own enforcement gap. A row that silently does nothing is worse than no row. */
-  assert.match(SECTION, /Recorded, not yet acted on/, 'the four cross-lane rows no longer state what they do today')
-  assert.match(VIEW, /still being built/, 'the review no longer states which of its settings are not yet acted on')
+  /* Asserted through the exported sentences rather than a literal in the screen:
+     the copy moved beside the rows precisely so two screens could not drift, and
+     a test matching a literal in one screen would not have noticed the other. */
+  assert.match(INTENT_RECORDED_ONLY, /not yet acted on/i, 'the rows that are not yet acted on no longer say so')
+  assert.match(INTENT_IN_USE, /in use now/i, 'the row that IS acted on is described as though it were not')
+  assert.match(SECTION, /INTENT_RECORDED_ONLY/, 'the settings list stopped printing what a recorded-only row does')
+  assert.match(SECTION, /INTENT_IN_USE/, 'the settings list stopped printing what an acted-on row does')
+  assert.match(INTENT_BANNER_BODY, /still being built/, 'the banner no longer states which settings are not yet acted on')
+  assert.match(INTENT_BANNER_BODY, /acted on when you start/, 'the banner no longer names the setting that IS acted on')
+  assert.match(VIEW, /INTENT_BANNER_BODY/, 'the review page stopped printing the banner that says what these rows do')
+})
+
+test('the failover answer is the one the account switching actually reads', () => {
+  /* THE ANTI-DECORATION CHECK. `enforced: true` is a string in a file; what
+     makes it true is that the main process passes this answer to the module
+     that switches accounts. This asserts the wiring exists rather than
+     trusting the flag, because the flag is exactly what a mistake would set
+     without doing the work. */
+  const MAIN = read('shell/main.cjs')
+  assert.match(MAIN, /failover/, 'nothing in the main process reads the failover answer')
+  assert.match(MAIN, /accountResolver/, 'the account choice is never handed to the thing that starts a session')
 })
 
 /* WHAT THIS ASSERTED FIRST, AND WHY THAT WAS THE WRONG PROPERTY.

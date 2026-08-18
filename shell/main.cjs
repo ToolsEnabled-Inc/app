@@ -14,7 +14,7 @@ const dns = require('dns')
 const path = require('path')
 const fs = require('fs')
 const { randomBytes, randomUUID, createHash } = require('crypto')
-const { createAgentHost, engineAvailability } = require('./agent-host.cjs')
+const { createAgentHost, engineAvailability, engineCandidates } = require('./agent-host.cjs')
 const { readAgentConfinement, listAgentTools } = require('./agent-confinement-read.cjs')
 const { providerCliPresence } = require('./provider-cli-presence.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
@@ -235,6 +235,19 @@ const { createSessionProfileStore } = require('./session-profiles.cjs')
 const sessionProfiles = createSessionProfileStore({
   file: path.join(app.getPath('userData'), 'session-profiles.json'),
 })
+
+/* The person's own provider accounts: which Codex and Claude sign-ins this
+   computer knows about, and where each one keeps its home.
+
+   ITS FILE IS THE ENGINE'S FILE, AND THAT IS THE ONLY REASON IT WORKS. The
+   rotation reads <LOCALAPPDATA>\ToolsEnabled\accounts.json, beside machine.json,
+   and it is the only reader that matters -- a list kept next to
+   session-profiles.json in userData would be a screen showing one answer while
+   the thing that starts agents obeyed another. So the path is resolved the way
+   the engine's resolveServicesRoot() resolves it, in shell/account-registry.cjs,
+   rather than assembled here from app.getPath(). */
+const { createAccountRegistryStore, accountsRegistryFile } = require('./account-registry.cjs')
+const accountRegistry = createAccountRegistryStore({ file: accountsRegistryFile() })
 
 /* The renderer's settings, kept where no port can partition them. See
    shell/renderer-prefs.cjs for what was wrong and why this is one file rather
@@ -920,10 +933,97 @@ function agentToolAllowlistExtras() {
   return { ok: true, env: { TOOLSENABLED_TOOL_ALLOWLIST: allowed.join(',') } }
 }
 
+/* WHICH OF THE PERSON'S OWN SIGN-INS A SESSION RUNS ON, AND WHO DECIDES.
+ *
+ * THE ANSWER COMES FROM THE ROW THE PERSON ACTUALLY SET. `failover` is the
+ * walkthrough question "If an account runs out", and its two answers are its
+ * own words: "Stop and let me switch" and "Switch to another account
+ * automatically". Until now nothing read it, which is what made it a setting in
+ * name only. This is the reader. There is exactly ONE, and it reads the store
+ * the screen writes -- not a copy -- so the screen and the behaviour cannot
+ * disagree.
+ *
+ * IT DEFAULTS TO THE CAUTIOUS HALF ON EVERY UNCERTAINTY. An unreadable record, a
+ * missing answer, an answer that is not one of the two: all mean "stop and let
+ * me switch". Switching accounts spends a different subscription, and doing that
+ * because a file would not parse is not a decision anybody made.
+ *
+ * IT NEVER STOPS A START IT HAS NO REASON TO STOP. A payload without the module,
+ * a machine with no account list, a fault anywhere in here: all answer null, and
+ * null is the path this program took before any of this existed.
+ *
+ * PROVIDER LIMITS ARE SURFACED, NEVER WORKED AROUND. Rotation moves between
+ * accounts the same person subscribes to; each account's own limit is respected
+ * on its own terms, an exhausted one is skipped rather than retried, and moving
+ * at all is the person's explicit choice recorded above. */
+function failoverModeFromProfile() {
+  try {
+    const stored = rendererPrefs.snapshot().values['mc.setup.profile']
+    if (typeof stored !== 'string') return 'manual'
+    const parsed = JSON.parse(stored)
+    const answer = parsed && parsed.answers && parsed.answers.failover
+    return answer === 'auto' ? 'auto' : 'manual'
+  } catch {
+    return 'manual'
+  }
+}
+
+let rotationModule
+function loadRotation() {
+  if (rotationModule !== undefined) return rotationModule
+  rotationModule = null
+  try {
+    /* The SAME engine trees the agent host itself resolves, in the same order,
+       so rotation can never be read out of one copy while sessions start from
+       another. engineCandidates() names the engine module; its tree is three
+       directories up, which is how the host derives it too. */
+    for (const candidate of engineCandidates()) {
+      try {
+        const engineRoot = path.resolve(path.dirname(candidate.value), '..', '..', '..')
+        const loaded = require(path.join(engineRoot, 'src', 'lib', 'multi-account', 'rotation.js'))
+        if (loaded && typeof loaded.resolveAccountForSession === 'function') { rotationModule = loaded; break }
+      } catch { /* try the next tree */ }
+    }
+  } catch {
+    /* A copy whose engine predates this module keeps starting sessions on the
+       one sign-in it has, which is exactly what it did before. */
+  }
+  return rotationModule
+}
+
+async function resolveSessionAccount({ provider }) {
+  const rotation = loadRotation()
+  if (!rotation) return null
+  try {
+    return await rotation.resolveAccountForSession({
+      provider,
+      servicesRoot: resolveServicesRootForAccounts(),
+      mode: failoverModeFromProfile(),
+    })
+  } catch {
+    return null
+  }
+}
+
+/* The same directory the machine record lives in, resolved the same way the
+   payload resolves it. Two answers to "where is this computer's account list"
+   would be two account lists. */
+function resolveServicesRootForAccounts() {
+  const localAppData = process.env.LOCALAPPDATA
+  if (typeof localAppData === 'string' && path.isAbsolute(localAppData)) {
+    return path.join(localAppData, 'ToolsEnabled')
+  }
+  return path.join(require('node:os').homedir(), '.toolsenabled')
+}
+
 function getAgentHost() {
   if (agentHost) return agentHost
   ensureWorkspaceRoot()
-  const host = createAgentHost({ defaultCwd: WORKSPACE_ROOT, sessionEnvironmentExtras: agentToolAllowlistExtras })
+  const host = createAgentHost({
+    defaultCwd: WORKSPACE_ROOT,
+    sessionEnvironmentExtras: agentToolAllowlistExtras,
+    accountResolver: resolveSessionAccount,
+  })
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
     if (!session || session.owner.isDestroyed()) return
@@ -1043,6 +1143,68 @@ ipcMain.handle('mc-agent:startable-tiers', async (event) => {
 ipcMain.handle('mc-providers:presence', async (event) => {
   assertTrustedAgentSender(event)
   return providerCliPresence()
+})
+
+/* THE PERSON'S OWN ACCOUNTS, OVER THE SAME BOUNDARY AND UNDER THE SAME CHECK.
+ *
+ * SAME SENDER TEST AS EVERY OTHER AGENT CHANNEL, and here it is not a formality:
+ * `add` writes a file the engine reads to decide which sign-in an agent runs on.
+ * A frame that could reach it could point somebody's next agent at a directory
+ * they never chose.
+ *
+ * THE COMMAND IS BUILT HERE, NOT IN THE WINDOW. Each listed account carries the
+ * exact line a person pastes into their terminal to sign that folder in, and
+ * that line contains a resolved absolute path. The window never assembles one --
+ * it prints what this process worked out, which is the same division the session
+ * profiles already use for folders.
+ *
+ * `active` RIDES ALONG WITH THE LIST because they are one question on screen:
+ * "which of my accounts is this computer on right now" is unanswerable from the
+ * list alone. It is a separate read in the store and a separate optional file on
+ * disk, and a missing one degrades to "not known" rather than to a failure. */
+ipcMain.handle('mc-accounts:list', (event) => {
+  assertTrustedAgentSender(event)
+  try {
+    const answer = accountRegistry.list()
+    return {
+      ...answer,
+      accounts: answer.accounts.map(account => ({
+        ...account,
+        command: accountRegistry.signInCommand({ provider: account.provider, directory: account.directory }),
+      })),
+      active: accountRegistry.activeAccount(),
+    }
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+ipcMain.handle('mc-accounts:add', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['name', 'provider', 'directory', 'priority'])
+    return accountRegistry.add({
+      name: boundedAgentString(payload.name, 'name', 64),
+      provider: boundedAgentString(payload.provider, 'provider', 32),
+      directory: boundedAgentString(payload.directory, 'directory', 1024),
+      ...(payload.priority === undefined ? {} : { priority: payload.priority }),
+    })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+ipcMain.handle('mc-accounts:remove', (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['name', 'provider'])
+    return accountRegistry.remove({
+      name: boundedAgentString(payload.name, 'name', 64),
+      provider: boundedAgentString(payload.provider, 'provider', 32),
+    })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
 })
 
 /* The second agent channel that starts nothing, and the only one that reads

@@ -92,6 +92,8 @@ import {
   stepAfter,
   stepBefore,
   writeStoredProfile,
+  INTENT_BANNER_BODY,
+  INTENT_BANNER_TITLE,
 } from '../setup-profile.js'
 /* The remedy commands and the per-code sentences, taken from the module that
    owns them rather than restated here. Setup, the home screen and the agent
@@ -803,8 +805,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       </div>
 
       <div class="fleet-profile-status is-warn" role="status">
-        <strong>What those four do today, stated plainly.</strong>
-        <span>They record what you want, and this program keeps them. The parts that would act on them are still being built. So today they change what is remembered, not what happens. They are set to the cautious end unless you moved them.</span>
+        <strong>${INTENT_BANNER_TITLE}</strong>
+        <span>${INTENT_BANNER_BODY}</span>
         <span>The only account this setup asks for is the one on this computer, described where it was offered. Nothing in this setup asks for a subscription, key or password for Claude, ChatGPT or Google, and this program stores none. Those stay in their own programs.</span>
       </div>
 

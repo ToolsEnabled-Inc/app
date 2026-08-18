@@ -390,6 +390,7 @@
       "src/lib/multi-account/health.js",
       "src/lib/multi-account/launch.js",
       "src/lib/multi-account/registry.js",
+      "src/lib/multi-account/rotation.js",
       "src/lib/multi-account/switcher.js",
       "src/lib/owner-authorization.js",
       "src/lib/owner-capture-spool.js",
