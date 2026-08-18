@@ -199,6 +199,15 @@ test('7. an exit code of 0 is a CLAIM, and the driver\'s own output is cross-exa
     'first-run-contract-qa counts its own failures in words; exiting 0 afterwards does not withdraw the count')
   assert.equal(verdictFor({ timedOut: false, code: 0, output: '  ok  a\n\n0 of 85 CHECK(S) FAILED\n' }), 'PASS')
 
+  /* (e3) The fourth and fifth conventions, from real logs on 2026-08-18 — all
+     three were fully green runs read as INCONCLUSIVE for closing differently. */
+  assert.equal(verdictFor({ timedOut: false, code: 0, output: '  ok  a\n\nALL 82 CHECKS PASSED\n' }), 'PASS',
+    'first-run-contract-qa closes its all-green run with ALL N CHECKS PASSED')
+  assert.equal(verdictFor({ timedOut: false, code: 0, output: '  ok  a\n\n15 observation(s), 0 failing\n' }), 'PASS',
+    'the observation drivers close with "N observation(s), M failing"')
+  assert.equal(verdictFor({ timedOut: false, code: 0, output: '  ok  a\n\n15 observation(s), 2 failing\n' }), 'FAIL',
+    'and a nonzero failing count is a failure whatever the exit code says')
+
   /* (f) A non-zero exit is still a failure whatever the log says, and a timeout
      is still decided first -- neither is reachable through the new branches. */
   assert.equal(verdictFor({ timedOut: false, code: 1, output: '4/4 checks passed\n' }), 'FAIL')

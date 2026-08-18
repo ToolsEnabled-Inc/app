@@ -254,6 +254,13 @@ export function staleSettings(names) {
    Adding a fourth convention means adding it here, with a log that shows it. */
 const RATIO_SUMMARY = /^[^\n]*?(\d+)\s*\/\s*(\d+)\s+checks?\b[^\n]*$/gm
 const FAILED_COUNT = /^[^\n]*?(\d+) of (\d+) CHECK\(S\) FAILED/gim
+/* Fourth and fifth conventions, added 2026-08-18 with the logs that show them --
+   both were read as INCONCLUSIVE over fully green runs:
+     first-run-contract-qa.log      -> "ALL 82 CHECKS PASSED"
+     home-activity-substance-qa.log -> "15 observation(s), 0 failing"
+     tree-chatbox-open-qa.log       -> "48 observation(s), 0 failing" */
+const ALL_PASSED = /^[^\n]*?ALL (\d+) CHECKS PASSED/gim
+const OBSERVATIONS = /^[^\n]*?(\d+) observation\(s\), (\d+) failing/gim
 /* `  ok  <name>` / `  FAIL <name>`, as createLedger's check() writes it. The
    two leading spaces are load-bearing: they keep prose that merely contains the
    word FAIL from being read as a failing check. */
@@ -285,6 +292,11 @@ export function verdictFor({ timedOut, code, output = '' }) {
      afterwards does not withdraw the count. */
   const failedCount = lastMatch(text, FAILED_COUNT)
   if (failedCount) return Number(failedCount[1]) > 0 ? 'FAIL' : 'PASS'
+
+  const observations = lastMatch(text, OBSERVATIONS)
+  if (observations) return Number(observations[2]) > 0 ? 'FAIL' : 'PASS'
+
+  if (lastMatch(text, ALL_PASSED)) return 'PASS'
 
   const ratio = lastMatch(text, RATIO_SUMMARY)
   if (ratio) return ratio[1] === ratio[2] ? 'PASS' : 'FAIL'
