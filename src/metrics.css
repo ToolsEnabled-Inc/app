@@ -826,3 +826,207 @@ body.reduce-motion .m-filter .live-dot { animation: none; opacity: 1; }
 body.reduce-motion .hb-meta,
 body.reduce-motion .hb-signal-tip,
 body.reduce-motion .gate-event i { transition: none; }
+
+/* ================================================================
+   THE LIVE FACE OF THIS PAGE.
+
+   Every rule below draws a reading taken from this computer's own signed
+   record of what has run here (src/local-metrics.js). None of it is used by
+   the demonstration face, which keeps its ECharts instruments unchanged --
+   the live branch never initialises a chart engine, deliberately, because a
+   simulated shape held for even one frame is a false live claim.
+
+   They are unboxed like everything else on this page: hairlines and
+   whitespace do the separating, no cards, no fills behind text.
+   ================================================================ */
+
+/* The sentence a panel shows when there is nothing in it. It is a sentence,
+   in the page's reading grey, at reading size -- not a status code centred in
+   a chart well, which is what it replaced. */
+.metrics .m-panel-note {
+  margin: 0;
+  padding: var(--s3) 0 0;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-25);
+  text-wrap: pretty;
+}
+.metrics .m-panel-note.is-good { color: var(--s-good); }
+/* The chart wells are fixed-height for the engine's sake; a paragraph in one
+   should sit at the top of it and not float in the middle. */
+.metrics .echart.projection-unavailable,
+.metrics #agent-table.projection-unavailable,
+.metrics #pools.projection-unavailable {
+  display: block;
+  height: auto;
+  min-height: 0;
+  border: 0;
+}
+.metrics .mf-extra { display: block; color: var(--ink-3); }
+.metrics .mf-note.is-unverified { color: var(--s-warn); }
+
+/* ---------- runs by hour, over seven days ---------- */
+.metrics .m-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: var(--s2);
+}
+.metrics .m-activity-row {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  align-items: center;
+  gap: var(--s2);
+}
+.metrics .m-activity-day {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.metrics .m-activity-cells {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 2px;
+}
+/* An hour with no run is a hairline of the page, not a light grey block: an
+   empty week must read as empty rather than as a full grid of pale cells. */
+.metrics .m-activity-cell {
+  height: 14px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent-2) calc(var(--heat, 0) * 88%), transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.metrics .m-activity-cell[data-runs] { box-shadow: none; }
+.metrics .m-activity-axis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-left: calc(34px + var(--s2));
+  padding-top: var(--s1);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+
+/* ---------- what became of each run ---------- */
+.metrics .m-outcomes { padding-top: var(--s2); }
+.metrics .m-outcome-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.metrics .m-outcome-total b {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.metrics .m-outcome-total span { font-size: 12px; color: var(--ink-3); }
+.metrics .m-outcome-bar {
+  display: flex;
+  height: 10px;
+  margin-top: var(--s3);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--line);
+}
+.metrics .m-outcome-bar i { width: var(--w, 0%); }
+/* Three outcomes, three meanings: it ran, it did not, and nobody wrote down
+   which. The third is deliberately the neutral grey rather than a shade of
+   either of the other two -- an unrecorded outcome is not a near-success. */
+.metrics .m-outcome-bar i[data-key="started"],
+.metrics .m-outcome-legend i[data-key="started"] { background: var(--s-good); }
+.metrics .m-outcome-bar i[data-key="refused"],
+.metrics .m-outcome-legend i[data-key="refused"] { background: var(--s-serious); }
+.metrics .m-outcome-bar i[data-key="unrecorded"],
+.metrics .m-outcome-legend i[data-key="unrecorded"] { background: var(--ink-4); }
+.metrics .m-outcome-legend {
+  list-style: none;
+  margin: var(--s3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.metrics .m-outcome-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.metrics .m-outcome-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-sm);
+}
+.metrics .m-outcome-legend b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.metrics .m-outcome-note {
+  margin: var(--s3) 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-25);
+}
+
+/* ---------- why a run did not start ---------- */
+.metrics .m-refusals {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.metrics .m-refusal-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s2);
+  align-items: baseline;
+}
+.metrics .m-refusal-head b {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.metrics .m-refusal-sentence {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.metrics .m-refusal-bar {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  width: var(--w, 0%);
+  min-width: 3px;
+  border-radius: var(--r-sm);
+  background: var(--s-serious);
+}
+
+/* ---------- the runs themselves ---------- */
+.metrics .m-run-seq {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.metrics td[data-result="started"] { color: var(--s-good); }
+.metrics td[data-result="refused"] { color: var(--s-serious); }
+.metrics .m-run-why {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-25);
+  max-width: 52ch;
+  white-space: normal;
+  text-wrap: pretty;
+}
