@@ -519,7 +519,22 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     return { m, body }
   }
 
+  /* AN EMPTY LOG SAYS SO, IN WORDS. A live agent page over a declared seat
+     that has never run seeds nothing and has no history, so the log rendered
+     as a bare box -- roughly 600x125px of nothing, over a composer whose
+     reason line explains only the COMPOSER. tools/window-size-sweep-qa.mjs
+     flags exactly that shape ("no empty region where content should be --
+     div.chat-log") at every width, and it is right: a hole reads as broken,
+     a sentence reads as a fact. The note is styled inline (muted ink, own
+     margins) rather than in styles.css, and it leaves the moment the first
+     real message lands. */
+  const emptyNote = document.createElement('div')
+  emptyNote.className = 'chat-log-empty'
+  emptyNote.textContent = 'Nothing has been said here yet.'
+  emptyNote.style.cssText = 'margin:auto;padding:var(--s3) 0;color:var(--ink-25);font-size:12.5px;text-align:center;'
+
   const addMsg = (from, text, who, at = Date.now()) => {
+    if (emptyNote.parentNode) emptyNote.remove()
     if (lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP) addTimeDivider(at)
     lastTurnAt = at
     const { m } = makeMsg(from, text, who, at)
@@ -569,6 +584,9 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     i === 0 ? (m.from === 'them' ? title : 'you') : null,
     historyTimes[i],
   ))
+  /* Only a log that ends this constructor with nothing in it gets the note;
+     the first addMsg from any path removes it again. */
+  if (log.childElementCount === 0) log.appendChild(emptyNote)
   /* The seeded history above is written while the panel is still DETACHED
      (the agent view assembles its chat before mount), where scrollHeight is 0
      and the per-message snap inside addMsg is a no-op — the pane then sat
