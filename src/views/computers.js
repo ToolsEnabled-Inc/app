@@ -119,7 +119,7 @@ import { createAssignmentControl } from '../research-assignment-control.js'
 /* The other source of computers, and on a customer machine the only one that
    can ever answer. See the header of src/declared-fleet.js for the measurement:
    the fleet projection is a BUILD-TIME file and ships `ok:false` forever. */
-import { declaredFleetData } from '../declared-fleet.js'
+import { declaredAgentsData, declaredFleetData } from '../declared-fleet.js'
 /* The editing surface for the DECLARED organisation. It is a separate module
    for the reason given at the top of that file: it is the only part of this
    page that writes, and it is the only part that has to keep a role's wording
@@ -1173,6 +1173,42 @@ export function computersView({ initialComputer = null, navigate }) {
   function setOpenTarget(agent) {
     openTarget = agent || null
     syncOpenButton()
+  }
+
+  /* THE DOOR MUST NOT DEPEND ON THE TREE, BECAUSE THE TREE IS EMPTY BY DESIGN.
+   *
+   * WHAT WAS MEASURED, on a staged packaged build with a fresh profile, at five
+   * window sizes and from the keyboard:
+   *   .graph-open-btn      1   (in the DOM)
+   *   pressable            no  (hidden)
+   *   .static-tree-node    0
+   * and, from tools/a11y-keyboard-qa: "an agent can be opened from the keyboard
+   * on the computers page -- no Open control was reachable by Tab".
+   *
+   * WHY. This button was aimed at `computer.agents[0]`, and since 5cc2f09 ("a
+   * fleet tree you build, instead of one the app invented") those are the agents
+   * this person has STARTED -- correctly empty until they start one. So the
+   * button hid itself on every fresh install.
+   *
+   * AND THAT CLOSED A CIRCLE. #/agent/<computer>/<agent> is where a session is
+   * started from a declared seat (src/agent-session.js publishes the live record
+   * from there). This button is its only door inside the product. So: no started
+   * agent, no door; no door, no way to reach the page that starts one. The page
+   * itself was never broken -- src/views/agent.js resolves from
+   * declaredAgentsData(), which answers for every declared seat whether or not
+   * anything has run -- so the destination was live the whole time with nothing
+   * pointing at it.
+   *
+   * THE TREE STAYS EMPTY. This changes no node, draws no circle and invents no
+   * agent: the owner's rule ("the node tree should be empty unless a user has
+   * started a session") is the reason the fallback reads DECLARED CAPACITY
+   * rather than putting a seat on the canvas. Capacity is what this computer
+   * COULD run, it is exactly what the drill-in page reads, and declared-fleet.js
+   * keeps the two halves apart on purpose. Nothing is drawn; a door is named. */
+  function firstDeclaredTarget() {
+    if (!liveMode || !orgReady()) return null
+    const seat = declaredAgentsData(orgAvailability.org)?.declared?.[0]
+    return seat ? { id: seat.id, name: seat.displayName || seat.id } : null
   }
 
   openButton.addEventListener('click', () => {
@@ -2438,9 +2474,8 @@ export function computersView({ initialComputer = null, navigate }) {
        read any more: the split pane is gone (owner: "lets throw it away for
        now"), and a key nobody reads is a key that cannot bring it back. */
     /* Aim the button before anything is clicked, so it is a way IN rather than a
-       reward for having already found the way in. A computer with no agents at
-       all leaves the target null and the button hidden. */
-    setOpenTarget(computer.agents?.[0] || null)
+       reward for having already found the way in. */
+    setOpenTarget(computer.agents?.[0] || firstDeclaredTarget())
     /* The switcher builds AT MOUNT, not on the first store write. Every other
        caller of refreshTreeSwitch is a change handler (store events, root
        drills, compose flows), so a quietly-loaded page with five saved trees
