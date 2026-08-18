@@ -848,8 +848,60 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
   const listeners = new Set()
   let closed = false
 
+  /* A TURN IS UNDER WAY, ANNOUNCED BY THE TURN'S OWN FIRST EVENT.
+   *
+   * MEASURED 2026-08-17, one host, two engines, the same question, the order
+   * in which this host's own listener saw things:
+   *
+   *   codex  luna           sendTurn() resolved at +3ms, first delta at +33.8s
+   *                         RESOLVED -> delta -> usage -> turn_completed
+   *   claude claude-sonnet  sendTurn() resolved at +3884ms, first delta +3867ms
+   *                         delta -> usage -> turn_completed -> RESOLVED
+   *
+   * The codex adapter answers `turn/start`, which is an ACKNOWLEDGEMENT, so its
+   * promise settles when the turn BEGINS. The Claude CLI has no acknowledgement
+   * to answer with -- its adapter resolves the turn from the `result` packet --
+   * so its promise settles when the turn is ALREADY OVER, strictly after this
+   * host has emitted that turn's text, its usage and its completion.
+   *
+   * Everything above this host was written against the first shape, because for
+   * one engine it was the only shape there was: a caller sends, is told the turn
+   * started, and only then binds its surface to the session. On the Claude path
+   * that binding happened after the whole turn had already been delivered, so
+   * the fleet tree dropped every packet of it by the session filter and left the
+   * node at `running` with an empty reply and no error -- for as long as anyone
+   * was willing to wait. drainOutboxMessage() has the same shape for every
+   * follow-up turn, and interrupt() waits on the send promise, so a Claude turn
+   * could not be stopped either.
+   *
+   * FIXING IT HERE RATHER THAN AT EACH CALLER IS THE POINT OF THIS FILE. This
+   * host is what promises the two engines are interchangeable to everything
+   * above it (see sessionHandle() in the engine, and startSession() below). A
+   * promise that means "the turn started" for one engine and "the turn ended"
+   * for the other is that promise being broken, and repairing it at five call
+   * sites would be five chances to miss one.
+   *
+   * THE ANNOUNCEMENT IS THE ENGINE'S OWN WORD, NOT A GUESS. It is the turnId the
+   * engine put on the first event it emitted for the turn -- no timer decides
+   * anything, and nothing is invented. For an engine that acknowledges first the
+   * announcement never wins the race in sendTurn(), so the codex path behaves
+   * exactly as it did. */
+  function announceTurn(session, turnId) {
+    const pending = session.turnAnnounce
+    if (!pending) return
+    session.turnAnnounce = null
+    pending.resolve(turnId)
+  }
+
   function emit(session, event) {
     if (sessions.get(session.sessionId) !== session) return
+
+    /* BEFORE the completion bookkeeping below, so a turn whose FIRST event is
+       already its completion is announced and then immediately recorded as
+       completed-during-send, which is the state that pair was built for. */
+    if (event && typeof event.turnId === 'string' && event.turnId.length > 0 && event.turnId.length <= 512) {
+      announceTurn(session, event.turnId)
+    }
 
     if (event && event.type === 'turn_completed') {
       if (typeof event.turnId === 'string') {
@@ -1105,6 +1157,10 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
       threadId: null,
       activeTurnId: null,
       sendPromise: null,
+      /* The send in flight, waiting to be told the turn is under way. Held on
+         the session because emit() is what learns it, from the engine's own
+         first event for that turn. See announceTurn(). */
+      turnAnnounce: null,
       completedDuringSend: new Set(),
       completedWithoutTurnId: false,
       startPromise: null,
@@ -1300,30 +1356,91 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
 
     session.completedDuringSend.clear()
     session.completedWithoutTurnId = false
+
+    /* THIS RESOLVES WHEN THE TURN IS UNDER WAY, NEVER WHEN IT IS OVER. See
+       announceTurn() above for the measurement that made the difference matter.
+       Whichever of the two the engine offers first wins:
+
+         the adapter's own acknowledgement   (codex: `turn/start`, immediate)
+         the turn's first event              (claude: the first delta it emits)
+
+       Both carry the same thing -- the id of the turn that just started -- so
+       the caller gets one answer of one shape from either engine. */
+    let announce = null
+    const announced = new Promise(resolve => { announce = { resolve } })
+    session.turnAnnounce = announce
+
+    /* Asked ONCE, before the race, so no branch below can send a second turn. */
+    const acknowledged = session.adapter.sendTurn({
+      threadId: session.threadId,
+      text: turnText,
+      images: turnImages,
+      ...(turnOptions ? { options: turnOptions } : {}),
+    })
+
     const sendPromise = (async () => {
-      const result = await session.adapter.sendTurn({
-        threadId: session.threadId,
-        text: turnText,
-        images: turnImages,
-        ...(turnOptions ? { options: turnOptions } : {}),
-      })
-      if (!result || typeof result.turnId !== 'string' || result.turnId.length === 0 || result.turnId.length > 512) {
-        fail('AGENT_ENGINE_INVALID_TURN', 'Codex sendTurn() returned an invalid turnId')
-      }
-      const alreadyCompleted = session.completedWithoutTurnId || session.completedDuringSend.delete(result.turnId)
-      session.activeTurnId = alreadyCompleted ? null : result.turnId
+      const turnId = await Promise.race([
+        announced,
+        acknowledged.then(result => {
+          if (!result || typeof result.turnId !== 'string' || result.turnId.length === 0 || result.turnId.length > 512) {
+            fail('AGENT_ENGINE_INVALID_TURN', 'The engine\'s sendTurn() returned an invalid turnId')
+          }
+          return result.turnId
+        }),
+      ])
+      const alreadyCompleted = session.completedWithoutTurnId || session.completedDuringSend.delete(turnId)
+      session.activeTurnId = alreadyCompleted ? null : turnId
       return Object.freeze({
         sessionId: session.sessionId,
         threadId: session.threadId,
-        turnId: result.turnId,
+        turnId,
       })
     })()
     session.sendPromise = sendPromise
+
+    /* A TURN THAT DIES AFTER IT WAS ANNOUNCED STILL HAS TO REACH THE PERSON.
+     *
+     * Before this race the adapter's rejection WAS the answer to the send, so a
+     * child that died mid-turn surfaced as a refused send. Now the send has
+     * usually been answered already, and the Claude adapter emits nothing at all
+     * when its child exits -- it only rejects the turn. Left alone, that would
+     * trade the old defect for the same silence in a new place: a node running
+     * forever behind a program that is no longer there.
+     *
+     * So a rejection that arrives after the announcement is reported as what it
+     * is: this turn ended, and not successfully. `turn_completed` is the
+     * contract's own word for that and the only one every surface already reads;
+     * the status is deliberately NOT any engine's success word, so nothing can
+     * read this as an answer. If the engine did emit its own completion first,
+     * activeTurnId is already clear and this adds a second, honest ending rather
+     * than inventing a first one. */
+    void sendPromise.then(
+      accepted => acknowledged.then(
+        () => {},
+        () => {
+          /* Only the turn this send answered for, and only while it is still
+             the one running: an engine that already reported its own ending
+             has been believed, and a second ending must not overwrite it. */
+          if (session.activeTurnId !== accepted.turnId) return
+          session.activeTurnId = null
+          emit(session, {
+            type: 'turn_completed',
+            ...(session.threadId ? { threadId: session.threadId } : {}),
+            turnId: accepted.turnId,
+            status: 'failed',
+          })
+        },
+      ),
+      /* The send itself was refused; that refusal is already the caller's
+         answer and needs no event beside it. */
+      () => {},
+    )
 
     try {
       return await sendPromise
     } finally {
       if (session.sendPromise === sendPromise) session.sendPromise = null
+      if (session.turnAnnounce === announce) session.turnAnnounce = null
       session.completedDuringSend.clear()
       session.completedWithoutTurnId = false
     }

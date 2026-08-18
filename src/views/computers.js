@@ -85,7 +85,7 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionUsageEvent } from '../agent-session-events.js'
+import { sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
 import { parseSlashCommand } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
@@ -586,7 +586,31 @@ function sendRefusalSentence(result) {
    started through THIS function — the same contract, the same refusal
    sentences, the same four outcome shapes — so a worker node on the tree is
    indistinguishable from one the compose panel started. */
-export async function startAgentForNode({ text, surface, tier, effort, profileId }) {
+/* `onSessionOpen` IS CALLED BETWEEN THE TWO CALLS, AND THAT POSITION IS THE
+ * WHOLE REASON IT EXISTS.
+ *
+ * A caller learns the session's name from the value this function returns --
+ * which is to say, after the message has been sent. Everything a surface needs
+ * in order to RECEIVE that turn is keyed by that name: the fleet tree's event
+ * listener drops any packet whose sessionId it has not been told about yet.
+ *
+ * That ordering held for as long as sending answered immediately. MEASURED
+ * 2026-08-17 against both engines, it does not: the Claude CLI reports a turn
+ * by streaming it, so its first words -- and, when the answer is short enough
+ * to arrive in one read, its completion too -- reach the page before the send
+ * is answered. Every one of those packets was dropped, and the node sat at
+ * `running` with nothing in it and no error to show for it.
+ *
+ * So the session is handed over the moment it exists and BEFORE anything is
+ * sent into it, when no event for it can possibly have been emitted yet. That
+ * is true of every engine rather than of the fast one, which is the property
+ * this had to have and did not.
+ *
+ * A callback that throws must not take the start with it: the session is real
+ * by then, and losing it here would leave an agent running with nothing on
+ * screen naming it -- the failure the four outcome shapes above exist to
+ * prevent. */
+export async function startAgentForNode({ text, surface, tier, effort, profileId, onSessionOpen }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -654,6 +678,9 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
      the durable transcript record can carry it — the name a TRUE engine-side
      resume would ask for, saved now so that future has no data gap. */
   const threadId = typeof started.threadId === 'string' && started.threadId.length > 0 ? started.threadId : null
+  if (typeof onSessionOpen === 'function') {
+    try { onSessionOpen({ sessionId, threadId }) } catch { /* see the note above: the session outlives a caller's bug */ }
+  }
   let sent = null
   try {
     sent = await bridge.send({ sessionId, text })
@@ -2047,6 +2074,14 @@ export function computersView({ initialComputer = null, navigate }) {
        presses a second circle for the same job. */
     setOrgStatus(startingLine(draft.role), 'busy', { sticky: true })
 
+    /* THE NODE IS BOUND TO ITS SESSION BEFORE ITS MESSAGE IS SENT, and every
+       line of this block used to sit after the send. See the note on
+       startAgentForNode's `onSessionOpen`: a turn whose first words arrive
+       before the send is answered found no binding here and was dropped whole,
+       so the node stayed at `running` for as long as anyone waited. Nothing
+       here is optimistic -- the session is open and named by the time this
+       runs; only the message is still on its way. */
+    let attachProblem = null
     const result = await startAgentForNode({
       text: draft.message,
       surface: 'fleet-tree',
@@ -2056,6 +2091,22 @@ export function computersView({ initialComputer = null, navigate }) {
          per-tree onboarding, which is the whole point of profiles. Null means
          the product's own workspace, exactly as before profiles existed. */
       profileId: treeStore && node.treeId ? treeStore.treeProfile(node.treeId) : null,
+      onSessionOpen: ({ sessionId, threadId }) => {
+        sessionNodeIds.set(sessionId, node.id)
+        sessionEfforts.set(sessionId, draft.effort || tierEffortOf(draft.tier))
+        if (threadId) sessionThreadIds.set(sessionId, threadId)
+        /* First running session of the window: ask the engine what it offers,
+           so every depth menu after this is the provider's list rather than
+           ours. */
+        readEngineCatalog(sessionId)
+        const attached = store.attachSession(node.id, sessionId)
+        if (!attached.ok) {
+          attachProblem = attached.problems[0] || null
+          return
+        }
+        store.setNodeStatus(node.id, 'running', { note: '' })
+        refreshTree()
+      },
     })
     if (destroyed) return { ok: false, message: result.sentence || START_NEEDS_APP_TEXT }
 
@@ -2083,24 +2134,15 @@ export function computersView({ initialComputer = null, navigate }) {
       return { ok: false, message: panelSentence }
     }
 
-    sessionNodeIds.set(result.sessionId, node.id)
-    sessionEfforts.set(result.sessionId, draft.effort || tierEffortOf(draft.tier))
-    if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
-    /* First running session of the window: ask the engine what it offers, so
-       every depth menu after this is the provider's list rather than ours. */
-    readEngineCatalog(result.sessionId)
-    const attached = store.attachSession(node.id, result.sessionId)
-    if (!attached.ok) {
+    if (attachProblem !== null) {
       /* The session is real and the tree could not record it. Saying "started"
          would leave a person with an agent they cannot find from this page. */
-      const sentence = `${attached.problems[0] || 'This tree could not record the session that was started.'} Your agent is running. Reload this page to pick it up again.`
+      const sentence = `${attachProblem || 'This tree could not record the session that was started.'} Your agent is running. Reload this page to pick it up again.`
       store.setNodeStatus(node.id, 'failed', { note: statusNote(sentence) })
       refreshTree()
       setOrgStatus(sentence, 'refuse', { sticky: true })
       return { ok: false, message: sentence }
     }
-    store.setNodeStatus(node.id, 'running', { note: '' })
-    refreshTree()
     /* THE AGENT RAN AND THE TREE WAS NOT SAVED IS ITS OWN OUTCOME, and reporting
        it as a plain success would be the worst kind of true: the session really
        is running, and the drawing of it is on screen and nowhere else. The store
@@ -3776,6 +3818,11 @@ export function computersView({ initialComputer = null, navigate }) {
         tier: node.tier,
         effort: chosenEffort,
         profileId,
+        /* Bound before the seed is sent, for the reason startAgentForNode's
+           note gives: a turn that starts answering before the send is answered
+           would otherwise arrive for a session this page has never heard of.
+           The block below sets the same key again, which costs nothing. */
+        onSessionOpen: ({ sessionId }) => { sessionNodeIds.set(sessionId, node.id) },
       })
     } else {
       let started = null
@@ -4695,7 +4742,7 @@ export function computersView({ initialComputer = null, navigate }) {
         railChat.stream.close(spoken || SAID_PANEL.emptyTurn)
         railChat.stream = null
       }
-      const finished = status === 'completed' ? 'finished' : 'failed'
+      const finished = sessionTurnSucceeded(status) ? 'finished' : 'failed'
       if (treeStore) {
         /* The reply outlives this view: the store keeps it on the node, and the
            in-memory map above becomes a cache in front of it. */

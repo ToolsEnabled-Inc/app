@@ -35,15 +35,29 @@ test('the tree reads the stream only through the shared readers', () => {
      without anybody noticing -- the agent page's CORRECTED note is the measured
      case. The tree must use the same two readers, not its own field reads. */
   const source = read('src/views/computers.js')
-  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
+  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
   assert.ok(!/packet\.event\.text|packet\.text|packet\.delta/.test(source),
     'computers.js reads raw packet fields instead of the shared readers')
 })
 
-test('a session is mapped to its node at the one place a session is born', () => {
+test('a session is mapped to its node BEFORE its message is sent', () => {
+  /* MEASURED 2026-08-17: the Claude CLI streams a turn, so its first words --
+     and, for a short answer, its completion too -- reach this page before the
+     send is answered. This map is what the listener filters on, so a map
+     written after the send dropped that whole turn and left the node at
+     `running` with nothing in it. Writing it from onSessionOpen is what makes
+     the binding earlier than any event can be, for every engine rather than
+     for the fast one. */
   const source = read('src/views/computers.js')
-  assert.match(source, /sessionNodeIds\.set\(result\.sessionId, node\.id\)/,
-    'the session-to-node map is no longer written on start, so no reply can find its node')
+  const bindsOnOpen = source.indexOf("onSessionOpen: ({ sessionId, threadId }) =>")
+  assert.ok(bindsOnOpen !== -1, 'the compose start no longer hands the session over as it opens')
+  assert.ok(source.slice(bindsOnOpen, bindsOnOpen + 400).includes("sessionNodeIds.set(sessionId, node.id)"),
+    'the session-to-node map is not written from onSessionOpen, so a streaming engine answers into a void again')
+  const helper = source.slice(source.indexOf('export async function startAgentForNode'))
+  const opened = helper.indexOf('onSessionOpen({ sessionId, threadId })')
+  const sent = helper.indexOf('await bridge.send(')
+  assert.ok(opened !== -1 && sent !== -1 && opened < sent,
+    'startAgentForNode hands the session over AFTER it sends -- the binding is racing the engine again')
 })
 
 test('the reply is delivered once per turn, never once per token', () => {

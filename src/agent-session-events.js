@@ -27,6 +27,31 @@ export function sessionTurnStatus(packet, sessionId) {
   return typeof event.status === 'string' ? event.status : 'completed'
 }
 
+/* DID THAT TURN SUCCEED -- asked once, here, because the engines do not use the
+ * same word for it and three separate surfaces were comparing against one.
+ *
+ * MEASURED 2026-08-17, the status each engine really put on `turn_completed`
+ * for the same successful question:
+ *
+ *   codex  luna           "completed"   (the codex turn status)
+ *   claude claude-sonnet  "success"     (the CLI's result subtype)
+ *
+ * Each is its own provider's word for the same outcome, and the reader above
+ * carries it through unaltered on purpose -- a surface that wants to SHOW what
+ * the engine said must still be able to. What was wrong was every caller then
+ * testing `status === 'completed'`, which reads a successful Claude turn as a
+ * failure: the tree would have painted the node red beside a correct answer.
+ *
+ * IT IS AN ALLOWLIST AND IT FAILS CLOSED. Success is the claim that needs
+ * evidence; error, interrupted, cancelled and anything an engine adds later are
+ * all NOT-success until somebody measures them and adds the word here. Calling
+ * an unknown outcome a success is the direction that lies to a person. */
+const TURN_SUCCESS_STATUSES = Object.freeze(['completed', 'success'])
+
+export function sessionTurnSucceeded(status) {
+  return typeof status === 'string' && TURN_SUCCESS_STATUSES.includes(status)
+}
+
 /* WHAT THE AGENT IS DOING, as data. The engine already narrates a turn --
  * tool_call, tool_result, approval_request all reach the renderer -- and until
  * 2026-08-13 every one was dropped by the two readers above, which is half of

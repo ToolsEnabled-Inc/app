@@ -32,7 +32,7 @@ import {
   markTreeStoreLive,
   safeTreeStorage,
 } from './fleet-trees.js'
-import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
+import { sessionEventText, sessionTurnStatus, sessionTurnSucceeded } from './agent-session-events.js'
 import { DEFAULT_RESULT_SCHEMA, cellBrief, cellLabel, gridCells } from './research-grid.js'
 import { runTaskIsStalled, submitRun } from './research-runs.js'
 
@@ -295,7 +295,7 @@ function fileOutcome(sessionId, status) {
   const text = (transcripts.get(sessionId) || '').trim()
   transcripts.delete(sessionId)
   if (!cell) return
-  cell.status = status === 'completed' ? 'finished' : 'failed'
+  cell.status = sessionTurnSucceeded(status) ? 'finished' : 'failed'
   cell.endedAtMs = Date.now()
   cell.replyExcerpt = text.slice(-EXCERPT_CHARS)
   persistState()

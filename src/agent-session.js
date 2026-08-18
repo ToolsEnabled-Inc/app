@@ -13,7 +13,7 @@ import { el } from './components.js'
 import { refusalCode, unavailableReason } from './agent-availability-copy.js'
 import { confinementNote } from './agent-confinement-copy.js'
 import { isWriteEnabled, setWriteEnabled } from './write-flags.js'
-import { sessionEventText, sessionTurnStatus } from './agent-session-events.js'
+import { sessionEventText, sessionTurnStatus, sessionTurnSucceeded } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
 import { publishLiveSession } from './agent-session-registry.js'
 import { autonomyChoice, readStoredProfile } from './setup-profile.js'
@@ -471,7 +471,7 @@ function mountSessionControls(root, {
       appender.flushNow()
       working = false
       publish()
-      actionState(status, turnStatus === 'completed' ? 'confirmed' : 'refused', `turn ${turnStatus} · session still open`)
+      actionState(status, sessionTurnSucceeded(turnStatus) ? 'confirmed' : 'refused', `turn ${turnStatus} · session still open`)
     }
   })
 

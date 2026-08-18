@@ -39,7 +39,7 @@
  *   node tools/claude-tree-start-proof.mjs --visible
  */
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -52,11 +52,17 @@ import {
   stage,
 } from './test-account-harness.mjs'
 
-/* The word the agent must produce. Deliberately not a word that could appear in
-   a template, a placeholder, a cached transcript or the product's own copy: if
-   this string is on the glass, a model wrote it. */
-const PROOF_WORD = 'ALBATROSS-9317'
-const PROMPT = `Reply with exactly the word ${PROOF_WORD} and nothing else.`
+/* THE ANSWER MUST NOT BE IN THE QUESTION, and this file has been burned by that
+ * twice. The old prompt NAMED the word it was looking for, so the check matched
+ * the message box and reported a real answer on a run where no session started.
+ * An arithmetic question the model has to actually do cannot echo: `391` appears
+ * nowhere in what is typed, which the guard below re-checks at run time rather
+ * than trusting this comment to stay true. */
+const PROOF_WORD = '391'
+const PROMPT = 'What is 17 multiplied by 23? Reply with only the number.'
+if (PROMPT.includes(PROOF_WORD)) {
+  throw new Error('the answer is inside the question; this run could only measure its own typing')
+}
 
 const ENGINE_SOURCE = 'C:/Users/joshp/Desktop/toolsenabled-current/src/lib/agent-engine'
 const ENGINE_MODULES = ['claude-cli-process.js', 'claude-cli-adapter.js']
@@ -152,7 +158,7 @@ async function typeReal(window, selector, text) {
   await window.session.send('Input.insertText', { text })
   await delay(200)
   const landed = await window.evaluate(`document.querySelector(${JSON.stringify(selector)})?.value || ''`)
-  return { ok: String(landed).includes(PROOF_WORD), landed: String(landed).slice(0, 90) }
+  return { ok: String(landed).includes(PROMPT), landed: String(landed).slice(0, 90) }
 }
 
 async function main() {
@@ -162,15 +168,65 @@ async function main() {
     console.log('staging the packaged build...')
     const staged = await stage(scratch)
 
-    /* THE OVERLAY. Exactly the two files the packer stages once the pin moves. */
+    /* THE ENGINE THIS RUN WILL ACTUALLY LOAD, CONFIRMED RATHER THAN ASSUMED.
+     *
+     * stage() overlays capability/ from this tree now, so on any current
+     * checkout the payload already carries both modules and nothing is copied
+     * here. The fallback stays for a tree whose capability/ predates them: the
+     * files are byte-identical either way, and this file's whole value is that
+     * it never reports a result about a payload it did not verify. A run that
+     * cannot find the engine at all REFUSES rather than measuring a build that
+     * would honestly answer "this copy carries no launcher". */
     const payloadEngine = path.join(staged.appRoot, 'resources', 'capability', 'src', 'lib', 'agent-engine')
     mkdirSync(payloadEngine, { recursive: true })
-    for (const module of ENGINE_MODULES) {
-      const from = path.join(ENGINE_SOURCE, module)
-      if (!existsSync(from)) throw new Error(`the engine module is missing at ${from}; this is a harness fault, not a product defect`)
-      cpSync(from, path.join(payloadEngine, module))
+    const alreadyStaged = ENGINE_MODULES.filter(module => existsSync(path.join(payloadEngine, module)))
+    if (alreadyStaged.length === ENGINE_MODULES.length) {
+      note('ok', `the staged payload already carries the Claude engine: ${ENGINE_MODULES.join(', ')}`)
+    } else {
+      for (const module of ENGINE_MODULES) {
+        const from = path.join(ENGINE_SOURCE, module)
+        if (!existsSync(from)) throw new Error(`the engine module is missing at ${from}; this is a harness fault, not a product defect`)
+        cpSync(from, path.join(payloadEngine, module))
+      }
+      note('ok', `staged the Claude engine into the payload: ${ENGINE_MODULES.join(', ')}`)
     }
-    note('ok', `staged the Claude engine into the payload: ${ENGINE_MODULES.join(', ')}`)
+
+    /* THE SIGN-IN THIS RUN NEEDS, AND WHY IT IS BORROWED RATHER THAN INVENTED.
+     *
+     * openWindow() isolates USERPROFILE and APPDATA to this scratch profile --
+     * deliberately, because a driver that ran against the real home once
+     * desynced the owner's audit ledger, and that isolation is not negotiable.
+     * The cost is that a Claude child started under it looks for a sign-in in a
+     * home that has never had one and answers "Not logged in", which is the
+     * product working and is also not the proof.
+     *
+     * So the scratch home is given the two files the CLI reads, exactly as
+     * tools/claude-engine-control-probe.mjs already does for the same reason and
+     * with the same lifetime: they live in a temporary directory that is removed
+     * in the `finally` below. Nothing in the product path reads them -- the
+     * child authenticates itself, as it does in the person's own terminal.
+     *
+     * And the npm layout is linked rather than copied, because
+     * resolveInvocation() prefers the NATIVE claude.exe under %APPDATA%/npm and a
+     * redirected APPDATA empties it. A junction keeps the run on the same
+     * invocation a customer gets instead of falling back to a shell lookup. */
+    const realHome = process.env.USERPROFILE || ''
+    const scratchClaude = path.join(scratch, 'home', '.claude')
+    mkdirSync(scratchClaude, { recursive: true })
+    const credential = path.join(realHome, '.claude', '.credentials.json')
+    if (!existsSync(credential)) {
+      note('FAIL', 'HARNESS STATE: this computer has no Claude sign-in to lend the scratch profile, so nothing below could be a measurement of the Claude path.')
+      return
+    }
+    cpSync(credential, path.join(scratchClaude, '.credentials.json'))
+    const settings = path.join(realHome, '.claude.json')
+    if (existsSync(settings)) cpSync(settings, path.join(scratch, 'home', '.claude.json'))
+    const realNpm = path.join(process.env.APPDATA || '', 'npm')
+    if (existsSync(realNpm)) {
+      mkdirSync(path.join(scratch, 'roaming'), { recursive: true })
+      try { symlinkSync(realNpm, path.join(scratch, 'roaming', 'npm'), 'junction') } catch { /* already linked */ }
+    }
+    note('info', 'lent the scratch profile this computer\'s Claude sign-in and npm layout; both live only in the temporary profile this run deletes.')
 
     /* A THROWAWAY CODEX CREDENTIAL, AND THE DEFECT IT EXISTS TO STEP AROUND.
      *
@@ -334,24 +390,44 @@ async function main() {
          * So the word only counts when it appears somewhere that is NOT a form
          * control -- a leaf node outside every input, textarea and select. */
         const inFormField = node => node.closest('input, textarea, select, [data-compose-field], .agent-compose-form') !== null
-        /* AND NOT THE ECHO EITHER. Excluding form fields was still not enough:
-           the tree chip renders the asked-line into .cl-previous, which
-           computers.js builds from the message that was just submitted. So the
-           prompt appears a SECOND time outside the form, and the check passed
-           again on a run where sessions on the page was 0 and a control
-           question -- one whose answer was not in its own prompt -- produced
-           nothing at all in 150 seconds.
-           Two false passes from one driver, on the single claim this lane
-           exists to make. So the word must appear somewhere that is neither a
-           form control NOR an echo of what was asked. */
-        const isEcho = node => String(node.textContent || '').toLowerCase().includes('asked:')
-          || node.closest('.cl-previous, .cl-chat, [data-tree-chip], .static-tree-chip-overlay') !== null
+        /* AND NOT AN ECHO OF THE QUESTION EITHER.
+
+           This used to exclude the tree chip WHOLESALE -- .cl-previous,
+           .cl-chat, [data-tree-chip] -- and it had to, because the old prompt
+           NAMED the word being looked for. The asked-line and the answer were
+           then indistinguishable by content, so only position could separate
+           them, and two false PASSES came from getting that wrong.
+
+           CORRECTED 2026-08-17, because the crude rule then produced the
+           opposite error. The chip is exactly where the tree renders what the
+           agent SAID, so a run in which the model really did answer reported
+           its answer as an echo and blamed the profile instead -- a false
+           NEGATIVE from the same line.
+
+           An arithmetic question removes the ambiguity that forced the crude
+           rule. The answer appears nowhere in what was typed (guarded at the
+           top of this file), so an echo is identifiable by CONTENT -- a node
+           repeating the question -- and the chip can be read rather than
+           discarded. */
+        const asked = ${JSON.stringify(PROMPT)}
+        const isEcho = node => {
+          const text = String(node.textContent || '')
+          return text.includes(asked) || text.toLowerCase().includes('asked:')
+        }
         const spoken = [...document.querySelectorAll('*')]
           .filter(node => node.children.length === 0
             && (node.textContent || '').includes(${JSON.stringify(PROOF_WORD)})
             && !inFormField(node)
             && !isEcho(node))
-          .map(node => ({ tag: node.tagName, cls: String(node.className || '').slice(0, 50) }))
+          /* The words themselves ride back, because "the string is present" is a
+             weaker fact than "here is what the node says" -- and a reader has to
+             be able to tell an answer from a token count that happens to
+             contain the same digits. */
+          .map(node => ({
+            tag: node.tagName,
+            cls: String(node.className || '').slice(0, 50),
+            text: String(node.textContent || '').trim().slice(0, 120),
+          }))
         return {
           hasProof: spoken.length > 0,
           spokenIn: spoken.slice(0, 4),
@@ -363,13 +439,26 @@ async function main() {
           /* THE STATE THAT MADE THREE RUNS REPORT SILENCE.
              attemptSubmit() returns before any IPC when the panel carries an
              unavailableReason, and paints it as a notice. On a scratch profile
-             with no declared computers the page is in example mode, so that
-             reason is set and EVERY start is refused -- Codex too. The press was
-             never reaching the bridge, and it had nothing to do with Claude.
-             A driver that reports that as silence is measuring its own profile. */
-          exampleMode: /example data until you connect|Open Settings/i.test(
-            document.querySelector('[class*=notice]')?.textContent || '',
-          ),
+             with no declared computers the page is in example mode and EVERY
+             start is refused -- Codex too. A driver that reports that as
+             silence is measuring its own profile.
+
+             CORRECTED 2026-08-17: this read any element with "notice" in its
+             class name for "example data until you connect" / "Open Settings".
+             That is the GLOBAL fleet-profile notice, which is on screen for any
+             profile with no computers of its own -- including runs that go on
+             to start a real agent and get a real answer. MEASURED: the notice
+             was present, verbatim, on a run where availability answered
+             AGENT_ENGINE_READY, the Claude tiers were offered, and the model
+             replied. So this named the profile as the cause of failures that
+             had nothing to do with it, and would have sent the next reader to
+             fix something that was never wrong.
+
+             The compose panel has its OWN words for the state that actually
+             blocks a start (EXAMPLE_BOARD_TEXT in src/views/computers.js), and
+             those are what this looks for now -- the thing that refuses the
+             press, not a banner that happens to sit on the same page. */
+          exampleMode: /This is the example fleet/i.test(text),
           sessions: document.querySelectorAll('[data-session-id], .agent-session, [data-agent-session]').length,
           tail: text.slice(-500),
         }
