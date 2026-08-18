@@ -61,6 +61,7 @@
     "src/lib/agent-engine/codex-process.js",
     "src/lib/agent-engine/claude-cli-process.js",
     "src/lib/agent-engine/claude-cli-adapter.js",
+    "src/lib/proc/hidden-spawn.js",
     "src/lib/agent-session-confinement.js",
     "src/lib/providers/subscription-launch-env.js"
   ],

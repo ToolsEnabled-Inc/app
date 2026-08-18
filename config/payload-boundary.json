@@ -410,6 +410,7 @@
       "src/lib/policy-authorizations.js",
       "src/lib/policy-evaluator.js",
       "src/lib/policy.js",
+      "src/lib/proc/hidden-spawn.js",
       "src/lib/proc/run.js",
       "src/lib/providers/agent-comms.js",
       "src/lib/providers/agent-sandbox.js",
