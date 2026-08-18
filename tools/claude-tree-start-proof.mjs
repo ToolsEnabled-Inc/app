@@ -84,52 +84,66 @@ async function press(window, selector, timeoutMs = 9000) {
   return { pressed: true, at: { x: Math.round(spot.x), y: Math.round(spot.y) } }
 }
 
-/* THE ONE STEP THAT IS NOT REAL INPUT, AND THE MEASUREMENT THAT FORCED IT.
+/* CHOOSING A TIER WITH THE KEYBOARD, AND THE CLAIM I GOT WRONG FIRST.
  *
- * Everything else in this file is a real mouse press or a real keystroke. This
- * one is not, and pretending otherwise would be exactly the kind of claim this
- * lane exists to stop making.
+ * WHAT THIS COMMENT USED TO SAY, and it was wrong in the worst way -- stated as
+ * measured. It said arrow keys cannot move a native <select> in an offscreen
+ * window, "because the operating-system popup does not exist there", and on that
+ * basis this step set .value directly and reported itself as not-real-input. The
+ * measurements behind it were real: press the select, activeElement IS the
+ * select, then ArrowDown with both key-code fields, then explicit .focus() and
+ * ArrowDown again, then type-ahead -- value unchanged at "luna" every time.
  *
- * WHAT WAS MEASURED, in this same packaged build, before writing this:
- *   real mouse press on the menu -> document.activeElement IS the select
- *                                   (tag SELECT, data-compose-field="tier")
- *   ArrowDown (windowsVirtualKeyCode + nativeVirtualKeyCode, rawKeyDown/keyUp)
- *                                -> value unchanged: "luna"
- *   explicit .focus() then the same keys
- *                                -> value unchanged: "luna"
- *   type-ahead, Input.insertText "S"
- *                                -> value unchanged: "luna"
+ * The conclusion drawn from them was not. The lane driving the same packaged
+ * build headlessly does this successfully every run, dozens of times, and the
+ * step I was missing is ONE keystroke: Escape. Pressing a native select OPENS
+ * the popup, and while it is open the first ArrowDown goes to the popup instead
+ * of the element. Dismiss it and the arrows land where a keyboard user's do.
  *
- * So the press lands and the element focuses; the KEYS are the part that does
- * nothing. A native <select> delegates arrow and type-ahead navigation to an
- * operating-system popup, and in an offscreen window that popup does not exist,
- * so Chromium has nowhere to route them. This is a property of driving a native
- * menu headlessly, not a defect in the product: a person with a visible window
- * opens the list and clicks a row, and that works.
+ * WHY THE CORRECTION MATTERS MORE THAN THE TECHNIQUE. The owner's standard for
+ * this work is that it is driven "as a real user would, not with DOM elements".
+ * One synthetic step inside a run does not weaken that claim a little -- it
+ * costs the whole claim, because the person reading it cannot tell which step
+ * was the exception. Reading the label back afterwards proved the box held the
+ * right value; it never proved a person could have put it there.
  *
- * The alternative was to open a visible window, which this lane is fenced
- * against. So the selection is made the way the renderer would receive it from
- * that person -- value set, then a real `change` event dispatched so every
- * listener runs -- and the run REPORTS this step as not-real-input rather than
- * letting it ride inside a "driven with real mouse and keyboard" claim.
- *
- * NOTHING ELSE IS RELAXED. The way in, the prompt, and Start are all real
- * presses and real keystrokes, and the answer at the end is a real model's. */
-async function chooseTierUnavoidablySynthetic(window, selector, wantedValue) {
+ * There is now no synthetic step in this file. The way in, the role, the tier,
+ * the prompt and Start are all real presses and real keystrokes. */
+async function chooseByKeyboard(window, selector, wantedValue, maxPresses = 24) {
   const focused = await press(window, selector)
-  if (!focused.pressed) return { ok: false, why: `could not even focus the menu: ${focused.why}` }
+  if (!focused.pressed) return { ok: false, why: `could not focus the menu: ${focused.why}` }
 
-  const result = await window.evaluate(`(() => {
-    const node = document.querySelector(${JSON.stringify(selector)})
-    if (!node) return { ok: false, why: 'the menu vanished between focusing and choosing' }
-    const wanted = [...node.options].find(o => o.value === ${JSON.stringify(wantedValue)})
-    if (!wanted) return { ok: false, why: 'that tier is not offered by this build' }
-    node.value = ${JSON.stringify(wantedValue)}
-    node.dispatchEvent(new Event('input', { bubbles: true }))
-    node.dispatchEvent(new Event('change', { bubbles: true }))
-    return { ok: node.value === ${JSON.stringify(wantedValue)}, value: node.value, label: wanted.textContent.trim().slice(0, 60) }
-  })()`)
-  return { ...result, focusedByRealMouse: true, at: focused.at }
+  /* THE ESCAPE IS THE WHOLE TRICK. Pressing a native <select> opens an
+     operating-system popup, and while it is open the first ArrowDown goes to the
+     popup rather than to the element. Dismiss it and the arrows land on the
+     select itself, which is what a keyboard user does. */
+  await key(window, 'Escape', 27)
+  await delay(120)
+
+  const valueNow = () => window.evaluate(`document.querySelector(${JSON.stringify(selector)})?.value`)
+  const seen = []
+  for (let i = 0; i < maxPresses; i += 1) {
+    const current = await valueNow()
+    seen.push(current)
+    if (current === wantedValue) {
+      const label = await window.evaluate(`(() => {
+        const n = document.querySelector(${JSON.stringify(selector)})
+        return n ? [...n.options].find(o => o.value === n.value)?.textContent.trim().slice(0, 60) : null
+      })()`)
+      return { ok: true, presses: i, label, at: focused.at }
+    }
+    await key(window, 'ArrowDown', 40)
+    await delay(130)
+  }
+  return { ok: false, why: `never reached ${wantedValue} in ${maxPresses} presses`, seen }
+}
+
+async function key(window, name, keyCode) {
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await window.session.send('Input.dispatchKeyEvent', {
+      type, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, code: name, key: name,
+    })
+  }
 }
 
 async function typeReal(window, selector, text) {
@@ -229,10 +243,10 @@ async function main() {
       return
     }
     note('info', `the menu offers: ${JSON.stringify(present.options.map(o => o.value))}`)
-    const chosen = await chooseTierUnavoidablySynthetic(window, tierSelector, CLAUDE_TIER)
+    const chosen = await chooseByKeyboard(window, tierSelector, CLAUDE_TIER)
     note(chosen.ok ? 'ok' : 'FAIL',
       `chose ${CLAUDE_TIER}${chosen.ok ? ` (${JSON.stringify(chosen.label)})` : `: ${chosen.why}`}`)
-    note('info', 'NOT REAL INPUT, and it is the only step in this run that is not: the menu was FOCUSED by a real mouse press, then set programmatically. Measured first -- arrow keys and type-ahead move a native select only through an operating-system popup, which an offscreen window does not have. See the note above chooseTierUnavoidablySynthetic.')
+    note('info', 'REAL INPUT NOW, and this line used to say the opposite. I reported arrow keys as unable to move a native select offscreen; the missing step was Escape, which dismisses the popup the click itself opens. The lane that drives this every run corrected me. There is no synthetic step left in this file.')
     if (!chosen.ok) return
 
     /* THE ROLE, WHICH THIS DRIVER FORGOT AND THEN BLAMED THE PRODUCT FOR.
@@ -250,15 +264,18 @@ async function main() {
      * claim. */
     console.log('\n[3] choosing a role, which the form requires before it will start')
     const roleSelector = '[data-compose-field="role"]'
-    const roleChosen = await window.evaluate(`(() => {
+    /* The first role the menu really offers, read off the menu rather than
+       assumed, then walked to with the same real arrow keys the tier uses. */
+    const firstRole = await window.evaluate(`(() => {
       const node = document.querySelector(${JSON.stringify(roleSelector)})
-      if (!node) return { ok: false, why: 'no role menu on the panel' }
-      const real = [...node.options].find(o => o.value && o.value.length > 0)
-      if (!real) return { ok: false, why: 'the role menu offers no role' }
-      node.value = real.value
-      node.dispatchEvent(new Event('change', { bubbles: true }))
-      return { ok: node.value === real.value, value: node.value, label: real.textContent.trim().slice(0, 40) }
+      if (!node) return null
+      return [...node.options].map(o => o.value).find(v => v && v.length > 0) || null
     })()`)
+    if (!firstRole) {
+      note('FAIL', 'no role menu on the panel, or it offers no role')
+      return
+    }
+    const roleChosen = await chooseByKeyboard(window, roleSelector, firstRole)
     note(roleChosen?.ok ? 'ok' : 'FAIL', `chose a role: ${roleChosen?.ok ? JSON.stringify(roleChosen.label) : roleChosen?.why}`)
     if (!roleChosen?.ok) return
 
