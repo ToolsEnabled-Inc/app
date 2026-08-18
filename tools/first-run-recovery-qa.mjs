@@ -546,9 +546,15 @@ async function main() {
        and says what a report library is. Requiring the old clause here would be
        requiring the page to go back to explaining a failure that never
        happened. */
+    /* ASSERTED ON THE SENTENCE, NOT ON THE ABSENCE OF A PHRASE ANYWHERE ON THE
+       SCREEN. The first version of this check also required that the words
+       "could not be read" appear NOWHERE in the page's text -- and this screen
+       carries several other regions that legitimately say a thing could not be
+       read. That is a rule about the whole page dressed up as a rule about one
+       sentence, and it went red on a page that says exactly the right thing. */
     check('the research page says its report library was never shipped, rather than that a read failed',
-      /was not shipped with one|no report library/i.test(onTheWay.research.screen)
-        && !/could not be read/i.test(onTheWay.research.screen),
+      /was not shipped with one/i.test(onTheWay.research.screen)
+        && !/report library.{0,40}could not be read/i.test(onTheWay.research.screen),
       onTheWay.research.screen.slice(0, 260))
     check('the research page offers the guide',
       onTheWay.research.guideLinks > 0, JSON.stringify(onTheWay.research.exits))
