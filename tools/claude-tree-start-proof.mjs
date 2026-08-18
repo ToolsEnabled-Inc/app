@@ -343,6 +343,16 @@ async function main() {
           refusalText: refusalNodes.map(n => (n.textContent || '').trim().slice(0, 220)),
           noLauncher: text.includes('does not carry the part') || text.includes('no launcher'),
           notLoggedIn: text.includes('Not logged in') || text.includes('Please run /login'),
+          /* THE STATE THAT MADE THREE RUNS REPORT SILENCE.
+             attemptSubmit() returns before any IPC when the panel carries an
+             unavailableReason, and paints it as a notice. On a scratch profile
+             with no declared computers the page is in example mode, so that
+             reason is set and EVERY start is refused -- Codex too. The press was
+             never reaching the bridge, and it had nothing to do with Claude.
+             A driver that reports that as silence is measuring its own profile. */
+          exampleMode: /example data until you connect|Open Settings/i.test(
+            document.querySelector('[class*=notice]')?.textContent || '',
+          ),
           sessions: document.querySelectorAll('[data-session-id], .agent-session, [data-agent-session]').length,
           tail: text.slice(-500),
         }
@@ -380,6 +390,8 @@ async function main() {
       note('ok', `A REAL CLAUDE AGENT ANSWERED: "${PROOF_WORD}" appears outside the form, in ${JSON.stringify(last.spokenIn)}`)
     } else if (last?.refusalCodes?.length || last?.noLauncher) {
       note('FAIL', `the start was REFUSED rather than run: codes=${JSON.stringify(last.refusalCodes)} said=${JSON.stringify(last.refusalText)}`)
+    } else if (last?.exampleMode) {
+      note('FAIL', 'HARNESS STATE, NOT A CLAUDE DEFECT: this profile has no declared computers, so the page is in example mode and the compose panel carries an unavailableReason. attemptSubmit() returns before any IPC and paints that notice, for EVERY tier including Codex. Nothing here is a measurement of the Claude start path. Give the profile a declared computer before believing anything below.')
     } else {
       note('FAIL', `SILENCE: no answer and no refusal within 150s. Agent surface tail: ${JSON.stringify(last?.tail || '')}`)
     }
