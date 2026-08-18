@@ -87,6 +87,25 @@ function canonicalJson(record) {
    * yields eight and fails. Neither direction is forgeable, so nothing is
    * weakened by the field being optional -- only old records are left alone. */
   if (record.outcome !== undefined && record.outcome !== null) fields.push(record.outcome)
+  /* THE NINTH FIELD, ADDED THE SAME WAY AND FOR THE SAME REASON. What a turn
+   * cost is a second optional commitment, and it must not disturb the eighth.
+   *
+   * THE `null` IS LOAD-BEARING AND IS NOT A PLACEHOLDER FOR NOTHING. Without
+   * it, a record carrying usage and no outcome would serialise to eight fields
+   * whose eighth is the usage -- structurally indistinguishable, by POSITION,
+   * from a record carrying an outcome. Two different facts hashing over the
+   * same shape is exactly the ambiguity the eighth field's own note says a
+   * conditional commitment has to earn its way out of. Pushing the empty
+   * outcome slot first means the count says which fields are present: seven is
+   * neither, eight is an outcome, nine is usage with the outcome slot stated.
+   *
+   * OLD RECORDS ARE STILL LEFT ALONE, which was the whole point of making the
+   * eighth conditional: nothing that has ever been written carries this field,
+   * so nothing already on disk changes shape or hash. */
+  if (record.usage !== undefined && record.usage !== null) {
+    if (fields.length === 7) fields.push(null)
+    fields.push(record.usage)
+  }
   return JSON.stringify(fields)
 }
 
@@ -135,6 +154,105 @@ function boundedOutcome(outcome) {
 function readableOutcome(value) {
   try {
     return boundedOutcome(value) || null
+  } catch {
+    return null
+  }
+}
+
+/* WHAT A TURN COST, in a shape that -- like `outcome` above and unlike
+ * `details` -- can never carry a path.
+ *
+ * WHY THIS IS A FIELD AND NOT `details`. Same answer as the outcome's: `details`
+ * is dropped outright by history() because it carries the session's working
+ * directory, and the rule that a filter over a path-bearing field "is a thing
+ * someone widens later" is not being bent. A figure that has to reach a screen
+ * gets its own field, designed renderer-bound from the start.
+ *
+ * THE VALIDATION IS THE GUARANTEE. Every numeric field is a non-negative safe
+ * integer or absent; every string field matches a pattern with no backslash, no
+ * colon and no space in it, so none of them can structurally hold a Windows
+ * path. A caller that passes a working directory as a `tier` is REFUSED at the
+ * write rather than published to the page.
+ *
+ * ABSENT IS NOT ZERO, and the distinction is the whole honesty of the feature.
+ * An engine that reports no total has no total; writing 0 there would be this
+ * program inventing a figure and signing it with the engine's authority. Every
+ * field is therefore nullable and a null means "the engine did not say". */
+const USAGE_NUMBER_FIELDS = Object.freeze([
+  'inputTokens',
+  'cachedInputTokens',
+  'cacheCreationInputTokens',
+  'outputTokens',
+  'reasoningOutputTokens',
+  'totalTokens',
+  'contextWindow',
+  'sessionTotalTokens',
+])
+
+const USAGE_STRING_FIELDS = Object.freeze([
+  /* The engine's own id for the turn. Bounded to a charset that cannot spell a
+     path; it names nothing outside the session it belongs to. */
+  ['turnId', /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/],
+  /* Which model row the session was started under -- `luna`, `claude-sonnet`.
+     The renderer maps it to a provider and a model through its own table
+     (src/orchestration-controls.js) rather than a fourth copy of that table
+     living here. */
+  ['tier', /^[a-z][a-z0-9-]{0,63}$/],
+  /* WHICH SIGN-IN SERVED, by the name the person gave it. A name, never a
+     credential -- the same value startSession() already reports back. */
+  ['account', /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/],
+  /* The engine's own word for how the turn ended. Each provider has its own
+     (`completed` for codex, `success` for the Claude CLI) and both are carried
+     unaltered; see sessionTurnSucceeded() in src/agent-session-events.js. */
+  ['status', /^[a-z][a-z_]{0,31}$/],
+  /* WHETHER THESE FIGURES ARE THE TURN'S OR THE SESSION'S RUNNING TOTAL. A
+     reader that summed a cumulative reading once per turn would multiply a
+     session's spend by its number of turns, so which one this is has to be
+     recorded, not guessed downstream. */
+  ['basis', /^(turn|session-total)$/],
+])
+
+function boundedUsage(usage) {
+  if (usage === undefined || usage === null) return undefined
+  if (typeof usage !== 'object' || Array.isArray(usage)) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_USAGE', 'Record usage must be a plain object')
+  }
+  /* Built in a fixed key order for the same reason canonicalJson fixes its own:
+     the hash commits to the serialisation, and a caller's key order would hash
+     differently for identical facts. */
+  const entry = {}
+  for (const [field, pattern] of USAGE_STRING_FIELDS) {
+    const value = usage[field]
+    if (value === undefined || value === null) { entry[field] = null; continue }
+    if (typeof value !== 'string' || !pattern.test(value)) {
+      throw new SpawnRecordError('SPAWN_RECORD_INVALID_USAGE', `Record usage.${field} is not the bounded shape this record admits`)
+    }
+    entry[field] = value
+  }
+  let figures = 0
+  for (const field of USAGE_NUMBER_FIELDS) {
+    const value = usage[field]
+    if (value === undefined || value === null) { entry[field] = null; continue }
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new SpawnRecordError('SPAWN_RECORD_INVALID_USAGE', `Record usage.${field} must be a non-negative whole number`)
+    }
+    entry[field] = value
+    figures += 1
+  }
+  /* A usage record with no figure in it is not a reading, and recording one
+     would put a row on a page that says a turn cost nothing. */
+  if (figures === 0) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_USAGE', 'Record usage carries no token figure, so there is nothing to record')
+  }
+  return entry
+}
+
+/* The same constraint applied to bytes rather than to a caller, answering null
+   instead of throwing -- history() must never throw (its rule 3), so a
+   malformed usage record degrades to "this run does not say". */
+function readableUsage(value) {
+  try {
+    return boundedUsage(value) || null
   } catch {
     return null
   }
@@ -220,7 +338,24 @@ function boundedDetails(details) {
   return JSON.parse(encoded)
 }
 
-function createSpawnRecorder({ safeStorage, directory, now = () => new Date().toISOString() } = {}) {
+/* `ledgerFile` is an option so a SECOND chain can be kept beside the first with
+ * one implementation, and it exists because of a measured collision rather than
+ * for symmetry.
+ *
+ * history() reads at most 200 LINES. Per-turn usage records are written many
+ * times per session, so putting them in the run ledger would push the runs
+ * themselves out of the only window the home screen and the metrics page can
+ * see: a person with one busy session would open the product and be told
+ * nothing had ever run here. Its own file keeps the run record's window intact
+ * and lets the usage record be read, bounded and verified on its own terms.
+ *
+ * THE KEY IS DELIBERATELY SHARED (`keyFile` is not an option). One OS-keystore
+ * blob per installation, one identity signing both chains: a second key would
+ * be a second thing that can fail to decrypt, and an installation whose runs
+ * verify while its usage does not is a state nobody can act on. The chains stay
+ * independent -- each has its own genesis, sequence space and head -- because
+ * they are separate files, which is where a chain's identity actually lives. */
+function createSpawnRecorder({ safeStorage, directory, ledgerFile = LEDGER_FILE, now = () => new Date().toISOString() } = {}) {
   if (!safeStorage || typeof safeStorage.isEncryptionAvailable !== 'function') {
     throw new SpawnRecordError('SPAWN_RECORD_NO_KEYSTORE', 'A keystore with isEncryptionAvailable() is required')
   }
@@ -229,7 +364,7 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
   }
 
   const keyPath = path.join(directory, KEY_FILE)
-  const ledgerPath = path.join(directory, LEDGER_FILE)
+  const ledgerPath = path.join(directory, ledgerFile)
   let privateKey = null
   let head = null
 
@@ -310,7 +445,7 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
     }
   }
 
-  function record({ action, sessionId, principal = null, details, outcome } = {}) {
+  function record({ action, sessionId, principal = null, details, outcome, usage } = {}) {
     if (typeof action !== 'string' || action.length === 0 || action.length > 128) {
       throw new SpawnRecordError('SPAWN_RECORD_INVALID_ACTION', 'action must be a bounded non-empty string')
     }
@@ -344,6 +479,11 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
        property and an explicit absence is what that branch is reading. */
     const recordedOutcome = boundedOutcome(outcome)
     if (recordedOutcome !== undefined) entry.outcome = recordedOutcome
+    /* Assigned the same way and for the same reason as the outcome above: the
+       key must be ABSENT rather than present-and-undefined, because
+       canonicalJson branches on the property. */
+    const recordedUsage = boundedUsage(usage)
+    if (recordedUsage !== undefined) entry.usage = recordedUsage
     const eventHash = sha256Hex(canonicalJson(entry))
     const signature = crypto.sign(null, Buffer.from(eventHash, 'hex'), key).toString('base64')
     const line = JSON.stringify({ ...entry, eventHash, signature }) + '\n'
@@ -640,6 +780,13 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
            here by design. Re-applying the writer's own constraint is what keeps
            the promise that this field cannot carry a path even then. */
         outcome: readableOutcome(parsed.outcome),
+        /* WHAT THE TURN COST, re-validated on the way out for exactly the
+           reason the outcome beside it is: these are bytes off a file this
+           function deliberately returns even when the chain does NOT verify, so
+           re-imposing the writer's own constraint is what keeps the promise
+           that this field cannot carry a path even then. It is null on every
+           record in the run ledger, which has never carried one. */
+        usage: readableUsage(parsed.usage),
         /* WHOSE RUN THIS WAS. Added so a screen can show a person their OWN
            history instead of everybody's -- until this field crossed, the page
            had the records and no way to tell which of them were the signed-in

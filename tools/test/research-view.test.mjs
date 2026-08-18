@@ -239,8 +239,20 @@ test('live Sankey empty state preserves the hero slot and offers an explicit sim
 
   /* R1522 language pass: the sentence leads with what cannot be drawn and why,
      in plain words; the button names the demonstration the way the rest of the
-     product does. */
-  assert.match(view, /measured usage does not say which pool, provider, or role it belongs to/)
+     product does.
+   *
+   * THE SENTENCE CHANGED, AND THE CHANGE IS THE POINT. It used to describe the
+   * BUILD-TIME projection -- a file written on the builder's machine, absent by
+   * construction on every installed copy -- so the widest panel on the page
+   * reported the absence of a thing the reader had never had. The panel now
+   * draws this computer's own signed record of what each turn used, and its
+   * empty state is that record's own absence, which distinguishes a browser, a
+   * shell too old to keep the record, a record that will not open, and a record
+   * with nothing in it yet. The hero slot and the demonstration switch below are
+   * unchanged and are what this test is really guarding. */
+  assert.match(view, /LOCAL_USAGE_COPY\.empty/)
+  assert.doesNotMatch(view, /measured usage does not say which pool, provider, or role it belongs to/,
+    'the empty state still describes a build-time file the reader does not have')
   assert.match(view, /View the demonstration/)
   assert.match(view, /setLiveView\('metrics', false\)/)
   assert.match(view, /host\.replaceChildren\(panel\)/)

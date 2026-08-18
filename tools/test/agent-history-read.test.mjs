@@ -109,12 +109,23 @@ test('no signature or chain hash reaches the renderer', (t) => {
      is NOT in `details`' class: the renderer minted the id before the start was
      requested and already holds every one of its own, whereas `details` carries
      a working directory, which is a path out of this machine and stays dropped.
-     None of the three is safe on trust: `outcome` is pinned by the
+     `usage` is the FOURTH, and it earned it the same way `outcome` did: what a
+     turn cost arrives on this computer, per turn, from both engines, and until
+     it was written down the metrics page could only say the product never sees
+     a token count -- true of the RECORD and false of the PRODUCT. It is not in
+     `details`' class either: every field inside it is a non-negative whole
+     number or a string matching a pattern with no backslash, no colon and no
+     space, so it structurally cannot hold a path, and boundedUsage() re-imposes
+     that shape on the way out. It is null on every record in THIS ledger, which
+     has never carried one; the turns live in their own file (see
+     shell/usage-record.cjs) so they cannot crowd the runs out of this window.
+     None of the four is safe on trust: `outcome` is pinned by the
      writer-refusal test below, `principal` and `sessionId` by the shape tests
-     after it. */
+     after it, and `usage` by tools/test/usage-record.test.mjs. */
   for (const entry of recorder.history().entries) {
-    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'principal', 'sequence', 'sessionId'])
+    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'principal', 'sequence', 'sessionId', 'usage'])
   }
+  assert.equal(recorder.history().entries[0].usage, null, 'a run record carries no turn figures')
   assert.equal(recorder.history().entries[0].outcome, null, 'a start on its own has no outcome to report')
 })
 

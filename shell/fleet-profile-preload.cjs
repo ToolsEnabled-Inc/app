@@ -54,6 +54,13 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      run here: sequence, time, action. No path, no hash, no signature -- see
      history() in shell/spawn-record.cjs for why each is absent. */
   history: request => ipcRenderer.invoke('mc-agent:history', request || {}),
+  /* What the turns on this computer COST, from the same kind of signed record
+     and under the same rules: read-only, bounded figures, no path, no hash, no
+     signature. Its own channel rather than a field on history() because it is
+     its own chain in its own file -- a turn is not a run, and a busy session's
+     turns must not push the runs out of the window history() can read. See
+     shell/usage-record.cjs. */
+  usage: request => ipcRenderer.invoke('mc-agent:usage', request || {}),
   start: request => ipcRenderer.invoke('mc-agent:start', request),
   send: request => ipcRenderer.invoke('mc-agent:send', request),
   /* Native dialogs, driven by the person. pickAttachment issues the chosen

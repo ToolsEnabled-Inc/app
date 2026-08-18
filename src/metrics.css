@@ -1051,3 +1051,79 @@ body.reduce-motion .gate-event i { transition: none; }
   white-space: normal;
   text-wrap: pretty;
 }
+
+/* ================================================================
+   WHAT THE TURNS ON THIS COMPUTER USED
+   ----------------------------------------------------------------
+   Four panels -- token routing, token flow, account pools and pool burn --
+   used to carry one sentence each saying this product never sees a token
+   count. It does: both engines report usage on every turn and it is now
+   written into a signed record on this machine. These are the styles for
+   drawing that record, and they are deliberately the same instrument the
+   other live panels use -- a labelled row, a bar shaded against the largest
+   real reading, a figure in the mono face -- because a page whose measured
+   panels look like its simulated ones invites the reader to trust both
+   equally.
+   ================================================================ */
+.metrics .m-token-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: var(--s2) 0 0;
+  list-style: none;
+}
+.metrics .m-token-rows li {
+  display: grid;
+  grid-template-columns: minmax(64px, 22%) 1fr auto auto;
+  align-items: center;
+  gap: var(--s2);
+}
+.metrics .m-token-name {
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Shaded against the largest REAL row, never against an invented ceiling: a
+   quiet week must read as a quiet week. */
+.metrics .m-token-bar {
+  display: block;
+  height: 10px;
+  width: var(--w, 0%);
+  min-width: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent-2);
+}
+.metrics .m-token-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.metrics .m-token-note {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* Sign-ins, assistants and agents side by side -- the three columns this panel
+   has always promised, now naming things this computer recorded. */
+.metrics .m-routing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--s4);
+  padding-top: var(--s2);
+}
+.metrics .m-routing-col h4,
+.metrics .m-pool-usage h4 {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.metrics .m-pool-usage,
+.metrics .m-burn-usage { padding-top: var(--s2); }

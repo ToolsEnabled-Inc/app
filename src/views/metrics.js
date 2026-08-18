@@ -25,7 +25,10 @@ import { sim, fmtRuntime } from '../sim.js'
 import { ROLES, POOLS, PROVIDERS } from '../vocab.js'
 import { el, sparkline, makeTooltip, bindRuntime, attachSeg } from '../components.js'
 import { buildTheme } from '../echarts-theme.js'
-import { createCharts, createLiveUsageSankey } from '../metrics-charts.js'
+/* createLiveUsageSankey is deliberately NOT imported any more: the measured
+   routing panel is hand-built DOM like every other live panel on this page,
+   and the only chart engine this file builds is the simulated face's. */
+import { createCharts } from '../metrics-charts.js'
 import { createMetricsLayout } from '../metrics-layout.js'
 import { isLiveView, setLiveView } from '../live-flags.js'
 import { fetchMetrics } from '../live-status.js'
@@ -41,10 +44,15 @@ import { fetchMetrics } from '../live-status.js'
    usage reading; it no longer decides whether the page has anything to say. */
 import {
   LOCAL_METRICS_COPY,
+  LOCAL_USAGE_COPY,
   UNMEASURED,
   describeLocalMetrics,
   readLocalRuns,
+  readLocalUsage,
 } from '../local-metrics.js'
+/* The join that turns a session id into the agent a person named. See
+   src/session-roles.js for why it is not inside local-metrics.js. */
+import { readSessionRoles } from '../session-roles.js'
 /* Metrics is one of the four screens src/first-run-needs.js names as
    permanently empty on a copy with no agent host. The label and the address of
    the page that explains why are imported, never retyped: six screens offer
@@ -357,26 +365,23 @@ export function metricsView() {
      gone with the projection that fed them; a person's metrics page now counts
      the person's own runs. */
 
-  /* The only reader of the build-time projection left on this page. It feeds the
-     token-routing panel and nothing else -- see applyLiveSankey, whose absent
-     branch no longer quotes this reason at a person, because the reason is about
-     a file written on the builder's machine and is not about theirs. */
+  /* THE BUILD-TIME PROJECTION NO LONGER FEEDS ANY PANEL ON THIS PAGE.
+   *
+   * It used to feed exactly one -- token routing -- and it was absent by
+   * construction on every installed copy, because it is written into the archive
+   * from the BUILDER's machine. So the widest panel on the page reported the
+   * absence of a file the reader has never had and cannot obtain. That panel now
+   * draws this computer's own signed record of what each turn used
+   * (renderTokenRouting), which is a reading every installation genuinely has.
+   *
+   * The reader below is kept because the projection is still fetched and the
+   * page's own state attribute is still derived from what it can say; nothing
+   * a person sees comes from it. */
   function liveObservation(field) {
     if (!projection?.ok || !projection.data?.data) {
       return { ok: false, reason: projection?.reason || 'the token reading could not be taken', value: null }
     }
     return projection.data.data[field] || { ok: false, reason: 'this reading is not in the live totals', value: null }
-  }
-
-  function liveUsageAttribution() {
-    const observation = liveObservation('usageAttribution')
-    if (!observation?.ok || !observation.value) {
-      return { state: 'unavailable', reason: observation?.reason || 'usage attribution could not be read', value: null }
-    }
-    if (!['complete', 'empty', 'partial'].includes(observation.state)) {
-      return { state: 'unavailable', reason: 'the usage attribution reading is invalid', value: null }
-    }
-    return { state: observation.state, reason: null, value: observation.value }
   }
 
   /* This is intentionally shape-free. It lets the shared mount plumbing keep
@@ -1429,7 +1434,6 @@ export function metricsView() {
      and hover focus. */
 
   let charts = null
-  let liveSankey = null
   let theme = null
 
   const tokenLegendRefs = new Map([...root.querySelectorAll('[data-token-provider]')]
@@ -2095,9 +2099,220 @@ export function metricsView() {
     host.replaceChildren(head, body)
   }
 
+  /* ================= WHAT THE TURNS ON THIS COMPUTER USED =================
+   *
+   * Four panels on this page -- token routing, token flow, account pools and
+   * pool burn -- printed one sentence each saying a token count never passes
+   * through this product. That was true of the RECORD and false of the PRODUCT:
+   * both engines report usage on every turn and nothing wrote it down. Now
+   * shell/usage-record.cjs does, so these panels draw it.
+   *
+   * HAND-BUILT DOM, like every other live panel here, and for the reason stated
+   * over renderActivity(): initialising the chart engine in the live branch is
+   * one refactor away from handing it a simulated series, and a simulated series
+   * on a page about this computer is the defect all of this exists to end.
+   *
+   * MONEY IS STILL NOT MEASURED. This product holds no prices and no balances,
+   * so none of these counts is a cost, and UNMEASURED.pools keeps saying so
+   * beside the figures rather than being quietly retired now that the panels
+   * have numbers in them. A token count wearing a currency symbol would be the
+   * same class of claim the counts were introduced to replace.
+   */
+  const tokenWord = (value) => `${Number(value || 0).toLocaleString('en-US')}`
+
+  /* One labelled bar row, shaded against the largest row rather than an invented
+     ceiling -- the same rule renderActivity() follows for a quiet week. */
+  function tokenRows(host, rows, { max, unit = 'tokens' } = {}) {
+    const list = document.createElement('ul')
+    list.className = 'm-token-rows'
+    const ceiling = max || rows.reduce((high, row) => Math.max(high, row.tokens || 0), 0)
+    for (const row of rows) {
+      const item = document.createElement('li')
+      const name = document.createElement('span')
+      name.className = 'm-token-name'
+      name.textContent = row.label
+      const bar = document.createElement('i')
+      bar.className = 'm-token-bar'
+      bar.style.setProperty('--w', `${ceiling > 0 ? ((row.tokens || 0) / ceiling) * 100 : 0}%`)
+      const value = document.createElement('b')
+      value.className = 'm-token-value'
+      value.textContent = tokenWord(row.tokens)
+      const note = document.createElement('span')
+      note.className = 'm-token-note'
+      note.textContent = row.note || ''
+      item.append(name, bar, value, note)
+      item.title = `${row.label}: ${tokenWord(row.tokens)} ${unit}`
+      list.appendChild(item)
+    }
+    host.replaceChildren(list)
+  }
+
+  /* Token routing: which sign-in, through which assistant, to which agent. The
+     three columns the panel has always promised, now naming things this computer
+     actually recorded instead of a declared fleet. */
+  function renderTokenRouting() {
+    /* Before the record answers. A wait, not a fault -- see LOCAL_USAGE_COPY. */
+    if (!local) {
+      setSankeyStatePanel('reading the record', LOCAL_USAGE_COPY.waiting, 'sign-ins → assistants → agents')
+      return
+    }
+    const reading = local?.usage
+    const totals = reading?.totals
+    if (!totals || !totals.ok) {
+      setSankeyStatePanel('nothing recorded yet', totals?.absence || LOCAL_USAGE_COPY.unreadable,
+        'sign-ins → assistants → agents')
+      return
+    }
+    const component = root.querySelector('[data-mc="sankey"]')
+    const host = root.querySelector('#sankey-chart')
+    if (!host) return
+    component?.classList.remove('projection-unavailable')
+    component?.setAttribute('data-panel-state', 'reading')
+    host.classList.remove('projection-unavailable', 'm-sankey-empty-host')
+    host.setAttribute('role', 'group')
+    host.setAttribute('aria-live', 'polite')
+    const label = `Token routing measured on this computer: ${tokenWord(totals.tokens.total)} tokens over ${totals.turns} recorded ${totals.turns === 1 ? 'turn' : 'turns'}.`
+    host.setAttribute('aria-label', label)
+    const sub = root.querySelector('#sankey-sub')
+    if (sub) sub.textContent = `sign-ins → assistants → agents · ${tokenWord(totals.tokens.total)} tokens recorded here`
+
+    const flow = document.createElement('div')
+    flow.className = 'm-routing'
+    const columns = [
+      ['Sign-in', reading.byAccount],
+      ['Assistant', reading.byProvider],
+      ['Agent', reading.byAgent],
+    ]
+    for (const [heading, group] of columns) {
+      const column = document.createElement('div')
+      column.className = 'm-routing-col'
+      const title = document.createElement('h4')
+      title.textContent = heading
+      column.appendChild(title)
+      const body = document.createElement('div')
+      if (group && group.ok && group.rows.length) {
+        tokenRows(body, group.rows.map(row => ({ label: row.label, tokens: row.tokens, note: `${row.turns} ${row.turns === 1 ? 'turn' : 'turns'}` })))
+      } else {
+        const note = document.createElement('p')
+        note.className = 'm-panel-note'
+        note.textContent = group?.absence || LOCAL_USAGE_COPY.empty
+        body.replaceChildren(note)
+      }
+      column.appendChild(body)
+      flow.appendChild(column)
+    }
+    host.replaceChildren(flow)
+    if (totals.derivedSentence) {
+      const note = document.createElement('p')
+      note.className = 'm-panel-note'
+      note.textContent = totals.derivedSentence
+      host.appendChild(note)
+    }
+  }
+
+  /* Token flow: what was used per day, over the seven days the activity panel
+     already promises, on this computer's own calendar. */
+  function renderTokenFlow() {
+    if (!local) {
+      renderAbsent('tokenflow', '#tokens-sub', 'tokens used · last 7 days',
+        LOCAL_USAGE_COPY.waiting, ['#hero-chart', '#strip-chart'])
+      return
+    }
+    const reading = local?.usage?.byDay
+    if (!reading || !reading.ok) {
+      renderAbsent('tokenflow', '#tokens-sub', 'tokens used · last 7 days',
+        reading?.absence || LOCAL_USAGE_COPY.unreadable, ['#hero-chart', '#strip-chart'])
+      return
+    }
+    panelReady('tokenflow', '#tokens-sub', `tokens used · last 7 days · ${tokenWord(reading.windowTokens)} tokens`)
+    for (const hostId of ['#hero-chart', '#strip-chart']) {
+      const host = readyHost(hostId, `Tokens used on this computer over the last seven days: ${tokenWord(reading.windowTokens)} in total.`)
+      if (!host) continue
+      tokenRows(host, reading.days.map(day => ({
+        label: `${day.label} ${day.dateLabel}`,
+        tokens: day.tokens,
+        note: day.turns ? `${day.turns} ${day.turns === 1 ? 'turn' : 'turns'}` : '',
+      })), { max: reading.max })
+    }
+  }
+
+  /* Account pools: what each of the person's own sign-ins used. The panel keeps
+     its money sentence, because the product still holds no balances -- what
+     changed is that it is no longer the ONLY thing the panel can say. */
+  function renderPools() {
+    const reading = local?.usage?.byAccount
+    const host = root.querySelector('#pools')
+    if (!host) return
+    if (!local) {
+      renderAbsent('pools', null, null, LOCAL_USAGE_COPY.waiting, ['#pools'])
+      return
+    }
+    if (!reading || !reading.ok) {
+      renderUnmeasured('pools', null, null, `${reading?.absence || LOCAL_USAGE_COPY.unreadable} ${UNMEASURED.pools}`, ['#pools'])
+      return
+    }
+    const component = root.querySelector('[data-mc="pools"]')
+    component?.classList.remove('projection-unavailable')
+    component?.setAttribute('data-panel-state', 'reading')
+    host.classList.remove('projection-unavailable')
+    host.setAttribute('aria-label', `Tokens used per sign-in on this computer: ${tokenWord(reading.total)} in total.`)
+    const panel = document.createElement('div')
+    panel.className = 'm-pool-usage'
+    const heading = document.createElement('h4')
+    heading.textContent = 'Tokens by sign-in'
+    panel.appendChild(heading)
+    const body = document.createElement('div')
+    tokenRows(body, reading.rows.map(row => ({
+      label: row.label, tokens: row.tokens, note: `${row.runs} ${row.runs === 1 ? 'run' : 'runs'}`,
+    })))
+    panel.appendChild(body)
+    /* THE MONEY SENTENCE STAYS, under real figures. */
+    const note = document.createElement('p')
+    note.className = 'm-panel-note'
+    note.textContent = UNMEASURED.pools
+    panel.appendChild(note)
+    host.replaceChildren(panel)
+  }
+
+  /* Pool burn: the RATE, in tokens, and said in tokens. The panel used to draw a
+     spending rate against balances this product does not hold, and the sentence
+     under it still says so -- what is drawn now is the one rate this computer can
+     measure, which is how many tokens a day it has actually used. */
+  function renderBurn() {
+    if (!local) {
+      renderAbsent('burn', '#burn-sub', 'tokens per day', LOCAL_USAGE_COPY.waiting, ['#burn-chart'])
+      return
+    }
+    const reading = local?.usage?.byDay
+    if (!reading || !reading.ok) {
+      renderAbsent('burn', '#burn-sub', 'tokens per day',
+        reading?.absence || LOCAL_USAGE_COPY.unreadable, ['#burn-chart'])
+      return
+    }
+    const days = reading.days.filter(day => day.turns > 0).length
+    const perDay = days > 0 ? Math.round(reading.windowTokens / days) : 0
+    panelReady('burn', '#burn-sub', `tokens per day · ${tokenWord(perDay)} on the days you used it`)
+    const host = readyHost('#burn-chart', `On this computer, ${tokenWord(perDay)} tokens on an average day it was used.`)
+    if (!host) return
+    const panel = document.createElement('div')
+    panel.className = 'm-burn-usage'
+    const figure = document.createElement('div')
+    figure.className = 'm-outcome-total'
+    const value = document.createElement('b')
+    value.textContent = tokenWord(perDay)
+    const word = document.createElement('span')
+    word.textContent = days === 1 ? 'tokens on the one day this computer was used' : `tokens a day, over the ${days} days this computer was used`
+    figure.append(value, word)
+    panel.appendChild(figure)
+    const note = document.createElement('p')
+    note.className = 'm-panel-note'
+    /* Not a cost, and never rendered as one. */
+    note.textContent = UNMEASURED.pools
+    panel.appendChild(note)
+    host.replaceChildren(panel)
+  }
+
   function setSankeyUnavailable() {
-    liveSankey?.dispose()
-    liveSankey = null
     const component = root.querySelector('[data-mc="sankey"]')
     const host = root.querySelector('#sankey-chart')
     component?.classList.add('projection-unavailable')
@@ -2110,9 +2325,13 @@ export function metricsView() {
        never heard of and cannot obtain. The reading it wants exists only where a
        signed usage audit does; where one does not, the honest sentence is the
        product's, not the file's. */
-    const sentence = projection?.ok
-      ? 'Live token routing cannot be drawn: the measured usage does not say which pool, provider, or role it belongs to.'
-      : UNMEASURED.tokenRouting
+    /* THE DEFAULT WHEN NOBODY GIVES THIS PANEL A SENTENCE. It used to be the
+       product's statement that a token count never passes through here, and that
+       statement is now false: this computer records one per turn. The honest
+       default is the usage record's own absence -- which distinguishes a browser,
+       a shell too old to keep the record, a record that will not open, and a
+       record with nothing in it yet. */
+    const sentence = LOCAL_USAGE_COPY.empty
     const sub = root.querySelector('#sankey-sub')
     if (sub) sub.textContent = 'pools → providers → roles'
 
@@ -2146,58 +2365,6 @@ export function metricsView() {
     if (subNode) subNode.textContent = sub
     const host = root.querySelector('#sankey-chart')
     if (host) host.setAttribute('aria-label', sentence)
-  }
-
-  function applyLiveSankey() {
-    const usage = liveUsageAttribution()
-    if (usage.state === 'unavailable') {
-      /* WHAT THIS PANEL SAYS ON EVERY INSTALLED COPY, WHICH IS THE ONLY THING IT
-         EVER SAID. The reading behind it is written into the application archive
-         at build time from the builder's own machine, so on a customer's copy it
-         is absent by construction, for ever -- and the panel quoted that
-         absence's internal reason at a person who had done nothing wrong. It now
-         says what is true of the product: this copy never sees the count,
-         because an agent talks to the assistant on the person's own sign-in. */
-      setSankeyStatePanel(
-        'not counted here',
-        UNMEASURED.tokenRouting,
-        'pools → providers → roles',
-      )
-      return
-    }
-    if (usage.state === 'empty') {
-      setSankeyStatePanel(
-        'observed empty',
-        'The bounded signed audit window was completely observed and contains no attributed usage.',
-        'pools → providers → roles · observed empty',
-      )
-      return
-    }
-    if (usage.state === 'partial') {
-      const { totals } = usage.value
-      setSankeyStatePanel(
-        'partial reading',
-        `A complete total is unavailable. Measured lower bound: ${totals.measuredLowerBoundTokens.toLocaleString('en-US')} tokens across ${totals.calls.toLocaleString('en-US')} calls.`,
-        'pools → providers → roles · partial lower bound',
-      )
-      return
-    }
-
-    const component = root.querySelector('[data-mc="sankey"]')
-    const host = root.querySelector('#sankey-chart')
-    if (!host) return
-    component?.classList.remove('projection-unavailable')
-    host.classList.remove('projection-unavailable', 'm-sankey-empty-host')
-    host.setAttribute('role', 'img')
-    host.setAttribute('aria-live', 'polite')
-    host.setAttribute('aria-label', `Measured token routing: ${usage.value.totals.tokens.toLocaleString('en-US')} tokens across ${usage.value.totals.calls.toLocaleString('en-US')} calls.`)
-    root.querySelector('#sankey-sub').textContent = `pools → providers → roles · measured complete · ${usage.value.totals.tokens.toLocaleString('en-US')} tokens`
-    if (!liveSankey) {
-      host.replaceChildren()
-      theme = buildTheme(root.querySelector('.metrics'))
-      liveSankey = createLiveUsageSankey(host)
-    }
-    liveSankey.update({ rows: usage.value.rows, theme, dur: 240, reduced: reduced() })
   }
 
   function applyLiveProjection() {
@@ -2249,25 +2416,33 @@ export function metricsView() {
     /* And the ones it does not, each said once, plainly, with no remedy offered
        because none exists. See UNMEASURED in ../local-metrics.js for why each of
        these is a property of the product rather than a gap in this page. */
-    applyLiveSankey()
-    renderUnmeasured('tokenflow', '#tokens-sub', 'not counted here',
-      UNMEASURED.tokenFlow, ['#hero-chart', '#strip-chart'])
+    /* The four token panels, from this computer's own record of what each turn
+       used. They were the loudest part of the defect: four panels telling a
+       person the product never sees a token count, while both engines reported
+       one on every turn. */
+    renderTokenRouting()
+    renderTokenFlow()
+    renderPools()
+    renderBurn()
+
+    /* And the two that genuinely remain unmeasured, each said once from the
+       shared table so two hand-written versions cannot drift apart. There is one
+       computer here and nothing on it holds a run back for a decision; no record
+       exists for either, and no setting turns one on. */
     renderUnmeasured('heartbeat', '#heartbeat-sub', 'one computer',
       UNMEASURED.heartbeat, ['#heartbeat-chart'])
-    renderUnmeasured('burn', '#burn-sub', 'no balances held here',
-      UNMEASURED.burn, ['#burn-chart'])
     renderUnmeasured('gates', '#gates-sub', 'nothing is held here', UNMEASURED.gates)
-    renderUnmeasured('pools', null, null, UNMEASURED.pools, ['#pools'])
 
     /* The static optional-instrument labels originate in the simulation. Clear
        them rather than let two simulated machine identities stand beside a
        sentence saying this is one computer. */
     root.querySelectorAll('.hb-meta').forEach(node => { node.textContent = '' })
     root.querySelectorAll('.hb-signal-tip').forEach(node => { node.hidden = true })
-    /* The burn rows carry pool ids and em-dash placeholders from the simulated
-       vocabulary, and the old live branch overwrote only the chart beneath them
-       -- so a page that had just said it holds no balances printed two pool
-       names and two dashes directly above the sentence. */
+    /* The burn rows carry pool ids and em-dash placeholders from the SIMULATED
+       vocabulary. They are still cleared: the panel below them now draws this
+       computer's real token rate, and two invented pool names with two dashes
+       standing over a measured figure would be worse than they were standing
+       over a sentence. */
     root.querySelectorAll('.burn-meta').forEach(node => { node.textContent = '' })
     root.querySelector('.gate-track')?.replaceChildren()
     root.querySelector('.gate-legend')?.replaceChildren()
@@ -2281,9 +2456,19 @@ export function metricsView() {
      and only ever reaches the sankey; a copy without one is no longer a copy
      without a metrics page. */
   async function loadLocalMetrics() {
-    const sessions = await readLocalRuns()
+    /* BOTH RECORDS, ASKED FOR TOGETHER. They are two chains in two files and
+       either can be empty without the other being -- a computer that has started
+       agents on a shell older than the usage channel has runs and no turn
+       figures, and the page must be able to say exactly that rather than
+       treating one absence as the other's. */
+    const [sessions, usage] = await Promise.all([readLocalRuns(), readLocalUsage()])
     if (destroyed) return
-    local = describeLocalMetrics(sessions)
+    /* The role a person gave each node, joined on the session id both sides
+       hold. Read once per load rather than per row; a page that cannot reach
+       storage gets null, which every reading below renders as "not named on this
+       computer" instead of as a name. */
+    const conversations = readSessionRoles()
+    local = describeLocalMetrics(sessions, { conversations, usage })
     current = target = buildLiveData()
     prevPeriod = current
     applyLiveProjection()
@@ -2298,7 +2483,9 @@ export function metricsView() {
     }
     if (destroyed) return
     projection = result
-    applyLiveSankey()
+    /* Nothing is repainted. The projection reaches no panel any more -- see the
+       note over liveObservation() -- and a repaint here would overwrite the
+       measured routing this computer's own record just drew. */
   }
 
   /* ================= tween engine ================= */
@@ -2502,7 +2689,7 @@ export function metricsView() {
   if (typeof MutationObserver !== 'undefined') {
     const themeMO = new MutationObserver(() => {
       theme = buildTheme(root.querySelector('.metrics'))
-      if (liveMode) { applyLiveSankey(); return }
+      if (liveMode) { renderTokenRouting(); return }
       syncHeatKey()
       updateCharts(target, 240)
     })
@@ -2533,8 +2720,6 @@ export function metricsView() {
          tooltip) — dispose is what releases them on route cycling */
       charts?.dispose()
       charts = null
-      liveSankey?.dispose()
-      liveSankey = null
     },
   }
 }

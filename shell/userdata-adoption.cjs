@@ -142,6 +142,14 @@ const PRODUCT_STATE_ENTRIES = Object.freeze([
   'fleet-profile.json',
   'agent-spawn-key.enc',
   'agent-spawn-records.jsonl',
+  /* What each turn cost, in its own chain beside the run record and signed with
+     the SAME key -- which is why it is in the bound list below as well as this
+     one. It is separate from the runs because history() reads a bounded window
+     and per-turn records would crowd the runs out of it; it is carried for the
+     same reason the runs are, and for one sharper one: this is the only place a
+     person's own token history exists, and every panel on the metrics page that
+     says anything about tokens is reading it. */
+  'agent-turn-usage-records.jsonl',
   'workspace',
   /* The operator's own purchase list. It is the newest resident of userData and
      it is exactly the kind of file this defect strands: a document the PERSON
@@ -195,7 +203,7 @@ const BEST_EFFORT_ENTRIES = Object.freeze(['Local Storage'])
    fresh key would sign new records onto a chain whose existing signatures can no
    longer be checked. */
 const KEYSTORE_SEALED_ENTRY = 'agent-spawn-key.enc'
-const ENTRIES_BOUND_TO_SEALED_KEY = Object.freeze(['agent-spawn-records.jsonl'])
+const ENTRIES_BOUND_TO_SEALED_KEY = Object.freeze(['agent-spawn-records.jsonl', 'agent-turn-usage-records.jsonl'])
 
 /* Stable codes, so the record is machine-readable and a support answer is not
    prose archaeology. NOT_CHECKABLE is deliberately distinct from REFUSED: "the

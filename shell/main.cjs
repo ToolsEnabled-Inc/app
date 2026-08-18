@@ -18,6 +18,7 @@ const { createAgentHost, engineAvailability, engineCandidates } = require('./age
 const { readAgentConfinement, listAgentTools } = require('./agent-confinement-read.cjs')
 const { providerCliPresence } = require('./provider-cli-presence.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
+const { createUsageRecorder, turnUsageFrom } = require('./usage-record.cjs')
 const { recordCanonical: recordCanonicalIn } = require('./canonical-audit.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { createGoogleSignIn } = require('./google-signin.cjs')
@@ -566,6 +567,119 @@ function getSpawnRecorder() {
   return spawnRecorder
 }
 
+/* The usage recorder is built lazily for exactly the two reasons the spawn
+   recorder above is: safeStorage is only meaningful after the app is ready, and
+   userData is not resolvable before then. It shares that recorder's key and
+   keeps its own chain -- see shell/usage-record.cjs. */
+let usageRecorder = null
+function getUsageRecorder() {
+  if (usageRecorder) return usageRecorder
+  usageRecorder = createUsageRecorder({
+    safeStorage,
+    directory: app.getPath('userData'),
+  })
+  return usageRecorder
+}
+
+/* WHAT THE TURNS ON THIS COMPUTER COST, for the metrics page. A read, like
+   history() beside it, and with the same never-throws contract. */
+function usageRecordHistory(limit) {
+  try {
+    return getUsageRecorder().usage({ limit })
+  } catch (error) {
+    return Object.freeze({
+      ok: false,
+      code: typeof error?.code === 'string' ? error.code : 'SPAWN_RECORD_UNAVAILABLE',
+    })
+  }
+}
+
+/* THE LABELS THAT RIDE WITH A USAGE RECORD, BOUNDED HERE RATHER THAN AT THE
+ * WRITER.
+ *
+ * The writer refuses anything outside these shapes outright, and that strictness
+ * is the guarantee that a figure on a screen cannot be a path. But a person may
+ * name their own provider sign-in anything at all, and a refused LABEL must
+ * never cost us the READING it was attached to -- losing a turn's tokens because
+ * an account is called "work (old)" would be this feature failing for a reason
+ * nobody could see. So a label that is not the bounded shape becomes null here,
+ * which every reader downstream already renders as "the record does not say".
+ */
+function usageLabel(value, pattern) {
+  return typeof value === 'string' && pattern.test(value) ? value : null
+}
+const USAGE_TURN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const USAGE_TIER_PATTERN = /^[a-z][a-z0-9-]{0,63}$/
+const USAGE_ACCOUNT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+const USAGE_STATUS_PATTERN = /^[a-z][a-z_]{0,31}$/
+
+/* How many unfinished turns one session may hold a reading for. A turn that
+   never completes never writes one, so without a ceiling a session that is
+   interrupted repeatedly would grow this map for the life of the process. */
+const MAX_PENDING_TURN_USAGE = 32
+
+/* WRITE DOWN WHAT A TURN COST, FROM THE EVENTS THAT ALREADY PASS THROUGH HERE.
+ *
+ * This is the recording side of the metrics repair, and it lives in the event
+ * fan-out because that is the one place every session's events cross -- one
+ * listener, in the main process, which is also the only process that may hold
+ * the signing key. Doing it in the renderer would make the count depend on which
+ * page happened to be open.
+ *
+ * RECORDED AT `turn_completed`, NOT AT EVERY `usage` EVENT, and the difference
+ * is the difference between a figure and a fiction. Codex emits a usage event on
+ * every thread/tokenUsage/updated -- several per turn -- each carrying the
+ * session's RUNNING TOTAL and the last turn's figures. Writing one record per
+ * event would put the same tokens on the page as many times as the engine
+ * happened to report them. So the latest reading for a turn is held, and it is
+ * written once, when the engine says that turn is over.
+ *
+ * AND NOTHING IS FLUSHED WHEN A SESSION CLOSES MID-TURN, deliberately. The
+ * reading held for an unfinished turn is whatever the engine last said, and for
+ * codex that can still be the PREVIOUS turn's figures -- so writing it out at
+ * close would attribute one turn's tokens to another. A turn that never
+ * completed is a turn this record has no figure for, which is the honest state
+ * and the one the page can say.
+ */
+function noteAgentTurnUsage(session, packet) {
+  const event = packet && typeof packet === 'object' ? packet.event : null
+  if (!event || typeof event !== 'object') return
+  const turnId = typeof event.turnId === 'string' && event.turnId.length > 0 ? event.turnId : ''
+
+  if (event.type === 'usage') {
+    const reading = turnUsageFrom(event.usage)
+    if (!reading) return
+    if (!session.usageByTurn) session.usageByTurn = new Map()
+    if (!session.usageByTurn.has(turnId) && session.usageByTurn.size >= MAX_PENDING_TURN_USAGE) {
+      session.usageByTurn.delete(session.usageByTurn.keys().next().value)
+    }
+    session.usageByTurn.set(turnId, reading)
+    return
+  }
+  if (event.type !== 'turn_completed') return
+  const reading = session.usageByTurn && session.usageByTurn.get(turnId)
+  if (!reading) return
+  session.usageByTurn.delete(turnId)
+
+  try {
+    getUsageRecorder().recordTurn({
+      sessionId: packet.sessionId,
+      /* The same identity the run record carries, read in the main process from
+         the account store -- never from the renderer, for the reason
+         accountPrincipal() states at length. */
+      principal: accountPrincipal(),
+      turnId: usageLabel(turnId, USAGE_TURN_PATTERN),
+      tier: usageLabel(session.tier, USAGE_TIER_PATTERN),
+      account: usageLabel(session.account, USAGE_ACCOUNT_PATTERN),
+      status: usageLabel(typeof event.status === 'string' ? event.status.toLowerCase() : null, USAGE_STATUS_PATTERN),
+      usage: reading,
+    })
+  } catch {
+    /* A record that cannot be written must never be able to stop an agent from
+       answering. The page reads an empty record as an empty record and says so. */
+  }
+}
+
 function spawnRecordAvailability() {
   try {
     return getSpawnRecorder().availability()
@@ -1026,12 +1140,19 @@ function getAgentHost() {
   })
   removeAgentEventListener = host.onEvent((packet) => {
     const session = agentSessions.get(packet.sessionId)
-    if (!session || session.owner.isDestroyed()) return
-    try {
-      session.owner.send(AGENT_EVENT_CHANNEL, packet)
-    } catch {
-      // Destruction can race this check; the owner cleanup closes the session.
+    if (!session) return
+    if (!session.owner.isDestroyed()) {
+      try {
+        session.owner.send(AGENT_EVENT_CHANNEL, packet)
+      } catch {
+        // Destruction can race this check; the owner cleanup closes the session.
+      }
     }
+    /* AFTER the forward, and outside the owner check. After, because a screen
+       must not wait on a disk write for its text; outside, because what a turn
+       cost is a fact about this computer, not about whether a window is still
+       open to look at it. */
+    noteAgentTurnUsage(session, packet)
   })
   agentHost = host
   return host
@@ -1217,6 +1338,15 @@ ipcMain.handle('mc-agent:history', async (event, value) => {
   return spawnRecordHistory(payload.limit)
 })
 
+/* The third agent channel that starts nothing. Same sender check and same
+   never-throws contract as history() above; it returns what the turns on this
+   computer cost, which is no more anybody's to ask for than the run record is. */
+ipcMain.handle('mc-agent:usage', async (event, value) => {
+  assertTrustedAgentSender(event)
+  const payload = agentPayload(value === undefined || value === null ? {} : value, ['limit'])
+  return usageRecordHistory(payload.limit)
+})
+
 ipcMain.handle('mc-agent:start', async (event, value) => {
   assertTrustedAgentSender(event)
   const request = parseAgentStart(value)
@@ -1253,6 +1383,24 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
   try {
     const result = await getAgentHost().startSession(request)
     session.state = 'ready'
+    /* WHAT THIS SESSION IS RUNNING AS, kept so every usage record it writes can
+       say which model row and which of the person's own sign-ins it belongs to.
+     *
+     * `request.tier`, NOT `result.tier`, AND THAT WAS MEASURED THE WRONG WAY
+     * ROUND FIRST. The two fields share a name and mean different things:
+     * `request.tier` is the MODEL ROW a person chose (`luna`, `claude-sonnet` --
+     * the START_TIERS table in shell/agent-host.cjs), while the result's `tier`
+     * is the CONFINEMENT level the session was planned at. A real luna turn on
+     * 2026-08-18 wrote `tier: "unrestricted"` into its usage record, so the
+     * metrics page grouped a Codex session under "Not recorded" -- a true
+     * statement about a sandbox level, filed as an answer to "which assistant".
+     *
+     * Null when the person named no row, which is the honest "this record does
+     * not say" every reader downstream already handles. The account comes from
+     * the result because the result is the only place that says which of the
+     * person's sign-ins actually served. */
+    session.tier = typeof request.tier === 'string' ? request.tier : null
+    session.account = typeof result.account === 'string' ? result.account : null
     recordSpawnOutcome(request, record, 'started', null)
     /* The receipt travels back with the session so the surface can show that
        the start was recorded, rather than asserting it. */

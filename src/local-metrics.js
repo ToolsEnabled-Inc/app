@@ -65,6 +65,9 @@ import { COPY, ENGINE_REASON, readLocalSessions, whenWords } from './local-activ
    fixed in one click read "the record does not say why". Asked in that order,
    never merged into a third copy that can drift from both. */
 import { UNAVAILABLE_TEXT } from './agent-availability-copy.js'
+/* The one table that says which assistant a model row belongs to. Imported
+   rather than restated: see PROVIDER_LABELS below. */
+import { LAUNCH_TIERS } from './orchestration-controls.js'
 
 /* The window the time-shaped panels cover. Seven days because that is what the
    activity panel's own heading has always promised, and changing the heading to
@@ -117,11 +120,26 @@ export const LOCAL_METRICS_COPY = Object.freeze({
  * setting that turns any of them on, and inventing one would cost the reader an
  * afternoon -- the exact rule src/first-run-needs.js sets out at length.
  */
+/* THREE OF THESE HAVE BEEN WITHDRAWN, AND WITHDRAWING THEM IS THE POINT.
+ *
+ * `tokenRouting`, `tokenFlow` and `burn` used to say that a word count never
+ * passes through this product. Each was written carefully, each was believed,
+ * and each was wrong: both engines report token usage on every turn, the adapter
+ * re-emits it, and it has crossed mc-agent:event since the first day. What was
+ * missing was a writer, not a measurement -- so those three panels are now drawn
+ * from this computer's own signed record of what each turn used (see
+ * LOCAL_USAGE_COPY and readLocalUsage below), and the sentences that described
+ * the product as unable to see them have been removed rather than softened. A
+ * sentence that teaches a person to stop looking for a broken thing is worse
+ * than an empty panel.
+ *
+ * THE THREE THAT REMAIN ARE STILL TRUE, and each was re-checked against what the
+ * machine holds before this edit was made. `pools` stays because MONEY is still
+ * not measured here: this product holds no prices and no balances, so no
+ * arrangement of token counts is a cost, and that sentence is now printed BESIDE
+ * the token figures rather than instead of them. */
 export const UNMEASURED = Object.freeze({
-  tokenRouting: 'This copy does not count the words your assistant uses. An agent runs on your own Codex or Claude sign-in and talks to them directly. That count lives in your account with them, and never passes through here.',
-  tokenFlow: 'There is no word count to plot over time here, for the same reason. This computer records that a session started and how it went, and nothing about what was said in it.',
   pools: 'ToolsEnabled holds no accounts and no balances for you. What a session costs is settled between you and whoever you signed in with.',
-  burn: 'With no balances held here there is no spending rate to draw. Your assistant’s own account page is where that number lives.',
   heartbeat: 'This is one computer, and it is the one you are looking at. There is no second machine reporting vitals to draw a trace for.',
   gates: 'Nothing on this computer holds a run back for a decision, so there is no waiting to show. Decisions you are asked for appear on the approvals page.',
 })
@@ -462,7 +480,7 @@ export function sourceLine(sessions) {
  * Everything the page needs, from one record and one clock. Callers render;
  * they do not decide.
  */
-export function describeLocalMetrics(sessions, { nowMs = Date.now(), conversations = null } = {}) {
+export function describeLocalMetrics(sessions, { nowMs = Date.now(), conversations = null, usage = null } = {}) {
   return Object.freeze({
     source: sourceLine(sessions),
     tiles: statTiles(sessions, nowMs),
@@ -470,7 +488,432 @@ export function describeLocalMetrics(sessions, { nowMs = Date.now(), conversatio
     outcomes: outcomeBreakdown(sessions),
     refusals: refusalBreakdown(sessions),
     runs: runRows(sessions, { nowMs, conversations }),
+    /* WHAT THE TURNS COST, from the second record this computer keeps. Passed in
+       rather than read here for the same reason `sessions` is: this module is a
+       pure function of records and a clock, and the caller owns the channel. A
+       page that has not asked for it yet gets the honest absence rather than a
+       zero -- readLocalUsage(null) and this both land on the same sentence. */
+    usage: describeLocalUsage(usage, { nowMs, conversations }),
     unmeasured: UNMEASURED,
+  })
+}
+
+
+/* ==================================================================
+   WHAT THE TURNS ON THIS COMPUTER COST.
+   ==================================================================
+
+   THE DEFECT THIS CLOSES, and it is the second half of the one at the top of
+   this file. Four panels on #/metrics -- token routing, token flow, account
+   pools and pool burn -- said, in the product's own voice, that a token count
+   never passes through here. That sentence was written carefully and it was
+   wrong: BOTH engines report token usage on every turn, the adapter re-emits it
+   as a `usage` event, and that event has crossed mc-agent:event since the first
+   day. Nothing wrote it down. The absence was a missing writer, and a page that
+   describes a missing writer as a property of the product teaches a person to
+   stop looking for the thing that is broken.
+
+   shell/usage-record.cjs now writes each turn into its own signed, hash-chained
+   record beside the run ledger. This half decides what may honestly be said
+   about it, under the same rules the run readings above follow:
+
+     - the absences stay different from each other, and one of them is NEW: a
+       copy whose shell predates the usage channel is not a copy whose record is
+       broken, and telling somebody their record will not open when their build
+       simply has no such record would send them to fix nothing.
+     - absent is never zero. A turn that reported no total HAS no total, and the
+       page says how many of the figures it added up were derived from parts
+       rather than reported whole.
+     - a cumulative reading is never summed. See `basis` in
+       shell/usage-record.cjs: adding one running total per turn multiplies a
+       session's spend by its number of turns.
+
+   AND WHAT IS STILL NOT MEASURED HERE, which is money. This product holds no
+   prices and no balances, so no arrangement of these counts is a cost. UNMEASURED
+   .pools keeps saying exactly that, beside panels that now have real figures in
+   them, because a token count wearing a currency symbol would be the same class
+   of lie the counts themselves were introduced to end. */
+
+export const USAGE_HISTORY_LIMIT = 200
+
+export const LOCAL_USAGE_COPY = Object.freeze({
+  /* No mcAgent at all -- a plain browser. The same absence the run reading has,
+     said again here so a caller never has to pair the two readings up. */
+  noChannel: 'This page is open in a web browser, so there is no computer here keeping a record of what your agents use. Open ToolsEnabled on a computer and this fills in as you use it.',
+  /* THE NEW ONE. An mcAgent with no usage() -- a build older than this record.
+     It is NOT "unreadable": there is nothing to read, nothing is broken, and an
+     update is the whole remedy. */
+  noUsageChannel: 'This copy of ToolsEnabled was made before it kept a record of what each turn uses, so there is nothing here to show yet. A newer copy starts writing one the first time an agent answers.',
+  /* NOT-READ-YET IS NOT UNREADABLE, and the page paints once before the record
+     answers. applyLiveProjection() runs at mount and loadLocalMetrics() resolves
+     after it, so without this sentence the first frame of a perfectly healthy
+     install accuses itself of a fault the reader would then go looking for. The
+     note under the filter row already distinguishes the two ("reading this
+     computer's record..."); these panels now do too. */
+  waiting: 'Reading this computer’s record of what your agents have used.',
+  unreadable: 'ToolsEnabled could not open its own record of what your agents have used on this computer. Nothing here has been lost; this page simply cannot read it right now.',
+  empty: 'No turn on this computer has reported a token count yet. Ask an agent something and what it used is written down as the answer finishes.',
+  emptyWindow: 'No turn in the last seven days reported a token count. The totals above cover everything this computer has recorded.',
+  sourceLive: 'read from this computer’s own signed record of what each turn used',
+  sourceUnverified: 'read from this computer’s own record of what each turn used. That record no longer checks out, so treat these numbers as a report of the file rather than of the machine.',
+  sampled: (shown, total) => `Showing the most recent ${shown} of ${total} recorded turns.`,
+  /* A turn whose record does not name a model row. Never guessed from anything. */
+  providerUnrecorded: 'Not recorded',
+  /* A run this page holds no conversation for, so it cannot say which agent it
+     was. The tokens are still that run's and are still counted. */
+  agentUnnamed: 'Not named on this computer',
+  derived: (count, turns) => (count === 1
+    ? `One of these ${turns} turns reported no total, so its figure is its own input and output added together.`
+    : `${count} of these ${turns} turns reported no total, so their figures are their own input and output added together.`),
+})
+
+/* Every figure the record can hold, and the name this page uses for it. The
+   record's own field names are kept rather than renamed, so a number on a screen
+   can be traced to a line in the ledger without a translation table. */
+const TOKEN_FIELDS = Object.freeze({
+  input: 'inputTokens',
+  cachedInput: 'cachedInputTokens',
+  cacheCreation: 'cacheCreationInputTokens',
+  output: 'outputTokens',
+  reasoning: 'reasoningOutputTokens',
+})
+
+/* PROVIDER_LABELS answers a model row's assistant from LAUNCH_TIERS, imported at
+   the top of this file: a fourth copy of that mapping is how a page comes to
+   disagree with the control that started the session. */
+
+const PROVIDER_LABELS = Object.freeze({ codex: 'Codex', claude: 'Claude', local: 'On this computer' })
+
+function providerOf(tier) {
+  if (typeof tier !== 'string' || tier.length === 0) return null
+  const row = LAUNCH_TIERS.find(candidate => candidate.id === tier)
+  return row ? row.provider : null
+}
+
+function modelOf(tier) {
+  if (typeof tier !== 'string' || tier.length === 0) return null
+  const row = LAUNCH_TIERS.find(candidate => candidate.id === tier)
+  return row ? row.label : null
+}
+
+const usageNumber = value => (Number.isSafeInteger(value) && value >= 0 ? value : null)
+
+/**
+ * Read the signed usage record, through the FOUR cases this page distinguishes.
+ *
+ * The fourth -- `tooOld` -- is the one that did not exist for the run reading
+ * and has to exist here: this channel is newer than some shipped shells, and
+ * "your record will not open" is a fault a person would go looking for a cause
+ * of, while "this copy does not keep one yet" is a fact with an obvious next
+ * step. Conflating them would repeat, in a smaller size, the exact defect the
+ * top of this file records.
+ *
+ * `agent` is injected so a test never needs a global.
+ */
+export async function readLocalUsage({ agent = globalThis.mcAgent, limit = USAGE_HISTORY_LIMIT } = {}) {
+  if (!agent) return Object.freeze({ supported: false, tooOld: false, readable: false, verified: null, total: 0, turns: Object.freeze([]) })
+  if (typeof agent.usage !== 'function') {
+    return Object.freeze({ supported: false, tooOld: true, readable: false, verified: null, total: 0, turns: Object.freeze([]) })
+  }
+  let raw
+  try { raw = await agent.usage({ limit }) } catch { raw = null }
+  if (!raw || typeof raw !== 'object' || raw.ok !== true || !Array.isArray(raw.entries)) {
+    return Object.freeze({ supported: true, tooOld: false, readable: false, verified: null, total: 0, turns: Object.freeze([]) })
+  }
+
+  const turns = []
+  for (const entry of raw.entries) {
+    if (!entry || typeof entry !== 'object' || !entry.usage || typeof entry.usage !== 'object') continue
+    const atMs = Date.parse(entry.at)
+    const record = entry.usage
+    const figures = {}
+    for (const [name, field] of Object.entries(TOKEN_FIELDS)) figures[name] = usageNumber(record[field])
+    const reported = usageNumber(record.totalTokens)
+    /* DERIVED, AND MARKED AS DERIVED. A turn that reported no total still has
+       an input and an output the engine did say, and adding those two is
+       arithmetic over reported figures rather than an invented number -- but a
+       reader is entitled to know which of the two it is looking at, so the flag
+       travels with the row and the page prints the count. */
+    const derived = reported === null && (figures.input !== null || figures.output !== null)
+    turns.push(Object.freeze({
+      sequence: Number.isSafeInteger(entry.sequence) ? entry.sequence : null,
+      atMs: Number.isFinite(atMs) ? atMs : null,
+      sessionId: typeof entry.sessionId === 'string' ? entry.sessionId : null,
+      turnId: typeof record.turnId === 'string' ? record.turnId : null,
+      tier: typeof record.tier === 'string' ? record.tier : null,
+      account: typeof record.account === 'string' ? record.account : null,
+      status: typeof record.status === 'string' ? record.status : null,
+      basis: record.basis === 'session-total' ? 'session-total' : 'turn',
+      ...figures,
+      totalTokens: reported !== null ? reported : (derived ? (figures.input ?? 0) + (figures.output ?? 0) : null),
+      reportedTotal: reported !== null,
+      derivedTotal: derived,
+      contextWindow: usageNumber(record.contextWindow),
+      sessionTotalTokens: usageNumber(record.sessionTotalTokens),
+    }))
+  }
+
+  return Object.freeze({
+    supported: true,
+    tooOld: false,
+    readable: true,
+    verified: raw.verified === true ? true : (raw.verified === false ? false : null),
+    total: Number.isSafeInteger(raw.total) ? raw.total : turns.length,
+    turns: Object.freeze(turns),
+  })
+}
+
+/** Which of the four absences a usage reading is in, or null when there is data. */
+function usageAbsenceOf(usage) {
+  if (!isRecord(usage)) return LOCAL_USAGE_COPY.unreadable
+  if (usage.tooOld === true) return LOCAL_USAGE_COPY.noUsageChannel
+  if (usage.supported !== true) return LOCAL_USAGE_COPY.noChannel
+  if (usage.readable !== true) return LOCAL_USAGE_COPY.unreadable
+  if (!Array.isArray(usage.turns) || usage.turns.length === 0) return LOCAL_USAGE_COPY.empty
+  return null
+}
+
+/* THE ONE PLACE A CUMULATIVE READING IS COLLAPSED, so that no grouping below
+   can forget to.
+ *
+ * A `session-total` row is the engine's running total for that session, so the
+ * session's contribution is the LARGEST such row it has, not the sum of them.
+ * Turn rows are summed as they are. A session that somehow has both is counted
+ * from its turn rows, because those are the finer reading and the running total
+ * is a check on them rather than a second helping. */
+function collapseSessions(turns) {
+  const sessions = new Map()
+  for (const turn of turns) {
+    const key = turn.sessionId || `turn:${turn.sequence}`
+    let row = sessions.get(key)
+    if (!row) {
+      row = { key, sessionId: turn.sessionId, turns: 0, cumulative: null, figures: {}, newestMs: null, tiers: new Set(), accounts: new Set() }
+      for (const name of Object.keys(TOKEN_FIELDS)) row.figures[name] = null
+      row.figures.total = null
+      sessions.set(key, row)
+    }
+    if (turn.tier) row.tiers.add(turn.tier)
+    if (turn.account) row.accounts.add(turn.account)
+    if (turn.atMs !== null && (row.newestMs === null || turn.atMs > row.newestMs)) row.newestMs = turn.atMs
+    if (turn.basis === 'session-total') {
+      if (turn.totalTokens !== null && (row.cumulative === null || turn.totalTokens > row.cumulative)) row.cumulative = turn.totalTokens
+      continue
+    }
+    row.turns += 1
+    for (const name of Object.keys(TOKEN_FIELDS)) {
+      if (turn[name] === null) continue
+      row.figures[name] = (row.figures[name] ?? 0) + turn[name]
+    }
+    if (turn.totalTokens !== null) row.figures.total = (row.figures.total ?? 0) + turn.totalTokens
+  }
+  for (const row of sessions.values()) {
+    if (row.turns === 0 && row.cumulative !== null) {
+      row.figures.total = row.cumulative
+      row.turns = 1
+    }
+  }
+  return sessions
+}
+
+const sumField = (sessions, name) => {
+  let total = null
+  for (const row of sessions.values()) {
+    if (row.figures[name] === null) continue
+    total = (total ?? 0) + row.figures[name]
+  }
+  return total
+}
+
+/**
+ * The headline: how many turns, and what they used, over the whole record this
+ * page can see.
+ */
+export function usageTotals(usage) {
+  const absence = usageAbsenceOf(usage)
+  if (absence) {
+    return Object.freeze({ ok: false, absence, turns: 0, tokens: null, sessions: 0, derivedTotals: 0, verified: null, sampled: false, note: null })
+  }
+  const sessions = collapseSessions(usage.turns)
+  const tokens = { total: sumField(sessions, 'total') ?? 0 }
+  for (const name of Object.keys(TOKEN_FIELDS)) tokens[name] = sumField(sessions, name)
+  const derivedTotals = usage.turns.filter(turn => turn.derivedTotal).length
+  /* The record holds one line per turn, so the whole-chain line count IS a turn
+     count here -- unlike the run ledger, where a run is two lines. */
+  const sampled = Number.isSafeInteger(usage.total) && usage.total > usage.turns.length
+  return Object.freeze({
+    ok: true,
+    absence: null,
+    turns: usage.turns.length,
+    sessions: sessions.size,
+    tokens: Object.freeze(tokens),
+    derivedTotals,
+    derivedSentence: derivedTotals > 0 ? LOCAL_USAGE_COPY.derived(derivedTotals, usage.turns.length) : null,
+    verified: usage.verified,
+    sampled,
+    note: sampled ? LOCAL_USAGE_COPY.sampled(usage.turns.length, usage.total) : null,
+    sentence: usage.verified === false ? LOCAL_USAGE_COPY.sourceUnverified : LOCAL_USAGE_COPY.sourceLive,
+  })
+}
+
+/* One grouping engine for the three "by something" panels, so they cannot
+   disagree about what a session's tokens are. `keyOf` answers a key and a label
+   for one collapsed session row; a null key means the record does not say, which
+   is a row in its own right and never a row that is dropped. */
+function groupSessions(usage, keyOf) {
+  const absence = usageAbsenceOf(usage)
+  if (absence) return Object.freeze({ ok: false, absence, rows: Object.freeze([]), total: 0 })
+  const sessions = collapseSessions(usage.turns)
+  const groups = new Map()
+  let total = 0
+  for (const row of sessions.values()) {
+    const { key, label } = keyOf(row)
+    const existing = groups.get(key) || { key, label, tokens: 0, turns: 0, runs: 0 }
+    existing.tokens += row.figures.total ?? 0
+    existing.turns += row.turns
+    existing.runs += 1
+    total += row.figures.total ?? 0
+    groups.set(key, existing)
+  }
+  const rows = [...groups.values()]
+    .sort((a, b) => b.tokens - a.tokens || a.label.localeCompare(b.label))
+    .map(row => Object.freeze({ ...row, share: total > 0 ? row.tokens / total : null }))
+  return Object.freeze({ ok: true, absence: null, total, rows: Object.freeze(rows) })
+}
+
+/** Tokens per assistant -- Codex, Claude, or a row that says the record does not name one. */
+export function usageByProvider(usage) {
+  return groupSessions(usage, (row) => {
+    const tier = row.tiers.size === 1 ? [...row.tiers][0] : null
+    const provider = providerOf(tier)
+    if (!provider) return { key: 'unrecorded', label: LOCAL_USAGE_COPY.providerUnrecorded }
+    return { key: provider, label: PROVIDER_LABELS[provider] || provider }
+  })
+}
+
+/** Tokens per model row -- Luna, Sonnet, and so on. */
+export function usageByModel(usage) {
+  return groupSessions(usage, (row) => {
+    const tier = row.tiers.size === 1 ? [...row.tiers][0] : null
+    const label = modelOf(tier)
+    if (!label) return { key: 'unrecorded', label: LOCAL_USAGE_COPY.providerUnrecorded }
+    return { key: tier, label }
+  })
+}
+
+/** Tokens per sign-in, for a person who runs agents on more than one account. */
+export function usageByAccount(usage) {
+  return groupSessions(usage, (row) => {
+    const account = row.accounts.size === 1 ? [...row.accounts][0] : null
+    if (!account) return { key: 'unrecorded', label: LOCAL_USAGE_COPY.providerUnrecorded }
+    return { key: account, label: account }
+  })
+}
+
+/**
+ * Tokens per agent.
+ *
+ * WHICH agent a session was is not in the record and deliberately is not: the
+ * ledger is about this machine, and the role a person gave a node lives in the
+ * page's own saved conversation, keyed by session. So this is a JOIN, exactly
+ * like runRows() above, and an unmatched run gets a row saying the record cannot
+ * name it rather than being dropped or given a made-up name.
+ */
+export function usageByAgent(usage, { conversations = null } = {}) {
+  return groupSessions(usage, (row) => {
+    const said = row.sessionId && conversations && typeof conversations.get === 'function'
+      ? conversations.get(row.sessionId)
+      : null
+    const role = said && typeof said.role === 'string' && said.role ? said.role : null
+    if (!role) return { key: 'unnamed', label: LOCAL_USAGE_COPY.agentUnnamed }
+    return { key: role, label: role }
+  })
+}
+
+/** Tokens per run, newest first, with what the run was asked when the page knows it. */
+export function usageByRun(usage, { conversations = null, limit = 40 } = {}) {
+  const absence = usageAbsenceOf(usage)
+  if (absence) return Object.freeze({ ok: false, absence, rows: Object.freeze([]), total: 0 })
+  const sessions = [...collapseSessions(usage.turns).values()]
+    .sort((a, b) => (b.newestMs ?? 0) - (a.newestMs ?? 0))
+  const rows = sessions.slice(0, limit).map(row => {
+    const said = row.sessionId && conversations && typeof conversations.get === 'function'
+      ? conversations.get(row.sessionId)
+      : null
+    const tier = row.tiers.size === 1 ? [...row.tiers][0] : null
+    return Object.freeze({
+      sessionId: row.sessionId,
+      turns: row.turns,
+      tokens: row.figures.total ?? 0,
+      atMs: row.newestMs,
+      at: Number.isFinite(row.newestMs) ? new Date(row.newestMs).toLocaleString() : '',
+      model: modelOf(tier) || '',
+      asked: said && typeof said.asked === 'string' ? said.asked : '',
+      agent: said && typeof said.role === 'string' ? said.role : '',
+    })
+  })
+  return Object.freeze({ ok: true, absence: null, total: sessions.length, rows: Object.freeze(rows) })
+}
+
+/**
+ * Tokens per local calendar day, over the same seven-day window the activity
+ * panel already promises -- and local rather than UTC for the same reason that
+ * panel is: a person reading "what did I use" means their own midnight.
+ *
+ * A CUMULATIVE ROW IS NOT PLACED ON A DAY. Its figure belongs to a whole session
+ * rather than to the moment it happened to be reported, so putting it on one day
+ * would spike that day with tokens spent across several. Those sessions are in
+ * the totals and are counted out of the chart, which `outsideWindow` says.
+ */
+export function usageByDay(usage, nowMs = Date.now()) {
+  const absence = usageAbsenceOf(usage)
+  const today = dayStart(nowMs)
+  const days = []
+  for (let offset = ACTIVITY_DAYS - 1; offset >= 0; offset -= 1) {
+    const startMs = today - offset * DAY_MS
+    days.push({
+      startMs,
+      label: DAY_LABEL.format(new Date(startMs)),
+      dateLabel: DATE_LABEL.format(new Date(startMs)),
+      tokens: 0,
+      turns: 0,
+    })
+  }
+  if (absence) return Object.freeze({ ok: false, absence, days: Object.freeze([]), max: 0, windowTokens: 0, outsideWindow: 0 })
+
+  const earliest = days[0].startMs
+  let windowTokens = 0
+  let outsideWindow = 0
+  let max = 0
+  for (const turn of usage.turns) {
+    if (turn.basis === 'session-total') { outsideWindow += 1; continue }
+    if (!Number.isFinite(turn.atMs) || turn.atMs < earliest || turn.totalTokens === null) {
+      if (turn.totalTokens !== null) outsideWindow += 1
+      continue
+    }
+    const index = Math.floor((dayStart(turn.atMs) - earliest) / DAY_MS)
+    if (index < 0 || index >= days.length) continue
+    days[index].tokens += turn.totalTokens
+    days[index].turns += 1
+    windowTokens += turn.totalTokens
+    if (days[index].tokens > max) max = days[index].tokens
+  }
+  const frozen = Object.freeze(days.map(day => Object.freeze({ ...day })))
+  if (windowTokens === 0) {
+    return Object.freeze({ ok: false, absence: LOCAL_USAGE_COPY.emptyWindow, days: frozen, max: 0, windowTokens: 0, outsideWindow })
+  }
+  return Object.freeze({ ok: true, absence: null, days: frozen, max, windowTokens, outsideWindow })
+}
+
+/** Everything the token panels need, from one usage record and one clock. */
+export function describeLocalUsage(usage, { nowMs = Date.now(), conversations = null } = {}) {
+  return Object.freeze({
+    totals: usageTotals(usage),
+    byProvider: usageByProvider(usage),
+    byModel: usageByModel(usage),
+    byAccount: usageByAccount(usage),
+    byAgent: usageByAgent(usage, { conversations }),
+    byRun: usageByRun(usage, { conversations }),
+    byDay: usageByDay(usage, nowMs),
   })
 }
 

@@ -343,8 +343,13 @@ test('the metrics page reads this computer’s record, not the build-time projec
   const view = read('src/views/metrics.js')
 
   assert.match(view, /from '\.\.\/local-metrics\.js'/, 'the view must read the local record module')
-  assert.match(view, /await readLocalRuns\(\)/, 'the view must actually ask for the record')
-  assert.match(view, /describeLocalMetrics\(sessions\)/)
+  assert.match(view, /readLocalRuns\(\)/, 'the view must actually ask for the record')
+  assert.match(view, /describeLocalMetrics\(sessions, \{ conversations, usage \}\)/)
+  /* BOTH records. The turn-usage record is a second signed chain in a second
+     file, and a page that asked for only one of them could not tell "no agent
+     has run here" apart from "this shell is too old to have recorded what they
+     used" -- which is the same conflation the top of this file exists to end. */
+  assert.match(view, /readLocalUsage\(\)/)
 
   /* The six tiles used to be six readings of the builder's own checkout. */
   assert.doesNotMatch(view, /label: 'Codex sessions'/)
@@ -362,12 +367,24 @@ test('the metrics page reads this computer’s record, not the build-time projec
   for (const renderer of ['renderActivity()', 'renderOutcomes()', 'renderRefusals()', 'renderRunTable()']) {
     assert.ok(view.includes(renderer), `the live branch must draw ${renderer}`)
   }
-  /* And the ones that do not, each said once from the shared table so five
-     hand-written versions of "we do not measure that" cannot drift apart. */
-  assert.match(view, /UNMEASURED\.tokenRouting/)
-  assert.match(view, /UNMEASURED\.tokenFlow/)
+  /* THE FOUR TOKEN PANELS MOVED FROM "not measured" TO MEASURED, and this is
+     the assertion that says so. They said, in the product's own voice, that a
+     token count never passes through here; both engines report one on every
+     turn and nothing wrote it down. shell/usage-record.cjs writes it, and these
+     four draw it. */
+  for (const renderer of ['renderTokenRouting()', 'renderTokenFlow()', 'renderPools()', 'renderBurn()']) {
+    assert.ok(view.includes(renderer), `the live branch must draw ${renderer}`)
+  }
+  assert.doesNotMatch(view, /UNMEASURED\.tokenRouting/,
+    'the token-routing panel no longer describes this product as unable to see a token count')
+  assert.doesNotMatch(view, /UNMEASURED\.tokenFlow/)
+  assert.doesNotMatch(view, /UNMEASURED\.burn/)
+
+  /* And the two that genuinely are not measured, each said once from the shared
+     table so two hand-written versions cannot drift apart. `pools` stays with
+     them because MONEY is still not measured here -- it is now printed beside
+     the token figures rather than instead of them. */
   assert.match(view, /UNMEASURED\.heartbeat/)
-  assert.match(view, /UNMEASURED\.burn/)
   assert.match(view, /UNMEASURED\.pools/)
   assert.match(view, /UNMEASURED\.gates/)
 })
