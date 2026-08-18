@@ -1005,6 +1005,36 @@ export function homeView() {
       window.removeEventListener(CHATBOX_FEED_EVENT, onChatboxSettings)
       window.removeEventListener(APPROVAL_OUTCOME_EVENT, onApprovalOutcome)
       document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
+      /* THE CRESCENT, WHICH NOTHING HAD EVER TAKEN DOWN.
+       *
+       * uptimeRing() mounts the corona and hands its teardown back as
+       * root.destroyCrescent (src/components.js). Grepped across this tree
+       * before this line existed, that property was written in exactly one
+       * place and READ in none -- so every visit to this page built a corona
+       * that was never dismantled.
+       *
+       * WHAT ONE UNCLOSED MOUNT LEAVES BEHIND, read off a staged packaged
+       * build by instrumenting the page from before its first line ran
+       * (tools/dom-retention-probe.mjs): two MutationObservers still watching
+       * documentElement and body -- neither of which is ever collected, so
+       * neither are their closures -- a transitionstart and a transitionend
+       * listener on the colour probe, a webglcontextlost listener on the
+       * canvas, and a WebGL context nobody released. Holding any node of a
+       * tree holds the whole tree, so those observers kept a 132-node detached
+       * copy of this ring alive, one more on every lap of the ring.
+       *
+       * MEASURED BEFORE AND AFTER THIS LINE, same probe, three laps:
+       *   before  88 -> 94 -> 100 listeners, 4 -> 6 retained detached trees,
+       *           8 observers nobody had disconnected and climbing
+       *   after   76 / 76 / 76 listeners, 2 / 2 / 2 trees, 5 observers, flat
+       *
+       * IT IS ONE CALL, and the reason it was missing is that nothing forced
+       * it: a teardown handed back as a property on a DOM element is a
+       * teardown a caller can forget. Nothing in the unit suites can catch it
+       * coming back -- this file needs a real document and a real GL context to
+       * be wrong in this way -- so the probe above is the instrument that
+       * would, and it is why that file exists. */
+      ring.el.destroyCrescent?.()
     },
   }
 }

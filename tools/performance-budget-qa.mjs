@@ -74,6 +74,11 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 import { createSteadinessTracker, unmeasurableLine } from './machine-steadiness.mjs'
+/* WHAT is being retained, on demand. The budget answers 'how much', which is
+   the right thing for a gate to assert and the wrong thing to hand somebody
+   who has to fix it. --census installs the retention probe's own instrument
+   in the memory scenario and prints its answer beside each lap. */
+import { PROBE as RETENTION_PROBE } from './dom-retention-probe.mjs'
 
 const execFile = promisify(execFileCallback)
 const SELF = fileURLToPath(import.meta.url)
@@ -103,6 +108,15 @@ const SEED_TIER = argument('--seed-tier', 'standard')
 /* Print the sampled call frames behind a measurement. Off by default: the
    numbers are the verdict, the frames are the investigation. */
 const PROFILE = flag('--profile')
+const CENSUS = flag('--census')
+/* HOW MANY TIMES TO ASK FOR A COLLECTION BEFORE READING THE COUNT.
+   One is what this file has always asked for. Whether one is ENOUGH for a
+   detached DOM tree is a question about Blink, not about the product, and it
+   is the difference between 'retained' and 'not collected yet' -- so it is a
+   knob that can be turned in an experiment rather than an assumption baked in.
+   tools/retention-instrument-check.mjs is the fixture that says what each
+   setting can be trusted to report. */
+const COLLECT_PASSES = Number(argument('--collect-passes', 1))
 const SCENARIOS = argument('--scenario')
   ? argument('--scenario').split(',')
   /* `scale` and `weakpc` are investigations rather than gates -- they answer
@@ -139,6 +153,21 @@ const BUDGETS = Object.freeze({
   // DOM nodes left behind per lap. A view that tears down cleanly returns to
   // roughly the count it started at.
   nodeGrowthPerLap: 400,
+  // LISTENERS left behind per lap, and it is here because the number was already
+  // being computed and thrown away -- measured, reported in the line above the
+  // verdict, and asserted against nothing, which is the same defect class as a
+  // settings row nothing reads.
+  //
+  // WHAT IT CAN AND CANNOT SEE, stated so nobody reads more into a green than is
+  // there. Measured on this machine across two builds, the lap-to-lap figure at
+  // this measurement point ranges over about ten either side of zero, because a
+  // lap ends immediately after the move that collects the previous page. So this
+  // catches a view that leaks a handful of listeners per visit within a few laps
+  // and CANNOT see a creep of a few per lap; tools/dom-retention-probe.mjs is
+  // the instrument for that, and it is what found the corona this budget could
+  // not (its census is exact because it asks weak references rather than
+  // subtracting two totals).
+  listenerGrowthPerLap: 20,
 })
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -1163,6 +1192,14 @@ async function measureWeakPc(executable, scratch, rates) {
 async function measureMemory(executable, scratch) {
   const app = await openApp(executable, scratch, 'memory', { seedTier: SEED_TIER })
   try {
+    if (CENSUS) {
+      await app.session.send('Page.enable', {})
+      await app.session.send('Page.addScriptToEvaluateOnNewDocument', { source: RETENTION_PROBE })
+      /* The probe is only true of a document it watched from the first line,
+         so the page is reloaded once and every lap below is that document. */
+      await evaluate(app.session, 'location.reload()')
+      await delay(4000)
+    }
     await firstViewThenSettle(app.session, 260, 30_000)
     const laps = []
     for (let lap = 0; lap < LAPS; lap += 1) {
@@ -1176,8 +1213,10 @@ async function measureMemory(executable, scratch) {
         seen.add(route)
       }
       // Ask for a collection so what is reported is retained, not merely
-      // uncollected. Without this a "leak" is often only a lazy collector.
-      await session_collect(app.session)
+      // uncollected. Without this a "leak" is often only a lazy collector --
+      // which is exactly why the outcome is now kept rather than discarded.
+      const collected = await session_collect(app.session)
+      const alive = await foreignInstancesAlive()
       const metrics = await counters(app.session)
       const record = {
         lap: lap + 1,
@@ -1186,16 +1225,48 @@ async function measureMemory(executable, scratch) {
         nodes: metrics.Nodes ?? 0,
         listeners: metrics.JSEventListeners ?? 0,
         documents: metrics.Documents ?? 0,
+        collected,
+        alive,
       }
       laps.push(record)
+      if (CENSUS) {
+        const census = await evaluate(app.session, '(window.__retention ? window.__retention.census() : null)')
+        /* WHICH CORONA THIS WINDOW GOT. The ring mounts a WebGL corona when
+           WebGL2 is available and a CPU fallback when it is not, and the two
+           paths have different teardown. A window that could not obtain a
+           context is a different product to measure, so the mode is read
+           rather than assumed. */
+        const ring = await evaluate(app.session, `(() => {
+          const node = document.querySelector('.uring')
+          return {
+            present: Boolean(node),
+            mode: node ? (node.crescentMode || null) : null,
+            canvases: document.querySelectorAll('canvas').length,
+          }
+        })()`)
+        note(`    ring: ${JSON.stringify(ring)}`)
+        if (!census) note('    the census did not install, so nothing below names a retainer')
+        else {
+          note(`    ${census.listeners.onDetachedNodes} listener(s) still registered on nodes that left the document; `
+            + `${census.detachedNodesHeldByListeners} node(s) in ${census.detachedTrees.length} retained tree(s)`)
+          for (const tree of census.detachedTrees.slice(0, 6)) note(`      ${String(tree.nodes).padStart(6)} nodes  <${tree.tag}>  ${tree.what || ''}`)
+          for (const site of census.listenerSites.slice(0, 8)) note(`      ${String(site.count).padStart(5)}x  ${site.site}`)
+          for (const observer of census.observers.slice(0, 6)) note(`      ${observer.kind} watching ${observer.watching} (${observer.detached} detached)  ${observer.site}`)
+        }
+      }
       note(`lap ${record.lap}: ${record.stops} stops, heap ${record.heapMb}MB, ` +
-        `${record.nodes} nodes, ${record.listeners} listeners`)
+        `${record.nodes} nodes, ${record.listeners} listeners, collection ${record.collected}, ${record.alive} app process group(s) alive`)
     }
     const first = laps[0]
     const last = laps.at(-1)
     const spans = Math.max(1, laps.length - 1)
     return {
       laps,
+      /* Every lap has to have been collected for the growth figures to mean
+         'retained'. One that was not makes them mean 'not yet collected',
+         which is a different sentence and not a defect. */
+      collected: laps.every((entry) => entry.collected === 'collected'),
+      collectionOutcomes: [...new Set(laps.map((entry) => entry.collected))],
       heapGrowthPerLapMb: Math.round(((last.heapMb - first.heapMb) / spans) * 100) / 100,
       nodeGrowthPerLap: Math.round((last.nodes - first.nodes) / spans),
       listenerGrowthPerLap: Math.round((last.listeners - first.listeners) / spans),
@@ -1205,9 +1276,64 @@ async function measureMemory(executable, scratch) {
   }
 }
 
-async function session_collect(session) {
-  try { await session.send('HeapProfiler.collectGarbage') } catch { /* best effort */ }
-  await delay(400)
+/* A COLLECTION THAT DID NOT HAPPEN MUST NOT BE REPORTED AS A LEAK.
+ *
+ * This was `try { await session.send(...) } catch {}` -- and createSession's
+ * send() never rejects, it resolves with whatever packet came back, so an
+ * error reply was swallowed twice over. That matters more here than anywhere
+ * else in the file: every number the memory scenario reports is 'what is still
+ * alive AFTER a collection', and with the collection quietly skipped the same
+ * healthy build reports ordinary uncollected garbage as a monotonic leak of a
+ * whole page per lap. Measured on this tree 2026-08-18: the memory scenario
+ * run alone answered -625 nodes/lap and the same scenario run after the others
+ * answered +15,531, on the same bytes.
+ *
+ * So the reply is READ, the outcome travels with the lap, and a lap whose
+ * collection did not happen is a NO VERDICT about the probe rather than a
+ * finding about the product. */
+async function session_collect(session, passes = COLLECT_PASSES) {
+  let outcome = `collected x${passes}`
+  for (let pass = 0; pass < passes; pass += 1) {
+    try {
+      const packet = await session.send('HeapProfiler.collectGarbage')
+      if (packet && packet.error) outcome = `refused: ${packet.error.message || JSON.stringify(packet.error)}`
+    } catch (error) {
+      outcome = `threw: ${error?.message || error}`
+    }
+    await delay(400)
+  }
+  return outcome
+}
+
+/* HOW MANY COPIES OF THIS PRODUCT ARE ALIVE WHILE A NUMBER IS BEING TAKEN.
+ *
+ * REPORTED, NEVER ASSERTED, and the difference is the whole point. The memory
+ * scenario on this tree is BIMODAL on the same bytes: repeated runs answer
+ * either ~-400 nodes/lap (the page returns to below where it started) or
+ * ~+15,500 nodes/lap, and the census under --census shows the second mode
+ * retaining whole detached views -- three entire settings pages at 6,356 nodes
+ * each. Which mode a run lands in is NOT yet explained.
+ *
+ * "Another copy was running" was the first candidate and it is DISPROVED: a run
+ * with six app process groups alive throughout its laps answered 2228 / 2118 /
+ * 966. It is printed anyway because it is one of the few facts about the
+ * machine that can be taken at the moment of measurement, and the next person
+ * to look at this needs the conditions each number was taken under -- not a
+ * refusal keyed on a correlate that does not hold. */
+async function foreignInstancesAlive() {
+  try {
+    const { stdout } = await execFile('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+      '(Get-Process -Name ToolsEnabled -ErrorAction SilentlyContinue | Measure-Object).Count',
+    ], { windowsHide: true, timeout: 20_000 })
+    const count = Number(String(stdout).trim())
+    return Number.isFinite(count) ? count : 0
+  } catch {
+    /* A machine this cannot be asked about is measured anyway: refusing on an
+       unanswered question would make the probe unusable wherever the question
+       cannot be put, which is a worse failure than the one it guards. */
+    return 0
+  }
 }
 
 /* ---------- run ---------- */
@@ -1314,6 +1440,11 @@ async function main() {
       if (record.scenarios.memory.heapGrowthPerLapMb > BUDGETS.heapGrowthPerLapMb) {
         const line = `the JS heap grows ${record.scenarios.memory.heapGrowthPerLapMb}MB per lap, over the ${BUDGETS.heapGrowthPerLapMb}MB budget`
         failures.push(line); countedFailures.push(line)
+      }
+      if (record.scenarios.memory.listenerGrowthPerLap > BUDGETS.listenerGrowthPerLap) {
+        const line = `${record.scenarios.memory.listenerGrowthPerLap} event listeners are left behind per lap, over the ${BUDGETS.listenerGrowthPerLap} budget`
+        failures.push(line)
+        countedFailures.push(line)
       }
       if (record.scenarios.memory.nodeGrowthPerLap > BUDGETS.nodeGrowthPerLap) {
         const line = `${record.scenarios.memory.nodeGrowthPerLap} DOM nodes are left behind per lap, over the ${BUDGETS.nodeGrowthPerLap} budget`
