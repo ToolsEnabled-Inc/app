@@ -271,8 +271,26 @@ function createSession(port, child, timeline) {
             socket.addEventListener('message', event => {
               const packet = JSON.parse(event.data)
               const handler = pending.get(packet.id)
-              if (handler) { pending.delete(packet.id); handler(packet) }
+              if (handler) { pending.delete(packet.id); handler.resolve(packet) }
             })
+            /* A REPLY THAT CAN NEVER ARRIVE MUST NOT BE WAITED FOR FOREVER.
+               When the window closes (which closeWindow ASKS it to do), the
+               debugger socket drops before the reply to the very evaluate that
+               asked. Un-settled promises here were how the stranger-journey
+               driver ended with no summary and exit 0 while carrying four FAIL
+               lines (measured 2026-08-18): the last await never settled, the
+               event loop drained, node exited "cleanly", and ledger.finish()
+               -- the only writer of the `N/M checks passed` verdict line the
+               suite reads -- never ran. A dead socket now REJECTS everything
+               still pending: closeWindow's try/catch absorbs the expected
+               race, and a socket that dies mid-measurement fails the run
+               loudly instead of feeding undefined into a check. */
+            socket.addEventListener('close', () => {
+              for (const [id, handler] of [...pending]) {
+                pending.delete(id)
+                handler.reject(new Error('the debugger socket closed before this reply arrived'))
+              }
+            }, { once: true })
             timeline.windowAt = Date.now()
             timeline.pageUrl = page.url || null
             return
@@ -284,8 +302,14 @@ function createSession(port, child, timeline) {
     },
     send(method, params = {}) {
       const id = nextId++
+      /* A send on an already-dead socket rejects immediately for the same
+         reason the close handler rejects: a promise nobody can settle is how
+         this file once turned four FAILs into an exit-0 with no verdict. */
+      if (!socket || socket.readyState !== 1 /* OPEN */) {
+        return Promise.reject(new Error('the debugger socket is not open'))
+      }
       socket.send(JSON.stringify({ id, method, params }))
-      return new Promise(resolve => pending.set(id, resolve))
+      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
     },
     close() { try { socket?.close() } catch { /* already gone */ } },
   }

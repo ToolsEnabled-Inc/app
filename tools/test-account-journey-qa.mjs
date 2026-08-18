@@ -247,21 +247,39 @@ async function main() {
     }
     ledger.check('the machines page is reachable by walking the ring', atComputers, `route=${await route(window)}`)
 
-    /* Into a machine, then into one of its agents, by clicking the graph the
-       way a person does. The controls panel that appears on a node carries the
-       "open" action; where that is absent the run says so instead of assigning
-       a hash to get there. */
-    const clickedNode = await window.clickVisible('.static-tree-node')
-    await delay(900)
-    let agentRoute = await route(window)
-    if (agentRoute !== 'agent') {
-      const opened = await window.clickVisible('[data-a="open"]')
-      ledger.note(`the node panel's open action: ${opened}`)
-      await delay(1200)
-      agentRoute = await route(window)
+    /* Into an agent page, by pressing the door the CURRENT product offers.
+       Since 5cc2f09 ("a fleet tree you build, instead of one the app
+       invented") a virgin profile's tree is EMPTY by design -- there is no
+       `.static-tree-node` to click, which is what this step used to do -- and
+       since 18ef5e7 ("The only door to the page that starts an agent opened
+       after you had started one") the `.graph-open-btn` in the named-controls
+       strip is aimed at the first DECLARED seat and visible with no selection,
+       exactly so a fresh install has a way in. So the door is pressed first;
+       the node-then-open path is kept for a profile that has running agents.
+       The projection resolves asynchronously, so the door is waited for
+       rather than sampled once. */
+    let door = 'none'
+    let viaOpen = 'absent'
+    /* clickVisible already waits up to 8s for the selector, so four attempts
+       is ~half a minute of patience for a slow projection, not 4 samples. */
+    for (let tick = 0; tick < 4 && viaOpen !== 'clicked'; tick += 1) {
+      viaOpen = await window.clickVisible('.graph-open-btn')
+      if (viaOpen !== 'clicked') await delay(400)
     }
+    if (viaOpen === 'clicked') door = '.graph-open-btn (declared capacity, 18ef5e7)'
+    else {
+      const clickedNode = await window.clickVisible('.static-tree-node')
+      if (clickedNode === 'clicked') {
+        await delay(900)
+        const opened = await window.clickVisible('[data-a="open"]')
+        ledger.note(`the node panel's open action: ${opened}`)
+        if (opened === 'clicked') door = '.static-tree-node then [data-a="open"]'
+      }
+    }
+    await delay(1200)
+    const agentRoute = await route(window)
     ledger.check('an agent page is reachable by drilling into the fleet graph, without typing an address',
-      agentRoute === 'agent', `node=${clickedNode} route=${agentRoute}`)
+      agentRoute === 'agent', `door=${door} route=${agentRoute}`)
 
     const agentText = await screenText(window)
     ledger.check('the agent page renders rather than showing a raw exception or an empty stage',
@@ -322,7 +340,20 @@ async function main() {
       ledger.check(`relaunch ${cycle} produces a real window, not an exit-0 with nothing on screen`,
         relaunch.windowAt !== null, describeTimeline(relaunch))
 
-      const painted = await window.evaluate('document.documentElement.dataset.theme')
+      /* WAITED FOR, NOT SAMPLED ONCE. The theme is account-scoped
+         (public/durable-storage.js), and the store hydrates the signed-in
+         account ASYNCHRONOUSLY at launch -- reapplyAfterAccountChange() paints
+         the account's theme a beat after first paint, by design. A person sees
+         the settled window; a single sample taken in the first few hundred
+         milliseconds measures the race, not the preference. Bounded at 8s so a
+         theme that never arrives still fails, with the settled value in the
+         detail. */
+      let painted = null
+      for (let tick = 0; tick < 20; tick += 1) {
+        painted = await window.evaluate('document.documentElement.dataset.theme')
+        if (painted === 'black') break
+        await delay(400)
+      }
       const background = await window.evaluate('getComputedStyle(document.body).backgroundColor')
       ledger.check(`the preference is VISUALLY restored after relaunch ${cycle}`,
         painted === 'black', `theme=${painted} background=${background}`)
