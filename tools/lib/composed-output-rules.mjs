@@ -60,6 +60,11 @@ const EMPTY_TEXT = /\b(nothing here to show|nothing to show|there is nothing|not
 const POINTS_AT_A_LIST = /\b(as shown in the (?:list|table|register)|in the (?:list|table|register) above|from the (?:list|table|register) above|the (?:list|table|register) (?:above|below)|listed above|shown above|chosen above)\b/i
 
 const normalise = text => String(text ?? '').replace(/\s+/g, ' ').trim()
+
+/* What a slot is ABOUT. Declared per slot where a panel talks about more than
+   one thing; otherwise the panel itself, so nothing goes unmeasured by
+   forgetting to declare. */
+const subjectOf = (slot, panel) => String(slot?.subject || panel?.panel || 'this panel')
 const sentenceKey = text => normalise(text).toLowerCase().replace(/[.!?…,;:·]+$/g, '').trim()
 
 /** Does this slot report a failure? */
@@ -123,15 +128,26 @@ export function findingsInPanel(panel) {
       excerpt: normalise(slot.text),
     })
   }
-  const failures = slots.filter(readsAsFailure)
+  /* SCOPED TO ONE SUBJECT, and the scoping is not a loophole. "There are no
+     requests" and "that folder's work list could not be read" are two true
+     statements about two different things, and a panel is allowed to make both.
+     What it may not do is say both about the SAME thing, which is exactly the
+     shape that shipped: one paragraph about the request register saying there
+     is nothing, inside chrome about the request register saying it could not be
+     read. A slot with no declared subject belongs to the panel, so an
+     undeclared panel is still measured as a whole. */
   const empties = slots.filter(slot => readsAsEmpty(slot) && !FAILURE_TONES.has(String(slot.tone || '')))
-  const otherFailure = empties.length > 0 ? failures.find(slot => slot.name !== empties[0].name) : null
-  if (otherFailure) {
+  for (const empty of empties) {
+    const clash = slots.find(slot => slot.name !== empty.name
+      && subjectOf(slot, panel) === subjectOf(empty, panel)
+      && readsAsFailure(slot))
+    if (!clash) continue
     found.push({
       rule: 'two-stories',
-      detail: `“${empties[0].name}” says there is nothing to show while “${otherFailure.name}” says it could not be read. Those are opposite facts about one state; pick the one that is true and say only that.`,
-      excerpt: `${normalise(empties[0].text)}  ||  ${normalise(otherFailure.text)}`,
+      detail: `“${empty.name}” says there is nothing to show while “${clash.name}” says it could not be read, and both are about ${subjectOf(empty, panel)}. Those are opposite facts; pick the one that is true and say only that.`,
+      excerpt: `${normalise(empty.text)}  ||  ${normalise(clash.text)}`,
     })
+    break
   }
 
   /* ---- 3. a field that points at a list this state does not have ---- */

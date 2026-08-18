@@ -8,11 +8,12 @@ import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
 import { fetchLedger } from '../live-status.js'
 import { mountLedgerWriteSurface } from '../write-surfaces.js'
 import { registerNotice } from '../ledger-copy.js'
-/* THE DOOR OUT OF THIS SCREEN'S REFUSAL. The ledger is one of the four screens
-   src/first-run-needs.js names as permanently empty on a copy with no agent
-   host, and "the ledger could not be read yet" is true without being an answer.
-   The label and the address are imported rather than retyped so this screen and
-   the other five point at one page under one name. */
+/* THE DOOR OUT OF THIS SCREEN'S EMPTY STATE. The ledger is one of the four
+   screens src/first-run-needs.js names as permanently empty on a copy with no
+   agent host, so the honest answer -- there is nothing here and nothing you do
+   will fill it -- needs somewhere to send a person who wants to know why. The
+   label and the address are imported rather than retyped so this screen and the
+   other five point at one page under one name. */
 import { GUIDE_ACTION } from '../first-run-needs.js'
 import '../ledger.css'
 
@@ -231,7 +232,17 @@ export function ledgerView() {
     </main>`)
 
   const register = root.querySelector('.ledger-register')
-  const destroyWriteSurface = mountLedgerWriteSurface(root)
+  /* THE FORMS ARE TOLD WHAT THE LIST IS DOING, which is the whole of finding 11
+     part two. The Approve/Decline form asked for "its number, as shown in the
+     list" while the list beside it was empty, and it asked in exactly the same
+     words whether the list was empty, unreadable or full -- because nothing
+     connected the two. Now the register's state and its rows go to the surface
+     every time they change, and the form either fills itself from them or turns
+     itself off and says why. */
+  let showRegisterInForms = () => {}
+  const destroyWriteSurface = mountLedgerWriteSurface(root, {
+    onMount: api => { showRegisterInForms = api.showRegister },
+  })
   const modeGroup = root.querySelector('.ledger-mode')
   const collapsedRoots = new Set(branchRoots.filter(item => readCollapsed(item.id)).map(item => item.id))
   const expandedRows = new Set()
@@ -283,17 +294,29 @@ export function ledgerView() {
   function renderRegister({ focusRoot = null } = {}) {
     const rows = []
 
-    const notice = registerNotice(source)
+    /* ONE NOTICE, ONE STORY. Everything this state paints -- the paragraph, the
+       register's accessible name, the counter, the state marker and whether the
+       totals above are even knowable -- comes from the one object, so the page
+       cannot say "could not be read" in three places while the paragraph
+       between them says there is simply nothing here. That contradiction is
+       what the owner was reading. */
+    const notice = registerNotice(source, { mode })
     if (notice) {
-      renderSummary([], { unavailable: true, live: true })
+      renderSummary([], { unavailable: !notice.countsKnown, live: true })
       register.removeAttribute('role')
       register.setAttribute('aria-label', notice.label)
       const door = notice.door
         ? `<p class="ledger-empty"><a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a></p>`
         : ''
       register.innerHTML = `<p class="ledger-empty ${notice.className}">${esc(notice.body)}</p>${door}`
+      /* The reason travels as data, never in the sentence -- the rule
+         src/refusal-copy.js sets for a refusal code, applied to a projection
+         reason, which can be a schema complaint. */
+      if (source.reason) register.dataset.registerReason = String(source.reason).slice(0, 300)
+      else delete register.dataset.registerReason
       root.querySelector('[data-visible-count]').textContent = notice.count
       root.dataset.projectionState = notice.state
+      showRegisterInForms({ kind: notice.state, items: [] })
       return
     }
 
@@ -302,13 +325,20 @@ export function ledgerView() {
     const qObservation = live ? source.data.questions : null
     const qItems = live ? qObservation?.value : Q_ITEMS
 
+    /* THE QUESTIONS HALF, IN THE SAME TWO STATES AS THE REQUESTS HALF. It used
+       to have a third vocabulary of its own -- "the questions could not be
+       read" with the raw reason after a middle dot -- so one page refused in
+       three different accents. */
     if (mode === 'q' && live && !qObservation.ok) {
-      renderSummary([], { unavailable: true, live: true })
+      const qNotice = registerNotice({ kind: 'unreadable' }, { mode: 'q' })
+      renderSummary([], { unavailable: !qNotice.countsKnown, live: true })
       register.removeAttribute('role')
-      register.setAttribute('aria-label', 'The questions could not be read')
-      register.innerHTML = `<p class="ledger-empty projection-unavailable">the questions could not be read · ${esc(qObservation.reason)}</p>`
-      root.querySelector('[data-visible-count]').textContent = 'questions could not be read'
-      root.dataset.projectionState = 'questions-unavailable'
+      register.setAttribute('aria-label', qNotice.label)
+      register.innerHTML = `<p class="ledger-empty ${qNotice.className}">${esc(qNotice.body)}</p>`
+      register.dataset.registerReason = String(qObservation.reason || '').slice(0, 300)
+      root.querySelector('[data-visible-count]').textContent = qNotice.count
+      root.dataset.projectionState = qNotice.state
+      showRegisterInForms({ kind: 'unreadable', items: [] })
       return
     }
 
@@ -324,7 +354,7 @@ export function ledgerView() {
       register.setAttribute('aria-label', live ? 'Your requests' : 'Owner request outline')
       register.innerHTML = rows.length
         ? rows.join('')
-        : '<p class="ledger-empty">no requests in this list · the ledger is quiet</p>'
+        : '<p class="ledger-empty">There are no requests in this list.</p>'
       root.querySelector('[data-visible-count]').textContent = live
         ? `${rItems.length} requests · with their status and gates`
         : `${R_ITEMS.length} requests · 3 decomposed roots`
@@ -338,7 +368,7 @@ export function ledgerView() {
       register.setAttribute('aria-label', live ? 'Your questions' : 'Questions to the owner')
       register.innerHTML = rows.length
         ? rows.join('')
-        : '<p class="ledger-empty">no owner questions in this list · nothing waiting on a decision</p>'
+        : '<p class="ledger-empty">There are no questions waiting on a decision.</p>'
       const open = live
         ? qItems.filter(item => item.statusClass === 'open').length
         : Q_ITEMS.filter(item => item.status === 'pending').length
@@ -348,6 +378,16 @@ export function ledgerView() {
     }
 
     root.dataset.projectionState = live ? 'ready' : 'simulated'
+    /* THE FORMS BELOW ACT ON REQUESTS, so they are given the requests -- in
+       both tabs, because Approve and Decline answer a request whichever list
+       happens to be on screen. The SIMULATED outline is deliberately not
+       offered as choices: those references are a demonstration, and a picker
+       built from them would invite somebody to approve something that does not
+       exist. In that mode the field stays typed and says what it wants. */
+    showRegisterInForms({
+      kind: live ? 'live' : 'simulated',
+      items: live ? rItems.map(item => ({ id: item.id, label: `${item.id} · ${item.status}` })) : [],
+    })
     if (focusRoot) register.querySelector(`[data-root="${focusRoot}"]`)?.focus()
   }
 
@@ -416,11 +456,22 @@ export function ledgerView() {
     renderRegister()
     fetchLedger().then(result => {
       if (destroyed || version !== requestVersion) return
-      source = result.ok ? { kind: 'live', data: result.data.data } : { kind: 'unavailable', reason: result.reason }
+      /* THE DISTINCTION WAS ALWAYS IN THE ANSWER AND THIS PAGE THREW IT AWAY.
+         src/live-status.js validates the projection before returning it: a file
+         that ANSWERS "I have nothing" comes back with its envelope attached,
+         and a read that fell over -- no file, a bad response, malformed JSON, a
+         shape that failed validation -- comes back with nothing attached. One
+         is an answer and the other is a fault, they have different repairs, and
+         collapsing them into "unavailable" is why this page told a stranger his
+         request list could not be read when in truth this copy does not keep
+         one. */
+      if (result.ok) source = { kind: 'live', data: result.data.data }
+      else if (result.data) source = { kind: 'empty', reason: result.reason }
+      else source = { kind: 'unreadable', reason: result.reason }
       renderRegister()
     }, error => {
       if (destroyed || version !== requestVersion) return
-      source = { kind: 'unavailable', reason: error?.message || String(error) }
+      source = { kind: 'unreadable', reason: error?.message || String(error) }
       renderRegister()
     })
   }

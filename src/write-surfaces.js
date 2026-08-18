@@ -64,7 +64,7 @@ import { launchOutcomeCopy, watchLaunchOutcome } from './launch-outcome-copy.js'
 /* The ledger panel's own words, in a module with no browser in it, so a check
    can compose the whole panel for a state instead of reading one string at a
    time. See ./ledger-copy.js. */
-import { DECISION_FORM, QUEUE_FORM, queueSnapshotLine } from './ledger-copy.js'
+import { DECISION_FORM, QUEUE_FORM, decisionOff, queueSnapshotLine } from './ledger-copy.js'
 
 const esc = value => String(value)
   .replace(/&/g, '&amp;')
@@ -388,31 +388,43 @@ export function mountAgentWriteSurface(root, { agentId, live = false }) {
   return () => { destroyed = true }
 }
 
-export function mountLedgerWriteSurface(root) {
+export function mountLedgerWriteSurface(root, { onMount = () => {} } = {}) {
   const decisionEnabled = isWriteEnabled('decision')
   const queueEnabled = isWriteEnabled('queue')
   if (!decisionEnabled && !queueEnabled) return () => {}
   const surface = el(`<section class="write-surface ledger-write-surface" aria-label="Audited ledger actions">
-    <header><strong>Audited actions</strong><span data-write-status role="status">Not connected yet</span></header>
+    <header>
+      <strong>Audited actions</strong>
+      <span data-write-status role="status">Not connected yet</span>
+      ${queueEnabled ? `<button type="button" class="write-status-retry" data-queue-reveal aria-expanded="false" aria-controls="ledger-queue-form">${esc(QUEUE_FORM.reveal)}</button>` : ''}
+    </header>
     <div class="write-surface-grid">
       ${decisionEnabled ? `<form class="write-form" data-decision-form>
         <span class="write-form-title">${esc(DECISION_FORM.title)}</span>
-        <label>${esc(DECISION_FORM.targetLabel)}<input name="target" maxlength="160" placeholder="${esc(DECISION_FORM.targetPlaceholder)}" required /></label>
-        <label class="write-wide">${esc(DECISION_FORM.reasonLabel)}<input name="reason" maxlength="2000" required /></label>
+        <label>${esc(DECISION_FORM.targetLabel)}<input name="target" maxlength="160" required aria-describedby="ledger-decision-hint" /></label>
+        <p class="write-wide write-form-hint" id="ledger-decision-hint" data-decision-hint>${esc(DECISION_FORM.targetHintTyped)}</p>
+        <label class="write-wide">${esc(DECISION_FORM.reasonLabel)}<input name="reason" maxlength="2000" required aria-describedby="ledger-decision-why" /></label>
+        <p class="write-wide write-form-hint" id="ledger-decision-why">${esc(DECISION_FORM.reasonHint)}</p>
         <div class="write-choice"><button type="button" data-decision="approve">${esc(DECISION_FORM.approve)}</button><button type="button" data-decision="decline">${esc(DECISION_FORM.decline)}</button></div>
         <output data-action-output role="status"></output>
       </form>` : ''}
-      ${queueEnabled ? `<form class="write-form" data-queue-form>
+      ${queueEnabled ? `<form class="write-form" id="ledger-queue-form" data-queue-form hidden>
         <span class="write-form-title">${esc(QUEUE_FORM.title)}</span>
         <label>${esc(QUEUE_FORM.rootLabel)}<select data-root-select aria-label="The folder whose work list this is"></select></label>
-        <label>${esc(QUEUE_FORM.itemLabel)}<input name="phaseId" maxlength="4" placeholder="${esc(QUEUE_FORM.itemPlaceholder)}" required /></label>
-        <!-- THE FIELD A PERSON CANNOT TYPE INTO, AND USED TO BE ASKED TO.
-             It was labelled "Observed queue SHA-256". It is filled in for them
-             from the list that was just read, it is read-only, and its whole job
-             is to make sure nobody closes an item on a stale view of the list.
-             So the label says what it is FOR. The field name is unchanged. -->
-        <label class="write-wide">${esc(QUEUE_FORM.proofLabel)}<input name="expectedHash" minlength="64" maxlength="64" required /></label>
-        <label class="write-wide">${esc(QUEUE_FORM.reasonLabel)}<input name="reason" maxlength="2000" placeholder="${esc(QUEUE_FORM.reasonPlaceholder)}" /></label>
+        <label>${esc(QUEUE_FORM.itemLabel)}<input name="phaseId" maxlength="4" required aria-describedby="ledger-queue-item-hint" /></label>
+        <p class="write-wide write-form-hint" id="ledger-queue-item-hint">${esc(QUEUE_FORM.itemHint)}</p>
+        <!-- THE FIELD A PERSON COULD NOT TYPE INTO, AND WAS ASKED TO ANYWAY.
+             It was labelled "Observed queue SHA-256", then "Proof you are
+             looking at the current list", and both were a 64-character box the
+             product fills in for them and marks read-only. Its whole job is to
+             stop somebody closing an item on a stale view of the list, and that
+             is a promise the panel can simply MAKE -- it is said in the line
+             under the buttons instead. The field, the value it carries and the
+             guard it feeds are all unchanged; only the demand that a person
+             read a hash is gone. -->
+        <input type="hidden" name="expectedHash" />
+        <label class="write-wide">${esc(QUEUE_FORM.reasonLabel)}<input name="reason" maxlength="2000" aria-describedby="ledger-queue-reason-hint" /></label>
+        <p class="write-wide write-form-hint" id="ledger-queue-reason-hint">${esc(QUEUE_FORM.reasonHint)}</p>
         <div class="write-choice"><button type="button" data-queue-operation="claim">${esc(QUEUE_FORM.claim)}</button><button type="button" data-queue-operation="close">${esc(QUEUE_FORM.close)}</button></div>
         <output data-action-output role="status"></output>
       </form>` : ''}
@@ -420,7 +432,93 @@ export function mountLedgerWriteSurface(root) {
   </section>`)
   root.querySelector('.ledger-toolbar')?.insertAdjacentElement('afterend', surface)
   let destroyed = false
-  void prepareSurface(surface).then(() => { if (destroyed) surface.remove() })
+  void prepareSurface(surface).then(() => {
+    if (destroyed) surface.remove()
+    else applyDecisionAvailability()
+  })
+
+  /* PROGRESSIVE DISCLOSURE, AND IT IS NOT A TIDINESS PREFERENCE. Approving a
+     request is something anybody who uses this product might do. Claiming an
+     item out of a folder's build queue is something exactly one kind of person
+     does, and it opened at full complexity -- five fields, one of them a
+     64-character box -- in front of everybody else. It is one button away now,
+     and nothing about it has been taken out. */
+  const revealButton = surface.querySelector('[data-queue-reveal]')
+  revealButton?.addEventListener('click', () => {
+    const form = surface.querySelector('[data-queue-form]')
+    const showing = form.hasAttribute('hidden')
+    form.toggleAttribute('hidden', !showing)
+    revealButton.setAttribute('aria-expanded', showing ? 'true' : 'false')
+    revealButton.textContent = showing ? QUEUE_FORM.hide : QUEUE_FORM.reveal
+  })
+
+  /* WHAT THE REGISTER IS DOING, HANDED STRAIGHT TO THE CONTROL THAT ACTS ON IT.
+   *
+   * The form asked for "its number, as shown in the list" whether the list
+   * beside it was full, empty or unreadable, because nothing joined the two.
+   * Now: rows, and it is a picker filled from them; no rows, and it is off with
+   * the reason on screen. A disabled control with no sentence beside it is the
+   * most common lie a screen tells -- it reads as though the person did
+   * something wrong. */
+  let registerView = null
+  function showRegister(view) {
+    registerView = view
+    const form = surface.querySelector('[data-decision-form]')
+    if (!form) return
+    const rows = (view && Array.isArray(view.items)) ? view.items : []
+    const before = form.elements.target
+    if (rows.length > 0 && before.tagName !== 'SELECT') {
+      /* Swapped for a picker, keeping the NAME the audited connection is
+         posted. A label is for the person and a field name is for the wire. */
+      const select = document.createElement('select')
+      select.name = 'target'
+      select.required = true
+      select.setAttribute('aria-describedby', 'ledger-decision-hint')
+      before.replaceWith(select)
+    } else if (rows.length === 0 && before.tagName === 'SELECT') {
+      const input = document.createElement('input')
+      input.name = 'target'
+      input.maxLength = 160
+      input.required = true
+      input.setAttribute('aria-describedby', 'ledger-decision-hint')
+      before.replaceWith(input)
+    }
+    const target = form.elements.target
+    if (target.tagName === 'SELECT') {
+      const chosen = target.value
+      target.replaceChildren(...rows.map(row => {
+        const option = document.createElement('option')
+        option.value = row.id
+        option.textContent = row.label || row.id
+        return option
+      }))
+      if (rows.some(row => row.id === chosen)) target.value = chosen
+    }
+    const off = decisionOff(view)
+    const hint = form.querySelector('[data-decision-hint]')
+    hint.textContent = off ? off.text : (rows.length > 0 ? DECISION_FORM.targetHint : DECISION_FORM.targetHintTyped)
+    /* THE COLOUR COMES WITH THE SENTENCE. "There is nothing to approve" is not
+       a failure and must not be painted as one -- that is the register's own
+       defect one level down, where the words said there was nothing and the
+       chrome said something had gone wrong. */
+    hint.dataset.state = off ? off.tone : 'note'
+    surface.dataset.registerState = (view && view.kind) || 'unknown'
+    applyDecisionAvailability()
+  }
+
+  /* TWO INDEPENDENT REASONS THE CONTROL CAN BE OFF -- the audited connection is
+     not up, and there is nothing to act on -- and neither may un-press the
+     other. prepareSurface() enables every control on the surface when the
+     handshake lands; without this it would enable Approve over an empty
+     register a fraction of a second after this had turned it off. */
+  function applyDecisionAvailability() {
+    const form = surface.querySelector('[data-decision-form]')
+    if (!form || surface.dataset.bridgeState !== 'ready') return
+    const off = Boolean(decisionOff(registerView))
+    for (const control of form.querySelectorAll('button, input, select')) control.disabled = off
+  }
+
+  onMount({ showRegister })
 
   const decisionForm = surface.querySelector('[data-decision-form]')
   restateInto(decisionForm, WRITE_OUTCOME_KEYS.BRIDGE_DECISION)
@@ -445,6 +543,9 @@ export function mountLedgerWriteSurface(root) {
     /* An approval is permanent. Filed before this asks about its own screen. */
     if (!settleWrite({ destroyed, key: WRITE_OUTCOME_KEYS.BRIDGE_DECISION, tone, message })) return
     setBusy(decisionForm, false)
+    /* setBusy re-enables everything it disabled, including a control the empty
+       register had turned off. The register's answer wins. */
+    applyDecisionAvailability()
     if (result.ok) output.dataset.revision = String(result.receipt.revision)
     else delete output.dataset.revision
     actionState(output, tone, message)

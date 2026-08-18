@@ -17,13 +17,16 @@
  */
 
 import {
+  bindingText,
   cloudAvailability,
   createCloudTaskController,
+  findEnvironment,
 } from '../../src/cloud-tasks-controller.js'
 import {
   DECISION_FORM,
   QUEUE_FORM,
   REGISTER_NOTICE_STATES,
+  decisionOff,
   queueSnapshotLine,
   registerNotice,
 } from '../../src/ledger-copy.js'
@@ -47,8 +50,9 @@ async function cloudState({ id, why, availability, replies, list = null }) {
     availability,
     timers: NEVER,
   })
-  await controller.loadAccounts()
-  await controller.loadTasks()
+  /* Through the panel's own refresh, in the order the Refresh button uses, so
+     the matrix measures what a person actually gets. */
+  await controller.refresh()
   const state = controller.getState()
   controller.destroy()
   return {
@@ -61,6 +65,9 @@ async function cloudState({ id, why, availability, replies, list = null }) {
       { name: 'the environments line', tone: state.environmentsTone, text: state.environmentsMessage },
       { name: 'the launch line', tone: state.launchTone, text: state.launchMessage },
       { name: 'the watch line', tone: state.watchTone, text: state.watchMessage },
+      /* The line that says where a task would land. It is on the panel at the
+         same moment as everything above, so it is measured with them. */
+      { name: 'the binding line', tone: 'note', text: bindingText(findEnvironment(state, state.environments[0]?.environmentId), state) },
     ],
     list: list === null ? { name: 'the task list', itemCount: state.tasks.length } : list,
   }
@@ -140,21 +147,36 @@ export async function cloudPanels() {
 const QUEUE_READY = Object.freeze({ ok: true, hash: 'f'.repeat(64) })
 const QUEUE_REFUSED = Object.freeze({ ok: false, code: 'BRIDGE_GUARD_REFUSED', reason: 'That folder has no work list to read.' })
 
+/* TWO SUBJECTS ON ONE PAGE, and the panel is allowed to say different things
+   about them. The register is the person's requests. The line under Claim and
+   Close is about a FOLDER's build queue, which is a different list with a
+   different reason for being unreadable. What the page may not do is tell two
+   stories about the same one. */
+const REQUESTS = 'your requests'
+const WORK_LIST = 'a folder’s work list'
+
 function ledgerState({ id, why, source, itemCount, snapshot, formsOn = true }) {
   const notice = registerNotice(source)
   const line = queueSnapshotLine(snapshot)
+  /* The state the surface is handed, exactly as src/views/ledger.js hands it. */
+  const register = { kind: notice ? notice.state : (source.kind === 'live' ? 'live' : source.kind), items: rowsFor(itemCount) }
   const slots = [
-    { name: 'the register’s paragraph', tone: notice ? notice.tone : 'note', text: notice ? notice.body : '' },
-    { name: 'the register’s accessible name', tone: notice ? notice.tone : 'note', text: notice ? notice.label : '' },
-    { name: 'the counter above the register', tone: notice ? notice.tone : 'note', text: notice ? notice.count : `${itemCount} requests` },
+    { name: 'the register’s paragraph', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.body : '' },
+    { name: 'the register’s accessible name', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.label : '' },
+    { name: 'the counter above the register', subject: REQUESTS, tone: notice ? notice.tone : 'note', text: notice ? notice.count : `${itemCount} requests` },
   ]
   if (formsOn) {
+    /* The hint the form really shows: the reason it is off when it is off, and
+       otherwise the sentence that matches whether the field is a picker or a
+       typed box. This is the same choice src/write-surfaces.js makes. */
+    const off = decisionOff(register)
+    const hint = off ? off.text : (register.items.length > 0 ? DECISION_FORM.targetHint : DECISION_FORM.targetHintTyped)
     slots.push(
-      { name: 'the Approve/Decline form title', tone: 'note', text: DECISION_FORM.title },
-      { name: 'the “Which request” field', tone: 'note', text: fieldText(DECISION_FORM, 'target') },
-      { name: 'the Claim/Close form title', tone: 'note', text: QUEUE_FORM.title },
-      { name: 'the “Which item” field', tone: 'note', text: fieldText(QUEUE_FORM, 'item') },
-      { name: 'the line under Claim and Close', tone: line.tone, text: line.text },
+      { name: 'the Approve/Decline form title', subject: REQUESTS, tone: 'note', text: DECISION_FORM.title },
+      { name: 'the “Which request” field', subject: REQUESTS, tone: off ? off.tone : 'note', text: `${DECISION_FORM.targetLabel} — ${hint}` },
+      { name: 'the Claim/Close form title', subject: WORK_LIST, tone: 'note', text: QUEUE_FORM.title },
+      { name: 'the “Which item” field', subject: WORK_LIST, tone: 'note', text: `${QUEUE_FORM.itemLabel} — ${QUEUE_FORM.itemHint}` },
+      { name: 'the line under Claim and Close', subject: WORK_LIST, tone: line.tone, text: line.text },
     )
   }
   return {
@@ -166,13 +188,11 @@ function ledgerState({ id, why, source, itemCount, snapshot, formsOn = true }) {
   }
 }
 
-/* A field is its label AND whatever stands in the box, because that is what the
-   person reads as one thing. The two shapes are the placeholder this panel used
-   to carry and the hint sentence that replaced it. */
-function fieldText(form, prefix) {
-  const label = form[`${prefix}Label`] || ''
-  const extra = form[`${prefix}Placeholder`] || form[`${prefix}Hint`] || form[`${prefix}HintTyped`] || ''
-  return [label, extra].filter(Boolean).join(' — ')
+function rowsFor(itemCount) {
+  return Array.from({ length: itemCount }, (unused, index) => ({
+    id: `R${1100 + index}`,
+    label: `R${1100 + index} · open`,
+  }))
 }
 
 export function ledgerPanels() {
