@@ -35,7 +35,7 @@ test('the tree reads the stream only through the shared readers', () => {
      without anybody noticing -- the agent page's CORRECTED note is the measured
      case. The tree must use the same two readers, not its own field reads. */
   const source = read('src/views/computers.js')
-  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
+  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
   assert.ok(!/packet\.event\.text|packet\.text|packet\.delta/.test(source),
     'computers.js reads raw packet fields instead of the shared readers')
 })
@@ -65,8 +65,16 @@ test('the reply is delivered once per turn, never once per token', () => {
   /* Two writes are legal and each has one meaning: the handler's, after the
      turn completes, and the mount rehydration copying the STORE's persisted
      reply back into the cache. Anything else is a new delivery path. */
+  /* THREE, and the third is the turn BOUNDARY. A turn that ends without a
+     turn_completed packet still said something, and until 2026-08-18 those
+     words were silently carried into the next turn instead of being filed --
+     the owner's "combine into each other". settleTurnBoundary files them once,
+     when the engine names a different turn. It is a delivery path per TURN,
+     which is the property this test exists to hold; a fourth write would not
+     be. */
   const writes = source.match(/nodeReplies\.set\(/g) || []
-  assert.equal(writes.length, 2, 'nodeReplies is written at exactly two places: turn completion, and store rehydration')
+  assert.equal(writes.length, 3, 'nodeReplies is written at exactly three places: turn completion, turn boundary, and store rehydration')
+  assert.match(source, /function settleTurnBoundary/, 'the third write is not the turn-boundary settler; a per-delta write may have crept in')
   assert.match(source, /nodeReplies\.set\(node\.id, node\.reply\)/,
     'the rehydration write must copy the store\'s persisted reply, not compute one')
   const handler = source.slice(source.indexOf('unsubs.push(window.mcAgent.onEvent'))

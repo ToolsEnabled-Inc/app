@@ -131,9 +131,9 @@ test('the compact card is real-sourced or absent, never the simulator', () => {
   const send = view.slice(view.indexOf('function treeCardSend'), view.indexOf('function drainOutboxMessage'))
   assert.match(send, /outboxEnqueue\(node\.sessionId, text\)/, 'a busy card send no longer queues')
   assert.ok(send.indexOf('bridge.send({') !== -1
-    && send.indexOf('cardReplies.set') < send.indexOf('bridge.send({'), 'the reply slot registers after the send — a fast turn could race it')
+    && send.indexOf('awaitTurnReply(node.sessionId, reply)') < send.indexOf('bridge.send({'), 'the reply slot registers after the send — a fast turn could race it')
   const turn = view.slice(view.indexOf('unsubs.push(window.mcAgent.onEvent'))
-  assert.ok(turn.indexOf('cardReplies.get(sessionId)') < turn.indexOf('outboxTakeNext(sessionId)'),
+  assert.ok(turn.indexOf('deliverTurnReply(sessionId,') < turn.indexOf('outboxTakeNext(sessionId)'),
     'the card reply is delivered after the drain — the queued send would steal the turn')
 })
 

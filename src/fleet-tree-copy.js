@@ -456,7 +456,7 @@ export const MOVE_PANEL = Object.freeze({
    folder in a row is the one the person picked in the system dialog. */
 export const PROFILE_PANEL = Object.freeze({
   title: 'Works in',
-  help: 'A profile is a name and a folder. Agents in a tree that uses a profile start in that folder and read its instructions — so different kinds of work stay apart.',
+  help: 'A profile is a name and a folder. Agents in a tree that uses a profile start in that folder and read its instructions, so different kinds of work stay apart.',
   treeHelp: 'Where agents in THIS TREE start. Applies to agents started after you change it.',
   productWorkspace: 'The product’s own workspace',
   none: 'No profiles yet. Name one and pick its folder.',
@@ -466,7 +466,7 @@ export const PROFILE_PANEL = Object.freeze({
   nameFirst: 'Name the profile first, then pick its folder.',
   cancelled: 'No folder was picked, so nothing was saved.',
   refused: 'That profile could not be saved. Try another name.',
-  needsApp: 'Profiles need the installed app; this window cannot reach it.',
+  needsApp: 'Profiles need the installed app, and this window cannot reach it.',
   assigned: (name) => `Agents in this tree now start in ${name}.`,
   cleared: 'Agents in this tree now start in the product’s own workspace.',
   /* The mid-conversation half of the owner's ask ("change session profiles
@@ -1001,6 +1001,13 @@ export const SECOND_TREE = Object.freeze({
      speaks. Named with the node so a person who dropped the wrong thing sees
      it immediately. */
   detached: (name) => `${name} is now its own tree. Everything under it came along.`,
+  /* THE GESTURE WAS UNDERSTOOD AND NOTHING MOVED, which is a third answer and
+     used to be reported as the first. fleet-trees.js accepts a drag-out of a
+     node that is ALREADY the sole root of its own tree -- correctly, the
+     gesture's meaning is satisfied -- and answers `unchanged: true`. The page
+     printed "is now its own tree" over it anyway, so a person was told a move
+     had happened when the tree was exactly as before. */
+  alreadyOwnTree: (name) => `${name} is already its own tree, so nothing moved.`,
 })
 
 /**

@@ -75,7 +75,7 @@ import {
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
-import { createTranscriptStore, transcriptSeedText } from '../session-transcript-store.js'
+import { createTranscriptStore, TRANSCRIPT_LIMITS, transcriptSeedText } from '../session-transcript-store.js'
 /* The owner's queue: messages written while the agent is busy, drained one
    per completed turn by this view's own listener. The store holds words; this
    file holds the wire. */
@@ -93,7 +93,7 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { sessionActivityEvent, sessionEventText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
+import { sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
 import { parseSlashCommand } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
@@ -105,6 +105,12 @@ import { createTranscriptAppender } from '../agent-session-transcript.js'
    join between them and the agent bridge — a press goes in one end and a running
    session comes out the other. */
 import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, safeTreeStorage } from '../fleet-trees.js'
+/* WHAT A NODE IS TOLD ABOUT ITS PLACE IN THE TREE. The tree holds the
+   relationship; before this the session was never told it, and a child asked
+   the person for "the manager's identifier" while its manager was drawn one
+   circle above it (owner, 2026-08-18). See that file's header for why this
+   rides in the message text rather than in an engine option. */
+import { composeNodeBrief, nodeManagerContext } from '../tree-node-brief.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { isWriteEnabled } from '../write-flags.js'
 import { START_CONTROL_FLAG, startControlOffBecause } from '../setup-profile.js'
@@ -1367,11 +1373,43 @@ export function computersView({ initialComputer = null, navigate }) {
   /* The latest narration line per node ("Running a command: …"), cleared when
      the turn completes -- the reply takes over from there. */
   const nodeActivity = new Map()
-  /* The compact card's waiting answer-slot, one per session: registered when
-     the card sends at an idle agent, delivered by the turn-completed branch,
-     dropped if the card closed first (the reply still lands on the chip, the
-     rail and the store — the card is a window, not the record). */
-  const cardReplies = new Map()
+  /* EVERY SURFACE WAITING ON THIS TURN, not the last one to ask.
+   *
+   * This was one callback per session, set unconditionally by whichever
+   * surface sent. Since 5f394a4 gave the compact card the whole shared config,
+   * BOTH the card and the rail's Chat tab can send -- so a second send
+   * overwrote the first surface's callback, and that surface's pending bubble
+   * was never answered by anything. The person watched a message they had
+   * really sent sit unanswered while the reply appeared somewhere else (owner,
+   * 2026-08-18: "the messages in history disappear or combine into each
+   * other").
+   *
+   * A set, drained once when the turn completes. A surface that closed in the
+   * meantime simply is not in it; the reply still lands on the chip, the store
+   * and the transcript, because those are the record and a card is a window. */
+  const turnReplies = new Map()
+  function awaitTurnReply(sessionId, reply) {
+    if (!sessionId || typeof reply !== 'function') return
+    const waiting = turnReplies.get(sessionId) || new Set()
+    waiting.add(reply)
+    turnReplies.set(sessionId, waiting)
+  }
+  function dropTurnReply(sessionId, reply) {
+    const waiting = turnReplies.get(sessionId)
+    if (!waiting) return
+    waiting.delete(reply)
+    if (waiting.size === 0) turnReplies.delete(sessionId)
+  }
+  /* Taken and cleared in one step, so a reply handler that sends again cannot
+     be answered by the turn it is answering. */
+  function deliverTurnReply(sessionId, said) {
+    const waiting = turnReplies.get(sessionId)
+    if (!waiting) return
+    turnReplies.delete(sessionId)
+    for (const reply of waiting) {
+      try { reply(said) } catch { /* one broken surface must not starve the rest */ }
+    }
+  }
   /* THE CONVERSATION, kept in this window's memory and said to be exactly
      that. The STORE keeps one reply per node (the durable part); these maps
      keep the back-and-forth so the card and the rail can show a real history
@@ -1397,6 +1435,35 @@ export function computersView({ initialComputer = null, navigate }) {
      engine-side resume is possible one day without a data gap). */
   const sessionEfforts = new Map()
   const sessionThreadIds = new Map()
+
+  /* THE TURN EACH SESSION'S OPEN BUBBLE AND ACCUMULATOR BELONG TO. Absent
+     means nothing is in flight; an engine that does not name its turns leaves
+     it absent forever and behaves exactly as it did before. */
+  const sessionOpenTurns = new Map()
+
+  /* A turn that was never formally completed still SAID something, and those
+     words are the record. Called when a delta arrives naming a different turn
+     than the one still open: the previous answer is filed, its bubble is
+     ended, and every surface waiting on it is answered -- then the accumulator
+     is cleared so the new turn starts from nothing. */
+  function settleTurnBoundary(sessionId, turnId) {
+    if (!turnId) return
+    const open = sessionOpenTurns.get(sessionId)
+    sessionOpenTurns.set(sessionId, turnId)
+    if (!open || open === turnId) return
+    const spoken = (sessionTurnText.get(sessionId) || '').trim()
+    sessionTurnText.delete(sessionId)
+    if (spoken) {
+      const nodeId = sessionNodeIds.get(sessionId)
+      if (nodeId) nodeReplies.set(nodeId, spoken)
+      transcriptAppend(sessionId, { who: 'agent', text: spoken, at: Date.now() })
+      deliverTurnReply(sessionId, spoken)
+    }
+    if (railChat && railChat.sessionId === sessionId && railChat.stream) {
+      railChat.stream.close(spoken || null)
+      railChat.stream = null
+    }
+  }
 
   function transcriptAppend(sessionId, entry) {
     if (!sessionId) return
@@ -1445,6 +1512,25 @@ export function computersView({ initialComputer = null, navigate }) {
       engineModelCatalog = answer.models
     }).catch(() => { engineCatalogAsked = false })
   }
+  /* Everything a start needs in order to tell the agent where it stands. Built
+     from the store, so the name in the brief is the name on the circle.
+   *
+   * THE PARENT'S NAME IS READ, NOT RECOMPUTED, and getting that wrong is a
+   * measured defect rather than a precaution. composeParentFor() hands over a
+   * PROJECTION -- `{ id, name }` -- and its `name` has already been through
+   * treeNodeName. Passing that projection back into treeNodeName finds no
+   * `role` on it, so roleLabel falls through to its generic word: the brief
+   * told a child under a circle drawn "Manager" that its manager was "Agent",
+   * and the running agent dutifully repeated it (measured 2026-08-18 on a
+   * staged build with a real Codex session: "My manager is Agent"). The node
+   * itself IS a store record and keeps the computed name. */
+  function briefContextFor(node, parent) {
+    return {
+      selfName: treeNodeName(node),
+      parentName: parent ? (parent.name || null) : null,
+    }
+  }
+
   /* The efforts for the model this node is actually running, or the widest
      the catalog knows when the model cannot be identified. */
   function engineEffortsFor(node) {
@@ -1561,6 +1647,17 @@ export function computersView({ initialComputer = null, navigate }) {
         subtitle: CHAT_NOT_RUNNING.subtitle,
         roleKey: node.role,
         history,
+        /* NEVER THE SIMULATOR, ON EITHER SURFACE. buildChat's `seed` defaults
+           to 3, and its rule is `history.length ? [] : CHAT.slice(start, seed)`
+           -- so a chat opened over an EMPTY history renders three canned
+           bubbles from the demonstration fixture. The compact card pinned
+           `seed: 0` in 5f394a4; the rail's Chat tab spreads this config and
+           pinned nothing, so it fabricated a conversation for any node whose
+           transcript was empty and then dropped it on the next rebuild. That
+           is half of "messages in history disappear" (owner, 2026-08-18). It
+           belongs on the config rather than on either mount, because a rule
+           kept in two places is a rule that drifts again. */
+        seed: 0,
         composerReason: reason ? CHAT_NOT_RUNNING.refused(reason) : CHAT_NOT_RUNNING.neverStarted,
         actions: () => chatActionRowsFor(node),
         actionsNote: PALETTE_PANEL.footer,
@@ -1581,6 +1678,9 @@ export function computersView({ initialComputer = null, navigate }) {
       subtitle: nodeSessionLive(node) ? 'your agent · live session' : ENDED_SESSION.subtitle,
       roleKey: node.role,
       history,
+      /* See the note on the other return: seed 0 on the CONFIG, so neither
+         surface can fall through to the demonstration excerpt. */
+      seed: 0,
       onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
       onAttach: async () => {
         const bridge = typeof window === 'undefined' ? null : window.mcAgent
@@ -2277,8 +2377,18 @@ export function computersView({ initialComputer = null, navigate }) {
        here is optimistic -- the session is open and named by the time this
        runs; only the message is still on its way. */
     let attachProblem = null
+    /* WHERE THIS AGENT STANDS IN THE TREE, SENT WITH THE JOB.
+     *
+     * Owner, 2026-08-18: "This one is not realizing and not able to contact its
+     * manager." The tree drew Default under Manager and the session was told
+     * neither fact, so the agent asked the person for "the manager's
+     * identifier". The names here are treeNodeName's, which is to say the words
+     * on the circles -- an agent that answers "Manager: ..." is naming what the
+     * person can see, never an internal id. */
+    const briefContext = briefContextFor(node, parent)
+    const startText = composeNodeBrief({ message: draft.message, ...briefContext })
     const result = await startAgentForNode({
-      text: draft.message,
+      text: startText,
       surface: 'fleet-tree',
       tier: draft.tier,
       effort: draft.effort,
@@ -2290,6 +2400,30 @@ export function computersView({ initialComputer = null, navigate }) {
         sessionNodeIds.set(sessionId, node.id)
         sessionEfforts.set(sessionId, draft.effort || tierEffortOf(draft.tier))
         if (threadId) sessionThreadIds.set(sessionId, threadId)
+        /* THE FIRST THING SAID IS RECORDED LIKE EVERY OTHER THING SAID, and
+         * until now it was the one turn that was not.
+         *
+         * Owner, 2026-08-18: "Sometimes the messages in history disappear."
+         * transcriptAppend was called from three places -- a typed message, a
+         * drained queued message, and a completed turn -- and the compose
+         * panel's brief was none of them. It survived on screen only through
+         * treeChatConfigFor's `!history.length` fallback, and the FIRST reply
+         * ended that: one appended agent line made the transcript non-empty,
+         * the fallback stopped firing, and the person's own opening question
+         * vanished from the conversation for good. The durable excerpt was
+         * written from the same lines, so a resumed agent was handed a
+         * conversation with no brief in it either.
+         *
+         * TWO ENTRIES, NOT ONE. The person's words stand alone in the first,
+         * exactly as typed. What the product added about the tree is the
+         * second, visible and separate -- this page does not send an agent
+         * something it will not show. `who: 'you'` for both, which is the same
+         * slot the resume marker already uses: it is the side of the
+         * conversation these words were sent from, not a claim about who typed
+         * them. Ordered before any reply can arrive, because this runs before
+         * the send. */
+        if (draft.message) transcriptAppend(sessionId, { who: 'you', text: draft.message, at: Date.now() })
+        transcriptAppend(sessionId, { who: 'you', text: nodeManagerContext(briefContext), at: Date.now() })
         /* First running session of the window: ask the engine what it offers,
            so every depth menu after this is the provider's list rather than
            ours. */
@@ -2421,7 +2555,13 @@ export function computersView({ initialComputer = null, navigate }) {
           setOrgStatus(out.problems[0] || MOVE_PANEL.notSaved, 'refuse', { sticky: true })
           return false
         }
-        setOrgStatus(SECOND_TREE.detached(treeNodeName(out.node)), 'ok')
+        /* `unchanged` means the store understood the gesture and had nothing
+           to do -- the node was already the sole root of its own tree. Saying
+           "is now its own tree" there told a person a move had happened. */
+        setOrgStatus(
+          out.unchanged ? SECOND_TREE.alreadyOwnTree(treeNodeName(out.node)) : SECOND_TREE.detached(treeNodeName(out.node)),
+          'ok',
+        )
         return true
       },
       /* The compact card: real config or nothing. A node without a session has
@@ -3347,6 +3487,11 @@ export function computersView({ initialComputer = null, navigate }) {
   function mountRailChat(agent, role) {
     const host = controlsPage.querySelector('.board-chat-box')
     if (!host) return
+    /* The chat this box built last time. render() runs again whenever the
+       person changes a chatbox setting, and the wipe below used to drop a
+       mounted buildChat on the floor -- its observers, frames and timers stay
+       alive on a detached root. Same rule as railChat: dispose, then wipe. */
+    let mounted = null
     const render = () => {
       if (!host.isConnected) return
       const plan = planNodeChatbox({
@@ -3358,15 +3503,18 @@ export function computersView({ initialComputer = null, navigate }) {
         runs: railRuns,
         runsSupported: railRunsSupported,
       })
+      mounted?.dispose?.()
+      mounted = null
       host.innerHTML = ''
       host.dataset.chatChannel = plan.channel.kind
       if (plan.channel.kind === 'simulated' && plan.showContext) {
-        host.appendChild(buildChat({
+        mounted = buildChat({
           title: agent.name,
           subtitle: channelCaption(plan.channel, role.label),
           roleKey: agent.role,
           seed: 6,
-        }))
+        })
+        host.appendChild(mounted)
       } else {
         host.appendChild(el(`
           <div class="chat chat-readonly">
@@ -3632,15 +3780,25 @@ export function computersView({ initialComputer = null, navigate }) {
            no session carries composerReason instead, and wrapping an absent
            onSend would put a function where buildChat reads "this chat can
            reach the agent". */
+        /* THE CHAT THIS WRAPPER BELONGS TO, CAPTURED, NOT LOOKED UP.
+         *
+         * The wrapper used to read the live `railChat` variable, and that
+         * variable is reassigned every time the rail is rebuilt onto another
+         * node. A reply arriving after a rebuild therefore closed a DIFFERENT
+         * node's bubble with this node's words, and this node's own handler was
+         * never called -- one message merged into another conversation and one
+         * vanished (owner, 2026-08-18). The object is built first and compared
+         * by identity, so a stale wrapper answers its own chat or nothing. */
+        const mine = { sessionId: node.sessionId, nodeId: node.id, root: null, stream: null }
         const chat = buildChat({
           ...config,
           tall: true,
           ...(typeof config.onSend === 'function' ? {
             onSend: (text, handlers) => config.onSend(text, {
               reply: (said) => {
-                if (railChat?.stream) {
-                  railChat.stream.close(said)
-                  railChat.stream = null
+                if (railChat === mine && mine.stream) {
+                  mine.stream.close(said)
+                  mine.stream = null
                 } else {
                   handlers.reply(said)
                 }
@@ -3649,8 +3807,9 @@ export function computersView({ initialComputer = null, navigate }) {
             }),
           } : {}),
         })
+        mine.root = chat
         chatHost.appendChild(chat)
-        railChat = { sessionId: node.sessionId, nodeId: node.id, root: chat, stream: null }
+        railChat = mine
       }
     }
     /* THE KEYBOARD HALF OF "quickly connect nodes and change hierarchies".
@@ -4334,6 +4493,16 @@ export function computersView({ initialComputer = null, navigate }) {
     clearBoard()
     const role = ROLES[agent.role] || ROLES.default
     controlsPage.style.setProperty('--rc', role.hex)
+    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
+       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
+       obeyed it. After any of the other three rebuilds, railChat survived
+       pointing at a DETACHED root whose sessionId still matched, so the event
+       listener kept opening streams and pushing every delta into a chat log
+       that was no longer in the document: the answer was recorded and never
+       seen (owner, 2026-08-18, "the messages in history disappear"). It also
+       leaked that chat's observers, frames and timers. */
+    disposeRailSaid()
+    disposeRailChat()
     controlsPage.innerHTML = `
       ${railTitleRow({ back: { aria: 'Back to statistics' }, title: 'Agent Controls' })}
       <div class="rail-scroll">
@@ -4473,6 +4642,16 @@ export function computersView({ initialComputer = null, navigate }) {
        a control box whose knobs are real. Leaving them here would have the
        panel report two things missing while they sit above it. */
     const missing = [runtime === null ? 'runtime' : null, taskSummary === null ? 'task history' : null, 'activity'].filter(Boolean)
+    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
+       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
+       obeyed it. After any of the other three rebuilds, railChat survived
+       pointing at a DETACHED root whose sessionId still matched, so the event
+       listener kept opening streams and pushing every delta into a chat log
+       that was no longer in the document: the answer was recorded and never
+       seen (owner, 2026-08-18, "the messages in history disappear"). It also
+       leaked that chat's observers, frames and timers. */
+    disposeRailSaid()
+    disposeRailChat()
     controlsPage.innerHTML = `
       ${railTitleRow({ back: { aria: 'Back to the fleet overview' }, title: 'Recorded agent' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
@@ -4643,6 +4822,16 @@ export function computersView({ initialComputer = null, navigate }) {
       ${railTitleRow({ title: 'Runtime Statistics' })}
       <div class="projection-unavailable" data-live-mode="live" data-projection-state="${loading ? 'loading' : 'unavailable'}">${loading ? 'Reading your fleet…' : `The live fleet data could not be read · ${escapeMarkup(reason)}`}</div>
       ${loading ? '' : `<div class="rail-scroll rail-org-only">${orgSourceMarkup()}<div class="board-org-slot"></div></div>`}`
+    /* DISPOSE BEFORE THE WIPE. The rule is stated where railChat is declared
+       -- never innerHTML over a mounted chat -- and only showTreeNodeControls
+       obeyed it. After any of the other three rebuilds, railChat survived
+       pointing at a DETACHED root whose sessionId still matched, so the event
+       listener kept opening streams and pushing every delta into a chat log
+       that was no longer in the document: the answer was recorded and never
+       seen (owner, 2026-08-18, "the messages in history disappear"). It also
+       leaked that chat's observers, frames and timers. */
+    disposeRailSaid()
+    disposeRailChat()
     controlsPage.innerHTML = ''
     activateRail(statsPage)
     if (!loading) mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
@@ -4853,7 +5042,7 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.send !== 'function') { fail(START_NEEDS_APP_TEXT); return }
-    cardReplies.set(node.sessionId, reply)
+    awaitTurnReply(node.sessionId, reply)
     transcriptAppend(node.sessionId, { who: 'you', text, at: Date.now() })
     const override = sessionModelOverride.get(node.sessionId)
     const pendingImages = sessionPendingImages.get(node.sessionId)
@@ -4871,7 +5060,7 @@ export function computersView({ initialComputer = null, navigate }) {
         refreshTree()
       }
     }, error => {
-      cardReplies.delete(node.sessionId)
+      dropTurnReply(node.sessionId, reply)
       /* A DEAD SESSION IS NOT THE PERSON'S PROBLEM (owner, iteration 6: "We
          still get this message"). The one code that means "this session is
          gone" hands the send to the recovery: a fresh agent reads the saved
@@ -4931,7 +5120,22 @@ export function computersView({ initialComputer = null, navigate }) {
       const durable = transcriptStore ? transcriptStore.get(node.id) : null
       if (durable && Array.isArray(durable.lines)) {
         const tail = durable.lines[durable.lines.length - 1]
-        if (tail && tail.who === 'you' && tail.text === text.slice(0, tail.text.length) && durable.lines.length > 0) {
+        /* THE SAME LINE, NOT MERELY A LINE THIS ONE STARTS WITH.
+         *
+         * This compared the stored tail against a PREFIX of the newly typed
+         * text, and the durable store is the only reason a prefix was ever
+         * involved: it truncates a line at maxLineChars, so the words that
+         * were saved can legitimately be the first 600 characters of what was
+         * typed. But `text.slice(0, tail.text.length)` matches ANY shorter
+         * earlier line that happens to start the same way -- type "ok" after a
+         * turn that began "okay, next" and the branch below deleted the node's
+         * whole saved conversation. So the prefix is admitted only where it is
+         * explained: a tail of exactly the cap, over text longer than the cap. */
+        const wasTruncated = tail
+          && tail.text.length === TRANSCRIPT_LIMITS.maxLineChars
+          && text.length > TRANSCRIPT_LIMITS.maxLineChars
+          && tail.text === text.slice(0, TRANSCRIPT_LIMITS.maxLineChars)
+        if (tail && tail.who === 'you' && (tail.text === text || wasTruncated) && durable.lines.length > 0) {
           const trimmed = durable.lines.slice(0, -1)
           if (trimmed.length > 0) {
             transcriptStore.save(node.id, { lines: trimmed, threadId: durable.threadId, effort: durable.effort })
@@ -5036,6 +5240,13 @@ export function computersView({ initialComputer = null, navigate }) {
       if (!sessionId || !sessionNodeIds.has(sessionId)) return
       const text = sessionEventText(packet, sessionId)
       if (text) {
+        /* WHERE ONE TURN ENDS AND THE NEXT BEGINS, taken from the engine's own
+           naming of the turn rather than inferred from a completion packet
+           that may never come. Without this the accumulator and the open
+           bubble both survived a turn that ended any other way, and the next
+           turn's first word was appended to the last turn's answer inside the
+           same bubble -- the owner's "combine into each other". */
+        settleTurnBoundary(sessionId, sessionEventTurnId(packet, sessionId))
         sessionTurnText.set(sessionId, (sessionTurnText.get(sessionId) || '') + text)
         /* The open rail streams the same delta it buffers. The waiting line
            leaves on the first word -- "no answer yet" beside an answer is the
@@ -5098,6 +5309,9 @@ export function computersView({ initialComputer = null, navigate }) {
       const nodeId = sessionNodeIds.get(sessionId)
       const spoken = (sessionTurnText.get(sessionId) || '').trim()
       sessionTurnText.delete(sessionId)
+      /* Nothing is in flight for this session any more, so the next delta
+         opens a fresh bubble rather than reopening this one. */
+      sessionOpenTurns.delete(sessionId)
       nodeActivity.delete(nodeId)
       if (railSaid && railSaid.nodeId === nodeId) {
         railSaid.appender.flushNow()
@@ -5107,16 +5321,12 @@ export function computersView({ initialComputer = null, navigate }) {
          as one; silence in this box would read as the product hanging. */
       nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
       transcriptAppend(sessionId, { who: 'agent', text: spoken || SAID_PANEL.emptyTurn, at: Date.now() })
-      const cardReply = cardReplies.get(sessionId)
-      if (cardReply) {
-        cardReplies.delete(sessionId)
-        cardReply(spoken || SAID_PANEL.emptyTurn)
-      }
-      /* A rail-chat stream still open here means the compact card, not the
-         rail, claimed this turn's reply slot (or the turn arrived with no
-         claimant at all). The bubble still has to end. After, not before,
-         cardReply: when the rail IS the claimant its wrapped reply closes the
-         stream itself, and closing twice would print the reply twice. */
+      deliverTurnReply(sessionId, spoken || SAID_PANEL.emptyTurn)
+      /* A rail-chat stream still open here means the rail was not one of the
+         surfaces waiting on this turn (or the turn arrived with no claimant at
+         all). The bubble still has to end. After, not before, the delivery
+         above: when the rail IS waiting, its wrapped reply closes the stream
+         itself, and closing twice would print the reply twice. */
       if (railChat && railChat.sessionId === sessionId && railChat.stream) {
         railChat.stream.close(spoken || SAID_PANEL.emptyTurn)
         railChat.stream = null

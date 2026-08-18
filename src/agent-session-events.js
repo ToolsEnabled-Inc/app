@@ -20,6 +20,32 @@ export function sessionEventText(packet, sessionId) {
   return null
 }
 
+/* WHICH TURN A PACKET BELONGS TO, when the engine says so.
+ *
+ * THE DEFECT THIS EXISTS FOR (owner, 2026-08-18): "the messages in history
+ * disappear or combine into each other." The view sums every delta into one
+ * string per session and repaints one open bubble with it, and both are
+ * released in exactly one place -- a `turn_completed` packet. A turn that ends
+ * any other way therefore left the string and the bubble standing, and the NEXT
+ * turn's first delta appended to the previous turn's words and repainted the
+ * SAME bubble. Two answers became one, silently, and the first one's ending was
+ * never recorded.
+ *
+ * The engine already names the turn on its events -- shell/agent-host.cjs reads
+ * exactly this field to announce a turn and to close one -- so the boundary is
+ * a fact on the wire rather than something a surface has to infer. Same
+ * contract as its siblings: exact shape, exact session, null for everything
+ * else, and null for an engine that does not name its turns (which then behaves
+ * exactly as it did before this existed).
+ */
+export function sessionEventTurnId(packet, sessionId) {
+  if (!packet || typeof packet !== 'object' || packet.sessionId !== sessionId) return null
+  const event = packet.event
+  if (!event || typeof event !== 'object') return null
+  if (typeof event.turnId !== 'string' || event.turnId.length === 0 || event.turnId.length > 512) return null
+  return event.turnId
+}
+
 export function sessionTurnStatus(packet, sessionId) {
   if (!packet || typeof packet !== 'object' || packet.sessionId !== sessionId) return null
   const event = packet.event

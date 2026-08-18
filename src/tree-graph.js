@@ -1,7 +1,7 @@
 import { sim, fmtRuntime } from './sim.js'
 import { ROLES } from './vocab.js'
 import { el, buildChat, bindRuntime, formatInlineText } from './components.js'
-import { layoutTree, TREE_ROLE_RADII, TREE_LABEL_STACK, treeNodeRadius, hierarchyParents } from './tree-layout.js'
+import { dragBand, layoutTree, TREE_ROLE_RADII, TREE_LABEL_STACK, treeNodeRadius, hierarchyParents } from './tree-layout.js'
 /* THE WORDS ON AN EMPTY SLOT ARE NOT WRITTEN HERE. src/fleet-tree-copy.js owns
    every sentence in the start-an-agent-from-the-tree flow — the panel, the
    refusals, the tree names and these two — and it says at length why one flow
@@ -684,7 +684,7 @@ export class StaticTreeGraph {
          for. What the person sees while dragging is where the node stays. */
       const slotX = record.slot?.x ?? record.x
       record.x = clamp(point.x + offset.x, Math.min(record.r + 12, slotX), Math.max(this.W - record.r - 12, slotX))
-      record.y = clamp(point.y + offset.y, ...this._rankCorridor(record, this._layoutResult))
+      record.y = clamp(point.y + offset.y, ...this._dragBand(record))
       this._positionRecord(record)
       this._updateDropTarget(record)
       this._renderLinks()
@@ -795,6 +795,68 @@ export class StaticTreeGraph {
      candidate — the circle, or the LABEL BOX hanging under it. The label is
      part of what a person sees as the node; a drop released over the name
      used to fall into dead space and read as a rejected drop. */
+  /* HOW FAR A DRAGGED NODE MAY TRAVEL, AND WHY IT IS NOT THE RANK CORRIDOR.
+   *
+   * THE OWNER'S DEFECT, verbatim: "edit had been working; drag a node to a new
+   * node slot; on the same tree, on a new tree, or on a different tree. On pg2
+   * you cant drag and drop the nodes onto the new bubbles anymore."
+   *
+   * WHAT BROKE IT. c06c44c put the rank corridor on the LIVE drag, for a real
+   * reason -- before it, a drag rode free and then jumped into the corridor on
+   * release, a snap the hand never asked for. But the corridor is HALF THE
+   * PITCH to the neighbouring row, and every empty slot on this canvas sits in
+   * a DIFFERENT row from the node you would drag onto it: the new-tree slot is
+   * in row 0, a child slot is one row below its parent. So the node stopped
+   * half-way and the ring never lit.
+   *
+   * MEASURED FROM THIS FILE'S OWN NUMBERS rather than guessed. Contact needs
+   * `candidate.r + record.r + DROP_SLOP` -- 34 + 35 + 8, about 77px. Row pitch
+   * is `(height - 104 - 116) / (rows - 1)` (src/tree-layout.js), which on a
+   * 620px canvas is 400px for two rows and 200px for three. Half of either is
+   * further than 77px, so a cross-row drop could not register at any realistic
+   * window size. All three of the moves he names are cross-row, which is why he
+   * reports all three dead while the drop code reads as intact.
+   *
+   * THE RULE THAT SATISFIES BOTH INTENTS. The band is the rank corridor UNIONED
+   * with the reach of every target that is actually on screen. Then:
+   *
+   *   released inside the corridor   a nudge, exactly where the hand left it --
+   *                                  the no-jump property c06c44c bought.
+   *   released on a target           a reparent: the node is relaid out into
+   *                                  its new slot, which is the whole gesture.
+   *   released on a refused target   the refusal branch says which rule refused
+   *                                  and returns the node to where it started.
+   *
+   * There is no fourth case: outside the corridor the node can only be within
+   * reach of something, because reach is the only thing that widened the band.
+   * The corridor is still consulted here and still bounds a nudge, so the
+   * property tools/test/tree-drag-contract.test.mjs pins is unchanged in
+   * substance rather than merely in wording.
+   */
+  _dragBand(record) {
+    /* The candidate set is the SAME one _updateDropTarget scans -- visible
+       circles and visible slots -- because a band that admitted a target the
+       hit test ignores would let the node travel to a place nothing can accept
+       it, and a band that omitted one the hit test accepts would put that
+       target out of reach. One list, one answer. */
+    const candidates = []
+    for (const candidate of this.nodes.values()) {
+      if (candidate === record || this._culled.has(candidate.id) || candidate.el.hidden) continue
+      candidates.push(candidate)
+    }
+    for (const slot of this.emptySlots.values()) {
+      if (slot.hidden) continue
+      candidates.push(slot)
+    }
+    return dragBand({
+      corridor: this._rankCorridor(record, this._layoutResult),
+      record,
+      candidates,
+      slop: DROP_SLOP,
+      height: this.H,
+    })
+  }
+
   _dropHit(candidate, record) {
     const circle = Math.hypot(candidate.x - record.x, candidate.y - record.y)
       - (candidate.r + record.r + DROP_SLOP)

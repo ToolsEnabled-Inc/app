@@ -141,11 +141,21 @@ test('the rail chat streams once and closes once', () => {
   // The delta branch pushes the ACCUMULATED text -- push replaces, so a
   // missed frame can never double words.
   assert.match(view, /railChat\.stream\?\.push\(sessionTurnText\.get\(sessionId\)\)/, 'the delta branch no longer pushes the accumulated turn text')
-  // The completion's safety close comes AFTER the cardReply call, or a
-  // rail-claimed turn prints its reply twice.
-  const completionAt = view.indexOf('cardReplies.delete(sessionId)\n        cardReply(')
-  const safetyCloseAt = view.indexOf('railChat.sessionId === sessionId && railChat.stream')
-  assert.ok(completionAt !== -1 && safetyCloseAt > completionAt, 'the stream safety-close must follow the cardReply call')
+  // The completion's safety close comes AFTER every waiting surface is
+  // answered, or a rail-claimed turn prints its reply twice.
+  /* Read inside the turn-completed branch, not across the whole file: the
+     turn-BOUNDARY settler closes a stream the same way, earlier in the
+     module, and a whole-file indexOf would measure that one instead. */
+  const completion = view.slice(view.indexOf('const status = sessionTurnStatus(packet, sessionId)'))
+  const completionAt = completion.indexOf('deliverTurnReply(sessionId, spoken || SAID_PANEL.emptyTurn)')
+  const safetyCloseAt = completion.indexOf('railChat.sessionId === sessionId && railChat.stream')
+  assert.ok(completionAt !== -1 && safetyCloseAt > completionAt, 'the stream safety-close must follow the reply delivery')
+  /* EVERY surface waiting on the turn is answered, not the last one to send.
+     Both the compact card and the rail's Chat tab can send since 5f394a4, and
+     one slot per session meant the first sender's bubble was never answered --
+     half of the owner's "the messages in history disappear". */
+  assert.doesNotMatch(view, /cardReplies/, 'the single-slot reply map is back; one surface will be starved again')
+  assert.match(view, /for \(const reply of waiting\)/, 'the turn reply no longer fans out to every waiting surface')
   // A controlsPage rebuild disposes the mounted chat FIRST -- never
   // innerHTML='' over a live chat.
   const disposeAt = view.indexOf('disposeRailChat()\n    controlsPage.innerHTML')

@@ -519,3 +519,49 @@ export function layoutTree({ nodes = [], edges = [], W = 800, H = 600 } = {}) {
 }
 
 export const TREE_ROLE_RADII = ROLE_RADII
+
+/* HOW FAR A NODE BEING DRAGGED MAY TRAVEL VERTICALLY.
+ *
+ * THE DEFECT THIS ARITHMETIC EXISTS FOR (owner, 2026-08-18): "you cant drag
+ * and drop the nodes onto the new bubbles anymore." The live drag was clamped
+ * to the node's RANK CORRIDOR -- half the pitch to each neighbouring row --
+ * and every empty slot on the canvas is in a different row from the node you
+ * would drag onto it. Contact needs about 77px between centres; half a pitch
+ * is 200px on a two-row canvas. The node stopped half-way, the ring never lit,
+ * and the release stored a nudge instead of a move.
+ *
+ * THE RULE. Start from the corridor -- which is what makes an ordinary nudge
+ * land where the hand left it, with no snap on release -- and widen it by the
+ * REACH of every drop target actually on screen. Outside the corridor the node
+ * can then only be within reach of something, so a release out there is either
+ * a move or a refusal with a sentence, never an unexplained jump.
+ *
+ * It lives here, and not in the graph, because it is arithmetic and the graph
+ * is a DOM module a test process cannot load. `candidates` are plain
+ * `{x, y, r}` records: circles and empty slots alike, which is the point --
+ * a slot is an ordinary target to this file, exactly as it is to layoutTree.
+ *
+ * @param corridor   [low, high] from the caller's own rank corridor
+ * @param record     the node being dragged: {x, y, r}
+ * @param candidates every visible drop target: [{x, y, r}]
+ * @param slop       the caller's DROP_SLOP -- the same number the hit test uses
+ * @param height     the canvas height, the outer bound
+ */
+export function dragBand({ corridor, record, candidates = [], slop = 0, height = 0 } = {}) {
+  const [low, high] = Array.isArray(corridor) ? corridor : [record.y, record.y]
+  let lowest = low
+  let highest = high
+  for (const candidate of candidates) {
+    if (!candidate || candidate === record) continue
+    const reach = candidate.r + record.r + slop
+    lowest = Math.min(lowest, candidate.y - reach)
+    highest = Math.max(highest, candidate.y + reach)
+  }
+  /* The canvas is the outer bound, and the node's own position is admitted
+     whatever the arithmetic says: a band that excluded where the node already
+     is would move it on the first pointermove. */
+  return [
+    Math.min(Math.max(record.r + 12, lowest), record.y),
+    Math.max(Math.min(height - record.r - 12, highest), record.y),
+  ]
+}

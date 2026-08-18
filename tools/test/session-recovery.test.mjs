@@ -66,7 +66,11 @@ test('a recovered message goes straight to a resumed agent, and queues only behi
      so the person's message is an ordinary send. Only the fallback — a
      fresh agent reading the saved summary as its first turn — is busy on
      arrival, and only there does the message queue behind it. */
-  const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function recoverDeadSessionSend') + 4200)
+  /* SLICED BY STRUCTURE, NOT BY BYTE COUNT. These windows used to be
+     `indexOf(...) + 4200`, and a comment added above the needle pushed it out
+     of range -- the test then reported a real behaviour as missing. The
+     function's own end is the honest boundary. */
+  const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function drainOutboxMessage'))
   assert.match(recovery, /ok === 'engine' \|\| !seeded/,
     'the recovery stopped distinguishing a real resume from a summary; a resumed agent would be sent nothing')
   assert.match(recovery, /outboxEnqueue\(fresh\.sessionId, text\)/,
@@ -79,7 +83,11 @@ test('a recovered message goes straight to a resumed agent, and queues only behi
 })
 
 test('the recovery is bounded and the honest dead end survives it', () => {
-  const recovery = view.slice(view.indexOf('const recoveringNodes'), view.indexOf('async function recoverDeadSessionSend') + 3800)
+  /* SLICED BY STRUCTURE, NOT BY BYTE COUNT. These windows used to be
+     `indexOf(...) + 4200`, and a comment added above the needle pushed it out
+     of range -- the test then reported a real behaviour as missing. The
+     function's own end is the honest boundary. */
+  const recovery = view.slice(view.indexOf('const recoveringNodes'), view.indexOf('async function drainOutboxMessage'))
   assert.match(recovery, /recentRecoveries/, 'the per-node recovery bound is gone; an instantly-dying session bounces forever')
   assert.match(recovery, /fail\(START_REFUSAL\.sessionGone\)/,
     'the sessionGone sentence no longer backs the recovery — a failed resume goes silent')
