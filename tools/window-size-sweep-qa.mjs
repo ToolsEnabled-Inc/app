@@ -111,7 +111,10 @@ const SIZES = (argument('--widths', '1024,1280,1440,1600,1920'))
      .static-tree-node    an agent bubble on the canvas (src/tree-graph.js);
                           selecting one is what reveals the named door
      .graph-open-btn      "Open agent detail" in the named-controls strip
-                          (src/views/computers.js), `hidden` until a selection
+                          (src/views/computers.js). Since 18ef5e7 it is aimed
+                          at the first DECLARED seat and VISIBLE with no
+                          selection on a fresh install; selecting a node aims
+                          it at that node instead
      .node                the bubble's other class, kept because the wait
                           predicate has always used it
      .tree-empty-node     NOT a door -- an empty slot opens the compose panel.
@@ -1254,15 +1257,22 @@ async function main() {
            the simulator has an agent to show, which is a second or two after
            the view mounts. Clicking on a fixed delay found it at no size at
            all and reported the agent surface as unreachable five times. */
-        await app.until('the example-agent link', `document.querySelector('.graph-empty-action') !== null || document.querySelector('.node') !== null`, 32)
-        /* TWO DOORS, because there are two states. With no fleet the empty
-           graph offers "See an example agent"; with a fleet (or the
-           demonstration) there are nodes and the door is "Open agent detail",
-           which is hidden until a node is selected -- so a node is selected
-           first, the way a person selects one. Looking only for the empty-state
-           link reported the agent surface as unreachable at every size of the
-           loaded sweep, which was a fact about this harness. */
+        await app.until('a door into the agent page', `document.querySelector('.graph-empty-action') !== null || document.querySelector('.node') !== null || document.querySelector('.graph-open-btn:not([hidden])') !== null`, 32)
+        /* THREE DOORS, because there are three states. With no fleet AND no
+           declared organisation the empty graph offers "See an example agent".
+           On a fresh install with a declared organisation -- the state every
+           packaged copy actually opens in -- the tree is EMPTY BY DESIGN
+           (5cc2f09) and the door is `.graph-open-btn`, aimed at the first
+           DECLARED seat and visible with NO selection since 18ef5e7 ("The only
+           door to the page that starts an agent opened after you had started
+           one"). With running agents there are nodes, a node is selected
+           first, and the same button opens THAT node. The middle door is the
+           one this file did not know: it pressed `.graph-open-btn` only after
+           a `.static-tree-node` click succeeded, and on an empty-by-design
+           tree that click can never succeed -- so a visible, pressable door
+           was reported absent at all five sizes (2026-08-18). */
         const drilled = await app.clickVisible('.graph-empty-action') === 'clicked'
+          || await app.clickVisible('.graph-open-btn') === 'clicked'
           || (await app.clickVisible('.static-tree-node') === 'clicked'
             && (await delay(700), await app.clickVisible('.graph-open-btn') === 'clicked'))
         if (drilled) {
