@@ -61,6 +61,10 @@ import { LAUNCH_TIERS } from './orchestration-controls.js'
 /* The panel's words for how a job ended, and the loop that waits for them.
    Kept in their own module so a test can drive them without a browser. */
 import { launchOutcomeCopy, watchLaunchOutcome } from './launch-outcome-copy.js'
+/* The ledger panel's own words, in a module with no browser in it, so a check
+   can compose the whole panel for a state instead of reading one string at a
+   time. See ./ledger-copy.js. */
+import { DECISION_FORM, QUEUE_FORM, queueSnapshotLine } from './ledger-copy.js'
 
 const esc = value => String(value)
   .replace(/&/g, '&amp;')
@@ -133,10 +137,11 @@ function configureQueueSnapshots(surface, queues) {
       /* WHAT THIS LINE USED TO SAY: "strict snapshot ready · indexed corpus",
          or "queue unavailable · no strict snapshot". Three mechanism names in
          two states, above a field the person cannot type into anyway. What they
-         need to know is whether the two buttons will work and, if not, why. */
-      actionState(output, ready ? 'ready' : 'unavailable', ready
-        ? 'This folder’s work list was read just now, so Claim and Close are ready.'
-        : `This folder’s work list could not be read, so Claim and Close are off. ${snapshot?.reason || 'Pick another folder, or press Retry above.'}`)
+         need to know is whether the two buttons will work and, if not, why.
+         The sentence itself lives in ./ledger-copy.js so the composed panel can
+         be measured without a browser. */
+      const line = queueSnapshotLine(snapshot)
+      actionState(output, line.tone, line.text)
     }
     select.addEventListener('change', update)
     update()
@@ -391,24 +396,24 @@ export function mountLedgerWriteSurface(root) {
     <header><strong>Audited actions</strong><span data-write-status role="status">Not connected yet</span></header>
     <div class="write-surface-grid">
       ${decisionEnabled ? `<form class="write-form" data-decision-form>
-        <span class="write-form-title">Approve or decline a request</span>
-        <label>Which request<input name="target" maxlength="160" placeholder="its number, as shown in the list" required /></label>
-        <label class="write-wide">Why<input name="reason" maxlength="2000" required /></label>
-        <div class="write-choice"><button type="button" data-decision="approve">Approve</button><button type="button" data-decision="decline">Decline</button></div>
+        <span class="write-form-title">${esc(DECISION_FORM.title)}</span>
+        <label>${esc(DECISION_FORM.targetLabel)}<input name="target" maxlength="160" placeholder="${esc(DECISION_FORM.targetPlaceholder)}" required /></label>
+        <label class="write-wide">${esc(DECISION_FORM.reasonLabel)}<input name="reason" maxlength="2000" required /></label>
+        <div class="write-choice"><button type="button" data-decision="approve">${esc(DECISION_FORM.approve)}</button><button type="button" data-decision="decline">${esc(DECISION_FORM.decline)}</button></div>
         <output data-action-output role="status"></output>
       </form>` : ''}
       ${queueEnabled ? `<form class="write-form" data-queue-form>
-        <span class="write-form-title">Take or finish queued work</span>
-        <label>Folder<select data-root-select aria-label="The folder whose work list this is"></select></label>
-        <label>Which item<input name="phaseId" maxlength="4" placeholder="its number, as shown in the list" required /></label>
+        <span class="write-form-title">${esc(QUEUE_FORM.title)}</span>
+        <label>${esc(QUEUE_FORM.rootLabel)}<select data-root-select aria-label="The folder whose work list this is"></select></label>
+        <label>${esc(QUEUE_FORM.itemLabel)}<input name="phaseId" maxlength="4" placeholder="${esc(QUEUE_FORM.itemPlaceholder)}" required /></label>
         <!-- THE FIELD A PERSON CANNOT TYPE INTO, AND USED TO BE ASKED TO.
              It was labelled "Observed queue SHA-256". It is filled in for them
              from the list that was just read, it is read-only, and its whole job
              is to make sure nobody closes an item on a stale view of the list.
              So the label says what it is FOR. The field name is unchanged. -->
-        <label class="write-wide">Proof you are looking at the current list<input name="expectedHash" minlength="64" maxlength="64" required /></label>
-        <label class="write-wide">Why you are closing it<input name="reason" maxlength="2000" placeholder="needed only when you close one" /></label>
-        <div class="write-choice"><button type="button" data-queue-operation="claim">Claim</button><button type="button" data-queue-operation="close">Close</button></div>
+        <label class="write-wide">${esc(QUEUE_FORM.proofLabel)}<input name="expectedHash" minlength="64" maxlength="64" required /></label>
+        <label class="write-wide">${esc(QUEUE_FORM.reasonLabel)}<input name="reason" maxlength="2000" placeholder="${esc(QUEUE_FORM.reasonPlaceholder)}" /></label>
+        <div class="write-choice"><button type="button" data-queue-operation="claim">${esc(QUEUE_FORM.claim)}</button><button type="button" data-queue-operation="close">${esc(QUEUE_FORM.close)}</button></div>
         <output data-action-output role="status"></output>
       </form>` : ''}
     </div>

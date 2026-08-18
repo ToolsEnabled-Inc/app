@@ -7,6 +7,7 @@ import { R_ITEMS, Q_ITEMS, liveAgeMs, formatLedgerAge } from '../ledger-data.js'
 import { isLiveView, LIVE_FLAGS_EVENT } from '../live-flags.js'
 import { fetchLedger } from '../live-status.js'
 import { mountLedgerWriteSurface } from '../write-surfaces.js'
+import { registerNotice } from '../ledger-copy.js'
 /* THE DOOR OUT OF THIS SCREEN'S REFUSAL. The ledger is one of the four screens
    src/first-run-needs.js names as permanently empty on a copy with no agent
    host, and "the ledger could not be read yet" is true without being an answer.
@@ -282,40 +283,17 @@ export function ledgerView() {
   function renderRegister({ focusRoot = null } = {}) {
     const rows = []
 
-    if (source.kind === 'loading' || source.kind === 'unavailable') {
-      const reason = source.kind === 'loading' ? 'still reading the ledger' : source.reason
+    const notice = registerNotice(source)
+    if (notice) {
       renderSummary([], { unavailable: true, live: true })
       register.removeAttribute('role')
-      register.setAttribute('aria-label', 'The ledger could not be read')
-      /* The door is offered only once the read has ANSWERED. While it is still
-         in flight nothing is known to be missing, and a "what this copy needs"
-         link under a spinner invites a person to go solve a problem they may
-         not have. */
-      const door = source.kind === 'unavailable'
+      register.setAttribute('aria-label', notice.label)
+      const door = notice.door
         ? `<p class="ledger-empty"><a class="host-absent-action" href="${esc(GUIDE_ACTION.href)}">${esc(GUIDE_ACTION.label)}</a></p>`
         : ''
-      /* SAY WHAT THIS REGISTER IS, RATHER THAN THAT A FILE WOULD NOT OPEN.
-       *
-       * "could not be read yet" reads as a fault a person could fix, and the
-       * "yet" promises it will fill in. Neither is true. Measured against the
-       * shipped payload on 2026-08-17: the register is written only by the
-       * builder command run inside a ToolsEnabled source checkout -- there is no
-       * call that files an entry anywhere in the payload, and the only thing
-       * that reads it is the packet an agent gets at boot. So a copy that is not
-       * a development checkout has nothing here today and will still have
-       * nothing here after any amount of use.
-       *
-       * The product already writes this kind of sentence honestly in
-       * src/first-run-needs.js: "this copy of ToolsEnabled does not include one
-       * ... nothing you do will fill those screens today." This is that, for the
-       * register. The reason string is kept for the loading case, where it is
-       * genuinely about a read still in flight. */
-      const body = source.kind === 'unavailable'
-        ? 'This register lists requests recorded while ToolsEnabled itself is being built. This copy does not keep one, so there is nothing here to show.'
-        : `the ledger could not be read yet · ${esc(reason)}`
-      register.innerHTML = `<p class="ledger-empty projection-unavailable">${body}</p>${door}`
-      root.querySelector('[data-visible-count]').textContent = source.kind === 'loading' ? 'reading…' : 'could not be read'
-      root.dataset.projectionState = source.kind
+      register.innerHTML = `<p class="ledger-empty ${notice.className}">${esc(notice.body)}</p>${door}`
+      root.querySelector('[data-visible-count]').textContent = notice.count
+      root.dataset.projectionState = notice.state
       return
     }
 
