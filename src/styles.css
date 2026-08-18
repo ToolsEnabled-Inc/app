@@ -1306,6 +1306,33 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   color: var(--ink-3);
 }
 
+/* A CHAT THAT CANNOT BE SPOKEN TO, AND SAYS SO WHERE THE WORDS WOULD GO.
+
+   The composer is not removed, because the actions button lives in it and the
+   things a person can still do to an agent that never started -- add one under
+   it, move it, copy its brief -- are all in there. The message box and the
+   send button are disabled instead, and the reason sits directly above them.
+
+   The `.board-page` copy of `.chat-nosend` in src/board.css belongs to the
+   fleet rail's read-only chat, which has no composer at all; this one is the
+   general rule and applies wherever a chat is mounted, including the compact
+   card floating over the canvas. */
+.chat-nosend {
+  flex: none;
+  margin-top: var(--s2);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.chat-cannot-send .chat-input input {
+  cursor: default;
+  color: var(--ink-3);
+  background: color-mix(in oklab, var(--line) 24%, transparent);
+}
+
 /* THE STOP FACE OF THE SEND BUTTON. One physical button, two honest faces:
    the arrow sends; while the agent is replying and the input is empty, the
    square stops. The moment the person types, the arrow is back — their

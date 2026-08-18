@@ -340,11 +340,22 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
                quick-picks (effort, model, rewind) inside one popup.
      onStop  — () → Promise<sentence|void>: pressed as the STOP face of the
                send button (busy + empty input). The sentence lands as an
-               agent bubble. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null }) {
+               agent bubble.
+     composerReason
+             — a sentence, when this conversation CANNOT be spoken to. The
+               log stays real and readable; the message box and the send
+               button are disabled and the sentence sits above them saying
+               why. It is how a chat opens over an agent that never started
+               without becoming a text box that swallows what a person types
+               (the defect src/node-chatbox.js's header names). It also makes
+               the seeded simulator below structurally unreachable for such a
+               caller: `send` is refused before it can reach the fake path,
+               so an honest read-only chat can never answer itself. */
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null, composerReason = null }) {
+  const cannotSend = typeof composerReason === 'string' && composerReason.trim().length > 0
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
-    <div class="chat" ${tall ? 'style="min-height:0"' : ''}>
+    <div class="chat${cannotSend ? ' chat-cannot-send' : ''}" ${tall ? 'style="min-height:0"' : ''}>
       <div class="chat-head">
         <span class="role-dot" style="background:${role.hex}"></span>
         <div>
@@ -359,6 +370,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       <div class="chat-log"></div>
       <div class="chat-attach-strip" hidden></div>
       ${queue ? '<div class="chat-queue-strip" hidden></div>' : ''}
+      ${cannotSend ? `<div class="chat-nosend">${escapeMarkup(composerReason)}</div>` : ''}
       <div class="chat-input">
         ${onAttach ? `<button class="chat-tool" data-chat-attach aria-label="Attach an image" title="Attach an image — it rides with your next message">
           <svg viewBox="0 0 24 24"><path d="M8 12.5 15.2 5.3a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a5.4 5.4 0 0 1-7.6-7.6L11 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -369,8 +381,8 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         ${actions ? `<button class="chat-tool" data-chat-actions aria-haspopup="true" aria-expanded="false" aria-label="Actions" title="Actions for this agent — stop, thinking depth, model, rewind and more">
           <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.2" cy="7" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="12" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="17" r="2.1" fill="var(--sheet, #fff)" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>` : ''}
-        <input type="text" placeholder="Message ${escapeMarkup(title)}…" />
-        <button class="chat-send" aria-label="Send">
+        <input type="text" placeholder="${cannotSend ? 'Not now' : `Message ${escapeMarkup(title)}…`}"${cannotSend ? ' disabled' : ''} />
+        <button class="chat-send" aria-label="Send"${cannotSend ? ' disabled' : ''}>
           <svg class="chat-send-go" viewBox="0 0 24 24"><path d="M5 12h13M13 6.5 18.8 12 13 17.5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <svg class="chat-send-halt" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="currentColor"/></svg>
         </button>
@@ -743,6 +755,12 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
 
   const send = () => {
     if (disposed) return
+    /* THE FIRST LINE, so that no later branch can be reached by a caller that
+       said it cannot send. Without it a disabled input is only a suggestion:
+       Enter on a disabled field does nothing today, but the seeded simulator
+       is one refactor away from being reachable again, and the whole point of
+       composerReason is that this chat can never answer itself. */
+    if (cannotSend) return
     const v = input.value.trim()
     /* Empty input while the agent writes: this press IS the stop button —
        the same physical button, wearing its stop face. */

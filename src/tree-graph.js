@@ -1899,7 +1899,12 @@ export class StaticTreeGraph {
        no config, the chip still routes to the rail and fabricates nothing. */
     if (record.agent.treeNode) {
       const config = this.treeChat ? this.treeChat(record.agent) : null
-      if (!config || typeof config.onSend !== 'function') {
+      /* EITHER IT CAN SEND, OR IT SAYS WHY IT CANNOT. Both are honest configs
+         and both make buildChat's seeded simulator unreachable -- onSend
+         replaces the fake path outright, and composerReason refuses `send`
+         before it can reach it. A config that offers neither is the one shape
+         that could fabricate a conversation, so it still routes to the rail. */
+      if (!config || (typeof config.onSend !== 'function' && !config.composerReason)) {
         this.onOpenControls?.(record.agent)
         return
       }
@@ -1909,15 +1914,35 @@ export class StaticTreeGraph {
       for (const other of this.nodes.values()) {
         if (other !== record && other.chatOpen) this.closeChat(other)
       }
+      /* THE WHOLE CONFIG, NOT A HAND-PICKED HALF OF IT.
+       *
+       * THE DEFECT THIS CLOSES, in the owner's words: "we had this right in the
+       * past and it had the buttons in the chat window so maybe it just got
+       * disabled on accident". It did, and here is the accident. This call was
+       * written at 4bf6000 as an explicit list of the six fields the config had
+       * then. Iteration 6 (7cce02c) grew the SHARED config -- the one
+       * treeChatConfigFor builds for the card AND the rail -- by four more
+       * powers: the busy feed behind the send/stop morph, the queue face, the
+       * actions popup, and the stop verb. The rail spreads the config
+       * (`buildChat({ ...config, tall: true })`) so it took all four the day
+       * they landed. This list did not mention them, so the compact card
+       * silently kept the old composer. MEASURED 2026-08-17 on a staged
+       * packaged build, real presses: the rail's chat carried
+       * ["attach","mention","actions","send"] and the card carried
+       * ["close","attach","mention","send"] -- the actions button, the queue
+       * strip and the stop face were all absent from the card and only the
+       * card.
+       *
+       * So the config is spread now, exactly as the rail does it, and the only
+       * fields written here are the three the CARD owns: its own seed (0 --
+       * never the simulator), its own close, and the fallback role key. A
+       * future power added to the config reaches both surfaces or neither. */
       this._openChatCard(record, {
-        title: config.title,
-        subtitle: config.subtitle || '',
+        ...config,
         roleKey: config.roleKey || record.agent.role,
+        subtitle: config.subtitle || '',
         seed: 0,
         history: Array.isArray(config.history) ? config.history : [],
-        onSend: config.onSend,
-        onAttach: typeof config.onAttach === 'function' ? config.onAttach : null,
-        onMention: typeof config.onMention === 'function' ? config.onMention : null,
       })
       return
     }

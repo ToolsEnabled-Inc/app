@@ -48,6 +48,7 @@ import { refusalCode } from '../agent-availability-copy.js'
    the lane that owns the words. Nothing in this file rewords a refusal: it hands
    the whole bridge result over and shows what comes back. */
 import {
+  CHAT_NOT_RUNNING,
   MOVE_PANEL,
   PROFILE_PANEL,
   PALETTE_PANEL,
@@ -1422,7 +1423,35 @@ export function computersView({ initialComputer = null, navigate }) {
      so a chat over a node that has plainly spoken never opens empty.
      Renderer memory only; the store stays the record. */
   function treeChatConfigFor(node) {
-    if (!node || !node.sessionId) return null
+    if (!node) return null
+    /* A NODE WITH NO SESSION STILL HAS A CONVERSATION, and it used to open
+     * nothing. See CHAT_NOT_RUNNING's note in src/fleet-tree-copy.js for the
+     * owner report this closes: a refused start leaves the node `failed` with
+     * a null session id, so on a build that cannot start the picked engine
+     * EVERY node is one of these and both chat surfaces were dead.
+     *
+     * What opens is the real record and nothing invented: the brief the person
+     * typed, the reply if one was ever kept, the actions that still apply, and
+     * a disabled message box carrying the node's OWN refusal sentence. No
+     * onSend, deliberately -- there is nothing to send to, and composerReason
+     * makes buildChat refuse `send` before its seeded simulator can be
+     * reached, so this chat cannot answer itself. */
+    if (!node.sessionId) {
+      const history = []
+      if (node.message) history.push({ who: 'you', text: node.message, at: null })
+      const kept = nodeReplies.get(node.id) || node.reply
+      if (kept) history.push({ who: 'agent', text: kept, at: null })
+      const reason = typeof node.statusNote === 'string' ? node.statusNote.trim() : ''
+      return {
+        title: treeNodeName(node),
+        subtitle: CHAT_NOT_RUNNING.subtitle,
+        roleKey: node.role,
+        history,
+        composerReason: reason ? CHAT_NOT_RUNNING.refused(reason) : CHAT_NOT_RUNNING.neverStarted,
+        actions: () => chatActionRowsFor(node),
+        actionsNote: PALETTE_PANEL.footer,
+      }
+    }
     let history = sessionTranscripts.get(node.sessionId) || []
     if (!history.length) {
       history = []
@@ -3279,11 +3308,14 @@ export function computersView({ initialComputer = null, navigate }) {
         <button type="button" class="on" data-rail-tab="chat">Chat</button>
         <button type="button" data-rail-tab="details">Details</button>
       </div>
+      <!-- ONE HOST, EVERY STATE. This used to be a chat host for a node with a
+           session and a paragraph of prose for one without -- and the prose
+           said "Press its circle on the canvas to start it", which is the
+           gesture that opens THIS PANEL and starts nothing. A node with no
+           session now mounts the same chat, read-only, carrying its own
+           refusal where the message box would be (treeChatConfigFor). -->
       <div class="rail-tab-body rail-chat-body" data-rail-body="chat">
-        ${node.sessionId ? '<div class="rail-chat-host" data-rail-chat-host></div>' : `
-        <div class="board-box board-ctl-box">
-          <div class="rail-prose">${escapeMarkup(node.statusNote || 'This agent has not been started yet. Press its circle on the canvas to start it; the conversation opens here.')}</div>
-        </div>`}
+        <div class="rail-chat-host" data-rail-chat-host></div>
       </div>
       <div class="rail-tab-body rail-scroll" data-rail-body="details" hidden>
         <!-- The head names the agent and its ROLE — never its brief. The brief
@@ -3397,23 +3429,29 @@ export function computersView({ initialComputer = null, navigate }) {
        send wraps the shared handlers so a turn that STREAMED into an open
        bubble closes that bubble instead of printing the reply twice. */
     const chatHost = controlsPage.querySelector('[data-rail-chat-host]')
-    if (chatHost && node.sessionId) {
+    if (chatHost) {
       const config = treeChatConfigFor(node)
       if (config) {
+        /* The send wrapper exists only for a config that CAN send: a node with
+           no session carries composerReason instead, and wrapping an absent
+           onSend would put a function where buildChat reads "this chat can
+           reach the agent". */
         const chat = buildChat({
           ...config,
           tall: true,
-          onSend: (text, handlers) => config.onSend(text, {
-            reply: (said) => {
-              if (railChat?.stream) {
-                railChat.stream.close(said)
-                railChat.stream = null
-              } else {
-                handlers.reply(said)
-              }
-            },
-            fail: handlers.fail,
-          }),
+          ...(typeof config.onSend === 'function' ? {
+            onSend: (text, handlers) => config.onSend(text, {
+              reply: (said) => {
+                if (railChat?.stream) {
+                  railChat.stream.close(said)
+                  railChat.stream = null
+                } else {
+                  handlers.reply(said)
+                }
+              },
+              fail: handlers.fail,
+            }),
+          } : {}),
         })
         chatHost.appendChild(chat)
         railChat = { sessionId: node.sessionId, nodeId: node.id, root: chat, stream: null }

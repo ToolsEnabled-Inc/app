@@ -433,6 +433,36 @@ export const RESUME_PANEL = Object.freeze({
   marker: 'Resumed — the saved conversation above was sent to a fresh agent.',
 })
 
+/* A CHAT OVER AN AGENT THAT IS NOT RUNNING, WHICH IS STILL A CHAT.
+ *
+ * WHAT THIS REPLACED, and why it was the owner's report. Both chat surfaces on
+ * the tree -- the compact card on the canvas and the rail's Chat tab -- were
+ * gated on the node holding a session id, so a node whose START WAS REFUSED
+ * opened nothing at all. That is not a rare state: submitCompose() marks a
+ * refused start `failed` and leaves the session id null, so on a build that
+ * cannot start the picked engine EVERY node a person makes is one of these, and
+ * "the chatboxes dont open" is the exact and correct description of it.
+ *
+ * IT DOES NOT BECOME A TEXT BOX THAT SWALLOWS WORDS. src/node-chatbox.js's
+ * header states the rule this obeys: a composer must never pretend to reach a
+ * process that cannot hear it. So the chat opens over the real conversation --
+ * what the person asked for, and the reply if there ever was one -- with the
+ * message box disabled and one of these sentences in its place. The actions
+ * button stays, because the things that CAN still be done to an agent that
+ * never started (start one under it, move it, copy its brief) all live there.
+ *
+ * The refusal is not rewritten here. `refused` composes the node's OWN
+ * statusNote, which is the sentence the start path already wrote, so this
+ * surface and the panel that reported the refusal cannot drift apart. */
+export const CHAT_NOT_RUNNING = Object.freeze({
+  subtitle: 'your agent · not running',
+  /* Composed after the node's own refusal sentence. */
+  refused: reason => `${reason} Nothing can be sent to an agent that did not start.`,
+  /* No refusal on file: the start was never attempted, or the record predates
+     status notes. Never says the start failed, because nothing says it did. */
+  neverStarted: 'This agent is not running, so there is nothing here to send a message to. What you asked for is above; when it runs, its answer arrives here.',
+})
+
 /* CHANGING HOW HARD IT THINKS, MID-CONVERSATION (iteration 5 W10). The wire
    has no mid-session knob — depth is bound when the engine process starts —
    so the menu says what really happens: a restart that re-reads the saved
