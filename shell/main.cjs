@@ -19,7 +19,7 @@ const { readAgentConfinement, listAgentTools } = require('./agent-confinement-re
 const { providerCliPresence } = require('./provider-cli-presence.cjs')
 const { createSpawnRecorder } = require('./spawn-record.cjs')
 const { createUsageRecorder, turnUsageFrom } = require('./usage-record.cjs')
-const { recordCanonical: recordCanonicalIn } = require('./canonical-audit.cjs')
+const { recordCanonical: recordCanonicalIn, closeCanonical: closeCanonicalLedger } = require('./canonical-audit.cjs')
 const { sharedAccountStore, UNAUTHENTICATED_PRINCIPAL } = require('./product-account.cjs')
 const { createGoogleSignIn } = require('./google-signin.cjs')
 const { resolveGoogleSignInConfig } = require('./google-signin-config.cjs')
@@ -3180,8 +3180,20 @@ ipcMain.handle('mc-reset:erase', event =>
       revoked = { ok: false, reason: error?.message || 'The sign-in could not be ended.' }
     }
 
-    /* The layer holds the ledger and the vault open. It is stopped here rather
-       than at quit, because quit is after the deletion. */
+    /* THIS PROCESS WAS ONE OF THE HOLDERS, AND NOBODY HAD ASKED IT TO LET GO.
+       Stopping the child below was written on the belief that the capability
+       layer held the ledger open. It does -- and so does this window, which
+       loads the payload's ledger writer into itself and keeps its database
+       handle for the life of the process (shell/canonical-audit.cjs). Measured
+       2026-08-18: the removal reported the vault, its access log and the signed
+       ledger still on the disk, and sweeping four more times over 2.7s did not
+       shift them, because the handle was in the process doing the sweeping.
+       Closed BEFORE the child is stopped, because this half costs nothing and
+       failing to do it is what made the promise false. */
+    const ledgerClosed = closeCanonicalLedger()
+
+    /* The layer holds the ledger and the vault open too. It is stopped here
+       rather than at quit, because quit is after the deletion. */
     const child = capabilityLayer?.child || capabilityLayerChild
     capabilityLayer = null
     capabilityLayerChild = null
@@ -3213,7 +3225,16 @@ ipcMain.handle('mc-reset:erase', event =>
         'uninstall-data-policy.txt', 'workspace', 'Local Storage', 'shell-state.json'],
     })
 
-    return { ok: true, plan, revoked: { ok: revoked.ok === true, revokedSessions: revoked.revoked === true }, swept }
+    return {
+      ok: true,
+      plan,
+      revoked: { ok: revoked.ok === true, revokedSessions: revoked.revoked === true },
+      /* Reported, never assumed: a ledger this process could not close is the
+         one thing most likely to leave a file behind, and the screen has to be
+         able to say so rather than presenting an unexplained survivor. */
+      ledgerClosed: { ok: ledgerClosed.ok === true, closed: ledgerClosed.closed === true, reason: ledgerClosed.reason ?? null },
+      swept,
+    }
   }))
 
 /* Two ways to get the bootstrap proof, and the order matters.

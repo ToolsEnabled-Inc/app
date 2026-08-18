@@ -867,7 +867,17 @@ const REGISTERED_CLAIMS = Object.freeze([
     stillTrueBecause: 'the measuring step and the deleting step are two separate IPC channels. mc-reset:plan reaches planReset(), which reads and stats and nothing else -- there is no rm, unlink, rmdir or truncate anywhere in the plan path -- so the first press cannot destroy anything.',
     pin() {
       const module = stripComments(read('shell/local-data-reset.cjs'))
-      const plan = module.slice(module.indexOf('function planReset'), module.indexOf('function eraseDirectory'))
+      /* planReset'S OWN BODY, bounded by the next function of ANY name rather
+         than by one particular later function. This ended at
+         `function eraseDirectory`, which held only while nothing sat between the
+         two -- a helper landed there (removeTree, the leaf-by-leaf sweep that
+         stops one locked file sheltering its siblings) and the pin began reading
+         ITS deletes as the measuring path's, reporting as false a sentence that is
+         still exactly true. A boundary that depends on what happens to be next in
+         the file is not a boundary. */
+      const planStart = module.indexOf('function planReset')
+      const nextFunction = module.indexOf('\nfunction ', planStart + 1)
+      const plan = module.slice(planStart, nextFunction === -1 ? module.length : nextFunction)
       assert.ok(plan.length > 400, 'planReset is gone, so the sentence shown while measuring is about nothing')
       assert.ok(!/\b(?:rmSync|unlinkSync|rmdirSync|truncateSync|writeFileSync|renameSync)\b/.test(plan),
         'the measuring path now writes or deletes, so "Nothing has been deleted" is no longer true')
@@ -912,7 +922,17 @@ const REGISTERED_CLAIMS = Object.freeze([
         'workspace roots are no longer recorded as untouched')
       assert.ok(/conflicts\.push\(\{ kind: 'workspace'/.test(module),
         'a chosen folder inside the swept directory is no longer detected, so this promise can now be quietly false')
-      const plan = module.slice(module.indexOf('function planReset'), module.indexOf('function eraseDirectory'))
+      /* planReset'S OWN BODY, bounded by the next function of ANY name rather
+         than by one particular later function. This ended at
+         `function eraseDirectory`, which held only while nothing sat between the
+         two -- a helper landed there (removeTree, the leaf-by-leaf sweep that
+         stops one locked file sheltering its siblings) and the pin began reading
+         ITS deletes as the measuring path's, reporting as false a sentence that is
+         still exactly true. A boundary that depends on what happens to be next in
+         the file is not a boundary. */
+      const planStart = module.indexOf('function planReset')
+      const nextFunction = module.indexOf('\nfunction ', planStart + 1)
+      const plan = module.slice(planStart, nextFunction === -1 ? module.length : nextFunction)
       assert.ok(!/roots\.push\([^)]*workspace/i.test(plan), 'a workspace root can now reach the list of things to delete')
       /* The screen must SAY it, not merely compute it. */
       const markup = stripComments(read('src/account-markup.js'))

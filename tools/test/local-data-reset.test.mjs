@@ -233,18 +233,81 @@ test('eraseDirectory removes every entry and reports the root gone', () => {
   });
 });
 
+/* The order is asserted over the TOP-LEVEL GROUP each delete belonged to, not
+   over the argument of the first rmSync call. Since the sweep started removing
+   leaf by leaf -- so one locked file cannot shelter its siblings -- the first
+   call inside `capability` is a file three directories down, and a test that
+   read the raw argument would be measuring the walk rather than the priority.
+   What the priority promises is unchanged: the person's own data goes before
+   the browser's scratch files, so that whatever fails, fails last. */
 test('the person’s own data is swept BEFORE the browser’s scratch files', () => {
   withProfile(({ userDataDir, env }) => {
-    const order = [];
+    const groups = [];
     const fs = require('node:fs');
+    const noteGroup = (target) => {
+      const relative = String(target).slice(userDataDir.length + 1);
+      const group = relative.split(sep)[0];
+      if (group && groups.at(-1) !== group) groups.push(group);
+    };
     const spy = {
       ...fs,
-      rmSync: (target, options) => { order.push(target.split(sep).pop()); return fs.rmSync(target, options); },
+      rmSync: (target, options) => { noteGroup(target); return fs.rmSync(target, options); },
+      rmdirSync: (target) => { noteGroup(target); return fs.rmdirSync(target); },
     };
     eraseDirectory({ directory: userDataDir, fs: spy, env, homedir: () => env.USERPROFILE, priority: ['capability', 'product-accounts.json', 'Local Storage'] });
-    assert.equal(order[0], 'capability');
-    assert.equal(order[1], 'product-accounts.json');
-    assert.ok(order.indexOf('Local Storage') > order.indexOf('product-accounts.json'));
+    assert.equal(groups[0], 'capability');
+    assert.equal(groups[1], 'product-accounts.json');
+    assert.ok(groups.indexOf('Local Storage') > groups.indexOf('product-accounts.json'));
+  });
+});
+
+/* THE DEFECT THIS FILE EXISTS TO STOP, IN ITS REAL SHAPE.
+ *
+ * The in-app removal reported the credential vault, its access log and the
+ * signed ledger still on the disk after a sweep that had worked. The reason was
+ * not policy and not the capability layer: the window's own process holds the
+ * ledger's database open, and a single recursive delete of `capability/` STOPS
+ * at the first entry it cannot unlink. The vault survived because a database
+ * three directories away was busy.
+ *
+ * The busy file is simulated the way the file above already simulates Windows --
+ * an fs whose delete leaves this one path in place -- because what is under test
+ * is what the sweep does about it, not whether Node can be made to fail. The
+ * assertion is the one that matters: everything that was NOT locked is gone, and
+ * the survivor is the locked file alone. */
+test('a file that cannot be deleted does not shelter its siblings', () => {
+  withProfile(({ userDataDir, env }) => {
+    const fs = require('node:fs');
+    const locked = join(userDataDir, 'capability', 'state', 'audit.sqlite3');
+    /* WINDOWS' OWN BEHAVIOUR, MODELLED FROM A MEASUREMENT RATHER THAN IMAGINED.
+       Reproduced 2026-08-18 with a real open database handle: rmSync of the
+       grandparent raised EBUSY and left the whole `vault/` directory in place --
+       a recursive delete stops at the entry it cannot unlink and abandons what
+       it had not reached. So the fake refuses the locked leaf AND refuses any
+       recursive call aimed at a folder containing it, removing nothing in that
+       case, which is that worst case exactly. Nothing here reimplements a
+       delete; it only declines one. */
+    const holdsTheLock = (target) => locked === String(target) || locked.startsWith(`${String(target)}${sep}`);
+    const busy = {
+      ...fs,
+      rmSync: (target, options) => {
+        if (holdsTheLock(target)) { const error = new Error('EBUSY'); error.code = 'EBUSY'; throw error; }
+        return fs.rmSync(target, options);
+      },
+    };
+    const outcome = eraseDirectory({
+      directory: userDataDir, fs: busy, env, homedir: () => env.USERPROFILE,
+      priority: ['capability', 'product-accounts.json'],
+    });
+    assert.equal(existsSync(join(userDataDir, 'capability', 'vault', 'secrets.json')), false);
+    assert.equal(existsSync(join(userDataDir, 'capability', 'logs', 'actions.jsonl')), false);
+    assert.equal(existsSync(join(userDataDir, 'capability', 'config', 'accounts.json')), false);
+    assert.equal(existsSync(join(userDataDir, 'product-accounts.json')), false);
+    assert.equal(existsSync(locked), true);
+    assert.equal(outcome.remaining.files, 1);
+    const kept = outcome.entries.filter(entry => entry.removed !== true);
+    assert.deepEqual(kept.map(entry => entry.name), ['capability']);
+    assert.equal(kept[0].reason, 'EBUSY');
   });
 });
 
@@ -252,10 +315,14 @@ test('AN ENTRY THAT SURVIVES IS REPORTED KEPT, even when the delete call did not
   withProfile(({ userDataDir, env }) => {
     const fs = require('node:fs');
     // Windows' real behaviour, simulated: the call returns, the file stays.
+    /* The leaf, not the folder: the sweep removes leaf by leaf now, so a
+       stub that no-ops on the DIRECTORY would be stubbing a call the module no
+       longer makes and would assert nothing. The survivor is the file, and the
+       folder it is in survives with it. */
     const stubborn = {
       ...fs,
       rmSync: (target, options) => {
-        if (String(target).endsWith('Local Storage')) return undefined;
+        if (String(target).endsWith('leveldb.log')) return undefined;
         return fs.rmSync(target, options);
       },
     };
@@ -272,7 +339,7 @@ test('AN ENTRY THAT SURVIVES IS REPORTED KEPT, even when the delete call did not
 test('eraseLocalData reports complete=false while anything at all remains', () => {
   withProfile(({ userDataDir, servicesRoot, env }) => {
     const fs = require('node:fs');
-    const stubborn = { ...fs, rmSync: (target, options) => (String(target).endsWith('leveldb.log') || String(target).endsWith('Local Storage') ? undefined : fs.rmSync(target, options)) };
+    const stubborn = { ...fs, rmSync: (target, options) => (String(target).endsWith('leveldb.log') ? undefined : fs.rmSync(target, options)) };
     const swept = eraseLocalData({
       roots: [{ kind: 'user-data', directory: userDataDir }, { kind: 'installation', directory: servicesRoot }],
       fs: stubborn,
