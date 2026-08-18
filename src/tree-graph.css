@@ -65,11 +65,36 @@
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 46px;
-  padding: 0 10px 0 15px;
+  gap: 12px;
+  height: 52px;
+  padding: 0 12px 0 16px;
   border-bottom: 1px solid var(--line-2);
   background: var(--sheet);
+}
+/* WHOSE PAGE THIS IS, and it no longer surrenders its room. `.graph-title` was
+   `flex: 0 1 auto` next to a flexible tree strip and a paragraph about the
+   research page, and the arithmetic went the only way it could: measured on the
+   staged build, the computer's name rendered as "This..." at 1512x945 and was
+   gone entirely at 1280x800, taking the whole tree switcher with it. The lead
+   slot is `flex: none`, so the name is the one thing here that keeps its width;
+   a genuinely long name still ellipsises inside its own 38% budget. */
+.computers .graph-bar-lead {
+  flex: none;
+  min-width: 0;
+  max-width: 38%;
+  display: flex;
+  align-items: center;
+}
+/* The first of the bar's two hairlines. They are drawn by the slots themselves
+   rather than by divider elements, so there is nothing to leave behind when a
+   group is empty and nothing to fall into the wrong order. */
+.computers .graph-bar-lead::after {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin-left: 14px;
+  background: var(--line-2);
 }
 .computers .graph-canvas-slot {
   position: relative;
@@ -77,6 +102,9 @@
   min-height: 0;
   overflow: hidden;
 }
+/* The only thing in the bar with title weight. Everything else is a control,
+   and a control that competes with the name of the machine is what "no
+   hierarchy" looks like. */
 .computers .graph-title {
   flex: 0 1 auto;
   min-width: 0;
@@ -84,7 +112,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--ink);
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
 }
@@ -117,24 +145,43 @@
 }
 .computers .graph-hint.show { transform: translateX(-50%); }
 
+/* TWO GROUPS, NOT ONE RUN OF CHIPS. src/tree-graph.js drops the zoom cluster in
+   here as the first child, so the strip is really "how you are looking at the
+   tree" followed by "what you can do to it". The hairline says so. */
 .computers .graph-tools {
   position: static;
   margin-left: auto;
   flex: none;
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+.computers .graph-tool-set {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
+.computers .graph-tool-set::before {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin-right: 4px;
+  background: var(--line-2);
+}
+/* ONE CHIP, THREE BUTTONS. Same height as the zoom cluster beside them, same
+   radius, same type — the bar reads as one row of controls instead of four
+   different opinions about what a button is. */
 .computers .graph-edit-btn,
 .computers .graph-reset-btn {
   position: static;
-  min-height: 32px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0 13px;
   border: 1px solid var(--line-2);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--sheet);
   color: var(--ink-2);
   box-shadow: none;
@@ -166,13 +213,13 @@
    accent border is what marks it as the one that LEAVES this page. */
 .computers .graph-open-btn {
   position: static;
-  min-height: 32px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0 13px;
   border: 1px solid color-mix(in oklab, var(--c-coordinator) 38%, var(--line-2));
-  border-radius: 3px;
+  border-radius: 4px;
   background: color-mix(in oklab, var(--c-coordinator) 7%, var(--sheet));
   color: var(--ink);
   font: 640 12.5px/1 var(--font-ui);
@@ -921,7 +968,22 @@
 }
 
 /* Zoom: a control he can see. The fit button used to appear only once he was
-   already lost; the cluster is always there, and states the factor. */
+   already lost; the cluster is always there, and states the factor.
+ *
+ * EVERY SELECTOR PAIR BELOW WAS BROKEN, and it is most of why the owner called
+ * this bar "super ugly". Each rule read
+ *
+ *     .graph-bar .graph-zoomer,
+ *     .static-tree-host .graph-zoomer button { ... }
+ *
+ * -- the bar's half was pasted in front of the host's WITHOUT the descendant
+ * that made it mean anything. So in the bar the CONTAINER collected every
+ * button declaration (border:0, transparent, 26px, mono) and the three buttons
+ * inside it collected nothing at all. `.graph-fit` fared worst: its only other
+ * rule is `.static-tree-host .graph-fit`, which the bar is not inside, so the
+ * zoom readout rendered as a bare browser button. Measured on the staged build
+ * at 1512x945: a 46px-tall bar containing a 22px unstyled `−1.00×+` strip.
+ * Each part now names both surfaces properly. */
 .graph-bar .graph-zoomer,
 .static-tree-host .graph-zoomer {
   position: static;
@@ -929,15 +991,15 @@
   display: inline-flex;
   align-items: stretch;
   border: 1px solid var(--line-2);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--sheet);
   overflow: hidden;
 }
-.graph-bar .graph-zoomer,
+.graph-bar .graph-zoomer button,
 .static-tree-host .graph-zoomer button {
-  min-width: 26px;
-  min-height: 28px;
-  padding: 0 7px;
+  min-width: 28px;
+  min-height: 30px;
+  padding: 0 8px;
   border: 0;
   background: transparent;
   color: var(--ink-2);
@@ -945,17 +1007,22 @@
   cursor: pointer;
   transition: background 160ms var(--ease), color 160ms var(--ease);
 }
-.graph-bar .graph-zoomer,
+.graph-bar .graph-zoomer button + button,
 .static-tree-host .graph-zoomer button + button { border-left: 1px solid var(--line-2); }
-.graph-bar .graph-zoomer,
+.graph-bar .graph-zoomer button:hover,
 .static-tree-host .graph-zoomer button:hover { background: color-mix(in oklab, var(--ink) 5%, var(--sheet)); color: var(--ink); }
-.graph-bar .graph-zoomer,
-.static-tree-host .graph-zoomer .gz-level { min-width: 54px; font-size: 11.5px; color: var(--ink-3); }
-.graph-bar .graph-zoomer,
+.graph-bar .graph-zoomer .gz-level,
+.static-tree-host .graph-zoomer .gz-level {
+  min-width: 56px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.graph-bar .graph-zoomer .gz-level.is-off,
 .static-tree-host .graph-zoomer .gz-level.is-off { color: var(--ink); }
 /* the cluster's own reset button is always available, unlike the old floating
    fit chip that only appeared once the reader was already displaced */
-.graph-bar .graph-zoomer,
+.graph-bar .graph-zoomer .graph-fit,
 .static-tree-host .graph-zoomer .graph-fit {
   position: static;
   left: auto;

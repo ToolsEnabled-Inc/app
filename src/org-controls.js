@@ -128,13 +128,20 @@ export function orgNotices(org) {
   if (org.damaged) {
     notices.push({
       kind: 'damaged',
-      text: `Your saved organisation could not be loaded, so this is the shipped default: ${org.damaged}. Any change you make here starts from the shipped default, not from what you had saved.`,
+      text: `Your saved organisation could not be loaded, so this is the one the app ships with: ${org.damaged}. Any change you make starts from that, not from what you had saved.`,
     })
   }
+  /* NO HASHES IN FRONT OF A PERSON (owner, 2026-08-18, reading this very
+     notice on the fleet rail). It used to quote both content hashes, so the
+     sentence read `You saved yours from "60132024e9efbfe…"` and then ran off
+     the edge of a 330px rail mid-hash. Neither hash is something anybody can
+     act on, and the two facts that ARE actionable -- the default moved, and
+     your version is the one running -- were the half getting truncated away.
+     The hashes are still on `org.baselineDrift` for anything that debugs. */
   if (org.baselineDrift) {
     notices.push({
       kind: 'drift',
-      text: `The shipped default organisation changed under your edits. You saved yours from "${org.baselineDrift.seededFrom}"; this build ships "${org.baselineDrift.shippedNow}". Your edits are still in force and the newer default is not being applied.`,
+      text: 'The organisation this app ships with has changed since you saved your own. Your version is still the one in force, and the newer default is not being applied.',
     })
   }
   return notices

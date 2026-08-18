@@ -671,6 +671,134 @@
   border-color: color-mix(in oklab, var(--s-serious) 34%, var(--line-2));
 }
 
+/* ---- the fleet rail's section heads ----------------------------------- */
+/* SIX SECTIONS IN A 330px COLUMN. At the shared `.rail-sec` size that is six
+   lines of tracked upper case shouting at a reader who is trying to find one
+   of them, and nothing separates a section from the paragraph above it. A
+   hairline does the dividing, and the head goes back to sentence case, which
+   is the same resolution `.board-page .board-box .rail-sec` already reached
+   for the boxes on the other rail. */
+.computers .stats-page .rail-sec {
+  margin: var(--s4) 0 var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  font-weight: 640;
+}
+.computers .stats-page .rail-scroll > .rail-sec:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ---- the fleet rail's facts ------------------------------------------- */
+/* FOUR FACTS, FOUR ROWS. They used to be one mono sentence joined by middots
+   -- "This computer · declared source · 0 described in the fleet record ·
+   graph revision 4" -- which asks the reader to do the parsing and wraps in a
+   different place at every rail width. Label in the reading face, value in
+   mono, because a name, a count and a revision are values. */
+.computers .rail-page .rail-facts {
+  margin: 0 0 var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.computers .rail-page .rail-fact {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+}
+.computers .rail-page .rail-fact dt {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.computers .rail-page .rail-fact dd {
+  margin: 0 0 0 auto;
+  min-width: 0;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ---- a warning that is a warning -------------------------------------- */
+/* One heading line, one explanation, one thing to press. The declared-only
+   warning was a run-on `.rail-sub` in mono with the remedy floating beneath it
+   as a fifth paragraph of the same weight, so nothing in it read as either the
+   point or the way out. */
+.computers .rail-page .rail-note {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 var(--s4);
+  padding: 10px 12px;
+  border-radius: var(--board-r, 3px);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--s-warn, var(--ink-3));
+  background: color-mix(in oklab, var(--ink) 3%, var(--sheet));
+  /* The box keeps `.projection-unavailable` because two harnesses count that
+     class to find "this screen is not showing live data". The class also
+     carries `font-family: var(--font-mono)`, which is right for the value it
+     was written for and wrong for three sentences and a link, so the reading
+     face is restored here rather than by dropping the marker. */
+  font-family: var(--font-ui);
+}
+.computers .rail-page .rail-note .rail-note-h {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.computers .rail-page .rail-note .rail-note-b {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.computers .rail-page .rail-note .rail-note-a {
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 640;
+  color: var(--ink);
+}
+
+/* ---- filing sessions under a research project ------------------------- */
+/* Its own section of the rail since 2026-08-18. It was mounted into the top
+   bar's tool strip, where its empty state -- a whole sentence about the
+   research page -- sat between Edit and the zoom buttons and squeezed the
+   computer's own name out of the bar entirely at 1280x800. */
+.computers .rail-page .rail-research-slot .research-assign-control {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s2);
+}
+.computers .rail-page .rail-research-slot .research-popover-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.computers .rail-page .rail-research-slot select { width: 100%; }
+.computers .rail-page .rail-research-slot [data-assign-apply] { align-self: flex-start; }
+.computers .rail-page .rail-research-slot .research-observed-empty {
+  margin: 0;
+  /* research.css sets this class in mono for the research page's own registers.
+     Here it is one sentence at the foot of a rail of sentences, so it reads in
+     the same face as its neighbours. */
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
 /* ---- notices about the org itself ------------------------------------ */
 .computers .rail-page .org-notice {
   margin: 8px 0 10px;
@@ -869,17 +997,22 @@ body:has([data-agent-compose])
    readable ellipsised slice of their tree's name and snap into view. */
 .graph-bar-trees .graph-tree-switch {
   flex: none;
+  height: 30px;
   overflow: visible;
 }
+/* 18ch, not 14. The budget was set while a paragraph about the research page
+   was also living in this bar; with that gone the strip has the room, and a
+   tree named by the first words typed into it needs about that many characters
+   before the name stops being a name. */
 .graph-bar-trees .graph-tree-switch > button {
   flex: none;
-  max-width: 14ch;
-  height: 26px;
+  max-width: 18ch;
+  height: 24px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
-  line-height: 26px;
+  line-height: 24px;
   scroll-snap-align: start;
 }
 

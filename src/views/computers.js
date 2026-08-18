@@ -798,6 +798,15 @@ const RUN_SESSION_NODES = new Map()
  * node on a later visit that nobody asked for. */
 let composeToRestore = null
 
+/* WHERE A COMPUTER'S RECORD CAME FROM, in words rather than in the word the
+   program uses. `computer.note` is `sourceKind`, which the fleet schema pins to
+   exactly two values, so this is a lookup and not a guess -- and an unexpected
+   third value falls through to a sentence that claims nothing. */
+const RECORD_SOURCE = Object.freeze({
+  declared: 'Written down in this computer’s declared organisation.',
+  observed: 'Seen running on this computer.',
+})
+
 export function computersView({ initialComputer = null, navigate }) {
   let liveMode = isLiveView('computers')
   let liveComputers = []
@@ -896,22 +905,54 @@ export function computersView({ initialComputer = null, navigate }) {
              stops deciding the visual order, and the trees slot alone scrolls
              sideways (hidden scrollbar, edge fades). -->
         <div class="graph-wrap glass">
+          <!-- THE BAR, REBUILT (owner, 2026-08-18: "this bar is still super ugly
+               ... start over on just this top bar"). Same three slots, because
+               that part was never the complaint; what it lacked was RANK and
+               GROUPING, and what it carried was a paragraph.
+
+               RANK. Everything in it was one weight at one size, so the name of
+               the computer competed with a zoom percentage. The name is now the
+               only thing in the bar with title weight, in its own lead slot, and
+               every control is one shared 28px chip.
+
+               GROUPING. Three jobs, in the order they get used, separated by
+               hairlines (drawn by the slots themselves, so no divider elements
+               exist to fall out of place): WHAT you are looking at, HOW you are
+               looking at it (zoom), and WHAT YOU CAN DO with it (edit, and the
+               one control that leaves the page).
+
+               AND THE PARAGRAPH IS GONE. "No research projects exist yet. Create
+               one on the research page first." was mounted into the tool strip,
+               so a sentence about a different page sat in the row of buttons for
+               this one. Filing a scope under a project is a fleet-wide setting,
+               so it is now a named section of the fleet rail beside Session
+               profiles and Roles -- see mountResearchScopeControl. -->
           <div class="graph-bar">
-            <div class="graph-title"></div>
+            <div class="graph-bar-lead">
+              <div class="graph-title"></div>
+            </div>
             <div class="graph-bar-trees"></div>
             <div class="graph-tools">
-              <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
-              <!-- THE NAMED DOOR TO THE DRILL-IN.
-                   src/tree-graph.js already made ONE CLICK on a node open the rail,
-                   which fixed the gesture. It did not fix the naming: nothing on
-                   this page said the drill-in exists, so reaching it still meant
-                   clicking a bubble on the chance that something useful appears,
-                   then finding "Open full view" inside the panel that appeared.
-                   This button is the same destination said out loud, in the strip
-                   that already holds this page's named controls, and it is a
-                   sibling of the rail button rather than a replacement for it. -->
-              <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
-              <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
+              <!-- src/tree-graph.js inserts the zoom cluster as this slot's FIRST
+                   child, which is why the buttons below live in their own group:
+                   without it the zoom controls and the actions were one
+                   undifferentiated run of chips. -->
+              <div class="graph-tool-set">
+                <button class="graph-reset-btn" type="button" hidden>Reset positions</button>
+                <button class="graph-edit-btn" type="button" title="Edit the role hierarchy">Edit</button>
+                <!-- THE NAMED DOOR TO THE DRILL-IN.
+                     src/tree-graph.js already made ONE CLICK on a node open the rail,
+                     which fixed the gesture. It did not fix the naming: nothing on
+                     this page said the drill-in exists, so reaching it still meant
+                     clicking a bubble on the chance that something useful appears,
+                     then finding "Open full view" inside the panel that appeared.
+                     This button is the same destination said out loud, in the strip
+                     that already holds this page's named controls, and it is a
+                     sibling of the rail button rather than a replacement for it.
+                     It is LAST in the group and the only accented chip, because it
+                     is the only one of the three that leaves this page. -->
+                <button class="graph-open-btn" type="button" hidden>Open agent detail</button>
+              </div>
               <!-- The Split button (owner defect 5's second, view-only pane) stood
                    here until 2026-08-16. Owner: "lets throw it away for now" -- his
                    read was that a page ends up with two views nobody keeps
@@ -2083,10 +2124,22 @@ export function computersView({ initialComputer = null, navigate }) {
      each of its sessions; "Every tree" writes the live assign-all rule that
      also covers sessions started later. One shared control (the same factory
      the rail and the research page use), mounted once the projects are read. */
+  /* IT LIVES ON THE RAIL NOW, NOT IN THE TOOL STRIP. Mounted into
+     `.graph-tools`, this control put "No research projects exist yet. Create one
+     on the research page first." between Edit and the zoom buttons -- a sentence
+     about a different page, in the row of controls for this one, and the owner's
+     first complaint about the bar. Filing is a setting about the whole fleet, so
+     it sits beside Session profiles and Roles, which are the other two.
+
+     NOT MOUNTED UNTIL THE SERVICE HAS ANSWERED. `researchService` is null while
+     the read is in flight, and an empty project list means "there are none" --
+     mounting early would print that sentence about a service nobody has asked
+     yet. The slot holds a waiting line until then and this replaces it. */
   function mountResearchScopeControl() {
-    const tools = root.querySelector('.graph-tools')
-    if (!tools || tools.querySelector('[data-assign-control]') || !liveMode) return
-    tools.appendChild(createAssignmentControl({
+    const slot = root.querySelector('[data-research-scope-slot]')
+    if (!slot || slot.querySelector('[data-assign-control]') || !liveMode || !researchService) return
+    slot.innerHTML = ''
+    slot.appendChild(createAssignmentControl({
       projects: researchService?.ok ? researchService.projects : [],
       unavailableReason: researchService && !researchService.ok ? researchService.reason : null,
       label: 'File this scope under',
@@ -2803,33 +2856,67 @@ export function computersView({ initialComputer = null, navigate }) {
     updateTasks()
   }
 
+  /* THE RAIL THE OWNER CALLED HARD TO READ, REBUILT AROUND THREE CHANGES.
+   *
+   * IT WAS A WALL OF MONO. Every sentence here was a `.rail-sub`, and that
+   * class is `font-family: var(--font-mono)` — a paragraph of code type in a
+   * 330px column. `.rail-prose` is the rail's reading voice and already exists
+   * for exactly this (see its note in styles.css); mono is kept for the values
+   * in the fact list, which is what mono is for.
+   *
+   * IT SAID THINGS IN FRAGMENTS. "This computer · declared source · 0 described
+   * in the fleet record · graph revision 4" is four facts wearing one sentence's
+   * clothes, and the reader has to do the parsing. Four facts are now four rows
+   * with their own labels, and the sentences around them are sentences.
+   *
+   * THE WARNING LEAKED A HASH. See orgNotices() in src/org-controls.js: the
+   * drift notice printed two content hashes, and at this width they truncated
+   * mid-hash against the rail's edge. Nothing a person can act on was in them. */
   function renderLiveStats() {
     const services = computer.services || []
+    const sourceSentence = RECORD_SOURCE[computer.note] || 'This computer did not say where its record came from.'
     statsPage.innerHTML = `
       ${railTitleRow({ title: 'Fleet overview' })}
       <div class="rail-scroll" data-live-mode="live" data-projection-state="available">
         <div class="stat-hero"><span class="v" id="agent-count" data-record-state="reading">—</span><span class="l">Agents on record</span></div>
-        <div class="rail-sub" data-agent-record-note>Reading this computer’s own record of what has run here.</div>
-        <div class="rail-sub">${escapeMarkup(computer.name)} · ${escapeMarkup(computer.note)} source · ${computer.spawnedTotal} described in the fleet record · graph revision ${computer.graphRevision ?? 'unavailable'}</div>
-        ${declaredOnlyReason ? `<div class="rail-sub projection-unavailable" data-projection-state="declared">The live fleet data could not be read · ${escapeMarkup(declaredOnlyReason)} These are the agents this computer has on record, not agents seen running.</div>
-        <a class="rail-sub host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>` : ''}
+        <div class="rail-prose is-dim" data-agent-record-note>Reading this computer’s own record of what has run here.</div>
+        ${declaredOnlyReason ? `<div class="rail-note projection-unavailable" data-projection-state="declared">
+          <b class="rail-note-h">This is the record, not a live reading</b>
+          <span class="rail-note-b">${escapeMarkup(declaredOnlyReason)} So these are the agents this computer has on file, not agents anyone has seen running.</span>
+          <a class="rail-note-a host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>
+        </div>` : ''}
+        <div class="rail-sec">This computer</div>
+        <dl class="rail-facts">
+          <div class="rail-fact"><dt>Agents described</dt><dd>${computer.spawnedTotal}</dd></div>
+          <div class="rail-fact"><dt>Recorded relationships</dt><dd>${computer.graphEdges.length}</dd></div>
+          <div class="rail-fact"><dt>Graph revision</dt><dd>${computer.graphRevision ?? 'not recorded'}</dd></div>
+        </dl>
+        <p class="rail-prose is-dim">${escapeMarkup(sourceSentence)} Runtime, load, tasks and messages are not kept in it.</p>
         <div class="rail-sec">Services</div>
-        <div class="task-list projection-state">
-          ${services.length ? services.map(service => {
-            const meta = [service.state, service.detail].filter(Boolean).join(' · ').replace(/\s--\s/g, ' — ')
-            return `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b><span class="svc-meta">${escapeMarkup(meta)}</span></div>`
-          }).join('') : '<div class="rail-sub">No services are on record for this computer</div>'}
-        </div>
-        <div class="rail-sec">Recorded relationships</div>
-        <div class="rail-sub">${computer.graphEdges.length} recorded relationships · runtime, load, tasks, and messages are not part of this record</div>
+        ${services.length
+          ? `<div class="task-list projection-state">${services.map(service => {
+              const meta = [service.state, service.detail].filter(Boolean).join(' · ').replace(/\s--\s/g, ', ')
+              return `<div class="task-chip" data-service-id="${escapeMarkup(service.id)}"><i></i><b>${escapeMarkup(service.name)}</b><span class="svc-meta">${escapeMarkup(meta)}</span></div>`
+            }).join('')}</div>`
+          /* OUTSIDE the .projection-state box, not inside it. That class is a
+             96px grid with centred content and 24px of side padding — right for
+             a wall of service chips, and wrong for one sentence, which it hung
+             in the middle of an empty panel while every other sentence on the
+             rail started at the left margin. */
+          : '<p class="rail-prose is-dim">No services are on record for this computer.</p>'}
+        <div class="rail-sec">Organisation</div>
         ${orgSourceMarkup()}
-        <div class="rail-sec">Session profiles</div>
-        <div class="board-profile-slot" data-profile-slot></div>
         <div class="rail-sec">Roles</div>
         <div class="board-org-slot"></div>
+        <div class="rail-sec">Session profiles</div>
+        <div class="board-profile-slot" data-profile-slot></div>
+        <div class="rail-sec">Research filing</div>
+        <p class="rail-prose is-dim">Pick a project and every session in the tree you are looking at gets filed under it. Every tree files the whole computer.</p>
+        <div class="rail-research-slot" data-research-scope-slot><p class="rail-prose is-dim">Reading your research projects.</p></div>
       </div>`
     mountOrgLibrary(statsPage.querySelector('.board-org-slot'))
     void mountProfilePanel(statsPage.querySelector('[data-profile-slot]'))
+    mountResearchScopeControl()
     void paintAgentsOnRecord()
   }
 
@@ -2889,7 +2976,7 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!sessions.readable) {
       hero.textContent = '—'
       hero.dataset.recordState = 'unreadable'
-      note.textContent = 'This copy could not open its record of what has run here, so this is not a count yet. Nothing has been lost; new runs are still written down.'
+      note.textContent = 'This copy could not open its record of what has run here, so this is not a count yet. Nothing has been lost and new runs are still written down.'
       return
     }
     /* `started` is null exactly when the recorder returned no whole-chain
@@ -2919,15 +3006,15 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!slot) return
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.profiles !== 'function') {
-      slot.innerHTML = `<div class="rail-sub">${escapeMarkup(PROFILE_PANEL.needsApp)}</div>`
+      slot.innerHTML = `<p class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.needsApp)}</p>`
       return
     }
     const answer = await bridge.profiles().catch(() => null)
     const profiles = answer && answer.ok ? answer.profiles : []
     slot.innerHTML = `
       <div class="board-box board-ctl-box">
-        <div class="rail-sub">${escapeMarkup(PROFILE_PANEL.help)}</div>
-        <ul class="rail-sub profile-list" data-profile-list>
+        <p class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.help)}</p>
+        <ul class="rail-prose profile-list" data-profile-list>
           ${profiles.map(profile => `<li><b>${escapeMarkup(profile.name)}</b> · <span class="profile-folder">${escapeMarkup(profile.cwd)}</span> <button class="ctl-btn profile-remove" type="button" data-profile-remove="${escapeMarkup(profile.id)}">${escapeMarkup(PROFILE_PANEL.remove)}</button></li>`).join('')
             || `<li>${escapeMarkup(PROFILE_PANEL.none)}</li>`}
         </ul>
@@ -2935,7 +3022,7 @@ export function computersView({ initialComputer = null, navigate }) {
           <input class="ctl-select" type="text" data-profile-name placeholder="${escapeMarkup(PROFILE_PANEL.namePlaceholder)}" aria-label="${escapeMarkup(PROFILE_PANEL.namePlaceholder)}">
           <button class="ctl-btn" type="button" data-profile-add>${escapeMarkup(PROFILE_PANEL.add)}</button>
         </div>
-        <output class="rail-sub" role="status" data-profile-out></output>
+        <output class="rail-prose" role="status" data-profile-out></output>
       </div>`
     const out = slot.querySelector('[data-profile-out]')
     slot.querySelector('[data-profile-add]')?.addEventListener('click', async () => {
@@ -2966,9 +3053,13 @@ export function computersView({ initialComputer = null, navigate }) {
       return `<div class="org-notice" data-notice="off">${escapeMarkup(failureSentence(orgAvailability, 'The declared organisation could not be read.'))}</div>`
     }
     const source = orgAvailability.org.source === 'overlay'
-      ? 'Showing your saved organisation.'
-      : 'Showing the organisation this build ships. Nothing has been changed on this computer yet.'
-    return `${orgNoticeMarkup(orgAvailability.org)}<div class="rail-sub">${escapeMarkup(source)} Revision ${escapeMarkup(String(orgAvailability.org.revision))}.</div>`
+      ? 'This is the organisation you saved.'
+      : 'This is the organisation the app ships with. Nothing has been changed on this computer yet.'
+    return `${orgNoticeMarkup(orgAvailability.org)}
+      <p class="rail-prose is-dim">${escapeMarkup(source)}</p>
+      <dl class="rail-facts">
+        <div class="rail-fact"><dt>Revision</dt><dd>${escapeMarkup(String(orgAvailability.org.revision))}</dd></div>
+      </dl>`
   }
 
   /* The role library is HIDDEN, not disabled, when there is no bridge at all.
