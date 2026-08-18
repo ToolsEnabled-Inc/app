@@ -829,6 +829,75 @@ function validateStartedSession(value) {
   return value
 }
 
+/* THE CONFINEMENT A SESSION RUNS UNDER, ASKED PER PROVIDER.
+ *
+ * WHAT WAS MEASURED, and it is the owner's own requirement failing. With Claude
+ * signed in and NO Codex sign-in on the machine, pressing Start was refused with
+ * "Codex is installed on this computer, but nobody is signed in to it ... run
+ * codex login" -- for a Claude tier, on a build carrying the Claude engine. The
+ * refusal was honest about what it found and wrong about what it meant: nothing
+ * on the Claude path reads ~/.codex/auth.json.
+ *
+ * WHY IT HAPPENED. Every permission level in the payload's
+ * INSTALL_TIER_AGENT_CONFINEMENT is `isolated: true`, and confinedSessionPlan()
+ * answers an isolated level by building an isolated CODEX home -- mkdir, link the
+ * user's Codex credential, write config.toml. linkCredential() refuses when there
+ * is no auth.json to link, which is correct for Codex and is the whole plan for
+ * every provider, because that function predates there being a second one. So a
+ * Claude subscriber was gated on a Codex account to use their own subscription.
+ *
+ * WHAT A CLAUDE SESSION ACTUALLY NEEDS OUT OF THE PLAN, read from the engine
+ * rather than assumed: claudeArgs() in capability/src/lib/agent-engine/
+ * claude-cli-adapter.js consumes exactly two keys -- `threadOptions.sandbox`,
+ * which it maps to --permission-mode (read-only -> plan, workspace-write ->
+ * acceptEdits, danger-full-access -> bypassPermissions, unknown -> plan), and
+ * `threadOptions.model`. It reads no environment we set: CODEX_HOME means
+ * nothing to it. So the ceiling a person chose is carried in full by
+ * resolveAgentConfinement(), which reads the recorded level and touches no
+ * credential and no home directory.
+ *
+ * THIS DOES NOT WIDEN ANYTHING, and that is checkable rather than promised. On
+ * the path this changes, plan.env only ever carried CODEX_HOME, which the Claude
+ * child ignores -- so the same session reaches exactly what it reached before.
+ * What it stops doing is REFUSING on a file it never opens. The scrub still
+ * applies: sessionLaunchEnvironment() runs safeLaunchEnvironment() on every
+ * branch, so ANTHROPIC_API_KEY and the endpoint redirectors are still removed,
+ * which is the whole mechanism that keeps the session on the person's own
+ * subscription.
+ *
+ * IT FAILS CLOSED THE SAME WAY THE PAYLOAD DOES. resolveAgentConfinement() never
+ * throws: an unreadable or absent record resolves to the most restrictive level
+ * and says so. If the payload predates that export, this falls back to
+ * confinedSessionPlan() -- today's behaviour, Codex credential and all -- rather
+ * than starting a session at a level nobody resolved.
+ *
+ * THE CODEX PATH IS UNTOUCHED. provider 'codex' (and an absent tier, which is
+ * the agent page's own start) goes through confinedSessionPlan() exactly as
+ * before, including its refusal when the Codex credential is missing. */
+function confinementPlanFor(planner, { provider = 'codex' } = {}) {
+  if (provider === 'codex' || typeof planner.resolveAgentConfinement !== 'function') {
+    return planner.confinedSessionPlan({})
+  }
+  const resolved = planner.resolveAgentConfinement({})
+  if (!resolved || typeof resolved !== 'object') {
+    return { ok: false, code: 'AGENT_CONFINEMENT_UNAVAILABLE' }
+  }
+  return Object.freeze({
+    ok: true,
+    tier: resolved.tier,
+    code: resolved.code,
+    failedClosed: resolved.failedClosed === true,
+    /* The level is still isolated -- that is what the record says and what the
+       sandbox word below enforces. What is not built is the CODEX home, because
+       this session is not a Codex session. */
+    isolated: resolved.isolated === true,
+    threadOptions: Object.freeze({ sandbox: resolved.sandbox, approvalPolicy: resolved.approvalPolicy }),
+    env: null,
+    codexHome: null,
+    servers: Object.freeze([]),
+  })
+}
+
 function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPlanner = null, sessionEnvironmentExtras = null } = {}) {
   const { startCodexSession, resumeCodexSession, engineRoot } = loadEngine(enginePath)
   /* Loaded ONCE beside the Codex engine, and allowed to be absent. See the note
@@ -843,7 +912,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
    * first-run screen promises; a ceiling cached at construction would make that
    * promise true only after a relaunch. */
   const planConfinement = confinementPlanner
-    || (() => loadConfinementPlanner(engineRoot).confinedSessionPlan({}))
+    || ((options = {}) => confinementPlanFor(loadConfinementPlanner(engineRoot), options))
   const sessions = new Map()
   const listeners = new Set()
   let closed = false
@@ -1094,7 +1163,12 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
      * security input treated as consent. A session that cannot be confined to
      * the level the user chose is not a session that runs at a wider level; it
      * is a session that does not run. */
-    const plan = planConfinement()
+    /* THE PROVIDER THIS SESSION IS ABOUT TO RUN ON, not a default. An absent
+     * tier is the agent page's own start, which is Codex, so it keeps the Codex
+     * plan -- the tier is the only thing that can move it off that. See
+     * confinementPlanFor(): a Claude tier is no longer gated on a Codex
+     * credential it never reads. */
+    const plan = planConfinement({ provider: (startTier && startTier.provider) || 'codex' })
     if (!plan || plan.ok !== true) {
       fail(
         (plan && plan.code) || 'AGENT_CONFINEMENT_UNAVAILABLE',
@@ -1621,4 +1695,4 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
  * it. A precedence test written against engineAvailability() therefore passes
  * whichever way round the candidates are, which is exactly what a planted
  * swap proved before this was exported. */
-module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, createAgentHost, engineAvailability, engineCandidates, narrowTurnOptions }
+module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, confinementPlanFor, createAgentHost, engineAvailability, engineCandidates, narrowTurnOptions }

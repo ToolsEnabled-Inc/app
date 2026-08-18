@@ -39,7 +39,7 @@
  *   node tools/claude-tree-start-proof.mjs --visible
  */
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -228,30 +228,31 @@ async function main() {
     }
     note('info', 'lent the scratch profile this computer\'s Claude sign-in and npm layout; both live only in the temporary profile this run deletes.')
 
-    /* A THROWAWAY CODEX CREDENTIAL, AND THE DEFECT IT EXISTS TO STEP AROUND.
+    /* NO CODEX CREDENTIAL IS SEEDED, AND THAT IS NOW THE POINT OF THE RUN.
      *
-     * MEASURED on this build: with no ~/.codex/auth.json in the profile,
-     * mc-agent:availability answers {ok:false, AGENT_CONFINEMENT_SIGNED_OUT} and
-     * the page never offers a start -- FOR ANY TIER, INCLUDING CLAUDE. The
-     * confinement planner is Codex-shaped: an isolated level builds its session
-     * from a Codex sign-in and links that credential into a prepared home.
+     * WHAT STOOD HERE. This file used to write a throwaway ~/.codex/auth.json
+     * into the scratch profile, because with no such file
+     * mc-agent:availability answered {ok:false, AGENT_CONFINEMENT_SIGNED_OUT}
+     * and the page offered no start FOR ANY TIER, Claude included. It recorded
+     * that as a real defect and stepped around it so the Claude path could be
+     * measured at all.
      *
-     * A Claude session never reads that file. So a person with Claude installed
-     * and signed in, and no Codex at all, is told this copy is not ready to
-     * start an agent -- which will be wrong the moment the Claude engine ships.
-     * That is a real defect and it is NOT fixed here; it is recorded, and it is
-     * one of the things still standing between this engine and a person using
-     * it. This file writes a throwaway file so the run can measure the Claude
-     * path rather than stopping on a Codex precondition.
+     * THE DEFECT IS FIXED, so the step-around comes out. confinedSessionPlan()
+     * is Codex-shaped -- every permission level is isolated, and an isolated
+     * level prepares a Codex home by LINKING the user's Codex credential, which
+     * refuses when there is nothing to link. shell/agent-host.cjs now asks for
+     * the plan PER PROVIDER (confinementPlanFor): a Claude tier is planned from
+     * resolveAgentConfinement() alone, which reads the recorded level and opens
+     * no credential. The ceiling is unchanged -- the same sandbox word reaches
+     * claudeArgs() as --permission-mode -- and the Codex path, including its
+     * refusal on a missing credential, is untouched.
      *
-     * The contents are inert and nothing reads them. It is not a credential and
-     * it is not copied from anywhere -- copying a real one into a test profile
-     * is forbidden outright in this lane, and the engine's own fence would fail
-     * on any code that tried. */
-    const codexHome = path.join(scratch, 'home', '.codex')
-    mkdirSync(codexHome, { recursive: true })
-    writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({ note: 'throwaway; the Claude path never reads this' }))
-    note('info', 'seeded a throwaway ~/.codex/auth.json: without one, availability refuses EVERY tier with AGENT_CONFINEMENT_SIGNED_OUT, including Claude, which never reads it. Recorded as a defect, stepped around here.')
+     * SO THE ABSENCE OF THIS FILE IS AN ASSERTION. The profile below has a
+     * Claude sign-in and NO Codex sign-in anywhere: it is the owner's own
+     * requirement, "a user adds their CLI subscriptions and uses them", as a
+     * measurable state. If a Codex precondition ever creeps back in front of a
+     * Claude start, this run stops at the panel and says so. */
+    note('info', 'this profile has NO ~/.codex/auth.json: a Claude start that needs one would fail here, which is the point.')
 
     seedMachineRecord(scratch, staged.appRoot, 'standard')
     window = await openWindow(staged.executable, scratch)
