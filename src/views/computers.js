@@ -112,8 +112,8 @@ import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, safeTreeSto
    rides in the message text rather than in an engine option. */
 import { composeNodeBrief, nodeManagerContext } from '../tree-node-brief.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
-import { isWriteEnabled } from '../write-flags.js'
-import { START_CONTROL_FLAG, startControlOffBecause } from '../setup-profile.js'
+import { isWriteEnabled, setWriteEnabled } from '../write-flags.js'
+import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
 /* The one rule for "is there still an agent behind this circle", shared by every
    surface on this page that used to answer it for itself. */
 import { nodeIsBusy, sessionEndedWithApp, sessionIsLive, treeNodeClock } from '../tree-session-liveness.js'
@@ -778,6 +778,25 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
  * (MC_AGENT_UNKNOWN_SESSION -> recoverDeadSessionSend) was written for exactly
  * this state and has been unreachable since the refill landed. */
 const RUN_SESSION_NODES = new Map()
+
+/* THE COMPOSE PANEL THAT MUST SURVIVE ITS OWN SWITCH.
+ *
+ * MODULE SCOPE FOR ONE MEASURED REASON. src/write-flags.js announces every
+ * change, and src/main.js re-renders the whole route when it hears one -- which
+ * is right, because a flag flipped anywhere must reach every surface at once.
+ * But the panel's own "Turn on running agents" IS such a change, so pressing it
+ * destroyed the view the person was looking at, panel and all. Measured
+ * 2026-08-18 on a staged build: the flag was written, the switch worked, and
+ * the panel simply vanished -- Start "came back" on a page they were no longer
+ * on. That is a restart in everything but name, and the owner asked for no
+ * restart.
+ *
+ * So the press records WHICH slot was being composed, the rebuilt view reads it
+ * once, and the panel reopens where it was. It holds a slot-press detail and
+ * nothing else, it is cleared the moment it is used, and nothing writes it
+ * except that one press -- a stale entry could otherwise open a panel over a
+ * node on a later visit that nobody asked for. */
+let composeToRestore = null
 
 export function computersView({ initialComputer = null, navigate }) {
   let liveMode = isLiveView('computers')
@@ -2205,7 +2224,56 @@ export function computersView({ initialComputer = null, navigate }) {
      The first sentence is shared with the agent page's switched-off surface,
      which is the other place this same flag is explained. */
   function startControlOffReason() {
-    return `${startControlOffBecause()} Nothing on this computer starts an assistant until you turn it on. Turning it on starts nothing by itself: it puts the Start control back, and you decide what to run. The switch is in Settings → Write → Run an agent session.`
+    /* THE LAST CLAUSE CHANGED WHEN THE SWITCH ARRIVED HERE. It used to end
+       "The switch is in Settings → Write → Run an agent session" -- true, and a
+       journey to another screen for a person who is already looking at the
+       panel they wanted. The switch is now beside this sentence, so the
+       sentence points at it; Settings is named after it, because that is still
+       where the answer lives afterwards and a person who wants to change it
+       back needs to know. */
+    return `${startControlOffBecause()} Nothing on this computer starts an assistant until you turn it on. Turning it on starts nothing by itself: it puts the Start control back, and you decide what to run. Press ${START_CONTROL_ON.label} below, or find the same switch in Settings → Write → Run an agent session.`
+  }
+
+  /* THE ONE-PRESS WAY OUT, offered only for the one reason a press can undo.
+   *
+   * Owner's rule, and it is the reason this is a control and not a default:
+   * his recorded answer stays off until HE presses. So nothing here writes
+   * anything -- composeUnavailableAction only DESCRIBES a press, and the write
+   * happens inside `run`, which is the click handler and nowhere else.
+   *
+   * It answers null for every other absence. A browser with no application
+   * behind it and a saved forest that would not open are both real reasons the
+   * panel is switched off, and neither is a thing this button could change; a
+   * control that cannot work is worse than the sentence alone.
+   *
+   * THE SAME WRITE THE SETTINGS CONTROL MAKES, not a second one:
+   * setWriteEnabled is the single writer of these rows (src/write-flags.js),
+   * which is what makes the two surfaces incapable of disagreeing. */
+  function composeUnavailableAction(detail) {
+    if (!liveMode || treeStoreProblem) return null
+    if (isWriteEnabled(START_CONTROL_FLAG)) return null
+    return {
+      label: START_CONTROL_ON.label,
+      run: () => {
+        /* RECORDED BEFORE THE WRITE, because the write is what destroys this
+           view. See composeToRestore: the announcement is synchronous, the
+           re-render is a microtask behind it, and by the time this function
+           returns there may be no panel left to answer. */
+        composeToRestore = detail || null
+        setWriteEnabled(START_CONTROL_FLAG, true)
+        /* READ BACK, never assumed. The flag store can refuse -- a browser with
+           storage switched off keeps the old answer -- and reporting a switch
+           that did not move would reopen the panel with a live Start control
+           over a computer that still refuses every start. */
+        if (!isWriteEnabled(START_CONTROL_FLAG)) { composeToRestore = null; return false }
+        /* AND THE WHOLE QUESTION IS ASKED AGAIN, not just this half of it.
+           composeUnavailableReason() checks the flag BEFORE the bridge, so a
+           page open in a browser was showing the flag's sentence over a second,
+           equally real absence. Handing that one back means the panel says what
+           is true after the press instead of what was true before it. */
+        return composeUnavailableReason() || true
+      },
+    }
   }
 
   /* WHY THE PANEL IS NEVER WITHHELD.
@@ -2297,6 +2365,10 @@ export function computersView({ initialComputer = null, navigate }) {
          when the words change, and its refusals name the button by its real
          name. */
       unavailableReason: unavailable,
+      /* AND THE WAY OUT OF IT, when this page owns one. See
+         composeUnavailableAction(): it is offered for the switched-off flag and
+         for nothing else, and it writes only when pressed. */
+      unavailableAction: composeUnavailableAction(detail),
       /* WHICH ENGINES THIS COPY CAN REALLY START, asked of the shell rather
          than assumed by the renderer. See startableTiersNow() below. */
       tiers: startableTierChoices,
@@ -2619,6 +2691,14 @@ export function computersView({ initialComputer = null, navigate }) {
     /* Asked as the board comes up, so the answer is usually in hand before the
        first empty node is pressed. */
     void readStartableTiers()
+    /* THE PANEL THE PERSON WAS IN, REOPENED AFTER THE SWITCH THEY PRESSED IN IT
+       tore this view down. Read once and cleared, so an ordinary visit never
+       inherits it. See composeToRestore for the measurement. */
+    if (composeToRestore) {
+      const resume = composeToRestore
+      composeToRestore = null
+      queueMicrotask(() => { if (!destroyed) openComposeFor(resume) })
+    }
     window.__mcGraph = graph
     renderCrumb(null)
     syncEditButton()

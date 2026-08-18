@@ -255,6 +255,35 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) 
   notice.setAttribute('hidden', 'hidden')
   body.appendChild(notice)
 
+  /* THE WAY OUT OF A STATED ABSENCE, WHEN THERE IS ONE.
+   *
+   * A notice that names a switch and leaves the person to find it is only half
+   * an answer: the panel is open, they are looking at it, and the remedy is one
+   * setting away on another screen. This is that switch, in the place the
+   * question was asked -- the same shape src/agent-session.js already uses on
+   * the agent page, where the off state renders the reason AND the control
+   * rather than rendering nothing.
+   *
+   * IT IS ONLY EVER DRAWN WHEN THE CALLER HANDS ONE OVER, and the caller hands
+   * one over only for a reason it can actually undo. A missing application or
+   * an unreadable saved forest have no button, because there is nothing this
+   * press could do about them, and a control that cannot work is worse than the
+   * sentence alone.
+   *
+   * NOTHING IS WRITTEN UNTIL IT IS PRESSED. The owner's rule for this flag is
+   * that his recorded answer stands until he changes it himself, so no render,
+   * no mount and no open touches it -- only this click handler, and only
+   * through the caller's own `run`, which owns the write. */
+  const unavailableAction = doc.createElement('button')
+  unavailableAction.type = 'button'
+  /* THE PANEL'S OWN BUTTON VOCABULARY, not a new one. `ctl-btn` is what
+     agent-compose-submit already wears, so this control arrives styled and
+     this module keeps its promise to add no visual vocabulary of its own. */
+  unavailableAction.className = 'ctl-btn agent-compose-enable'
+  unavailableAction.setAttribute('data-compose-unavailable-action', 'panel')
+  unavailableAction.setAttribute('hidden', 'hidden')
+  body.appendChild(unavailableAction)
+
   const roleField = doc.createElement('div')
   roleField.className = 'agent-compose-field'
   const roleLabelNode = doc.createElement('label')
@@ -460,7 +489,7 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) 
   status.setAttribute('hidden', 'hidden')
   root.appendChild(status)
 
-  return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, status, submit, cancel }
+  return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, unavailableAction, status, submit, cancel }
 }
 
 /**
@@ -508,6 +537,10 @@ export function mountAgentComposePanel({
   onSubmit = null,
   onCancel = null,
   unavailableReason = '',
+  /* `{ label, run }`, or null. Drawn only beside a stated absence, and only
+     when the caller can really undo that absence -- see the note on the button
+     itself. `run` owns the write and answers `true` when the reason is gone. */
+  unavailableAction = null,
   /* THE ENGINE ROWS, WHICH THIS FILE NO LONGER DECIDES. They arrive already
      labelled from src/fleet-tree-copy.js tierChoicesFor(), because only the
      shell knows which engines this payload can actually start and only the
@@ -523,6 +556,7 @@ export function mountAgentComposePanel({
     roles,
     tiers: Array.isArray(tiers) && tiers.length > 0 ? tiers : TIER_CHOICES,
     unavailableReason: asTrimmed(unavailableReason),
+    unavailableAction: isRecord(unavailableAction) ? unavailableAction : null,
   }
   let nodes = null
   let destroyed = false
@@ -621,6 +655,61 @@ export function mountAgentComposePanel({
   const showNotice = (sentence, liveRole) => {
     if (!nodes) return
     setLine(nodes.notice, sentence, liveRole)
+  }
+
+  /* Draw the way out, or draw nothing. Re-read from `current` on every render
+     so a panel reopened after the switch was thrown does not keep a stale
+     button beside a reason that no longer applies. */
+  function paintUnavailableAction() {
+    if (!nodes) return
+    const action = current.unavailableAction
+    const label = isRecord(action) ? asTrimmed(action.label) : ''
+    if (!current.unavailableReason || !label || typeof action.run !== 'function') {
+      nodes.unavailableAction.setAttribute('hidden', 'hidden')
+      nodes.unavailableAction.textContent = ''
+      return
+    }
+    nodes.unavailableAction.textContent = label
+    nodes.unavailableAction.disabled = false
+    nodes.unavailableAction.removeAttribute('hidden')
+  }
+
+  /* THE PRESS, AND WHAT IT IS ALLOWED TO CONCLUDE.
+   *
+   * The caller's `run` owns the write and answers whether the reason is gone.
+   * Only a truthy answer reopens the panel working -- a run that refuses, or
+   * throws, leaves the panel exactly as it was with its sentence still on it,
+   * because a control that clears a refusal it did not actually clear is how a
+   * person comes to press Start into a wall.
+   *
+   * The panel is REOPENED rather than navigated away from: the person pressed a
+   * switch and the control they were told about appears where the switch was.
+   * That is the property the owner asked for -- no restart, no second journey. */
+  async function runUnavailableAction() {
+    if (!nodes || destroyed) return
+    const action = current.unavailableAction
+    if (!isRecord(action) || typeof action.run !== 'function') return
+    nodes.unavailableAction.disabled = true
+    let outcome = false
+    try { outcome = await action.run() } catch { outcome = false }
+    if (destroyed || !nodes) return
+    /* A STRING IS A DIFFERENT REASON, NOT A FAILURE. The caller may know that
+       the absence it just cleared was hiding a second one -- a switch turned on
+       inside a browser with no application behind it is the measured case -- so
+       it may answer with the reason that now applies. Showing the OLD sentence
+       there would tell a person the switch did not work; showing none would
+       hand them a live Start over a page that cannot start anything. */
+    if (typeof outcome === 'string' && outcome.trim().length > 0) {
+      current = { ...current, unavailableReason: outcome.trim(), unavailableAction: null }
+      render()
+      return
+    }
+    if (outcome !== true) {
+      nodes.unavailableAction.disabled = false
+      return
+    }
+    current = { ...current, unavailableReason: '', unavailableAction: null }
+    render()
   }
 
   const settle = (outcome, token) => {
@@ -743,6 +832,7 @@ export function mountAgentComposePanel({
       setLine(nodes.messageProblem, '')
       markInvalid(nodes.messageInput, false)
     })
+    nodes.unavailableAction.addEventListener('click', () => { void runUnavailableAction() })
 
     container.appendChild(nodes.root)
 
@@ -751,6 +841,7 @@ export function mountAgentComposePanel({
       nodes.submit.disabled = true
       nodes.roleSelect.disabled = true
       nodes.messageInput.disabled = true
+      paintUnavailableAction()
     }
     return nodes.root
   }
@@ -768,6 +859,9 @@ export function mountAgentComposePanel({
         roles: 'roles' in next ? next.roles : current.roles,
         tiers: 'tiers' in next && Array.isArray(next.tiers) && next.tiers.length > 0 ? next.tiers : current.tiers,
         unavailableReason: 'unavailableReason' in next ? asTrimmed(next.unavailableReason) : current.unavailableReason,
+        unavailableAction: 'unavailableAction' in next
+          ? (isRecord(next.unavailableAction) ? next.unavailableAction : null)
+          : current.unavailableAction,
       }
       return render()
     },

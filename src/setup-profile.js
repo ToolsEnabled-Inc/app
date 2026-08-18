@@ -666,6 +666,23 @@ export function intentField(id) {
  * IT LIVES HERE, not on the two screens that say it, because both of them say
  * it: the agent page's switched-off surface and the fleet page's start panel.
  * Two copies of one explanation is how one of them comes to be wrong. */
+/* THE WORDS ON THE SWITCH THAT TURNS IT BACK ON.
+ *
+ * Here for the same reason startControlOffBecause() is, and the reason is now
+ * literally true of two surfaces rather than one: the agent page's switched-off
+ * surface has carried this button since R1529, and the fleet page's start panel
+ * carries it as of 2026-08-18. Both had to name the same control, and a label
+ * typed twice is a label that reads differently on the two screens the first
+ * time only one is edited.
+ *
+ * It says what the press DOES, not what the setting is called. "Turn on running
+ * agents" is a verb a person can act on; "agent-session" is the row it writes,
+ * and a row identifier in front of a person is the defect
+ * tools/check-plain-language.mjs exists to catch. */
+export const START_CONTROL_ON = Object.freeze({
+  label: 'Turn on running agents',
+})
+
 export function startControlOffBecause(scope = globalThis) {
   let stored = null
   try { stored = readStoredProfile(scope) } catch { stored = null }
