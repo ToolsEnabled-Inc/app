@@ -56,7 +56,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -169,12 +169,65 @@ const SETTINGS = new Map([
      to be told that helps nobody. It spends no provider budget by construction;
      see the environment fence in its header. */
   ['agent-dispatch-packaged-qa.mjs', { runner: 'node', timeoutMs: 300_000 }],
+  /* TWO MORE ELECTRON MAIN-PROCESS SCRIPTS, registered 2026-08-18 with the
+     crash that found them. Both are `.cjs` that `require('electron')` and call
+     `app.setPath` / `app.whenReady()` at module scope. Unregistered, they took
+     the `node` default and died in 0.3s and 1.7s with
+     `TypeError: Cannot read properties of undefined (reading 'setPath')` --
+     before either had run a single check. That reads in the table exactly like
+     a product failure, which is the worst way for a gate to be wrong. See
+     runnerForSource() below for why an explicit entry is no longer the only
+     thing standing between the next one and the same 0.3s lie. */
+  ['approvals-decision-outcome-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
+  ['write-outcome-restate-qa.cjs', { runner: 'electron', timeoutMs: 300_000 }],
+  /* NEEDS A REAL GOOGLE DESKTOP-APP CLIENT ID AND THE PUBLIC NETWORK, by name:
+     it refuses with "TOOLSENABLED_GOOGLE_CLIENT_ID is not set; this run needs a
+     real Desktop-app client id" and measures nothing without one. That is the
+     definition this file already has for `costly` -- a driver that cannot run
+     on its own -- and google-signin-packaged-qa covers the same machinery
+     against a loopback provider in the default set, so the free path is not
+     lost by holding this one back. */
+  ['google-signin-live-qa.mjs', { runner: 'node', timeoutMs: 900_000, costly: true }],
   /* Launches a real Codex Cloud task and follows it to a terminal state. Real
      provider budget, real network. Never in the default set. */
   ['cloud-launch-packaged-qa.mjs', { runner: 'node', timeoutMs: 1_500_000, costly: true }],
 ])
 
 const DEFAULT_SETTINGS = Object.freeze({ runner: 'node', timeoutMs: 900_000, costly: false, needs: [] })
+
+/* WHICH BINARY AN UNREGISTERED DRIVER NEEDS, ASKED OF THE FILE.
+ *
+ * Rule 2 above says an unregistered driver still RUNS, on defaults. That was
+ * true and it was not enough: the default runner is `node`, and an Electron
+ * main-process script under `node` has no `app` at all, so it throws on its
+ * first line. Measured 2026-08-18 -- approvals-decision-outcome-qa and
+ * write-outcome-restate-qa were both in the FAIL column of a 40-driver run
+ * having never executed one check, with a module-load stack for a log. The
+ * registry entries above fix those two; this function is why the next one
+ * added is not a third.
+ *
+ * IT IS ONE FACT, ASKED THE WAY acceptsRelease() ALREADY ASKS ITS ONE FACT: an
+ * Electron main script is exactly a file that pulls the `electron` module into
+ * its own process. A driver that merely SPAWNS the Electron binary (which is
+ * what most of these do, through the shared harness) never does that -- it
+ * passes a path to a child. The one file that both spawns and names the module
+ * is tools/ring-fidelity-qa.mjs, and it names it INSIDE a call
+ * (`run(require('electron'), ...)`) rather than binding it at module scope,
+ * which is the distinction this pattern is written around.
+ *
+ * A REGISTERED ENTRY STILL WINS, and unreadable is still `node`: derivation is
+ * the floor under the registry, never a second opinion that can overrule it. */
+/* `.` never crosses a line break without the `s` flag, which is what keeps
+   both halves anchored to ONE statement rather than wandering down the file. */
+const ELECTRON_MAIN = /^\s*(?:const|let|var)\s.*=\s*require\(['"]electron['"]\)|^\s*import\s.*from\s*['"]electron['"]/m
+
+export function runnerForSource(source) {
+  return typeof source === 'string' && ELECTRON_MAIN.test(source) ? 'electron' : 'node'
+}
+
+function derivedRunner(file) {
+  try { return runnerForSource(readFileSync(file, 'utf8')) } catch { return DEFAULT_SETTINGS.runner }
+}
 
 /* Which drivers accept `--release <dir>`. Passing it to one that does not would
    be read as an unknown positional, so it is asked of the file rather than
@@ -193,12 +246,16 @@ export function discoverDrivers(toolsDirectory = path.join(REPO_ROOT, 'tools')) 
 
 export function planFor(names) {
   return names.map(name => {
+    const registered = SETTINGS.has(name)
+    const file = path.join(REPO_ROOT, 'tools', name)
     const settings = { ...DEFAULT_SETTINGS, ...(SETTINGS.get(name) || {}) }
+    /* Only for a driver nobody has recorded settings for; see runnerForSource. */
+    if (!registered) settings.runner = derivedRunner(file)
     return {
       name,
       key: name.replace(/\.(mjs|cjs)$/, ''),
-      file: path.join(REPO_ROOT, 'tools', name),
-      registered: SETTINGS.has(name),
+      file,
+      registered,
       ...settings,
     }
   })

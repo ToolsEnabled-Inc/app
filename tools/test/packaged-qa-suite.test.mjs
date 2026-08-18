@@ -37,7 +37,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { discoverDrivers, planFor, staleSettings, verdictFor } from '../packaged-qa-suite.mjs'
+import { discoverDrivers, planFor, runnerForSource, staleSettings, verdictFor } from '../packaged-qa-suite.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const TOOLS = path.join(REPO_ROOT, 'tools')
@@ -83,6 +83,45 @@ test('3b. an UNREGISTERED driver still gets a runnable plan -- settings are not 
   assert.equal(invented.registered, false, 'it must be reported as unregistered')
   assert.equal(invented.runner, 'node', 'it must still get a default runner')
   assert.ok(invented.timeoutMs > 0, 'it must still get a default timeout')
+})
+
+/* 3c. THE DEFAULT RUNNER IS NOT ALWAYS `node`, AND WHY THIS TEST EXISTS.
+ *
+ * MEASURED 2026-08-18, on a 40-driver run of the real suite:
+ *   approvals-decision-outcome-qa   FAIL after 1.7s
+ *   write-outcome-restate-qa        FAIL after 0.3s
+ * Both are Electron main-process scripts. Both were UNREGISTERED, so both took
+ * the `node` default, so both threw
+ * `TypeError: Cannot read properties of undefined (reading 'setPath')` at
+ * module load -- before one check had run. In the table that is indistinguishable
+ * from a product defect, which is the most expensive way for a gate to be wrong:
+ * it sends somebody to read the product for a fault that is in this file.
+ *
+ * So the question "which binary does this driver need" is now asked of the
+ * driver, and the two shapes below are the ones that decide it. The third case
+ * is the one a naive `includes('electron')` gets wrong -- tools/ring-fidelity-qa.mjs
+ * SPAWNS the Electron binary from a node process and must stay on `node`. */
+test('3c. an unregistered Electron main-process driver is not handed to node', () => {
+  assert.equal(runnerForSource("const { app } = require('electron')"), 'electron',
+    'a CommonJS driver that binds the electron module runs IN Electron, not under node')
+  assert.equal(runnerForSource("import { app, BrowserWindow } from 'electron'"), 'electron',
+    'the ESM spelling of the same fact')
+  assert.equal(runnerForSource("await run(require('electron'), [path.join(ROOT, 'x.cjs')])"), 'node',
+    'naming the electron BINARY to spawn is not the same as importing the module; ' +
+    'ring-fidelity-qa does exactly this and must keep running under node')
+  assert.equal(runnerForSource('const x = 1'), 'node', 'the floor is still node')
+  assert.equal(runnerForSource(null), 'node', 'an unreadable driver falls back rather than throwing')
+})
+
+test('3d. every Electron main-process driver on disk gets the Electron binary', () => {
+  const wrong = planFor(discoverDrivers()).filter(entry => {
+    let source
+    try { source = readFileSync(entry.file, 'utf8') } catch { return false }
+    return runnerForSource(source) === 'electron' && entry.runner !== 'electron'
+  })
+  assert.deepEqual(wrong.map(entry => entry.key), [],
+    'these drivers import the electron module and would be spawned under node, ' +
+    'which throws at module load before any check runs')
 })
 
 /* Strip comments before scanning.

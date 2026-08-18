@@ -291,9 +291,14 @@ async function run() {
     backgroundColor: theme.themes[selectedTheme].bg,
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
   })
+  /* WHERE, NOT ONLY WHAT. A renderer error reported as a bare sentence sends the
+     next reader grepping for a DOM message that half a dozen call sites can
+     throw; the source and line are already on the event and cost nothing. */
   const rendererErrors = []
   browser.webContents.on('console-message', event => {
-    if (event?.level === 'error') rendererErrors.push(String(event.message || 'unknown renderer error'))
+    if (event?.level !== 'error') return
+    const where = event.sourceId ? ` [${event.sourceId}:${event.lineNumber}]` : ''
+    rendererErrors.push(`${String(event.message || 'unknown renderer error')}${where}`)
   })
 
   const observed = { mode, appDir, decisionDelayMs }
