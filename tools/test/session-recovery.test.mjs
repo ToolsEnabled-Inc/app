@@ -22,8 +22,18 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const view = readFileSync(join(ROOT, 'src', 'views', 'computers.js'), 'utf8')
 
 test('busy is liveness, not status — and the send path uses it', () => {
+  /* The rule moved into src/tree-session-liveness.js when the restart-stale
+     defect was closed, because six surfaces on this page needed to ask the same
+     question and each was answering it its own way. It is DRIVEN in
+     tools/test/zombie-session.test.mjs rather than matched; what is pinned here
+     is that this view still reads it from there. */
+  const liveness = view.slice(view.indexOf('const nodeSessionLive'), view.indexOf('const nodeSessionLive') + 200)
+  assert.match(liveness, /sessionIsLive\(node, sessionNodeIds\)/,
+    'the view stopped asking the shared liveness rule; restart-stale nodes read busy forever again')
+  assert.match(view, /from '\.\.\/tree-session-liveness\.js'/,
+    'the shared liveness rule is no longer imported by the page that needs it')
   const rule = view.slice(view.indexOf('const nodeBusy'), view.indexOf('const nodeBusy') + 400)
-  assert.match(rule, /sessionNodeIds\.has\(node\.sessionId\)/,
+  assert.match(rule, /nodeIsBusy\(node, sessionNodeIds\)/,
     'nodeBusy no longer checks session liveness; restart-stale nodes read busy forever again')
   const send = view.slice(view.indexOf('function treeCardSend'), view.indexOf('function treeCardSend') + 2400)
   assert.match(send, /if \(nodeBusy\(node\)\)/, "treeCardSend's busy branch stopped using the liveness rule")
@@ -43,7 +53,7 @@ test('the phantom you-line strips from BOTH copies before the resume reads them'
   const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function recoverDeadSessionSend') + 3600)
   const windowStrip = recovery.indexOf('held.pop()')
   const durableStrip = recovery.indexOf('transcriptStore.save(node.id, { lines: trimmed')
-  const resumeAt = recovery.indexOf('await resumeNodeSession(node, {})')
+  const resumeAt = recovery.indexOf('await resumeNodeSession(node, {')
   assert.ok(windowStrip !== -1, 'the window transcript keeps the phantom you-line; the words ride twice')
   assert.ok(durableStrip !== -1, 'the durable record keeps the phantom you-line; the seed reads it and the queue re-sends it')
   assert.ok(resumeAt > windowStrip && resumeAt > durableStrip,

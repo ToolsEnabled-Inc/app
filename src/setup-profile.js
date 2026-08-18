@@ -617,6 +617,26 @@ export function intentField(id) {
   return INTENT_BY_ID.get(id) || null
 }
 
+/* WHY THERE IS NO START CONTROL, IN THE PERSON'S OWN WORDS.
+ *
+ * Two genuinely different ways to arrive at a machine that cannot start an
+ * agent, and telling them apart is the whole value of the sentence: the
+ * walkthrough's autonomy answer, or the Settings switch on a machine that never
+ * recorded a profile. Telling somebody setup did it when they turned it off
+ * themselves an hour ago is the product misdescribing its own state.
+ *
+ * IT LIVES HERE, not on the two screens that say it, because both of them say
+ * it: the agent page's switched-off surface and the fleet page's start panel.
+ * Two copies of one explanation is how one of them comes to be wrong. */
+export function startControlOffBecause(scope = globalThis) {
+  let stored = null
+  try { stored = readStoredProfile(scope) } catch { stored = null }
+  const chosen = stored ? autonomyChoice(stored.answers?.autonomy) : null
+  return chosen && chosen.consequence
+    ? `Setup recorded “${chosen.label}”, and that answer switches off starting an assistant.`
+    : 'Starting an assistant is switched off for this computer.'
+}
+
 export function autonomyChoice(value) {
   return AUTONOMY_CHOICES.find(choice => choice.value === value) || AUTONOMY_CHOICES[0]
 }

@@ -16,7 +16,7 @@ import { isWriteEnabled, setWriteEnabled } from './write-flags.js'
 import { sessionEventText, sessionTurnStatus, sessionTurnSucceeded } from './agent-session-events.js'
 import { createTranscriptAppender } from './agent-session-transcript.js'
 import { publishLiveSession } from './agent-session-registry.js'
-import { autonomyChoice, readStoredProfile } from './setup-profile.js'
+import { startControlOffBecause } from './setup-profile.js'
 /* What turning this on would grant and what it would risk, from the one place
    those statements live (owner, R1529). */
 import { withheldMarkup } from './guided-step.js'
@@ -196,12 +196,9 @@ function mountSessionSwitchedOff(root, remount) {
  * product misdescribing its own state, which is the failure this repair is
  * about. */
 function switchedOffReason() {
-  let stored = null
-  try { stored = readStoredProfile() } catch { stored = null }
-  const chosen = stored ? autonomyChoice(stored.answers?.autonomy) : null
-  const because = chosen && chosen.consequence
-    ? `Setup recorded “${chosen.label}”, and that answer switches off starting an assistant.`
-    : 'Starting an assistant is switched off for this computer.'
+  /* The first sentence is startControlOffBecause()'s, shared with the fleet
+     page's start panel, which says the same thing about the same switch. */
+  const because = startControlOffBecause()
   /* THREE SENTENCES, NOT ONE. This was a single thirty-word run-on carrying
      three separate facts: that nothing runs yet, that the switch starts nothing
      by itself, and where the switch is. One idea per sentence is the whole of

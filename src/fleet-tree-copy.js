@@ -556,6 +556,23 @@ export const RECOVERED_SESSION = Object.freeze({
   bare: 'That agent’s session had ended, so a fresh one started in its place. Your message is going now.',
 })
 
+/* THE STATE AN APP RESTART LEAVES BEHIND.
+ *
+ * A session is a child process, so closing ToolsEnabled ends it. The RECORD of
+ * the node survives, still saying what it was doing at the moment the window
+ * went away, and on the next launch that record used to be read as a running
+ * agent: a ticking clock, a chip reading "starting", and a Stop button over
+ * something that had stopped hours earlier.
+ *
+ * These are the words for what really happened. They say the session ended,
+ * they say why, and each one ends with the thing to do next, because a person
+ * looking at this node is looking for the way out of it. */
+export const ENDED_SESSION = Object.freeze({
+  word: 'stopped',
+  subtitle: 'your agent · this session ended when the app closed',
+  said: 'The app closed while this agent was working, so its answer was lost. Type a message to bring it back, or use Resume with a fresh agent.',
+})
+
 /* THE ACTIONS PALETTE — now the chat composer's popup. Every row is an
    action this build really performs on this node, today. What the product
    cannot do is one honest sentence in the footer, never a disabled control

@@ -64,6 +64,8 @@ import {
   REWIND_PANEL,
   RESUME_PANEL,
   RECOVERED_SESSION,
+  ENDED_SESSION,
+  SECOND_TREE,
   EFFORT_SWITCH,
   EFFORT_CHOICES,
   TIER_CHOICES,
@@ -83,6 +85,7 @@ import {
   clearSession as outboxClearSession,
   enqueue as outboxEnqueue,
   list as outboxList,
+  moveSession as outboxMoveSession,
   requeueFront as outboxRequeueFront,
   takeNext as outboxTakeNext,
 } from '../session-outbox.js'
@@ -104,6 +107,10 @@ import { createTranscriptAppender } from '../agent-session-transcript.js'
 import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, safeTreeStorage } from '../fleet-trees.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { isWriteEnabled } from '../write-flags.js'
+import { START_CONTROL_FLAG, startControlOffBecause } from '../setup-profile.js'
+/* The one rule for "is there still an agent behind this circle", shared by every
+   surface on this page that used to answer it for itself. */
+import { nodeIsBusy, sessionEndedWithApp, sessionIsLive, treeNodeClock } from '../tree-session-liveness.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 import { readResearchSnapshot } from '../research-projects.js'
@@ -719,6 +726,34 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
   return { ok: true, needsApp: false, sessionId, threadId, code: null, sentence: null, needsAssistantProgram: false }
 }
 
+/* THE SESSIONS THIS APP RUN REALLY OWNS.
+ *
+ * MODULE SCOPE IS THE WHOLE POINT: this map lives exactly as long as the
+ * renderer does, which is exactly as long as a session can. A child process
+ * dies with the application, so a session id read back from storage at the next
+ * launch names something that is not there any more, and a map rebuilt from
+ * storage cannot tell the two apart.
+ *
+ * IT REPLACES A PER-VIEW MAP THAT WAS REFILLED FROM THE STORE, and that refill
+ * is the defect. It was added for a real reason -- leaving the fleet page and
+ * coming back orphaned every session this window still owned, so replies had
+ * nowhere to land (measured 2026-08-13) -- but it fixed that by declaring every
+ * SAVED session live, including the ones killed when the app last closed. What
+ * a person then met, measured on the packaged build 2026-08-16: close the app
+ * mid-turn, reopen the same profile, and the circle is blue with a ticking
+ * clock over a process that does not exist, the chip says "starting" forever,
+ * Stop stands over a corpse, Resume is refused BECAUSE it looks busy, and a
+ * typed message answers "Queued -- sends by itself when this turn finishes"
+ * into a queue no turn will ever drain.
+ *
+ * A map that outlives the VIEW but not the PROCESS answers both: a session this
+ * run started stays routable across every navigation, and a session from a
+ * previous run is absent, which is the truth. nodeBusy() is the reader that
+ * matters -- see its note -- and the recovery it hands a stale node to
+ * (MC_AGENT_UNKNOWN_SESSION -> recoverDeadSessionSend) was written for exactly
+ * this state and has been unreachable since the refill landed. */
+const RUN_SESSION_NODES = new Map()
+
 export function computersView({ initialComputer = null, navigate }) {
   let liveMode = isLiveView('computers')
   let liveComputers = []
@@ -1267,8 +1302,11 @@ export function computersView({ initialComputer = null, navigate }) {
      session is born (submitCompose), and a per-session turn buffer -- the
      engine emits one delta per token, and a reply is one message, not one
      message per token (the agent page's CORRECTED note is the measured version
-     of why). nodeReplies is what the rail renders under "What it said". */
-  const sessionNodeIds = new Map()
+     of why). nodeReplies is what the rail renders under "What it said".
+
+     The session map itself is RUN_SESSION_NODES, above: it belongs to the app
+     run and not to this view instance, for the reason given there. */
+  const sessionNodeIds = RUN_SESSION_NODES
   const sessionTurnText = new Map()
   const nodeReplies = new Map()
   /* The latest narration line per node ("Running a command: …"), cleared when
@@ -1366,13 +1404,22 @@ export function computersView({ initialComputer = null, navigate }) {
      back as 'starting', so after an app restart every mid-turn node reads
      busy FOREVER over a dead session — the stop button would stand over a
      corpse and every send would silently queue into a queue nothing will
-     ever drain. sessionNodeIds holds exactly the sessions THIS run started
-     or reattached, so status AND membership is the honest busy test; a
-     restart-stale node reads idle, its send goes out, the engine refuses
-     with MC_AGENT_UNKNOWN_SESSION, and the recovery below takes over. */
-  const nodeBusy = node => Boolean(node
-    && (node.status === 'starting' || node.status === 'running')
-    && node.sessionId && sessionNodeIds.has(node.sessionId))
+     ever drain. sessionNodeIds holds exactly the sessions THIS RUN started
+     or reattached (RUN_SESSION_NODES), so status AND membership is the honest
+     busy test; a restart-stale node reads idle, its send goes out, the engine
+     refuses with MC_AGENT_UNKNOWN_SESSION, and the recovery below takes over.
+
+     EVERY READER OF "IS THIS NODE BUSY" GOES THROUGH HERE. The status field
+     alone was still being read in five other places -- the chip's word, the
+     rail's waiting line, the graph's clock, the resume verb and the runtime
+     face -- and each one of them told the restart-stale story its own way. */
+  /* The three readers, bound to THIS run's session map. The rules themselves
+     live in src/tree-session-liveness.js, where the suite drives them for
+     real -- see the note at the top of that file for the six surfaces that
+     each used to answer this question their own way. */
+  const nodeSessionLive = node => sessionIsLive(node, sessionNodeIds)
+  const nodeBusy = node => nodeIsBusy(node, sessionNodeIds)
+  const nodeSessionEnded = node => sessionEndedWithApp(node, sessionNodeIds)
 
   /* The chat composer's ear on a node's status. Notified from refreshTree(),
      the choke point every status mutation already flows through — no second
@@ -1473,7 +1520,10 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     return {
       title: treeNodeName(node),
-      subtitle: 'your agent · live session',
+      /* A SESSION ID IS NOT A LIVE SESSION. This header said "live session"
+         over a node whose engine child was killed when the app last closed,
+         which is the sentence a person believed while typing into it. */
+      subtitle: nodeSessionLive(node) ? 'your agent · live session' : ENDED_SESSION.subtitle,
       roleKey: node.role,
       history,
       onSend: (text, handlers) => treeCardSend(treeStore ? treeStore.getNode(node.id) || node : node, text, handlers),
@@ -1632,16 +1682,14 @@ export function computersView({ initialComputer = null, navigate }) {
           storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
         })
       } catch { transcriptStore = null }
-      /* RE-LEARN WHOSE ANSWER IS WHOSE. sessionNodeIds used to be written at
-         exactly one line, inside submitCompose -- so leaving this view and
-         coming back orphaned every session this window still owned: the
-         listener's own guard dropped their events, the node never left
-         "starting", and the reply had nowhere to land. Measured 2026-08-13 on
-         the installed build. Every session-bearing node re-registers here; a
-         session that is genuinely gone just never emits again, which is the
-         same silence it had before and costs nothing. */
+      /* THE REPLIES COME BACK; THE SESSIONS DO NOT.
+         A saved reply is a fact about a node and is worth re-reading. A saved
+         session id is a fact about a PROCESS, and re-registering one here is
+         how a session killed at the last shutdown came back as live -- see the
+         note on RUN_SESSION_NODES. Sessions this run owns are already in that
+         map and need nothing from storage; sessions it does not own are gone,
+         and saying so is the point. */
       for (const node of treeStore.snapshot().nodes) {
-        if (node.sessionId) sessionNodeIds.set(node.sessionId, node.id)
         if (node.reply) nodeReplies.set(node.id, node.reply)
       }
     } catch {
@@ -1702,7 +1750,10 @@ export function computersView({ initialComputer = null, navigate }) {
    * nothing is coming from it, because nothing is running.
    */
   function treeAgentRecord(node) {
-    const running = node.status === 'running' || node.status === 'starting'
+    /* nodeBusy, not the saved status: 'enabled' is the graph's word for a live
+       agent, and painting it over a session that ended at the last shutdown is
+       how a dead node kept its blue circle. */
+    const running = nodeBusy(node)
     /* A node that HELD a session keeps its clock. Measured 2026-08-13: bornAt
        was granted only while running, and stoppedAt was hardcoded null -- so
        the moment a real turn completed, the agent that had just run, replied
@@ -1711,19 +1762,24 @@ export function computersView({ initialComputer = null, navigate }) {
        start time, and a terminal one carries its stop time (updatedAt is
        written on the same beat as the terminal status), so the circle shows
        the run's real duration instead of denying the run happened. */
-    const held = Boolean(node.sessionId)
-    const terminal = node.status === 'finished' || node.status === 'failed'
-    const bornAt = held ? Date.parse(node.createdAt) : NaN
-    const stoppedAt = held && terminal ? Date.parse(node.updatedAt) : NaN
+    /* AND THE CLOCK STOPS WHEN THE SESSION DOES, however it ended. A terminal
+       status alone left one gap and a person fell straight into it: a node
+       saved mid-turn loads back as 'starting', which is neither finished nor
+       failed, so it was granted a start time and no stop time -- a clock
+       ticking on the canvas over a process killed when the app last closed
+       (measured 2026-08-16, 0:00:33 climbing to 0:04:12 on a reopened
+       profile). treeNodeClock owns that rule now. */
+    const clock = treeNodeClock(node, sessionNodeIds)
+    const terminal = clock.terminal
     return {
       id: node.id,
       name: treeNodeName(node),
       role: node.role || 'default',
       declaredRole: node.role || 'default',
       parentId: node.parentId || null,
-      state: running ? 'enabled' : terminal ? node.status : 'not started',
-      bornAt: Number.isFinite(bornAt) ? bornAt : null,
-      stoppedAt: Number.isFinite(stoppedAt) ? stoppedAt : null,
+      state: running ? 'enabled' : terminal ? node.status : clock.endedWithApp ? ENDED_SESSION.word : 'not started',
+      bornAt: clock.bornAt,
+      stoppedAt: clock.stoppedAt,
       tasksDone: null,
       failRate: null,
       provider: null,
@@ -1781,6 +1837,12 @@ export function computersView({ initialComputer = null, navigate }) {
      up saying "running" in one place and "starting" in another about the same
      circle. */
   function treeNodeStatusWord(node) {
+    /* A SAVED 'running' IS NOT A RUNNING AGENT. The status is what this node
+       was doing when it was last written; nodeBusy is whether it is doing it
+       now. A node whose session died with the last shutdown says so here, and
+       everything downstream -- the chip, the rail, the tooltip -- inherits the
+       one word rather than each inventing its own. */
+    if (nodeSessionEnded(node)) return ENDED_SESSION.word
     if (node.status === 'running') return 'running'
     if (node.status === 'starting') return 'starting'
     if (node.status === 'failed') return 'did not start'
@@ -1801,7 +1863,7 @@ export function computersView({ initialComputer = null, navigate }) {
        (node.reply, persisted). That is what the chip shows. The unavailable
        sentence remains only as the last resort for a node with no message and
        no session — a shape addNode cannot produce. */
-    const running = node.status === 'starting' || node.status === 'running'
+    const running = nodeBusy(node)
     const streaming = node.sessionId ? sessionTurnText.get(node.sessionId) : null
     const reply = nodeReplies.get(node.id) || node.reply || null
     const asked = String(node.message || '').split('\n').map(line => line.trim()).find(Boolean) || null
@@ -1983,6 +2045,14 @@ export function computersView({ initialComputer = null, navigate }) {
     return { id: node.id, name: treeNodeName(node) }
   }
 
+  /* The three facts this owes a person, in the order they need them: what is
+     off, that turning it on starts nothing by itself, and where the switch is.
+     The first sentence is shared with the agent page's switched-off surface,
+     which is the other place this same flag is explained. */
+  function startControlOffReason() {
+    return `${startControlOffBecause()} Nothing on this computer starts an assistant until you turn it on. Turning it on starts nothing by itself: it puts the Start control back, and you decide what to run. The switch is in Settings → Write → Run an agent session.`
+  }
+
   /* WHY THE PANEL IS NEVER WITHHELD.
      A press is a question, and every press gets an answer in the place the
      person is looking. When there is no installed application behind this page,
@@ -1994,6 +2064,23 @@ export function computersView({ initialComputer = null, navigate }) {
   function composeUnavailableReason() {
     if (!liveMode) return EXAMPLE_BOARD_TEXT
     if (treeStoreProblem) return treeStoreProblem
+    /* THE SWITCH THAT DECIDES WHETHER THIS PRODUCT MAY START AN AGENT, asked
+       on the surface that actually starts them.
+     *
+     * Setup's own words for the cautious answer are "nothing here will start an
+     * agent", and it turns this flag off to make that true. It was true of the
+     * agent page, which asks -- and only of the agent page. THIS page never
+     * asked: the dashed circle opened its panel, "Start this agent" went all
+     * the way to the engine, and what came back was an ENGINE refusal about
+     * Codex, on a computer whose owner had been promised nothing here would
+     * start anything. Measured on the packaged build 2026-08-16 on a fresh
+     * profile that answered "Nothing yet -- let me look around first".
+     *
+     * A promise the product makes in setup is checked where the promise can be
+     * broken. The panel still opens and still says why -- see the note above on
+     * why the panel is never withheld -- and the sentence names the switch, so
+     * a person who wants it can find it. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) return startControlOffReason()
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.start !== 'function') return START_NEEDS_APP_TEXT
     /* THE LIMITS ARE NOT RE-ASKED HERE. src/fleet-trees.js refuses a tree past
@@ -2091,6 +2178,13 @@ export function computersView({ initialComputer = null, navigate }) {
   async function submitCompose(draft, detail) {
     const store = treeStore
     if (!store) return { ok: false, message: treeStoreProblem || START_NEEDS_APP_TEXT }
+    /* ASKED AGAIN HERE, AND THIS IS THE ONE THAT COUNTS. The panel's disabled
+       fields are what a person sees; this is what actually stops a start. The
+       flag can be turned off in Settings while this panel stands open, and a
+       gate that only paints is not a gate. Nothing is created and nothing is
+       sent: the refusal comes before addNode, so a switched-off computer does
+       not accumulate half-started agents. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) return { ok: false, message: startControlOffReason() }
 
     const parent = composeParentFor(detail)
     const added = store.addNode({
@@ -3421,7 +3515,6 @@ export function computersView({ initialComputer = null, navigate }) {
         </div>
       </div>`
     controlsPage.querySelector('.rail-back').addEventListener('click', showStats)
-    controlsPage.querySelector('[data-open-palette]')?.addEventListener('click', () => showPalette(node))
     /* Filing this session under a research project. The projects list was read
        once at mount; a refusal renders as its sentence, never as an empty
        select. The session reference is the OBSERVED id — the one identity a
@@ -3600,7 +3693,10 @@ export function computersView({ initialComputer = null, navigate }) {
     const saidHost = controlsPage.querySelector('[data-tree-said]')
     if (saidHost) {
       const reply = nodeReplies.get(node.id)
-      const live = node.sessionId && (node.status === 'starting' || node.status === 'running')
+      /* nodeBusy, not the saved status: a stale node opened a stream appender
+         and sat under "no answer yet" for a turn that ended at the last
+         shutdown. */
+      const live = nodeBusy(node)
       if (reply) {
         saidHost.textContent = reply
       } else if (live) {
@@ -3621,6 +3717,11 @@ export function computersView({ initialComputer = null, navigate }) {
           railSaid.waitingLine = null
           appender.push(spokenSoFar)
         }
+      } else if (nodeSessionEnded(node)) {
+        /* "No answer yet" is a promise that one is coming. For a node whose
+           session died with the app there is no turn left to wait for, so this
+           says what happened and what to do instead. */
+        saidHost.textContent = ENDED_SESSION.said
       } else {
         saidHost.textContent = SAID_PANEL.waiting
       }
@@ -3833,10 +3934,21 @@ export function computersView({ initialComputer = null, navigate }) {
      A node that never spoke resumes as a bare restart (clear-shaped, brief
      NOT re-sent) — there is nothing to read, and re-running the original ask
      uninvited could redo real work. */
-  async function resumeNodeSession(node, { effort = null, out = null } = {}) {
+  /* `deliverQueued` is false for exactly one caller: the dead-session recovery
+     below, which is holding a message of its own and sends it itself. Two
+     senders on one idle agent would race, and the engine refuses the loser. */
+  async function resumeNodeSession(node, { effort = null, out = null, deliverQueued = true } = {}) {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.start !== 'function') {
       if (out) out.textContent = START_NEEDS_APP_TEXT
+      return false
+    }
+    /* A resume IS a start -- bridge.start, a real child process -- so the same
+       switch decides it. Gating only the compose panel would leave "nothing
+       here will start an agent" true of the dashed circle and false of every
+       node already on the canvas. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) {
+      if (out) out.textContent = startControlOffReason()
       return false
     }
     const oldSessionId = node.sessionId || null
@@ -3855,7 +3967,13 @@ export function computersView({ initialComputer = null, navigate }) {
         try { await bridge.close({ sessionId: oldSessionId }) }
         catch { /* an already-dead session is the expected state here */ }
       }
-      outboxClearSession(oldSessionId)
+      /* THE WAITING WORDS ARE NOT THROWN AWAY HERE. This used to clear the old
+         session's outbox, which deleted every queued message the composer had
+         already promised to send -- silently, in the middle of an action the
+         person took to get that very agent BACK. The queue is
+         left standing and moved to the new session below, once there is one;
+         a resume that fails leaves it exactly where it was, beside the
+         conversation it belongs to. */
       sessionTranscripts.delete(oldSessionId)
       sessionTurnLog.delete(oldSessionId)
       sessionUsage.delete(oldSessionId)
@@ -3930,6 +4048,12 @@ export function computersView({ initialComputer = null, navigate }) {
       return false
     }
     sessionNodeIds.set(result.sessionId, node.id)
+    /* The messages that were waiting for the old session are waiting for this
+       one: same node, same conversation, same person still expecting them to
+       go. Drained by the turn-completed listener like any other queued
+       message -- or immediately below, when the agent came back idle and there
+       is no turn for them to wait behind. */
+    const carriedForward = oldSessionId ? outboxMoveSession(oldSessionId, result.sessionId) : 0
     if (chosenEffort) sessionEfforts.set(result.sessionId, chosenEffort)
     if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
     /* THE CONVERSATION ON SCREEN COMES FROM THE ENGINE WHEN THE ENGINE HAS
@@ -3958,6 +4082,16 @@ export function computersView({ initialComputer = null, navigate }) {
       refreshTree()
     }
     persistTranscript(result.sessionId)
+    /* AN IDLE AGENT HAS NO TURN FOR THE QUEUE TO WAIT BEHIND. The drain is
+       normally the turn-completed listener's job, because that is the engine's
+       only "I am free" signal -- but an engine-resumed agent came back with its
+       memory and was asked nothing, so no completion is coming and the words
+       would sit there forever. Exactly one goes; its completion drains the
+       next, through the one drain site every queued message uses. */
+    if (deliverQueued && carriedForward > 0 && engineResumed) {
+      const nextQueued = outboxTakeNext(result.sessionId)
+      if (nextQueued) void drainOutboxMessage(result.sessionId, node.id, nextQueued)
+    }
     if (out) out.textContent = engineResumed ? RESUME_PANEL.continued : RESUME_PANEL.done
     if (controlsPage.classList.contains('is-active') && currentRailTreeNode && currentRailTreeNode.id === node.id) {
       showTreeNodeControls(treeStore ? treeStore.getNode(node.id) || node : node)
@@ -4005,6 +4139,9 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     if (id === 'clear') {
       if (!bridge || typeof bridge.start !== 'function' || typeof bridge.close !== 'function' || !node.sessionId) return
+      /* "Start over" closes one session and starts another, so it is a start
+         and the same switch decides it. */
+      if (!isWriteEnabled(START_CONTROL_FLAG)) { out.textContent = startControlOffReason(); return }
       const oldSessionId = node.sessionId
       /* Read before the wipe below erases them: the fresh session keeps the
          depth this one ran at, and the folder its tree is assigned to. */
@@ -4064,7 +4201,11 @@ export function computersView({ initialComputer = null, navigate }) {
       return
     }
     if (id === 'resume') {
-      if (node.status === 'starting' || node.status === 'running') { out.textContent = RESUME_PANEL.busy; return }
+      /* nodeBusy, not the saved status. "It is busy, wait" over a session that
+         died with the last shutdown is the refusal that left a person with no
+         way out of this node at all: Resume refused for being busy, Stop
+         standing over a corpse. */
+      if (nodeBusy(node)) { out.textContent = RESUME_PANEL.busy; return }
       if (!transcriptStore || !transcriptStore.has(node.id)) { out.textContent = RESUME_PANEL.nothing; return }
       await resumeNodeSession(node, { out })
       return
@@ -4606,6 +4747,10 @@ export function computersView({ initialComputer = null, navigate }) {
        session that dies instantly would bounce send → unknown-session →
        recover → send forever; after one bounded attempt the honest dead
        end speaks. */
+    /* The recovery brings the agent back by STARTING one, so a computer where
+       that is switched off is told which switch it was -- not "the session is
+       gone", which is true and useless here. */
+    if (!isWriteEnabled(START_CONTROL_FLAG)) { fail(startControlOffReason()); return }
     const lastAt = recentRecoveries.get(node.id) || 0
     if (Date.now() - lastAt < 15_000) { fail(START_REFUSAL.sessionGone); return }
     if (recoveringNodes.has(node.id)) {
@@ -4645,7 +4790,7 @@ export function computersView({ initialComputer = null, navigate }) {
       }
       const seeded = Boolean(transcriptStore && transcriptStore.has(node.id))
       reply(seeded ? RECOVERED_SESSION.reconnecting : RECOVERED_SESSION.bare)
-      const ok = await resumeNodeSession(node, {})
+      const ok = await resumeNodeSession(node, { deliverQueued: false })
       if (!ok) { fail(START_REFUSAL.sessionGone); return }
       /* The cost sentence is said only where a cost was really paid: the
          engine usually still holds the thread and brings the same agent back
