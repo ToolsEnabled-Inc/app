@@ -682,8 +682,10 @@ export function createFleetTreeStore({
       if (!tree) return refuse('That tree is not on this computer.')
       const clean = typeof profileId === 'string' && profileId && profileId.length <= 128 ? profileId : null
       trees.set(treeId, Object.freeze({ ...tree, profileId: clean, updatedAt: now() }))
-      persist()
-      notify()
+      /* accept() commits, which saves AND tells every listener -- see commit()
+         above. This used to call `persist()` and `notify()` first: two names
+         nothing in this file ever bound, so assigning a folder to a tree threw
+         a ReferenceError before it could return, on every press. */
       return accept({ treeId, profileId: clean })
     },
 
