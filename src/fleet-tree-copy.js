@@ -291,6 +291,68 @@ export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS) {
   }))
 }
 
+/* WHAT A NODE'S ENGINE ROW SAYS, DERIVED RATHER THAN DECLARED.
+ *
+ * THE SENTENCE THIS REPLACES, and the owner's report about it: the tree node
+ * panel's Setup box carried a hardcoded `TREE_ENGINE_LABEL = 'Codex'` and a
+ * note reading "Agents you start from this tree run on Codex. You pick the
+ * model in the start panel; the Claude choices are listed there and say so
+ * when they cannot start yet." Both were written when Codex was the only
+ * engine in the payload. capability/src/lib/agent-engine/claude-cli-process.js
+ * ships now, resolveStartTier() stops refusing the Claude tiers, and the panel
+ * went on naming Codex as THE engine on a build that starts Claude.
+ *
+ * IT IS TRUE BY CONSTRUCTION NOW, not by upkeep -- the same discipline
+ * tierChoicesFor() already applies to the start menu. The words come from what
+ * mc-agent:startable-tiers actually answered, which is the SAME
+ * resolveStartTier() a press runs, so this row and the button cannot disagree.
+ * A build that gains or loses an engine changes this sentence with no edit
+ * here, and there is no argument that makes it name a provider the shell did
+ * not list.
+ *
+ * A node that HAS run says what it ran on instead, from the tier recorded on
+ * it -- that is history, and it stays true after the payload changes. */
+export function tierProviderWord(tierId) {
+  const row = LAUNCH_TIERS.find(candidate => candidate.id === tierId)
+  if (!row) return null
+  return TIER_PROVIDER_WORDS[row.provider] || row.provider
+}
+
+/** The distinct provider words behind a set of startable tier ids, in menu order. */
+export function startableProviderWords(startable = TREE_DEFAULT_STARTABLE_TIERS) {
+  const ids = new Set(Array.isArray(startable) ? startable : TREE_DEFAULT_STARTABLE_TIERS)
+  const words = []
+  for (const tier of LAUNCH_TIERS) {
+    if (!ids.has(tier.id)) continue
+    const word = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    if (!words.includes(word)) words.push(word)
+  }
+  return Object.freeze(words)
+}
+
+export const TREE_ENGINE = Object.freeze({
+  /* An older record has no tier on it. "Not recorded", never a guess: naming
+     the default here would put a provider on a run that may not have used it. */
+  unrecorded: 'not recorded',
+  /* The shell resolved every type and can start none of them. Said plainly,
+     because the start panel is about to refuse and this is the warning. */
+  none: 'nothing yet',
+  noneNote: 'This copy cannot start any agent type from a tree yet. The start panel marks every type, and says so before you press.',
+  note: words => `Agents you start from this tree run on the type you pick in the start panel. This copy can start ${listWords(words)}.`,
+  /* For a node that already ran: what it ran on, not what this copy could
+     start today. */
+  ran: word => `This agent ran on ${word}.`,
+})
+
+/* "Codex and Claude", not "Codex, Claude" -- the panel is prose, and a comma
+   list of two reads as a fragment beside the sentences around it. */
+function listWords(words) {
+  const list = Array.isArray(words) ? words.filter(Boolean) : []
+  if (list.length === 0) return 'nothing'
+  if (list.length === 1) return list[0]
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
+}
+
 /* The rows a surface gets when it has not asked. Same value this constant has
    always had, so every existing importer is unchanged. */
 export const TIER_CHOICES = tierChoicesFor()

@@ -58,16 +58,18 @@ const note = (level, text) => { findings.push({ level, text }); console.log(`  $
    disk running), which is the state a person finds after a restart and still the
    state that holds a session id. */
 const SEEDED = [
-  { key: 'started', status: 'running', sessionId: 'sess-started-1', message: 'Read the build log and tell me what broke.', reply: '' },
-  { key: 'finished', status: 'finished', sessionId: 'sess-finished-1', message: 'Summarise the release notes.', reply: 'The release notes name three fixes and one known issue.' },
-  { key: 'failed', status: 'failed', sessionId: 'sess-failed-1', message: 'Run the packaging step.', reply: '' },
+  { key: 'started', status: 'running', sessionId: 'sess-started-1', tier: 'claude-sonnet', message: 'Read the build log and tell me what broke.', reply: '' },
+  { key: 'finished', status: 'finished', sessionId: 'sess-finished-1', tier: 'luna', message: 'Summarise the release notes.', reply: 'The release notes name three fixes and one known issue.' },
+  { key: 'failed', status: 'failed', sessionId: 'sess-failed-1', tier: 'sol', message: 'Run the packaging step.', reply: '' },
   /* THE STATE THE OWNER IS ACTUALLY IN, and the one the first version of this
      file left out. submitCompose() marks a node `failed` and leaves sessionId
      NULL when the start itself is refused -- which is every start on a build
      that answers AGENT_TIER_NO_LAUNCHER. A person whose starts are all refused
      has a tree made entirely of these. */
-  { key: 'refused', status: 'failed', sessionId: null, message: 'Read the release notes and summarise them.', reply: '' },
-  { key: 'draft', status: 'draft', sessionId: null, message: 'Draft: nothing has been started for this one yet.', reply: '' },
+  { key: 'refused', status: 'failed', sessionId: null, tier: 'claude-opus', message: 'Read the release notes and summarise them.', reply: '' },
+  /* No tier at all: the record a person made before tiers were kept. The Engine
+     row must say so rather than naming a default nobody picked. */
+  { key: 'draft', status: 'draft', sessionId: null, tier: '', message: 'Draft: nothing has been started for this one yet.', reply: '' },
 ]
 
 /* A read that THREW is not a read that found nothing, and the first version of
@@ -194,7 +196,7 @@ async function main() {
           ? 'Nothing was started. This copy of ToolsEnabled does not carry the part that runs a Claude agent.'
           : seed.status === 'failed' ? 'The packaging step refused to run.' : '',
         reply: seed.reply,
-        tier: 'codex-medium',
+        tier: seed.tier,
         sessionId: seed.sessionId,
         createdAt: stamp,
         updatedAt: stamp,
@@ -289,6 +291,24 @@ async function main() {
         await key(window, 'Escape', 27)
         await delay(300)
       }
+
+      /* THE ENGINE ROW ON THE SAME PANEL, read where a person reads it. The
+         owner reported the tree panel naming Codex as the engine on a build
+         that starts Claude; the row is derived from the shell's own answer
+         now, and this is where that is seen rather than argued. Real press on
+         the Details tab, then read the two lines out of the Setup box. */
+      const detailsPressed = await press(window, '[data-rail-tab="details"]', 5000)
+      const engine = readOrThrow(await window.evaluate(`(function readEngine() {
+        const rows = [...document.querySelectorAll('[data-tree-move] .ctl-row')]
+        const row = rows.find(r => (r.querySelector('.cl')?.textContent || '').trim() === 'Engine')
+        const note = document.querySelector('[data-tree-move] .board-absent-copy')
+        return {
+          label: (row?.querySelector('.cv')?.textContent || '').trim(),
+          note: (note?.textContent || '').trim().slice(0, 200),
+        }
+      })()`), 'the engine row')
+      note(detailsPressed.pressed && engine.label ? 'ok' : 'FAIL',
+        `Details -> Engine: ${JSON.stringify(engine.label)} / ${JSON.stringify(engine.note)}`)
 
       /* Close whatever opened so the next node starts from the same place --
          with a real press on the card's own Collapse button, never a synthetic

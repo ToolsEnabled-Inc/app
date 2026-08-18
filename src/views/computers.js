@@ -49,6 +49,10 @@ import { refusalCode } from '../agent-availability-copy.js'
    the whole bridge result over and shows what comes back. */
 import {
   CHAT_NOT_RUNNING,
+  TREE_ENGINE,
+  TREE_DEFAULT_STARTABLE_TIERS,
+  startableProviderWords,
+  tierProviderWord,
   MOVE_PANEL,
   PROFILE_PANEL,
   PALETTE_PANEL,
@@ -736,6 +740,13 @@ export function computersView({ initialComputer = null, navigate }) {
      every build could always start, never a row that promises more than this
      payload carries. */
   let startableTierChoices = TIER_CHOICES
+  /* THE IDS BEHIND THOSE ROWS, kept because two surfaces need two different
+     things out of one answer: the start menu needs the labelled rows, and the
+     node panel's Engine row needs to name the PROVIDERS this copy can start.
+     Deriving the second from the first is not possible -- tierChoicesFor()
+     returns every tier, marking the ones that cannot start -- so the answer is
+     held in the shape the shell gave it. */
+  let startableTierIdList = TREE_DEFAULT_STARTABLE_TIERS
   /* ASK THE SHELL WHICH TIERS THIS COPY CAN REALLY START.
    *
    * THE DEFECT THIS CLOSES. This renderer used to decide startability from a
@@ -766,7 +777,8 @@ export function computersView({ initialComputer = null, navigate }) {
       return
     }
     if (destroyed) return
-    startableTierChoices = tierChoicesFor(startableTierIds(reply))
+    startableTierIdList = startableTierIds(reply)
+    startableTierChoices = tierChoicesFor(startableTierIdList)
   }
   let destroyed = false
   let fetchVersion = 0
@@ -2014,7 +2026,8 @@ export function computersView({ initialComputer = null, navigate }) {
     let reply
     try { reply = await bridge.startableTiers() } catch { reply = null }
     if (destroyed) return
-    startableTierChoices = tierChoicesFor(startableTierIds(reply))
+    startableTierIdList = startableTierIds(reply)
+    startableTierChoices = tierChoicesFor(startableTierIdList)
     /* A panel already on screen is re-opened over the same node so its menu
        carries the answer, rather than leaving the person reading rows that were
        drawn before the shell replied. */
@@ -3280,18 +3293,44 @@ export function computersView({ initialComputer = null, navigate }) {
    * nothing. The channel now carries `tier` end to end (parseAgentStart ->
    * startSession -> resolveStartTier), and the CHOICE lives where the start
    * lives: the compose panel's model menu, whose value rides in the draft and
-   * onto mcAgent.start(). This rail keeps only the fact: sessions started from
-   * this tree run on Codex -- a picked Claude row refuses by name at start
-   * (AGENT_TIER_NO_LAUNCHER) rather than quietly becoming Codex, so a RUNNING
-   * session here is always a Codex one. Nothing in this box is focusable. */
-  const TREE_ENGINE_LABEL = 'Codex'
-  const TREE_ENGINE_NOTE = 'Agents you start from this tree run on Codex. You pick the model in the start panel; the Claude choices are listed there and say so when they cannot start yet.'
+   * onto mcAgent.start(). This rail keeps only the fact. Nothing in this box is
+   * focusable.
+   *
+   * AND THE FACT IS NOW ASKED FOR, NOT DECLARED. What stood here was
+   * `TREE_ENGINE_LABEL = 'Codex'` and a note reading "Agents you start from
+   * this tree run on Codex. You pick the model in the start panel; the Claude
+   * choices are listed there and say so when they cannot start yet." Both
+   * halves were true when Codex was the only engine in the payload and both
+   * are false today, which is what the owner reported. Measured on a staged
+   * packaged build with real presses (the post-cut-truth lane, 2026-08-17):
+   * the shell answers luna, terra, sol, claude-fable, claude-sonnet,
+   * claude-opus; the menu renders "Sonnet · Claude" with NO marker on it; and
+   * a Claude agent started from a tree really answered, on a profile carrying
+   * a Claude sign-in and no Codex credential at all.
+   *
+   * So the words come from `startableTierIdList` -- what mc-agent:startable-tiers
+   * answered, which is the same resolveStartTier() a press runs -- and a node
+   * that already ran says what IT ran on, from the tier recorded on it. Neither
+   * can name a provider the shell did not list, and no edit here is needed when
+   * the payload changes. The sentences live in src/fleet-tree-copy.js so a
+   * guard can walk them; the fourth copy of this same false claim was found
+   * only because it was somewhere a test could reach. */
+  function treeEngineFace(node) {
+    const ran = node?.tier ? tierProviderWord(node.tier) : null
+    if (node?.sessionId) {
+      return { label: ran || TREE_ENGINE.unrecorded, note: ran ? TREE_ENGINE.ran(ran) : '' }
+    }
+    const words = startableProviderWords(startableTierIdList)
+    if (words.length === 0) return { label: TREE_ENGINE.none, note: TREE_ENGINE.noneNote }
+    return { label: words.join(' · '), note: TREE_ENGINE.note(words) }
+  }
 
   function showTreeNodeControls(node) {
     disposeRailSaid()
     clearBoard()
     currentRailTreeNode = node
     const role = ROLES[node.role] || ROLES.default
+    const engineFace = treeEngineFace(node)
     controlsPage.style.setProperty('--rc', role.hex)
     disposeRailChat()
     controlsPage.innerHTML = `
@@ -3361,8 +3400,9 @@ export function computersView({ initialComputer = null, navigate }) {
              its exact name, so the handlers below moved without rewrites. -->
         <div class="board-box board-ctl-box" data-tree-move>
           <div class="board-box-h"><span class="bh-t">Setup</span></div>
-          <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(TREE_ENGINE_LABEL)}</span></div>
-          ${node.sessionId ? '' : `<p class="board-absent-copy">${escapeMarkup(TREE_ENGINE_NOTE)}</p>`}          <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
+          <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(engineFace.label)}</span></div>
+          ${engineFace.note ? `<p class="board-absent-copy">${escapeMarkup(engineFace.note)}</p>` : ''}
+          <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
           <div class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
           <div class="ctl-row">
             <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
