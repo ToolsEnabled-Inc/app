@@ -97,7 +97,8 @@ import {
    owns them rather than restated here. Setup, the home screen and the agent
    page all tell a person how to get Codex working; three hand-written copies of
    a command line is three chances to ship one that does not run. */
-import { CODEX_SETUP_COMMANDS, unavailableReason } from '../agent-availability-copy.js'
+/* The decision itself, DOM-free, so the suite drives it rather than reading it. */
+import { codexReadiness } from '../setup-review-readiness.js'
 /* WHAT EACH SWITCH GRANTS, WHAT IT RISKS, AND WHAT WAS WITHHELD (owner, R1529).
    The statements are data in src/permission-guidance.js so this screen, the
    settings page and the drawer cannot describe one switch three ways. */
@@ -170,6 +171,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
    * still worth saving on a machine where Codex is not installed yet. It tells
    * the person what remains and lets them finish. */
   let agentReadiness = null
+  /* What THIS COMPUTER has, per assistant program, from mcProviders.presence().
+     null while unasked; `known:false` when it could not be asked, which the
+     review says out loud rather than rounding to a tick. */
+  let codexPresence = null
 
   /* The sign-in step's own state. `null` means "not asked yet", which is
      distinct from a reply that came back unavailable -- painting an empty form
@@ -654,41 +659,37 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
    * not have Codex yet, and a walkthrough that refuses to end until an unrelated
    * program is installed is a worse first hour than one that says what is left.
    * The state it reports is read, never written. */
+  /* WHICH QUESTION IS BEING ANSWERED, AND BY WHOM.
+   *
+   * This block makes two claims about CODEX -- that it is installed here, and
+   * that somebody is signed in to it -- and it used to read both of them off
+   * mcAgent.availability(), which answers a different question: can this
+   * installation start ANY agent. That short-circuit is correct and deliberate
+   * (d1eb2a5): a person with Claude installed and no Codex is not a broken
+   * machine, and telling them so would be the product calling itself broken on
+   * a correctly set-up computer.
+   *
+   * But a provider-agnostic yes rendered as a fact about Codex is how the last
+   * screen of setup came to say "Codex is installed on this computer and signed
+   * in" on a machine with no Codex on PATH and nobody signed in to it --
+   * measured on the packaged build 2026-08-16, where the sentence flipped on
+   * whether CLAUDE was installed. Worse than the false sentence: it made the
+   * not-installed branch below -- the one carrying the paste-able install
+   * command -- unreachable for exactly the person who needed it.
+   *
+   * So the copy asks the bridge that answers per program. mcProviders.presence()
+   * reports `installed` and `signedIn` for codex on their own, from the
+   * filesystem, with 'unknown' as a real answer it uses rather than rounding
+   * off. The short-circuit is untouched; what changed is that this screen stops
+   * quoting it as evidence about a program it never mentioned.
+   *
+   * A KNOWN-BAD ENGINE STILL SPEAKS, because "Codex is here and signed in" is
+   * not the whole of "an agent can start": a build with no engine payload
+   * refuses whatever is installed. That answer is availability()'s to give and
+   * it keeps its branch, above the provider ones. */
   function codexReadinessMarkup() {
-    const heading = 'Before an agent can run'
-    if (agentReadiness === null) {
-      return statusBlock('', heading, ['Checking whether Codex is installed and signed in on this computer.'])
-    }
-    if (agentReadiness.known !== true) {
-      return statusBlock('is-warn', heading, [
-        'This copy could not check whether Codex is installed here, so it will not tell you either way.',
-        `Codex is the program that runs an agent. If it is not installed, run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}".`,
-      ])
-    }
-    if (agentReadiness.ok === true) {
-      return statusBlock('', heading, [
-        'Codex is installed on this computer and signed in, so an agent can start when you finish here.',
-      ])
-    }
-    if (agentReadiness.code === 'AGENT_CODEX_CLI_NOT_INSTALLED') {
-      return statusBlock('is-warn', heading, [
-        'Codex is not installed on this computer. It is a separate free program from OpenAI, and it is the thing that actually runs an agent; ToolsEnabled drives it.',
-        `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.install}`,
-        `If you already have Node, this works too: ${CODEX_SETUP_COMMANDS.installWithNode}`,
-        `Then sign in to it: ${CODEX_SETUP_COMMANDS.signIn}`,
-        'You can finish setup first and do this afterwards. Everything you chose is still saved.',
-      ])
-    }
-    if (agentReadiness.code === 'AGENT_CONFINEMENT_SIGNED_OUT') {
-      return statusBlock('is-warn', heading, [
-        'Codex is installed on this computer, but nobody is signed in to it, and the permission level you chose builds each session from that sign-in.',
-        `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.signIn}`,
-        'You can finish setup first and do this afterwards. Everything you chose is still saved.',
-      ])
-    }
-    return statusBlock('is-warn', heading, [
-      `An agent cannot start on this computer yet: ${unavailableReason(agentReadiness.code)}.`,
-    ])
+    const block = codexReadiness({ engine: agentReadiness, codex: codexPresence })
+    return statusBlock(block.tone, block.heading, block.lines)
   }
 
   function statusBlock(modifier, heading, lines) {
@@ -853,10 +854,37 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     paint()
   }
 
+  /* IS THE CODEX PROGRAM ITSELF HERE, asked of the bridge that answers per
+     program rather than inferred from "can anything start". Same rule as
+     everything else on this screen: an answer that cannot be got stays
+     unanswered, and 'unknown' from the shell survives as 'unknown' here. */
+  async function loadCodexPresence() {
+    if (!globalThis.mcProviders?.presence) {
+      codexPresence = { known: false }
+      return
+    }
+    let answer
+    try {
+      answer = await globalThis.mcProviders.presence()
+    } catch {
+      answer = null
+    }
+    if (destroyed) return
+    const codex = answer && answer.ok === true && Array.isArray(answer.providers)
+      ? answer.providers.find(provider => provider.id === 'codex')
+      : null
+    codexPresence = codex
+      ? { known: true, installed: codex.installed, signedIn: codex.signedIn }
+      : { known: false }
+  }
+
   /* Fails to an honest silence, never to a green tick. Every branch that cannot
      get an answer leaves `agentReadiness` reporting `unknown`, and the review
      step then says it could not check rather than implying it passed. */
   async function loadAgentReadiness() {
+    /* Asked on the same beat, because the review reads both: the engine's own
+       verdict, and what this machine has installed. */
+    void loadCodexPresence().then(() => { if (!destroyed) paint() })
     if (!globalThis.mcAgent?.availability) {
       agentReadiness = { known: false }
       paint()
