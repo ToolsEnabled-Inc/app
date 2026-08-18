@@ -57,9 +57,9 @@ const path = require('node:path')
  * Every value below was MEASURED on a machine with all three installed and
  * signed in, not read off a document:
  *
- *   claude   C:\Users\<user>\AppData\Roaming\npm\claude.cmd     ~/.claude/.credentials.json
- *   codex    C:\Users\<user>\AppData\Roaming\npm\codex.cmd      ~/.codex/auth.json
- *   gemini   C:\Users\<user>\AppData\Roaming\npm\gemini.cmd     ~/.gemini/oauth_creds.json
+ *   claude   %APPDATA%\npm\claude.cmd     ~/.claude/.credentials.json
+ *   codex    %APPDATA%\npm\codex.cmd      ~/.codex/auth.json
+ *   gemini   %APPDATA%\npm\gemini.cmd     ~/.gemini/oauth_creds.json
  *
  * `homeEnv` is the environment variable that RELOCATES that program's
  * configuration directory, and it is read first because a person who set one is
