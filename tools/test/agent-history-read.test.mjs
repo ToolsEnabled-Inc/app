@@ -92,7 +92,7 @@ test('no signature or chain hash reaches the renderer', (t) => {
   assert.doesNotMatch(serialized, /previousHash/i)
   assert.equal(serialized.includes(receipt.eventHash), false)
 
-  /* TWO fields have joined this list, and each one had to earn it.
+  /* THREE fields have joined this list, and each one had to earn it.
      `outcome` exists because the reply could not otherwise distinguish a run
      that worked from a run that refused, and the screen built on it told people
      three failed starts "still check out".
@@ -100,13 +100,63 @@ test('no signature or chain hash reaches the renderer', (t) => {
      runs on this computer were the signed-in person's -- the ledger is one file
      per device on purpose (splitting it would let an account delete its own
      history and break everyone else's chain), so showing somebody their own
-     history is a filter, and a filter needs the field. Neither is safe on
-     trust: `outcome` is pinned by the writer-refusal test below, and
-     `principal` by the shape test after it. */
+     history is a filter, and a filter needs the field.
+     `sessionId` exists because the screen could otherwise say only "Agent run
+     37 · started". The owner's report was exactly that: the list has no agent
+     context. WHAT it was asked and WHICH agent was asked live in the page's own
+     saved conversation, keyed by session -- so the join key is the whole
+     difference between a row that means something and a row that does not. It
+     is NOT in `details`' class: the renderer minted the id before the start was
+     requested and already holds every one of its own, whereas `details` carries
+     a working directory, which is a path out of this machine and stays dropped.
+     None of the three is safe on trust: `outcome` is pinned by the
+     writer-refusal test below, `principal` and `sessionId` by the shape tests
+     after it. */
   for (const entry of recorder.history().entries) {
-    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'principal', 'sequence'])
+    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'principal', 'sequence', 'sessionId'])
   }
   assert.equal(recorder.history().entries[0].outcome, null, 'a start on its own has no outcome to report')
+})
+
+/* THE JOIN KEY IS BOUNDED FOR THE SAME REASON THE PRINCIPAL IS.
+ *
+ * history() deliberately still returns records when the chain does NOT verify,
+ * so an unverified line reaches the reader by design -- which means anything
+ * that could append to this file could otherwise put an arbitrary string where
+ * a screen expects a session id. It goes on to look that value up in the
+ * person's own saved conversations, so a value shaped like a path, a key, or a
+ * lookup expression must never survive the trip.
+ *
+ * The admitted shape is the shape the app writes: lower-case ASCII, digits and
+ * dashes, at most 128 characters. Everything else is null, which downstream
+ * already has to handle -- an unmatched run simply shows what it always showed.
+ */
+test('the session id on a record is bounded, and anything else reads as unsaid', (t) => {
+  const directory = workspace(t)
+  const recorder = createSpawnRecorder({ safeStorage: keystore(), directory })
+  recorder.record({ action: 'agent_session_start', sessionId: 'chat-1127f295-8406-4623-8490-b7387f017ca2' })
+
+  const first = recorder.history().entries[0]
+  assert.equal(first.sessionId, 'chat-1127f295-8406-4623-8490-b7387f017ca2',
+    'the id the app really writes did not survive the trip')
+
+  const forged = [
+    'C:\\Users\\someone\\.codex\\auth.json',
+    '../../../etc/passwd',
+    '<img src=x onerror=alert(1)>',
+    'chat-UPPER-CASE',
+    `chat-${'a'.repeat(200)}`,
+    'chat id with spaces',
+  ]
+  const ledger = readFileSync(recorder.ledgerPath, 'utf8').trim().split('\n')
+  const template = JSON.parse(ledger[0])
+  writeFileSync(recorder.ledgerPath, `${forged
+    .map((sessionId, index) => JSON.stringify({ ...template, sequence: index + 1, sessionId }))
+    .join('\n')}\n`)
+
+  for (const entry of recorder.history().entries) {
+    assert.equal(entry.sessionId, null, `a record carrying ${JSON.stringify(entry)} was handed to the page as an id`)
+  }
 })
 
 /* The principal is the one field on this reply that names a PERSON, so the

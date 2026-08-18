@@ -103,6 +103,28 @@ export const COPY = Object.freeze({
      number and time, so the person sees the run and simply is not told
      something the computer does not know. */
   runResult: (result) => (result === 'refused' ? 'did not start' : (result === 'started' ? 'started' : '')),
+  /* WHY IT DID NOT START, from the code the record already held.
+     The recorder writes a bare code on every refusal and readLocalSessions used
+     to drop it, so a person whose every start was refused read "did not start"
+     nine times over a record that knew the answer. The sentences are
+     ENGINE_REASON's -- the same table this screen already uses for whether an
+     agent could be started at all -- so the two halves of the screen cannot
+     give one machine two different explanations, and the honesty guard that
+     walks that table (tools/test/refusal-engine-honesty.test.mjs) covers this
+     surface for free.
+     THE EMPTY STRING IS THE POINT for a code nobody wrote a sentence for, and
+     for a run recorded before reasons were kept. A row then says what it always
+     said -- the number, the outcome, the time -- rather than being handed a
+     guess. Falling back to unavailableReason() was considered and refused: its
+     own fallback INVENTS "this copy could not work out why", which is a claim
+     about a run, not an absence of one. */
+  runReason: (code) => (typeof code === 'string' && Object.prototype.hasOwnProperty.call(ENGINE_REASON, code)
+    ? ENGINE_REASON[code]
+    : ''),
+  /* WHAT IT WAS ASKED, labelled. The words after the label are the person's
+     own brief, never this module's, and they are clipped rather than wrapped
+     because the runs list is a column beside a conversation. */
+  runAsked: (brief) => `Asked: ${brief}`,
   /* The aggregate, in the panel footer, under the record's own integrity line.
      Returns null when the ledger says nothing either way, which is exactly the
      state every record written before outcomes existed is in -- an older
@@ -233,7 +255,18 @@ export function readLocalSessions(raw) {
     if (outcome.result !== 'started' && outcome.result !== 'refused') continue
     if (!Number.isSafeInteger(outcome.resolves)) continue
     if (resultBySequence.has(outcome.resolves)) continue
-    resultBySequence.set(outcome.resolves, outcome.result)
+    /* THE REASON RIDES WITH THE RESULT, and it used to be dropped here.
+       The recorder writes it (shell/main.cjs recordSpawnOutcome, bounded to a
+       bare upper-case code by the writer AND re-validated on the way out), and
+       this function threw it away -- so a person whose every start was refused
+       read "did not start" nine times and was never told why, on a screen
+       holding the answer. `reason` is null on a start that worked and on every
+       refusal recorded before the field existed; null is "this record does not
+       say" and must never be rendered as a reason. */
+    resultBySequence.set(outcome.resolves, {
+      result: outcome.result,
+      reason: typeof outcome.reason === 'string' && outcome.reason ? outcome.reason : null,
+    })
   }
 
   /* A run is a START. Outcome records are ledger lines too, and counting them
@@ -244,14 +277,26 @@ export function readLocalSessions(raw) {
      this function report zero runs on a ledger full of them. */
   const runs = usable
     .filter(entry => entry.action === undefined || entry.action === 'agent_session_start')
-    .map(entry => Object.freeze({
-      sequence: entry.sequence,
-      atMs: Date.parse(entry.at),
-      /* null is "this record does not say", NEVER "it worked". Every screen
-         below has to keep that distinction: an unrecorded outcome is exactly
-         the state that used to be displayed as success. */
-      result: resultBySequence.get(entry.sequence) || null,
-    }))
+    .map(entry => {
+      const outcome = resultBySequence.get(entry.sequence) || null
+      return Object.freeze({
+        sequence: entry.sequence,
+        atMs: Date.parse(entry.at),
+        /* null is "this record does not say", NEVER "it worked". Every screen
+           below has to keep that distinction: an unrecorded outcome is exactly
+           the state that used to be displayed as success. */
+        result: outcome ? outcome.result : null,
+        /* The bare code the shell recorded, or null. Turned into a sentence by
+           runReason() below; never rendered raw. */
+        reason: outcome ? outcome.reason : null,
+        /* THE JOIN KEY, and the whole of the owner's second report. Without it
+           a row can only ever say "Agent run 37"; with it a screen can find the
+           conversation this app already saved for that session and say WHICH
+           agent and WHAT it was asked. null when the record does not say, and
+           an unmatched run simply renders as it always did. */
+        sessionId: typeof entry.sessionId === 'string' && entry.sessionId ? entry.sessionId : null,
+      })
+    })
 
   const tally = isRecord(raw.outcomes) ? raw.outcomes : null
   const counted = tally && Number.isSafeInteger(tally.starts) ? tally.starts : null
@@ -349,6 +394,67 @@ export const ENGINE_REASON = Object.freeze({
  * Plain English, and never a symbol standing in for a number. Returns null for
  * an unreadable input so callers omit the phrase instead of printing a dash.
  */
+/* ONE RUN, WITH EVERYTHING THIS COMPUTER ACTUALLY WROTE DOWN ABOUT IT.
+ *
+ * THE REPORT THIS EXISTS FOR. The owner, on the installed build: the activity
+ * list shows "Agent run 37 - started" and a relative time, and nothing else. He
+ * named the repository whose agent feeds get this right, and what they carry is
+ * always the same three things -- which agent, what it was asked, what happened
+ * -- never a bare identifier and a verb.
+ *
+ * WHERE EACH PART HONESTLY COMES FROM, because this is the line where a screen
+ * starts inventing.
+ *
+ *   what happened   the signed record: the outcome, and the bare refusal CODE
+ *                   the shell wrote beside it. Turned into a sentence by
+ *                   COPY.runReason, which is silent for a code nobody wrote one
+ *                   for.
+ *   which agent     the person's own saved conversation for that session --
+ *                   the ROLE they picked. The ledger does not carry it and must
+ *                   not: it is the app's own record of what STARTED, not a copy
+ *                   of what was said.
+ *   what it asked   the same place: the brief they typed. Deliberately not in
+ *                   the ledger either (see shell/agent-launch-audit's rule: a
+ *                   launch record is evidence a session started, not a copy of
+ *                   its prompt), so this is a JOIN and never a new field on
+ *                   disk.
+ *
+ * AN UNMATCHED RUN LOSES NOTHING. A run started from another surface, from
+ * another computer's record, or before session ids crossed, simply has no
+ * conversation to find, and its row renders exactly as it always did. That is
+ * the whole reason this is a join rather than a requirement.
+ *
+ * `conversations` is a Map (or any object with .get) from session id to
+ * { role, asked }. The view builds it from what the person has saved; this
+ * function neither reads storage nor knows where it came from.
+ */
+export const RUN_BRIEF_CHARS = 96
+
+export function describeRun(run, conversations = null, nowMs = Date.now()) {
+  const said = run && run.sessionId && conversations && typeof conversations.get === 'function'
+    ? conversations.get(run.sessionId)
+    : null
+  const clip = (value) => {
+    const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+    if (text.length === 0) return ''
+    return text.length <= RUN_BRIEF_CHARS ? text : `${text.slice(0, RUN_BRIEF_CHARS - 1).trimEnd()}…`
+  }
+  return Object.freeze({
+    sequence: run.sequence,
+    result: run.result,
+    /* Three separately-absent facts, and each absence is rendered by leaving
+       the line out rather than by printing a stand-in. */
+    resultWord: COPY.runResult(run.result),
+    why: run.result === 'refused' ? COPY.runReason(run.reason) : '',
+    agent: clip(said && typeof said.role === 'string' ? said.role : ''),
+    asked: clip(said && typeof said.asked === 'string' ? said.asked : ''),
+    when: whenWords(nowMs - run.atMs) || COPY.runWhenUnknown,
+    /* The exact instant, for the row's own tooltip. A list that only ever says
+       "3 days ago" cannot be lined up against anything else that happened. */
+    at: Number.isFinite(run.atMs) ? new Date(run.atMs).toLocaleString() : '',
+  })
+}
+
 export function whenWords(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null
   const seconds = Math.floor(ms / 1000)

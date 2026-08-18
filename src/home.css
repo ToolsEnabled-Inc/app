@@ -592,19 +592,47 @@ a.home-fact:focus-visible {
   list-style: none;
   margin: 0; padding: 0;
 }
+/* TWO ROWS PER RUN, NOT ONE LINE.
+   The head is the run and its verdict; under it, what the agent was and what it
+   was asked, and -- for a refusal -- why it did not start. Every one of those
+   lines is omitted when the record does not carry it, so a row with nothing to
+   add is byte-for-byte the row this list always drew. */
 .home-run {
-  display: flex; align-items: baseline; gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 .home-run:last-child { border-bottom: 0; }
+.home-run .run-head {
+  grid-column: 1;
+  display: flex; align-items: baseline; gap: 12px;
+  min-width: 0;
+}
 .home-run .run-what { color: var(--ink-2); }
+.home-run .run-agent,
+.home-run .run-asked,
+.home-run .run-why {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+/* The agent's own role reads as its name, so it carries the ink the head does
+   rather than the dim of the lines under it. */
+.home-run .run-agent { color: var(--ink-2); }
+.home-run .run-why { color: var(--c-failed, #c24b4b); }
 /* The time sits at the right rail so a column of them scans as one list rather
    than as ragged prose. */
 .home-run .run-when {
-  margin-left: auto;
+  grid-column: 2;
+  grid-row: 1;
   flex: none;
+  text-align: right;
   color: var(--ink-3);
   font-size: 12.5px;
 }

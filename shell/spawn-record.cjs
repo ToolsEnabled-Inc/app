@@ -140,6 +140,33 @@ function readableOutcome(value) {
   }
 }
 
+/* THE SESSION THIS RECORD IS ABOUT, so a screen can say WHICH agent and WHAT
+ * it was asked instead of "Agent run 37".
+ *
+ * WHY THIS IS NOT IN THE SAME CLASS AS `details`, which stays dropped. `details`
+ * carries the session's working directory -- a path out of this machine's
+ * filesystem -- and the rule that a filter over a path-bearing field "is a thing
+ * someone widens later" is not being bent here. A session id is the opposite
+ * kind of value: the RENDERER minted it (`chat-<uuid>`, generated in the page
+ * before the start was ever requested), the page already holds every id it
+ * started, and it names nothing outside this app. Passing it back tells a screen
+ * nothing it did not already know about its own sessions; it only lets a screen
+ * MATCH a ledger line to the conversation it already has on disk.
+ *
+ * AND IT IS BOUNDED, for the same reason `principal` is. These are bytes off a
+ * file this function deliberately returns even when the chain does NOT verify,
+ * so anything that could append a line could otherwise put an arbitrary string
+ * next to somebody's history. The shape admitted is the shape the app writes:
+ * lower-case ASCII, digits and dashes, at most 128 characters. Anything else is
+ * null -- "this record does not say" -- which every reader downstream already
+ * has to handle. */
+const SESSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/
+
+function readableSessionId(value) {
+  if (typeof value !== 'string') return null
+  return SESSION_ID_PATTERN.test(value) ? value : null
+}
+
 /* The identity on a record, re-derived from the bytes rather than trusted.
  *
  * Only the two shapes the writer can produce are admitted: `account:` followed
@@ -630,6 +657,9 @@ function createSpawnRecorder({ safeStorage, directory, now = () => new Date().to
            stated word. Anything else becomes null rather than being rendered,
            because an identity string off disk is bytes, not a name. */
         principal: readablePrincipal(parsed.principal),
+        /* See readableSessionId above for why this crosses and `details` does
+           not. Re-validated on the way out like every other field here. */
+        sessionId: readableSessionId(parsed.sessionId),
       }))
     }
     entries.reverse() // newest first, which is the order a reader wants

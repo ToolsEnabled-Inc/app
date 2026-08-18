@@ -55,10 +55,20 @@ import {
   COPY,
   HOME_MODES,
   describeHome,
+  describeRun,
   readAgentEngine,
   readLocalSessions,
-  whenWords,
 } from '../local-activity.js'
+/* THE CONVERSATIONS THIS COMPUTER ALREADY SAVED, read so a run can say which
+   agent it was and what it was asked. Nothing new is written and nothing new is
+   recorded: the trees a person builds on the computers page are kept on this
+   machine, keyed by session, and the signed run record now carries the same key.
+   This screen only joins the two. parseFleetTrees is the SAME reader that page
+   uses -- a second parser here would be a second opinion about a record this
+   file does not own -- and it returns an empty forest for anything it does not
+   fully trust, so a damaged record costs this list its extra lines and nothing
+   else. */
+import { fleetTreesStorageKey, parseFleetTrees } from '../fleet-trees.js'
 /* The two controls on the settings page that decide what this box contains:
    which agents' context appears in it, and whether agent runs appear too, not
    at all, or on their own. The view reads them and re-reads them on the event,
@@ -477,6 +487,59 @@ export function homeView() {
   }
 
   /* ---- the runs half ---- */
+  /* WHAT THIS COMPUTER SAVED ABOUT EACH SESSION, keyed the way the run record
+   * is keyed. This is the join behind "which agent, and what was it asked".
+   *
+   * READ, NEVER WRITTEN, AND NEVER REQUIRED. Every failure here -- no storage,
+   * a key that will not parse, a record from a build with a different shape --
+   * costs this list its two extra lines and nothing more; parseFleetTrees
+   * refuses a record whole rather than repairing it, and an empty map simply
+   * renders the rows this screen has always rendered. So a person whose trees
+   * are damaged still sees their run history.
+   *
+   * THE PREFIX COMES FROM THE MODULE THAT OWNS THE KEY. fleetTreesStorageKey('')
+   * is that module's own answer to "where do these live", so this file holds no
+   * second copy of a storage key to go stale.
+   *
+   * `length`/`key(i)` AND NOT Object.keys, and this is the line that was
+   * measured wrong first. In this application `localStorage` is not Storage:
+   * public/durable-storage.js replaces the global with a durable shim over the
+   * settings file, because the origin here carries a scanned port number and a
+   * relaunch on a different port looked exactly like a factory reset. The shim
+   * exposes the Storage METHODS and nothing else -- so `Object.keys(store)`
+   * answers ["getItem","setItem","removeItem","clear","key","length"] and finds
+   * no saved conversation ever. Every row silently lost its two extra lines,
+   * and every unit test passed, because in a plain browser the global is left
+   * alone and Object.keys is right there. Caught only by driving the packaged
+   * build: tools/home-activity-substance-qa.mjs.
+   *
+   * Re-read on every repaint rather than cached: the computers page writes to
+   * this same storage in another view of the same window, and a map captured at
+   * mount would go stale the first time somebody started an agent. It is a
+   * handful of small keys parsed at most once a repaint, and the repaint is
+   * already gated by the signature above. */
+  function savedConversations() {
+    const store = typeof window === 'undefined' ? null : window.localStorage
+    if (!store || typeof store.key !== 'function') return null
+    const found = new Map()
+    const prefix = fleetTreesStorageKey('')
+    let count = 0
+    try { count = Number(store.length) || 0 } catch { return null }
+    for (let index = 0; index < count; index += 1) {
+      let key = null
+      try { key = store.key(index) } catch { continue }
+      if (typeof key !== 'string' || !key.startsWith(prefix)) continue
+      let raw = null
+      try { raw = store.getItem(key) } catch { continue }
+      const record = parseFleetTrees(raw)
+      for (const node of record.nodes) {
+        if (!node.sessionId) continue
+        found.set(node.sessionId, { role: node.role, asked: node.message })
+      }
+    }
+    return found
+  }
+
   let runsSignature = null
   function renderRuns(view) {
     /* An empty runs half that is standing beside a conversation says so in the
@@ -492,6 +555,7 @@ export function homeView() {
     runsSignature = signature
     runsSlot.replaceChildren()
     if (!listed.length) return
+    const conversations = savedConversations()
     const list = el('<ol class="home-runs"></ol>')
     for (const run of listed) {
       /* The run's own number, not a decorative index. It is the position in
@@ -500,15 +564,39 @@ export function homeView() {
          It also stops three runs started within a minute of each other from
          rendering as three identical rows reading "just now", which is honest
          and useless. */
-      const row = el('<li class="home-run"><span class="run-what"></span><span class="run-result"></span><span class="run-when"></span></li>')
-      row.querySelector('.run-what').textContent = COPY.runLabel(run.sequence)
+      const said = describeRun(run, conversations, state.nowMs)
+      const row = el(`<li class="home-run">
+        <span class="run-head"><span class="run-what"></span><span class="run-result"></span></span>
+        <span class="run-when"></span>
+      </li>`)
+      row.querySelector('.run-what').textContent = COPY.runLabel(said.sequence)
       /* Empty string for a run whose outcome was never recorded, and the
          data-attribute is set from the same value so the stylesheet cannot
          colour a row the copy declined to label. */
-      const result = COPY.runResult(run.result)
-      row.querySelector('.run-result').textContent = result
-      if (result) row.dataset.result = run.result
-      row.querySelector('.run-when').textContent = whenWords(state.nowMs - run.atMs) || COPY.runWhenUnknown
+      row.querySelector('.run-result').textContent = said.resultWord
+      if (said.resultWord) row.dataset.result = run.result
+      const when = row.querySelector('.run-when')
+      when.textContent = said.when
+      /* The exact instant on hover. The row itself stays relative, because a
+         column of timestamps is a log and this is a list of what happened. */
+      if (said.at) when.title = said.at
+      /* EACH LINE APPEARS ONLY IF THE RECORD CARRIES IT. Three separate
+         absences -- no saved conversation for this session, no brief on it, no
+         reason written for this refusal -- and every one of them leaves the
+         line out rather than printing a placeholder that would read as a fact.
+         The words are the person's own or the copy module's; nothing is
+         assembled from a literal here. */
+      for (const [value, className] of [
+        [said.agent, 'run-agent'],
+        [said.asked ? COPY.runAsked(said.asked) : '', 'run-asked'],
+        [said.why, 'run-why'],
+      ]) {
+        if (!value) continue
+        const line = document.createElement('span')
+        line.className = className
+        line.textContent = value
+        row.appendChild(line)
+      }
       list.appendChild(row)
     }
     runsSlot.appendChild(list)

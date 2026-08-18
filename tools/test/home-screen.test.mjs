@@ -22,8 +22,11 @@ import { readFileSync } from 'node:fs'
 
 import {
   COPY,
+  ENGINE_REASON,
   HOME_MODES,
+  RUN_BRIEF_CHARS,
   describeHome,
+  describeRun,
   readAgentEngine,
   readLocalSessions,
   whenWords,
@@ -430,7 +433,82 @@ function everyCopyString(value, path = 'COPY') {
  * calls every function with one sample argument, which for this function
  * necessarily lands on exactly that branch, so it is named here and checked
  * properly by the test underneath instead. */
-const DELIBERATELY_SILENT = new Set(['COPY.runResult()'])
+/* COPY.runReason() joins it for the same reason, one step further on. It turns
+   the bare code the record kept into ENGINE_REASON's sentence, and answers the
+   EMPTY STRING for a code nobody wrote one for -- and for the sample argument
+   the walk below happens to pass, which is not a code at all. A non-empty
+   fallback here would be this screen explaining a refusal it was never told the
+   reason for, which is the same invention in the opposite direction. The
+   behaviour is checked properly by the test underneath. */
+const DELIBERATELY_SILENT = new Set(['COPY.runResult()', 'COPY.runReason()'])
+
+/* WHY A REFUSED RUN NOW SAYS WHY, AND WHY IT SOMETIMES STILL DOES NOT.
+ *
+ * The owner's report: "Activity on this computer" showed "Agent run 37 -
+ * started" or "did not start" and a relative time, and nothing else. The record
+ * held more than that the whole time -- the shell writes a bare refusal code
+ * beside every refused outcome and readLocalSessions dropped it on the floor.
+ * So a person whose every start was refused read "did not start" nine times
+ * over a file that knew the answer.
+ *
+ * The silence that remains is deliberate and is the same rule as runResult's:
+ * a code with no sentence, or a run recorded before reasons were kept, gets no
+ * line. The row then says exactly what it always said. */
+test('a refused run says why when the record knows, and nothing when it does not', () => {
+  const known = COPY.runReason('AGENT_TIER_NO_LAUNCHER')
+  assert.ok(known.length > 0, 'the code the tree really refuses with has no sentence on this screen')
+  assert.equal(known, ENGINE_REASON.AGENT_TIER_NO_LAUNCHER,
+    'the runs list words a refusal differently from the engine line above it; one machine, two explanations')
+  for (const nothing of [null, undefined, '', 'NOT_A_CODE_ANYONE_WROTE', 42, {}]) {
+    assert.equal(COPY.runReason(nothing), '',
+      `a run whose reason is ${JSON.stringify(nothing)} was given an explanation nobody recorded`)
+  }
+})
+
+/* THE JOIN, AND THE ABSENCE IT MUST SURVIVE. describeRun answers with what the
+ * signed record holds plus what this computer saved about that session. A run
+ * with no saved conversation -- another surface, another machine's record, a
+ * build from before session ids crossed -- must lose the two extra lines and
+ * keep everything else, or this feature costs people the history they had. */
+test('a run names its agent and its brief when they were saved, and degrades to what it always showed', () => {
+  const now = Date.UTC(2026, 7, 17, 12, 0, 0)
+  const conversations = new Map([['chat-a', { role: 'Coordinator', asked: '  Read the build\n  log   and say what broke. ' }]])
+  const matched = describeRun(
+    { sequence: 12, atMs: now - 3_600_000, result: 'refused', reason: 'AGENT_TIER_NO_LAUNCHER', sessionId: 'chat-a' },
+    conversations, now,
+  )
+  assert.equal(matched.agent, 'Coordinator')
+  assert.equal(matched.asked, 'Read the build log and say what broke.', 'the brief was not collapsed to one line')
+  assert.ok(matched.why.length > 0, 'a refusal with a known code said nothing')
+  assert.equal(matched.resultWord, 'did not start')
+  assert.equal(matched.when, 'an hour ago')
+
+  const unmatched = describeRun(
+    { sequence: 13, atMs: now - 60_000, result: 'started', reason: null, sessionId: 'chat-nobody-saved' },
+    conversations, now,
+  )
+  assert.equal(unmatched.agent, '', 'a run with no saved conversation invented an agent')
+  assert.equal(unmatched.asked, '', 'a run with no saved conversation invented a brief')
+  assert.equal(unmatched.why, '', 'a run that started was given a refusal reason')
+  assert.equal(unmatched.resultWord, 'started')
+
+  /* No conversations at all is the ordinary state of a computer whose agents
+     were started from another surface. It must not throw and must not blank
+     the row. */
+  const alone = describeRun({ sequence: 1, atMs: now, result: null, reason: null, sessionId: null }, null, now)
+  assert.equal(alone.agent, '')
+  assert.equal(alone.asked, '')
+  assert.equal(alone.resultWord, '', 'a run with no recorded outcome was labelled')
+  assert.equal(alone.when, 'just now')
+
+  /* A brief longer than the column is clipped, not wrapped into the page. */
+  const long = describeRun(
+    { sequence: 2, atMs: now, result: 'started', reason: null, sessionId: 'chat-a' },
+    new Map([['chat-a', { role: 'Worker', asked: 'x'.repeat(400) }]]), now,
+  )
+  assert.ok(long.asked.length <= RUN_BRIEF_CHARS, `a ${long.asked.length}-character brief reached the row`)
+  assert.ok(long.asked.endsWith('…'), 'a clipped brief does not say it was clipped')
+})
 
 test('the copy that does not come from the decision follows the same rules', () => {
   const strings = everyCopyString(COPY)
