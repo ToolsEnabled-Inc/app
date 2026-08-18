@@ -36,7 +36,26 @@ import { chartableColumn, chartableColumns, readResults, readRun, readRuns, resu
 import { findingStateWord, readFindings, saveFinding } from '../research-findings.js'
 import { createResultChart } from '../research-result-charts.js'
 import { readLiveSession } from '../agent-session-registry.js'
+import { RESEARCH_SETTING_IDS } from '../research-settings.js'
 import '../research.css'
+
+/* WHERE THE SWITCH IS, derived from the section that draws it rather than
+   spelled out here. The settings page opens the section a named row lives in
+   and scrolls to that row, so this link lands on the control itself instead of
+   on a page of two hundred others. The id comes from the section's own list, so
+   a rename cannot leave this link pointing at nothing.
+
+   IT IS A FUNCTION, AND THAT IS NOT A STYLE CHOICE.
+   tools/test/research-queue-degradation.test.mjs re-evaluates this module with
+   every `^import` LINE stripped, to prove the page still says something honest
+   when a source it depends on is missing. A module-scope constant that reads an
+   imported binding throws while that file is being evaluated, so the whole page
+   becomes a blank screen instead of a degraded one -- which is the exact defect
+   that test exists to catch. Read inside the function, the reference is only
+   made when the page is genuinely rendering. */
+function pipelineSettingHref() {
+  return `#/settings?setting=${encodeURIComponent(RESEARCH_SETTING_IDS[0])}`
+}
 
 const RESEARCH_QUEUE_URL = '/data/research-queue.json'
 const RESEARCH_QUEUE_STATUSES = new Set(['queued', 'in-progress', 'complete'])
@@ -1752,7 +1771,22 @@ export function researchView() {
     projectSelect.disabled = false
     projectNewBtn.hidden = false
     if (service.settings && service.settings.pipelineEnabled === false) {
-      projectStatus.textContent = 'The research pipeline is switched off in settings; queued runs wait until it is on.'
+      /* THE SENTENCE NOW POINTS AT A SWITCH THAT EXISTS.
+         It said "switched off in settings" for months while Settings carried no
+         such switch anywhere -- the row and the refusal were real and the
+         control had never been built, so the only way to run anything was to
+         edit a file beside the program. The switch is in Settings under
+         Research now (src/research-settings.js), and this is a link straight to
+         it rather than an instruction to go looking: the row it means opens the
+         section it lives in and scrolls to itself. Text and link are set
+         separately because the reason a person is reading this can contain a
+         path and must never be built into markup. */
+      projectStatus.textContent = 'The research pipeline is switched off in settings; queued runs wait until it is on. '
+      const link = document.createElement('a')
+      link.className = 'host-absent-action'
+      link.href = pipelineSettingHref()
+      link.textContent = 'Open that switch'
+      projectStatus.append(link)
     } else {
       projectStatus.textContent = ''
     }

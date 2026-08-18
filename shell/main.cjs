@@ -68,6 +68,7 @@ const { createRendererPrefs } = require('./renderer-prefs.cjs')
 const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
 const { RETENTION_PREF_KEY, syncRecordedChoice } = require('./uninstall-retention.cjs')
 const { planReset, eraseLocalData } = require('./local-data-reset.cjs')
+const { readProductSettings, setProductSetting } = require('./product-settings.cjs')
 const { createSubscribeEndpoint } = require('./subscribe-endpoint.cjs')
 
 const fatalStartup = createFatalStartupHandler({
@@ -2630,6 +2631,45 @@ ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrap
    See ensureDispatchAssistantConfig() in shell/setup-record.cjs. */
 ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
   withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '', { dispatchRoot: WORKSPACE_ROOT })))
+
+/* ---------- the installation's own settings, changed from inside the window ----------
+ *
+ * WHAT WAS MISSING, in the owner's own rule: a user setting is a registry row,
+ * a real enforcement, and a control in the software -- or it is a lie. The
+ * research family had a row and an enforcer and NO control anywhere, so the
+ * research page's sentence ("the research pipeline is switched off in settings")
+ * pointed at a switch that did not exist and the only way to run anything was to
+ * hand-write the settings file. See shell/product-settings.cjs for why the
+ * writer lives in the shell and why it consults the payload's validator rather
+ * than restating it.
+ *
+ * SAME SENDER CHECK AS EVERY OTHER WRITE HERE, for the same reason: this changes
+ * a record on disk that decides whether unattended work may run on this
+ * computer, and only this application's own main frame may do that.
+ *
+ * THE CHANGE IS RECORDED, AND A FAILURE TO RECORD DOES NOT SILENTLY PASS. This
+ * is a permission being granted, which is exactly the class of act the signed
+ * ledger exists for. It is reported rather than thrown, and the write is NOT
+ * rolled back on an unrecordable ledger: a person who has turned research on has
+ * turned it on, and quietly reverting their choice because a log was unavailable
+ * would be a worse lie than an unrecorded change. The control says which
+ * happened. */
+ipcMain.handle('mc-settings:read', event =>
+  withFleetProfileSender(event, () => readProductSettings()))
+
+ipcMain.handle('mc-settings:set', (event, request) =>
+  withFleetProfileSender(event, () => {
+    const id = typeof request?.id === 'string' ? request.id : ''
+    const value = request ? request.value : undefined
+    const result = setProductSetting({ id, value })
+    if (!result.ok) return result
+    const recorded = recordCanonicalIn('settings.set', id, {
+      value: result.value,
+      revision: result.revision,
+      provenance: result.provenance?.source ?? null,
+    })
+    return { ...result, recorded }
+  }))
 
 /* ---------- the declared organisation ----------
  *

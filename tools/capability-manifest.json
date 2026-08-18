@@ -64,7 +64,9 @@
     "src/lib/proc/hidden-spawn.js",
     "src/lib/agent-session-confinement.js",
     "src/lib/multi-account/rotation.js",
-    "src/lib/providers/subscription-launch-env.js"
+    "src/lib/providers/subscription-launch-env.js",
+    "src/lib/settings.js",
+    "src/lib/settings-registry.js"
   ],
   "$comment_licenseTrustAnchor": [
     "config/license-trust.json IS THE ODD ONE OUT IN dataFiles, AND DELIBERATELY SO.",

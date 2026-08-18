@@ -54,7 +54,7 @@
 //   (defaults to <repo>/release/win-unpacked, like every packaged driver here)
 
 import { spawn, execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -73,6 +73,25 @@ const RELEASE = path.resolve(argument('--release', path.join(REPO_ROOT, 'release
 const KEEP = process.argv.includes('--keep')
 
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
+
+/* Every directory under a root, relative and sorted. Used as the disk's own
+   answer to "did a program actually run", which no sentence on a screen can
+   give. */
+function walkDirectories(root) {
+  const found = []
+  const walk = (current, prefix) => {
+    let entries
+    try { entries = readdirSync(current, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const relative = prefix ? prefix + '/' + entry.name : entry.name
+      found.push(relative)
+      walk(path.join(current, entry.name), relative)
+    }
+  }
+  walk(root, '')
+  return found.sort()
+}
 
 /* ---------- stage a real packaged copy ----------
  *
@@ -401,6 +420,139 @@ async function drive(executable, scratch) {
         (await text('[data-research-worker-status]')).includes('research.pipeline'),
         (await text('[data-research-worker-status]')).slice(0, 160))
     }
+
+    /* ----- 9. THE SWITCH THE PAGE HAS BEEN POINTING AT -----
+     *
+     * Everything above measures the refusal, and the refusal was never in
+     * doubt. What WAS wrong, and what the final gate stopped a cut over, is
+     * that the sentence naming the switch pointed at nothing: there was no
+     * control for the research pipeline anywhere in this product, and the only
+     * way to run a single research job was to hand-write the settings file
+     * beside the program -- which is what every measurement of this page had
+     * done up to now. A research product whose research cannot be switched on
+     * by the person it belongs to is not shippable, whatever the refusal says.
+     *
+     * So this half is the other direction, and every step of it is a press:
+     * follow the page's own link, find the switch, turn it on, come back, and
+     * watch a submitted run reach a REAL process. Nothing here writes a
+     * settings file; the product does, and the file on disk is read back
+     * afterwards to prove which. */
+
+    const linkHref = await evaluate('document.querySelector("[data-project-status] a")?.getAttribute("href") || ""')
+    check('the hold sentence carries a link to the switch it names',
+      /^#\/settings\?setting=research/.test(linkHref), JSON.stringify(linkHref))
+
+    await evaluate('document.querySelector("[data-project-status] a").click()')
+    await until('the settings page the link names', 'document.querySelector("main.settings-page") !== null', 80)
+    await until('the research section to answer the installed application',
+      'document.querySelector("[data-research-setting-row=\'research.pipeline\']") !== null', 160)
+    check('the switch the sentence points at EXISTS in Settings', true,
+      (await text("[data-research-setting-row='research.pipeline']")).replace(/\n/g, ' | ').slice(0, 140))
+
+    check('it is a real control, not a sentence about one',
+      await evaluate('document.querySelector("input[data-research-setting=\'research.pipeline\']") !== null'))
+    check('and it starts off, matching the refusal the page has been showing',
+      await evaluate('document.querySelector("input[data-research-setting=\'research.pipeline\']").checked') === false)
+
+    /* BOTH switches. The pipeline is a fence rather than a hint, and this
+       experiment runs a PROGRAM, so the row that permits programs has to be on
+       as well -- which is the behaviour the section itself states. */
+    for (const settingId of ['research.pipeline', 'research.runner_process']) {
+      await evaluate('document.querySelector("input[data-research-setting=\'' + settingId + '\']").click()')
+      await until('the ' + settingId + ' row to report what the write did',
+        '/turned on/i.test(document.querySelector("[data-research-setting-status=\'' + settingId + '\']")?.innerText || "")', 160)
+    }
+    check('pressing the switches reports what the write actually did',
+      /turned on/i.test(await text("[data-research-setting-status='research.pipeline']")),
+      (await text("[data-research-setting-status='research.pipeline']")).slice(0, 160))
+
+    /* THE FILE THE ENFORCER READS, read off the disk rather than believed.
+       A control that repaints itself and writes nothing is the defect this
+       whole section exists to end, so the proof is the bytes -- including the
+       provenance, because the gate refuses a value nobody chose. */
+    const settingsFile = path.join(profile, 'local', 'ToolsEnabled', 'settings.json')
+    let written = null
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (existsSync(settingsFile)) { try { written = JSON.parse(readFileSync(settingsFile, 'utf8')) } catch { written = null } }
+      if (written?.values?.['research.pipeline'] === true) break
+      await delay(250)
+    }
+    check('the switch wrote the file the enforcer reads, as this person’s own choice',
+      written?.values?.['research.pipeline'] === true
+        && written?.values?.['research.runner_process'] === true
+        && written?.provenance?.['research.pipeline']?.source === 'user',
+      JSON.stringify({ values: written?.values ?? null, provenance: written?.provenance?.['research.pipeline'] ?? null }).slice(0, 220))
+
+    /* ----- 10. and now the SAME submit runs a real process ----- */
+
+    await evaluate('location.hash = "#/research"')
+    await until('the research page again', 'document.querySelector("main.research-page") !== null', 80)
+    await until('the project bar to re-read the gate',
+      'document.querySelector("[data-project-status]") && !/switched off in settings/i.test(document.querySelector("[data-project-status]").innerText)', 160)
+    check('the hold sentence is gone once the switch is on',
+      !/switched off in settings/i.test(await text('[data-project-status]')),
+      (await text('[data-project-status]')).slice(0, 120) || '(empty, which is the honest state)')
+
+    await until('the run control', 'document.querySelector("[data-exp-run]") !== null', 80)
+    await evaluate('document.querySelector("[data-exp-run]").click()')
+    await until('the submitted runs to appear on the run board',
+      'document.querySelectorAll("[data-run-drill]").length >= 2', 200)
+    const queued = await evaluate('document.querySelectorAll("[data-run-drill]").length')
+    check('the submit is accepted now and the runs are queued', queued >= 2, queued + ' run(s) on the board')
+
+    const startNow = await evaluate('document.querySelector("[data-research-worker-toggle=\'start\']") !== null')
+    check('the worker start control is still offered', startNow)
+    if (startNow) await evaluate('document.querySelector("[data-research-worker-toggle=\'start\']").click()')
+    await until('the worker to report a lifecycle answer rather than the gate',
+      '!/research\\.pipeline/.test(document.querySelector("[data-research-worker-status]")?.innerText || "")', 200)
+    check('starting the worker is no longer refused by the gate',
+      !/research\.pipeline/.test(await text('[data-research-worker-status]')),
+      (await text('[data-research-worker-status]')).slice(0, 160))
+
+    /* THE PROCESS ITSELF. This experiment's runner is cmd.exe /c echo, and the
+       runner spawns it with the run's own artifact folder as its working
+       directory. So the proof that a program really ran is a folder on this
+       disk, inside this run's own isolated universe, that the product created
+       while the driver watched -- not a word on a screen, which a page can
+       paint from anything. */
+    const artifactRoot = path.join(profile, 'userdata', 'capability', 'state', 'research')
+    let ranFolders = []
+    let boardWord = ''
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      boardWord = (await text('[data-service-runboard]')) || ''
+      ranFolders = existsSync(artifactRoot) ? walkDirectories(artifactRoot) : []
+      /* THE PRODUCT'S OWN WORD, not the service's status code. The board
+         renders runStateWord(), which says 'finished' for a succeeded run --
+         a driver waiting for 'succeeded' polls out its whole budget over a run
+         that finished in seconds and then reports the product as stuck, which
+         is what the first version of this check did. */
+      if (ranFolders.length > 0 && /finished|failed|cancelled/i.test(boardWord)) break
+      await delay(500)
+    }
+    check('a real process ran: the product made the run its own artifact folder',
+      ranFolders.length > 0,
+      ranFolders.length > 0 ? ranFolders.slice(0, 4).join(', ') : 'nothing under ' + artifactRoot)
+    check('the run reaches a terminal state on the board rather than sitting queued',
+      /finished/i.test(boardWord) && !/queued/i.test(boardWord.replace(/queued through the service/gi, '')),
+      boardWord.replace(/\n/g, ' | ').slice(0, 220))
+
+    /* ----- 11. and the worker stops when it is told to -----
+     *
+     * A control that only starts is half a control, and there is a second,
+     * blunter reason this is here: the worker is a real child process holding
+     * this run's staged payload open, so a driver that walks away from a
+     * running worker cannot delete its own scratch copy. The first version of
+     * this section did exactly that and ended a 35-of-35 run with an EBUSY
+     * stack instead of a verdict. */
+    const stopOffered = await evaluate('document.querySelector("[data-research-worker-toggle=\'stop\']") !== null')
+    if (stopOffered) {
+      await evaluate('document.querySelector("[data-research-worker-toggle=\'stop\']").click()')
+      await until('the worker to report that it stopped',
+        '/stopped/i.test(document.querySelector("[data-research-worker]")?.innerText || "")', 160)
+    }
+    check('the worker stops when it is told to',
+      stopOffered && /stopped/i.test(await text('[data-research-worker]')),
+      (await text('[data-research-worker]')).replace(/\n/g, ' | ').slice(0, 160))
   } finally {
     session.close()
     await delay(300)
@@ -430,7 +582,18 @@ try {
   console.log('\nresearch walkthrough, fresh universe:')
   ok = await drive(executable, scratch)
 } finally {
-  if (!KEEP) rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 })
+  /* THE SCRATCH COPY IS NOT A VERDICT. A staged payload is held open by any
+     child that has not finished exiting, and Windows reports that as EBUSY --
+     which used to throw out of this block and end a run that had passed every
+     check with a stack trace and no verdict at all. What is left behind is a
+     temporary directory; it is reported and the run's own answer stands. */
+  if (!KEEP) {
+    try {
+      rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 })
+    } catch (error) {
+      console.log(`the scratch copy could not be removed (${error.code || error.message}); it is at ${scratch}`)
+    }
+  }
 }
 console.log(ok ? '\nresearch walkthrough: PASS' : '\nresearch walkthrough: FAIL')
 process.exit(ok ? 0 : 1)

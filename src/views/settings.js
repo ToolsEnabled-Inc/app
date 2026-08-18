@@ -47,6 +47,19 @@ import {
   CHATBOX_SETTING_COUNT,
   createChatboxSettings,
 } from '../chatbox-settings.js'
+/* THE SWITCHES THE RESEARCH PAGE HAS BEEN POINTING AT, and the reason this is a
+   section module rather than four more entries in SETTINGS below.
+   Every row in SETTINGS is a preference of this window, stored by this window.
+   These four are stored beside the program and read by the part that runs the
+   work, in another process -- so they are asked for and written through the
+   installed application, and their value, their wording and whether anything
+   enforces them all come back from it rather than from this file. */
+import {
+  RESEARCH_SECTION,
+  RESEARCH_SETTING_COUNT,
+  RESEARCH_SETTING_IDS,
+  createResearchSettings,
+} from '../research-settings.js'
 /* WHY A SECTION ON THIS PAGE NEEDS A SENTENCE ABOVE ITS SWITCHES.
  *
  * LEGACY-ONB-001, re-measured on a sterile profile: a person whose fleet graph
@@ -76,6 +89,12 @@ const SECTIONS = [
      asked and nothing said. A control for that buried below the simulation
      knobs would be a control nobody finds, which is the same outcome. */
   'Data & Privacy',
+  /* HIGH, FOR THE SAME REASON 'Data & Privacy' IS. This section answers "may
+     anything run on this computer for a research project", and it is the switch
+     the research page sends people here to find. A section for that below the
+     chart-drawing knobs is a section nobody finds, which is the state this
+     product was already in -- the page named a switch that was not anywhere. */
+  RESEARCH_SECTION,
   'Appearance',
   'Text & Reading',
   'Motion & Effects',
@@ -501,6 +520,14 @@ function setTierFocusable(tier, open) {
 function requestedSetting(query) {
   const id = query && typeof query.get === 'function' ? query.get('setting') : null
   if (typeof id !== 'string' || id.length === 0) return null
+  /* THE RESEARCH ROWS ARE LANDABLE TOO, and this is the half that makes the
+     research page's sentence true. That page sends a person here for the switch
+     that decides whether anything runs; landing needs a section and a depth, and
+     these four are not in SETTINGS because they are not this window's own
+     preferences. They render at the top of their section, so depth 1 is what
+     they are, and the row itself carries data-setting-id like every other row,
+     which is what markLanding and scrollToLanding look for. */
+  if (RESEARCH_SETTING_IDS.includes(id)) return { id, section: RESEARCH_SECTION, depth: 1 }
   return byId.get(id) || null
 }
 
@@ -512,6 +539,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
   const profileController = createFleetProfileSettings()
   const setupController = createSetupProfileSettings()
   const chatboxController = createChatboxSettings()
+  const researchController = createResearchSettings()
   const root = el(`<main class="view-pad settings-page">
     <div class="settings-shell">
       <header class="settings-header m-head">
@@ -576,10 +604,11 @@ export function settingsView({ query: routeQuery = null } = {}) {
     profileController.afterRender(root)
     setupController.afterRender(root)
     chatboxController.afterRender(root)
+    researchController.afterRender(root)
   }
 
   function updateFooter() {
-    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
+    footer.textContent = `${SETTINGS.length + FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT} settings · ${shown} shown · search finds the hidden ones too`
   }
 
   function syncRail() {
@@ -593,6 +622,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
 
   function sectionNodeMarkup(section) {
     if (section === CHATBOX_SECTION) return chatboxController.markup()
+    if (section === RESEARCH_SECTION) return researchController.markup()
     if (section === 'System') return profileController.markup()
     if (section === 'Setup') return setupController.markup()
     return sectionMarkup(section, levels.get(section))
@@ -600,7 +630,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
 
   function renderSectioned() {
     sectionsNode.innerHTML = SECTIONS.map(sectionNodeMarkup).join('')
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT
+    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT
       + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     // `inert` is the primary guard; the explicit tabindex pass keeps closed
     // tiers unreachable in older engines while preserving the CSS reveal.
@@ -621,18 +651,21 @@ export function settingsView({ query: routeQuery = null } = {}) {
     const profileMatches = profileController.matches(normalized)
     const setupMatches = setupController.matches(normalized)
     const chatboxMatches = chatboxController.matches(normalized)
+    const researchMatches = researchController.matches(normalized)
     sectionsNode.innerHTML = `<section class="settings-results">
       <h2 class="settings-section-title">Results</h2>
       ${chatboxMatches ? chatboxController.markup({ searchResult: true }) : ''}
+      ${researchMatches ? researchController.markup({ searchResult: true }) : ''}
       ${profileMatches ? profileController.markup({ searchResult: true }) : ''}
       ${setupMatches ? setupController.markup({ searchResult: true }) : ''}
       ${matches.map(setting => rowMarkup(setting, true)).join('')}
-      ${profileMatches || setupMatches || chatboxMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
+      ${profileMatches || setupMatches || chatboxMatches || researchMatches || matches.length ? '' : '<p class="settings-empty">No settings match this search.</p>'}
     </section>`
     shown = matches.length
       + (profileMatches ? FLEET_PROFILE_SETTING_COUNT : 0)
       + (setupMatches ? SETUP_PROFILE_SETTING_COUNT : 0)
       + (chatboxMatches ? CHATBOX_SETTING_COUNT : 0)
+      + (researchMatches ? RESEARCH_SETTING_COUNT : 0)
     wireControls()
     updateFooter()
   }
@@ -733,7 +766,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       button.setAttribute('aria-expanded', open ? 'true' : 'false')
       button.innerHTML = revealInner(prefix, count, open)
     }
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT
+    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT
       + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
     updateFooter()
   }
@@ -894,6 +927,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
      on the page, which is exactly what made it look like it had worked. */
   setupController.bind(root)
   chatboxController.bind(root)
+  researchController.bind(root)
 
   /* LANDING ON THE SWITCH A LINK NAMED, and the reason this is more than a
      scroll.
@@ -926,6 +960,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       profileController.destroy()
       setupController.destroy()
       chatboxController.destroy()
+      researchController.destroy()
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       window.removeEventListener(QUICK_SETTING_EVENT, onQuickSetting)
       window.removeEventListener(CAPABILITY_PROBE_EVENT, onCapabilityProbes)

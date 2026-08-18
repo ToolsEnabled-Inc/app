@@ -319,6 +319,25 @@ contextBridge.exposeInMainWorld('mcLocalData', Object.freeze({
   erase: () => ipcRenderer.invoke('mc-reset:erase'),
 }))
 
+/* THE INSTALLATION'S OWN SETTINGS -- the ones the capability layer enforces,
+ * which live beside the machine record in this installation's directory and are
+ * therefore outside a page's reach by design.
+ *
+ * This is NOT the settings page's other rows. Those are this window's own
+ * preferences (theme, density, which screens read live data) and they belong in
+ * the renderer's store. These four decide whether unattended work may run on
+ * this computer, they are read by a different process, and until this channel
+ * existed the product had no way to change them at all -- the research page
+ * named a switch in Settings that Settings did not have.
+ *
+ * `read` is a read. `set` names one row and one value and can name nothing
+ * else: shell/product-settings.cjs holds the list of rows this window may
+ * write, and an id outside it is refused rather than written. */
+contextBridge.exposeInMainWorld('mcSettings', Object.freeze({
+  read: () => ipcRenderer.invoke('mc-settings:read'),
+  set: (id, value) => ipcRenderer.invoke('mc-settings:set', { id, value }),
+}))
+
 function rgbToHex(rgb) {
   const match = rgb.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/)
   if (!match) return '#fdfdfd'
