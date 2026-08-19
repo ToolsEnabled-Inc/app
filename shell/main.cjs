@@ -1,3 +1,58 @@
+/* THE FIRST THING THIS FILE DOES, AND IT MUST STAY FIRST: refuse to start the
+ * application when what was actually asked for is one of our own programs.
+ *
+ * THE DEFECT, MEASURED ON A STAGED BUILD 2026-08-18. A generated `.mcp.json` (or
+ * the confined `config.toml`) names this executable as the runtime for
+ * `<engine>\src\mcp-server.js`. An Electron binary handed a script argument
+ * WITHOUT ELECTRON_RUN_AS_NODE ignores the argument and boots the whole
+ * application, so the agent CLI got a window instead of a server: no answer to
+ * `initialize`, 0 tools advertised, 5 new top-level windows owned by that child.
+ * The user saw "a second ToolsEnabled that looks outdated" every time they
+ * started an agent, and -- the half nobody had seen -- every app-started session
+ * ran with NONE of this product's own MCP tools.
+ *
+ * The generators no longer write such a document. THIS EXISTS FOR THE ONES
+ * ALREADY ON DISK: a `.mcp.json` in a person's own folder, written by an
+ * earlier build, that their agent client will read tomorrow morning. Nothing
+ * regenerates a file this application does not know about, so the repair has to
+ * live at the point the mistake arrives.
+ *
+ * THE TEST IS "A SCRIPT INSIDE THIS BUILD'S OWN RESOURCES", NOT "AN EXTRA
+ * ARGUMENT". Re-entering as Node on any unrecognised argv would turn every
+ * mistyped shortcut, every file association and every future command-line flag
+ * into a silent headless exit with no window -- which is the SAME failure in the
+ * other direction, and this project has already lost two diagnoses to it. The
+ * question asked is narrow and answerable: does argv name a .js/.cjs/.mjs file
+ * that lives under process.resourcesPath, i.e. a program we ship.
+ *
+ * It uses only node built-ins and runs before `require('electron')`, so nothing
+ * in this file has resolved userData or written a byte when it decides. */
+;(() => {
+  if (process.env.ELECTRON_RUN_AS_NODE === '1') return
+  const resources = typeof process.resourcesPath === 'string' ? process.resourcesPath : ''
+  if (!resources) return
+  const nodePath = require('node:path')
+  const root = nodePath.resolve(resources)
+  const forwarded = process.argv.slice(1)
+  const ours = forwarded.some((argument) => {
+    if (typeof argument !== 'string' || !/\.[cm]?js$/i.test(argument)) return false
+    const resolved = nodePath.resolve(argument)
+    return resolved === root || resolved.startsWith(root + nodePath.sep)
+  })
+  if (!ours) return
+  /* stdio is INHERITED, which is the whole point: the handles this process was
+     given are the pipes the agent CLI is speaking JSON-RPC over, and they must
+     reach the program that can answer. windowsHide because the child is our own
+     Node-mode binary and STANDING-ORDERS class LOCAL-WORK rule 3 is absolute. */
+  const { spawnSync } = require('node:child_process')
+  const result = spawnSync(process.execPath, forwarded, {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: 'inherit',
+    windowsHide: true,
+  })
+  process.exit(typeof result.status === 'number' ? result.status : 1)
+})()
+
 // Desktop shell: serves the built dist/ over loopback HTTP (file:// would
 // break fetch() and the router's absolute asset paths) and hosts it in a
 // frameless window with native Windows caption buttons drawn over our own
@@ -44,6 +99,7 @@ const {
   checkWorkspace,
   recordWorkspaces,
   ensureDispatchAssistantConfig,
+  refreshChosenAssistantConfig,
 } = require('./setup-record.cjs')
 const { createAgentOrgRecord } = require('./agent-org-record.cjs')
 const { wireSingleInstance } = require('./single-instance.cjs')
@@ -1211,6 +1267,41 @@ ipcMain.handle('mc-agent:confinement', async (event) => {
 ipcMain.handle('mc-agent:tools', async (event) => {
   assertTrustedAgentSender(event)
   return listAgentTools({ capabilityRoot: resolveCapabilityRoot() })
+})
+
+/* THE MESSAGES THIS COMPUTER HAS ALREADY WRITTEN DOWN, for the comms page.
+ *
+ * A fourth channel that starts nothing. It exists because the preload is
+ * sandboxed under contextIsolation and cannot reach the message fabric itself,
+ * and no existing mc-agent channel carries messages -- so the page had no way to
+ * show a real one and was showing nothing, or something it made up.
+ *
+ * IT IS A READ OF A RECORD THAT ALREADY EXISTS. Every local send writes the
+ * owner journal; this reads it. It is emphatically not a second copy of the
+ * message store, which would be two answers to one question the first time they
+ * disagreed.
+ *
+ * IT CARRIES NO PATH AND NO INTERNAL IDENTIFIER a person cannot act on: a
+ * message is {id, sender, at, text}, `at` RFC3339, `sender` the circle name.
+ *
+ * IT DEGRADES HONESTLY RATHER THAN THROWING. A payload cut before the provider
+ * grew ownerJournal() answers {ok:false, reason} -- a sentence the page can show
+ * -- instead of rejecting the invoke, because "this build cannot read messages
+ * yet" and "the messages could not be read" are different things to be told. */
+ipcMain.handle('mc-agent:local-messages', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const engineRoot = resolveCapabilityRoot()
+    if (!engineRoot) return { ok: false, reason: 'the live message reader is not available in this build' }
+    const journal = require(path.join(engineRoot, 'src', 'lib', 'providers', 'agent-comms-local.js'))
+    /* Bounded here rather than trusted from the page: the renderer is the one
+       caller, and a caller that can ask for everything is a caller that can be
+       made to. */
+    const limit = Number.isSafeInteger(value?.limit) ? Math.min(Math.max(value.limit, 1), 200) : 100
+    return await journal.ownerJournal({ limit })
+  } catch {
+    return { ok: false, reason: 'the live message reader is not available in this build' }
+  }
 })
 
 /* WHICH TIERS THIS INSTALLATION CAN ACTUALLY START.
@@ -3359,6 +3450,19 @@ function startSupervisedCapabilityLayer() {
     const dispatchAssistantConfig = ensureDispatchAssistantConfig({ dispatchRoot: workspaceRoot })
     if (!dispatchAssistantConfig.ok) {
       console.error(`[capability-layer] the dispatch root has no assistant configuration: ${dispatchAssistantConfig.code}`)
+    }
+    /* AND THE PERSON'S OWN COPY, WHICH NOTHING HAS EVER REVISITED. Their folder's
+       `.mcp.json` names an executable and an engine directory belonging to the
+       COPY THAT WROTE IT, and setup runs once -- so an updated, moved or second
+       installation left them a document pointing at the old build. Their agent
+       client then started that build: an extra application window per session,
+       and no ToolsEnabled tools in it, because a GUI launch never speaks
+       JSON-RPC. Refreshed only where a document already exists, so the
+       unanswered folder question still provisions nothing. */
+    const chosenAssistantConfig = refreshChosenAssistantConfig({})
+    if (!chosenAssistantConfig.ok && chosenAssistantConfig.code !== 'SETUP_ASSISTANT_CONFIG_ABSENT'
+      && chosenAssistantConfig.code !== 'SETUP_ASSISTANT_CONFIG_NOT_RECORDED') {
+      console.error(`[capability-layer] the chosen folder's assistant configuration was not refreshed: ${chosenAssistantConfig.code}`)
     }
 
     const started = await startCapabilityLayer({

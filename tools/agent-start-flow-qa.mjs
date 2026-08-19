@@ -161,7 +161,7 @@
 import { spawn, spawnSync, execFile as execFileCallback } from 'node:child_process'
 import { createRequire } from 'node:module'
 import {
-  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync,
+  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -211,6 +211,11 @@ const BOOT_BUDGET_MS = 90_000
 const VIEW_BUDGET_MS = 30_000
 const PANEL_BUDGET_MS = 6_000
 const SUBMIT_BUDGET_MS = 60_000
+/* Long enough for a window that arrives after the start rather than with it: an
+   MCP server is spawned by the agent CLI, not by us, and the CLI does it when it
+   gets there. Ten seconds was the reported interval between pressing start and
+   the window the person complained about. */
+const WINDOW_WATCH_MS = 10_000
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -621,15 +626,267 @@ function seedMachineRecord(profile, appRoot, payloadRoot, tier = 'guided') {
   ].filter(existsSync)
   if (candidates.length === 0) throw new HarnessError('no machine-record.js in the payload or the checkout')
   const machineRecord = require_(candidates[0])
+  /* THE RUNTIME IS SEEDED WRONG ON PURPOSE, AND THAT IS THE WHOLE POINT.
+   *
+   * This used to seed `process.execPath` -- the NODE running this harness --
+   * which is a runtime that executes a script argument, so every generated
+   * document worked here and the defect a real installation had was invisible to
+   * every driven run in this directory. A real setup runs INSIDE the app, so
+   * resolveNodePath() records the application's own Electron binary; and it
+   * records it ONCE, so a person who has ever updated or reinstalled is left
+   * with a document naming an executable that is not the one now running.
+   *
+   * So the seed is a real file, named the way this product's binary is named,
+   * belonging to no build. It must exist, because generateMcpConfig refuses a
+   * runtime that is not on the computer -- which is exactly the check that was
+   * mistaken for "the recorded runtime is still right". What the run then
+   * asserts is that the document names the STAGED executable anyway, and that
+   * the servers it configures actually answer. */
+  const olderInstall = path.join(profile, 'an-older-install')
+  mkdirSync(olderInstall, { recursive: true })
+  const stranded = path.join(olderInstall, 'ToolsEnabled.exe')
+  writeFileSync(stranded, 'a previous installation of this product; only its name and existence matter')
   const record = machineRecord.buildMachineRecord({
     tier,
     servicesRoot,
     installRoot: path.join(appRoot, 'resources', 'capability'),
-    nodePath: process.execPath,
+    nodePath: stranded,
     workspaceRoots: [workspace],
   })
   machineRecord.writeMachineRecord(record, { servicesRoot })
   return servicesRoot
+}
+
+/* ---------- WHAT APPEARED ON THE SCREEN, AND WHO PUT IT THERE ----------
+ *
+ * THE COMPLAINT THIS INSTRUMENT EXISTS FOR: "every time I launch an agent a cmd
+ * window and another ToolsEnabled instance pops up that looks outdated."
+ *
+ * WHY IT IS A CENSUS AND NOT A FLAG CHANGE. Two candidate causes were on the
+ * table and NEITHER was proved: the product's own spawn seam already refuses
+ * `shell: true`, forces `windowsHide` and resolves the npm launcher to the
+ * native binary, so "add a flag" would have been a guess dressed as a fix. A
+ * window has an owning process, that process has a command line, and a command
+ * line is an answer. So this enumerates top-level windows before the start and
+ * again after it, and reports every NEW one with its class, its owning pid, that
+ * process's executable and FULL command line, and its parent's -- because a
+ * console window on Windows 10+ is owned by conhost.exe and the parent is the
+ * program that actually asked for it.
+ *
+ * INVISIBLE WINDOWS ARE COUNTED TOO, and that is not thoroughness for its own
+ * sake: this harness sets MC_SMOKE_HEADLESS=1 so nothing lands on the owner's
+ * desktop, which hides exactly the window under investigation. `visible` is
+ * reported as a field rather than used as a filter.
+ *
+ * IT REPORTS EVERY NEW WINDOW, never stopping at the first: the two candidates
+ * are not mutually exclusive, and a census that stops at one of them cannot say
+ * so. */
+const WINDOW_CENSUS_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public class StartFlowWindows {
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr p);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  delegate bool EnumProc(IntPtr h, IntPtr p);
+  public class W { public long Hwnd; public string Class; public string Title; public uint Pid; public bool Visible; }
+  public static List<W> All() {
+    var found = new List<W>();
+    EnumWindows((h, p) => {
+      var cls = new StringBuilder(256); GetClassName(h, cls, 256);
+      var txt = new StringBuilder(512); GetWindowTextW(h, txt, 512);
+      uint pid = 0; GetWindowThreadProcessId(h, out pid);
+      found.Add(new W { Hwnd = h.ToInt64(), Class = cls.ToString(), Title = txt.ToString(), Pid = pid, Visible = IsWindowVisible(h) });
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+}
+'@
+$processes = @{}
+foreach ($process in Get-CimInstance Win32_Process) { $processes[[uint32]$process.ProcessId] = $process }
+$census = foreach ($window in [StartFlowWindows]::All()) {
+  $owner = $null
+  if ($processes.ContainsKey($window.Pid)) { $owner = $processes[$window.Pid] }
+  $parent = $null
+  if ($owner -ne $null -and $processes.ContainsKey([uint32]$owner.ParentProcessId)) { $parent = $processes[[uint32]$owner.ParentProcessId] }
+  [pscustomobject]@{
+    hwnd = $window.Hwnd
+    class = $window.Class
+    title = $window.Title
+    visible = [bool]$window.Visible
+    pid = [int]$window.Pid
+    name = if ($owner) { $owner.Name } else { $null }
+    exe = if ($owner) { $owner.ExecutablePath } else { $null }
+    commandLine = if ($owner) { $owner.CommandLine } else { $null }
+    parentPid = if ($owner) { [int]$owner.ParentProcessId } else { 0 }
+    parentName = if ($parent) { $parent.Name } else { $null }
+    parentCommandLine = if ($parent) { $parent.CommandLine } else { $null }
+  }
+}
+if ($census -eq $null) { '[]' } else { $census | ConvertTo-Json -Depth 4 -Compress }
+`
+
+function windowCensus() {
+  const answered = spawnSync('powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', WINDOW_CENSUS_SCRIPT],
+    { windowsHide: true, shell: false, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 60_000 })
+  if (answered.error || typeof answered.stdout !== 'string') return null
+  try {
+    const parsed = JSON.parse(answered.stdout.trim() || '[]')
+    return Array.isArray(parsed) ? parsed : [parsed]
+  } catch {
+    return null
+  }
+}
+
+/* Poll rather than sample once. A window that a session opens arrives whenever
+   the process that opens it gets there, and a single snapshot at an arbitrary
+   moment answers "no window" for anything slower than the harness. Every census
+   is unioned, so a window that opens AND CLOSES inside the budget is still
+   reported -- a flash is the complaint, not a steady-state. */
+async function watchForNewWindows(before, budgetMs) {
+  const known = new Set((before || []).map(window => window.hwnd))
+  const found = new Map()
+  const started = Date.now()
+  let censusFailed = before === null
+  do {
+    const now = windowCensus()
+    if (now === null) censusFailed = true
+    else for (const window of now) if (!known.has(window.hwnd) && !found.has(window.hwnd)) found.set(window.hwnd, window)
+    if (Date.now() - started >= budgetMs) break
+    await delay(1_000)
+  } while (Date.now() - started < budgetMs)
+  return { windows: [...found.values()], censusFailed, watchedMs: Date.now() - started }
+}
+
+/* WHOSE WINDOW IS IT? A whole-desktop census is the right instrument -- the
+ * window under investigation may be owned by conhost.exe, which is nobody's
+ * descendant -- but it also sees every other program on the machine. MEASURED
+ * 2026-08-18: a run of this file reported one new visible Chrome_WidgetWin_1,
+ * and its command line named another lane's browser profile and a page it had
+ * been told to open. Reporting that as "starting an agent opened a window" would
+ * be a false finding of exactly the kind this file exists to prevent.
+ *
+ * So a new window is THIS RUN'S if its owning process is inside the app's own
+ * process tree, or if anything about that process names this run's scratch
+ * directory -- which covers a grandchild started outside the tree. Everything
+ * else is still PRINTED, in full, and simply does not decide the check. */
+function windowIsFromThisRun(window, pids, scratch) {
+  if (pids.has(window.pid)) return true
+  const haystack = `${window.exe || ''} ${window.commandLine || ''} ${window.parentCommandLine || ''}`.toLowerCase()
+  return haystack.includes(scratch.toLowerCase())
+}
+
+function descendantPids(root) {
+  const answered = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Depth 2 -Compress'],
+    { windowsHide: true, shell: false, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 60_000 })
+  let all = []
+  try { all = JSON.parse(answered.stdout) } catch { return new Set(root ? [root] : []) }
+  const children = new Map()
+  for (const entry of all) {
+    if (!children.has(entry.ParentProcessId)) children.set(entry.ParentProcessId, [])
+    children.get(entry.ParentProcessId).push(entry.ProcessId)
+  }
+  const seen = new Set(root ? [root] : [])
+  const stack = [...seen]
+  while (stack.length > 0) {
+    for (const child of children.get(stack.pop()) || []) {
+      if (seen.has(child)) continue
+      seen.add(child)
+      stack.push(child)
+    }
+  }
+  return seen
+}
+
+function describeWindow(window) {
+  const lines = [
+    `class=${window.class} visible=${window.visible} title=${JSON.stringify(window.title || '')}`,
+    `      owner pid ${window.pid} ${window.name || '(unknown)'} -- ${window.exe || '(no image path)'}`,
+    `      command line: ${window.commandLine || '(unreadable)'}`,
+  ]
+  if (window.parentName) lines.push(`      started by pid ${window.parentPid} ${window.parentName}: ${window.parentCommandLine || '(unreadable)'}`)
+  return lines.join('\n')
+}
+
+/* ---------- CONFIGURED IS NOT CONNECTED ----------
+ *
+ * THE DEFECT THIS EXISTS TO CATCH, WHICH EVERY EXISTING CHECK PASSED THROUGH.
+ * The generated `.mcp.json` named this application's own Electron binary as the
+ * program that runs each MCP server. An Electron binary handed a .js argument
+ * without ELECTRON_RUN_AS_NODE ignores the argument and boots the whole
+ * application, so all three servers were second copies of the app: they never
+ * spoke a byte of stdio JSON-RPC and every app-started agent session ran with
+ * NONE of this product's own tools. Nothing anywhere went red. The document
+ * existed, named real files, and was correct in every property anyone had
+ * thought to assert -- because "configured" had never been distinguished from
+ * "connected".
+ *
+ * So this starts each server EXACTLY as the document says to (command, args,
+ * cwd, and the env the document carries, layered over the app's own launch
+ * environment so the fence this harness puts around providers is not stepped
+ * around) and speaks the protocol an agent CLI would: `initialize`, then
+ * `tools/list`. The evidence is the advertised tool names. */
+async function serverAnswers(entry, environment, budgetMs = 20_000) {
+  const child = spawn(entry.command, entry.args || [], {
+    cwd: entry.cwd,
+    env: { ...environment, ...(entry.env || {}) },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  const outcome = { pid: child.pid, tools: [], initialized: false, said: '', failed: null }
+  child.on('error', error => { outcome.failed = error.message })
+  let buffered = ''
+  const seen = []
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    buffered += chunk
+    const lines = buffered.split('\n')
+    buffered = lines.pop() || ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try { seen.push(JSON.parse(line)) } catch { /* a server may log; only JSON-RPC counts */ }
+    }
+  })
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => { outcome.said = (outcome.said + chunk).slice(-800) })
+
+  const say = message => { try { child.stdin.write(`${JSON.stringify(message)}\n`) } catch { /* dead */ } }
+  const waitFor = async (id, ms) => {
+    const until = Date.now() + ms
+    while (Date.now() < until) {
+      const answer = seen.find(message => message.id === id)
+      if (answer) return answer
+      if (child.exitCode !== null) return null
+      await delay(200)
+    }
+    return null
+  }
+
+  try {
+    say({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agent-start-flow-qa', version: '1' } } })
+    const ready = await waitFor(1, budgetMs / 2)
+    outcome.initialized = Boolean(ready && ready.result)
+    if (outcome.initialized) {
+      say({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })
+      say({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+      const listed = await waitFor(2, budgetMs / 2)
+      const tools = listed?.result?.tools
+      if (Array.isArray(tools)) outcome.tools = tools.map(tool => tool.name).filter(name => typeof name === 'string')
+    }
+  } finally {
+    try { child.kill() } catch { /* already gone */ }
+    reap(child.pid)
+  }
+  return outcome
 }
 
 /* ---------- the debugger ---------- */
@@ -1722,6 +1979,9 @@ async function main() {
     /* ---------- 3. THE SUBMIT REACHES THE START PATH ---------- */
     const nonce = `qa-start-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     const readyToSubmit = panel.present && panel.message.present && panel.submit.present && panel.submit.enabled
+    /* Taken BEFORE the press, so anything the start puts on the screen is new by
+       construction rather than by inference. */
+    const windowsBefore = readyToSubmit ? windowCensus() : null
     if (readyToSubmit) {
       const before = await app.evaluate(HISTORY_SCRIPT)
       const sent = await app.evaluate(fillAndSubmitScript(nonce))
@@ -1832,6 +2092,159 @@ async function main() {
        required rather than merely tolerated: zero launches of EITHER shape used
        to pass this check, which would have let the canonical record silently
        stop being written. */
+    /* ---------- 3b. NOTHING NEW ON THE SCREEN, ATTRIBUTED ----------
+       Reported as a finding rather than only as a pass/fail, because the
+       question this was added to answer -- "what IS that window?" -- is only
+       answered by naming the process. */
+    if (readyToSubmit) {
+      const watched = await watchForNewWindows(windowsBefore, WINDOW_WATCH_MS)
+      if (watched.censusFailed) {
+        pending('starting an agent puts no new window on the screen',
+          'the window census could not be taken, so this run says nothing about windows either way')
+      } else {
+        const pids = descendantPids(app.child?.pid)
+        const mine = watched.windows.filter(window => windowIsFromThisRun(window, pids, scratch))
+        const visible = mine.filter(window => window.visible)
+        check('starting an agent puts no new window on the screen',
+          visible.length === 0,
+          visible.length === 0
+            ? `${Math.round(watched.watchedMs / 1000)}s watched, no new VISIBLE top-level window from this run`
+              + `; ${mine.length} invisible from this run, ${watched.windows.length - mine.length} from other programs`
+            : `${visible.length} new visible window(s) from this run in ${Math.round(watched.watchedMs / 1000)}s`)
+        /* EVERY new window is printed, whether or not it decided the check: the
+           two candidate causes are not exclusive, and a report that stops at the
+           first cannot say so. */
+        for (const window of watched.windows) {
+          const whose = windowIsFromThisRun(window, pids, scratch) ? 'THIS RUN' : 'another program on this machine'
+          console.log(`  --    NEW WINDOW (${whose}) ${describeWindow(window)}`)
+        }
+      }
+    } else {
+      pending('starting an agent puts no new window on the screen', 'no start was made, so nothing could appear')
+    }
+
+    /* ---------- 3c. CONFIGURED IS NOT CONNECTED ----------
+       See serverAnswers() for the defect this exists to catch: a document that
+       named this application's own binary as the runtime, so every server was a
+       second copy of the app and every session had none of the product's tools
+       while every check in this file stayed green. */
+    const dispatchConfig = path.join(profile, 'userdata', 'workspace', '.mcp.json')
+    let configured = null
+    try { configured = JSON.parse(readFileSync(dispatchConfig, 'utf8')) } catch { /* reported below */ }
+    const configuredServers = Object.entries(configured?.mcpServers || {})
+    if (configuredServers.length === 0) {
+      check('the session is configured with at least one of this product\'s own servers', false,
+        `no server in ${dispatchConfig}`)
+      pending('every configured server actually starts and speaks the protocol', 'nothing was configured to start')
+      pending('the session can actually reach a toolsenabled tool', 'nothing was configured to start')
+    } else {
+      check('the session is configured with at least one of this product\'s own servers', true,
+        configuredServers.map(([name]) => name).join(', '))
+      /* THE DOCUMENT NAMES THE BUILD THAT IS RUNNING. The record was seeded with
+         an executable belonging to no build (see seedMachineRecord); if that
+         value reaches the document, an agent session starts the OTHER
+         installation -- which is what "another ToolsEnabled that looks
+         outdated" was. */
+      const commands = [...new Set(configuredServers.map(([, entry]) => entry.command))]
+      check('every server is started by the copy of the product that is running',
+        commands.length === 1 && path.resolve(commands[0]) === path.resolve(staged.executable),
+        commands.join(' / '))
+
+      const environment = providerlessEnvironment(profile)
+      const answers = []
+      for (const [name, entry] of configuredServers) {
+        answers.push([name, await serverAnswers(entry, environment)])
+      }
+      /* SCOPED TO THE SERVERS THIS PRODUCT IMPLEMENTS. The `playwright` entry is
+         a GATEWAY to a third-party server and refuses until a ToolsEnabled-owned
+         browser is running -- its own designed precondition, measured 2026-08-18
+         as "No ToolsEnabled-owned browser is running. Run browser.start through
+         ToolsEnabled first". Requiring it to answer would make this check red
+         about something working as designed, which is how a real check gets
+         deleted. It is still held to the thing this defect was about, one line
+         below: it must have RUN AS NODE, and a refusal on stderr is a program
+         that read its arguments -- which the GUI boot never did. */
+      const own = answers.filter(([name]) => name.toLowerCase().startsWith('toolsenabled'))
+      for (const [name, answer] of answers.filter(([name]) => !name.toLowerCase().startsWith('toolsenabled'))) {
+        check(`the ${name} gateway ran as Node rather than booting the application`,
+          answer.initialized || answer.said.length > 0,
+          answer.initialized
+            ? `${answer.tools.length} tool(s)`
+            : `refused for its own reason: "${answer.said.split('\n')[0].slice(0, 90)}"`)
+      }
+      const silent = own.filter(([, answer]) => !answer.initialized)
+      check('every server this product implements actually starts and speaks the protocol',
+        own.length > 0 && silent.length === 0,
+        silent.length === 0
+          ? own.map(([name, answer]) => `${name}:${answer.tools.length} tools`).join(', ')
+          : silent.map(([name, answer]) => `${name} never answered initialize${answer.said ? ` (${answer.said.split('\n')[0].slice(0, 80)})` : ''}`).join('; '))
+
+      /* ATTRIBUTED BY SERVER, NOT BY TOOL NAME. This product's tools are called
+         `system.status`, `workspace.list`, `memory.get` -- names a third-party
+         server could also use -- so "is this one of ours" is answered by WHICH
+         SERVER ADVERTISED IT, which is a fact about the connection rather than a
+         guess about a string. */
+      const advertised = answers.flatMap(([, answer]) => answer.tools)
+      const ours = answers
+        .filter(([name]) => name.toLowerCase().startsWith('toolsenabled'))
+        .flatMap(([, answer]) => answer.tools)
+      check('the session can actually reach a toolsenabled tool',
+        ours.length > 0,
+        ours.length > 0
+          ? `${advertised.length} tool(s) advertised in all, ${ours.length} of them from this product's own server (${ours.slice(0, 4).join(', ')})`
+          : `${advertised.length} tool(s) advertised and none from this product's own server -- "configured" without "connected"`)
+
+      /* CONTROL 1: THE INSTRUMENT CAN GO RED. Without this, "every server
+         answered" is satisfied just as well by a probe that never really asked.
+         The command and the runtime mode are the ones that WORK; only the script
+         is not a server. */
+      const [, sample] = configuredServers[0]
+      const notAServer = await serverAnswers({
+        command: sample.command,
+        args: [path.join(staged.payload.root, 'src', 'this-is-not-a-server.js')],
+        cwd: sample.cwd,
+        env: { ...(sample.env || {}), ELECTRON_RUN_AS_NODE: '1' },
+      }, environment, 8_000)
+      check('CONTROL: a command that is not a server is reported as not answering',
+        notAServer.initialized === false && notAServer.tools.length === 0,
+        notAServer.initialized ? 'the probe reported an answer from a program that cannot give one' : 'no answer, as it must be')
+
+      /* CONTROL 2: A DOCUMENT ALREADY ON DISK, WRITTEN BY AN OLDER BUILD, IS
+         STILL REPAIRED. Regeneration fixes the files this application writes; it
+         cannot reach a `.mcp.json` in a folder it has never been told about,
+         which is what somebody's agent client will read tomorrow morning. So the
+         same entry is started with ELECTRON_RUN_AS_NODE stripped -- byte for
+         byte what the old generator wrote -- and must STILL answer, because
+         shell/main.cjs re-enters as Node when argv names a program we ship. */
+      /* `answers` carries what each server SAID; the entry that started it lives
+         in the document. Taking the entry from the answer is how the first draft
+         of this control spawned `undefined`. */
+      const [ownName] = own.length > 0 ? own[0] : configuredServers[0]
+      const ownEntry = configured.mcpServers[ownName]
+      const { ELECTRON_RUN_AS_NODE: _dropped, ...withoutNodeMode } = ownEntry.env || {}
+      const staleWindowsBefore = windowCensus()
+      const stale = await serverAnswers({ ...ownEntry, env: withoutNodeMode }, environment)
+      const staleWindows = await watchForNewWindows(staleWindowsBefore, 3_000)
+      /* VISIBLE is the property, and the distinction is measured rather than
+         convenient. This repair path costs something the regeneration path does
+         not: the binary really does start as Electron before the guard fires, so
+         Chromium's own helper windows exist for as long as the compatibility
+         proxy runs. Measured 2026-08-18: 0 visible, 2 invisible
+         (Base_PowerMessageWindow, IME). Nothing reaches the screen, which is
+         what the person reported -- but a live Electron process per stale entry
+         is the price, and it is why regeneration is the fix and this is the net
+         under it rather than the other way round. */
+      const staleVisible = staleWindows.windows.filter(window => window.visible)
+      check('a configuration written by an OLDER build still reaches a server, not a second application',
+        stale.initialized && stale.tools.length > 0 && staleVisible.length === 0,
+        `${ownName}: `
+          + (stale.initialized
+            ? `${stale.tools.length} tool(s)`
+            : `no answer${stale.said ? ` (${stale.said.split('\n')[0].slice(0, 80)})` : ''}`)
+          + `, ${staleVisible.length} visible / ${staleWindows.windows.length} total new window(s)`)
+      for (const window of staleWindows.windows) console.log(`  --    NEW WINDOW (older-build-document control) ${describeWindow(window)}`)
+    }
+
     const launches = launchLinesByOrigin(profile)
     check('the start went through the agent host, not the mission bridge\'s dispatch',
       launches.bridge === 0 && launches.agentHost > 0,

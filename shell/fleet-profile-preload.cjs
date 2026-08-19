@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
      from a list the renderer keeps. The caller must fall back to codex-only on
      any failure; see the note on the handler in shell/main.cjs. */
   startableTiers: () => ipcRenderer.invoke('mc-agent:startable-tiers'),
+  /* The messages this computer has already written down, for the comms page.
+     Read-only, starts nothing, and carries no path: a message is
+     {id, sender, at, text} with `at` RFC3339 and `sender` the circle name. A
+     build whose payload cannot read them answers {ok:false, reason} -- a
+     sentence to show, not a rejection to catch. */
+  localMessages: request => ipcRenderer.invoke('mc-agent:local-messages', request || {}),
   /* Read-only, and the reason the home screen has something true to show on a
      computer with nothing else connected. Returns bounded records of what has
      run here: sequence, time, action. No path, no hash, no signature -- see

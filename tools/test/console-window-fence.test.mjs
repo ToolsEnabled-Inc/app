@@ -6,27 +6,45 @@
  * the rule had nothing enforcing it, so it was true in a document and false in
  * the product.
  *
- * WHERE THE WINDOW CAME FROM, because the obvious answer was wrong and a future
- * reader will reach for it again. It was NOT a missing `windowsHide`, and NOT a
- * `.cmd` shim going through cmd.exe. Both were measured on 2026-08-17 from an
- * Electron main process owning no console (the installed app's condition), with
- * each child reporting its own GetConsoleWindow():
+ * WHAT DECIDES IT, RE-MEASURED 2026-08-18 AFTER THE FIRST TABLE HERE WAS FOUND
+ * WRONG. The rows this file used to carry omitted the variable every one of them
+ * depends on -- THE PARENT'S OWN CONSOLE STATE -- and with that omitted they read
+ * as "stdio pipe never shows a window, only inherit does", which is false and is
+ * the sentence that would talk the next author out of passing windowsHide.
+ * Parent state set explicitly with libuv's two creation flags
+ * (`detached: true` -> DETACHED_PROCESS, no console; `windowsHide: true` ->
+ * CREATE_NO_WINDOW), child reporting its own GetConsoleWindow(),
+ * IsWindowVisible() and GetConsoleCP():
  *
- *     stdio pipe, no windowsHide .................. no console at all
- *     stdio pipe, windowsHide: true ............... no console at all
- *     shell: true, either way ..................... no console at all
- *     a .cmd shim via shell: true, either way ..... no console at all
- *     stdio: 'inherit', no windowsHide ............ CONSOLE, WINDOW VISIBLE
- *     stdio: 'inherit', windowsHide: true ......... console, window hidden
+ *   PARENT HAS NO CONSOLE (an installed GUI app started from the Start menu):
+ *     stdio pipe, no windowsHide .................. CONSOLE, WINDOW VISIBLE
+ *     stdio pipe, windowsHide: true ............... console, NO WINDOW
+ *     stdio inherit, no windowsHide ............... CONSOLE, WINDOW VISIBLE
+ *     stdio inherit, windowsHide: true ............ window exists, HIDDEN
+ *     shell: true, no windowsHide ................. CONSOLE, WINDOW VISIBLE
+ *     shell: true, windowsHide: true .............. console, NO WINDOW
  *
- * The window belonged to a GRANDCHILD. `codex` is installed by npm as a Node
- * launcher, bin/codex.js, whose last act is
- * `spawn(nativeBinary, argv, { stdio: 'inherit' })` with no windowsHide -- the
- * one row above that shows a window. Our spawn correctly left that launcher
- * with no console, so Windows gave codex.exe a brand new one WITH a window.
- * Observed: a 895x518 ConsoleWindowClass window owned by codex.exe, once per
- * session start; zero after the fix, with the JSON-RPC handshake still
- * completing against codex 0.146.0.
+ *   PARENT HAS A CONSOLE WITH NO WINDOW (every child this product starts):
+ *     all six of the above ........................ the parent's windowless
+ *                                                   console, inherited;
+ *                                                   nothing on screen
+ *
+ * SO windowsHide IS WHAT DECIDES, AND stdio DOES NOT. Every shape shows a window
+ * without it and none shows one with it. That is why the rules below are stated
+ * per CALL and hang on windowsHide: an inherited-stdio spawn that also sets
+ * windowsHide is measured safe, and a piped spawn that does not set it is
+ * measured dangerous -- the exact opposite of what the old table implied.
+ *
+ * A grandchild remains the thing a flag cannot reach, and that is still the
+ * reason for the seam. `codex` is installed by npm as a Node launcher,
+ * bin/codex.js, whose last act is `spawn(nativeBinary, argv, { stdio: 'inherit' })`
+ * with no windowsHide. What was observed on 2026-08-17 was a 895x518
+ * ConsoleWindowClass window owned by codex.exe, once per session start, and zero
+ * after the launcher was resolved away; DRIVEN AGAIN 2026-08-18 with a
+ * pid-attributed desktop census, the product's own seam started codex.exe with
+ * ZERO new windows, while the same binary started without windowsHide from a
+ * console-less parent produced exactly one visible ConsoleWindowClass owned by
+ * codex.exe -- the positive control that makes the zero mean something.
  *
  * THE FIX A FLAG COULD NOT MAKE. A flag we pass cannot reach a grandchild, so
  * the payload resolves the npm launcher to the native executable and starts
@@ -225,30 +243,77 @@ test('2. every agent-engine module in the payload launches through the seam', { 
   assert.deepEqual(offenders, [], offenders.join('\n'))
 })
 
+/* THE RULES, APPLIED PER CALL, over one source. Extracted so the red-proof
+   below can run the SAME code against sources it writes itself: a detector that
+   is only ever pointed at files that pass cannot be shown to catch anything, and
+   this one was rewritten on 2026-08-18 -- a rewritten guard that has never been
+   seen to go red is a guard nobody should trust.
+
+   WHY THE stdio RULE MOVED FROM THE FILE TO THE CALL, AND ONTO windowsHide.
+   The old rule forbade an inherited-stdio spawn anywhere in a shell module.
+   Re-measurement (see the table at the top) shows stdio does not decide whether
+   a window appears -- windowsHide does, in every shape -- so the old rule
+   forbade something measured safe while allowing something measured dangerous:
+   a file could pass by putting the inherit in one call and the flag in another.
+   Per call, hanging on the flag that actually decides, is both stricter and
+   true. */
+function consoleOffendersIn(label, rawSource) {
+  const source = codeOnly(rawSource)
+  const offenders = []
+  if (/\bshell\s*:\s*true\b/.test(source)) offenders.push(`${label}: passes shell: true`)
+  if (/\bwindowsHide\s*:\s*false\b/.test(source)) offenders.push(`${label}: passes windowsHide: false`)
+  /* Matched on the call rather than the file so a module that merely mentions
+     spawn in a comment is not accused, and read to its BALANCED closing paren --
+     a lazy `.{0,600}?\)` stops at the first `)` inside the options object and
+     reported capability-layer.cjs, which sets the flag two lines later. */
+  for (const call of spawnCallsIn(source)) {
+    /* A call that forwards an options object it was handed cannot state the
+       flag itself; the seam it forwards to is what must set it. */
+    if (/\.\.\.\s*options/.test(call)) continue
+    if (/windowsHide\s*:\s*true/.test(call)) continue
+    offenders.push(/\bstdio\s*:\s*['"]inherit['"]/.test(call)
+      ? `${label}: inherits stdio with no windowsHide -- measured to put a VISIBLE console on the desktop -> ${call.replace(/\s+/g, ' ').slice(0, 90)}`
+      : `${label}: spawns without windowsHide -> ${call.replace(/\s+/g, ' ').slice(0, 90)}`)
+  }
+  return offenders
+}
+
 test('3. no shipped shell module spawns a child that can show a console', () => {
   const offenders = []
   for (const name of jsFilesIn(SHELL)) {
     if (SHELL_EXEMPT.has(name)) continue
-    const source = codeOnly(readFileSync(path.join(SHELL, name), 'utf8'))
-    if (/\bshell\s*:\s*true\b/.test(source)) offenders.push(`shell/${name}: passes shell: true`)
-    if (/\bwindowsHide\s*:\s*false\b/.test(source)) offenders.push(`shell/${name}: passes windowsHide: false`)
-    if (/\bstdio\s*:\s*['"]inherit['"]/.test(source)) {
-      offenders.push(`shell/${name}: inherits stdio, the one combination measured to show a console`)
-    }
-    /* A spawn in the shell that names no windowsHide at all. Matched on the
-       call rather than the file so a module that merely mentions spawn in a
-       comment is not accused, and read to its BALANCED closing paren -- a lazy
-       `.{0,600}?\)` stops at the first `)` inside the options object and
-       reported capability-layer.cjs, which sets the flag two lines later. */
-    for (const call of spawnCallsIn(source)) {
-      if (/windowsHide/.test(call)) continue
-      /* A call that forwards an options object it was handed cannot state the
-         flag itself; the seam it forwards to is what must set it. */
-      if (/\.\.\.\s*options/.test(call)) continue
-      offenders.push(`shell/${name}: spawns without windowsHide -> ${call.replace(/\s+/g, ' ').slice(0, 90)}`)
-    }
+    offenders.push(...consoleOffendersIn(`shell/${name}`, readFileSync(path.join(SHELL, name), 'utf8')))
   }
   assert.deepEqual(offenders, [], offenders.join('\n'))
+})
+
+test('3b. RED PROOF: the rule above catches the shapes it exists to catch', () => {
+  /* Each source below is the dangerous thing written as plainly as somebody
+     would write it by accident. If any of these stops being flagged, rule 3 has
+     become decoration -- which is the only way a guard like this ever fails. */
+  const dangerous = {
+    'inherited stdio with no flag': "spawn(exe, args, { stdio: 'inherit' })",
+    'no options at all': 'spawn(exe, args)',
+    'piped stdio with no flag': "spawn(exe, args, { stdio: ['pipe', 'pipe', 'pipe'] })",
+    'the flag turned off': "spawn(exe, args, { stdio: 'pipe', windowsHide: false })",
+    'a shell': 'spawn(command, { shell: true, windowsHide: true })',
+    'the flag in a DIFFERENT call': "spawn(a, b, { windowsHide: true }); spawn(c, d, { stdio: 'inherit' })",
+  }
+  for (const [what, source] of Object.entries(dangerous)) {
+    assert.ok(consoleOffendersIn('probe', source).length > 0, `${what} was not caught: ${source}`)
+  }
+
+  /* And the shapes measured SAFE must not be flagged, or the rule gets switched
+     off for being noisy, which is how the real one dies. */
+  const safe = {
+    'piped stdio, flag set': "spawn(exe, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })",
+    'inherited stdio, flag set': "spawn(exe, args, { stdio: 'inherit', windowsHide: true })",
+    'a forwarded options object': 'spawn(command, args, { ...options })',
+    'a mention in a comment': '// spawn(exe, args) is what this used to do',
+  }
+  for (const [what, source] of Object.entries(safe)) {
+    assert.deepEqual(consoleOffendersIn('probe', source), [], `${what} was wrongly flagged`)
+  }
 })
 
 test('4. the exemption list names only files that exist', () => {

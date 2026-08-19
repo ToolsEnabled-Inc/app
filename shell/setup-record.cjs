@@ -298,10 +298,33 @@ function writeAssistantConfig(record, modules, { targetDirectory = null } = {}) 
  * about where this copy is installed, because the workspace check reads it and
  * means something different by it. The substitution happens here, at the one
  * point where the field means "where the engine is", and nowhere else.
+ *
+ * A SECOND FIELD NOW MOVES WITH IT, FOR THE SAME REASON AND WITH THE SAME
+ * RESTRAINT. `nodePath` is written once, by whichever INSTALLATION happened to
+ * run setup, and generateMcpConfig only ever checked that the path still exists
+ * -- never that it is the build now running. So a person who installed an
+ * update, or who has two copies, kept a `.mcp.json` naming the OLD executable
+ * forever. That is the whole of "the second window looks outdated": it was the
+ * older installed build, started faithfully from a record written months ago.
+ *
+ * MEASURED ON THIS MACHINE'S OWN INSTALLATION, 2026-08-18: the live
+ * `<userData>\workspace\.mcp.json` named
+ *     "command": "<localappdata>\\Programs\\toolsenabled\\ToolsEnabled.exe"
+ * for all three servers, and the record it came from had been sealed on a
+ * different day from a different copy.
+ *
+ * `process.execPath` is true by construction on every machine and cannot go
+ * stale on any of them, which is exactly the argument resolveNodePath() already
+ * makes for using it at setup time; the only correction here is WHEN it is
+ * asked. Packaged, that value is this application's own binary -- which is why
+ * generateMcpConfig also stamps ELECTRON_RUN_AS_NODE on every entry it writes,
+ * without which the same executable ignores the script argument and starts the
+ * whole application instead of a server.
  */
 function assistantConfigRecord(record, modules) {
   const engineRoot = typeof modules?.root === 'string' && modules.root.length > 0 ? modules.root : null
-  return engineRoot ? { ...record, installRoot: engineRoot } : record
+  const substituted = { ...record, nodePath: process.execPath }
+  return engineRoot ? { ...substituted, installRoot: engineRoot } : substituted
 }
 
 /* ---------- the configuration the DISPATCH root needs ----------
@@ -371,6 +394,55 @@ function ensureDispatchAssistantConfig(options = {}) {
     }
   }
   return writeAssistantConfig(record || failClosedRecord(modules, options), modules, { targetDirectory: dispatchRoot })
+}
+
+/**
+ * Rewrite the document in the person's OWN folder, on launch, from this build.
+ *
+ * WHY A LAUNCH-TIME REWRITE IS NEEDED AT ALL, given that recordTier already
+ * writes this file. The document names an executable and an engine directory,
+ * and both of those belong to the COPY THAT WROTE IT. Setup runs once; the
+ * application is then updated, moved, or installed a second time, and nothing
+ * has ever revisited the file. The dispatch root's copy is already refreshed on
+ * every launch (see the call in shell/main.cjs); the person's copy -- the one
+ * their own agent client actually reads -- was the half that went stale, and it
+ * is the half that produced a second, older application window every time they
+ * started an agent.
+ *
+ * IT CREATES NOTHING. Refreshed only where a document ALREADY exists, so the
+ * deliberate rule that the default folder is not provisioned until somebody says
+ * yes (releaseUnchosenAssistantConfig below) is untouched, and a person who has
+ * not answered the folder question still has nothing written anywhere near it.
+ *
+ * IT NEVER FAILS A LAUNCH. Same rule as its sibling: a window that opens and
+ * honestly reports a broken configuration is better than no window.
+ */
+function refreshChosenAssistantConfig(options = {}) {
+  const modules = options.modules || loadSetupModules(options)
+  if (!modules.ok) return { ok: false, code: modules.code }
+
+  const { machineRecord } = modules
+  let record = options.record
+  if (record === undefined) {
+    try {
+      record = machineRecord.readMachineRecord({ servicesRoot: machineRecord.resolveServicesRoot({}) })
+    } catch {
+      record = null
+    }
+  }
+  /* No record means setup has not been completed, and an unanswered folder
+     question has no folder to refresh. The fail-closed record used by the
+     dispatch root is deliberately NOT used here: it names a default folder
+     nobody has chosen, and writing into it would provision it. */
+  if (!record) return { ok: false, code: 'SETUP_ASSISTANT_CONFIG_NOT_RECORDED' }
+  const directory = Array.isArray(record.workspaceRoots) ? record.workspaceRoots[0] : null
+  if (typeof directory !== 'string' || directory.length === 0) {
+    return { ok: false, code: 'SETUP_ASSISTANT_CONFIG_NO_WORKSPACE' }
+  }
+  if (!fs.existsSync(path.join(directory, '.mcp.json'))) {
+    return { ok: false, code: 'SETUP_ASSISTANT_CONFIG_ABSENT' }
+  }
+  return writeAssistantConfig(record, modules, { targetDirectory: directory })
 }
 
 /**
@@ -666,6 +738,8 @@ module.exports = {
   readTierState,
   recordTier,
   ensureDispatchAssistantConfig,
+  refreshChosenAssistantConfig,
+  assistantConfigRecord,
   readWorkspaceState,
   checkWorkspace,
   recordWorkspaces,
