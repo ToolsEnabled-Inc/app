@@ -30,7 +30,7 @@ import { commsView } from './views/comms.js'
 import { ledgerView } from './views/ledger.js'
 import { approvalsView } from './views/approvals.js'
 import { checkoutView } from './views/checkout.js'
-import { settingsView, applyStoredSimPace } from './views/settings.js'
+import { settingsView, applyStoredAppearance, applyStoredSimPace } from './views/settings.js'
 import { renderQuickSettings } from './quick-settings.js'
 import { setupView } from './views/setup.js'
 import { accountView } from './views/account.js'
@@ -686,6 +686,10 @@ try {
    settings page's Data & Sim section, where it persists; this re-applies the
    stored choice to the sim clock at launch. */
 applyStoredSimPace()
+/* Glow intensity and reduce motion, put back the way theme and text size are.
+   They were the only two appearance choices with nowhere to be written down,
+   so both were lost at every launch; see src/appearance-persistence.js. */
+applyStoredAppearance()
 
 /* ---------- central clock for every runtime readout ---------- */
 setInterval(() => tickRuntimes(fmtRuntime), 500)

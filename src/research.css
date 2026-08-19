@@ -278,6 +278,19 @@
 }
 .research-bar .spacer { flex: 1; }
 
+/* THE COMPONENTS TRAY, WHICH THIS PAGE PUTS UNDER A DIFFERENT BAR.
+   The tray belongs to the shared layout engine and carries margin-top: -20px so
+   it tucks under the METRICS filter row's hairline. That row is unpositioned,
+   so the tray still paints on top of it. This bar is position: relative -- it
+   has to be, the modules popover hangs off it -- and a positioned element
+   paints ABOVE its unpositioned siblings, so here the tuck slid the tray
+   underneath the bar. MEASURED on the shipped 1.0.20 installer: in Edit layout
+   the bar spanned 453-501 and the tray 481-517, putting Reset at 490-507 with
+   elementFromPoint returning the bar. The control was drawn, looked live, and
+   no mouse could reach it. Reset the tuck for this page only; the tray keeps
+   its own hairline above it. */
+.research-modules .m-tray { margin-top: 0; }
+
 .research-popover {
   position: absolute;
   z-index: 40;

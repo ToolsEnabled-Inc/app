@@ -16,6 +16,18 @@ import {
 } from '../font-choice.js'
 import { LIVE_VIEW_FLAGS, isLiveView, setLiveView } from '../live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
+/* THE TWO ROWS ON THIS PAGE THAT HAD NOWHERE TO BE WRITTEN DOWN. Glow and
+   reduce motion were read back off the DOM alone, so both were thrown away
+   when the window closed -- measured on the shipped 1.0.20 installer, where 98
+   of the other 100 rows survived the same restart. The module writes them
+   under this page's own `mc.set.<id>` keys and puts them back at launch, and
+   the drawer's copy of the same two controls writes through it as well. */
+import {
+  GLOW_SETTING_ID,
+  REDUCE_MOTION_SETTING_ID,
+  applyAppearance,
+  rememberAppearance,
+} from '../appearance-persistence.js'
 import { createLedgerArchiveController } from '../mission-bridge.js'
 /* WHAT EVERY ROW GRANTS AND WHAT IT RISKS, stated separately (owner, R1529).
    The statements are data in src/permission-guidance.js and the markup is
@@ -718,6 +730,9 @@ export function settingsView({ query: routeQuery = null } = {}) {
       setDrawerSegment('#text-seg', 'text', value)
     } else if (setting.id === 'glow') {
       const number = clampNumber(setting, value)
+      /* WRITTEN DOWN, NOT ONLY APPLIED. Without this the slider moved, the page
+         changed, and the choice was gone at the next launch. */
+      rememberAppearance(GLOW_SETTING_ID, number)
       document.documentElement.style.setProperty('--glow', String(number / 100))
       const drawerRange = document.getElementById('set-glow')
       if (drawerRange) {
@@ -728,6 +743,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       value = number
     } else if (setting.id === 'reduce_motion') {
       value = Boolean(value)
+      rememberAppearance(REDUCE_MOTION_SETTING_ID, value)
       document.body.classList.toggle('reduce-motion', value)
       const drawerToggle = document.getElementById('set-motion')
       if (drawerToggle) drawerToggle.checked = value
@@ -975,4 +991,31 @@ export function settingsView({ query: routeQuery = null } = {}) {
 export function applyStoredSimPace() {
   const setting = byId.get('scenario_tick_rate')
   if (setting) sim.setPace(Number(readStored(setting)) / 100)
+}
+
+/* GLOW AND REDUCE MOTION, THE BOOT HALF AND THE DRAWER HALF.
+ *
+ * Called once at launch (src/main.js) and it does two things. It puts back
+ * whatever was stored, which is what makes the two rows behave like the other
+ * ninety-eight. And it listens for the gear drawer applying either of them,
+ * because that drawer is on every page and applied both directly: the settings
+ * page is only one of the two places a person meets these controls, and the
+ * other one is the common one.
+ *
+ * The drawer already announces what it applied so an open settings PAGE can
+ * re-sync its rows; this listens to the same announcement and writes it down.
+ * Nothing here touches the document -- the surface that announced has already
+ * applied the value -- so there is no second opinion about what is on screen.
+ */
+export function applyStoredAppearance() {
+  const applied = applyAppearance()
+  if (typeof window !== 'undefined') {
+    window.addEventListener(QUICK_SETTING_EVENT, event => {
+      const id = event?.detail?.settingId
+      if (id === GLOW_SETTING_ID || id === REDUCE_MOTION_SETTING_ID) {
+        rememberAppearance(id, event.detail?.value)
+      }
+    })
+  }
+  return applied
 }
