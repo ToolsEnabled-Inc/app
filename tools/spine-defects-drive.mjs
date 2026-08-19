@@ -191,25 +191,27 @@ async function startFableNode(window, message) {
   return { ok: true }
 }
 
-/* Type into the node's chat composer and send with Enter. */
+/* Type into the node's chat composer (buildChat's `.chat input` + `.chat-send`
+   button) and send with a real press on the send control. */
 async function sendChat(window, text) {
   const box = await window.evaluate(`(() => {
     const vis = n => { const b = n.getBoundingClientRect(); return b.width > 0 && b.height > 0 }
-    const boxes = [...document.querySelectorAll('textarea, [contenteditable="true"], input[type="text"]')]
-      .filter(vis).filter(n => /message|say|ask|type/i.test(n.placeholder || n.getAttribute('aria-label') || 'message'))
+    const boxes = [...document.querySelectorAll('.chat input[type="text"]')].filter(vis).filter(n => !n.disabled)
     const target = boxes[boxes.length - 1]
     if (!target) return null
     if (!target.id) target.id = 'spine-chat-box'
+    const sender = target.closest('.chat')?.querySelector('.chat-send')
+    if (sender && !sender.id) sender.id = 'spine-chat-send'
     return '#' + target.id
   })()`)
   if (!box) return { ok: false, why: 'no chat box' }
   const clicked = await press(window, box)
   if (!clicked.pressed) return { ok: false, why: `chat box: ${clicked.why}` }
   await window.session.send('Input.insertText', { text })
-  await delay(200)
-  await window.session.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, code: 'Enter', key: 'Enter' })
-  await window.session.send('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, code: 'Enter', key: 'Enter' })
-  await delay(500)
+  await delay(250)
+  const send = await press(window, '#spine-chat-send')
+  if (!send.pressed) return { ok: false, why: `send button: ${send.why}` }
+  await delay(600)
   return { ok: true }
 }
 
@@ -289,10 +291,18 @@ async function main() {
     if (!finish.pressed) return
     await delay(3500)
 
+    /* recordTier already wrote machine.json at the level step, without the
+       chosen flag — poll for the record FINISH writes, the one that carries
+       workspaceChosen, not merely the first parseable bytes. */
     const machineFile = path.join(scratch, 'local', 'ToolsEnabled', 'machine.json')
     let record = null
-    for (let i = 0; i < 10 && !record; i += 1) {
-      try { record = JSON.parse(readFileSync(machineFile, 'utf8')) } catch { await delay(1000) }
+    for (let i = 0; i < 15; i += 1) {
+      try {
+        const parsed = JSON.parse(readFileSync(machineFile, 'utf8'))
+        record = parsed
+        if (parsed.workspaceChosen === true) break
+      } catch { /* not yet */ }
+      await delay(1000)
     }
     const chosen = record && Array.isArray(record.workspaceRoots) ? record.workspaceRoots[0] : null
     note(record?.workspaceChosen === true && chosen ? 'ok' : 'FAIL',
@@ -342,6 +352,12 @@ async function main() {
     note(recordedCwd && recordedCwd.replace(/\\\\/g, '\\').toLowerCase() === normalizedChosen.toLowerCase() ? 'ok' : 'FAIL',
       `the spawn record carries the real cwd: ${JSON.stringify(recordedCwd)} (chosen: ${JSON.stringify(chosen)})`)
 
+    /* The node's own chat, opened the way a person opens it: pressing the
+       circle. `.static-tree-node` is the class that means "a running agent"
+       (tree-graph.js names it that on purpose). */
+    const nodeOpen = await press(window, '.computers .static-tree-node')
+    note(nodeOpen.pressed ? 'ok' : 'info', `pressed the agent's circle${nodeOpen.pressed ? '' : ` (${nodeOpen.why}) — trying the composer that is already open`}`)
+    await delay(2200)
     const outside = path.join(scratch, 'outside-probe.txt')
     const fenceAsk = `Create a file named fence-probe.txt containing the word INSIDE in your current working directory. Then try to write a file at ${outside} containing the word OUTSIDE. Then state your current working directory on its own line. Report each result plainly.`
     const sent = await sendChat(window, fenceAsk)
@@ -399,16 +415,9 @@ async function main() {
     await delay(1200)
     await window.evaluate(`location.reload()`)
     await delay(4200)
-    /* The node this run started, pressed so its rail (and composer) opens. */
-    const nodePress = await window.evaluate(`(() => {
-      const nodes = [...document.querySelectorAll('.computers [data-agent-id], .computers .tree-node, .computers .node')]
-      const target = nodes.find(n => (n.innerText || '').length > 0) || nodes[0]
-      if (!target) return null
-      if (!target.id) target.id = 'spine-node-target'
-      return '#' + target.id
-    })()`)
-    if (!nodePress) { note('FAIL', 'no node on the tree after restart'); return }
-    const opened = await press(window, nodePress)
+    /* The node this run started, pressed so its rail (and composer) opens.
+       `.static-tree-node` is tree-graph.js's class for a real agent node. */
+    const opened = await press(window, '.computers .static-tree-node')
     note(opened.pressed ? 'ok' : 'FAIL', `pressed the node${opened.pressed ? '' : `: ${opened.why}`}`)
     await delay(2500)
     const popup = await press(window, '[data-chat-actions]')
