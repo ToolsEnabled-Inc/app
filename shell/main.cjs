@@ -1176,6 +1176,44 @@ function ensureWorkspaceRoot() {
   return WORKSPACE_ROOT
 }
 
+/* THE FOLDER THE PERSON CHOSE IN SETUP, OR NULL — the answer to "where should
+ * an agent that names no folder run".
+ *
+ * Measured on the 2026-08-18 fresh-install walkthrough: setup created and
+ * git-initialised the chosen folder, and the agent then ran in
+ * <userData>\workspace while the audit recorded cwd:null. The fence — the
+ * permission level's write confinement, which both engines anchor on the
+ * session's working directory — was real but anchored on a folder nobody
+ * chose, and the promised undo history sat on a folder nothing used.
+ *
+ * `chosen` IS THE GATE, not the mere presence of roots. recordTier picks a
+ * default folder silently before the workspace question is shown, and
+ * setup-record.cjs stamps `workspaceChosen` only when a person was shown the
+ * question and answered it. A default nobody saw stays what it always was:
+ * nothing, and the start falls back to WORKSPACE_ROOT above.
+ *
+ * The folder is re-created if it was deleted — an empty directory is the same
+ * promise setup made, and refusing every future start over a folder the person
+ * removed would strand them. A folder that cannot be created is left for
+ * normalizeCwd in the host, which refuses the start loudly and by name rather
+ * than silently moving the agent somewhere nobody chose. */
+function chosenWorkspaceCwd() {
+  try {
+    const state = readWorkspaceState()
+    if (!state || state.ok !== true || state.available !== true) return null
+    if (state.chosen !== true) return null
+    const roots = Array.isArray(state.roots)
+      ? state.roots.filter(entry => typeof entry === 'string' && entry.trim() !== '')
+      : []
+    if (roots.length === 0) return null
+    const root = roots[0]
+    try { fs.mkdirSync(root, { recursive: true }) } catch { /* the host's normalizeCwd refuses an unusable folder loudly */ }
+    return root
+  } catch {
+    return null
+  }
+}
+
 /* THE TOOL CHECKBOXES, ENFORCED — the settings row the research page writes,
  * read back at the one point every agent child's environment is composed.
  *
@@ -1582,6 +1620,19 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
       )
     }
     delete request.profileId
+  }
+  /* A START THAT NAMES NO FOLDER RUNS IN THE ONE THE PERSON CHOSE IN SETUP.
+     Resolved HERE, before recordSpawnIntent below, so the signed record and
+     the app-local record both carry the real folder instead of cwd:null —
+     and so the confinement the host binds at spawn anchors on the chosen
+     folder rather than on <userData>\workspace, which stays only as the
+     fallback for a machine where nobody was ever asked (chosenWorkspaceCwd
+     answers null there, and the host's defaultCwd takes over exactly as it
+     always has). A profile pick above still wins: it is the more specific
+     answer, given per-session rather than once at setup. */
+  if (request.cwd === undefined) {
+    const chosen = chosenWorkspaceCwd()
+    if (chosen) request.cwd = chosen
   }
   if (agentSessions.has(request.sessionId)) {
     agentIpcError('MC_AGENT_SESSION_EXISTS', 'Session already exists: ' + request.sessionId)
