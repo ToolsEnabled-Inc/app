@@ -235,7 +235,13 @@ contextBridge.exposeInMainWorld('mcPrefs', Object.freeze({
 const setup = ipcRenderer.sendSync('mc-setup:bootstrap')
 contextBridge.exposeInMainWorld('mcSetup', Object.freeze({
   bootstrap: setup,
-  chooseTier: tier => ipcRenderer.invoke('mc-setup:choose-tier', tier),
+  /* The consent rides with the level (owner, X4): for the widest level it says
+     the risk was shown, in which words, and confirmed; the shell refuses that
+     level without it. Null for every other level. */
+  chooseTier: (tier, consent) => ipcRenderer.invoke('mc-setup:choose-tier', tier, consent),
+  /* What the signed ledger holds about the widest level on this computer, so
+     the Settings row can state a confirmation only when one is on record. */
+  tierConsent: () => ipcRenderer.invoke('mc-setup:tier-consent'),
   /* The workspace question. Async, unlike `bootstrap`, and deliberately: the
      first-run gate has to know the permission level before the first paint, but
      nothing has to know the folder before the person has been asked about the

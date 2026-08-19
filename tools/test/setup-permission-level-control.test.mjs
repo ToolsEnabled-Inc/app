@@ -53,13 +53,20 @@ globalThis.window = {
 
 globalThis.mcSetup = {
   bootstrap: { ok: true, available: true, configured: true, tier: machine.tier },
-  chooseTier: async tier => {
+  chooseTier: async (tier, consent) => {
     /* The real handler writes to disk before it answers, and that ordering is
-       the whole reason the defect was dangerous rather than merely broken. */
+       the whole reason the defect was dangerous rather than merely broken.
+       Since X4 it also refuses the widest level without a confirmed consent
+       (shell/tier-consent.cjs); the stub does the same so this suite presses
+       the confirm control the way a person has to. */
+    if (tier === 'unrestricted' && consent?.confirmed !== true) {
+      return { ok: false, code: 'SETUP_UNRESTRICTED_UNCONFIRMED', reason: 'refused by the stub shell' }
+    }
     machine.tier = tier
     machine.writes.push(tier)
     return { ok: true, tier }
   },
+  tierConsent: async () => ({ ok: true, recorded: false }),
 }
 
 const { createSetupProfileSettings } = await import('../../src/setup-profile-settings.js')
@@ -101,6 +108,12 @@ function fakeHost() {
         },
       })
     },
+    /* The confirm control on the risk block the widest level opens (X4). The
+       block itself is the subject of tools/test/setup-unrestricted-gate.test.mjs;
+       here it is only the extra press a person makes on the way to the disk. */
+    confirm() {
+      listener({ target: { closest: selector => (selector === '[data-unrestricted-confirm]' ? { dataset: {} } : null) } })
+    },
   }
 }
 
@@ -124,6 +137,8 @@ test('pressing a permission level records it AND says so on the row that was pre
   const { host } = mounted()
 
   host.press('unrestricted')
+  await settle()
+  host.confirm()
   await settle()
 
   assert.deepEqual(machine.writes, ['unrestricted'], 'the level was not recorded on the machine exactly once')
@@ -157,6 +172,8 @@ test('a failure after the disk write leaves the screen honest and the section us
   dispatchThrows = true
   try {
     host.press('unrestricted')
+    await settle()
+    host.confirm()
     await settle()
   } finally {
     dispatchThrows = false

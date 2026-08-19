@@ -106,6 +106,13 @@ import { codexReadiness } from '../setup-review-readiness.js'
    settings page and the drawer cannot describe one switch three ways. */
 import { guidanceMarkup, withheldMarkup } from '../guided-step.js'
 import { probe, refreshCapabilityProbes } from '../capability-probes.js'
+/* THE MOMENT OF CHOOSING FULL ACCESS (owner, X4, 2026-08-15). Pressing the
+   widest level on this screen does not select it: the risk goes on the glass in
+   the Terms' own words and the person is asked; only the confirm button makes
+   it the selection Continue will record, and Continue hands the shell the
+   consent with the words attached. Same module, same words, same gate as the
+   Settings row, so a person meets one sentence in both places. */
+import { createRiskGate, requiresRiskConsent, unrestrictedRiskMarkup } from '../unrestricted-consent.js'
 
 import '../settings.css'
 import '../fleet-profile-settings.css'
@@ -134,6 +141,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   const state = SETUP_RESOLUTION
   let chosen = TIER_IDS.includes(state.tier) ? state.tier : DEFAULT_TIER
   let busy = false
+  /* The gate for the widest level, and the consent it produced. `consent` is
+     non-null ONLY after the person pressed confirm on this screen for the
+     level `chosen` now names; every other move clears it. Continue sends it to
+     the shell, which refuses the widest level without it -- so a walkthrough
+     that somehow skipped the words could not widen anything. */
+  const riskGate = createRiskGate({ via: 'setup' })
+  let consent = null
   /* Non-null only when the app cannot record an answer, or a save failed. The
      screen still renders the question in that case -- a reader is entitled to
      see what the levels ARE even where this copy cannot set one -- but the
@@ -203,8 +217,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let segCleanups = []
   let destroyed = false
 
-  function choiceMarkup(choice) {
-    return `<article class="settings-row setup-choice" data-setup-choice="${esc(choice.tier)}" aria-current="${choice.tier === chosen ? 'true' : 'false'}">
+  function choiceMarkup(choice, lit = chosen) {
+    return `<article class="settings-row setup-choice" data-setup-choice="${esc(choice.tier)}" aria-current="${choice.tier === lit ? 'true' : 'false'}">
       <div class="settings-copy">
         <div class="settings-name">${esc(choice.label)}${choice.note ? ` — ${esc(choice.note)}` : ''}</div>
         <div class="settings-desc">${esc(choice.detail)}</div>
@@ -230,6 +244,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   }
 
   function markup() {
+    /* WHILE THE QUESTION IS OPEN the seg lights the button that was pressed,
+       because on this screen the seg is a selection in progress and that is
+       what was pressed; `chosen` -- the level Continue would record -- has not
+       moved, and declining puts the light back where it was. (The Settings row
+       does the opposite, and rightly: its seg shows the level the machine
+       HOLDS, and nothing has moved there either.) */
+    const lit = riskGate.pending || chosen
     return `<h1 class="setup-title">${esc(TIER_QUESTION)}</h1>
       <div class="settings-section-rows">
         <article class="settings-row fleet-profile-block setup-question">
@@ -239,15 +260,16 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           </div>
           <div class="fleet-profile-fields">
             <div class="seg settings-seg setup-seg" role="group" aria-labelledby="setup-tier-label">
-              ${TIER_CHOICES.map(choice => `<button type="button" data-setup-tier="${esc(choice.tier)}" aria-pressed="${choice.tier === chosen ? 'true' : 'false'}" class="${choice.tier === chosen ? 'on' : ''}" ${busy ? 'disabled' : ''}>${esc(choice.label)}</button>`).join('')}
+              ${TIER_CHOICES.map(choice => `<button type="button" data-setup-tier="${esc(choice.tier)}" aria-pressed="${choice.tier === lit ? 'true' : 'false'}" class="${choice.tier === lit ? 'on' : ''}" ${busy ? 'disabled' : ''}>${esc(choice.label)}</button>`).join('')}
             </div>
           </div>
         </article>
-        ${TIER_CHOICES.map(choiceMarkup).join('')}
+        ${TIER_CHOICES.map(choice => choiceMarkup(choice, lit)).join('')}
+        ${riskGate.pending ? unrestrictedRiskMarkup({ id: 'setup-unrestricted-risk', busy, declineLabel: `No, keep “${TIER_CHOICES.find(choice => choice.tier === chosen)?.label || 'the safer level'}”` }) : ''}
       </div>
       ${disclosureMarkup()}
       <div class="setup-actions">
-        <button type="button" class="ctl-btn" data-setup-continue ${refusal || busy ? 'disabled' : ''}>${busy ? 'Saving…' : 'Continue'}</button>
+        <button type="button" class="ctl-btn" data-setup-continue ${refusal || busy || riskGate.pending ? 'disabled' : ''}>${busy ? 'Saving…' : 'Continue'}</button>
       </div>`
   }
 
@@ -263,18 +285,62 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
      by clicking between them has not decided anything yet, and writing a
      configuration on every click would record levels nobody chose. */
   function select(tier) {
-    if (busy || !TIER_IDS.includes(tier) || tier === chosen) return
+    if (busy || !TIER_IDS.includes(tier)) return
+    if (requiresRiskConsent(tier)) {
+      /* Not selected yet. The words go on the glass and the two buttons under
+         them decide; a second press on the same button while the question is
+         open changes nothing. Asked EVERY time, whatever this screen or the
+         ledger remembers -- that is clause four of the ruling. */
+      if (riskGate.pending === tier) return
+      riskGate.request(tier)
+      paint()
+      return
+    }
+    /* A narrower press answers an open question with "no" and clears any
+       consent that was given for the widest level: what Continue records is
+       always the level that is lit, with the consent that belongs to it. */
+    const wasAsking = riskGate.pending !== null
+    riskGate.clear()
+    consent = null
+    if (tier === chosen && !wasAsking) return
     chosen = tier
     paint()
   }
 
+  function confirmUnrestricted() {
+    if (busy) return
+    const given = riskGate.confirm()
+    if (!given) return
+    consent = given
+    chosen = 'unrestricted'
+    paint()
+  }
+
+  function declineUnrestricted() {
+    if (busy) return
+    riskGate.decline()
+    consent = null
+    paint()
+  }
+
   async function commit() {
-    if (busy || refusal) return
+    if (busy || refusal || riskGate.pending) return
+    /* The widest level leaves this screen only with the words attached. If it
+       is somehow the selection with no consent behind it -- this branch should
+       be unreachable, and the shell refuses it anyway -- ask, rather than send
+       a choice nobody confirmed. A machine that ALREADY holds the widest level
+       is the one exception: re-recording the level it has is not enabling it,
+       and the shell treats it the same way. */
+    if (requiresRiskConsent(chosen) && !consent?.confirmed && state.tier !== chosen) {
+      riskGate.request(chosen)
+      paint()
+      return
+    }
     busy = true
     paint()
     let result
     try {
-      result = await globalThis.mcSetup.chooseTier(chosen)
+      result = await globalThis.mcSetup.chooseTier(chosen, consent)
     } catch (error) {
       result = { ok: false, reason: error?.message || String(error) }
     }
@@ -1074,6 +1140,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   function onClick(event) {
     const option = event.target.closest('[data-setup-tier]')
     if (option) { select(option.dataset.setupTier); return }
+    if (event.target.closest('[data-unrestricted-confirm]')) { confirmUnrestricted(); return }
+    if (event.target.closest('[data-unrestricted-decline]')) { declineUnrestricted(); return }
     if (event.target.closest('[data-setup-continue]')) { commit(); return }
 
     const back = event.target.closest('[data-setup-back]')

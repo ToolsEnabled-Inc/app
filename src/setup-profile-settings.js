@@ -46,6 +46,17 @@ import { TIER_CHOICES, TIER_IDS, noteTierRecorded, SETUP_RESOLUTION } from './se
 import { withheldMarkup } from './guided-step.js'
 import { LIVE_VIEW_FLAGS, setLiveView } from './live-flags.js'
 import { WRITE_ACTION_FLAGS, isWriteEnabled, setWriteEnabled } from './write-flags.js'
+/* THE MOMENT OF CHOOSING FULL ACCESS (owner, X4, 2026-08-15). The widest level
+   is not written on the press: the risk is stated in the Terms' own words, on
+   this row, and the person is asked. The words, the gate and the sentence about
+   what the record holds all come from one module, so this row and the
+   walkthrough cannot describe the same choice two ways. */
+import {
+  createRiskGate,
+  describeConsentRecord,
+  requiresRiskConsent,
+  unrestrictedRiskMarkup,
+} from './unrestricted-consent.js'
 import {
   AUTONOMY_CHOICES,
   PROFILE_INTENT,
@@ -87,6 +98,15 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
   let feedback = null
   let workspace = null
   let loadStarted = false
+  /* The gate for the widest level. `pending` while the words are on the row and
+     nobody has answered; the seg keeps showing the level this computer HOLDS the
+     whole time, because nothing has moved. */
+  const riskGate = createRiskGate({ via: 'settings' })
+  /* What the signed record says about the widest level, when that is the level
+     recorded here. null until read; {ok:false} when it could not be read; the
+     row states each of those differently and never rounds absence up to
+     "confirmed". */
+  let consentRecord = null
 
   function tier() {
     return TIER_IDS.includes(SETUP_RESOLUTION.tier) ? SETUP_RESOLUTION.tier : null
@@ -208,6 +228,33 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     </div>`
   }
 
+  /* The record's sentence rides on the tier row's own description, so a person
+     reading which level this computer holds reads in the same breath whether
+     the risk was ever confirmed for it. Empty for every narrower level. */
+  function consentSentence(currentTier) {
+    if (!requiresRiskConsent(currentTier)) return ''
+    if (consentRecord === null) return ' Reading whether the risk was confirmed for this level…'
+    const sentence = describeConsentRecord(consentRecord, { tier: currentTier })
+    return sentence ? ` ${sentence}` : ''
+  }
+
+  async function loadConsentRecord() {
+    if (!requiresRiskConsent(tier())) return
+    if (!globalThis.mcSetup?.tierConsent) {
+      consentRecord = { ok: false }
+      refresh()
+      return
+    }
+    let result
+    try {
+      result = await globalThis.mcSetup.tierConsent()
+    } catch {
+      result = { ok: false }
+    }
+    consentRecord = result && typeof result === 'object' ? result : { ok: false }
+    refresh()
+  }
+
   function markup({ searchResult = false } = {}) {
     const profile = derived()
     const currentTier = tier()
@@ -219,12 +266,13 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       <div class="settings-section-rows">
         ${rowMarkup(
           'Permission level',
-          tierChoice ? tierChoice.detail : 'How much of this computer an assistant may reach. This is the ceiling for everything below it.',
+          `${tierChoice ? tierChoice.detail : 'How much of this computer an assistant may reach. This is the ceiling for everything below it.'}${consentSentence(currentTier)}`,
           currentTier
             ? segMarkup('tier', TIER_CHOICES.map(choice => ({ value: choice.tier, label: choice.label })), currentTier, 'Permission level')
             : '<span class="settings-desc">not recorded on this computer</span>',
           'tier',
         )}
+        ${riskGate.pending ? unrestrictedRiskMarkup({ id: 'settings-unrestricted-risk', busy: Boolean(busy), declineLabel: `No, keep “${TIER_CHOICES.find(choice => choice.tier === currentTier)?.label || 'the current level'}”` }) : ''}
         ${workspaceRowMarkup()}
         ${rowMarkup(
           'Acting on its own',
@@ -340,7 +388,44 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     refresh()
   }
 
-  async function chooseTier(value) {
+  /* THE PRESS ON THE WIDEST LEVEL STOPS HERE, EVERY TIME. Nothing is written:
+     the words go on the row and the two buttons under them decide what happens
+     next. `confirmUnrestricted` is the only way from this function to the disk
+     for that level, and it is reached only by the confirm button. A press on
+     any narrower level goes straight through, as it always did -- and it also
+     closes an open block, because a person who moved to a narrower level has
+     answered the question. */
+  function requestTier(value) {
+    if (busy || !TIER_IDS.includes(value) || value === tier()) return
+    const decision = riskGate.request(value)
+    if (decision.ask) {
+      feedback = null
+      refresh()
+      return
+    }
+    chooseTier(value, null)
+  }
+
+  function confirmUnrestricted() {
+    if (busy) return
+    const consent = riskGate.confirm()
+    if (!consent) return
+    chooseTier('unrestricted', consent)
+  }
+
+  function declineUnrestricted() {
+    if (busy) return
+    riskGate.decline()
+    const kept = TIER_CHOICES.find(choice => choice.tier === tier())
+    feedback = {
+      tone: 'good',
+      title: 'Full access was not turned on',
+      detail: `The permission level stays at “${kept ? kept.label : tier()}”. Nothing on this computer was changed.`,
+    }
+    refresh()
+  }
+
+  async function chooseTier(value, consent) {
     if (busy || !TIER_IDS.includes(value) || value === tier()) return
     if (!globalThis.mcSetup?.chooseTier) {
       feedback = { tone: 'serious', title: 'The permission level was not changed', detail: 'This page is running in a browser rather than the installed application, so there is no computer here to configure.' }
@@ -370,7 +455,10 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     try {
       let result
       try {
-        result = await globalThis.mcSetup.chooseTier(value)
+        /* The consent rides with the level. For the widest level the shell
+           refuses without it (SETUP_UNRESTRICTED_UNCONFIRMED), so a screen that
+           forgot to ask could not widen anything; for the others it is null. */
+        result = await globalThis.mcSetup.chooseTier(value, consent)
       } catch (error) {
         result = { ok: false, reason: error?.message || String(error) }
       }
@@ -378,6 +466,18 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
         feedback = { tone: 'serious', title: 'The permission level was not changed', detail: `${result?.reason || 'The application did not say why.'} Nothing on this computer was changed.` }
         return
       }
+      /* WHAT THE LEDGER SAYS ABOUT THIS CHANGE, read off the shell's answer and
+         never assumed. `recorded.ok` is the signed record; a copy with no
+         ledger writer says so; and for the widest level a present-but-refusing
+         ledger never gets this far, because the shell refuses the change. */
+      const recordedNote = result.recorded?.ok === true
+        ? ' The change was recorded in the signed ledger.'
+        : result.recorded?.code === 'AUDIT_PAYLOAD_ABSENT'
+          ? ' This copy carries no ledger writer, so the change was not recorded.'
+          : result.recorded
+            ? ' The change could not be recorded in the signed ledger.'
+            : ''
+      consentRecord = null
       /* THE MACHINE HAS ALREADY MOVED, so the level this screen believes in
          moves FIRST. Everything below is bookkeeping on top of a record that is
          already the new one; a step that failed with the level unrecorded would
@@ -399,8 +499,8 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
         .filter(flag => wasOn.get(flag.id) && !after.writeFlags[flag.id])
         .map(flag => flag.label)
       feedback = dropped.length
-        ? { tone: 'warn', title: 'Permission level changed, and some switches went off with it', detail: `${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not part of this level, so ${dropped.length === 1 ? 'it was' : 'they were'} turned off.` }
-        : { tone: 'good', title: 'Permission level changed', detail: 'Everything below is unchanged; this level permits all of it.' }
+        ? { tone: 'warn', title: 'Permission level changed, and some switches went off with it', detail: `${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not part of this level, so ${dropped.length === 1 ? 'it was' : 'they were'} turned off.${recordedNote}` }
+        : { tone: 'good', title: 'Permission level changed', detail: `Everything below is unchanged; this level permits all of it.${recordedNote}` }
     } catch {
       /* The words carry no identifier and no path, the same rule every other
          refusal in this product keeps: what a person can act on is which level
@@ -413,12 +513,16 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     } finally {
       busy = null
       refresh()
+      /* After a move to the widest level, read what the ledger now holds so the
+         row's sentence is the record's and not this screen's memory of what it
+         just did. */
+      loadConsentRecord()
     }
   }
 
   function setAnswer(target, value) {
     if (busy) return
-    if (target === 'tier') { chooseTier(value); return }
+    if (target === 'tier') { requestTier(value); return }
     let next = null
     if (target === 'autonomy') {
       if (!AUTONOMY_CHOICES.some(choice => choice.value === value) || value === answers.autonomy) return
@@ -443,6 +547,8 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       setAnswer(setter.dataset.setupProfileSet, setter.dataset.setupProfileValue)
       return
     }
+    if (event.target.closest('[data-unrestricted-confirm]')) { confirmUnrestricted(); return }
+    if (event.target.closest('[data-unrestricted-decline]')) { declineUnrestricted(); return }
     const action = event.target.closest('[data-setup-profile-action]')
     if (!action || !hostRoot?.contains(action)) return
     if (action.dataset.setupProfileAction === 'walkthrough') { navigate('#/setup'); return }
@@ -471,6 +577,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
   function afterRender(root = hostRoot) {
     hostRoot = root
     loadWorkspace()
+    loadConsentRecord()
   }
 
   function destroy() {

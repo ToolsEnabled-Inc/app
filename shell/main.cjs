@@ -2860,8 +2860,63 @@ ipcMain.on('mc-setup:bootstrap', (event) => { event.returnValue = setupBootstrap
    point of the document written there is that the two agree about which
    directory a lane runs in; deriving it twice is how they would stop agreeing.
    See ensureDispatchAssistantConfig() in shell/setup-record.cjs. */
-ipcMain.handle('mc-setup:choose-tier', (event, tier) =>
-  withFleetProfileSender(event, () => recordTier(typeof tier === 'string' ? tier : '', { dispatchRoot: WORKSPACE_ROOT })))
+/* THE PERMISSION LEVEL GOES INTO THE SIGNED LEDGER, AND THE WIDEST LEVEL IS
+   REFUSED WITHOUT A CONFIRMED CONSENT (owner, X4, 2026-08-15). This channel
+   used to write the machine record and nothing else: a person moving this
+   computer to the level at which an agent can read, change and delete any file
+   on it left no signed trace. It now goes through shell/tier-consent.cjs --
+   intent row, the write, outcome row, the same shape auditedAccountAction uses
+   above and for the same reason -- and it refuses to move TO the widest level
+   unless the page hands over a consent saying the risk was shown, in which
+   words, and confirmed. The refusal lives here rather than only on the screen so
+   a renderer that forgot to ask could not widen anything.
+
+   The level this computer holds NOW is read here, never taken from the page: it
+   decides whether this is an enable (consent required) or a re-record of a
+   level already held (not), and it is what the ledger row names as `from`.
+   The principal is read here for the reason accountPrincipal() states.
+
+   The require sits beside its one caller on purpose: this block is the whole
+   of this file's use of the module, and a sibling lane holds other regions of
+   this file, so the edit stays in one place. */
+const { auditedTierChoice, readConsentState } = require('./tier-consent.cjs')
+const { canonicalAudit: canonicalAuditFor } = require('./canonical-audit.cjs')
+
+ipcMain.handle('mc-setup:choose-tier', (event, tier, consent) =>
+  withFleetProfileSender(event, () => {
+    const requested = typeof tier === 'string' ? tier : ''
+    let known = []
+    let previousTier = null
+    try {
+      const state = readTierState()
+      known = Array.isArray(state?.tiers) ? state.tiers : []
+      previousTier = state && state.configured === true && typeof state.tier === 'string' ? state.tier : null
+    } catch { /* recordTier below answers with its own refusal */ }
+    /* A level this product does not offer is refused by recordTier with
+       SETUP_TIER_UNKNOWN and is not worth two ledger rows; only a real level
+       is recorded. */
+    if (!known.includes(requested)) return recordTier(requested, { dispatchRoot: WORKSPACE_ROOT })
+    return auditedTierChoice({
+      tier: requested,
+      previousTier,
+      consent,
+      principal: accountPrincipal(),
+      record: recordCanonical,
+      run: () => recordTier(requested, { dispatchRoot: WORKSPACE_ROOT }),
+    })
+  }))
+
+/* What the ledger holds about the widest level: whether a CONFIRMED choice of
+   it is on record here, and when. Read from the same canonical chain the row
+   above writes to, so the Settings row can say "confirmed on <date>" only when
+   that is what the record says, and say plainly that nothing is on record for
+   a machine that reached this level before this product asked. */
+ipcMain.handle('mc-setup:tier-consent', event =>
+  withFleetProfileSender(event, () => {
+    const loaded = canonicalAuditFor({ stateRoot: CAPABILITY_STATE_ROOT })
+    if (!loaded.ok) return { ok: false, code: loaded.code, reason: loaded.reason }
+    return readConsentState({ findEvents: selector => loaded.audit.findEvents(selector) })
+  }))
 
 /* ---------- the installation's own settings, changed from inside the window ----------
  *
