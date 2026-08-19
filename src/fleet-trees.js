@@ -120,7 +120,13 @@ export function isTreeStoreLive(computerId) {
  * is a session id, and draft means there is not. Those two are what any screen
  * reading this state will act on, and they are checked on every write and on
  * every read of saved state. */
-export const NODE_STATUSES = Object.freeze(['draft', 'starting', 'running', 'finished', 'failed'])
+/* 'failed' is a START that never produced a session; 'turn-failed' is a TURN
+   that ended badly on a session that genuinely ran. They are separate statuses
+   because their chip words are separate facts -- "did not start" over a
+   session the signed spawn record shows was the measured 2026-08-18 defect.
+   The words live in src/fleet-tree-copy.js NODE_STATUS_WORDS, one entry per
+   status here. */
+export const NODE_STATUSES = Object.freeze(['draft', 'starting', 'running', 'finished', 'failed', 'turn-failed'])
 const LIVE_STATUSES = Object.freeze(new Set(['starting', 'running']))
 
 /* Bounds, so that a saved record cannot grow without limit and a damaged one
@@ -1167,7 +1173,7 @@ function treeNodesOf(tree) {
     if (!started && !typed) return { id: node?.id, parentId: node?.parentId ?? null, agent: null }
     const state = LIVE_STATUSES.has(node?.status)
       ? 'running'
-      : (node?.status === 'finished' || node?.status === 'failed' ? 'finished' : 'unknown')
+      : (node?.status === 'finished' || node?.status === 'failed' || node?.status === 'turn-failed' ? 'finished' : 'unknown')
     return {
       id: node?.id,
       parentId: node?.parentId ?? null,

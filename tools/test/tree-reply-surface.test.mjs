@@ -94,8 +94,10 @@ test('the reply is delivered once per turn, never once per token', () => {
      before the reply takes over -- a truncated stream beside a complete reply
      would read as two different answers. */
   assert.match(handler, /flushNow\(\)/, 'the rail stream is not flushed on turn completion')
-  /* Persistence: the turn's reply must reach the store, not only the cache. */
-  assert.match(handler, /setNodeReply\(nodeId, spoken \|\| SAID_PANEL\.emptyTurn\)/,
+  /* Persistence: the turn's reply must reach the store, not only the cache.
+     `said` is turnCompletionWords' answer -- streamed words, a failed turn's
+     engine sentence, or the honest empty-turn line. */
+  assert.match(handler, /setNodeReply\(nodeId, said\)/,
     'the completed reply is no longer persisted on the node')
 })
 

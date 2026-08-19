@@ -110,6 +110,26 @@ export function sessionTurnSucceeded(status) {
   return typeof status === 'string' && TURN_SUCCESS_STATUSES.includes(status)
 }
 
+/* THE SENTENCE A FAILED TURN ENDED WITH, when the engine carried one.
+ *
+ * MEASURED (fresh-install walkthrough 2026-08-18, re-measured 2026-08-19 on
+ * claude 2.1.186): a refused turn ends is_error:true with the provider's one
+ * human sentence in the result -- "You're out of usage credits · resets
+ * Aug 25, 12am" -- and no assistant text before it. The engine now puts that
+ * sentence on the completion event's `text` field; this is the one reader of
+ * it, same contract as its siblings: exact shape, exact session, null for
+ * everything else. Null for a SUCCESSFUL completion by design -- on success
+ * the result text duplicates the assistant text already delivered, so a
+ * surface that rendered it would print the answer twice. */
+export function sessionTurnFailureText(packet, sessionId) {
+  const status = sessionTurnStatus(packet, sessionId)
+  if (!status || sessionTurnSucceeded(status)) return null
+  const text = packet.event.text
+  if (typeof text !== 'string') return null
+  const trimmed = text.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 /* WHAT THE ACTIONS COST, AND WHY EACH BOUND EXISTS.
  *
  * maxDetailChars   one line in a chat log. A command longer than this is

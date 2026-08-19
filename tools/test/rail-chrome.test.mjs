@@ -147,7 +147,10 @@ test('the rail chat streams once and closes once', () => {
      turn-BOUNDARY settler closes a stream the same way, earlier in the
      module, and a whole-file indexOf would measure that one instead. */
   const completion = view.slice(view.indexOf('const status = sessionTurnStatus(packet, sessionId)'))
-  const completionAt = completion.indexOf('deliverTurnReply(sessionId, spoken || SAID_PANEL.emptyTurn)')
+  /* `said` is turnCompletionWords' answer -- the streamed words, a failed
+     turn's engine sentence, or the honest empty-turn line. Same delivery,
+     richer words. */
+  const completionAt = completion.indexOf('deliverTurnReply(sessionId, said)')
   const safetyCloseAt = completion.indexOf('railChat.sessionId === sessionId && railChat.stream')
   assert.ok(completionAt !== -1 && safetyCloseAt > completionAt, 'the stream safety-close must follow the reply delivery')
   /* EVERY surface waiting on the turn is answered, not the last one to send.

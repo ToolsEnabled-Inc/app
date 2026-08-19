@@ -58,6 +58,9 @@ import {
   PALETTE_PANEL,
   QUEUE_PANEL,
   SAID_PANEL,
+  NODE_STATUS_WORDS,
+  TURN_FAILED,
+  turnCompletionWords,
   START_REFUSAL,
   APPROVAL_PANEL, approvalDecisionWord,
   MODEL_PANEL,
@@ -96,7 +99,7 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
+import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnFailureText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
 import { parseSlashCommand } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
@@ -1518,6 +1521,18 @@ export function computersView({ initialComputer = null, navigate }) {
      it absent forever and behaves exactly as it did before. */
   const sessionOpenTurns = new Map()
 
+  /* THE QUESTION AN AGENT IS STILL WAITING ON. sessionId -> the approval
+     activity, exactly as the event carried it. MEASURED on the shipped 1.0.20:
+     a child called agent_comms.send_local, approval_request fired while the
+     person was looking at the tree rather than at that node's rail, and the
+     card render below was gated on the rail being open -- so the one event
+     that could paint the Approve button passed unrendered, nothing re-read the
+     request on a later rail open, and the session sat blocked until
+     interrupted. "It stops and asks you" had stopped and asked nobody. The
+     event is remembered here, rendered whenever that node's rail opens, and
+     forgotten when it is answered or its turn ends. */
+  const sessionPendingApprovals = new Map()
+
   /* A turn that was never formally completed still SAID something, and those
      words are the record. Called when a delta arrives naming a different turn
      than the one still open: the previous answer is filed, its bubble is
@@ -2242,7 +2257,11 @@ export function computersView({ initialComputer = null, navigate }) {
       role: node.role || 'default',
       declaredRole: node.role || 'default',
       parentId: node.parentId || null,
-      state: running ? 'enabled' : terminal ? node.status : clock.endedWithApp ? ENDED_SESSION.word : 'not started',
+      /* The graph's state vocabulary is its own (enabled/disabled/finished/
+         failed); 'turn-failed' translates to its 'failed' colour here, while
+         the chip word — the words a person reads — comes from
+         treeNodeStatusWord via the context feed and stays distinct. */
+      state: running ? 'enabled' : terminal ? (node.status === 'turn-failed' ? 'failed' : node.status) : clock.endedWithApp ? ENDED_SESSION.word : 'not started',
       bornAt: clock.bornAt,
       stoppedAt: clock.stoppedAt,
       tasksDone: null,
@@ -2302,17 +2321,15 @@ export function computersView({ initialComputer = null, navigate }) {
      up saying "running" in one place and "starting" in another about the same
      circle. */
   function treeNodeStatusWord(node) {
-    /* A SAVED 'running' IS NOT A RUNNING AGENT. The status is what this node
-       was doing when it was last written; nodeBusy is whether it is doing it
-       now. A node whose session died with the last shutdown says so here, and
-       everything downstream -- the chip, the rail, the tooltip -- inherits the
-       one word rather than each inventing its own. */
+    /* A SAVED 'running' IS NOT A RUNNING AGENT — nodeSessionEnded first, so a
+       record orphaned by shutdown says so. The words themselves live in
+       NODE_STATUS_WORDS (src/fleet-tree-copy.js), one entry per status the
+       store accepts, because an if-chain here is where a failed TURN came to
+       read "did not start": the store gained a status the chain had no word
+       for, and the fallthrough lied. A shared table cannot fall through — the
+       suite checks every NODE_STATUSES entry has its word. */
     if (nodeSessionEnded(node)) return ENDED_SESSION.word
-    if (node.status === 'running') return 'running'
-    if (node.status === 'starting') return 'starting'
-    if (node.status === 'failed') return 'did not start'
-    if (node.status === 'finished') return 'finished'
-    return 'not started yet'
+    return NODE_STATUS_WORDS[node.status] || NODE_STATUS_WORDS.draft
   }
 
   function treeContextFeed(agent) {
@@ -4372,6 +4389,11 @@ export function computersView({ initialComputer = null, navigate }) {
         saidHost.textContent = SAID_PANEL.waiting
       }
     }
+    /* THE QUESTION THAT ARRIVED WHILE THIS RAIL WAS CLOSED. Without this the
+       Approve button existed only for a person already looking at the node the
+       moment approval_request fired -- see sessionPendingApprovals. */
+    const pendingApproval = sessionPendingApprovals.get(node.sessionId)
+    if (pendingApproval) renderApprovalCard(node.sessionId, pendingApproval)
     activateRail(controlsPage)
   }
 
@@ -4658,6 +4680,16 @@ export function computersView({ initialComputer = null, navigate }) {
     const started = Boolean(current.sessionId)
     const pickerWhy = !started ? PALETTE_PANEL.whyNotStarted : (!canPick ? PALETTE_PANEL.whyNoPicker : '')
     const turnsSoFar = (sessionTurnLog.get(current.sessionId) || []).length
+    /* Measured 2026-08-18: after a restart the Rewind row said "You have not
+       sent it a message yet." beside a panel showing four sent messages.
+       turnsSoFar is window memory and resets with the window; the durable
+       transcript does not. So the row consults the record before calling the
+       conversation empty: rewind still reaches only turns sent since this
+       window opened (performRewind needs the live session's turn log), but the
+       REASON tells the truth about the saved messages. */
+    const savedConversation = transcriptStore ? transcriptStore.get(node.id) : null
+    const sentEarlier = Boolean(savedConversation && Array.isArray(savedConversation.lines)
+      && savedConversation.lines.some(line => line && line.who === 'you'))
     const conversation = PALETTE_PANEL.groupConversation
     const agent = PALETTE_PANEL.groupAgent
     const danger = PALETTE_PANEL.groupDanger
@@ -4667,7 +4699,7 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'mention', group: conversation, label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: started && canPick, disabledHint: pickerWhy, run: ctx => runPaletteAction('mention', fresh(), sinkFor(ctx)) },
       { id: 'effort', group: conversation, label: EFFORT_SWITCH.title, hint: EFFORT_SWITCH.help, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(effortRows(), { title: EFFORT_SWITCH.title }) },
       { id: 'model', group: conversation, label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(modelRows(), { title: MODEL_PANEL.title }) },
-      { id: 'rewind', group: conversation, label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: started && turnsSoFar > 0, disabledHint: started ? PALETTE_PANEL.whyNoTurns : PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
+      { id: 'rewind', group: conversation, label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: started && turnsSoFar > 0, disabledHint: started ? (sentEarlier ? PALETTE_PANEL.whyOnlySavedTurns : PALETTE_PANEL.whyNoTurns) : PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
       { id: 'copy-brief', group: conversation, label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(current.message), disabledHint: PALETTE_PANEL.whyNoBrief, run: ctx => runPaletteAction('copy-brief', fresh(), sinkFor(ctx)) },
       { id: 'copy-reply', group: conversation, label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply), disabledHint: PALETTE_PANEL.whyNoReply, run: ctx => runPaletteAction('copy-reply', fresh(), sinkFor(ctx)) },
       { id: 'child', group: agent, label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true, run: ctx => { ctx.close(); openComposeFor({ kind: 'child', parentId: node.id }) } },
@@ -5557,6 +5589,9 @@ export function computersView({ initialComputer = null, navigate }) {
         if (out) out.textContent = APPROVAL_PANEL.failed
         return
       }
+      /* Answered means no longer pending: forgotten here so a later rail open
+         cannot offer an Approve button for a decision already made. */
+      sessionPendingApprovals.delete(sessionId)
       card.remove()
       setOrgStatus(APPROVAL_PANEL.answered, 'ok')
     })
@@ -5863,6 +5898,10 @@ export function computersView({ initialComputer = null, navigate }) {
       if (activity) {
         const nodeId = sessionNodeIds.get(sessionId)
         if (activity.kind === 'approval' && activity.approvalId) {
+          /* REMEMBERED FIRST, whoever is looking -- see sessionPendingApprovals.
+             The render below is the same-moment case; the rail-open path reads
+             the map for everyone who arrives later. */
+          sessionPendingApprovals.set(sessionId, activity)
           /* EVENT-DRIVEN: the card exists only while a request is pending.
              Buttons offer exactly the decisions the request itself named. */
           if (currentRailTreeNode && currentRailTreeNode.id === nodeId) {
@@ -5934,44 +5973,71 @@ export function computersView({ initialComputer = null, navigate }) {
        * does not name its turns behaves exactly as it did before. */
       if (!completionSettlesOpenTurn(packet, sessionId, sessionOpenTurns.get(sessionId))) return
       const spoken = (sessionTurnText.get(sessionId) || '').trim()
+      /* THE ENGINE'S OWN SENTENCE, WHEN THE TURN FAILED. Measured on the
+         2026-08-18 walkthrough: a failed Fable turn ended is_error:true with
+         "You're out of usage credits · resets Aug 25, 12am" as its result —
+         the only human sentence the turn produced — and this branch printed
+         "finished without any words back" because the completion event did not
+         carry it. The engine now puts a failed result's sentence on the
+         completion's `text` field (engine claude-cli-adapter.js), the shell
+         forwards packets verbatim, and this is the read. Success completions
+         carry no text by design, so this cannot double-print an answer. */
+      const succeeded = sessionTurnSucceeded(status)
+      const engineSentence = sessionTurnFailureText(packet, sessionId)
+      const said = turnCompletionWords({ succeeded, spoken, engineSentence })
       sessionTurnText.delete(sessionId)
       /* Nothing is in flight for this session any more, so the next delta
          opens a fresh bubble rather than reopening this one. */
       sessionOpenTurns.delete(sessionId)
       nodeActivity.delete(nodeId)
+      /* A dead turn's approval is not a pending question: answered or not, the
+         work it guarded is over. Forgotten here, and any painted card goes with
+         it, so an interrupted agent cannot leave a ghost Approve button behind. */
+      sessionPendingApprovals.delete(sessionId)
+      if (currentRailTreeNode && currentRailTreeNode.id === nodeId) {
+        controlsPage.querySelector('[data-tree-approval]')?.remove()
+      }
       if (railSaid && railSaid.nodeId === nodeId) {
         railSaid.appender.flushNow()
         disposeRailSaid()
       }
       /* A turn that ends having said nothing is a real outcome and must read
-         as one; silence in this box would read as the product hanging. */
-      nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
+         as one; silence in this box would read as the product hanging. `said`
+         is turnCompletionWords' answer: the streamed words, the engine's
+         failure sentence, or the honest empty-turn line — never silence. */
+      nodeReplies.set(nodeId, said)
       /* What it DID is filed before what it SAID, in that order, because that
          is the order a person watched it happen in. */
       recordTurnActions(sessionId)
-      transcriptAppend(sessionId, { who: 'agent', text: spoken || SAID_PANEL.emptyTurn, at: Date.now() })
-      deliverTurnReply(sessionId, spoken || SAID_PANEL.emptyTurn)
+      transcriptAppend(sessionId, { who: 'agent', text: said, at: Date.now() })
+      deliverTurnReply(sessionId, said)
       /* A rail-chat stream still open here means the rail was not one of the
          surfaces waiting on this turn (or the turn arrived with no claimant at
          all). The bubble still has to end. After, not before, the delivery
          above: when the rail IS waiting, its wrapped reply closes the stream
          itself, and closing twice would print the reply twice. */
       if (railChat && railChat.sessionId === sessionId && railChat.stream) {
-        railChat.stream.close(spoken || SAID_PANEL.emptyTurn)
+        railChat.stream.close(said)
         railChat.stream = null
       }
-      const finished = sessionTurnSucceeded(status) ? 'finished' : 'failed'
+      /* 'turn-failed', NEVER 'failed': 'failed' is the start-failure status
+         and its chip word is "did not start" — writing it here un-said a start
+         the signed spawn record shows (measured 2026-08-18). The note carries
+         the engine's sentence so the rail and tooltip explain the failure. */
+      const outcome = sessionTurnSucceeded(status) ? 'finished' : 'turn-failed'
       if (treeStore) {
         /* The reply outlives this view: the store keeps it on the node, and the
            in-memory map above becomes a cache in front of it. */
-        treeStore.setNodeReply(nodeId, spoken || SAID_PANEL.emptyTurn)
-        treeStore.setNodeStatus(nodeId, finished, { note: '' })
+        treeStore.setNodeReply(nodeId, said)
+        treeStore.setNodeStatus(nodeId, outcome, {
+          note: outcome === 'finished' ? '' : statusNote(engineSentence ? TURN_FAILED.reply(engineSentence) : TURN_FAILED.word),
+        })
         refreshTree()
       }
       /* In place, never a rebuild -- the person may be mid-word in the actions
          popup's filter when this lands. See repaintRailStatus. */
       if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-        repaintRailStatus({ ...currentRailTreeNode, status: finished })
+        repaintRailStatus({ ...currentRailTreeNode, status: outcome })
       }
       /* The queue drains here because this is the engine's only "I am free"
          signal. Exactly one message — the next turn's completion drains the

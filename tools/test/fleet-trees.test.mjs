@@ -96,8 +96,11 @@ test('the storage key names the computer the trees belong to', () => {
   assert.ok(fleetTreesStorageKey('c1').includes('c1'))
 })
 
-test('the five states are fixed and frozen', () => {
-  assert.deepEqual([...NODE_STATUSES], ['draft', 'starting', 'running', 'finished', 'failed'])
+test('the six states are fixed and frozen', () => {
+  /* 'turn-failed' joined 2026-08-19: a TURN that ended badly on a session that
+     really ran, distinct from 'failed' (a START that never happened) so the
+     chip cannot un-say a start the signed record shows. */
+  assert.deepEqual([...NODE_STATUSES], ['draft', 'starting', 'running', 'finished', 'failed', 'turn-failed'])
   assert.ok(Object.isFrozen(NODE_STATUSES))
   assert.ok(Object.isFrozen(FLEET_TREE_LIMITS))
   assert.equal(FLEET_TREES_RECORD_VERSION, 1)

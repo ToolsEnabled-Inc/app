@@ -425,6 +425,56 @@ export const SAID_PANEL = Object.freeze({
   emptyTurn: 'The turn finished without any words back. Ask again, or ask for something smaller.',
 })
 
+/* A TURN THAT FAILED, ON A SESSION THAT REALLY STARTED. Measured on the
+   2026-08-18 fresh-install walkthrough: a real Fable turn ended in the
+   engine's own sentence -- "You're out of usage credits · resets Aug 25,
+   12am" -- and the card said "The turn finished without any words back" while
+   the chip said "did not start", over a session whose start the signed spawn
+   record shows. Two lies from one gap: the failure's sentence never left the
+   engine, and the only failure word the store had was the start-failure one.
+
+   These are the words for the state that was missing. 'turn-failed' is a
+   store status beside 'finished' (see NODE_STATUS_WORDS below); the reply
+   carries the engine's sentence verbatim, because the provider's own words
+   are the ones a person can act on. */
+export const TURN_FAILED = Object.freeze({
+  word: 'the last turn failed',
+  reply: sentence => `The last turn failed: ${sentence}`,
+})
+
+/* THE CHIP WORD FOR EVERY STATUS THE STORE ACCEPTS -- one table, read by the
+   chip on the canvas, the rail behind it, and the tooltip, so no surface can
+   invent its own word for a state. 'failed' is a START that never happened
+   ("did not start"); 'turn-failed' is a TURN that ended badly on a session
+   that genuinely ran. Collapsing those two into one word is the measured
+   defect this table exists to keep fixed: the card un-said a start the
+   signed record shows. */
+export const NODE_STATUS_WORDS = Object.freeze({
+  draft: 'not started yet',
+  starting: 'starting',
+  running: 'running',
+  finished: 'finished',
+  failed: 'did not start',
+  'turn-failed': TURN_FAILED.word,
+})
+
+/* THE WORDS ONE COMPLETED TURN LEAVES ON THE NODE, decided in one place.
+ *
+ * `spoken` is what the agent really streamed; it is never discarded. The
+ * engine's sentence is what a FAILED turn ended with -- often the only human
+ * sentence the whole turn produced (a refused model answers with no assistant
+ * text at all). A failed turn that streamed nothing shows the failure
+ * sentence; one that streamed words keeps them and the sentence both, because
+ * dropping either would hide something that happened. Only when there is
+ * genuinely nothing -- no words, no sentence -- does the honest empty-turn
+ * line show. */
+export function turnCompletionWords({ succeeded, spoken = '', engineSentence = null }) {
+  const said = typeof spoken === 'string' ? spoken.trim() : ''
+  const sentence = !succeeded && typeof engineSentence === 'string' ? engineSentence.trim() : ''
+  if (sentence) return said ? `${said}\n\n${TURN_FAILED.reply(sentence)}` : TURN_FAILED.reply(sentence)
+  return said || SAID_PANEL.emptyTurn
+}
+
 /* MOVING AN AGENT, in words. The owner's ask, verbatim: "there needs to be a
    way to quickly connect nodes and change hierarchies too". The picker offers
    only what the store's movePoints() would accept, so every sentence here is
@@ -632,6 +682,12 @@ export const PALETTE_PANEL = Object.freeze({
   whyNotRunning: 'This agent is not running right now.',
   whyNotStarted: 'This agent has not started yet.',
   whyNoTurns: 'You have not sent it a message yet.',
+  /* Measured 2026-08-18: after a restart this row said "You have not sent it a
+     message yet." beside a panel showing four sent messages. The sent-count the
+     row read is window memory and resets with the window; the saved
+     conversation does not. This is the sentence for that state -- the record is
+     real, and rewind's reach is not. */
+  whyOnlySavedTurns: 'Your saved messages are from before this window opened, and rewind cannot reach them. Send a new message first.',
   whyNoBrief: 'Nothing was asked here yet.',
   whyNoReply: 'It has not answered yet.',
   whyNoSaved: 'There is no saved conversation to resume from.',

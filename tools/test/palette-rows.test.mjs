@@ -36,7 +36,7 @@ function tableSource() {
 
 const CLOSURE = [
   'PALETTE_PANEL', 'EFFORT_SWITCH', 'RESUME_PANEL', 'REWIND_PANEL', 'MODEL_PANEL',
-  'running', 'started', 'canPick', 'pickerWhy', 'turnsSoFar', 'reply', 'current', 'node',
+  'running', 'started', 'canPick', 'pickerWhy', 'turnsSoFar', 'sentEarlier', 'reply', 'current', 'node',
   'transcriptStore', 'conversation', 'agent', 'danger',
   'fresh', 'sinkFor', 'statusSink', 'runPaletteAction', 'effortRows', 'modelRows', 'rewindRows',
   'openComposeFor', 'focusDetailsControl', 'resumeNodeSession',
@@ -49,6 +49,7 @@ function rowsFor({
   started = false,
   canPick = true,
   turnsSoFar = 0,
+  sentEarlier = false,
   reply = '',
   message = '',
   saved = false,
@@ -58,9 +59,10 @@ function rowsFor({
   const stub = () => {}
   return table(
     PALETTE_PANEL, EFFORT_SWITCH, RESUME_PANEL, REWIND_PANEL, MODEL_PANEL,
-    running, started, canPick, pickerWhy, turnsSoFar, reply,
+    running, started, canPick, pickerWhy, turnsSoFar, sentEarlier, reply,
     { sessionId: started ? 'chat-a' : null, message }, { id: 'node-a' },
-    { has: () => saved }, PALETTE_PANEL.groupConversation, PALETTE_PANEL.groupAgent, PALETTE_PANEL.groupDanger,
+    { has: () => saved, get: () => (saved ? { lines: [] } : null) },
+    PALETTE_PANEL.groupConversation, PALETTE_PANEL.groupAgent, PALETTE_PANEL.groupDanger,
     stub, stub, stub, stub, stub, stub, stub, stub, stub, stub,
   )
 }
@@ -121,6 +123,17 @@ test('a row that is switched off says why, in every state that switches it off',
   const quiet = byId(rowsFor({ started: true, turnsSoFar: 0 }))
   assert.equal(quiet.rewind.enabled, false)
   assert.equal(quiet.rewind.disabledHint, PALETTE_PANEL.whyNoTurns, 'a started agent with no turns is told it has not started')
+
+  /* After a restart: the window's turn log is empty but the durable transcript
+     holds sent messages. Measured 2026-08-18: this state said "You have not
+     sent it a message yet." beside a panel showing four of them. The row must
+     tell the truth about the saved messages — and the fresh-node sentence
+     above must stay exactly as it is, because for a genuinely fresh node it is
+     true. */
+  const restarted = byId(rowsFor({ started: true, turnsSoFar: 0, sentEarlier: true }))
+  assert.equal(restarted.rewind.enabled, false)
+  assert.equal(restarted.rewind.disabledHint, PALETTE_PANEL.whyOnlySavedTurns,
+    'a restarted window with saved messages still claims nothing was ever sent')
 
   /* Running: resume is refused for being busy, and says so in RESUME_PANEL's
      own words rather than a new sentence. */
