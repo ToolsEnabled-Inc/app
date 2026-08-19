@@ -399,3 +399,14 @@ body.reduce-motion .ledger-root-toggle span { transition: none !important; }
 .ledger-write-surface .write-form-hint[data-state='unavailable'] {
   color: var(--ink-2);
 }
+
+/* [hidden] LOSES TO display:grid, AND THE SCREENSHOT IS HOW THAT WAS FOUND.
+ *
+ * The queued-work form is written `hidden` and revealed by its own button. The
+ * attribute was there, a probe that asked the DOM said "hidden: true", and the
+ * form was plainly on the screen: `.write-form` sets `display: grid`, and an
+ * author rule beats the user-agent rule that gives [hidden] display:none. So
+ * the panel opened at full complexity for everybody while every measurement of
+ * it said otherwise -- the exact shape of defect this lane exists to close, one
+ * level down. Text in the DOM is not text on the screen. */
+.ledger-write-surface .write-form[hidden] { display: none; }

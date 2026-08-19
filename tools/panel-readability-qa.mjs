@@ -57,12 +57,24 @@ import {
   gotoHome,
   gotoSettings,
   openWindow,
+  releaseDirectory,
   route,
   scratchDirectory,
   seedMachineRecord,
   stage,
   writeEvidence,
 } from './test-account-harness.mjs'
+/* THE GUARD EVERY dist/-STAGING HARNESS IN THIS REPOSITORY SHARES, and it is
+ * not a formality here -- it is the exact failure this file hit.
+ *
+ * An early version of restageArchive() produced a torn renderer, and the
+ * symptom was not an exception: the window painted a title, a settings drawer,
+ * an empty stage, and never wrote a route. Three runs of this harness reported
+ * "the ledger is unreachable" and "Settings is unreachable" about a product
+ * that was fine. tools/lib/staged-renderer.mjs names that exact symptom in its
+ * own header, which is why tools/test/staged-renderer-guard.test.mjs requires
+ * every harness that stages dist/ to call it rather than reimplement it. */
+import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const require_ = createRequire(import.meta.url)
 const SELF = fileURLToPath(import.meta.url)
@@ -128,7 +140,31 @@ async function restageArchive(scratch, appRoot, mutate) {
   const asar = require_(path.join(REPO_ROOT, 'node_modules', '@electron', 'asar'))
   const work = path.join(scratch, `asar-${Math.random().toString(16).slice(2, 8)}`)
   rmSync(work, { recursive: true, force: true })
-  asar.extractAll(path.join(appRoot, 'resources', 'app.asar'), work)
+  /* FROM THE ORIGINAL ARCHIVE EVERY TIME, NEVER FROM THE ONE THIS FUNCTION LAST
+     WROTE.
+   *
+   * The first version extracted the STAGED archive and repacked it, and the
+   * application then never booted: no route was ever written to the page, and
+   * the run reported that Settings was unreachable. A second extract-and-repack
+   * round trip does not survive. Going back to the release's own archive and
+   * redoing exactly what stage() does -- extract, overlay this tree's dist/ and
+   * shell/, copy package.json -- makes every phase identical to a fresh stage
+   * plus one file, which is the only difference this harness is entitled to
+   * introduce. */
+  assertRendererMeasurable({ repoRoot: REPO_ROOT, sourceDist: path.join(REPO_ROOT, 'dist') })
+  asar.extractAll(path.join(releaseDirectory(), 'resources', 'app.asar'), work)
+  for (const directory of ['dist', 'shell']) {
+    rmSync(path.join(work, directory), { recursive: true, force: true })
+    cpSync(path.join(REPO_ROOT, directory), path.join(work, directory), { recursive: true })
+  }
+  cpSync(path.join(REPO_ROOT, 'package.json'), path.join(work, 'package.json'))
+  /* Checked BEFORE the mutation, because a phase that deliberately removes a
+     projection file would otherwise trip a guard about a difference it asked
+     for. What has to be whole is the renderer, and it is whole at this line. */
+  assertStagedRendererConsistent({
+    stagedDist: path.join(work, 'dist'),
+    sourceDist: path.join(REPO_ROOT, 'dist'),
+  })
   mutate(work)
   /* AWAITED, and the first run of this harness is why it says so. createPackage
      returns a promise; without the await the application was started against an
@@ -176,7 +212,12 @@ const READ_LEDGER = `(() => {
       targetOptions: target && target.tagName === 'SELECT' ? [...target.options].map(o => o.textContent) : null,
       approveDisabled: decision?.querySelector('[data-decision="approve"]')?.disabled ?? null,
       decisionOutput: text(decision?.querySelector('[data-action-output]')),
-      queueHidden: queue ? queue.hasAttribute('hidden') : null,
+      /* MEASURED, NOT ASKED. hidden is an attribute, and the form's own rule
+         sets display:grid, which beats the user-agent rule -- so the form was
+         on the screen while every probe that read the attribute said it was
+         not. What counts is whether it is painted. */
+      queueHidden: queue ? (getComputedStyle(queue).display === 'none' || queue.getBoundingClientRect().height < 1) : null,
+      queueHiddenAttribute: queue ? queue.hasAttribute('hidden') : null,
       queueRevealLabel: text(surface?.querySelector('[data-queue-reveal]')),
       queueLine: text(queue?.querySelector('[data-action-output]')),
       hashFieldVisible: queue ? [...queue.querySelectorAll('input')].some(i => i.name === 'expectedHash' && i.type !== 'hidden') : null,
@@ -243,16 +284,25 @@ const READ_CLOUD = `(() => {
  *     in hand by the time this is called.
  */
 async function shot(window, scratch, name) {
-  const deadline = new Promise(resolve => setTimeout(() => resolve(null), 20_000))
+  const deadline = new Promise(resolve => setTimeout(() => resolve(null), 25_000))
   const capture = (async () => {
     try { await window.session.send('Page.enable', {}) } catch { /* already on */ }
     try { await window.session.send('Page.setWebLifecycleState', { state: 'active' }) } catch { /* older builds */ }
-    await delay(400)
-    const packet = await window.session.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+    /* THE OVERRIDE IS WHAT MAKES A HIDDEN WINDOW PRODUCE A FRAME. With
+       show:false the compositor has nothing to hand over and captureScreenshot
+       does not fail -- it simply never answers. Emulation.setDeviceMetricsOverride
+       gives the page a surface of its own to paint into, which is the same
+       mechanism headless capture uses. */
+    await window.session.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
+    })
+    await delay(700)
+    const packet = await window.session.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: true })
+    try { await window.session.send('Emulation.clearDeviceMetricsOverride', {}) } catch { /* nothing to clear */ }
     return packet?.result?.data || null
   })()
   const data = await Promise.race([capture, deadline])
-  if (!data) return 'NOT CAPTURED (the hidden window produced no frame within 20s)'
+  if (!data) return 'NOT CAPTURED (the hidden window produced no frame in time)'
   const file = path.join(scratch, `${name}.png`)
   writeFileSync(file, Buffer.from(data, 'base64'))
   return file
@@ -493,7 +543,12 @@ async function main() {
       await delay(2500)
       let onGlass = await window.evaluate('Boolean(document.querySelector(".cloud-surface") || document.querySelector(".board-cloud-box"))')
       if (!onGlass) {
-        for (const selector of ['.gnode', '.node', '[data-node]', '.ar-card', '[data-a="open"]']) {
+        /* "Open agent detail" is the button this page really offers when the
+           graph has nothing running in it, and it is the only door to the
+           Codex Cloud panel: that panel is fenced to a LIVE agent page, because
+           a launch from it starts real, billable, uncancellable remote work.
+           The rest are older shapes, kept as fallbacks and reported by name. */
+        for (const selector of ['.graph-open-btn', '[data-a="open"]', '.gnode', '.node', '[data-node]', '.ar-card']) {
           const clicked = await window.clickVisible(selector, { timeoutMs: 3500 })
           led.note(`looking for the Codex Cloud panel, clicked ${selector}: ${clicked}`)
           await delay(2200)
