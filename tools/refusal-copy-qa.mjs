@@ -619,11 +619,39 @@ async function main() {
        line does, so the copy under test is identical and nothing is created.
        Pressing Launch to measure a refusal would be measuring a refusal by
        risking the thing the refusal is about. */
+    /* REFRESH WITH NO ACCOUNT SIGNED IN IS MEASURED ON THE ACCOUNTS LINE, NOT
+       THE TASK LINE, and that is the behaviour under test rather than a
+       convenience.
+
+       This check used to press Refresh and wait for the TASK line to say
+       something. It said the same thing the accounts line had already said --
+       one condition, two 47-word paragraphs -- which is precisely the defect
+       the owner filed against this panel. The repair made `refresh()` stop at
+       the accounts read when there is no account to read as
+       (src/cloud-tasks-controller.js: "WHEN THE ACCOUNTS LINE HAS ALREADY
+       EXPLAINED THIS, SAY NOTHING"), so the task line is now deliberately
+       silent in this state and the old wait could only ever time out.
+
+       Asserting the task line here again would demand the duplication back. So
+       the press is measured where the sentence now lives, and the silence of
+       the task line is checked separately below -- which makes this driver
+       defend the deduplication instead of fighting it. */
     await drive('Codex Cloud · Refresh tasks (a read; nothing is launched)', async () => {
       const there = await app.until('the cloud panel', `document.querySelector('[data-cloud="refresh"]') !== null`, 40)
       if (!there) return false
       return await app.clickVisible('[data-cloud="refresh"]') === 'clicked'
-    }, '[data-cloud="list-out"]')
+    }, '[data-cloud="environments-out"]')
+
+    /* The other half of the same fact: one condition, one sentence. */
+    {
+      const taskLine = await app.evaluate(`(() => {
+        const node = document.querySelector('[data-cloud="list-out"]')
+        return node ? String(node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim() : null
+      })()`)
+      check('the task line stays silent while the accounts line explains',
+        taskLine === '' || taskLine === null,
+        `task line: ${JSON.stringify(taskLine)} -- with no account signed in this condition is explained once, on the accounts line`)
+    }
 
     await drive('Codex Cloud · the environments read that happens on its own', async () =>
       app.until('the environments line to say something',
