@@ -1555,11 +1555,29 @@ export function commsView() {
     const LIVE_CHANNEL_ID = 'agent-tree'
     const withLiveMessages = (result, live) => {
       const envelope = result.ok ? result.data : null
-      if (!envelope?.data) return result
-      const data = { ...envelope.data }
+      /* THE STATIC PROJECTION BEING UNREADABLE MUST NOT HIDE A LIVE
+         CONVERSATION, and the first version of this let it.
+         MEASURED on a driven two-node run: the agents talked, the shell handed
+         over both messages, and the page still said "This computer's live comms
+         data could not be read" -- because ops.json is UNAVAILABLE on any
+         computer that is not the one that cut the release (it is written from a
+         builder-side CLI), and an unavailable envelope short-circuits the whole
+         page before the messages are looked at. That is the ordinary state of a
+         customer's machine, so the failure would have been universal: the exact
+         defect the owner filed, reappearing one layer up.
+         The two sources are independent, so they fail independently. */
+      if (!envelope?.data && !live.ok) return result
+      const base = envelope?.data || {
+        declaredServices: [],
+        channels: { ok: true, reason: null, observedAt: null, value: [] },
+        mcp: { ok: false, reason: result.reason || 'the services on record could not be read', observedAt: null, value: null },
+        messages: { ok: false, reason: 'not read yet', observedAt: null, value: null },
+      }
+      const carrier = envelope || { domain: 'ops', ok: true, reason: null, generatedAt: new Date().toISOString() }
+      const data = { ...base }
       if (!live.ok) {
         data.messages = { ok: false, reason: live.reason, observedAt: null, value: null }
-        return { ...result, data: { ...envelope, data } }
+        return { ok: true, data: { ...carrier, ok: true, data } }
       }
       data.messages = {
         ok: true,
@@ -1581,7 +1599,7 @@ export function commsView() {
         })
       }
       data.channels = { ok: true, reason: null, observedAt: new Date().toISOString(), value: channels }
-      return { ...result, data: { ...envelope, data } }
+      return { ok: true, data: { ...carrier, ok: true, data } }
     }
 
     const loadLive = () => Promise.all([fetchOps(), readLiveMessages()])
