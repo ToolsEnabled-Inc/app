@@ -219,6 +219,23 @@ test('a row says what was done in words a person reads, never a status key', () 
   }
 })
 
+test('an MCP tool call is named after its tool, never the word Step twice', () => {
+  /* MEASURED on the shipped build, 2026-08-19: a Sonnet child called
+     mcp__toolsenabled__agent_comms_send_local, and its two rows in the chat
+     each read "Step Step finished" -- raw name unrecognised, detail empty, so
+     the fallback word filled both slots and the one thing a person wanted to
+     know (WHICH tool ran) was the one thing the row left out. The raw name
+     carries the answer in its own spelling: mcp__<server>__<tool>. */
+  const words = actionRowWords({ kind: 'call', tool: 'mcp__toolsenabled__agent_comms_send_local', detail: '', state: 'done', output: '' })
+  assert.equal(words.tool, 'Tool')
+  assert.match(words.detail, /agent_comms_send_local/, 'the tool own name is gone from the row')
+  assert.match(words.detail, /toolsenabled/, 'which server answered is gone from the row')
+  /* A detail the event DID carry still wins: the name is a fallback, not a veto. */
+  const kept = actionRowWords({ kind: 'call', tool: 'mcp__toolsenabled__web_fetch', detail: 'https://example.org', state: 'done', output: '' })
+  assert.equal(kept.detail, 'https://example.org')
+  assert.equal(kept.tool, 'Tool')
+})
+
 /* ---------------------------------------------------------------
    D. The chat's second door.
    --------------------------------------------------------------- */

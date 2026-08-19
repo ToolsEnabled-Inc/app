@@ -3408,6 +3408,14 @@ export function computersView({ initialComputer = null, navigate }) {
   }
 
   function showStats() {
+    /* THE DOOR COMES BACK WITH THE OVERVIEW. Selecting a node in your own tree
+       aims "Open agent detail" at nothing (a tree node has no drill-in page,
+       and the button must not pretend otherwise); this is the other half:
+       leaving that selection re-aims it exactly the way mount does. Measured
+       before this line existed: one click on an own agent and the door was
+       display:none for the rest of the visit -- the "reward for having already
+       found the way in" the mount-time aim was written to end. */
+    if (!openTarget) setOpenTarget(computer?.agents?.[0] || firstDeclaredTarget())
     renderStats()
     activateRail(statsPage)
   }
@@ -4486,9 +4494,15 @@ export function computersView({ initialComputer = null, navigate }) {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.rewind !== 'function') return false
     let done = null
-    try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch { done = null }
+    let refusal = null
+    try { done = await bridge.rewind({ sessionId: node.sessionId, turnId }) } catch (error) { refusal = error; done = null }
     if (!done || done.turnId !== turnId) {
-      if (out) out.textContent = REWIND_PANEL.failed
+      /* THE REASON RIDES TO THE PERSON. This catch used to drop the error, so a
+         Claude session -- whose engine cannot fork and therefore can never
+         rewind (CLAUDE_CLI_FORK_UNSUPPORTED) -- drew "Try once more", forever.
+         A permanent refusal says what is true and names the door that works. */
+      const words = /CLAUDE_CLI_FORK_UNSUPPORTED/.test(String(refusal?.message || '')) ? REWIND_PANEL.cannotFork : REWIND_PANEL.failed
+      if (out) out.textContent = words
       return false
     }
     /* The agent's memory now ends at that turn; every screen follows it.

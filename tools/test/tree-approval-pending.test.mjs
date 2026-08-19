@@ -72,3 +72,17 @@ test('the turn ending forgets it too', () => {
   assert.match(body, /sessionPendingApprovals\.delete\(sessionId\)/,
     'a dead turn leaves its approval remembered; interrupt a blocked agent and the ghost Approve button would return on the next rail open')
 })
+
+/* ---------- the rewind refusal, made truthful ---------- */
+
+test('a rewind the engine can never do says so instead of asking for a retry', async () => {
+  const { REWIND_PANEL } = await import('../../src/fleet-tree-copy.js')
+  assert.ok(typeof REWIND_PANEL.cannotFork === 'string' && REWIND_PANEL.cannotFork.length > 0,
+    'the permanent-refusal sentence is gone; a Claude rewind failure falls back to "Try once more", which is false forever')
+  assert.match(REWIND_PANEL.cannotFork, /Resume with a fresh agent/,
+    'the sentence stopped naming the door that actually works')
+  const rewind = view.slice(view.indexOf('async function performRewind'))
+  const body = rewind.slice(0, rewind.indexOf('/* The agent'))
+  assert.match(body, /CLAUDE_CLI_FORK_UNSUPPORTED/,
+    'performRewind no longer tells the fork-unsupported refusal apart, so it retries a permanent refusal')
+})

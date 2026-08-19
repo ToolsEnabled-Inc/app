@@ -728,6 +728,13 @@ export const REWIND_PANEL = Object.freeze({
   busy: 'Interrupt the running turn first — a rewind needs the agent idle.',
   empty: 'Send a message first; your messages appear here to rewind to.',
   failed: 'The rewind did not happen; the conversation is unchanged. Try once more.',
+  /* A PERMANENT refusal is not a retry. MEASURED on the shipped build,
+     2026-08-19: rewinding a Claude session always fails -- the host rewinds by
+     forking the thread and that engine cannot fork (CLAUDE_CLI_FORK_UNSUPPORTED,
+     shell/agent-host.cjs rewindSession) -- and the sentence above told the
+     person to try once more, forever. This one says what is true and names the
+     door that does work. */
+  cannotFork: 'This agent runs on an engine that cannot rewind a conversation, so nothing was changed. To continue from the saved conversation, use "Resume with a fresh agent" in this menu.',
 })
 
 /* THE APPROVAL CARD — rendered only when a request arrives, which today is
@@ -819,10 +826,22 @@ const ACTION_STATE_WORDS = Object.freeze({
   waiting: 'waiting for you',
 })
 
+/* AN MCP TOOL CARRIES ITS OWN NAME, in its own spelling: mcp__<server>__<tool>.
+   MEASURED on the shipped build (2026-08-19): a child's two calls to
+   mcp__toolsenabled__agent_comms_send_local each drew "Step Step finished" --
+   raw name unrecognised, detail empty, fallback word in both slots -- so the
+   one thing a person wanted from the row (WHICH tool ran) was the one thing it
+   left out. The name is used as the DETAIL fallback only; a detail the event
+   did carry still wins. */
+const MCP_TOOL_NAME = /^mcp__([^_].*?)__(.+)$/
+
 export function actionRowWords(row) {
   if (!row || typeof row !== 'object') return { tool: 'Step', detail: '', state: '' }
-  const tool = ACTION_TOOL_WORDS[row.tool] || (row.kind === 'approval' ? 'Approval' : 'Step')
-  const detail = typeof row.detail === 'string' ? row.detail : ''
+  const raw = typeof row.tool === 'string' ? row.tool : ''
+  const mcp = MCP_TOOL_NAME.exec(raw)
+  const tool = ACTION_TOOL_WORDS[raw] || (mcp ? 'Tool' : (row.kind === 'approval' ? 'Approval' : 'Step'))
+  let detail = typeof row.detail === 'string' ? row.detail : ''
+  if (detail.length === 0 && mcp) detail = `${mcp[2]} · ${mcp[1]}`
   return {
     tool,
     detail: detail.length > ACTIVITY_COMMAND_MAX ? `${detail.slice(0, ACTIVITY_COMMAND_MAX)}…` : detail,
