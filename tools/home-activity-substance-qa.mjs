@@ -67,7 +67,13 @@ import {
 } from './test-account-harness.mjs'
 
 const require_ = createRequire(import.meta.url)
-const SHOTS = process.env.HOME_FLOW_SHOTS || process.cwd()
+/* NEVER the repo root. The old default was process.cwd(), which from the
+   repository put eight evidence PNGs at the root of a tree whose release gate
+   refuses to build with unreproducible bytes present — the same eight files
+   stopped two cut attempts on two different days before the default moved.
+   Evidence belongs with its run. */
+const SHOTS = process.env.HOME_FLOW_SHOTS
+  || mkdtempSync(path.join(tmpdir(), 'home-activity-shots-'))
 const findings = []
 const note = (level, text) => { findings.push({ level, text }); console.log(`  ${level.padEnd(5)} ${text}`) }
 const RECORDED_ONLY = process.argv.includes('--recorded-only')

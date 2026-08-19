@@ -58,7 +58,11 @@ import {
 
 const findings = []
 const note = (level, text) => { findings.push({ level, text }); console.log(`  ${level.padEnd(5)} ${text}`) }
-const SHOTS = process.env.PALETTE_QA_SHOTS || process.cwd()
+/* NEVER the repo root — see home-activity-substance-qa.mjs's SHOTS note: the
+   cwd default littered the repository with evidence PNGs and stopped two cut
+   attempts at the clean-tree gate. */
+const SHOTS = process.env.PALETTE_QA_SHOTS
+  || mkdtempSync(path.join(tmpdir(), 'palette-qa-shots-'))
 const SEEDED_ONLY = process.argv.includes('--seeded-only')
 
 function readOrThrow(value, what) {
