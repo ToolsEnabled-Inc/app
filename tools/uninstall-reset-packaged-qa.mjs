@@ -163,7 +163,19 @@ async function keptOnScreen(window) {
 async function answerOr(label, promise, ms = 30_000) {
   let timer
   const timeout = new Promise(resolve => { timer = setTimeout(() => resolve(`__timed_out__:${label}`), ms) })
-  try { return await Promise.race([promise, timeout]) } finally { clearTimeout(timer) }
+  try {
+    /* AND THE OTHER WAY A WINDOW FAILS TO ANSWER, which did not exist when the
+       comment above was written. The harness used to leave a call to a dead
+       debugger pending forever; since 2026-08-18 it REJECTS every pending call
+       when the socket closes, which is the right behaviour and is what turned a
+       silent hang into a loud failure everywhere else. Here the socket closing
+       is the SUBJECT: this driver's last control quits the application. So a
+       rejection is the same fact as a timeout -- the window did not answer --
+       and it is recorded as that rather than thrown, with its own marker so the
+       report never calls a dead socket a slow one. */
+    return await Promise.race([promise, timeout])
+      .catch(error => `__unanswered__:${label}:${error && error.message ? error.message : error}`)
+  } finally { clearTimeout(timer) }
 }
 
 async function finish(window) {
@@ -172,7 +184,19 @@ async function finish(window) {
     try { window.session?.close() } catch { /* already gone */ }
     return window.timeline
   }
-  return closeWindow(window)
+  /* The application may quit between the exit-code read above and the question
+     closeWindow asks -- this driver's whole subject is a control that quits it.
+     Since the harness began rejecting calls to a closed socket, that race
+     throws out of the `finally` that calls this, which killed the run AFTER
+     every check had passed and BEFORE ledger.finish() could write the verdict
+     line the suite reads. Measured 2026-08-18: 22 checks ok, no summary,
+     exit 1. Teardown may not decide the verdict, so the expected race is
+     absorbed here and nowhere wider. */
+  try {
+    return await closeWindow(window)
+  } catch (error) {
+    return { ...(window.timeline || {}), closeNote: String(error && error.message ? error.message : error) }
+  }
 }
 
 async function main() {
@@ -360,7 +384,8 @@ async function main() {
        window as unresponsive, which is the same class of mistake as the one the
        marker exists to catch: a check that is about the harness rather than the
        product. */
-    const timedOut = [state, landed, text].filter(value => typeof value === 'string' && value.startsWith('__timed_out__'))
+    const timedOut = [state, landed, text].filter(value => typeof value === 'string'
+      && (value.startsWith('__timed_out__') || value.startsWith('__unanswered__')))
     if (timedOut.length > 0) {
       ledger.check('the relaunched window answered its own debugger', false,
         `${timedOut.join(', ')}; exit=${window.child.exitCode} stderr=${(window.timeline.stderr || '').slice(-400)}`)
