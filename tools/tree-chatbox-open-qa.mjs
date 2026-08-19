@@ -292,7 +292,49 @@ async function main() {
     }
     await window.evaluate(`localStorage.setItem(${JSON.stringify(`mc.fleet.trees.v1:${computerId}`)}, ${JSON.stringify(JSON.stringify(record))})`)
     await window.evaluate(`location.reload()`)
-    await delay(4200)
+    /* WAIT FOR THE LAYOUT, NOT FOR THE CLOCK. This was a flat delay(4200), and
+       on the 2026-08-19 re-cut confirming run -- the machine churning under the
+       whole packaged suite -- 4.2s bought a canvas with every circle on ONE
+       row (presses at y=474 for all five; this page does not scroll, so those
+       are real positions) and the overlap engine culling three of the five
+       chips, which this driver then reported as "NO CARD" about a product
+       whose layout had simply not arrived. Alone on the same tree the same
+       day: two rows, all five chips offered, 54/54 -- and the layout and
+       culling engines (src/tree-graph.js/.css) have no commit in the window
+       the red was blamed on. The mechanism is the one tools/page2-qa.cjs
+       documents: a window that is never composited measures its container
+       late, and layout work lands whenever the machine lets it.
+       So the instrument waits for what it is about to measure: every seeded
+       node drawn, more than one row (this seed is a root with four children;
+       one row IS the not-yet-laid-out state), and positions still across two
+       samples. If that never comes, it refuses as HARNESS STATE, naming what
+       the canvas showed -- it does not fail the product over the weather, and
+       it does not press circles whose positions are still moving. Every
+       product assertion below is unchanged and now runs on a canvas that is
+       actually finished drawing. */
+    const layout = await (async () => {
+      const deadline = Date.now() + Number(process.env.TCB_LAYOUT_DEADLINE_MS || 25000)
+      let previous = null
+      let sample = null
+      for (;;) {
+        sample = await window.evaluate(`(() => {
+          const nodes = [...document.querySelectorAll('.node[data-agent-id]')]
+          const boxes = nodes.map(n => { const b = n.getBoundingClientRect(); return [n.dataset.agentId, Math.round(b.x), Math.round(b.y)].join('@') })
+          const rows = new Set(nodes.map(n => Math.round(n.getBoundingClientRect().y / 24))).size
+          return { count: nodes.length, rows, print: boxes.join('|') }
+        })()`)
+        const moving = !sample || previous !== sample.print
+        const ready = sample && sample.count === SEEDED.length && sample.rows >= 2 && !moving
+        if (ready) return { ok: true, moving: false, ...sample }
+        if (Date.now() > deadline) return { ok: false, moving, ...(sample || {}) }
+        previous = sample ? sample.print : null
+        await delay(400)
+      }
+    })()
+    if (!layout.ok) {
+      note('FAIL', `HARNESS STATE: the canvas never finished laying out (${layout.count ?? '?'} of ${SEEDED.length} node(s), ${layout.rows ?? '?'} row(s), still moving=${layout.moving}). Nothing below would have been a measurement of the product.`)
+      return
+    }
 
     const drawn = await window.evaluate(`(() => {
       const ids = [...document.querySelectorAll('.node[data-agent-id]')].map(n => n.dataset.agentId)
