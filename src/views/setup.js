@@ -137,6 +137,23 @@ const esc = value => String(value ?? '')
 const STEPS = Object.freeze(['tier', 'workspace', 'account', 'autonomy', 'review'])
 const QUESTION_STEPS = Object.freeze(['tier', 'workspace', 'autonomy'])
 
+/* THE WALK THE PERSON IS IN RIGHT NOW, held for the life of the PAGE rather
+ * than of one view instance. Null whenever no walk is open.
+ *
+ * `resumeStep` reads the stored profile and the recorded tier, and both of
+ * those are ANSWERS THAT ARRIVE LATE: the tier is recorded by an await inside
+ * commit(), and the router can re-mount this view while that await is in
+ * flight (measured 2026-08-19 -- the checkout probe's settle event re-entered
+ * render() over '#/setup' and the surviving copy opened on question 1 while
+ * the person's copy stood at the review, until the retirement timer removed
+ * it). A re-mount inside one page is not a returning visitor; it is the same
+ * person, mid-walk, and their current step is the truth. So every move the
+ * walk makes records itself here, the next mount in the same page adopts it,
+ * and finishing or skipping clears it. Disk state still decides everything on
+ * the NEXT launch, where this record no longer exists -- so the measured
+ * resume-at-exact-step behaviour from Settings -> "Open setup" is unchanged. */
+let liveWalk = null
+
 const WRITE_FLAG_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
 const LIVE_FLAG_IDS = LIVE_VIEW_FLAGS.map(flag => flag.id)
 
@@ -166,6 +183,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
      that starts anything. */
   let answers = stored ? stored.answers : { ...RECOMMENDED_ANSWERS, workspaceRoots: [] }
   let step = resumeStep(stored, { tierRecorded: state.configured, steps: STEPS })
+  if (liveWalk && STEPS.includes(liveWalk.step)) {
+    step = liveWalk.step
+    answers = liveWalk.answers
+  }
   /* The workspace facts come from the shell, so until they arrive the step says
      it is loading rather than showing an empty folder list that looks like an
      answer. `null` means "not asked for yet", which is distinct from a reply
@@ -904,6 +925,14 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
   /* ---------- moving between steps ---------- */
 
+  /* Progress as the person has it, beside the durable write: the stored
+     profile is what the NEXT launch resumes from, `liveWalk` is what a
+     re-mount inside THIS page adopts, and writing them in the same breath is
+     what keeps the two from disagreeing. */
+  function holdWalk() {
+    liveWalk = { step, answers }
+  }
+
   function goTo(next) {
     if (!STEPS.includes(next)) return
     step = next
@@ -912,6 +941,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
        nothing on this computer beyond the permission level they explicitly
        saved, and reopening setup resumes on this step. */
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
     if ((step === 'workspace' || step === 'review') && workspace === null) loadWorkspace()
     /* Re-asked every time the review step is REACHED, not cached for the life
@@ -1020,6 +1050,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     const current = mode === 'add' ? workspaceRoots() : []
     answers = { ...answers, workspaceRoots: current.includes(result.path) ? current : [...current, result.path] }
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
   }
 
@@ -1029,6 +1060,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     roots.splice(index, 1)
     answers = { ...answers, workspaceRoots: roots }
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
   }
 
@@ -1103,6 +1135,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
     applyDerived()
     writeStoredProfile({ status: 'complete', step: 'review', answers })
+    liveWalk = null
     busy = false
     navigate('#/')
   }
@@ -1121,6 +1154,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     answers = { ...SAFE_ANSWERS, workspaceRoots: [] }
     applyDerived()
     writeStoredProfile({ status: 'skipped', step: 'review', answers })
+    liveWalk = null
     navigate('#/')
   }
 
@@ -1218,6 +1252,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     if (!next) return
     answers = next
     writeStoredProfile({ status: 'in-progress', step, answers })
+    holdWalk()
     paint()
   }
 

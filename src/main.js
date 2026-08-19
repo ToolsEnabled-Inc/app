@@ -702,7 +702,29 @@ setInterval(() => tickRuntimes(fmtRuntime), 500)
  * gains them when the probe lands. That order is the safe one: the ring can only
  * GROW when the answer arrives, so a slow or failed probe hides a surface rather
  * than briefly showing one. */
-window.addEventListener(CHECKOUT_SURFACE_EVENT, () => render())
+/* NEVER OVER THE WALKTHROUGH. This listener exists so a settled probe can
+ * repaint the surfaces that show checkout state -- the ring and its arrows.
+ * The first-run walkthrough shows neither, and re-entering render() while it
+ * holds the glass MOUNTS A SECOND COPY of it and retires the one the person
+ * is walking 420ms later, mid-step.
+ *
+ * MEASURED, packaged build, fresh profile, 2026-08-19 (trace in the
+ * setup-placeloss lane report): boot render redirects '' -> '#/setup' and
+ * returns; the hashchange it fires is a QUEUED task; under machine load the
+ * checkout probe settled inside that gap (94ms and 96ms in two traces), this
+ * listener mounted setup copy #1, the queued hashchange then mounted copy #2,
+ * and the person's whole walk happened on copy #1 -- torn down by the 420ms
+ * retirement timer with the review on screen. The glass fell back to copy
+ * #2, still sitting on question 1. Finish never existed. The same listener
+ * firing later (the probe has a 4s timeout) re-mounts the walkthrough
+ * mid-walk with whatever the stored profile lags to.
+ *
+ * The route is read from the hash, not from `current`: in the measured race
+ * `current` is still null while the hash already names the walkthrough. */
+window.addEventListener(CHECKOUT_SURFACE_EVENT, () => {
+  if (resolve(parse()).name === 'setup') return
+  render()
+})
 void probeCheckoutSurface()
 
 render()
