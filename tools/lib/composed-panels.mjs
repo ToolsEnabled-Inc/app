@@ -86,14 +86,18 @@ const ENVIRONMENT = Object.freeze({
   launchable: true,
 })
 
-/* THE REFUSAL A CLEAN MACHINE REALLY GETS. Measured by driving the packaged
-   build on a sterile profile: with no accounts.json anywhere, the bridge
-   answered ACCOUNTS_REGISTRY_MISSING, and the renderer put the SAME sentence in
-   two adjacent boxes. */
-const REGISTRY_MISSING = Object.freeze({
+/* THE REFUSAL THIS READ CAN STILL PRODUCE, and it is deliberately not the one
+   the panel used to show.
+ *
+ * A MISSING registry is no longer a refusal at all -- it is the empty state
+   above, because "nobody has signed in here" is an answer. What is left is a
+   registry that IS there and cannot be trusted, which is a different fact with
+   a different repair. The reason below is the engine's own sentence for it,
+   exactly as it arrives after typedError() scrubs the file path out of it. */
+const REGISTRY_UNREADABLE = Object.freeze({
   ok: false,
-  code: 'ACCOUNTS_REGISTRY_MISSING',
-  reason: 'No account registry. Create it before switching accounts.',
+  code: 'ACCOUNTS_REGISTRY_UNPARSABLE',
+  reason: 'The account registry is not valid JSON, so no account can be selected.',
 })
 
 export async function cloudPanels() {
@@ -108,10 +112,10 @@ export async function cloudPanels() {
       },
     }),
     await cloudState({
-      id: 'account-registry-refused',
-      why: 'the account list genuinely could not be read',
+      id: 'account-registry-unreadable',
+      why: 'a registry that is there and cannot be trusted, which is not the same as one that is absent',
       availability: READY,
-      replies: { 'cloud-accounts': REGISTRY_MISSING, 'cloud-tasks': REGISTRY_MISSING },
+      replies: { 'cloud-accounts': REGISTRY_UNREADABLE, 'cloud-tasks': REGISTRY_UNREADABLE },
     }),
     await cloudState({
       id: 'bridge-unreachable',

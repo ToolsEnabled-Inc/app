@@ -515,6 +515,20 @@ export function createCloudTaskController({
      really arrives here, because a cloud call can fail before the layer has
      anything to say about it. */
   const refusal = result => refusalSentence(result, { fallback: 'The request did not complete.' })
+
+  /* THE REMEDY FOR AN ACCOUNT LIST THAT IS THERE AND CANNOT BE READ.
+     ./refusal-copy.js has no entry for the registry-parse family, so it falls to
+     the product-wide remedy -- "try it once more" -- which is wrong advice for a
+     file that will be exactly as malformed on the second press. Nothing about
+     this is fixed by retrying, and the one thing that does fix it is signing in
+     again, because that is what writes the file. */
+  const accountsRefusal = result => {
+    const code = refusalCodeOf(result)
+    const remedy = /^ACCOUNTS_(REGISTRY|ENTRY|NAME|ROLE|PROFILE)_/.test(String(code || ''))
+      ? 'Nothing was read and nothing was spent. Sign in to Codex Cloud on this computer again, so this copy can write itself a fresh list of accounts.'
+      : ''
+    return refusalSentence(result, { fallback: 'The account list did not come back.', remedy })
+  }
   const clock = () => new Date().toLocaleTimeString()
 
   /* ACCOUNTS AND ENVIRONMENTS ARRIVE TOGETHER, because on this provider they
@@ -543,7 +557,7 @@ export function createCloudTaskController({
         /* NOT "no environments": a refused read says nothing about what exists.
            environmentsLoaded stays false so the launch path keeps refusing. */
         environmentsTone: 'refused',
-        environmentsMessage: `Your Codex accounts could not be read. ${refusal(result)}`,
+        environmentsMessage: `Your Codex accounts could not be read. ${accountsRefusal(result)}`,
         environmentsCode: refusalCodeOf(result),
       })
       return state
