@@ -307,8 +307,27 @@ async function shot(window, scratch, name) {
     try { await window.session.send('Emulation.clearDeviceMetricsOverride', {}) } catch { /* nothing to clear */ }
     return packet?.result?.data || null
   })()
-  const data = await Promise.race([capture, deadline])
-  if (!data) return 'NOT CAPTURED (the hidden window produced no frame in time)'
+  let data = await Promise.race([capture, deadline])
+  if (!data) {
+    /* ONE RETRY, because the capture is timing-dependent rather than broken: a
+       window created with show:false produces a frame when it is asked twice
+       often enough that a single miss says nothing. A second miss is reported
+       as a missing image and never as a missing measurement -- the text read
+       back out of the DOM is the measurement, and it is already in hand. */
+    await delay(1500)
+    data = await Promise.race([
+      (async () => {
+        try { await window.session.send('Page.setWebLifecycleState', { state: 'active' }) } catch { /* older builds */ }
+        await window.session.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
+        await delay(1200)
+        const again = await window.session.send('Page.captureScreenshot', { format: 'png', fromSurface: true })
+        try { await window.session.send('Emulation.clearDeviceMetricsOverride', {}) } catch { /* nothing to clear */ }
+        return again?.result?.data || null
+      })(),
+      new Promise(resolve => setTimeout(() => resolve(null), 25_000)),
+    ])
+  }
+  if (!data) return 'NOT CAPTURED (the hidden window produced no frame in two attempts)'
   const file = path.join(scratch, `${name}.png`)
   writeFileSync(file, Buffer.from(data, 'base64'))
   return file
