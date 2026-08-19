@@ -60,7 +60,18 @@ const note = (level, text) => { findings.push({ level, text }); console.log(`  $
  * in this run -- asserted below rather than trusted -- so it can only appear on
  * screen if a model worked it out and a message carried it. */
 const PROOF = '391'
-const MANAGER_BRIEF = 'You manage a small team. If an agent that reports to you asks for the job number, work out 17 multiplied by 23 and send them only that number. Answer whatever they send you. Do nothing else.'
+/* THE MANAGER IS GIVEN NOTHING TO DO UNTIL ASKED. An earlier wording -- "work
+   out 17 multiplied by 23 and send them only that number" -- read to the model
+   as an instruction to work it out NOW, and it wrote 391 into its own transcript
+   thirteen seconds in, before the child had said a word. That is a real model
+   doing what it was told; the driver's words were the defect. The sum is now
+   named only inside the condition, and the reply route is stated once. */
+/* AND IT MUST NOT SAY "WAIT". A message reaches an agent only between turns.
+   The previous wording told the manager to wait, so it sat inside its first
+   turn for four minutes with two questions queued behind it -- correctly
+   refused by the host, because a mid-turn hand-over is a race. So the manager
+   is told to end its turn; the product's own brief now says the same. */
+const MANAGER_BRIEF = 'You manage a small team. Right now, say "ready" and stop. Do not calculate anything yet. Later, when a message arrives from an agent that reports to you asking for the job number, work out 17 multiplied by 23 and reply to that agent using agent_comms.send_local with only that number, then stop.'
 const CHILD_BRIEF = 'You need the job number before you can start, and you do not have it. Ask your manager for it using the tool you were told about, then say the number back on its own line. Do not guess it and do nothing else.'
 if (MANAGER_BRIEF.includes(PROOF) || CHILD_BRIEF.includes(PROOF)) {
   throw new Error('the answer is inside a brief; this run could only measure its own typing')
@@ -226,20 +237,48 @@ async function main() {
         const cards = [...document.querySelectorAll('[data-tree-chip], .cl-chat, .chip')]
           .map(card => (card.innerText || '').trim())
           .filter(card => card.length > 0)
+        /* WHAT THE NODE SAID, with what was typed INTO it removed. The card reads
+           "<name> <clock> <state> asked: <brief> › <what it said>": the brief
+           sits between 'asked:' and the first › marker, and everything from
+           that marker on is the node's own words. The first version of this
+           stopped at 'asked:' and never reached the answer -- it reported
+           SILENCE on a run where the child had said the number, plainly, one
+           marker later. A driver that cannot read the answer it is waiting for
+           will report every success as a failure. */
         const spoken = card => {
           const index = card.indexOf('asked:')
           if (index < 0) return card
-          const rest = card.slice(index)
-          const next = rest.indexOf('›')
-          return next < 0 ? card.slice(0, index) : card.slice(0, index) + rest.slice(next)
+          const marker = card.indexOf('›', index)
+          return marker < 0 ? card.slice(0, index) : card.slice(0, index) + ' ' + card.slice(marker)
         }
-        const childCard = cards.find(card => card.startsWith('Default')) || ''
+        /* THE CHILD'S CARD, found by the name it carries rather than by where the
+           name sits. The card list holds the node card AND a separate reply
+           card for the same node ('› Manager: 391' on its own), and which one
+           comes first is layout, not contract. Matching startsWith('Default')
+           found nothing for the whole wait and burned the deadline while step 5,
+           one query later, read the answer off the same page -- so this run
+           reported SILENCE beside its own transcript printing the number. */
+        /* DOUBLE BACKSLASHES, ON PURPOSE. This whole block is a template literal
+           evaluated in the page, and a single \\b or \\s here is consumed by THIS
+           file's parser first -- \\b became a backspace byte and \\s became the
+           letter s, so /^Default\\b/ matched nothing and the loop burned its whole
+           deadline reporting SILENCE beside a transcript that printed the answer.
+           Node prints the backspace back as "\\b", which is what disguised it. */
+        const childCard = cards.find(card => /^Default\\b/.test(card)) || cards.find(card => card.includes('Default')) || ''
         return {
+          /* THE CHILD'S CARD, AND NOTHING ELSE. A previous version also accepted
+             the number on "any card that is not the manager's" -- and the tree
+             renders a node's reply as a SECOND card that carries no name, so the
+             manager working out 391 in its own transcript, unprompted, before the
+             child had said a word, satisfied that clause. A false PASS, 13
+             seconds in, on a run where no message had been sent. The only card
+             that proves a message was carried is the one belonging to the agent
+             that could not have known the number without one. */
           proofOnChild: spoken(childCard).includes(${JSON.stringify(PROOF)}),
           proofAnywhereSpoken: cards.some(card => spoken(card).includes(${JSON.stringify(PROOF)})),
           refusals: [...document.querySelectorAll('[data-refusal-code]')].map(node => node.getAttribute('data-refusal-code')),
-          notSignedIn: /not signed in|Please run \/login|You are not signed in/i.test(text),
-          childCard: spoken(childCard).replace(/\s+/g, ' ').slice(0, 400),
+          notSignedIn: /not signed in|Please run \\/login|You are not signed in/i.test(text),
+          childCard: spoken(childCard).replace(/\\s+/g, ' ').slice(0, 400),
           tail: text.slice(-700),
         }
       })()`)

@@ -874,6 +874,85 @@ function validateStartedSession(value) {
   return value
 }
 
+/* WATCH THE ENGINE'S CHILD PROCESS FOR ITS OWN EXIT, so a session whose program
+ * has gone away is a fact this shell can state rather than one it infers.
+ *
+ * WHAT WAS MEASURED BEFORE THIS EXISTED. Neither this file nor shell/main.cjs
+ * observed the child's exit at all. The codex adapter turns it into a rejection
+ * of whatever was pending (CODEX_APP_SERVER_EXITED) and the Claude adapter
+ * rejects the active turn (CLAUDE_CLI_EXITED); if no turn was in flight, an
+ * idle child that died left a session in this map, state `ready`, forever. The
+ * only shell-visible symptom was the synthetic `turn_completed` with status
+ * `failed` that sendTurn() emits when a turn was already announced. So "the
+ * child exited" was observable in main.cjs ONLY mid-turn, and only as a failed
+ * turn -- which is a fact about a turn, not about the process.
+ *
+ * THE ENGINE CONTRACT HAS NO EXIT HOOK (engine-contract.js: `{ adapter,
+ * threadId, close }`), and the payload is not this shell's to change. What the
+ * two vendored engines DO expose, on the adapter each one hands back:
+ *
+ *   Claude  adapter.transport.child   the ChildProcess itself
+ *           (capability/src/lib/agent-engine/claude-cli-process.js,
+ *           createClaudeCliTransport returns `{ child, onData, send, ... }`).
+ *           ITS onData IS A SINGLE HANDLER SLOT -- calling it would REPLACE the
+ *           adapter's own reader and kill the session. So it is never called
+ *           here; the child is watched directly.
+ *   codex   adapter.transport.onData  a Set of listeners, each delivered
+ *           `(null, exitInfo)` exactly once when the child ends, and replayed
+ *           to a late subscriber (codex-process.js, createCodexProcessTransport).
+ *           It exposes no child. `write` beside it is what tells the two shapes
+ *           apart, because a Claude transport has `send`.
+ *
+ * Both shapes are pinned by tools/test/agent-session-end-record.test.mjs against
+ * the vendored transports themselves, spawning a real process, so a payload
+ * that changes either handle goes red there rather than going quiet here.
+ *
+ * IT NEVER THROWS AND IT NEVER SPEAKS FOR AN ENGINE THAT EXPOSES NEITHER. Every
+ * test fixture engine and any future engine without a recognisable handle gets
+ * `null` back and is left exactly as it was: a session whose exit this shell
+ * cannot see is a session whose exit is not recorded, which reads downstream as
+ * "does not say" -- never as an ending it did not observe.
+ *
+ * Returns which handle it attached to ('child' | 'transport') or null. Exported
+ * for the test; the host calls it from startSession(). */
+function observeEngineExit(startedValue, onExit) {
+  try {
+    const transport = startedValue && startedValue.adapter && startedValue.adapter.transport
+    if (!transport || typeof transport !== 'object') return null
+    let reported = false
+    const report = (exit) => {
+      if (reported) return
+      reported = true
+      try { onExit(exit) } catch { /* an observer fault must not reach the engine's stream */ }
+    }
+    const child = transport.child
+    if (child && typeof child.once === 'function') {
+      /* Already gone before we looked: say so, once, on the next tick, the same
+         way the codex transport replays an exit to a late subscriber. */
+      const alreadyExited = (child.exitCode !== null && child.exitCode !== undefined) || Boolean(child.signalCode)
+      if (alreadyExited) {
+        queueMicrotask(() => report({ code: child.exitCode ?? null, signal: child.signalCode ?? null }))
+      } else {
+        child.once('exit', (code, signal) => report({ code, signal }))
+      }
+      return 'child'
+    }
+    if (typeof transport.onData === 'function' && typeof transport.write === 'function') {
+      transport.onData((_chunk, exitInfo) => {
+        if (!exitInfo) return
+        report({
+          code: Number.isInteger(exitInfo.code) ? exitInfo.code : null,
+          signal: typeof exitInfo.signal === 'string' ? exitInfo.signal : null,
+        })
+      })
+      return 'transport'
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 /* THE CONFINEMENT A SESSION RUNS UNDER, ASKED PER PROVIDER.
  *
  * WHAT WAS MEASURED, and it is the owner's own requirement failing. With Claude
@@ -1018,6 +1097,12 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     || ((options = {}) => confinementPlanFor(loadConfinementPlanner(engineRoot), options))
   const sessions = new Map()
   const listeners = new Set()
+  /* Who wants to know when a session's child ends on its own. Kept apart from
+     `listeners` on purpose: those receive the engine's protocol events and are
+     forwarded to the renderer packet for packet, and a process ending is not a
+     protocol event -- it is a fact about this computer that the main process
+     records whether or not a window is open to hear it. */
+  const exitListeners = new Set()
   let closed = false
 
   /* ------------------------------------------------------------------ *
@@ -1098,6 +1183,35 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     }))
   }
 
+  /* Whose circle a durable fabric id belongs to, for the sentence below. A
+     sender that has since stopped still resolves, because the directory keeps
+     a stopped node's row rather than deleting it. */
+  function treeSenderName(agentId) {
+    if (!treeMessaging || !agentId) return null
+    try {
+      const node = treeMessaging.directory.listNodes().find((entry) => entry.agentId === agentId)
+      return node ? node.nodeName : null
+    } catch { return null }
+  }
+
+  /* AN ARRIVING MESSAGE MUST SAY HOW TO ANSWER IT, and this was measured, not
+   * guessed. On the first driven two-node run after delivery worked, the child's
+   * question arrived in the manager's session as a bare turn -- exactly as if
+   * the person had typed it -- and the manager did the natural thing: it
+   * answered IN ITS TRANSCRIPT. The answer was correct, on screen, and
+   * unreachable, because a transcript is a report to the person, not a message
+   * to the asker. The channel worked and the conversation still failed.
+   *
+   * So the injected turn carries two sentences after the message: what this is,
+   * and how to answer it. That keeps the decision with the model -- it may
+   * judge that no reply is needed -- while removing the trap where the reply it
+   * meant to send lands somewhere the sender will never look. */
+  function framedIncomingTurn(session, senderName, body) {
+    if (!senderName) return body
+    const self = session.treeAddress ? session.treeAddress.selfName : 'you'
+    return `${body}\n\nThat message arrived from ${senderName} over this computer's agent tree. What you write here is your report to the person, and ${senderName} will not see it: to answer ${senderName}, call agent_comms.send_local with from "${self}" and to "${senderName}".`
+  }
+
   async function pumpTreeSession(session) {
     if (!treeMessaging || !session.treeAddress || session.state !== 'ready') return
     const now = Date.now()
@@ -1112,10 +1226,11 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
         limit: 10,
       })
       for (const record of (page && page.records) || []) {
-        const body = record && record.message && typeof record.message.body === 'string' ? record.message.body : null
+        const message = record && record.message
+        const body = message && typeof message.body === 'string' ? message.body : null
         if (body) {
           showIncoming(session, body)
-          session.treeQueue.push(body)
+          session.treeQueue.push(framedIncomingTurn(session, treeSenderName(message.sender && message.sender.agentId), body))
         }
         if (Number.isFinite(record.sequence)) session.treeCursor = record.sequence
       }
@@ -1681,6 +1796,17 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
         session.adapter = started.adapter
         session.threadId = started.threadId
         session.engineClose = started.close
+        /* THE CHILD'S OWN EXIT, watched from here on. Reported ONLY while this
+           session is still the one in the map AND nobody asked for it to close:
+           an exit that follows closeSession()/closeAll() is the close, and the
+           caller already knows about that ending. See observeEngineExit(). */
+        observeEngineExit(started, (exit) => {
+          if (sessions.get(id) !== session || session.closeRequested) return
+          const report = Object.freeze({ sessionId: id, exit: Object.freeze({ code: exit.code ?? null, signal: exit.signal ?? null }) })
+          for (const listener of [...exitListeners]) {
+            try { listener(report) } catch { /* a listener fault is not the engine's */ }
+          }
+        })
         /* WHAT THE ENGINE SAYS, not what we asked for. A resumed thread
            reports the conversation it restored and the settings it really
            holds; those are the only honest source for "how hard is this
@@ -1983,6 +2109,16 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     return Object.freeze({ sessionId: id, closed: true })
   }
 
+  /* Hear about a session whose child ended on its own -- `{ sessionId, exit:
+     { code, signal } }` -- once per session, and never for a close this host
+     performed. Same subscribe/unsubscribe shape as onEvent(). */
+  function onSessionExit(listener) {
+    assertOpen()
+    if (typeof listener !== 'function') fail('AGENT_HOST_INVALID_ARGUMENT', 'onSessionExit requires a listener function')
+    exitListeners.add(listener)
+    return () => exitListeners.delete(listener)
+  }
+
   function onEvent(listener) {
     assertOpen()
     if (typeof listener !== 'function') fail('AGENT_HOST_INVALID_ARGUMENT', 'onEvent requires a listener function')
@@ -2003,6 +2139,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     const results = await Promise.allSettled(pending)
     stopTreePolling()
     listeners.clear()
+    exitListeners.clear()
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason)
     if (failures.length) throw new AggregateError(failures, 'One or more Codex sessions failed to close')
   }
@@ -2044,6 +2181,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     answerApproval,
     closeSession,
     onEvent,
+    onSessionExit,
     closeAll,
     startableTiers,
   })
@@ -2055,4 +2193,4 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
  * it. A precedence test written against engineAvailability() therefore passes
  * whichever way round the candidates are, which is exactly what a planted
  * swap proved before this was exported. */
-module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, confinementPlanFor, createAgentHost, engineAvailability, engineCandidates, narrowTurnOptions }
+module.exports = { AVAILABILITY_CODES, START_REFUSAL_CODES, confinementPlanFor, createAgentHost, engineAvailability, engineCandidates, narrowTurnOptions, observeEngineExit }

@@ -67,18 +67,37 @@ test('the brief states the limit of the channel rather than overselling it', () 
   assert.match(text, /permission level does not allow it/)
 })
 
-test('the CROSS-MACHINE messenger is still never named, on any path', () => {
+test('the CROSS-MACHINE messenger is still never OFFERED, on any path', () => {
   /* agent_comms.send is unchanged and still answers accepted:false with a code
-     meaning "pick a recipient on another machine". Only the LOCAL sibling may
-     appear in a brief; naming the other one would be the product inventing a
-     capability, which is the original defect wearing new words. */
+     meaning "pick a recipient on another machine". Only the LOCAL sibling may be
+     offered in a brief; offering the other one would be the product inventing a
+     capability, which is the original defect wearing new words.
+
+     "OFFERED", NOT "NAMED", AND THE DIFFERENCE WAS MEASURED. This used to pin
+     that agent_comms.read never appears at all. Then a real model, driven on a
+     packaged build, sent its question and reached for agent_comms.read to
+     collect the answer -- the cross-machine reader, which has no local mode --
+     failed on the relay credential, and told the person the channel was
+     broken. The brief now names that tool precisely to say DO NOT call it. A
+     pin on the bare name would forbid the warning while permitting the trap.
+     What is forbidden is telling an agent to CALL it.
+
+     AND THE OLD ASSERTION WAS A NO-OP. It read /agent_comms\.send\b/ in the
+     editor and carried a literal BACKSPACE byte where \b should have been -- a
+     text-mode patch consumed the escape -- so it matched nothing and had
+     guarded nothing since it was written. Byte-exact now, and the assertion
+     below fails first if the brief ever offers the wrong tool. */
   for (const options of [
     { message: 'Go.', selfName: 'Default', parentName: 'Manager' },
     { message: 'Go.', selfName: 'Coordinator' },
   ]) {
     const text = composeNodeBrief(options)
-    assert.doesNotMatch(text, /agent_comms\.send/, 'the brief names the messenger that refuses local recipients')
-    assert.doesNotMatch(text, /agent_comms\.read|agent_comms\.acknowledge/)
+    assert.doesNotMatch(text, /call agent_comms\.send\b/, 'the brief tells an agent to call the messenger that refuses local recipients')
+    /* An OFFER reads "call X with ..."; the warning reads "Do not call X to ...".
+       The negative pins the offering form so the warning is allowed to exist. */
+    assert.doesNotMatch(text, /(?<!not )call agent_comms\.(read|acknowledge)\b/, 'the brief tells an agent to call a cross-machine reader for a local reply')
+    /* And the warning is present, because the trap was hit on a real run. */
+    assert.match(text, /Do not call agent_comms\.read/)
   }
 })
 

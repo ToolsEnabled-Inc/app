@@ -103,10 +103,24 @@ export function nodeManagerContext({ selfName, parentName = null } = {}) {
        the tree does not connect you to. Saying so here costs one sentence and
        saves an agent from reporting a refusal as a product fault. */
     said.push(`That reaches ${manager} and any agents that report to you, and nobody else. If the tool is not offered to you, this computer's permission level does not allow it — say so rather than trying another route.`)
+    /* HOW A REPLY COMES BACK, stated because a real model reached for the
+       wrong thing without it. Driven on a packaged build: the child sent its
+       question, then called agent_comms.read -- the cross-machine reader,
+       which has no local mode -- to fetch the answer, failed on the relay
+       credential, and told the person the channel was broken. It was not; the
+       reply arrives as the next message in the conversation, and nothing had
+       said so. */
+    said.push(`Replies come to you as new messages in this conversation. Do not call agent_comms.read to look for one — that reads a different, cross-machine channel and will not find it. After you send, finish what you have to say and stop; ${manager}'s reply will arrive on its own.`)
     said.push(`What you say back is also your report: it appears on the tree under your circle, where ${manager} and the person running this tree read it.`)
   } else {
     said.push('No agent manages you. You report to the person running this tree.')
     said.push(`If agents are started under you, you can message them and they can message you: call ${LOCAL_MESSAGE_TOOL} with from "${me}", to their circle's name, and what you want to say.`)
+    /* WHY "STOP" IS PART OF THE INSTRUCTION. A message can only be handed to
+       an agent between turns. A manager told to "wait" sat inside one turn for
+       four minutes with two questions queued behind it, unanswered -- the
+       queue is correct to refuse a mid-turn hand-over, so the model has to
+       come to the end of its turn for anything to reach it. */
+    said.push('Messages from them arrive as new messages in this conversation, and only between your turns. When you have nothing to do, say so briefly and stop; do not wait inside a turn. Do not call agent_comms.read to look for them; that reads a different, cross-machine channel.')
     said.push('What you say back appears on the tree under your circle, where they read it.')
   }
   return `${address}
