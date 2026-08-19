@@ -1521,6 +1521,14 @@ export function computersView({ initialComputer = null, navigate }) {
      it absent forever and behaves exactly as it did before. */
   const sessionOpenTurns = new Map()
 
+  /* SESSIONS WHOSE RUNNING TURN THE PERSON STOPPED, from this window. Both
+     interrupt doors — the palette row and the composer's Stop face — reach
+     one handler, which records the press only after the engine accepted it;
+     the completion that follows consumes the record and says "stopped by
+     you" instead of "the last turn failed". Per turn, never sticky: the next
+     completion answers for itself. */
+  const sessionsInterrupted = new Set()
+
   /* THE QUESTION AN AGENT IS STILL WAITING ON. sessionId -> the approval
      activity, exactly as the event carried it. MEASURED on the shipped 1.0.20:
      a child called agent_comms.send_local, approval_request fired while the
@@ -2261,7 +2269,7 @@ export function computersView({ initialComputer = null, navigate }) {
          failed); 'turn-failed' translates to its 'failed' colour here, while
          the chip word — the words a person reads — comes from
          treeNodeStatusWord via the context feed and stays distinct. */
-      state: running ? 'enabled' : terminal ? (node.status === 'turn-failed' ? 'failed' : node.status) : clock.endedWithApp ? ENDED_SESSION.word : 'not started',
+      state: running ? 'enabled' : terminal ? (node.status === 'turn-failed' ? 'failed' : node.status === 'interrupted' ? 'finished' : node.status) : clock.endedWithApp ? ENDED_SESSION.word : 'not started',
       bornAt: clock.bornAt,
       stoppedAt: clock.stoppedAt,
       tasksDone: null,
@@ -4324,12 +4332,29 @@ export function computersView({ initialComputer = null, navigate }) {
         placeholder.value = ''
         placeholder.textContent = MOVE_PANEL.prompt
         moveSelect.appendChild(placeholder)
+        /* TWO ROWS READING "Manager" ARE A CHOICE NOBODY CAN MAKE. Measured on
+           the flagship walkthrough (2026-08-19): two trees each rooted in a
+           node named Manager put two indistinguishable rows in this picker.
+           The name stays first — it is what the person typed — and the tree's
+           own label is appended ONLY when the bare name appears more than
+           once, so the common case stays clean and the ambiguous one becomes
+           answerable. */
+        const seen = new Map()
+        for (const point of points) {
+          const parent = treeStore.getNode(point.parentId)
+          if (!parent) continue
+          const name = treeNodeName(parent)
+          seen.set(name, (seen.get(name) || 0) + 1)
+        }
         for (const point of points) {
           const parent = treeStore.getNode(point.parentId)
           if (!parent) continue
           const option = document.createElement('option')
           option.value = point.parentId
-          option.textContent = treeNodeName(parent)
+          const name = treeNodeName(parent)
+          option.textContent = seen.get(name) > 1
+            ? `${name} — ${treeStore.treeLabel(parent.treeId)}`
+            : name
           moveSelect.appendChild(option)
         }
         moveSave.addEventListener('click', () => {
@@ -5060,6 +5085,11 @@ export function computersView({ initialComputer = null, navigate }) {
       if (!bridge || typeof bridge.interrupt !== 'function' || !node.sessionId) return
       try {
         await bridge.interrupt({ sessionId: node.sessionId })
+        /* Recorded only once the engine ACCEPTED the interrupt, so the
+           completion that follows can say "stopped by you" instead of "the
+           last turn failed". The missed path below records nothing: there was
+           no running turn, so nothing that completes next was stopped. */
+        sessionsInterrupted.add(node.sessionId)
         out.textContent = PALETTE_PANEL.interruptDone
       } catch {
         /* AGENT_TURN_NONE and its siblings all mean the same observable thing
@@ -6037,14 +6067,21 @@ export function computersView({ initialComputer = null, navigate }) {
       /* 'turn-failed', NEVER 'failed': 'failed' is the start-failure status
          and its chip word is "did not start" — writing it here un-said a start
          the signed spawn record shows (measured 2026-08-18). The note carries
-         the engine's sentence so the rail and tooltip explain the failure. */
-      const outcome = sessionTurnSucceeded(status) ? 'finished' : 'turn-failed'
+         the engine's sentence so the rail and tooltip explain the failure.
+         And a not-successful completion the PERSON asked for — the recorded
+         interrupt, consumed here per turn — is 'interrupted', "stopped by
+         you": calling a deliberate stop a failure was measured 2026-08-19
+         beside a transcript honestly saying "Interrupted." */
+      const userStopped = sessionsInterrupted.delete(sessionId)
+      const outcome = sessionTurnSucceeded(status) ? 'finished' : userStopped ? 'interrupted' : 'turn-failed'
       if (treeStore) {
         /* The reply outlives this view: the store keeps it on the node, and the
            in-memory map above becomes a cache in front of it. */
         treeStore.setNodeReply(nodeId, said)
         treeStore.setNodeStatus(nodeId, outcome, {
-          note: outcome === 'finished' ? '' : statusNote(engineSentence ? TURN_FAILED.reply(engineSentence) : TURN_FAILED.word),
+          note: outcome === 'finished' ? ''
+            : outcome === 'interrupted' ? statusNote('Stopped by you.')
+            : statusNote(engineSentence ? TURN_FAILED.reply(engineSentence) : TURN_FAILED.word),
         })
         refreshTree()
       }

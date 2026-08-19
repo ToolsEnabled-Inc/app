@@ -456,6 +456,14 @@ export const NODE_STATUS_WORDS = Object.freeze({
   finished: 'finished',
   failed: 'did not start',
   'turn-failed': TURN_FAILED.word,
+  /* A deliberate stop is the person's act, not the product's failure. Written
+     only when THIS window initiated the interrupt (both doors — the palette
+     row and the composer's Stop face — reach one handler that records the
+     press); an organic failure in the same instant still reads as one,
+     because the record is consumed per turn. Measured 2026-08-19: without
+     this word, pressing Stop mid-stream painted "the last turn failed" beside
+     a transcript honestly saying "Interrupted." */
+  interrupted: 'stopped by you',
 })
 
 /* THE WORDS ONE COMPLETED TURN LEAVES ON THE NODE, decided in one place.

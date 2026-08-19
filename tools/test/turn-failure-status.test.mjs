@@ -94,8 +94,12 @@ test('a turn-failed node reads as stopped, not as a corpse with a ticking clock'
 test("the completion branch files a failed turn as 'turn-failed' and reads the engine's sentence", () => {
   assert.ok(!VIEW.includes("sessionTurnSucceeded(status) ? 'finished' : 'failed'"),
     "the completion branch still writes 'failed' for a failed TURN — the un-said start is back")
-  assert.match(VIEW, /sessionTurnSucceeded\(status\) \? 'finished' : 'turn-failed'/,
-    "the completion branch does not write 'turn-failed'")
+  /* Extended 2026-08-19: a recorded user interrupt takes precedence over
+     'turn-failed' — a stop the person asked for is not a failure — and only
+     over it: success still wins first, so the order is finished, then
+     stopped-by-you, then failed. */
+  assert.match(VIEW, /sessionTurnSucceeded\(status\) \? 'finished' : userStopped \? 'interrupted' : 'turn-failed'/,
+    "the completion branch does not write 'turn-failed' (with the user's own stop taking precedence)")
   assert.match(VIEW, /turnCompletionWords\(/,
     "the completion branch does not compose its reply through turnCompletionWords, so the engine's sentence cannot reach the card")
 })

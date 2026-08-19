@@ -44,7 +44,7 @@ const BUSY_STATUSES = new Set(['starting', 'running'])
 /* 'turn-failed' is a turn that ended badly on a session that really ran --
    over, exactly as 'finished' is over, so the clock stops rather than ticking
    on the canvas above a failure. See NODE_STATUSES in src/fleet-trees.js. */
-const TERMINAL_STATUSES = new Set(['finished', 'failed', 'turn-failed'])
+const TERMINAL_STATUSES = new Set(['finished', 'failed', 'turn-failed', 'interrupted'])
 
 const holdsSession = node => Boolean(node && typeof node.sessionId === 'string' && node.sessionId)
 

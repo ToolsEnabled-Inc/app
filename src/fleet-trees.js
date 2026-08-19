@@ -126,7 +126,7 @@ export function isTreeStoreLive(computerId) {
    session the signed spawn record shows was the measured 2026-08-18 defect.
    The words live in src/fleet-tree-copy.js NODE_STATUS_WORDS, one entry per
    status here. */
-export const NODE_STATUSES = Object.freeze(['draft', 'starting', 'running', 'finished', 'failed', 'turn-failed'])
+export const NODE_STATUSES = Object.freeze(['draft', 'starting', 'running', 'finished', 'failed', 'turn-failed', 'interrupted'])
 const LIVE_STATUSES = Object.freeze(new Set(['starting', 'running']))
 
 /* Bounds, so that a saved record cannot grow without limit and a damaged one
