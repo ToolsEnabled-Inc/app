@@ -35,7 +35,15 @@ test('the tree reads the stream only through the shared readers', () => {
      without anybody noticing -- the agent page's CORRECTED note is the measured
      case. The tree must use the same two readers, not its own field reads. */
   const source = read('src/views/computers.js')
-  assert.match(source, /import \{ sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent \} from '\.\.\/agent-session-events\.js'/)
+  /* NAMED RATHER THAN SPELLED OUT IN ORDER: the list grows (the turn-filing
+     rule joined it), and pinning the exact line meant an added reader read as
+     a defect. What matters is that every one of them comes from the shared
+     module and that nothing parses the packet here. */
+  const line = source.slice(source.indexOf("} from '../agent-session-events.js'") - 400, source.indexOf("} from '../agent-session-events.js'"))
+  const imported = line.slice(line.lastIndexOf('import {') + 8).split(',').map(name => name.trim())
+  for (const reader of ['sessionActivityEvent', 'sessionEventText', 'sessionEventTurnId', 'sessionTurnStatus', 'sessionTurnSucceeded', 'sessionUsageEvent']) {
+    assert.ok(imported.includes(reader), `${reader} is no longer read through the shared module`)
+  }
   assert.ok(!/packet\.event\.text|packet\.text|packet\.delta/.test(source),
     'computers.js reads raw packet fields instead of the shared readers')
 })

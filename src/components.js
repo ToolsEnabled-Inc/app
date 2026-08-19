@@ -352,7 +352,7 @@ const escapeMarkup = value => String(value ?? '').replace(/[&<>"']/g, character 
                the seeded simulator below structurally unreachable for such a
                caller: `send` is refused before it can reach the fake path,
                so an honest read-only chat can never answer itself. */
-export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null, composerReason = null }) {
+export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed = 3, onClose = null, tall = false, context = null, onSend = null, history = null, onAttach = null, onMention = null, status = null, queue = null, actions = null, actionsNote = null, onStop = null, composerReason = null, onReady = null }) {
   const cannotSend = typeof composerReason === 'string' && composerReason.trim().length > 0
   const role = ROLES[roleKey] || ROLES.coordinator
   const root = el(`
@@ -485,9 +485,9 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     sendButton.disabled = true
     try {
       const said = await onStop()
-      if (!disposed && said) addMsg(roleKey, String(said))
+      if (!disposed && said) addMsg('note', String(said))
     } catch {
-      if (!disposed) addMsg(roleKey, 'Nothing was stopped; the turn may already be over.')
+      if (!disposed) addMsg('note', 'Nothing was stopped; the turn may already be over.')
     }
     sendButton.disabled = false
     stopping = false
@@ -534,26 +534,205 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   emptyNote.textContent = 'Nothing has been said here yet.'
   emptyNote.style.cssText = 'margin:auto;padding:var(--s3) 0;color:var(--ink-25);font-size:12.5px;text-align:center;'
 
+  /* WHO IS SPEAKING, AND WHEN THE LOG SAYS SO.
+   *
+   * THE DEFECT (owner, items 2 and 4: the messages "pile"). Live messages
+   * passed no label at all while restored history passed one for every entry,
+   * so the same conversation carried names on its past and none on its
+   * present, and a person reading it could not tell whose words were whose.
+   * MEASURED on a staged packaged build: hasWho false on the live row, true on
+   * the restored row directly above it.
+   *
+   * So the rule lives HERE rather than at each call site: a label whenever the
+   * speaker changes, whichever path appended the row. A caller may still force
+   * one (pass a name) or forbid one (pass null); `undefined` means "you
+   * decide", which is what every real path now says. */
+  let lastLabelled = null
+  const labelFor = (from) => {
+    if (from === 'me') return 'you'
+    /* The product's own notes are not a speaker, so they are not named. */
+    if (from === 'note') return null
+    return title
+  }
+  /* The two paths that build their own bubble rather than going through
+     addMsg -- the live stream and the simulated reply -- still take the shared
+     rule, so a turn being written and a turn already written are the same
+     bubble with the same label. */
+  const streamLabel = (at) => {
+    const divided = lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP
+    const label = (lastLabelled === 'them' && !divided) ? null : labelFor('them')
+    lastLabelled = 'them'
+    return label
+  }
   const addMsg = (from, text, who, at = Date.now()) => {
     if (emptyNote.parentNode) emptyNote.remove()
-    if (lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP) addTimeDivider(at)
+    const divided = lastTurnAt !== null && at - lastTurnAt > CHAT_CLUSTER_GAP
+    if (divided) addTimeDivider(at)
     lastTurnAt = at
-    const { m } = makeMsg(from, text, who, at)
+    /* A time divider is a fresh start, so the speaker is named again beneath
+       one even when it is the same speaker. */
+    const decided = who === undefined
+      ? ((lastLabelled === from && !divided) ? null : labelFor(from))
+      : who
+    const { m } = makeMsg(from, text, decided, at)
+    lastLabelled = from
     log.appendChild(m)
     log.scrollTop = log.scrollHeight
     return m
   }
+  /* ---- THE SECOND DOOR: WHAT THE AGENT DID, BESIDE WHAT IT SAID. ----
+   *
+   * THE DEFECT THIS CLOSES (owner, item 1, and his biggest ask). The engine
+   * narrates every turn -- tool_call, tool_result, approval_request, each
+   * carrying the command or the path and the name that pairs a result with its
+   * call -- and every one of those packets already reached this window. They
+   * went to a ONE-LINE status string that the next event overwrote, and were
+   * deleted when the turn ended. So a turn that spent five minutes running
+   * commands put ZERO rows in the chat, by construction, and the product looked
+   * hung while it worked.
+   *
+   * openStream is the door for what the agent SAYS; this is the door for what
+   * it DOES, and they append into the SAME log so the two interleave in arrival
+   * order the way an editor interleaves its tool calls with its prose.
+   *
+   * A ROW IS COLLAPSED AND PRESSABLE. `details`/`summary` rather than a button
+   * and a class toggle: the open/closed state, the keyboard, and the screen
+   * reader all come from the element, and nothing here has to reimplement them.
+   *
+   * A RESULT UPDATES ITS CALL'S ROW. The id is the caller's join key (both
+   * engines put one on the event), so a command that finishes repaints the row
+   * it started rather than adding a second one beneath it.
+   *
+   * APPENDS ARE BATCHED PER FRAME, and that is not a micro-optimisation. This
+   * log is pinned to its bottom by a ResizeObserver AND a MutationObserver, both
+   * of which fire on every appended child; a busy turn would re-pin thousands of
+   * times on the main thread. onNextFrame rather than requestAnimationFrame for
+   * the reason src/page-frames.js exists: on a window the machine has covered
+   * there is no next frame, so the callback -- and this whole chat with it --
+   * would be retained for ever.
+   *
+   * THE WORDS ARE THE CALLER'S. This component is used by three pages and must
+   * stay copy-free; the tool names and outcome words live in
+   * src/fleet-tree-copy.js, where the plain-language gate can hold them. */
+  const actionRows = new Map()
+  let pendingActions = []
+  let actionFrame = 0
+
+  const makeAction = (row) => {
+    const wrap = document.createElement('details')
+    wrap.className = 'chat-action'
+    const head = document.createElement('summary')
+    head.className = 'chat-action-head'
+    const tool = document.createElement('span')
+    tool.className = 'chat-action-tool'
+    const detail = document.createElement('span')
+    detail.className = 'chat-action-detail'
+    const state = document.createElement('span')
+    state.className = 'chat-action-state'
+    head.append(tool, detail, state)
+    /* A command and its output are machine text: textContent, never markup. */
+    const body = document.createElement('pre')
+    body.className = 'chat-action-body'
+    wrap.append(head, body)
+    /* THE ROW OPENS ON A PRESS ANYWHERE ON IT, AND THAT IS NOT WHAT `details`
+     * GAVE US FOR FREE.
+     *
+     * MEASURED on a staged packaged build with real mouse events at coordinates
+     * taken from the element's own box: document.elementFromPoint over any part
+     * of a collapsed row -- the heading, the tool name, the command text --
+     * answers the DETAILS element rather than the SUMMARY inside it, and a press
+     * that lands on the details' own area is not a press on the disclosure, so
+     * nothing opened. The row looked pressable and was not.
+     *
+     * So the gesture is owned here instead of inherited: the native toggle is
+     * cancelled and the row is opened by hand, which makes a press anywhere on
+     * the heading work exactly as it looks like it should. `details` is kept for
+     * what it is genuinely good at -- the open/closed state, the keyboard, and
+     * what a screen reader announces.
+     *
+     * A ROW WITH NOTHING TO OPEN DOES NOT OPEN. A conversation restored from an
+     * excerpt the window no longer holds carries the command and not the output
+     * it printed, and expanding onto an empty panel reads as the product having
+     * lost something. */
+    wrap.addEventListener('click', (event) => {
+      /* ON THE ROW, NOT ON ITS HEADING, and the difference is the whole reason
+         the first version of this did nothing. The press lands on the DETAILS
+         element -- that is what elementFromPoint answers over every part of a
+         collapsed row -- so the click's target IS the details and a handler
+         bound to the summary inside it never sees the event. Events travel up,
+         never down. */
+      if (wrap.classList.contains('is-bare')) { event.preventDefault(); return }
+      /* The native toggle is cancelled and redone by hand so that a press on
+         the summary and a press beside it behave identically rather than
+         toggling twice. */
+      event.preventDefault()
+      wrap.open = !wrap.open
+    })
+    wrap.addEventListener('toggle', () => {
+      if (wrap.open && wrap.classList.contains('is-bare')) wrap.open = false
+    })
+    return { wrap, tool, detail, state, body }
+  }
+
+  const paintAction = (row) => {
+    let held = actionRows.get(row.id)
+    if (!held) {
+      if (emptyNote.parentNode) emptyNote.remove()
+      held = makeAction(row)
+      actionRows.set(row.id, held)
+      log.appendChild(held.wrap)
+    }
+    held.wrap.dataset.actionState = String(row.stateKey || '')
+    held.tool.textContent = String(row.tool || '')
+    held.detail.textContent = String(row.detail || '')
+    held.detail.title = String(row.body || row.detail || '')
+    held.state.textContent = String(row.state || '')
+    const body = String(row.body || '')
+    held.body.textContent = body
+    /* Nothing to open is said by the row itself rather than by an empty panel. */
+    held.wrap.classList.toggle('is-bare', body.length === 0)
+  }
+
+  const flushActions = () => {
+    actionFrame = 0
+    if (disposed || pendingActions.length === 0) return
+    const batch = pendingActions
+    pendingActions = []
+    for (const row of batch) paintAction(row)
+    pinToBottom()
+  }
+
+  Object.defineProperty(root, 'addAction', {
+    value: (row) => {
+      if (disposed || !row || typeof row !== 'object' || !row.id) return
+      pendingActions.push(row)
+      if (!actionFrame) actionFrame = onNextFrame(flushActions)
+    },
+  })
+
   /* REAL HISTORY, WHEN THE CALLER HAS ONE. The tree card passes the actual
      conversation (this window's transcript, or the node's stored ask+reply),
      rendered verbatim — the simulated excerpt below never runs for a caller
      that provided real entries, whatever its seed. */
   if (Array.isArray(history) && history.length) {
     for (const entry of history) {
+      /* AN ACTION IS PART OF THE HISTORY TOO, and it is painted by the SAME
+         function the live stream uses -- so a conversation reopened tomorrow
+         shows the commands where they happened, in the same rows, rather than
+         showing only the words and pretending the work was instantaneous. */
+      if (entry && entry.who === 'action') { paintAction(entry); continue }
       if (!entry || typeof entry.text !== 'string' || !entry.text) continue
+      /* The product's own aside inside a restored conversation -- how it came
+         to be shorter than the conversation really was. Same kind, same rule,
+         same look as one spoken live. */
+      if (entry.who === 'note') { addMsg('note', entry.text, undefined, Number.isFinite(entry.at) ? entry.at : Date.now()); continue }
+      /* The label is left to addMsg -- the SAME rule the live path takes, so a
+         restored conversation and the turn that continues it cannot disagree
+         about whose words are whose. */
       addMsg(
         entry.who === 'you' ? 'me' : 'them',
         entry.text,
-        entry.who === 'you' ? 'you' : title,
+        undefined,
         Number.isFinite(entry.at) ? entry.at : Date.now(),
       )
     }
@@ -742,7 +921,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   const startReply = (item) => {
     const fullText = replyTextFor(item.prompt)
     const replyAt = Date.now()
-    const { m, body } = makeMsg('them', '', null, replyAt)
+    const { m, body } = makeMsg('them', '', streamLabel(replyAt), replyAt)
     m.setAttribute('aria-busy', 'true')
     lastTurnAt = replyAt
 
@@ -819,7 +998,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
         input.value = ''
         syncComposer()
       } else {
-        addMsg(roleKey, (queued && queued.sentence) || 'That was not queued. Try it again in a moment.')
+        addMsg('note', (queued && queued.sentence) || 'That was not queued. Try it again in a moment.')
       }
       return
     }
@@ -855,8 +1034,17 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       bumpChatDebug('sentTurns', 1)
       Promise.resolve()
         .then(() => onSend(v, {
-          reply: text => { if (!disposed) addMsg(roleKey, String(text)) },
-          fail: text => { if (!disposed) addMsg(roleKey, String(text)) }
+          /* THE AGENT'S ANSWER PAINTS AS THE AGENT, and until now it painted
+             as its ROLE KEY -- `class="msg helper"`, for which no rule exists
+             in any stylesheet. Measured on a staged packaged build: background
+             rgba(0,0,0,0), border 0px, no shadow, align-self auto (the full
+             width of the log, on neither side) and no sender label, directly
+             beneath a restored `msg them` bubble carrying all of it. One
+             conversation, the same agent, painted two ways.
+             A refusal is NOT the agent speaking, so it keeps a kind of its own
+             rather than being dressed as words the agent said. */
+          reply: text => { if (!disposed) addMsg('them', String(text)) },
+          fail: text => { if (!disposed) addMsg('note', String(text)) }
         }))
         .catch(() => {
           if (disposed) return
@@ -868,7 +1056,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
              is the one thing src/refusal-copy.js exists to prevent, by the one
              route its scan cannot see. A sender that means to explain a refusal
              says so through `fail`, where the sentence is written. */
-          addMsg(roleKey, 'That did not send, and this screen was not told why. Try once more; if it keeps happening, reload the page.')
+          addMsg('note', 'That did not send, and this screen was not told why. Try once more; if it keeps happening, reload the page.')
         })
       return
     }
@@ -924,6 +1112,10 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     contentObserver.disconnect()
     cancelAnimationFrame(firstPinFrame)
     cancelAnimationFrame(settledPinFrame)
+    /* A batch waiting on a frame outlives the log it would draw into. */
+    if (actionFrame) { cancelAnimationFrame(actionFrame); actionFrame = 0 }
+    pendingActions = []
+    actionRows.clear()
     document.fonts?.removeEventListener?.('loadingdone', onFontsLoaded)
     sendButton.removeEventListener('click', send)
     input.removeEventListener('keydown', onInputKeydown)
@@ -941,6 +1133,17 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   unregisterLifecycle = registerChatLifecycle({ root, dispose, seenConnected: false, morphHost: null })
   Object.defineProperty(root, 'dispose', { value: dispose })
 
+  /* WHO TO TELL WHEN SOMETHING HAPPENS IN THIS CONVERSATION. A caller that
+     streams a live turn into a chat has to be able to find that chat again --
+     and the two surfaces this product mounts (the rail's Chat tab and the
+     compact card on the canvas) are built from ONE shared config, spread by
+     both, so a hand-off written on either mount would have to be written twice
+     and would drift. It goes on the config instead, and both get it for free.
+     A caller that throws here is a caller defect and must not cost the chat. */
+  if (typeof onReady === 'function') {
+    try { onReady(root) } catch { /* a broken handler never costs the chat */ }
+  }
+
   /* A LIVE TURN, STREAMED INTO THE LOG BY THE CALLER. The simulated
      word-stream above answers PROMPTS this component invented; openStream is
      the real thing's door: the caller opens one bubble when the engine starts
@@ -951,7 +1154,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
      caller's contract, same as cardReplies being single-slot per session. */
   Object.defineProperty(root, 'openStream', {
     value: ({ at = Date.now() } = {}) => {
-      const { m, body } = makeMsg('them', '', null, at)
+      const { m, body } = makeMsg('them', '', streamLabel(at), at)
       m.setAttribute('aria-busy', 'true')
       lastTurnAt = at
       log.appendChild(m)

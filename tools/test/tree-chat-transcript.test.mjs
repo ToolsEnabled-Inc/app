@@ -130,8 +130,12 @@ test('a delta naming a new turn settles the old one before it adds a word', () =
 })
 
 test('a completed turn clears the open-turn mark, so the next delta opens a fresh bubble', () => {
+  /* SLICED BY STRUCTURE, NOT BY BYTE COUNT: a note added above the needle used
+     to push it out of a fixed 900-character window, and the test then reported
+     a live behaviour as missing. */
   const completion = view.slice(view.indexOf('const status = sessionTurnStatus(packet, sessionId)'))
-  assert.match(completion.slice(0, 900), /sessionOpenTurns\.delete\(sessionId\)/, 'the open-turn mark outlives the turn')
+  const branch = completion.slice(0, completion.indexOf('nodeActivity.delete(nodeId)'))
+  assert.match(branch, /sessionOpenTurns\.delete\(sessionId\)/, 'the open-turn mark outlives the turn')
 })
 
 /* ---------------------------------------------------------------

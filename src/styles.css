@@ -1333,6 +1333,78 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   background: linear-gradient(160deg, var(--bub-me-1), var(--bub-me-2));
   box-shadow: 0 6px 18px -8px rgba(var(--shadow-rgb), calc(0.5 * var(--shadow-k)));
 }
+.msg.note {
+  /* THE PRODUCT'S OWN VOICE, and it needed a rule of its own before it could
+     have a class of its own. Refusals, queue notices and "nothing was stopped"
+     used to be appended with the ROLE KEY as their class -- `msg helper`, for
+     which nothing anywhere had a rule -- so they painted as bare text across
+     the whole width of the log, beside real bubbles. They are not the agent
+     speaking and must not be dressed as it, so they read as an aside: centred,
+     quieter, no tail, no name. */
+  align-self: center;
+  max-width: 94%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.34 * var(--wa)));
+  border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
+  box-shadow: none;
+}
+/* ---- WHAT THE AGENT DID, IN THE SAME LOG AS WHAT IT SAID ----
+   One collapsed line per action, opened by a press. It is deliberately NOT a
+   bubble: a bubble means somebody spoke, and nobody spoke here. It reads as a
+   quiet rail down the log between the things that were said, which is the
+   shape an editor uses for the same information. */
+.chat-action {
+  align-self: stretch;
+  max-width: 100%;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
+  border-left: 2px solid var(--ink-25);
+  background: rgba(255,255,255,calc(0.4 * var(--wa)));
+  font-size: 12px;
+  overflow: hidden;
+}
+.chat-action-head {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: 5px var(--s2);
+  cursor: pointer;
+  list-style: none;
+  /* min-width:0 on the flex parent as well, or the detail cannot shrink below
+     its longest word and the state word is pushed out of the row. */
+  min-width: 0;
+}
+.chat-action-head::-webkit-details-marker { display: none; }
+.chat-action.is-bare .chat-action-head { cursor: default; }
+.chat-action-tool {
+  flex: none;
+  font-size: 10.5px; letter-spacing: var(--track-caps); text-transform: uppercase;
+  font-weight: 640; color: var(--ink-25);
+}
+.chat-action-detail {
+  /* The command or the path, on ONE line: a build script can be thousands of
+     characters and this row is a summary, not the output. The whole of it is
+     one press away, in the body below. */
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--ink-2);
+}
+.chat-action-state { flex: none; font-size: 11px; color: var(--ink-25); }
+.chat-action[data-action-state="undone"] { border-left-color: var(--bad, #d2544b); }
+.chat-action[data-action-state="waiting"] { border-left-color: var(--warn, #d69a2c); }
+.chat-action[data-action-state="working"] { border-left-color: var(--ok, #35eab7); }
+.chat-action-body {
+  margin: 0;
+  padding: 0 var(--s2) var(--s2);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px; line-height: 1.4;
+  color: var(--ink-25);
+}
+.chat-action.is-bare .chat-action-body { display: none; }
 .msg .who { display: block; font-size: 11px; letter-spacing: var(--track-caps); text-transform: uppercase; font-weight: 640; color: var(--ink-25); margin-bottom: var(--s1); }
 /* NOT scaled by --wa. --wa is the multiplier for white glass laid over the
    page sheet; this label sits on the own-message bubble, which is dark on
@@ -1455,6 +1527,16 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   flex-direction: column;
   gap: 4px;
 }
+/* `[hidden] { display: none }` IS THE USER AGENT'S RULE, AND THE ONE ABOVE
+   BEATS IT. buildChat hides this strip with `queueStrip.hidden = ...` whenever
+   nothing is queued, and an author `display` on the same element outranks the
+   user agent, so the element stayed in the layout and in the tab order while
+   the code believed it was gone -- carrying its own top margin under every
+   composer that has a queue. Named rather than a sheet-wide
+   `[hidden]{display:none !important}`, which is the convention src/subscribe.css
+   already set here and its note explains: a blanket !important is a rule the
+   next author cannot opt out of. */
+.chat-queue-strip[hidden] { display: none; }
 .chat-queue-row {
   display: flex;
   align-items: center;

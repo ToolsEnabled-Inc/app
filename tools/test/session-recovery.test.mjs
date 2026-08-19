@@ -50,14 +50,26 @@ test('the unknown-session rejection hands the send to the recovery, and only tha
 })
 
 test('the phantom you-line strips from BOTH copies before the resume reads them', () => {
-  const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function recoverDeadSessionSend') + 3600)
-  const windowStrip = recovery.indexOf('held.pop()')
-  const durableStrip = recovery.indexOf('transcriptStore.save(node.id, { lines: trimmed')
-  const resumeAt = recovery.indexOf('await resumeNodeSession(node, {')
-  assert.ok(windowStrip !== -1, 'the window transcript keeps the phantom you-line; the words ride twice')
-  assert.ok(durableStrip !== -1, 'the durable record keeps the phantom you-line; the seed reads it and the queue re-sends it')
-  assert.ok(resumeAt > windowStrip && resumeAt > durableStrip,
+  /* THE STRIP MOVED, AND THE RULE DID NOT. It used to live inside
+     recoverDeadSessionSend, BELOW that function's three early returns (the
+     start-control switch, the quarter-minute limiter, the already-recovering
+     guard), so a refused or rate-limited recovery left the line standing --
+     a phantom YOU bubble as the only thing a panel drew. It now runs in the
+     rejection branch that dispatches the recovery, which is above all three
+     and still before the resume reads the record. Both copies, same order. */
+  const strip = view.slice(view.indexOf('function stripPhantomYouLine'))
+  const body = strip.slice(0, strip.indexOf('async function recoverDeadSessionSend'))
+  assert.ok(body.indexOf('held.pop()') !== -1, 'the window transcript keeps the phantom you-line; the words ride twice')
+  assert.ok(body.indexOf('transcriptStore.save(node.id, { lines: trimmed') !== -1,
+    'the durable record keeps the phantom you-line; the seed reads it and the queue re-sends it')
+  const send = view.slice(view.indexOf('function treeCardSend'), view.indexOf('function stripPhantomYouLine'))
+  const branch = send.slice(send.indexOf("refusalCode(error) === 'MC_AGENT_UNKNOWN_SESSION'"))
+  assert.ok(branch.indexOf('stripPhantomYouLine(') !== -1, 'the refused send hands to the recovery without taking its line back')
+  assert.ok(branch.indexOf('stripPhantomYouLine(') < branch.indexOf('recoverDeadSessionSend('),
     'the resume runs before the strip — it seeds the phantom line into the fresh agent')
+  const recovery = view.slice(view.indexOf('async function recoverDeadSessionSend'), view.indexOf('async function drainOutboxMessage'))
+  assert.ok(recovery.indexOf('held.pop()') === -1,
+    'the recovery strips a second time; typing the same words twice would then take a real line')
 })
 
 test('a recovered message goes straight to a resumed agent, and queues only behind a summary', () => {

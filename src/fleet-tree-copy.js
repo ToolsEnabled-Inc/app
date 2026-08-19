@@ -699,6 +699,71 @@ export const MODEL_PANEL = Object.freeze({
    the person's own machine doing something, so the command TEXT rides in the
    line as data, bounded so a long script cannot swallow the rail. */
 const ACTIVITY_COMMAND_MAX = 120
+
+/* THE SAME NARRATION, AS A ROW RATHER THAN A LINE.
+ *
+ * activityLine above answers "what is it doing right now" and is overwritten by
+ * the next event. A chat row is the opposite: it stays, it is one of many, and
+ * it has to keep reading correctly hours later. So it is three short pieces
+ * rather than a sentence -- the tool's own name, the thing it was pointed at,
+ * and what became of it.
+ *
+ * THE TOOL NAMES ARE THE ENGINES' OWN and are not shown raw. codex says
+ * `commandExecution`; the Claude CLI says `Bash`. Neither is a word a person
+ * asked for, so each known one has a plain name here and an unknown one falls
+ * back to a word that is true of all of them. */
+const ACTION_TOOL_WORDS = Object.freeze({
+  commandExecution: 'Command',
+  fileChange: 'Edit',
+  mcpToolCall: 'Tool',
+  dynamicToolCall: 'Tool',
+  Bash: 'Command',
+  Read: 'Read',
+  Edit: 'Edit',
+  Write: 'Write',
+  Glob: 'Search',
+  Grep: 'Search',
+  WebFetch: 'Web',
+  WebSearch: 'Web',
+  Task: 'Helper',
+  command: 'Command',
+})
+
+const ACTION_STATE_WORDS = Object.freeze({
+  working: 'running',
+  done: 'finished',
+  /* "did not finish" rather than a failure word: this is a row label, and a
+     bare failure word with no way forward is the dead end the words gate is
+     there to catch. The command and its output are one press away, which is
+     where a person can actually see what happened. */
+  undone: 'did not finish',
+  waiting: 'waiting for you',
+})
+
+export function actionRowWords(row) {
+  if (!row || typeof row !== 'object') return { tool: 'Step', detail: '', state: '' }
+  const tool = ACTION_TOOL_WORDS[row.tool] || (row.kind === 'approval' ? 'Approval' : 'Step')
+  const detail = typeof row.detail === 'string' ? row.detail : ''
+  return {
+    tool,
+    detail: detail.length > ACTIVITY_COMMAND_MAX ? `${detail.slice(0, ACTIVITY_COMMAND_MAX)}…` : detail,
+    state: ACTION_STATE_WORDS[row.state] || ACTION_STATE_WORDS.done,
+  }
+}
+
+/* THE RECORD ADMITS WHAT IT COULD NOT KEEP. A saved conversation is an
+   excerpt with bounds, and when those bounds really bite the shortened version
+   must not be shown as if it were the whole thing. */
+export const TRANSCRIPT_TRIMMED_NOTE = 'Some older messages were left out so the newest ones would fit.'
+
+/* WHAT THE CAP TOOK, SAID OUT LOUD. A per-turn cap a person cannot see is a
+   cap that lies about how much the agent did. */
+export function foldedActionsLine(count) {
+  const many = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+  if (many === 0) return ''
+  return many === 1 ? 'and 1 more step' : `and ${many} more steps`
+}
+
 export function activityLine(activity) {
   if (!activity || typeof activity !== 'object') return ''
   if (activity.kind === 'call') {

@@ -71,7 +71,10 @@ import {
   TIER_CHOICES,
   startableTierIds,
   tierChoicesFor,
+  actionRowWords,
   activityLine,
+  foldedActionsLine,
+  TRANSCRIPT_TRIMMED_NOTE,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
@@ -93,7 +96,7 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
 /* The readers that decide what a session event is allowed to put on a screen.
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
-import { sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
+import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
 import { parseSlashCommand } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
@@ -1478,6 +1481,20 @@ export function computersView({ initialComputer = null, navigate }) {
      day point at "the message where I said …". */
   const TRANSCRIPT_MAX_ENTRIES = 60
   const sessionTranscripts = new Map()
+  /* WHAT THE AGENT DID, kept beside what it said and for the same reason: a
+     chat opened halfway through a turn must already show the work taken so
+     far, and a chat that was never open must show it afterwards. One bounded
+     buffer per session -- the caps live in createActionBuffer, and both of
+     them are the kind a person can see. */
+  const sessionActions = new Map()
+  /* EVERY CHAT MOUNTED OVER THIS SESSION. The product mounts two surfaces from
+     one config (the rail's Chat tab and the compact card on the canvas), and an
+     action that reached only one of them would be exactly the drift the shared
+     config exists to prevent. Roots are added by the config's onReady and
+     dropped again the moment they leave the document -- a chat that has been
+     closed must never be written to, and holding one is how a retired view is
+     retained. */
+  const chatSurfaces = new Map()
   const sessionTurnLog = new Map()
   /* What the engine says the session has used, latest reading per session —
      the usage events crossed the wire from day one and were dropped here. */
@@ -1513,6 +1530,8 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!open || open === turnId) return
     const spoken = (sessionTurnText.get(sessionId) || '').trim()
     sessionTurnText.delete(sessionId)
+    /* The work before the words, because that is the order it happened in. */
+    recordTurnActions(sessionId)
     if (spoken) {
       const nodeId = sessionNodeIds.get(sessionId)
       if (nodeId) nodeReplies.set(nodeId, spoken)
@@ -1525,13 +1544,178 @@ export function computersView({ initialComputer = null, navigate }) {
     }
   }
 
-  function transcriptAppend(sessionId, entry) {
+  function transcriptAppend(sessionId, entry, { persist = true } = {}) {
     if (!sessionId) return
+    /* WINDOW MEMORY AND THE DURABLE RECORD ARE ONE HISTORY, AND UNTIL NOW THEY
+     * WERE TWO.
+     *
+     * THE DEFECT, measured 2026-08-18. treeChatConfigFor reads the record only
+     * `if (!history.length)` and deliberately never seeds this map -- reading
+     * is reading. But nothing seeded it on the WRITE side either, so the FIRST
+     * line appended for a session this window had not held became the whole of
+     * `history`, and a five-line saved record was shadowed for the life of the
+     * view. That is the owner's screenshot: a panel showing one YOU bubble over
+     * a conversation that really happened.
+     *
+     * So the seed happens HERE, once, before the first append -- which is
+     * exactly the moment the map stops being empty and starts standing in for
+     * the record. `has`, not `get().length`: a session deliberately set to an
+     * empty history (a plain start) has already been decided about, and
+     * re-seeding it would resurrect a conversation somebody chose to leave. */
+    if (!sessionTranscripts.has(sessionId)) {
+      const seedNodeId = sessionNodeIds.get(sessionId)
+      const saved = seedNodeId && transcriptStore ? transcriptStore.get(seedNodeId) : null
+      sessionTranscripts.set(sessionId, saved && Array.isArray(saved.lines) ? saved.lines.slice() : [])
+    }
     const held = sessionTranscripts.get(sessionId) || []
     held.push(entry)
     if (held.length > TRANSCRIPT_MAX_ENTRIES) held.splice(0, held.length - TRANSCRIPT_MAX_ENTRIES)
     sessionTranscripts.set(sessionId, held)
+    /* A batch of appends persists ONCE, at its end. Writing the whole record to
+       storage per line was fine at one line per turn and is not fine now that a
+       turn can also file the dozen things the agent did. */
+    if (persist) persistTranscript(sessionId)
+  }
+
+  /* ---- WHAT THE AGENT DID: BUFFER, SURFACES, RECORD ----
+   *
+   * THE DEFECT (owner, item 1). The engine narrates every turn -- tool_call,
+   * tool_result, approval_request, each with the command or the path, the exit
+   * code, and the name that pairs a result with its call -- and every one of
+   * those packets already reached this view. The activity branch below turned
+   * them into ONE overwritten status line and a chip, and deleted that on
+   * completion. Nothing reached the chat, the record, or any list. A turn that
+   * spent five minutes running commands put zero rows in front of a person.
+   *
+   * These three functions are the missing half, and they are deliberately the
+   * same shape the words already have: buffer it, tell both open surfaces, and
+   * record it with the conversation. */
+  function actionBufferFor(sessionId) {
+    let buffer = sessionActions.get(sessionId)
+    if (!buffer) {
+      buffer = createActionBuffer()
+      sessionActions.set(sessionId, buffer)
+    }
+    return buffer
+  }
+
+  /* One buffered row, in the shape a chat log draws: words for the tool and
+     the outcome (from the copy module, where the plain-language gate holds
+     them), the one-line detail, and the whole command plus its captured output
+     for when the row is opened. */
+  function actionChatRow(row) {
+    const words = actionRowWords(row)
+    return {
+      id: `action:${row.id}`,
+      tool: words.tool,
+      detail: words.detail,
+      state: words.state,
+      stateKey: row.state,
+      body: [row.detail, row.output].filter(Boolean).join('\n\n'),
+      at: row.at,
+    }
+  }
+
+  function registerChatSurface(sessionId, root) {
+    if (!sessionId || !root) return
+    const held = chatSurfaces.get(sessionId) || new Set()
+    held.add(root)
+    chatSurfaces.set(sessionId, held)
+  }
+
+  /* TELL EVERY CHAT THAT IS STILL ON SCREEN, and forget the ones that are not.
+     `isConnected` is the test rather than a close callback: a card collapses,
+     a rail rebuilds and a view is destroyed by three different mechanisms, and
+     a set that only ever grows would hold a detached chat -- and the whole tree
+     behind it -- for the life of the page. */
+  function broadcastAction(sessionId, chatRow) {
+    const held = chatSurfaces.get(sessionId)
+    if (!held) return
+    for (const root of [...held]) {
+      if (!root.isConnected) { held.delete(root); continue }
+      try { root.addAction?.(chatRow) } catch { /* one broken surface must not starve the rest */ }
+    }
+    if (held.size === 0) chatSurfaces.delete(sessionId)
+  }
+
+  /* THE RECORD, WRITTEN ONCE PER TURN RATHER THAN ONCE PER EVENT. A busy turn
+     emits thousands of tool events and each one used to be a whole-record write
+     away from the durable store; the newest handful are filed when the turn
+     ends, which is the same moment the agent's words are filed. Rows already
+     written are marked, so a second turn never re-files the first turn's work
+     out of order. */
+  function recordTurnActions(sessionId) {
+    const buffer = sessionActions.get(sessionId)
+    if (!buffer) return
+    const fresh = buffer.list().filter(row => !row.recorded)
+    if (fresh.length === 0) return
+    for (const row of fresh) row.recorded = true
+    for (const row of fresh.slice(-TRANSCRIPT_LIMITS.maxActionLines)) {
+      const words = actionRowWords(row)
+      /* THE TOOL'S NAME IN ITS OWN SLOT, not folded into the text. Joined into
+         one string, a restored row painted with an EMPTY tool chip and the
+         whole sentence in the detail -- the same row, two different looks,
+         which is the defect items 2 and 4 describe reappearing on the
+         restore path. Measured on a staged build before this line changed:
+         live rows read Command / "npm test", restored rows read "" /
+         "Command npm test". */
+      transcriptAppend(sessionId, {
+        who: 'action',
+        text: words.detail || words.tool,
+        tool: words.tool,
+        at: row.at,
+        state: row.state,
+      }, { persist: false })
+    }
     persistTranscript(sessionId)
+  }
+
+  /* One action line as the record kept it, back in the shape a chat draws. */
+  function savedActionRow(entry, index) {
+    return {
+      who: 'action',
+      id: `saved:${index}:${entry.at || 0}`,
+      tool: typeof entry.tool === 'string' ? entry.tool : '',
+      detail: typeof entry.text === 'string' ? entry.text : '',
+      state: actionRowWords(entry).state,
+      stateKey: typeof entry.state === 'string' ? entry.state : '',
+      body: '',
+      at: entry.at,
+    }
+  }
+
+  /* THE CONVERSATION AND THE WORK, IN ONE LIST, IN THE ORDER THEY HAPPENED.
+   *
+   * A chat opened mid-turn has to show both halves: the record's own lines
+   * (what was said, and the actions of turns that have finished) and the
+   * actions of the turn still running, which have not been filed yet.
+   *
+   * THEY ARE NOT SORTED, AND THAT IS THE POINT. The record's order IS the
+   * order things happened -- it was appended one line at a time -- and a sort
+   * would need a timestamp on every line, which the brief-and-latest-reply
+   * fallback does not have. What is still in flight is by definition the
+   * newest, so it goes on the end. The two halves cannot double up either:
+   * a buffered row is marked the moment it is filed, and only unfiled rows
+   * are added here. */
+  function mergeActionsIntoHistory(history, sessionId) {
+    const buffer = sessionActions.get(sessionId)
+    const held = buffer ? buffer.list() : []
+    /* WHILE THIS WINDOW IS OPEN, THE RICHER COPY WINS. The saved record keeps
+       the command and not the output it printed -- it is an excerpt, and an
+       archive of every command's output is not what belongs in a person's
+       settings file. But the buffer still holds that output for as long as the
+       window lives, so a row reopened five minutes later can still be opened
+       onto what the command said. Joined on the moment the row was opened,
+       which is what the record carries. */
+    const byMoment = new Map(held.map(row => [row.at, row]))
+    const drawn = (Array.isArray(history) ? history : []).map((entry, index) => {
+      if (!entry || entry.who !== 'action') return entry
+      const richer = byMoment.get(entry.at)
+      return richer ? { who: 'action', ...actionChatRow(richer) } : savedActionRow(entry, index)
+    })
+    const pending = held.filter(row => !row.recorded)
+    if (pending.length === 0) return drawn
+    return [...drawn, ...pending.map(row => ({ who: 'action', ...actionChatRow(row) }))]
   }
 
   /* THE DURABLE HALF. Every append lands the bounded excerpt on disk under
@@ -1545,10 +1729,20 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!nodeId) return
     const lines = sessionTranscripts.get(sessionId) || []
     if (lines.length === 0) return
+    /* A SAVE MUST NOT NULL WHAT IT DOES NOT KNOW.
+     *
+     * transcriptStore.save REPLACES a node's record whole -- it has never
+     * merged. Both fields below are read from WINDOW memory, and a window that
+     * never opened this session holds neither, so a save from such a window
+     * wrote null over the engine thread name that makes a real Resume possible
+     * and over the reasoning depth the node was started at. The record is
+     * therefore read first and its answers kept wherever this window has none;
+     * a window that DOES know still wins, because it is the live fact. */
+    const kept = transcriptStore.get(nodeId)
     transcriptStore.save(nodeId, {
       lines,
-      threadId: sessionThreadIds.get(sessionId) || null,
-      effort: sessionEfforts.get(sessionId) || null,
+      threadId: sessionThreadIds.get(sessionId) || kept?.threadId || null,
+      effort: sessionEfforts.get(sessionId) || kept?.effort || null,
     })
   }
 
@@ -1763,6 +1957,13 @@ export function computersView({ initialComputer = null, navigate }) {
       const kept = nodeReplies.get(node.id) || node.reply
       if (kept) history.push({ who: 'agent', text: kept, at: null })
     }
+    /* A RECORD THAT LOST LINES SAYS SO, in the conversation, where the gap is.
+       A shortened excerpt shown as if it were the whole conversation is the
+       kind of quiet loss this whole area is being cured of. */
+    const savedRecord = transcriptStore ? transcriptStore.get(node.id) : null
+    if (savedRecord && savedRecord.trimmed > 0 && history.length) {
+      history = [{ who: 'note', text: TRANSCRIPT_TRIMMED_NOTE, at: null }, ...history]
+    }
     return {
       title: treeNodeName(node),
       /* A SESSION ID IS NOT A LIVE SESSION. This header said "live session"
@@ -1770,7 +1971,15 @@ export function computersView({ initialComputer = null, navigate }) {
          which is the sentence a person believed while typing into it. */
       subtitle: nodeSessionLive(node) ? 'your agent · live session' : ENDED_SESSION.subtitle,
       roleKey: node.role,
-      history,
+      /* THE WORK, MERGED INTO THE WORDS. A chat opened halfway through a turn
+         has to show the commands already run, or a person watching a five-
+         minute turn sees an empty log and concludes the product is hung -- the
+         exact reading the owner reported. */
+      history: mergeActionsIntoHistory(history, node.sessionId),
+      /* BOTH SURFACES REGISTER THEMSELVES THROUGH THE SHARED CONFIG. The rail's
+         Chat tab and the compact card each spread this object, so neither can
+         be the one that forgot to. */
+      onReady: root => registerChatSurface(node.sessionId, root),
       /* See the note on the other return: seed 0 on the CONFIG, so neither
          surface can fall through to the demonstration excerpt. */
       seed: 0,
@@ -1928,6 +2137,14 @@ export function computersView({ initialComputer = null, navigate }) {
         transcriptStore = createTranscriptStore({
           computerId,
           storage: safeTreeStorage(typeof window === 'undefined' ? null : window.localStorage),
+          /* A SAVE THAT LOSES ANYTHING SAYS SO. The store used to delete a
+             whole node's conversation to fit another node's save and return
+             true; it now gives up the oldest LINES instead, but "quieter" is
+             not "silent" -- on a research machine a lost transcript is lost
+             work, and a person is owed the sentence at the moment it happens.
+             The record itself also carries the count, so the chat that opens
+             it repeats the admission where the gap is. */
+          onLoss: () => setOrgStatus(TRANSCRIPT_TRIMMED_NOTE, 'warn'),
         })
       } catch { transcriptStore = null }
       /* THE REPLIES COME BACK; THE SESSIONS DO NOT.
@@ -4500,6 +4717,15 @@ export function computersView({ initialComputer = null, navigate }) {
       sessionTranscripts.set(result.sessionId, engineResumed
         ? savedLines
         : [...savedLines, { who: 'you', text: RESUME_PANEL.marker, at: Date.now() }])
+    } else {
+      /* THE THIRD BRANCH -- a plain start, with no engine thread to restore and
+         nothing saved to seed from -- set NOTHING, and every later reader had
+         to guess what that absence meant. It means this conversation begins
+         empty, which is a decision, so it is recorded as one: transcriptAppend
+         seeds an unheld session from the durable record, and a session left
+         absent here would have been re-seeded from a record this start already
+         chose not to use. */
+      sessionTranscripts.set(result.sessionId, [])
     }
     nodeActivity.delete(node.id)
     if (treeStore) {
@@ -5274,11 +5500,64 @@ export function computersView({ initialComputer = null, navigate }) {
          conversation and the typed words wait in the queue, visibly. Every
          other refusal keeps its sentence. */
       if (refusalCode(error) === 'MC_AGENT_UNKNOWN_SESSION') {
+        /* THE STRIP HAPPENS HERE, NOT INSIDE THE RECOVERY, AND THE PLACE IS
+         * THE WHOLE FIX. The line above appended a "you" bubble BEFORE the
+         * send; this send was refused, so that bubble is a phantom -- words on
+         * screen and in the saved record that never reached an agent. The
+         * strip used to live inside recoverDeadSessionSend, BELOW its three
+         * early returns (the start-control switch, the one-per-quarter-minute
+         * limiter, the already-recovering guard), so every refused or
+         * rate-limited recovery left the orphan standing. Paired with a window
+         * memory that had shadowed the durable record, the orphan was then the
+         * ONLY thing the panel drew -- the owner's screenshot, a chat showing
+         * one YOU bubble and nothing else.
+         *
+         * A refusal is a refusal whichever way the recovery goes, so the line
+         * comes out on all of them, before the recovery is dispatched and so
+         * before the resume reads the record it seeds a fresh agent from. */
+        stripPhantomYouLine(node, node.sessionId, text)
         void recoverDeadSessionSend(node, text, { reply, fail })
         return
       }
       fail(startRefusalSentence({ ok: false, code: refusalCode(error) }))
     })
+  }
+
+  /* TAKE BACK THE LINE THE SEND PUT THERE, from both copies -- the window
+     transcript and the durable record. Called once per refused send, from the
+     rejection branch above. */
+  function stripPhantomYouLine(node, deadSessionId, text) {
+    const held = sessionTranscripts.get(deadSessionId) || []
+    const last = held[held.length - 1]
+    if (last && last.who === 'you' && last.text === text) {
+      held.pop()
+      sessionTranscripts.set(deadSessionId, held)
+    }
+    const durable = transcriptStore ? transcriptStore.get(node.id) : null
+    if (!durable || !Array.isArray(durable.lines)) return
+    const tail = durable.lines[durable.lines.length - 1]
+    /* THE SAME LINE, NOT MERELY A LINE THIS ONE STARTS WITH.
+     *
+     * This compared the stored tail against a PREFIX of the newly typed text,
+     * and the durable store is the only reason a prefix was ever involved: it
+     * truncates a line at maxLineChars, so the words that were saved can
+     * legitimately be the first 600 characters of what was typed. But
+     * `text.slice(0, tail.text.length)` matches ANY shorter earlier line that
+     * happens to start the same way -- type "ok" after a turn that began
+     * "okay, next" and the branch below deleted the node's whole saved
+     * conversation. So the prefix is admitted only where it is explained: a
+     * tail of exactly the cap, over text longer than the cap. */
+    const wasTruncated = tail
+      && tail.text.length === TRANSCRIPT_LIMITS.maxLineChars
+      && text.length > TRANSCRIPT_LIMITS.maxLineChars
+      && tail.text === text.slice(0, TRANSCRIPT_LIMITS.maxLineChars)
+    if (!tail || tail.who !== 'you' || !(tail.text === text || wasTruncated)) return
+    const trimmed = durable.lines.slice(0, -1)
+    if (trimmed.length > 0) {
+      transcriptStore.save(node.id, { lines: trimmed, threadId: durable.threadId, effort: durable.effort })
+    } else {
+      transcriptStore.remove(node.id)
+    }
   }
 
   /* THE RECOVERY: reached exactly once per dead session per send, from the
@@ -5316,41 +5595,11 @@ export function computersView({ initialComputer = null, navigate }) {
     recoveringNodes.add(node.id)
     recentRecoveries.set(node.id, Date.now())
     try {
-      const deadSessionId = node.sessionId
-      /* Strip the phantom you-line from both copies. */
-      const held = sessionTranscripts.get(deadSessionId) || []
-      const last = held[held.length - 1]
-      if (last && last.who === 'you' && last.text === text) {
-        held.pop()
-        sessionTranscripts.set(deadSessionId, held)
-      }
-      const durable = transcriptStore ? transcriptStore.get(node.id) : null
-      if (durable && Array.isArray(durable.lines)) {
-        const tail = durable.lines[durable.lines.length - 1]
-        /* THE SAME LINE, NOT MERELY A LINE THIS ONE STARTS WITH.
-         *
-         * This compared the stored tail against a PREFIX of the newly typed
-         * text, and the durable store is the only reason a prefix was ever
-         * involved: it truncates a line at maxLineChars, so the words that
-         * were saved can legitimately be the first 600 characters of what was
-         * typed. But `text.slice(0, tail.text.length)` matches ANY shorter
-         * earlier line that happens to start the same way -- type "ok" after a
-         * turn that began "okay, next" and the branch below deleted the node's
-         * whole saved conversation. So the prefix is admitted only where it is
-         * explained: a tail of exactly the cap, over text longer than the cap. */
-        const wasTruncated = tail
-          && tail.text.length === TRANSCRIPT_LIMITS.maxLineChars
-          && text.length > TRANSCRIPT_LIMITS.maxLineChars
-          && tail.text === text.slice(0, TRANSCRIPT_LIMITS.maxLineChars)
-        if (tail && tail.who === 'you' && (tail.text === text || wasTruncated) && durable.lines.length > 0) {
-          const trimmed = durable.lines.slice(0, -1)
-          if (trimmed.length > 0) {
-            transcriptStore.save(node.id, { lines: trimmed, threadId: durable.threadId, effort: durable.effort })
-          } else {
-            transcriptStore.remove(node.id)
-          }
-        }
-      }
+      /* The phantom you-line is ALREADY GONE: the rejection branch that
+         dispatched this recovery strips it, above its own early returns, so
+         that a refused or rate-limited recovery leaves nothing orphaned
+         either. Doing it again here would take a legitimate line the moment
+         somebody typed the same words twice. */
       const seeded = Boolean(transcriptStore && transcriptStore.has(node.id))
       reply(seeded ? RECOVERED_SESSION.reconnecting : RECOVERED_SESSION.bare)
       const ok = await resumeNodeSession(node, { deliverQueued: false })
@@ -5498,6 +5747,30 @@ export function computersView({ initialComputer = null, navigate }) {
             renderApprovalCard(sessionId, activity)
           }
         }
+        /* THE ACTION GOES INTO THE CONVERSATION, and everything this branch
+           already did still happens below. The one-line Details string, the
+           canvas chip and the approval card were never wrong -- they were
+           simply all there was, and each one is overwritten by the next event.
+           A row in the chat log is the part that STAYS.
+           The turn is named so a busy turn's rows fold under their own count
+           rather than under the whole session's. */
+        const openTurn = sessionOpenTurns.get(sessionId) || null
+        const filed = actionBufferFor(sessionId).add(activity, { turnId: openTurn, at: Date.now() })
+        if (filed.row) {
+          broadcastAction(sessionId, actionChatRow(filed.row))
+        } else if (filed.change === 'folded') {
+          /* THE CAP SAYS SO OUT LOUD. One row, repainted with its own count,
+             rather than two hundred rows and a silence about the rest. */
+          broadcastAction(sessionId, {
+            id: `action:more:${openTurn || 'turn'}`,
+            tool: '',
+            detail: foldedActionsLine(filed.folded),
+            state: '',
+            stateKey: '',
+            body: '',
+            at: Date.now(),
+          })
+        }
         const line = activityLine(activity)
         if (!line) return
         nodeActivity.set(nodeId, line)
@@ -5514,6 +5787,30 @@ export function computersView({ initialComputer = null, navigate }) {
       const status = sessionTurnStatus(packet, sessionId)
       if (!status) return
       const nodeId = sessionNodeIds.get(sessionId)
+      /* WHOSE WORDS THIS COMPLETION MAY TAKE, ASKED BEFORE IT TAKES THEM.
+       *
+       * THE DEFECT (owner: "combine into each other"). This branch read the
+       * status, which does not carry a turn id, and filed whatever was in the
+       * accumulator as this completion's answer. Order two turns
+       *     delta(turn-a) -> delta(turn-b) -> completed(turn-a)
+       * and turn B's partial words were recorded as turn A's answer -- on the
+       * node, in the durable record, and in every surface waiting on A -- and
+       * B's accumulator was emptied under it, so B then answered with the
+       * fragment it had left. settleTurnBoundary guards the opposite order
+       * only.
+       *
+       * A completion for a turn that is no longer the open one therefore ends
+       * HERE. Its own words were already filed when the next turn's first
+       * delta arrived (settleTurnBoundary does exactly that, closes its bubble
+       * and answers everything waiting), so there is nothing of A's left to
+       * record and nothing of B's this may touch -- not the accumulator, not
+       * the open-turn mark, not the node's status, and not the queue, which
+       * drains on the engine saying it is free and it is not free.
+       *
+       * completionSettlesOpenTurn answers TRUE whenever it cannot tell -- a
+       * nameless completion, or nothing else in flight -- so an engine that
+       * does not name its turns behaves exactly as it did before. */
+      if (!completionSettlesOpenTurn(packet, sessionId, sessionOpenTurns.get(sessionId))) return
       const spoken = (sessionTurnText.get(sessionId) || '').trim()
       sessionTurnText.delete(sessionId)
       /* Nothing is in flight for this session any more, so the next delta
@@ -5527,6 +5824,9 @@ export function computersView({ initialComputer = null, navigate }) {
       /* A turn that ends having said nothing is a real outcome and must read
          as one; silence in this box would read as the product hanging. */
       nodeReplies.set(nodeId, spoken || SAID_PANEL.emptyTurn)
+      /* What it DID is filed before what it SAID, in that order, because that
+         is the order a person watched it happen in. */
+      recordTurnActions(sessionId)
       transcriptAppend(sessionId, { who: 'agent', text: spoken || SAID_PANEL.emptyTurn, at: Date.now() })
       deliverTurnReply(sessionId, spoken || SAID_PANEL.emptyTurn)
       /* A rail-chat stream still open here means the rail was not one of the
@@ -5579,6 +5879,10 @@ export function computersView({ initialComputer = null, navigate }) {
       clearBoard()
       clearSourceUnsubs()
       clearMountedGraph()
+      /* The action buffers and the chats they were broadcast to. Holding a
+         detached chat root holds its whole log, and this view with it. */
+      sessionActions.clear()
+      chatSurfaces.clear()
       /* The panel holds a submit that can still be in flight, and the store
          holds a listener that would paint into a rail this view no longer owns.
          A start already sent is NOT cancelled by any of this — it is a real
