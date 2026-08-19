@@ -125,6 +125,53 @@ export function hostAbsentMarkup(reason, { compact = false, alongside = '', reas
     + `</div>`
 }
 
+/**
+ * What the comms board says when the record it reads is WORKING and EMPTY.
+ *
+ * This is a different truth from hostAbsentNotice and must not borrow its
+ * words. That notice describes a report nothing has written -- "this screen
+ * draws a report written by an agent host" -- and it is what the board shows
+ * when the shell cannot read messages at all. But on a build whose payload
+ * carries the live message reader, a fresh install answers the read with
+ * ok and zero rows: the board is not refused, it is quiet. Describing that
+ * as an absent host would be the product blaming a read that worked.
+ *
+ * MEASURED, 2026-08-19, on the re-cut confirming run: the previous cut's
+ * payload had no agent-comms-local.js, the read was refused, and the board
+ * fell back to the host-absent notice -- explanation and guide door included.
+ * The re-cut's payload can read the journal, the board took its live branch,
+ * and the quiet screen carried no explanation and no door: the one screen on
+ * the first-run ring without a way to the guide. These words close that gap
+ * for the state the product is actually in.
+ *
+ * NO REMEDY IS PROMISED. Messages appear here when agents on this computer
+ * send them to each other; a person with no agent running yet has the guide,
+ * and the guide says what can be done today. That is the same honesty rule
+ * the rest of this module holds itself to.
+ */
+export function commsQuietNotice() {
+  return Object.freeze({
+    title: 'No messages between agents yet',
+    body: 'This board shows the messages agents on this computer send each other, read from this computer’s own record. That record was read and it is empty: no agent here has sent another agent a message yet. Nothing on this computer is broken, and nothing is missing from the install.',
+    action: GUIDE_ACTION,
+  })
+}
+
+/* The same notice as markup, for the one screen that draws it. String output
+ * with no DOM API, for the same reason hostAbsentMarkup gives: this module is
+ * imported by plain node tests and by tools/first-run-recovery-qa.mjs. The
+ * host-absent classes are reused deliberately -- the board already styles
+ * them, and a second visual dialect for "this screen is empty and here is the
+ * door" would be a difference a reader would try to read meaning into. */
+export function commsQuietMarkup({ compact = true } = {}) {
+  const notice = commsQuietNotice()
+  return `<div class="host-absent${compact ? ' is-compact' : ''}" data-comms-quiet="true">`
+    + `<p class="host-absent-title">${escapeMarkup(notice.title)}</p>`
+    + `<p class="host-absent-body">${escapeMarkup(notice.body)}</p>`
+    + `<a class="host-absent-action" href="${escapeMarkup(notice.action.href)}">${escapeMarkup(notice.action.label)}</a>`
+    + `</div>`
+}
+
 /* The three things a person on a bare machine will notice, in the order they
  * will notice them. Read by src/views/guide.js and asserted by
  * tools/test/first-run-needs.test.mjs.

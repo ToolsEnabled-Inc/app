@@ -72,7 +72,7 @@ import { fileURLToPath } from 'node:url'
    renderer reads them from. See the note on EXPLANATION below for why this is an
    import and not a regex. Both modules are plain data with no DOM, so a node
    process can hold them. */
-import { FIRST_RUN_NEEDS, GUIDE_ACTION, hostAbsentNotice } from '../src/first-run-needs.js'
+import { FIRST_RUN_NEEDS, GUIDE_ACTION, commsQuietNotice, hostAbsentNotice } from '../src/first-run-needs.js'
 import { assertRendererMeasurable, assertStagedRendererConsistent } from './lib/staged-renderer.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -445,6 +445,37 @@ if (!EXPLANATION.includes(EXPLAINS_CLAUSE)) {
 }
 const MECHANISM_ONLY = /fleet projection unavailable|ops projection unavailable/i
 
+/* THE COMMS BOARD HAS TWO INTENDED EMPTY STATES, AND WHICH ONE SHOWS IS A
+ * PROPERTY OF THE PAYLOAD, NOT OF THIS REPO.
+ *
+ * The board's message pane is read at run time through the shell
+ * (`mc-agent:local-messages` -> the capability payload's agent-comms-local.js
+ * ownerJournal()). A payload WITHOUT that reader refuses the read, and the
+ * board falls back to the host-absent notice -- EXPLAINS_CLAUSE above. A
+ * payload WITH it answers a sterile profile ok-and-empty, the board takes its
+ * live branch, and the honest sentence is the quiet notice: the record was
+ * read and there is nothing in it. Calling that an absent host would blame a
+ * read that worked.
+ *
+ * MEASURED, 2026-08-19, when the re-cut confirming run took this suite
+ * 45/47: the previous cut's staged copy (Temp\first-run-recovery-t9LvJB,
+ * payload files of 08-13) has NO agent-comms-local.js -- its board showed the
+ * host-absent notice and this suite was green against it. The re-cut's
+ * payload carries the reader, the board went quiet-and-doorless, and both
+ * comms checks went red with src/views/comms.js UNCHANGED in the commit
+ * window (a3e9f85..0485034 touches neither comms.js nor first-run-needs.js;
+ * capability/ is not even tracked). The product now says why it is quiet in
+ * the module's words below and keeps the door; this suite accepts EITHER
+ * intended state and still fails a board that explains in neither. */
+const QUIET = commsQuietNotice().body
+const QUIET_CLAUSE = 'no agent here has sent another agent a message'
+if (!QUIET.includes(QUIET_CLAUSE)) {
+  console.error('\nNO VERDICT: the quiet-board clause this suite looks for is no longer in the copy module.')
+  console.error(`  looked for: ${JSON.stringify(QUIET_CLAUSE)}`)
+  console.error(`  the module says: ${JSON.stringify(QUIET)}`)
+  process.exit(2)
+}
+
 async function main() {
   auditSelf()
   const scratch = mkdtempSync(path.join(tmpdir(), 'first-run-recovery-'))
@@ -562,7 +593,8 @@ async function main() {
     const comms = await evaluate(SCREEN)
     note(`comms board: ${comms.screen.slice(0, 500)}`)
     check('the comms board explains why there is no traffic, in the copy module\'s words',
-      comms.screen.includes(EXPLAINS_CLAUSE), comms.screen.slice(0, 300))
+      comms.screen.includes(EXPLAINS_CLAUSE) || comms.screen.includes(QUIET_CLAUSE),
+      comms.screen.slice(0, 300))
     check('the comms board no longer leaves the bare refusal as the only thing on it',
       !MECHANISM_ONLY.test(comms.screen) || comms.screen.includes(EXPLAINS_CLAUSE),
       comms.screen.slice(0, 300))

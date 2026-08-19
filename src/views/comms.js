@@ -35,7 +35,7 @@ import { fetchOps } from '../live-status.js'
 /* The shared empty-state notice — see projectionUnavailableEl below for why this
    board does not write its own. src/guide.css carries the two placements this
    page needs (`.comms .chip-preview .host-absent`, `.comms .chat-log .host-absent`). */
-import { hostAbsentMarkup } from '../first-run-needs.js'
+import { commsQuietMarkup, hostAbsentMarkup } from '../first-run-needs.js'
 import '../comms.css'
 
 const H = 3600e3
@@ -1220,6 +1220,25 @@ export function commsView() {
     headName.textContent = channelDefs[0]?.name || ''
     renderLog(state.active)
     renderBoard()
+    /* THE QUIET BOARD SAYS WHY IT IS QUIET, AND KEEPS ITS DOOR.
+       On a payload that carries the live message reader, a fresh install
+       reaches THIS branch -- the read works and answers zero rows -- so the
+       host-absent notice above, which used to carry this screen's explanation
+       and its guide link, never renders. Measured on the 2026-08-19 re-cut
+       confirming run: the board said only "No services are on record for this
+       computer. No messages have been seen for this exact channel." and was
+       the one screen on the first-run ring without a door to the guide.
+       The words are the copy module's (src/first-run-needs.js), the same
+       place the host-absent words live, and the packaged driver reads the
+       same module. Mount and removal are both here because this runs every
+       few seconds: the notice must neither stack on itself nor outlive the
+       first message it explained the absence of. It never shows while the
+       read itself failed -- that state has its own honest sentence and this
+       one would call a refused read a quiet one. */
+    const quiet = !services.length && !liveMessagesReason && rawMessages.length === 0
+    const quietEl = root.querySelector('[data-comms-quiet]')
+    if (quiet && !quietEl) root.querySelector('.comms-body')?.appendChild(el(commsQuietMarkup()))
+    else if (!quiet && quietEl) quietEl.remove()
   }
 
   /* FLIP the whole board through a structural change: measure every box,
