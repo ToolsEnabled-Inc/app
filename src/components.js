@@ -1178,31 +1178,159 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
   })
 
   /* ---- THE ACTIONS POPUP: a quick-pick anchored over the composer. ----
-     Rows come from the caller's actions() — built FRESH at every open, so
+     Rows come from the caller's actions() -- built FRESH at every open, so
      enabled states are never stale. A row's run(ctx) may repaint the popup
-     in place with ctx.show(rows, {title}) — that is how thinking depth,
-     model and rewind are two-stage picks inside ONE panel — and may speak
+     in place with ctx.show(rows, {title}) -- that is how thinking depth,
+     model and rewind are two-stage picks inside ONE panel -- and may speak
      an outcome through ctx.say, which lands on the status line at the
-     bottom. Escape and any press outside close it; so does dispose. */
+     bottom. Escape and any press outside close it; so does dispose.
+
+     KEYBOARD-FIRST, WHICH IS THE SUBSTANCE OF "MORE LIKE VSCODE". The
+     owner's report on this menu was that it should be more like VS Code and
+     more intuitive. What VS Code's quick pick has that this did not is not
+     a look: it is that the whole thing is driven from the filter box. Type
+     to narrow, Up and Down to move, Enter to run, Escape to leave, and the
+     row under the cursor announced to assistive tech as you move. This
+     popup's entire keyboard handler was one line for Escape; the rows were
+     plain buttons reachable only by Tab or mouse; the filter carried no
+     aria-controls, no aria-activedescendant, no arrow keys.
+
+     So the filter is now a combobox over a listbox: focus stays in the
+     input, aria-activedescendant names the active row, and every row is an
+     option with a stable id for this opening. A sub-stage keeps the same
+     model with the list itself as the focus target, since its filter is
+     hidden.
+
+     ROWS ARE GROUPED, and the group that ends or forgets something is last.
+     A row's `group` is a heading; consecutive rows sharing one sit under it.
+     Arrow keys walk the row array, never the DOM, so headings are skipped by
+     construction.
+
+     A DISABLED ROW SAYS WHY. A row carrying `disabledHint` shows that
+     sentence in place of its hint when it is switched off, and Enter on it
+     speaks the same sentence, so a keyboard user gets a reason where they
+     used to get silence. */
   let popEl = null
   let popStack = []
   let popTopRows = []
+  /* The rows on the glass right now, in walk order, and which is active.
+     Rebuilt by renderPopStage; the index survives a repaint so the cursor
+     does not jump while a person types. */
+  let popRendered = []
+  let popActive = -1
+  /* One id family per OPENING, so the ids are stable for as long as the
+     popup is up and cannot collide with a second chat's popup. */
+  let popSerial = 0
   const onDocPointer = (event) => {
     if (!popEl) return
     if (popEl.contains(event.target)) return
     if (actionsButton && (event.target === actionsButton || actionsButton.contains(event.target))) return
     closeActionsPop()
   }
+  /* Kept at the document, in capture, so Escape closes the popup from
+     wherever focus has wandered -- the row model below is a superset of
+     this, not a replacement for it. */
   const onPopKeydown = (event) => { if (event.key === 'Escape') closeActionsPop() }
+  /* Focus left the popup for somewhere that is not the popup and not the
+     button that opens it. VS Code's quick pick closes on exactly this, and
+     it is what lets a row that hands focus to the composer (Mention a file)
+     get out of the way. Deferred a tick because hiding the filter on a
+     sub-stage blurs it with no relatedTarget BEFORE the list is focused. */
+  const onPopFocusOut = () => {
+    setTimeout(() => {
+      if (!popEl) return
+      const active = document.activeElement
+      if (popEl.contains(active)) return
+      if (actionsButton && (active === actionsButton || actionsButton.contains(active))) return
+      closeActionsPop()
+    }, 0)
+  }
   function closeActionsPop() {
     if (!popEl) return
     popEl.remove()
     popEl = null
     popStack = []
     popTopRows = []
+    popRendered = []
+    popActive = -1
     actionsButton?.setAttribute('aria-expanded', 'false')
     document.removeEventListener('pointerdown', onDocPointer, true)
     document.removeEventListener('keydown', onPopKeydown, true)
+  }
+  const popCtx = () => {
+    const out = popEl?.querySelector('.chat-actions-out')
+    return {
+      say: sentence => { if (out && popEl) out.textContent = String(sentence ?? '') },
+      close: closeActionsPop,
+      show: (nextRows, { title: stageTitle = null } = {}) => {
+        popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
+        popActive = -1
+        renderPopStage()
+      },
+    }
+  }
+  const runPopRow = (entry) => {
+    if (!entry || !popEl) return
+    const out = popEl.querySelector('.chat-actions-out')
+    if (entry.enabled === false) {
+      /* Enter on a row that cannot be pressed: the reason, on the status
+         line, rather than nothing. */
+      if (out && entry.disabledHint) out.textContent = entry.disabledHint
+      return
+    }
+    if (typeof entry.run !== 'function') return
+    Promise.resolve()
+      .then(() => entry.run(popCtx()))
+      .then(said => { if (said && out && popEl) out.textContent = String(said) })
+      .catch(() => { if (out && popEl) out.textContent = 'That did not happen. Try it again.' })
+  }
+  /* Move the cursor and say so: the class for the eye, aria-selected and
+     aria-activedescendant for the ear, and the row scrolled into the list's
+     box so the cursor never leaves the visible rows. */
+  const paintPopActive = () => {
+    if (!popEl) return
+    const filter = popEl.querySelector('.chat-actions-filter')
+    const list = popEl.querySelector('.chat-actions-list')
+    if (popActive >= popRendered.length) popActive = popRendered.length - 1
+    let activeId = ''
+    popRendered.forEach((entry, index) => {
+      const on = index === popActive
+      entry.button.classList.toggle('is-active', on)
+      entry.button.setAttribute('aria-selected', on ? 'true' : 'false')
+      if (on) {
+        activeId = entry.button.id
+        entry.button.scrollIntoView?.({ block: 'nearest' })
+      }
+    })
+    for (const owner of [filter, list]) {
+      if (!owner) continue
+      if (activeId) owner.setAttribute('aria-activedescendant', activeId)
+      else owner.removeAttribute('aria-activedescendant')
+    }
+  }
+  const movePopActive = (delta) => {
+    if (!popRendered.length) return
+    if (popActive < 0) popActive = delta > 0 ? 0 : popRendered.length - 1
+    else popActive = (popActive + delta + popRendered.length) % popRendered.length
+    paintPopActive()
+  }
+  const firstEnabledPopRow = () => {
+    const index = popRendered.findIndex(entry => entry.enabled !== false)
+    return index === -1 ? (popRendered.length ? 0 : -1) : index
+  }
+  /* The keyboard model, bound to the popup so it hears the filter and, on a
+     sub-stage, the list. Escape is left to the document handler above. */
+  const onPopKeys = (event) => {
+    if (!popEl) return
+    if (event.key === 'ArrowDown') { event.preventDefault(); movePopActive(1); return }
+    if (event.key === 'ArrowUp') { event.preventDefault(); movePopActive(-1); return }
+    if (event.key === 'Home') { event.preventDefault(); popActive = popRendered.length ? 0 : -1; paintPopActive(); return }
+    if (event.key === 'End') { event.preventDefault(); popActive = popRendered.length - 1; paintPopActive(); return }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const entry = popActive >= 0 ? popRendered[popActive] : popRendered[firstEnabledPopRow()]
+      runPopRow(entry)
+    }
   }
   const renderPopStage = () => {
     if (!popEl) return
@@ -1216,16 +1344,34 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     titleLine.hidden = !stage?.title
     if (stage?.title) titleLine.textContent = stage.title
     list.textContent = ''
+    popRendered = []
     const wanted = stage ? '' : filter.value.trim().toLowerCase()
     const rows = stage ? stage.rows : popTopRows.filter(row =>
       !wanted || row.label.toLowerCase().includes(wanted) || String(row.hint || '').toLowerCase().includes(wanted))
+    const optionId = index => `chat-actions-opt-${popSerial}-${index}`
+    const addOption = (entry) => {
+      const index = popRendered.length
+      entry.button.id = optionId(index)
+      entry.button.setAttribute('role', 'option')
+      entry.button.setAttribute('aria-selected', 'false')
+      /* Hovering moves the cursor, as it does in VS Code, so mouse and
+         keyboard never disagree about which row Enter would run. */
+      entry.button.addEventListener('mousemove', () => {
+        if (popActive === index) return
+        popActive = index
+        paintPopActive()
+      })
+      popRendered.push(entry)
+      list.appendChild(entry.button)
+    }
     if (stage) {
       const back = document.createElement('button')
       back.type = 'button'
       back.className = 'chat-actions-row chat-actions-back'
       back.textContent = '‹ Back'
-      back.addEventListener('click', () => { popStack.pop(); renderPopStage() })
-      list.appendChild(back)
+      const leave = () => { popStack.pop(); popActive = -1; renderPopStage() }
+      back.addEventListener('click', leave)
+      addOption({ button: back, enabled: true, run: leave })
     }
     if (!rows.length && !stage) {
       const none = document.createElement('p')
@@ -1233,48 +1379,71 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
       none.textContent = 'No action matches that. Clear the filter to see them all.'
       list.appendChild(none)
     }
-    const out = popEl.querySelector('.chat-actions-out')
-    const ctx = {
-      say: sentence => { if (out) out.textContent = String(sentence ?? '') },
-      close: closeActionsPop,
-      show: (nextRows, { title: stageTitle = null } = {}) => {
-        popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
-        renderPopStage()
-      },
-    }
+    let lastGroup = null
     for (const row of rows) {
+      /* A heading when the group changes. role="presentation" so the listbox
+         still counts only options; the eye gets the heading, the ear gets the
+         option that follows it. */
+      const group = typeof row.group === 'string' && row.group ? row.group : null
+      if (group && group !== lastGroup) {
+        const heading = document.createElement('div')
+        heading.className = 'chat-actions-group'
+        heading.setAttribute('role', 'presentation')
+        heading.textContent = group
+        list.appendChild(heading)
+      }
+      lastGroup = group
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'chat-actions-row'
-      button.disabled = row.enabled === false
+      const disabled = row.enabled === false
+      button.disabled = disabled
+      if (disabled) button.setAttribute('aria-disabled', 'true')
       const label = document.createElement('div')
       label.textContent = row.label
       button.appendChild(label)
-      if (row.hint) {
+      /* The hint, or the reason it cannot be pressed. Never both, and the
+         reason gets its own class so the eye can tell them apart too. */
+      const why = disabled && typeof row.disabledHint === 'string' ? row.disabledHint : ''
+      if (why || row.hint) {
         const hint = document.createElement('div')
-        hint.className = 'chat-actions-hint'
-        hint.textContent = row.hint
+        hint.className = why ? 'chat-actions-hint chat-actions-why' : 'chat-actions-hint'
+        hint.textContent = why || row.hint
         button.appendChild(hint)
       }
       if (row.current) button.classList.add('is-current')
-      button.addEventListener('click', () => {
-        if (typeof row.run !== 'function') return
-        Promise.resolve()
-          .then(() => row.run(ctx))
-          .then(said => { if (said && out && popEl) out.textContent = String(said) })
-          .catch(() => { if (out && popEl) out.textContent = 'That did not happen. Try it again.' })
-      })
-      list.appendChild(button)
+      const entry = { button, enabled: !disabled, disabledHint: why, run: row.run }
+      button.addEventListener('click', () => runPopRow(entry))
+      addOption(entry)
+    }
+    if (popActive < 0 || popActive >= popRendered.length) {
+      /* First press of Enter runs the obvious thing: the first row that can
+         be pressed, or Back's neighbour on a sub-stage. */
+      popActive = stage ? Math.min(1, popRendered.length - 1) : firstEnabledPopRow()
+    }
+    paintPopActive()
+    /* Where the keys go. The top stage types into the filter; a sub-stage
+       has no filter, so its list takes focus. Only moved when focus is
+       inside the popup and on the wrong half of it, so a person mid-word in
+       the filter is never interrupted. */
+    const focused = document.activeElement
+    if (stage) {
+      if (focused !== list) list.focus({ preventScroll: true })
+    } else if (focused === list || (focused && popEl.contains(focused) && focused !== filter && focused.tagName !== 'BUTTON')) {
+      filter.focus({ preventScroll: true })
     }
   }
   const openActions = (sectionId = null) => {
     if (typeof actions !== 'function' || disposed) return
     closeActionsPop()
+    popSerial += 1
+    const listId = `chat-actions-list-${popSerial}`
     popEl = el(`
       <div class="chat-actions-pop" aria-label="Actions">
         <div class="chat-actions-title" hidden></div>
-        <input type="text" class="chat-actions-filter" placeholder="Filter actions…" aria-label="Filter actions">
-        <div class="chat-actions-list"></div>
+        <input type="text" class="chat-actions-filter" placeholder="Filter actions…" aria-label="Filter actions"
+          role="combobox" aria-expanded="true" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="${listId}" autocomplete="off">
+        <div class="chat-actions-list" id="${listId}" role="listbox" aria-label="Actions" tabindex="-1"></div>
         ${actionsNote ? `<p class="chat-actions-hint chat-actions-note">${escapeMarkup(actionsNote)}</p>` : ''}
         <output class="chat-actions-out" role="status"></output>
       </div>`)
@@ -1282,23 +1451,18 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     actionsButton?.setAttribute('aria-expanded', 'true')
     try { popTopRows = actions() || [] } catch { popTopRows = [] }
     popStack = []
+    popActive = -1
     renderPopStage()
     const filter = popEl.querySelector('.chat-actions-filter')
-    filter.addEventListener('input', () => renderPopStage())
+    filter.addEventListener('input', () => { popActive = -1; renderPopStage() })
+    popEl.addEventListener('keydown', onPopKeys)
+    popEl.addEventListener('focusout', onPopFocusOut)
     document.addEventListener('pointerdown', onDocPointer, true)
     document.addEventListener('keydown', onPopKeydown, true)
     if (sectionId) {
       const target = popTopRows.find(row => row.id === sectionId && row.enabled !== false && typeof row.run === 'function')
       if (target) {
-        const out = popEl.querySelector('.chat-actions-out')
-        void Promise.resolve().then(() => target.run({
-          say: sentence => { if (out && popEl) out.textContent = String(sentence ?? '') },
-          close: closeActionsPop,
-          show: (nextRows, { title: stageTitle = null } = {}) => {
-            popStack.push({ rows: Array.isArray(nextRows) ? nextRows : [], title: stageTitle })
-            renderPopStage()
-          },
-        })).catch(() => {})
+        void Promise.resolve().then(() => target.run(popCtx())).catch(() => {})
         return
       }
     }

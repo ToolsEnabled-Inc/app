@@ -594,6 +594,11 @@ export const PALETTE_PANEL = Object.freeze({
   attachCancelled: 'Nothing was attached.',
   mention: 'Mention a file',
   mentionHint: 'Opens a file picker and writes the path into your message. The agent reads it itself, under its own permissions.',
+  /* ITS OWN SENTENCE. A cancelled mention used to say "Nothing was attached."
+     which is true of a different action, and a person who had just pressed
+     Mention read a sentence about Attach. */
+  mentionCancelled: 'No file was mentioned.',
+  mentionWritten: 'Written into your message box. Finish the sentence and send it.',
   clear: 'Start this conversation over',
   clearHint: 'The agent forgets everything said here. Its place in your tree and its brief stay.',
   cleared: 'Started over. It remembers nothing from before — say what you want from the message box or the queue.',
@@ -613,6 +618,24 @@ export const PALETTE_PANEL = Object.freeze({
   moveFocusHint: 'Opens the Reports-to menu on the Details tab.',
   copyBrief: 'Copy what you asked for',
   copyReply: 'Copy what it said',
+  /* THE GROUPS, because eleven mixed-severity rows in source order put "Stop
+     this agent" beside "Copy what it said". Three headings, and the one that
+     ends or forgets something is last and on its own. */
+  groupConversation: 'This conversation',
+  groupAgent: 'This agent',
+  groupDanger: 'Stop or start over',
+  /* WHY A ROW CANNOT BE PRESSED, one sentence each, shown in place of the hint
+     on a row that is switched off. A disabled control that will not say why is
+     the exact class of thing the owner keeps filing. Each names the state and
+     none of them says what to do about it, because the way out is the row
+     itself becoming pressable once the state changes. */
+  whyNotRunning: 'This agent is not running right now.',
+  whyNotStarted: 'This agent has not started yet.',
+  whyNoTurns: 'You have not sent it a message yet.',
+  whyNoBrief: 'Nothing was asked here yet.',
+  whyNoReply: 'It has not answered yet.',
+  whyNoSaved: 'There is no saved conversation to resume from.',
+  whyNoPicker: 'This page cannot open a file picker. Use the installed app.',
   copied: 'Copied.',
   nothingToCopy: 'There is nothing to copy yet.',
   clipboardRefused: 'Select the text on the agent page instead — the clipboard refused this copy.',

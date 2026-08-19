@@ -1642,10 +1642,35 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .chat-actions-row[disabled] { color: var(--ink-3); cursor: default; }
 .chat-actions-row.is-current { border-color: color-mix(in oklab, var(--c-coordinator) 42%, var(--line-2)); }
 .chat-actions-row.chat-actions-back { color: var(--ink-2); font-weight: 640; }
+/* THE CURSOR. The row the keyboard is on, whether or not the mouse is over
+   it: the filter keeps focus and this is the only mark of where Enter would
+   land, so it has to read even on a disabled row, which is why it is a
+   background and a border rather than a colour on the text. */
+.chat-actions-row.is-active {
+  background: color-mix(in oklab, var(--c-coordinator, var(--ink)) 12%, transparent);
+  border-color: color-mix(in oklab, var(--c-coordinator, var(--ink)) 40%, var(--line-2));
+}
+.chat-actions-row[disabled].is-active { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+/* A heading between groups of rows. Not a row: no border, no hover, not
+   focusable, and the arrow keys walk past it. The one before the group that
+   ends or forgets something sits under a rule so the eye lands on the
+   boundary before the hand does. */
+.chat-actions-group {
+  padding: 8px 9px 2px;
+  font: 640 10.5px/1.2 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.chat-actions-group + .chat-actions-row { margin-top: 0; }
+.chat-actions-group:not(:first-child) { border-top: 1px solid var(--line); margin-top: 4px; }
 .chat-actions-hint {
   font: 400 11.5px/1.35 var(--font-ui);
   color: var(--ink-3);
 }
+/* The reason a row cannot be pressed, in place of its hint. Italic so it reads
+   as a state and not as a description of what the row would do. */
+.chat-actions-why { font-style: italic; }
 .chat-actions-out {
   flex: none;
   min-height: 0;

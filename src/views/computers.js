@@ -4550,21 +4550,56 @@ export function computersView({ initialComputer = null, navigate }) {
         }], { title: `“${entry.yourText.slice(0, 60)}”` })
       },
     }))
+    /* THE TABLE, GROUPED, EVERY ROW SAYING WHY WHEN IT CANNOT BE PRESSED.
+     *
+     * The owner's report on this menu: "more like vscode, much more intuitive
+     * preferably". Three things were wrong with the list itself, and each is
+     * a field on the row now.
+     *
+     * `group`: eleven rows of mixed severity in source order put "Stop this
+     * agent" directly beside "Copy what it said". Three headings, and the one
+     * that ends or forgets something is last, on its own.
+     *
+     * `disabledHint`: a switched-off row rendered its ordinary hint (or
+     * nothing) and would not say why it could not be pressed. Every row that
+     * can be disabled now carries the sentence for its own state; the popup
+     * shows it in place of the hint and speaks it on Enter.
+     *
+     * THREE DOORS THAT WERE MISSING. Attach an image, mention a file and queue
+     * a message are all things this build genuinely does -- their runners were
+     * already in runPaletteAction, reachable from the slash commands and the
+     * composer's own buttons -- and the menu simply never built the rows. They
+     * are rows now. Nothing here adds a power; it adds the way to reach one.
+     *
+     * A picker needs the installed application, so attach and mention are
+     * enabled only where the bridge really offers one, and say so where it does
+     * not, rather than sitting enabled over a call that returns nothing. */
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    const canPick = Boolean(bridge && typeof bridge.pickAttachment === 'function' && typeof bridge.pickMention === 'function')
+    const started = Boolean(current.sessionId)
+    const pickerWhy = !started ? PALETTE_PANEL.whyNotStarted : (!canPick ? PALETTE_PANEL.whyNoPicker : '')
+    const turnsSoFar = (sessionTurnLog.get(current.sessionId) || []).length
+    const conversation = PALETTE_PANEL.groupConversation
+    const agent = PALETTE_PANEL.groupAgent
+    const danger = PALETTE_PANEL.groupDanger
     return [
-      { id: 'interrupt', label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running, run: ctx => runPaletteAction('interrupt', fresh(), sinkFor(ctx)) },
-      { id: 'stop', label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: running, run: ctx => runPaletteAction('stop', fresh(), sinkFor(ctx)) },
-      { id: 'effort', label: EFFORT_SWITCH.title, hint: EFFORT_SWITCH.help, enabled: Boolean(current.sessionId), run: ctx => ctx.show(effortRows(), { title: EFFORT_SWITCH.title }) },
-      { id: 'model', label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: Boolean(current.sessionId), run: ctx => ctx.show(modelRows(), { title: MODEL_PANEL.title }) },
-      { id: 'rewind', label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: Boolean(current.sessionId) && (sessionTurnLog.get(current.sessionId) || []).length > 0, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
+      { id: 'queue', group: conversation, label: PALETTE_PANEL.queueFocus, hint: PALETTE_PANEL.queueFocusHint, enabled: true, run: ctx => { ctx.close(); void runPaletteAction('queue', fresh(), statusSink()) } },
+      { id: 'attach', group: conversation, label: PALETTE_PANEL.attach, hint: PALETTE_PANEL.attachHint, enabled: started && canPick, disabledHint: pickerWhy, run: ctx => runPaletteAction('attach', fresh(), sinkFor(ctx)) },
+      { id: 'mention', group: conversation, label: PALETTE_PANEL.mention, hint: PALETTE_PANEL.mentionHint, enabled: started && canPick, disabledHint: pickerWhy, run: ctx => runPaletteAction('mention', fresh(), sinkFor(ctx)) },
+      { id: 'effort', group: conversation, label: EFFORT_SWITCH.title, hint: EFFORT_SWITCH.help, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(effortRows(), { title: EFFORT_SWITCH.title }) },
+      { id: 'model', group: conversation, label: PALETTE_PANEL.switchModel, hint: PALETTE_PANEL.switchModelHint, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(modelRows(), { title: MODEL_PANEL.title }) },
+      { id: 'rewind', group: conversation, label: PALETTE_PANEL.rewind, hint: PALETTE_PANEL.rewindHint, enabled: started && turnsSoFar > 0, disabledHint: started ? PALETTE_PANEL.whyNoTurns : PALETTE_PANEL.whyNotStarted, run: ctx => ctx.show(rewindRows(), { title: REWIND_PANEL.title }) },
+      { id: 'copy-brief', group: conversation, label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(current.message), disabledHint: PALETTE_PANEL.whyNoBrief, run: ctx => runPaletteAction('copy-brief', fresh(), sinkFor(ctx)) },
+      { id: 'copy-reply', group: conversation, label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply), disabledHint: PALETTE_PANEL.whyNoReply, run: ctx => runPaletteAction('copy-reply', fresh(), sinkFor(ctx)) },
+      { id: 'child', group: agent, label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true, run: ctx => { ctx.close(); openComposeFor({ kind: 'child', parentId: node.id }) } },
+      { id: 'move', group: agent, label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true, run: ctx => { ctx.close(); focusDetailsControl(node, '[data-tree-move-select]') } },
       /* Enabled exactly when it can act: a saved conversation exists and no
          session is mid-turn over it. A running agent is resumed by talking
          to it, not by restarting it out from under itself. */
-      { id: 'resume', label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)), run: ctx => { ctx.close(); void resumeNodeSession(fresh(), { out: statusSink() }) } },
-      { id: 'clear', label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: Boolean(current.sessionId), run: ctx => { ctx.close(); void runPaletteAction('clear', fresh(), statusSink()) } },
-      { id: 'child', label: PALETTE_PANEL.child, hint: PALETTE_PANEL.childHint, enabled: true, run: ctx => { ctx.close(); openComposeFor({ kind: 'child', parentId: node.id }) } },
-      { id: 'move', label: PALETTE_PANEL.moveFocus, hint: PALETTE_PANEL.moveFocusHint, enabled: true, run: ctx => { ctx.close(); focusDetailsControl(node, '[data-tree-move-select]') } },
-      { id: 'copy-brief', label: PALETTE_PANEL.copyBrief, hint: '', enabled: Boolean(current.message), run: ctx => runPaletteAction('copy-brief', fresh(), sinkFor(ctx)) },
-      { id: 'copy-reply', label: PALETTE_PANEL.copyReply, hint: '', enabled: Boolean(reply), run: ctx => runPaletteAction('copy-reply', fresh(), sinkFor(ctx)) },
+      { id: 'resume', group: agent, label: RESUME_PANEL.action, hint: RESUME_PANEL.hint, enabled: !running && Boolean(transcriptStore && transcriptStore.has(node.id)), disabledHint: running ? RESUME_PANEL.busy : PALETTE_PANEL.whyNoSaved, run: ctx => { ctx.close(); void resumeNodeSession(fresh(), { out: statusSink() }) } },
+      { id: 'interrupt', group: danger, label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running, disabledHint: PALETTE_PANEL.whyNotRunning, run: ctx => runPaletteAction('interrupt', fresh(), sinkFor(ctx)) },
+      { id: 'stop', group: danger, label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: running, disabledHint: PALETTE_PANEL.whyNotRunning, run: ctx => runPaletteAction('stop', fresh(), sinkFor(ctx)) },
+      { id: 'clear', group: danger, label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => { ctx.close(); void runPaletteAction('clear', fresh(), statusSink()) } },
     ]
   }
 
@@ -4869,7 +4904,11 @@ export function computersView({ initialComputer = null, navigate }) {
       if (!bridge || typeof bridge.pickMention !== 'function' || !node.sessionId) return
       let picked = null
       try { picked = await bridge.pickMention({ sessionId: node.sessionId }) } catch { picked = null }
-      if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.attachCancelled; return }
+      /* ITS OWN SENTENCE. This branch used to reuse the attach branch's cancel
+         line, "Nothing was attached.", which is true of a different action. A
+         person who had just pressed Mention and closed the picker read a
+         sentence about Attach. */
+      if (!picked || !picked.path) { out.textContent = PALETTE_PANEL.mentionCancelled; return }
       showTreeNodeControls(node)
       /* Into the chat composer — the queue box retired with the Actions
          tab; the composer is where a mention's path belongs now. */
@@ -4878,6 +4917,7 @@ export function computersView({ initialComputer = null, navigate }) {
         input.value = input.value ? `${input.value} ${picked.path}` : `Read ${picked.path} and use it for what I ask next.`
         input.focus()
       }
+      out.textContent = PALETTE_PANEL.mentionWritten
       return
     }
     if (id === 'copy-brief' || id === 'copy-reply') {
