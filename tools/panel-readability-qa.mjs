@@ -56,6 +56,7 @@ import {
   describeTimeline,
   gotoHome,
   gotoSettings,
+  openDrawer,
   openWindow,
   releaseDirectory,
   route,
@@ -123,8 +124,13 @@ function accountRegistry(home) {
     schemaVersion: 1,
     exhaustedAtPercent: 95,
     accounts: [
-      { name: 'work', role: 'builder', priority: 1, provider: 'codex', home: path.join(home, '.codex-work') },
-      { name: 'personal', role: 'reviewer', priority: 2, provider: 'codex', home: path.join(home, '.codex-personal') },
+      /* `profileDir`, not `home`. The first attempt wrote `home` and the panel
+         answered "Account entry 0 is a codex account, so it is missing a
+         profileDir" -- which is the repaired refusal pipeline doing its job on
+         this harness's own mistake, and is the reason that sentence is quoted
+         in the report rather than hidden. */
+      { name: 'work', role: 'builder', priority: 1, provider: 'codex', profileDir: path.join(home, '.codex-work') },
+      { name: 'personal', role: 'reviewer', priority: 2, provider: 'codex', profileDir: path.join(home, '.codex-personal') },
     ],
   }
 }
@@ -426,7 +432,12 @@ async function main() {
     staged = await stage(scratch)
     console.log(`staged: ${staged.appRoot}`)
 
-    for (const phase of phases) {
+    /* --cloud-only re-runs the Codex Cloud half without repeating three ledger
+       phases that are already recorded. It is a convenience for iterating on
+       ONE panel; the default is the whole matrix, and a report that quotes a
+       --cloud-only run must say so. */
+    const only = process.argv.includes('--cloud-only') ? [] : phases
+    for (const phase of only) {
       console.log(`\n--- ${phase.id} — ${phase.why}`)
       await restageArchive(scratch, staged.appRoot, tree => {
         writeFileSync(path.join(tree, 'dist', 'data', 'ledger.json'), shipped)
@@ -542,6 +553,27 @@ async function main() {
       led.check('cloud: Computers is reachable by clicking the route arrows', walked.route === 'computers', JSON.stringify(walked))
       await delay(2500)
       let onGlass = await window.evaluate('Boolean(document.querySelector(".cloud-surface") || document.querySelector(".board-cloud-box"))')
+      /* THE PANEL LIVES ON AN AGENT PAGE, AND A FRESH PROFILE HAS NO AGENTS.
+       *
+       * That is a product fact rather than an obstacle: the Codex Cloud panel is
+       * fenced to a LIVE agent page, because a launch from it starts real,
+       * billable, uncancellable remote work, and "Open agent detail" is ABSENT
+       * (not merely disabled) when there is nobody to open. So the way to reach
+       * it on a machine where nothing has been started is the one the product
+       * itself offers: turn this page's Live data switch off in the drawer,
+       * which draws the labelled demonstration fleet, and open an agent from
+       * there. The AGENT page keeps its own Live data flag, so the page that
+       * opens is a real one carrying the real panel. */
+      if (!onGlass) {
+        const opened = await openDrawer(window)
+        led.note(`cloud: opened the drawer to reach this page's own switches: ${opened}`)
+        const toggled = await window.clickVisible('#drawer input[data-quick-live="fleet"], #drawer [data-quick-live="fleet"]')
+        led.note(`cloud: turned this page's Live data switch off, so it draws the demonstration fleet: ${toggled}`)
+        await delay(1200)
+        await closeDrawer(window)
+        await delay(1500)
+        onGlass = await window.evaluate('Boolean(document.querySelector(".cloud-surface") || document.querySelector(".board-cloud-box"))')
+      }
       if (!onGlass) {
         /* "Open agent detail" is the button this page really offers when the
            graph has nothing running in it, and it is the only door to the

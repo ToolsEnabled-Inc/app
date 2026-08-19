@@ -555,7 +555,16 @@ export function createCloudTaskController({
         listMessage: '',
         listCode: null,
         /* NOT "no environments": a refused read says nothing about what exists.
-           environmentsLoaded stays false so the launch path keeps refusing. */
+           environmentsLoaded goes back to FALSE so the launch path keeps
+           refusing -- and it is set here rather than left at its initial value,
+           which is the bug this comment used to describe without doing. After a
+           successful read followed by a refused one it stayed true, and the
+           binding line then told a person "no environment chosen yet" about a
+           reading that had just failed. An unread list never permits a launch,
+           and a list that could not be re-read is unread. */
+        environments: Object.freeze([]),
+        environmentsLoaded: false,
+        environmentsComplete: false,
         environmentsTone: 'refused',
         environmentsMessage: `Your Codex accounts could not be read. ${accountsRefusal(result)}`,
         environmentsCode: refusalCodeOf(result),
