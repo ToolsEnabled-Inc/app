@@ -55,11 +55,16 @@ const POSITION_DOC = process.env.TOOLSENABLED_PROVIDER_POSITION_DOC
 const SECTION_START = '## The user warning'
 const SECTION_END = '## Cross-cutting obligations'
 
-/* Recorded 2026-08-18 against the owner-adopted text ("The four specifics below
-   were owner-approved as drafted, 2026-08-18"). Normalisation: CRLF folded to
-   LF, runs of spaces and tabs collapsed to one, ends trimmed — so re-wrapping a
+/* Recorded 2026-08-18 against the owner-adopted text; RE-RECORDED 2026-08-19
+   when the tripwire fired on legal's ratification stamp — the section gained
+   the paragraph recording that the shipped paraphrase is RATIFIED and is now
+   the reference wording (FROM-LEGAL-2026-08-19-claude-warning-ruling.md). The
+   four specifics were verified word-for-word unchanged, so the shipped copy
+   needed no change and this constant moves alone WITH that verification, which
+   is the one case the rule below permits. Normalisation: CRLF folded to LF,
+   runs of spaces and tabs collapsed to one, ends trimmed — so re-wrapping a
    paragraph does not cry drift, but changing a word does. */
-const ADOPTED_FINGERPRINT = '163559e78f73ca77cf9529b27d845382ca6d56aa2c4a53261ff9997bd951c297'
+const ADOPTED_FINGERPRINT = 'f72395d4679bffb292f9fe5ce7de95a4764a9b3139642165811e4257bfb63a4d'
 
 function adoptedSection() {
   const text = readFileSync(POSITION_DOC, 'utf8')
