@@ -74,12 +74,42 @@ async function main() {
   })
   win.webContents.setFrameRate(30)
 
+  /* THE OS MOTION PREFERENCE IS PINNED, so the measurement is of the DESIGN
+     and not of this machine's accessibility settings.
+     MEASURED 2026-08-19: with Windows' reduce-motion flag on, this harness
+     read 15 measurements outside tolerance across every theme — endRoll
+     halved, centroid rotated ~8°, mass down 15-34% — on a tree with NO
+     commit touching the crescent since the baseline was recorded, because
+     src/styles.css's `@media (prefers-reduced-motion: reduce)` block
+     (animation-duration 0.001ms, one iteration) collapses every sheet
+     animation the moment the OS flag is on. The fixture already pins the
+     CLASS half of reduced motion deliberately (body.reduce-motion,
+     tools/ring-fixture.html) — the media half was the one axis left to
+     whatever machine ran the capture, and the reference at
+     tools/test/fixtures/crescent-reference-metrics.json was recorded with it
+     off. Emulation pins it off everywhere, the same policy
+     tools/page2-qa.cjs already applies with its matchMedia stub: measure the
+     same CSS on any machine. The accessibility behaviour itself is asserted
+     behaviourally by page2's reduce-motion check, not by this ruler. */
+  /* Attached once here; the pin itself is (re)sent after every load below —
+     sending it before the first document has committed was measured to hang
+     the sendCommand promise without a word. */
+  win.webContents.debugger.attach('1.3')
+  const pinMotionPreference = async () => {
+    await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      media: '',
+      features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+    })
+    trace('emulation: prefers-reduced-motion pinned to no-preference')
+  }
+
   const manifest = []
   for (const theme of THEMES) {
     for (const load of LOADS) {
       const url = `${BASE}/tools/ring-fixture.html?size=${SIZE}&theme=${theme}&load=${load}`
       trace(`loading ${theme}/${load}`)
       await win.loadURL(url)
+      await pinMotionPreference()
       await win.webContents.executeJavaScript(
         `new Promise(r => { const t = () => window.__ringReady ? r(true) : setTimeout(t, 16); t() })`
       )
