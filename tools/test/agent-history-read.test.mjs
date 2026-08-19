@@ -92,7 +92,7 @@ test('no signature or chain hash reaches the renderer', (t) => {
   assert.doesNotMatch(serialized, /previousHash/i)
   assert.equal(serialized.includes(receipt.eventHash), false)
 
-  /* THREE fields have joined this list, and each one had to earn it.
+  /* FIVE fields have joined this list, and each one had to earn it.
      `outcome` exists because the reply could not otherwise distinguish a run
      that worked from a run that refused, and the screen built on it told people
      three failed starts "still check out".
@@ -119,14 +119,27 @@ test('no signature or chain hash reaches the renderer', (t) => {
      that shape on the way out. It is null on every record in THIS ledger, which
      has never carried one; the turns live in their own file (see
      shell/usage-record.cjs) so they cannot crowd the runs out of this window.
-     None of the four is safe on trust: `outcome` is pinned by the
+     `end` is the FIFTH, and it earned it the way `outcome` did: this ledger
+     wrote two lines per run -- the intent, then started/refused -- and never a
+     line when the session ENDED, so no screen could truthfully say a run had
+     finished or how long it ran. The end record joins its start by `resolves`
+     exactly as the outcome does. It is not in `details`' class: a closed set of
+     four reasons, a whole number of turns, and the provider's own bare word for
+     the last turn, each re-imposed by boundedEnd() on the way out; it carries
+     no duration, because a span the shell computed is a claim the chain cannot
+     check. It is null on every record that is not an end record, and null on a
+     start with no end record -- which reads as "does not say", never as
+     finished and never as still running.
+     None of the five is safe on trust: `outcome` is pinned by the
      writer-refusal test below, `principal` and `sessionId` by the shape tests
-     after it, and `usage` by tools/test/usage-record.test.mjs. */
+     after it, `usage` by tools/test/usage-record.test.mjs, and `end` by
+     tools/test/agent-session-end-record.test.mjs. */
   for (const entry of recorder.history().entries) {
-    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'outcome', 'principal', 'sequence', 'sessionId', 'usage'])
+    assert.deepEqual(Object.keys(entry).sort(), ['action', 'at', 'end', 'outcome', 'principal', 'sequence', 'sessionId', 'usage'])
   }
   assert.equal(recorder.history().entries[0].usage, null, 'a run record carries no turn figures')
   assert.equal(recorder.history().entries[0].outcome, null, 'a start on its own has no outcome to report')
+  assert.equal(recorder.history().entries[0].end, null, 'a start on its own has no ending to report, and none is invented')
 })
 
 /* THE JOIN KEY IS BOUNDED FOR THE SAME REASON THE PRINCIPAL IS.

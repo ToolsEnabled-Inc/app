@@ -600,6 +600,10 @@ function bindAgentOwner(owner) {
     const closing = []
     for (const [sessionId, session] of agentSessions) {
       if (session.owner !== owner) continue
+      /* THE WINDOW IS GONE, so the app is on its way out (window-all-closed
+         quits it) and these sessions end because of that. Best-effort and
+         synchronous, BEFORE the session leaves the map -- see recordSessionEnd. */
+      recordSessionEnd(session, sessionId, 'app-shutdown')
       agentSessions.delete(sessionId)
       if (agentHost) {
         closing.push(
@@ -735,6 +739,37 @@ function noteAgentTurnUsage(session, packet) {
     /* A record that cannot be written must never be able to stop an agent from
        answering. The page reads an empty record as an empty record and says so. */
   }
+}
+
+/* COUNT THE TURNS THAT ENDED, AND KEEP THE ENGINE'S LAST WORD FOR ONE, so the
+ * session's end record can say how much it did and how its last turn went.
+ *
+ * COUNTED HERE, IN THE SAME FAN-OUT THE USAGE RECORD USES, because this is the
+ * one place every session's events cross in the main process. `usageByTurn`
+ * beside it holds only PENDING readings and forgets a turn the moment it ends,
+ * so it never was a count of anything; this is. It counts the engine's own
+ * `turn_completed` events -- the contract's single word for "this turn is over",
+ * whatever its status -- so a turn the person interrupted counts as a turn that
+ * ended, which is what it was.
+ *
+ * ZERO IS A TRUE ANSWER, not an unknown. The session is put in the map before
+ * the engine is asked to start it (mc-agent:start), and this listener is bound
+ * when the host is built, so every completion for a session this process holds
+ * passes through here. A session stopped before it answered genuinely completed
+ * none. (For a RESUMED thread this counts the turns of THIS run only; the turns
+ * an earlier run completed were that run's to record.)
+ *
+ * THE STATUS IS KEPT VERBATIM. codex says `completed`, the Claude CLI says
+ * `success`, the host says `failed` for a child that died mid-turn -- three
+ * words for two outcomes, and the two engines disagree on the first. Nothing
+ * here lower-cases, maps or normalises it (the usage record beside this does
+ * lower-case its copy, for its own reasons; this one does not). The recorder
+ * bounds it to a bare word and REFUSES anything else, and the reader translates. */
+function noteAgentTurnCompleted(session, packet) {
+  const event = packet && typeof packet === 'object' ? packet.event : null
+  if (!event || typeof event !== 'object' || event.type !== 'turn_completed') return
+  session.turnsCompleted = (Number.isSafeInteger(session.turnsCompleted) ? session.turnsCompleted : 0) + 1
+  session.lastTurnStatus = typeof event.status === 'string' && event.status.length > 0 ? event.status : null
 }
 
 function spawnRecordAvailability() {
@@ -1027,6 +1062,79 @@ function recordSpawnOutcome(request, receipt, result, reason) {
   }
 }
 
+/* HOW THE SESSION ENDED, recorded when it is known.
+ *
+ * THE LEDGER WROTE TWO LINES PER RUN AND NEVER A THIRD. The intent before the
+ * spawn; started/refused when the start resolved; and then nothing, ever, no
+ * matter how the session ended -- so the product could not truthfully show a
+ * finished state or a duration anywhere, and the home screen says so in as many
+ * words. This is the third record. It is a SEPARATE line, for the same reason
+ * the outcome is: the chain is append-only, and `end.resolves` names the start
+ * it ends explicitly rather than by adjacency.
+ *
+ * WHERE THE ENDINGS ARE OBSERVABLE, VERIFIED AGAINST THE CODE RATHER THAN
+ * ASSUMED, and each one hooked where it is:
+ *
+ *   closed        mc-agent:close, AFTER agentHost.closeSession() resolves. A
+ *                 close that rejects leaves the session in the map and this
+ *                 record unwritten, because the process may still be alive.
+ *   exited        the host's onSessionExit report (shell/agent-host.cjs
+ *                 observeEngineExit), which is the ONLY place the child's own
+ *                 exit is visible shell-side: neither adapter emits an event
+ *                 for it, and this file had no view of it at all before that
+ *                 hook existed. The host reports it only for a session it did
+ *                 not close itself.
+ *   app-shutdown  best-effort, on the two orderly ways out: the window's owner
+ *                 being destroyed (bindAgentOwner) and before-quit. Written
+ *                 synchronously before the session leaves the map, so an
+ *                 orderly quit usually lands it. A quit that does not -- a hard
+ *                 kill, a crash, a power cut -- leaves NO end record, and that
+ *                 absence must keep reading as "this record does not say".
+ *                 NOTHING backfills it on the next launch: an ending this
+ *                 process did not observe is not this process's to assert.
+ *   crashed       in the recorder's closed set and written by NOTHING here.
+ *                 A truthful `crashed` needs evidence -- a start with no end
+ *                 AND a dead pid this app owns -- and this file records no pid.
+ *
+ * ONE END PER SESSION, ENFORCED HERE. The endings race: a stop from the
+ * interface kills the child, whose exit the host then suppresses because the
+ * close was requested -- but the owner-destroyed path and before-quit can both
+ * see the same session, and `ended` is what keeps a second line from being
+ * written for it. It is set BEFORE the write, so a write that throws leaves the
+ * session with no end record rather than with a later, different reason.
+ *
+ * NO DURATION, BY DESIGN. The start record and this one are two signed instants
+ * and the reader subtracts them; a span computed here would be a claim the chain
+ * cannot check, signed with an authority it has not earned.
+ *
+ * IT CANNOT FAIL ANYTHING. Same rule as recordSpawnOutcome: a session that has
+ * ended is not made un-ended by a note about it failing to save. Every failure
+ * is swallowed and the run is left with no end record, which the reader shows
+ * as an ending it does not know -- never as still running, never as finished. */
+function recordSessionEnd(session, sessionId, reason) {
+  if (!session || session.ended === true) return
+  /* Only a session whose start was recorded as `started` has a start to
+     resolve. A refused start never ran, and its cleanup is not an ending. */
+  if (!session.started || !Number.isSafeInteger(session.started.sequence)) return
+  session.ended = true
+  try {
+    getSpawnRecorder().record({
+      action: 'agent_session_end',
+      sessionId,
+      principal: accountPrincipal(),
+      details: {},
+      end: {
+        resolves: session.started.sequence,
+        reason,
+        turns: session.turnsCompleted,
+        lastTurnStatus: session.lastTurnStatus,
+      },
+    })
+  } catch {
+    /* Deliberately silent; see above. */
+  }
+}
+
 /* WHY THE DEFAULT CWD IS THE WORKSPACE AND NOT `__dirname/..`.
  *
  * This used to be `path.join(__dirname, '..')`. In a checkout that is the repo
@@ -1210,6 +1318,23 @@ function getAgentHost() {
        cost is a fact about this computer, not about whether a window is still
        open to look at it. */
     noteAgentTurnUsage(session, packet)
+    noteAgentTurnCompleted(session, packet)
+  })
+  /* THE CHILD'S OWN EXIT -- the second genuine ending, and the one this file
+     could not see until the host reported it. Recorded against the session
+     this process holds; the session is deliberately LEFT in the map, exactly
+     as the host leaves its own, so a stop the person presses afterwards still
+     resolves (and writes no second ending, see recordSessionEnd). */
+  host.onSessionExit((report) => {
+    const session = agentSessions.get(report.sessionId)
+    if (!session) return
+    if (!session.started) {
+      /* Died before the start was written down as started: remember it, and
+         let mc-agent:start record the ending once the start receipt exists. */
+      session.exitedBeforeStarted = true
+      return
+    }
+    recordSessionEnd(session, report.sessionId, 'exited')
   })
   agentHost = host
   return host
@@ -1469,7 +1594,10 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
      nothing needs unwinding -- which is why it comes first. */
   const record = recordSpawnIntent(request)
 
-  const session = { owner: event.sender, state: 'starting' }
+  /* `turnsCompleted` starts at ZERO, not undefined, because zero is the true
+     count for a session that is stopped before it ever answered, and the end
+     record must be able to say so rather than "unknown". */
+  const session = { owner: event.sender, state: 'starting', turnsCompleted: 0, lastTurnStatus: null, ended: false }
   agentSessions.set(request.sessionId, session)
   bindAgentOwner(event.sender)
   try {
@@ -1494,6 +1622,13 @@ ipcMain.handle('mc-agent:start', async (event, value) => {
     session.tier = typeof request.tier === 'string' ? request.tier : null
     session.account = typeof result.account === 'string' ? result.account : null
     recordSpawnOutcome(request, record, 'started', null)
+    /* THE START THIS SESSION'S ENDING WILL RESOLVE. Kept on the session object
+       so recordSessionEnd() can name it from any of the places a session ends,
+       and set only now -- after `started` is written -- because a refused start
+       has no run to end. If the child was already reported gone (see the
+       onSessionExit hook in getAgentHost), that ending is written here. */
+    session.started = { sequence: record.sequence }
+    if (session.exitedBeforeStarted === true) recordSessionEnd(session, request.sessionId, 'exited')
     /* The receipt travels back with the session so the surface can show that
        the start was recorded, rather than asserting it. */
     return { ...result, record: { sequence: record.sequence, eventHash: record.eventHash } }
@@ -1722,6 +1857,11 @@ ipcMain.handle('mc-agent:close', async (event, value) => {
     const request = parseAgentSessionCommand(value)
     const session = ownedAgentSession(event.sender, request.sessionId)
     const result = await agentHost.closeSession(request)
+    /* THE PERSON STOPPED IT -- the first genuine ending. Recorded once the
+       close has actually resolved (a close that rejects throws past this line
+       and leaves the session, and its record, exactly as they were), and
+       before the session leaves the map. */
+    recordSessionEnd(session, request.sessionId, 'closed')
     if (agentSessions.get(request.sessionId) === session) {
       agentSessions.delete(request.sessionId)
     }
@@ -3667,6 +3807,13 @@ app.on('before-quit', (event) => {
   if (agentShutdownPromise) return
 
   const host = agentHost
+  /* THE APP IS CLOSING -- best-effort, synchronous, before the map is emptied.
+     Each write is fsync'd, so on an orderly quit these usually land; a quit
+     that never reaches here (a hard kill, a crash) leaves no end record, and
+     that absence stays readable as "does not say". Nothing backfills it. */
+  for (const [sessionId, session] of agentSessions) {
+    recordSessionEnd(session, sessionId, 'app-shutdown')
+  }
   agentSessions.clear()
   agentShutdownPromise = host.closeAll()
     .catch(error => console.error('Failed to close all Codex sessions:', error))

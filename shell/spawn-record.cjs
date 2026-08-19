@@ -106,6 +106,20 @@ function canonicalJson(record) {
     if (fields.length === 7) fields.push(null)
     fields.push(record.usage)
   }
+  /* THE TENTH FIELD: HOW A SESSION ENDED. Added the same way and for the same
+   * reason as the ninth, and it earns its position the same way: the outcome
+   * slot AND the usage slot are stated as absent before it, so ten fields means
+   * exactly one thing -- an ending, with neither of the other two present. A
+   * record can never carry an ending in the eighth or ninth position, because
+   * the writer only ever assigns `end` on a record with no outcome and no usage,
+   * and the count says which is which regardless.
+   *
+   * OLD RECORDS ARE STILL LEFT ALONE. No line ever written carries this field,
+   * so no line on disk changes shape or hash. */
+  if (record.end !== undefined && record.end !== null) {
+    while (fields.length < 9) fields.push(null)
+    fields.push(record.end)
+  }
   return JSON.stringify(fields)
 }
 
@@ -253,6 +267,84 @@ function boundedUsage(usage) {
 function readableUsage(value) {
   try {
     return boundedUsage(value) || null
+  } catch {
+    return null
+  }
+}
+
+/* HOW A SESSION ENDED, in a shape that -- like `outcome` and `usage` and unlike
+ * `details` -- can never carry a path.
+ *
+ * THE DEFECT THIS EXISTS TO CLOSE. This ledger wrote exactly two lines per run:
+ * the intent before the spawn, and `started`/`refused` when the start resolved.
+ * No line was ever written when a session ENDED, so the product could not
+ * truthfully show a finished state or a duration anywhere, and the home screen
+ * says so in as many words. This is the third record: `agent_session_end`,
+ * joined to its start by `resolves` exactly as the outcome record is, so a
+ * reader that already joins outcomes needs no new mechanism.
+ *
+ * `reason` IS A CLOSED SET, and the four words are the four endings the shell
+ * can genuinely observe or attempt:
+ *   closed        the person stopped it (mc-agent:close resolved)
+ *   exited        the engine's child process went away on its own
+ *   app-shutdown  the app was closing and tried to say so on the way down
+ *   crashed       reserved for a writer with real evidence (a start with no end
+ *                 AND a dead pid this app owns); NOTHING WRITES IT TONIGHT, and
+ *                 nothing may write it from inference. It is in the set so the
+ *                 vocabulary is fixed before such a writer exists.
+ *
+ * `turns` IS WHAT THE SHELL OBSERVED, NOT A GUESS: the number of the engine's
+ * own `turn_completed` events that crossed the main process for this session in
+ * this run. Null means "not known"; zero means none was seen, which is a true
+ * statement about a session that was started and stopped before it answered.
+ *
+ * `lastTurnStatus` IS THE PROVIDER'S WORD, VERBATIM. codex says `completed`,
+ * the Claude CLI says `success`, the host's own word for a child that died
+ * mid-turn is `failed` (src/agent-session-events.js measured all three). The
+ * writer never lower-cases, never maps and never normalises it; the reader
+ * translates. It is bounded to a bare word so it can never carry a path, and a
+ * value outside that shape is REFUSED rather than written -- the same rule
+ * `outcome.reason` and `usage.status` keep. Null means no turn ever ended.
+ *
+ * WHAT IT MUST NEVER CARRY: A DURATION. The start record and the end record are
+ * two signed instants; a reader subtracts them and the chain vouches for both.
+ * A span computed by the shell would be a claim the chain cannot check, and
+ * signing it would lend it an authority it has not earned. There is no field for
+ * it here, and a caller that passes one is not given one. */
+const END_REASONS = Object.freeze(['closed', 'exited', 'app-shutdown', 'crashed'])
+const END_STATUS_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+
+function boundedEnd(end) {
+  if (end === undefined || end === null) return undefined
+  if (typeof end !== 'object' || Array.isArray(end)) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_END', 'Record end must be a plain object')
+  }
+  if (!Number.isSafeInteger(end.resolves) || end.resolves < 1) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_END', 'Record end.resolves must be the sequence of the start it ends')
+  }
+  if (!END_REASONS.includes(end.reason)) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_END', 'Record end.reason must be one of closed, exited, app-shutdown, crashed')
+  }
+  const turns = end.turns === undefined || end.turns === null ? null : end.turns
+  if (turns !== null && (!Number.isSafeInteger(turns) || turns < 0)) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_END', 'Record end.turns must be a non-negative whole number or null')
+  }
+  const lastTurnStatus = end.lastTurnStatus === undefined || end.lastTurnStatus === null ? null : end.lastTurnStatus
+  if (lastTurnStatus !== null && (typeof lastTurnStatus !== 'string' || !END_STATUS_PATTERN.test(lastTurnStatus))) {
+    throw new SpawnRecordError('SPAWN_RECORD_INVALID_END', 'Record end.lastTurnStatus must be a bare word or null')
+  }
+  /* Fixed key order, for the same reason canonicalJson fixes its own: the hash
+     commits to the serialisation. And ONLY these four keys, whatever else the
+     caller passed -- a duration handed in here is dropped, not signed. */
+  return { resolves: end.resolves, reason: end.reason, turns, lastTurnStatus }
+}
+
+/* Bytes rather than a caller, null rather than a throw: history() must never
+   throw, and a malformed ending degrades to "this record does not say" -- which
+   is exactly what a run with NO end record already reads as. */
+function readableEnd(value) {
+  try {
+    return boundedEnd(value) || null
   } catch {
     return null
   }
@@ -445,7 +537,7 @@ function createSpawnRecorder({ safeStorage, directory, ledgerFile = LEDGER_FILE,
     }
   }
 
-  function record({ action, sessionId, principal = null, details, outcome, usage } = {}) {
+  function record({ action, sessionId, principal = null, details, outcome, usage, end } = {}) {
     if (typeof action !== 'string' || action.length === 0 || action.length > 128) {
       throw new SpawnRecordError('SPAWN_RECORD_INVALID_ACTION', 'action must be a bounded non-empty string')
     }
@@ -484,6 +576,11 @@ function createSpawnRecorder({ safeStorage, directory, ledgerFile = LEDGER_FILE,
        canonicalJson branches on the property. */
     const recordedUsage = boundedUsage(usage)
     if (recordedUsage !== undefined) entry.usage = recordedUsage
+    /* And the ending, assigned the same way. Absent means absent: a record with
+       no `end` key is one that does not say how -- or whether -- the session
+       ended, and every reader must keep reading it that way. */
+    const recordedEnd = boundedEnd(end)
+    if (recordedEnd !== undefined) entry.end = recordedEnd
     const eventHash = sha256Hex(canonicalJson(entry))
     const signature = crypto.sign(null, Buffer.from(eventHash, 'hex'), key).toString('base64')
     const line = JSON.stringify({ ...entry, eventHash, signature }) + '\n'
@@ -787,6 +884,13 @@ function createSpawnRecorder({ safeStorage, directory, ledgerFile = LEDGER_FILE,
            that this field cannot carry a path even then. It is null on every
            record in the run ledger, which has never carried one. */
         usage: readableUsage(parsed.usage),
+        /* HOW THE SESSION ENDED, if a record says. Re-validated on the way out
+           for the same reason as the two fields above it. It is null on every
+           record that is not an `agent_session_end`, and null on an end record
+           whose bytes are not the admitted shape -- which reads downstream as
+           "this record does not say", the same answer a run with no end record
+           at all gives. NEVER as finished, and never as still running. */
+        end: readableEnd(parsed.end),
         /* WHOSE RUN THIS WAS. Added so a screen can show a person their OWN
            history instead of everybody's -- until this field crossed, the page
            had the records and no way to tell which of them were the signed-in
@@ -861,4 +965,4 @@ const RECORD_AVAILABILITY_CODES = Object.freeze([
   'SPAWN_RECORD_UNAVAILABLE',
 ])
 
-module.exports = { createSpawnRecorder, SpawnRecordError, GENESIS, RECORD_AVAILABILITY_CODES }
+module.exports = { createSpawnRecorder, SpawnRecordError, GENESIS, RECORD_AVAILABILITY_CODES, END_REASONS }
