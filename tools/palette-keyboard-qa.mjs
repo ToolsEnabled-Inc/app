@@ -187,14 +187,91 @@ const NODES = [
   },
 ]
 
+/* WHAT THE RAIL WAS SHOWING WHEN THE DOOR WAS NOT THERE. `press` says
+   'hidden' whenever the button's computed style says so, and visibility is
+   INHERITED: every rail page except the active one is `visibility: hidden`
+   (src/tree-graph.css .rail-page), so a button inside an inactive controls
+   page reports 'hidden' even though nothing hid the button itself. This
+   names the page that WAS active, so a red says which surface the product
+   was on instead of leaving the reader to guess. */
+async function doorDiagnostics(window, nodeId = null) {
+  const diag = await window.evaluate(`(() => {
+    const btn = document.querySelector('[data-rail-chat-host] [data-chat-actions]')
+    const s = btn ? getComputedStyle(btn) : null
+    const active = document.querySelector('.computers .rail-page.is-active')
+    const title = active ? (active.querySelector('.rail-title')?.textContent || '').trim() : null
+    const body = btn ? btn.closest('[data-rail-body]') : null
+    return {
+      btnExists: !!btn,
+      btn: s ? { display: s.display, visibility: s.visibility, opacity: s.opacity } : null,
+      activeRailPage: active ? active.className : 'none',
+      activeRailTitle: title,
+      chatBodyHidden: body ? body.hidden === true : null,
+      tabOn: document.querySelector('[data-rail-tab].on')?.dataset.railTab || null,
+      selected: window.__mcGraph?.selectedId ?? null,
+      statusChip: ${JSON.stringify(nodeId)} ? (document.querySelector('.node[data-agent-id="' + ${JSON.stringify(nodeId)} + '"] .node-role')?.textContent || '').trim() : null,
+    }
+  })()`)
+  return JSON.stringify(diag)
+}
+
+/* THE DOOR, PRESSED THE WAY A PERSON PRESSES IT -- including pressing the
+ * circle again when the product changes the page underneath the gesture.
+ *
+ * MEASURED, 2026-08-19, with the diagnostics above, on BOTH sides of the
+ * re-cut window: the fleet projection re-apply path ends in showStats()
+ * (src/views/computers.js), and when a re-read lands between this driver's
+ * circle press and its door press -- which the record written by the agent
+ * start makes likely, and machine load decides -- the rail is back on
+ * "Fleet overview", every inactive rail page is visibility:hidden
+ * (src/tree-graph.css), and the door reports hidden for the full wait.
+ * Signature, verbatim from a red run at tree a3e9f85 (the previously GREEN
+ * confirming tree) and again at 0485034: activeRailPage="rail-page
+ * stats-page is-active", btn.visibility="hidden", the node still selected.
+ * One race, two trees, red on whichever side the machine was busier for --
+ * that is the weather, not the product's delta.
+ *
+ * SO THE INSTRUMENT DOES WHAT A PERSON DOES: sees the overview, presses the
+ * agent's circle again, and goes back through the door. Same policy this
+ * driver already applies to the SAME lifecycle event when it closes the
+ * popup (the reopen path below). The flip itself stays in the output as an
+ * info line -- absorbed silently it would stop being a finding. ANY OTHER
+ * hidden door -- controls page active but the button dark, the button gone --
+ * still fails here, with the diagnostics naming what was on the glass. */
+async function pressActionsDoor(window, circleSelector) {
+  let flips = 0
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const door = await press(window, '[data-rail-chat-host] [data-chat-actions]')
+    if (door.pressed) return { pressed: true, flips }
+    const diag = await window.evaluate(`(() => {
+      const btn = document.querySelector('[data-rail-chat-host] [data-chat-actions]')
+      const s = btn ? getComputedStyle(btn) : null
+      const active = document.querySelector('.computers .rail-page.is-active')
+      return {
+        overview: Boolean(active && active.classList.contains('stats-page')),
+        doorParked: Boolean(btn && s && s.display !== 'none' && s.visibility === 'hidden'),
+      }
+    })()`)
+    if (!(diag && diag.overview && diag.doorParked)) {
+      return { pressed: false, why: door.why, flips }
+    }
+    flips += 1
+    const circle = await press(window, circleSelector)
+    if (!circle.pressed) return { pressed: false, why: `the circle was not pressable on re-entry (${circle.why})`, flips }
+    await delay(900)
+  }
+  return { pressed: false, why: 'the rail kept leaving for the overview', flips }
+}
+
 async function openPaletteOn(window, nodeKey) {
   await key(window, 'Escape', KEYS.Escape)
   await delay(500)
   const circle = await press(window, `.node[data-agent-id="node-palette-${nodeKey}"]`)
   if (!circle.pressed) return { ok: false, why: `the circle was not pressable (${circle.why})` }
   await delay(900)
-  const door = await press(window, '[data-rail-chat-host] [data-chat-actions]')
+  const door = await pressActionsDoor(window, `.node[data-agent-id="node-palette-${nodeKey}"]`)
   if (!door.pressed) return { ok: false, why: `the actions button was not pressable (${door.why})` }
+  if (door.flips > 0) note('info', `the fleet re-read took the rail back to the overview mid-gesture (showStats on projection apply); pressed the circle again the way a person would (${door.flips}x)`)
   await delay(400)
   const state = readOrThrow(await window.evaluate(READ_POP), 'the popup')
   return state.open ? { ok: true, state } : { ok: false, why: 'the popup did not open' }
@@ -439,8 +516,12 @@ async function liveRun() {
     let state = null
     let lost = 0
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const door = await press(window, '[data-rail-chat-host] [data-chat-actions]')
-      if (!door.pressed) { note('FAIL', `HARNESS STATE: the actions button was not pressable (${door.why})`); return }
+      const door = await pressActionsDoor(window, `.node[data-agent-id="${nodeId}"]`)
+      if (!door.pressed) {
+        note('FAIL', `HARNESS STATE: the actions button was not pressable (${door.why}) :: ${await doorDiagnostics(window, nodeId)}`)
+        return
+      }
+      if (door.flips > 0) note('info', `the fleet re-read took the rail back to the overview mid-gesture (showStats on projection apply); pressed the circle again the way a person would (${door.flips}x)`)
       await delay(700)
       state = readOrThrow(await window.evaluate(READ_POP), 'the live popup')
       if (state.open) break
@@ -473,8 +554,9 @@ async function liveRun() {
     state = readOrThrow(await window.evaluate(READ_POP), 'the popup before the queue step')
     if (!state.open) {
       note('info', 'the rail rebuilt itself on a session event and took the popup with it (src/views/computers.js:5704/:5720); reopened to continue the keyboard measurement')
-      const again = await press(window, '[data-rail-chat-host] [data-chat-actions]')
-      if (!again.pressed) { note('FAIL', `HARNESS STATE: the actions button was not pressable on reopen (${again.why})`); return }
+      const again = await pressActionsDoor(window, `.node[data-agent-id="${nodeId}"]`)
+      if (!again.pressed) { note('FAIL', `HARNESS STATE: the actions button was not pressable on reopen (${again.why}) :: ${await doorDiagnostics(window, nodeId)}`); return }
+      if (again.flips > 0) note('info', `the fleet re-read took the rail back to the overview mid-gesture (showStats on projection apply); pressed the circle again the way a person would (${again.flips}x)`)
       await delay(400)
     }
     await window.session.send('Input.insertText', { text: 'queue' })
