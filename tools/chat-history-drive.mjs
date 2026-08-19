@@ -344,8 +344,8 @@ const surfaceOf = seen => (seen && (seen.rail || seen.card)) || null
    that need a session this window really owns -- which is every scenario that
    measures a SAVE, because persistTranscript only knows the sessions this
    window started. */
-async function startAgentFromCanvas(window, brief) {
-  const doorway = await press(window, '.computers .tree-empty-node')
+async function startAgentFromCanvas(window, brief, { slot = '.computers .tree-empty-node' } = {}) {
+  const doorway = await press(window, slot)
   if (!doorway.pressed) return { ok: false, why: `the dashed circle could not be pressed (${doorway.why})` }
   await delay(2200)
   const offered = readOrThrow(await window.evaluate(`(() => {
@@ -817,7 +817,295 @@ async function scenarioD(executable, scratch, appRoot) {
   }
 }
 
+/* ------------------------------------------------ the tree-switch pair -- */
+
+/* TWO TREES IN ONE RECORD, each with its own root. The tree switcher only
+   exists on a computer holding two or more, so this is the record that makes
+   the gesture under measurement reachable at all. */
+function twoTreeRecord(computerId, first, second) {
+  const stamp = new Date().toISOString()
+  const asNode = (held, treeId) => ({
+    id: held.id, treeId, parentId: null, role: 'coordinator',
+    message: held.message, status: held.status, statusNote: '',
+    reply: held.reply || '', tier: held.tier || 'luna', sessionId: held.sessionId,
+    createdAt: stamp, updatedAt: stamp,
+  })
+  return {
+    version: 1,
+    computerId,
+    trees: [
+      { id: 'tree-1', name: 'Alpha', createdAt: stamp, updatedAt: stamp, profileId: null },
+      { id: 'tree-2', name: 'Beta', createdAt: stamp, updatedAt: stamp, profileId: null },
+    ],
+    nodes: [asNode(first, 'tree-1'), asNode(second, 'tree-2')],
+  }
+}
+
+async function seedTwoTrees(window, computerId, { first, second, transcripts }) {
+  const wroteTrees = await setItem(window, treesKey(computerId), twoTreeRecord(computerId, first, second))
+  const wroteStore = await setItem(window, storeKey(computerId), transcripts)
+  if (!wroteTrees.ok) throw new Error(`the tree record could not be seeded: ${wroteTrees.why}`)
+  if (!wroteStore.ok) throw new Error(`the conversation record could not be seeded: ${wroteStore.why}`)
+  await window.evaluate('location.reload()')
+  await delay(4200)
+}
+
+const READ_TREE_SWITCH = `(() => {
+  const buttons = [...document.querySelectorAll('.graph-tree-switch button')]
+  return {
+    buttons: buttons.map(b => ({ text: (b.textContent || '').trim(), on: b.classList.contains('on') })),
+    circles: [...document.querySelectorAll('.node[data-agent-id]')].filter(n => !n.hidden).map(n => n.dataset.agentId),
+  }
+})()`
+
+/* Press the tree button by its LABEL, read off the switcher rather than assumed:
+   the label is derived (name, else the first message, else "Tree N"). */
+async function pressTree(window, label) {
+  const found = readOrThrow(await window.evaluate(`(() => {
+    const buttons = [...document.querySelectorAll('.graph-tree-switch button')]
+    const at = buttons.findIndex(b => (b.textContent || '').trim() === ${JSON.stringify(label)})
+    return { at, labels: buttons.map(b => (b.textContent || '').trim()) }
+  })()`), 'the tree switcher')
+  if (found.at < 0) return { pressed: false, why: `no tree button reads ${JSON.stringify(label)}; offered ${found.labels.join(' | ')}` }
+  const pressed = await press(window, `.graph-tree-switch button:nth-of-type(${found.at + 1})`)
+  await delay(900)
+  return pressed
+}
+
+/* E -- SWITCH TREES AND COME BACK, WITH A SAVED CONVERSATION OPEN.
+ *
+ * Owner item 6 named the tree-switch transition as one of the suspected ways a
+ * conversation was lost. Two trees, one with a six-line saved conversation, one
+ * with two lines. Open the first, switch away, open the other, switch back,
+ * reopen: every line must still be there and the record untouched. */
+async function scenarioE(executable, scratch, appRoot) {
+  console.log('\nE. switch trees and come back, with a saved conversation open')
+  const profile = freshProfile(scratch)
+  seedMachineRecord(profile, appRoot)
+  const window = await openWindow(executable, profile)
+  try {
+    const computerId = await computerOnScreen(window)
+    if (!computerId) { note('FAIL', 'the computers page never named a computer'); return }
+    const alphaLines = [
+      { who: 'you', text: 'alpha ask one', at: 1 }, { who: 'agent', text: 'alpha answer one', at: 2 },
+      { who: 'you', text: 'alpha ask two', at: 3 }, { who: 'agent', text: 'alpha answer two', at: 4 },
+      { who: 'you', text: 'alpha ask three', at: 5 }, { who: 'agent', text: 'alpha answer three', at: 6 },
+    ]
+    const betaLines = [{ who: 'you', text: 'beta ask', at: 1 }, { who: 'agent', text: 'beta answer', at: 2 }]
+    await seedTwoTrees(window, computerId, {
+      first: node({ id: 'node-a', sessionId: 'sess-a', status: 'finished', message: 'alpha ask one', reply: 'alpha answer three' }),
+      second: node({ id: 'node-b', sessionId: 'sess-b', status: 'finished', message: 'beta ask', reply: 'beta answer' }),
+      transcripts: { v: 1, nodes: {
+        'node-a': { savedAt: 1_700_000_000_000, threadId: 'thread-a', effort: 'medium', trimmed: 0, lines: alphaLines },
+        'node-b': { savedAt: 1_700_000_000_001, threadId: 'thread-b', effort: 'medium', trimmed: 0, lines: betaLines },
+      } },
+    })
+    const start = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'the tree switcher')
+    check(start.buttons.length === 3, 'two trees put a switcher on the page', `buttons: ${start.buttons.map(b => b.text).join(' | ')}; circles ${start.circles.join(',')}`)
+    if (start.buttons.length !== 3) return
+    const before = readOrThrow(await window.evaluate(READ_STORE(computerId)), 'the record before')
+
+    /* Alpha first, chat open. */
+    const alpha = await pressTree(window, 'Alpha')
+    if (!alpha.pressed) { note('FAIL', `Alpha could not be pressed (${alpha.why})`); return }
+    let seen = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'after Alpha')
+    check(seen.circles.includes('node-a') && !seen.circles.includes('node-b'), 'Alpha shows its own node and not Beta', seen.circles.join(','))
+    let bubble = await press(window, '.node[data-agent-id="node-a"]')
+    if (!bubble.pressed) { note('FAIL', `node-a could not be pressed (${bubble.why})`); return }
+    let chat = surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})('node-a')`), 'alpha chat'))
+    check(Boolean(chat) && chat.messages.length === 6, 'the six-line conversation opens whole', chat ? `${chat.messages.length}: ${chat.messages.map(m => m.text).join(' | ')}` : 'no chat')
+
+    /* Away to Beta, with Alpha's chat still mounted in the rail. */
+    const beta = await pressTree(window, 'Beta')
+    if (!beta.pressed) { note('FAIL', `Beta could not be pressed (${beta.why})`); return }
+    seen = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'after Beta')
+    check(seen.circles.includes('node-b') && !seen.circles.includes('node-a'), 'Beta shows its own node and not Alpha', seen.circles.join(','))
+    const railAfterSwitch = readOrThrow(await window.evaluate(`(() => {
+      const host = document.querySelector('[data-rail-chat-host] .chat')
+      return { railChat: Boolean(host), messages: host ? host.querySelectorAll('.msg').length : 0, railOpen: Boolean(document.querySelector('.ctl-page.is-active')) }
+    })()`), 'the rail after the switch')
+    note('INFO', `after switching away the rail ${railAfterSwitch.railChat ? `still shows a chat with ${railAfterSwitch.messages} messages` : 'shows no chat'} (rail open: ${railAfterSwitch.railOpen})`)
+    bubble = await press(window, '.node[data-agent-id="node-b"]')
+    if (!bubble.pressed) { note('FAIL', `node-b could not be pressed (${bubble.why})`); return }
+    chat = surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})('node-b')`), 'beta chat'))
+    check(Boolean(chat) && chat.messages.length === 2 && chat.messages.every(m => m.text.startsWith('beta')), 'Beta opens its own two lines and none of Alpha', chat ? chat.messages.map(m => m.text).join(' | ') : 'no chat')
+
+    /* Back to Alpha, reopen. */
+    const back = await pressTree(window, 'Alpha')
+    if (!back.pressed) { note('FAIL', `Alpha could not be pressed again (${back.why})`); return }
+    bubble = await press(window, '.node[data-agent-id="node-a"]')
+    if (!bubble.pressed) { note('FAIL', `node-a could not be pressed after the round trip (${bubble.why})`); return }
+    chat = surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})('node-a')`), 'alpha chat again'))
+    const texts = chat ? chat.messages.map(m => m.text) : []
+    check(
+      texts.length === 6 && alphaLines.every((line, i) => texts[i] === line.text),
+      'after switching away and back, all six lines are there in order',
+      texts.join(' | ') || 'no chat',
+    )
+    /* And "Every tree" -- both visible, Alpha still whole. */
+    const every = await pressTree(window, 'Every tree')
+    if (every.pressed) {
+      seen = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'after Every tree')
+      check(seen.circles.includes('node-a') && seen.circles.includes('node-b'), '"Every tree" shows both', seen.circles.join(','))
+      bubble = await press(window, '.node[data-agent-id="node-a"]')
+      chat = bubble.pressed ? surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})('node-a')`), 'alpha under every tree')) : null
+      check(Boolean(chat) && chat.messages.length === 6, 'Alpha is whole under "Every tree" too', chat ? `${chat.messages.length} lines` : 'no chat')
+    }
+    const after = readOrThrow(await window.evaluate(READ_STORE(computerId)), 'the record after')
+    check(
+      after.records === 2 && after.lines['node-a'] === 6 && after.lines['node-b'] === 2
+        && after.savedAt['node-a'] === before.savedAt['node-a'] && after.savedAt['node-b'] === before.savedAt['node-b'],
+      'the record is untouched by any of it',
+      `records=${after.records}, lines a=${after.lines['node-a']} b=${after.lines['node-b']}, savedAt unchanged=${after.savedAt['node-a'] === before.savedAt['node-a']}`,
+    )
+  } finally {
+    await closeWindow(window)
+    reap(window.timeline.pid)
+    assertIsolated(profile)
+  }
+}
+
+/* F -- SWITCH TREES WHILE A TURN IS STREAMING, THEN BACK.
+ *
+ * The live accumulator belongs to a session, and the session to a node; a tree
+ * switch mid-turn changes what is on the canvas and may rebuild the rail onto a
+ * different node's chat. The words must land under the node that spoke them and
+ * nowhere else, and be there when that node's chat is reopened. */
+async function scenarioF(executable, scratch, appRoot) {
+  console.log('\nF. switch trees while a turn is streaming, then back')
+  const profile = freshProfile(scratch)
+  seedMachineRecord(profile, appRoot)
+  const window = await openWindow(executable, profile)
+  try {
+    const computerId = await computerOnScreen(window)
+    if (!computerId) { note('FAIL', 'the computers page never named a computer'); return }
+    const reachable = readOrThrow(
+      await window.evaluate('(async () => { try { return await window.mcAgent.availability() } catch (error) { return { ok: false, code: String(error && error.message) } } })()'),
+      'the agent availability probe',
+    )
+    if (!reachable || reachable.ok !== true) { note('SKIP', `no engine reachable (${reachable && reachable.code})`); return }
+
+    /* One seeded tree, Beta, with a saved two-line conversation on its node. The
+       streaming agent is started in a NEW tree from the new-tree slot, so the
+       switch really crosses trees. */
+    const betaLines = [{ who: 'you', text: 'beta ask', at: 1 }, { who: 'agent', text: 'beta answer', at: 2 }]
+    const drawn = await seedRecords(window, computerId, {
+      nodes: [node({ id: 'node-b', sessionId: 'sess-b', status: 'finished', message: 'beta ask', reply: 'beta answer' })],
+      transcripts: { v: 1, nodes: { 'node-b': { savedAt: 1_700_000_000_001, threadId: 'thread-b', effort: 'medium', trimmed: 0, lines: betaLines } } },
+    })
+    if (!drawn.includes('node-b')) { note('FAIL', `Beta never reached the canvas (${drawn.join(',')})`); return }
+    const treesBefore = readOrThrow(await window.evaluate("(() => [...document.querySelectorAll('.node[data-agent-id]')].map(n => n.dataset.agentId))()"), 'the canvas')
+
+    /* Start in a NEW tree from the new-tree slot, so the switch really crosses
+       trees, and let that first turn finish. The streaming turn under
+       measurement is a SECOND one, sent from the message box, because that
+       gives an exact moment the words start arriving: the switch below lands
+       about a second and a half into a four-second turn. */
+    const started = await startAgentFromCanvas(window, 'Check the tests and read one file.', { slot: '.tree-empty-node[data-empty-kind="new-tree"]' })
+    if (!started.ok) { note('FAIL', started.why); return }
+    const nodeX = started.nodeId
+    const sw = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'the switcher after start')
+    note('INFO', `started ${nodeX} in a new tree; switcher: ${sw.buttons.map(b => b.text).join(' | ')}`)
+    const betaLabel = sw.buttons.map(b => b.text).find(text => text !== 'Every tree' && !/Check the tests/.test(text)) || null
+    const newLabel = sw.buttons.map(b => b.text).find(text => /Check the tests/.test(text)) || null
+    if (!betaLabel || !newLabel) { note('FAIL', `could not tell the trees apart: ${sw.buttons.map(b => b.text).join(' | ')}`); return }
+    const firstTurn = readOrThrow(await window.evaluate(READ_STORE(computerId)), 'the record after the first turn')
+    const linesAfterFirst = firstTurn.lines ? firstTurn.lines[nodeX] : 0
+    note('INFO', `after the first turn ${nodeX} has ${linesAfterFirst} saved lines (${firstTurn.kinds ? firstTurn.kinds[nodeX] : ''})`)
+
+    const bx0 = await press(window, `.node[data-agent-id="${nodeX}"]`)
+    if (!bx0.pressed) { note('FAIL', `${nodeX} could not be pressed (${bx0.why})`); return }
+    const typed = await typeInto(window, '[data-rail-chat-host] .chat-input input', 'do that again')
+    if (!typed.pressed) { note('FAIL', `the message box could not be pressed (${typed.why})`); return }
+    const startedAt = Date.now()
+    await key(window, 'Enter', 13)
+
+    /* SWITCH AWAY MID-TURN, and open the other node's chat while it streams. */
+    const away = await pressTree(window, betaLabel)
+    note('INFO', `switched to ${JSON.stringify(betaLabel)} at +${Date.now() - startedAt}ms (${away.pressed ? 'pressed' : away.why})`)
+    if (!away.pressed) return
+    let seen = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'after the switch')
+    check(seen.circles.includes('node-b') && !seen.circles.includes(nodeX), 'the streaming node left the canvas with its tree', seen.circles.join(','))
+    /* PROOF THE TURN WAS STILL IN FLIGHT when the switch landed: the record
+       cannot yet hold the second turn's answer, because that is filed only on
+       completion. Without this line "mid-turn" would be a claim about timing
+       rather than an observation. */
+    const inFlight = readOrThrow(await window.evaluate(READ_STORE(computerId)), 'the record at the switch')
+    const linesAtSwitch = inFlight.lines ? inFlight.lines[nodeX] : 0
+    check(
+      linesAtSwitch === linesAfterFirst + 1,
+      'the switch landed while the second turn was still speaking',
+      `+${Date.now() - startedAt}ms after Enter: ${nodeX} has ${linesAtSwitch} saved lines (was ${linesAfterFirst}; the typed line is filed at once, the answer only on completion)`,
+    )
+    const bb = await press(window, '.node[data-agent-id="node-b"]')
+    if (!bb.pressed) { note('FAIL', `node-b could not be pressed (${bb.why})`); return }
+    await paintedFrame(window)
+    let betaChat = surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})('node-b')`), 'beta chat mid-turn'))
+    note('INFO', `Beta chat opened at +${Date.now() - startedAt}ms: ${betaChat ? `${betaChat.messages.length} messages, ${betaChat.actions.length} actions` : 'no chat'}`)
+    check(
+      Boolean(betaChat) && betaChat.messages.length === 2 && betaChat.actions.length === 0
+        && betaChat.messages.every(m => m.text.startsWith('beta')),
+      "the other node's chat carries none of the streaming turn",
+      betaChat ? `${betaChat.messages.map(m => m.text).join(' | ')}; ${betaChat.actions.length} actions` : 'no chat',
+    )
+    /* Let the turn finish while we are away. */
+    await delay(Math.max(0, 6500 - (Date.now() - startedAt)))
+    betaChat = surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})('node-b')`), 'beta chat after the turn'))
+    check(
+      Boolean(betaChat) && betaChat.messages.length === 2 && betaChat.actions.length === 0,
+      "after the turn ended away from its tree, the other node's chat is still only its own",
+      betaChat ? `${betaChat.messages.length} messages, ${betaChat.actions.length} actions` : 'no chat',
+    )
+    const stored = readOrThrow(await window.evaluate(READ_STORE(computerId)), 'the record after the turn')
+    check(
+      Boolean(stored.kinds && stored.kinds[nodeX]) && /agent/.test(stored.kinds[nodeX]) && /action/.test(stored.kinds[nodeX]),
+      "the turn's words and work were filed under the node that spoke them",
+      stored.kinds ? `${nodeX}: ${stored.kinds[nodeX]}` : 'no record',
+    )
+    check(
+      Boolean(stored.lines) && stored.lines['node-b'] === 2,
+      "and nothing landed under the other node's record",
+      stored.lines ? `node-b lines=${stored.lines['node-b']}` : 'no record',
+    )
+
+    /* BACK, and reopen the node that spoke. */
+    const home = await pressTree(window, newLabel)
+    if (!home.pressed) { note('FAIL', `could not switch back (${home.why})`); return }
+    seen = readOrThrow(await window.evaluate(READ_TREE_SWITCH), 'after switching back')
+    check(seen.circles.includes(nodeX), 'the streaming node is back on the canvas with its tree', seen.circles.join(','))
+    const bx = await press(window, `.node[data-agent-id="${nodeX}"]`)
+    if (!bx.pressed) { note('FAIL', `${nodeX} could not be pressed (${bx.why})`); return }
+    await paintedFrame(window)
+    const xChat = surfaceOf(readOrThrow(await window.evaluate(`(${READ_CHAT})(${JSON.stringify(nodeX)})`), 'the streaming node chat'))
+    const said = xChat ? xChat.messages.map(m => m.text) : []
+    check(
+      Boolean(xChat) && said.filter(t => /suite is green/.test(t)).length === 2 && said.some(t => t === 'do that again') && xChat.actions.length === 6,
+      "the node that spoke shows both turns' answers and work after the round trip",
+      xChat ? `${xChat.messages.length} messages, ${xChat.actions.length} actions; ${said.map(t => t.slice(0, 28)).join(' | ')}` : 'no chat',
+    )
+    check(
+      Boolean(xChat) && !said.some(t => /beta/.test(t)),
+      "and none of the other node's lines",
+      said.filter(t => /beta/.test(t)).join(' | ') || 'none',
+    )
+    const finalStore = readOrThrow(await window.evaluate(READ_STORE(computerId)), 'the record at the end')
+    note('INFO', `records: ${finalStore.ids.map(id => `${id}=${finalStore.kinds[id]}`).join(' ; ')}`)
+  } finally {
+    await closeWindow(window)
+    reap(window.timeline.pid)
+    assertIsolated(profile)
+  }
+}
+
 /* ----------------------------------------------------------------- main -- */
+
+/* --only=E,F runs a subset; the letters are the scenario names. */
+function pickScenarios(all) {
+  const only = (process.argv.find(a => a.startsWith('--only=')) || '').slice(7)
+  if (!only) return all
+  const wanted = new Set(only.split(',').map(s => s.trim().toUpperCase()))
+  return all.filter(fn => wanted.has(fn.name.replace('scenario', '').toUpperCase()))
+}
 
 async function main() {
   const scratch = mkdtempSync(path.join(tmpdir(), 'chat-history-drive-'))
@@ -833,7 +1121,7 @@ async function main() {
   try {
     const { executable, appRoot } = await stage(scratch)
     console.log(`staged: ${executable}`)
-    for (const scenario of [scenarioA, scenarioB, scenarioC, scenarioD]) {
+    for (const scenario of pickScenarios([scenarioA, scenarioB, scenarioC, scenarioD, scenarioE, scenarioF])) {
       try {
         await scenario(executable, scratch, appRoot)
       } catch (error) {
