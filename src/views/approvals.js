@@ -71,8 +71,15 @@ import {
 } from '../approval-outcomes.js'
 import { cartSummary } from '../purchase-cart-view.js'
 import { cartChanges, recordCartReading } from '../purchase-cart-changes.js'
+/* THE DEMONSTRATION FACE (the paid lane's finding, via legal, 2026-08-18):
+   every other landing view labels its own example data and this one labelled
+   nothing. Which face this screen wears, the words of the marking and the
+   example queue itself are all in one pure module, so the label here and the
+   labels on home, metrics and research cannot drift apart. */
+import { APPROVALS_EXAMPLE_MARKING, approvalsFace, exampleOwnerPrompts } from '../approvals-example.js'
 import '../ledger.css'
 import '../owner-popup.css'
+import '../approvals.css'
 
 // The modal polled at 750ms because it had to appear promptly over whatever
 // the owner was doing. A screen he is already looking at does not, and this
@@ -124,7 +131,11 @@ export function approvalsView() {
 
         <div class="ledger-toolbar">
           <p class="ledger-register-note" aria-live="polite"><span data-visible-count>Checking the queue…</span></p>
+          <!-- The demonstration's badge: home's exact words, warn-toned like
+               home's, hidden whenever this screen reads the live queue. -->
+          <span class="approvals-badge" data-approvals-badge hidden></span>
         </div>
+        <p class="approvals-source" data-approvals-source hidden></p>
 
         <!-- WHAT CHANGED, not just a new total. This screen re-reads the queue
              every two seconds and used to reconcile in silence, so the only
@@ -140,7 +151,16 @@ export function approvalsView() {
       </div>
     </main>`)
 
+  /* Which face this screen wears, decided once at mount the way home and
+     research decide theirs. The demonstration face polls nothing: there is no
+     bridge behind a demonstration, and a screen that asked anyway would paint
+     "service unavailable" over what is supposed to be a labelled example. */
+  const face = approvalsFace()
+  root.dataset.face = face
+
   const list = root.querySelector('.approvals-list')
+  const badge = root.querySelector('[data-approvals-badge]')
+  const sourceLine = root.querySelector('[data-approvals-source]')
   const waitingValue = root.querySelector('[data-summary="waiting"]')
   const purchasesValue = root.querySelector('[data-summary="purchases"]')
   const purchaseNote = root.querySelector('[data-purchase-note]')
@@ -410,6 +430,51 @@ export function approvalsView() {
       : 'Changes since you opened the program. This list starts again each time you open it.'
   }
 
+  /* THE DEMONSTRATION, PAINTED ONCE. Everything on it is marked: the badge
+     over the queue, the source line naming the way back to live data, and
+     every card saying in its own status line that it is an example. The cards
+     go through the same renderer as the real ones -- a demonstration of the
+     product should look like the product -- but their controls are switched
+     off and stay off: nothing here calls the audited connection, confirms a
+     presentation, files an outcome, or records a cart reading. Example data
+     must never leave a trace in a real store. */
+  function paintExample() {
+    const nowMs = Date.now()
+    const prompts = exampleOwnerPrompts(nowMs)
+    badge.hidden = false
+    badge.textContent = APPROVALS_EXAMPLE_MARKING.badge
+    sourceLine.hidden = false
+    sourceLine.textContent = APPROVALS_EXAMPLE_MARKING.source
+    waitingValue.textContent = String(prompts.length)
+    const total = pendingPurchaseTotal(prompts)
+    purchasesValue.textContent = total ? formatExactAmount(total.totalCents, total.currency) : '0'
+    purchaseNote.textContent = APPROVALS_EXAMPLE_MARKING.purchaseNote
+    countNote.textContent = APPROVALS_EXAMPLE_MARKING.queueNote
+    let summary = null
+    try { summary = cartSummary(prompts, nowMs) } catch { summary = null }
+    if (summary?.soonest) {
+      deadlineValue.textContent = summary.soonest.remainingDays === 0 ? 'Today' : `${summary.soonest.remainingDays}d`
+      deadlineNote.textContent = APPROVALS_EXAMPLE_MARKING.deadlineNote
+    } else {
+      deadlineValue.textContent = '—'
+      deadlineNote.textContent = APPROVALS_EXAMPLE_MARKING.deadlineNote
+    }
+    for (const prompt of prompts) {
+      const wrapper = document.createElement('div')
+      wrapper.className = 'approvals-card'
+      wrapper.dataset.promptId = prompt.id
+      wrapper.dataset.example = 'true'
+      const rendered = renderOwnerPrompt(document, prompt, {
+        dismiss() {},
+        submit() {},   // unreachable: the controls below never enable
+      }, { surface: 'screen' })
+      wrapper.append(rendered.dialog)
+      list.append(wrapper)
+      rendered.status.textContent = APPROVALS_EXAMPLE_MARKING.cardStatus
+      for (const control of rendered.gatedControls) control.disabled = true
+    }
+  }
+
   async function poll() {
     if (destroyed || polling) return
     polling = true
@@ -478,8 +543,12 @@ export function approvalsView() {
   })
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
-  void poll()
-  timer = setInterval(() => { void poll() }, POLL_MS)
+  if (face === 'demonstration') {
+    paintExample()
+  } else {
+    void poll()
+    timer = setInterval(() => { void poll() }, POLL_MS)
+  }
 
   return {
     el: root,
