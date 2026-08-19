@@ -539,7 +539,36 @@ async function liveRun() {
         `${JSON.stringify(label)} is on the menu and pressable over a running agent${row ? '' : ' -- THE ROW IS MISSING'}`)
     }
     const interrupt = state.rows.find(r => /^Interrupt/.test(r.label))
-    note(interrupt && !interrupt.disabled ? 'ok' : 'FAIL', 'Interrupt is pressable while the turn runs')
+    /* "WHILE THE TURN RUNS" IS A PREMISE, AND THE PREMISE CAN LAPSE. This read
+       lands seconds after Start -- more seconds when the rail-flip retry above
+       fired, or when the machine is churning under the whole suite -- and a
+       short turn (or one the provider refuses over quota) is OVER by then, the
+       store honestly says so, and Interrupt is honestly disabled. MEASURED
+       twice under a deterministic rail flip and once in the 2026-08-19
+       confirming suite: the row read disabled with the node's stored status
+       'finished' -- a completed turn, not a broken control. So a disabled row
+       is judged against the store: a turn still on record as running with
+       Interrupt dark is the product defect this check exists for and still
+       fails; a turn that genuinely ended before the read is named as harness
+       state, because nothing about the product was measured. */
+    if (interrupt && !interrupt.disabled) {
+      note('ok', 'Interrupt is pressable while the turn runs')
+    } else {
+      const storedStatus = await window.evaluate(`(() => {
+        const cid = window.__mcGraph?.computer?.id || null
+        try {
+          const rec = JSON.parse(localStorage.getItem('mc.fleet.trees.v1:' + cid) || 'null')
+          const node = rec && rec.nodes.find(n => n.id === ${JSON.stringify(nodeId)})
+          return node ? node.status : null
+        } catch { return null }
+      })()`)
+      const turnOver = storedStatus === 'finished' || storedStatus === 'turn-failed' || storedStatus === 'interrupted'
+      if (turnOver) {
+        note('info', `HARNESS STATE: the turn ended (stored status ${JSON.stringify(storedStatus)}) before this read, so Interrupt-while-running was not measured this run`)
+      } else {
+        note('FAIL', `Interrupt is pressable while the turn runs :: row=${JSON.stringify(interrupt || null)} storedStatus=${JSON.stringify(storedStatus)}`)
+      }
+    }
     await shoot(window, path.join(SHOTS, 'palette-live.png'))
 
     console.log('\n[B3] Enter on "Queue a message": the popup gets out of the way and the composer takes focus')
