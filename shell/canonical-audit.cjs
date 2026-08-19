@@ -116,7 +116,19 @@ function loadCanonicalAudit({ stateRoot, root = resolveCapabilityRoot(), load = 
 
 function canonicalAudit(options = {}) {
   if (options.load || options.root || options.fresh) return loadCanonicalAudit(options)
-  if (!cached) cached = loadCanonicalAudit(options)
+  if (!cached) {
+    const loaded = loadCanonicalAudit(options)
+    /* AUDIT_STATE_ROOT_INVALID is a statement about the CALLER, never about
+     * this installation's ledger, so it is answered but NOT cached. Measured
+     * on a packaged build 2026-08-18: one handler calling with no state root
+     * as the first ledger-touching act poisoned this cache for the process,
+     * and every correctly-addressed record after it -- settings, accounts,
+     * agent launches -- returned this failure while the ledger sat healthy on
+     * disk. Genuine load outcomes (a real open, a missing payload, a missing
+     * module) stay cached exactly as the comment above promises. */
+    if (loaded.ok === false && loaded.code === 'AUDIT_STATE_ROOT_INVALID') return loaded
+    cached = loaded
+  }
   return cached
 }
 

@@ -2894,11 +2894,17 @@ ipcMain.handle('mc-settings:set', (event, request) =>
     const value = request ? request.value : undefined
     const result = setProductSetting({ id, value })
     if (!result.ok) return result
-    const recorded = recordCanonicalIn('settings.set', id, {
+    /* The BOUND wrapper, never the raw import: the raw call carried no state
+     * root, was refused, and -- before canonical-audit.cjs stopped caching
+     * caller errors -- poisoned every later record in the process. */
+    const recorded = recordCanonical('settings.set', id, {
       value: result.value,
       revision: result.revision,
       provenance: result.provenance?.source ?? null,
     })
+    if (!recorded.ok) {
+      console.warn(`[settings] the change to "${id}" was applied but could not be written to the signed record: ${recorded.code ?? ''} ${recorded.reason ?? ''}`)
+    }
     return { ...result, recorded }
   }))
 
