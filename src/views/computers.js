@@ -2963,7 +2963,7 @@ export function computersView({ initialComputer = null, navigate }) {
         setOpenTarget(agent)
         showControls(agent)
       },
-      onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch() },
+      onRootChange: (next, trail) => { renderCrumb(next, trail); refreshTreeSwitch(); railFollowsCanvas(next) },
       onOverridesChange: syncResetButton,
       /* THE OFFER, AND ONLY WHERE IT CAN BE HONOURED. Empty nodes are drawn on
          the board that reads this computer and are absent from the example one,
@@ -4091,8 +4091,8 @@ export function computersView({ initialComputer = null, navigate }) {
              two halves of one exchange. -->
         <div class="board-box board-ctl-box">
           <div class="board-box-h"><span class="bh-t">What it is doing</span></div>
-          <div class="rail-prose">${escapeMarkup(treeNodeStatusWord(node))}</div>
-          ${node.statusNote ? `<div class="rail-prose is-dim">${escapeMarkup(node.statusNote)}</div>` : ''}
+          <div class="rail-prose" data-tree-status>${escapeMarkup(treeNodeStatusWord(node))}</div>
+          <div class="rail-prose is-dim" data-tree-status-note${node.statusNote ? '' : ' hidden'}>${escapeMarkup(node.statusNote || '')}</div>
           <div class="rail-prose is-dim" data-tree-activity${nodeActivity.get(node.id) ? '' : ' hidden'}>${escapeMarkup(nodeActivity.get(node.id) || '')}</div>
           ${node.sessionId ? `
           <div class="rail-prose is-dim" data-tree-usage${sessionUsage.has(node.sessionId) ? '' : ' hidden'}>${escapeMarkup(sessionUsage.has(node.sessionId) ? usageSentence(sessionUsage.get(node.sessionId)) : '')}</div>` : ''}
@@ -4373,6 +4373,85 @@ export function computersView({ initialComputer = null, navigate }) {
       }
     }
     activateRail(controlsPage)
+  }
+
+  /* A STATUS LANDING REPAINTS THE WORDS THAT CHANGED, NEVER THE WHOLE RAIL.
+   *
+   * THE DEFECT, measured twice on a live drive, 2026-08-18: a settling
+   * session's status re-called showTreeNodeControls, and that is an innerHTML
+   * rebuild -- it disposes the mounted chat, and buildChat's dispose closes an
+   * open actions popup. A person typing in the popup's filter lost the menu
+   * and their word mid-keystroke every time a turn ended or a queued message
+   * drained. The palette driver reopens and counts; a person just loses it.
+   *
+   * WHAT THOSE CALLERS ACTUALLY NEEDED, read from the rebuild they reached
+   * for. The re-calls predate iteration 6 (3887c93): the rail then rendered
+   * status and queue as static markup, so a rebuild was the only repaint.
+   * Today the composer's send-stop face and the queue strip subscribe through
+   * the chat config -- notifyNodeStatusListeners and SESSION_OUTBOX_EVENT --
+   * the canvas chip repaints through scheduleChipRefresh, and the popup's rows
+   * are rebuilt from the store at every open. What does NOT repaint itself is
+   * the static half of the Details tab: the status word, its note, the
+   * activity line, and the settled reply in the said box. So this updates
+   * exactly those hosts, in place, and the chat -- popup, filter text, cursor
+   * and all -- is never torn down by a status. */
+  function repaintRailStatus(node) {
+    currentRailTreeNode = node
+    const statusHost = controlsPage.querySelector('[data-tree-status]')
+    if (statusHost) statusHost.textContent = treeNodeStatusWord(node)
+    const noteHost = controlsPage.querySelector('[data-tree-status-note]')
+    if (noteHost) {
+      noteHost.textContent = node.statusNote || ''
+      noteHost.hidden = !node.statusNote
+    }
+    const activityHost = controlsPage.querySelector('[data-tree-activity]')
+    if (activityHost) {
+      const line = nodeActivity.get(node.id) || ''
+      activityHost.textContent = line
+      activityHost.hidden = !line
+    }
+    /* The said box is repainted only when it is settled: a live railSaid is
+       mid-write into this host and owns it until the completion flushes it. */
+    if (!railSaid) {
+      const saidHost = controlsPage.querySelector('[data-tree-said]')
+      const reply = nodeReplies.get(node.id)
+      if (saidHost && reply) saidHost.textContent = reply
+    }
+  }
+
+  /* THE RAIL FOLLOWS THE CANVAS ACROSS A TREE SWITCH.
+   *
+   * THE DEFECT, measured on a live drive, 2026-08-18: switch trees and the
+   * rail keeps showing the PREVIOUS tree's chat until another circle is
+   * pressed. onRootChange repainted the crumb and the switcher and never
+   * consulted what the rail was showing, so the two halves of the page told
+   * two different stories about which tree the person was in.
+   *
+   * WHICH TREE IS ON THE CANVAS: the graph's root is a node id, and that
+   * node's own record names its tree. A null root is "Every tree" -- every
+   * tree is on the canvas, so whatever the rail shows is still there and it
+   * stays. A re-root INSIDE the rail's own tree (a drill, a crumb press)
+   * keeps the rail too. Only when the rooted node belongs to a different
+   * tree -- or to no tree this store knows, which is what a fleet agent's
+   * subtree answers -- does the rail return to the overview, the conservative
+   * reading: the node it was showing cannot be on that canvas, and pressing
+   * its circle again reopens it whole.
+   *
+   * NOTHING HERE TOUCHES THE CONVERSATION. The chat stays mounted under the
+   * now-hidden page exactly as an ordinary Back press leaves it; transcripts,
+   * the turn accumulator and the open stream belong to the session layer and
+   * are neither read nor written on this path. tools/chat-history-drive.mjs
+   * scenarios E and F hold that shut, and
+   * tools/test/rail-follows-canvas.test.mjs refuses any such reference in
+   * this function's body. */
+  function railFollowsCanvas(rootId) {
+    if (!rootId || !currentRailTreeNode || !treeStore) return
+    if (!controlsPage.classList.contains('is-active')) return
+    const canvasTree = treeStore.getNode(rootId)?.treeId ?? null
+    const shown = treeStore.getNode(currentRailTreeNode.id)
+    const shownTree = shown?.treeId ?? currentRailTreeNode.treeId ?? null
+    if (canvasTree !== null && shownTree !== null && canvasTree === shownTree) return
+    showStats()
   }
 
   /* THE REWIND, AS A NAMED FUNCTION. Its rail select retired with the
@@ -5701,8 +5780,11 @@ export function computersView({ initialComputer = null, navigate }) {
         return
       }
       setOrgStatus(QUEUE_PANEL.notSent, 'refuse', { sticky: true, code: refusalCode(error) })
+      /* In place, never a rebuild: the person may be typing in the actions
+         popup's filter, and the queue strip already repaints itself through
+         SESSION_OUTBOX_EVENT. See repaintRailStatus. */
       if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-        showTreeNodeControls(currentRailTreeNode)
+        repaintRailStatus(currentRailTreeNode)
       }
       return
     }
@@ -5718,7 +5800,7 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     setOrgStatus(QUEUE_PANEL.sentNext, 'ok')
     if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-      showTreeNodeControls({ ...currentRailTreeNode, status: 'running' })
+      repaintRailStatus({ ...currentRailTreeNode, status: 'running' })
     }
   }
 
@@ -5886,8 +5968,10 @@ export function computersView({ initialComputer = null, navigate }) {
         treeStore.setNodeStatus(nodeId, finished, { note: '' })
         refreshTree()
       }
+      /* In place, never a rebuild -- the person may be mid-word in the actions
+         popup's filter when this lands. See repaintRailStatus. */
       if (currentRailTreeNode && currentRailTreeNode.id === nodeId && controlsPage.classList.contains('is-active')) {
-        showTreeNodeControls({ ...currentRailTreeNode, status: finished })
+        repaintRailStatus({ ...currentRailTreeNode, status: finished })
       }
       /* The queue drains here because this is the engine's only "I am free"
          signal. Exactly one message — the next turn's completion drains the
