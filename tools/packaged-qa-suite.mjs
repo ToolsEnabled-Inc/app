@@ -539,7 +539,40 @@ async function main() {
   const results = []
   for (const entry of toRun) {
     process.stdout.write(`\n---- ${entry.key} ----\n`)
-    const result = await runDriver(entry, environment)
+    let result = await runDriver(entry, environment)
+
+    /* A TIMEOUT IS THE ONE VERDICT THAT NAMES NO EVIDENCE. Every other verdict
+       here is derived from what the driver itself said; a timeout is derived
+       from what it did not say, and "it did not finish" has two completely
+       different causes -- the product hung, or this machine did not give the
+       driver what it needed in time. The gate cannot tell them apart from one
+       observation, and reporting the first when it was the second blames the
+       product for the weather.
+
+       Measured 2026-08-18: example-page-write-fence-qa timed out at 600.5s at
+       its live-mode launch inside this suite, then passed 24/24 in 217s on an
+       immediate re-run -- with another driver still running. One observation
+       said "hung"; two said "did not reproduce".
+
+       So a timeout is re-run ONCE, and the pair is reported. It NEVER becomes
+       PASS: a driver that finished only on the second ask has told us something
+       about its cost or its stability, and calling that green would hide the
+       one fact worth keeping. INCONCLUSIVE is what it is -- nothing was proven
+       about the product either way. */
+    if (result.verdict === 'TIMEOUT') {
+      console.log(`TIMEOUT  ${entry.key}  exit=${result.exitCode}  ${(result.durationMs / 1000).toFixed(1)}s  -- re-running once before this stands`)
+      const retry = await runDriver(entry, environment)
+      if (retry.verdict === 'TIMEOUT') {
+        result = { ...retry, tail: `timed out twice (${(result.durationMs / 1000).toFixed(0)}s, ${(retry.durationMs / 1000).toFixed(0)}s) | ${retry.tail}` }
+      } else {
+        result = {
+          ...retry,
+          verdict: 'INCONCLUSIVE',
+          tail: `timed out at ${(result.durationMs / 1000).toFixed(0)}s, then ${retry.verdict} in ${(retry.durationMs / 1000).toFixed(0)}s on an isolated re-run `
+            + '-- nothing was proven about the product; this driver is close to its ceiling or something intermittent starves it',
+        }
+      }
+    }
     results.push(result)
     console.log(`${result.verdict}  ${entry.key}  exit=${result.exitCode}  ${(result.durationMs / 1000).toFixed(1)}s  log=${result.logPath}`)
     if (result.verdict !== 'PASS') console.log(`      ${result.tail}`)

@@ -352,3 +352,24 @@ test('9. a driver that names the checks it could not exercise is not a product f
   assert.equal(verdictFor({ timedOut: false, code: 3, output: '  ok  one\n1/1 checks passed\n' }), 'FAIL',
     'exit 3 without a declared not-exercised check is still a failure')
 })
+
+/* A timeout is the only verdict here derived from SILENCE rather than from
+   something the driver said, and "it did not finish" has two causes the gate
+   cannot separate from one observation. Measured 2026-08-18:
+   example-page-write-fence-qa timed out at 600.5s at its live-mode launch and
+   then passed 24/24 in 217s on an immediate re-run, with another driver still
+   running. This pins the retry, and pins that it can never manufacture a pass. */
+test('10. a timeout is re-run once, and a driver that finished only on the second ask is never called green', () => {
+  assert.match(runnerSource, /if \(result\.verdict === 'TIMEOUT'\)[\s\S]{0,400}?await runDriver\(entry, environment\)/,
+    'a timeout must be re-run once before it stands')
+  /* The retry's own verdict is what survives when it times out again... */
+  assert.match(runnerSource, /if \(retry\.verdict === 'TIMEOUT'\)/,
+    'the second timeout must be reported as a timeout')
+  /* ...and a retry that finished is recorded as INCONCLUSIVE, never PASS. The
+     assertion is on the literal, because this is the line that would quietly
+     turn a flake green if someone "simplified" it. */
+  assert.match(runnerSource, /verdict: 'INCONCLUSIVE',[\s\S]{0,200}?timed out at/,
+    'a driver that passed only on re-run must be INCONCLUSIVE with both facts, never PASS')
+  assert.ok(!/verdict: 'PASS'/.test(runnerSource),
+    'nothing in the runner may assign PASS directly; it comes from verdictFor reading the driver\'s own words')
+})
