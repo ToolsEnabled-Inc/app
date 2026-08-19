@@ -59,17 +59,37 @@ import {
   describeRun,
   readAgentEngine,
   readLocalSessions,
+  summariseRunWork,
 } from '../local-activity.js'
 /* THE CONVERSATIONS THIS COMPUTER ALREADY SAVED, read so a run can say which
-   agent it was and what it was asked. Nothing new is written and nothing new is
-   recorded: the trees a person builds on the computers page are kept on this
-   machine, keyed by session, and the signed run record now carries the same key.
-   This screen only joins the two. parseFleetTrees is the SAME reader that page
-   uses -- a second parser here would be a second opinion about a record this
-   file does not own -- and it returns an empty forest for anything it does not
-   fully trust, so a damaged record costs this list its extra lines and nothing
-   else. */
-import { fleetTreesStorageKey, parseFleetTrees } from '../fleet-trees.js'
+   agent it was, what it was asked and what it said back. Nothing new is written
+   and nothing new is recorded: the trees a person builds on the computers page
+   are kept on this machine, keyed by session, and the signed run record carries
+   the same key. This screen only joins the two.
+
+   THIS USED TO BE A PRIVATE COPY INSIDE THIS FILE, and that is the whole reason
+   it is an import now. src/session-roles.js was extracted from this view's own
+   savedConversations() for the metrics page, nine hours after this screen
+   shipped its own, and this screen was never switched over. Two byte-identical
+   readers of one record is one widening away from a silent divergence, and the
+   widening arrived: the owner asked this list to show what each agent SAID, the
+   field was already on the node, and adding it to one reader would have left
+   the other blind. There is one reader now and this is it. */
+import { readSessionRoles } from '../session-roles.js'
+/* WHAT EACH RUN ACTUALLY DID, from the per-turn record this app already keeps
+   (shell/usage-record.cjs writes one signed line per turn). Read through the
+   reader the metrics page already uses, for exactly the reason above: a second
+   parser of that record here would be a second opinion about it. */
+import { readLocalUsage } from '../local-metrics.js'
+/* THE THREE READERS THE AGENT EVENT STREAM IS ALLOWED TO BE READ THROUGH. Every
+   surface that listens to a live session uses this same set, and it is a set
+   rather than one function because a turn's words, a turn's identity and a
+   turn's ending are three separate facts and this row shows all three. */
+import {
+  sessionEventText,
+  sessionEventTurnId,
+  sessionTurnStatus,
+} from '../agent-session-events.js'
 /* The two controls on the settings page that decide what this box contains:
    which agents' context appears in it, and whether agent runs appear too, not
    at all, or on their own. The view reads them and re-reads them on the event,
@@ -96,6 +116,35 @@ const HEALTH_POLL_MS = 45_000
    ordinary case where there is no queue on this machine at all. */
 const APPROVALS_POLL_MS = 20_000
 const APPROVALS_RETRY_MS = 120_000
+
+/* HOW OFTEN THE SIGNED RECORDS MAY BE RE-READ, and this number is the whole of
+ * how the live list keeps the promise the removed focus refresh broke.
+ *
+ * Reading either record means verifying a hash chain on the Electron main
+ * process, which is also the process forwarding output for every live agent
+ * session. The performance lane measured the cost of asking carelessly at ~0.9s
+ * of whole-app stall on a ledger with ten thousand records, which is why the
+ * refresh on window focus was removed rather than tuned: alt-tabbing back to
+ * the window charged every running agent for the gesture.
+ *
+ * So nothing here polls and nothing here reads on focus. A read happens only
+ * when the event stream has just said something that CHANGED a record -- a
+ * session this list has never seen (a run was written), or a turn that ended (a
+ * usage line was written) -- and then at most once in this window, trailing. A
+ * turn ends on the order of tens of seconds, so in practice this floor is never
+ * the thing doing the limiting; it is there so that an engine emitting a burst
+ * of endings cannot turn into a burst of chain verifications.
+ *
+ * The words on the screen do NOT wait for it. What the agent is saying arrives
+ * on the stream and is painted straight away, off no record at all. */
+const LEDGER_REREAD_FLOOR_MS = 4_000
+/* Words arrive faster than a person reads them. The live line is repainted on a
+   trailing timer rather than per delta, so a fast turn is one repaint every
+   tenth of a second instead of forty. Deliberately a timer and NOT a frame: a
+   covered window is served no frames at all (src/page-frames.js), and this is a
+   re-arming update rather than the one-shot settle that module's primitive is
+   for. */
+const LIVE_REPAINT_MS = 90
 
 /* ============================================================
    The demonstration's cast and script. Profile data, because a
@@ -362,6 +411,16 @@ export function homeView() {
      needing the source read again. */
   let contextTurns = []
 
+  /* WHAT EACH SESSION'S TURNS COST, from the signed per-turn record, grouped by
+     the key the run record is keyed on. Empty until the record answers, and an
+     empty map simply renders the rows this screen rendered before it existed. */
+  const usageBySession = new Map()
+  /* WHAT THIS WINDOW IS WATCHING HAPPEN, per session: the turn the engine named,
+     the words of it so far, and whether it is still going. Nothing in here is
+     read off a record and nothing in here is written to one. It is this window's
+     own observation of the stream, and it is gone when the view is. */
+  const liveSessions = new Map()
+
   function noteContext(turns) {
     contextTurns = Array.isArray(turns) ? turns : []
     state.chatbox = { ...state.chatbox, agentsInSource: agentIdsFromTurns(contextTurns) }
@@ -529,29 +588,125 @@ export function homeView() {
    * mount would go stale the first time somebody started an agent. It is a
    * handful of small keys parsed at most once a repaint, and the repaint is
    * already gated by the signature above. */
-  function savedConversations() {
-    const store = typeof window === 'undefined' ? null : window.localStorage
-    if (!store || typeof store.key !== 'function') return null
-    const found = new Map()
-    const prefix = fleetTreesStorageKey('')
-    let count = 0
-    try { count = Number(store.length) || 0 } catch { return null }
-    for (let index = 0; index < count; index += 1) {
-      let key = null
-      try { key = store.key(index) } catch { continue }
-      if (typeof key !== 'string' || !key.startsWith(prefix)) continue
-      let raw = null
-      try { raw = store.getItem(key) } catch { continue }
-      const record = parseFleetTrees(raw)
-      for (const node of record.nodes) {
-        if (!node.sessionId) continue
-        found.set(node.sessionId, { role: node.role, asked: node.message })
-      }
+  /* Re-read when a record changed and not on every repaint. The computers page
+     writes these keys from another view of the same window, so a map captured
+     once at mount would go stale the first time somebody started an agent --
+     but that page is not on screen while this one is, so the moments it can
+     change are exactly the moments this screen re-reads the ledger anyway.
+     `transcripts: true` is what makes "what it said" reachable for a node whose
+     own reply field is empty. */
+  let conversations = null
+  function readConversations() {
+    conversations = readSessionRoles(typeof window === 'undefined' ? null : window.localStorage, { transcripts: true })
+  }
+
+  /* ---- ONE RUN, AS A FLOW RATHER THAN AS A LINE IN A LOG ----
+   *
+   * THE REPORT THIS IS FOR, in the owner's words: "on page 1 this is supposed
+   * to be a context flow of all the agents and such we want to see their
+   * outputs cleanly." What was there was a row per run carrying a number, a
+   * verb and a relative time, and it could not have carried an output however
+   * long anybody waited: the join took the role and the brief off the node and
+   * never read `reply`, which is the field that exists on the node for exactly
+   * this purpose.
+   *
+   * SO EACH ROW NOW ANSWERS FOUR QUESTIONS, and every one of them is read off
+   * something already written down:
+   *
+   *   what was asked   the brief the person typed into the node
+   *                    (src/session-roles.js, the saved conversations)
+   *   what it did      turns, model and tokens from the per-turn record
+   *                    (shell/usage-record.cjs, read through readLocalUsage)
+   *   what it said     the live stream while a turn is running, then the node's
+   *                    own reply, then the last agent line in the saved
+   *                    conversation
+   *   what happened    the signed run record, exactly as before
+   *
+   * AND WHERE A PIECE GENUINELY IS NOT THERE THE ROW SAYS SO. A run started
+   * from the agent page mints a session and writes it to the record and creates
+   * no node at all, so it has no brief and no answer to join to -- that row says
+   * that in one sentence rather than showing a gap that reads as a fault, and it
+   * still shows what the turn record knows about it. Nothing here invents an ask
+   * that was never recorded.
+   *
+   * THE ROW IS BUILT ONCE AND REPAINTED IN PLACE. Every line exists in the
+   * markup and is hidden when there is nothing for it, so a word arriving from a
+   * live agent is a textContent write on one span rather than a rebuild of the
+   * list -- which would fight the scroll pin and re-animate rows a person is
+   * reading. */
+  function buildRunRow() {
+    const row = el(`<li class="home-run">
+      <span class="run-head"><span class="run-what"></span><span class="run-result"></span><span class="run-live" hidden></span></span>
+      <span class="run-when"></span>
+      <span class="run-agent" hidden></span>
+      <span class="run-asked" hidden></span>
+      <span class="run-did" hidden></span>
+      <span class="run-said" hidden></span>
+      <span class="run-why" hidden></span>
+      <span class="run-gap" hidden></span>
+    </li>`)
+    return {
+      el: row,
+      what: row.querySelector('.run-what'),
+      result: row.querySelector('.run-result'),
+      live: row.querySelector('.run-live'),
+      when: row.querySelector('.run-when'),
+      agent: row.querySelector('.run-agent'),
+      asked: row.querySelector('.run-asked'),
+      did: row.querySelector('.run-did'),
+      said: row.querySelector('.run-said'),
+      why: row.querySelector('.run-why'),
+      gap: row.querySelector('.run-gap'),
     }
-    return found
+  }
+
+  /* A line carries its value or it is not there. `hidden` rather than removal so
+     the row keeps its shape across repaints and a live word lands on a span that
+     already exists. */
+  function setLine(node, value) {
+    node.textContent = value || ''
+    node.hidden = !value
+  }
+
+  function paintRunRow(parts, run) {
+    /* The run's own number, not a decorative index. It is the position in this
+       computer's record, so it stays the same on every later visit and still
+       means something after the list is truncated to its newest twenty. It also
+       stops three runs started within a minute of each other from rendering as
+       three identical rows reading "just now", which is honest and useless. */
+    const live = run.sessionId ? liveSessions.get(run.sessionId) || null : null
+    const work = run.sessionId ? summariseRunWork(usageBySession.get(run.sessionId)) : null
+    const said = describeRun(run, conversations, state.nowMs, { work, live })
+
+    parts.what.textContent = COPY.runLabel(said.sequence)
+    /* Empty string for a run whose outcome was never recorded, and the
+       data-attribute is set from the same value so the stylesheet cannot colour
+       a row the copy declined to label. */
+    parts.result.textContent = said.resultWord
+    if (said.resultWord) parts.el.dataset.result = run.result
+    else delete parts.el.dataset.result
+    /* The one claim on this row that is not read back off a record: this window
+       is watching that session's turn arrive, right now. It says what is
+       happening and never how long it has been happening, because nothing
+       writes down when a run ends. */
+    setLine(parts.live, said.working ? COPY.runWorkingNow : '')
+    parts.when.textContent = said.when
+    /* The exact instant on hover. The row itself stays relative, because a
+       column of timestamps is a log and this is a list of what happened. */
+    if (said.at) parts.when.title = said.at
+    setLine(parts.agent, said.agent)
+    setLine(parts.asked, said.asked ? COPY.runAsked(said.asked) : '')
+    setLine(parts.did, said.did || said.noWork)
+    setLine(parts.said, said.said ? COPY.runSaid(said.said) : '')
+    setLine(parts.why, said.why)
+    setLine(parts.gap, said.gap)
   }
 
   let runsSignature = null
+  /* The rows on the glass, by the run's own number, so a live word can find the
+     one row it belongs to without walking the list. */
+  const runRows = new Map()
+
   function renderRuns(view) {
     /* An empty runs half that is standing beside a conversation says so in the
        notice slot, not by replacing the list; an empty runs half on its own IS
@@ -560,57 +715,53 @@ export function homeView() {
     const listed = view.panel.runs && !view.panel.empty ? state.sessions.runs : []
     /* The outcome is part of the signature, not just the sequence. A run's row
        changes when its outcome lands, and a signature built from sequences
-       alone would decide nothing had changed and leave the stale row up. */
+       alone would decide nothing had changed and leave the stale row up.
+       WHAT IS DELIBERATELY NOT IN IT: anything that arrives on the live stream.
+       A signature carrying the words an agent is saying would rebuild the whole
+       list on every delta, which is the churn this gate exists to prevent. Those
+       land through paintRunRow on the row they belong to. */
     const signature = `${view.panel.runs}|${listed.map(run => `${run.sequence}:${run.result || ''}`).join(',')}`
-    if (runsSignature === signature) return
-    runsSignature = signature
-    runsSlot.replaceChildren()
-    if (!listed.length) return
-    const conversations = savedConversations()
-    const list = el('<ol class="home-runs"></ol>')
-    for (const run of listed) {
-      /* The run's own number, not a decorative index. It is the position in
-         this computer's record, so it stays the same on every later visit and
-         still means something after the list is truncated to its newest twenty.
-         It also stops three runs started within a minute of each other from
-         rendering as three identical rows reading "just now", which is honest
-         and useless. */
-      const said = describeRun(run, conversations, state.nowMs)
-      const row = el(`<li class="home-run">
-        <span class="run-head"><span class="run-what"></span><span class="run-result"></span></span>
-        <span class="run-when"></span>
-      </li>`)
-      row.querySelector('.run-what').textContent = COPY.runLabel(said.sequence)
-      /* Empty string for a run whose outcome was never recorded, and the
-         data-attribute is set from the same value so the stylesheet cannot
-         colour a row the copy declined to label. */
-      row.querySelector('.run-result').textContent = said.resultWord
-      if (said.resultWord) row.dataset.result = run.result
-      const when = row.querySelector('.run-when')
-      when.textContent = said.when
-      /* The exact instant on hover. The row itself stays relative, because a
-         column of timestamps is a log and this is a list of what happened. */
-      if (said.at) when.title = said.at
-      /* EACH LINE APPEARS ONLY IF THE RECORD CARRIES IT. Three separate
-         absences -- no saved conversation for this session, no brief on it, no
-         reason written for this refusal -- and every one of them leaves the
-         line out rather than printing a placeholder that would read as a fact.
-         The words are the person's own or the copy module's; nothing is
-         assembled from a literal here. */
-      for (const [value, className] of [
-        [said.agent, 'run-agent'],
-        [said.asked ? COPY.runAsked(said.asked) : '', 'run-asked'],
-        [said.why, 'run-why'],
-      ]) {
-        if (!value) continue
-        const line = document.createElement('span')
-        line.className = className
-        line.textContent = value
-        row.appendChild(line)
+    if (runsSignature !== signature) {
+      runsSignature = signature
+      runRows.clear()
+      runsSlot.replaceChildren()
+      if (listed.length) {
+        const list = el(`<ol class="home-runs"></ol>`)
+        for (const run of listed) {
+          const parts = buildRunRow()
+          runRows.set(run.sequence, parts)
+          list.appendChild(parts.el)
+        }
+        runsSlot.appendChild(list)
       }
-      list.appendChild(row)
     }
-    runsSlot.appendChild(list)
+    for (const run of listed) {
+      const parts = runRows.get(run.sequence)
+      if (parts) paintRunRow(parts, run)
+    }
+  }
+
+  /* ---- THE FLOW'S LIVE HALF ----
+   *
+   * One repaint of the rows a live session touched, on a trailing timer, so a
+   * turn arriving forty words a second is a handful of repaints rather than
+   * forty. Nothing is read off a record here. */
+  let liveRepaintTimer = 0
+  const dirtySessions = new Set()
+  function paintLiveSoon(sessionId) {
+    dirtySessions.add(sessionId)
+    if (liveRepaintTimer) return
+    liveRepaintTimer = setTimeout(() => {
+      liveRepaintTimer = 0
+      if (destroyed) return
+      const touched = new Set(dirtySessions)
+      dirtySessions.clear()
+      for (const run of state.sessions.runs) {
+        if (!run.sessionId || !touched.has(run.sessionId)) continue
+        const parts = runRows.get(run.sequence)
+        if (parts) paintRunRow(parts, run)
+      }
+    }, LIVE_REPAINT_MS)
   }
 
   /* ---- the conversation half ----
@@ -910,8 +1061,38 @@ export function homeView() {
     }
     if (destroyed) return
     state.sessions = readLocalSessions(raw)
+    /* Read beside the ledger and never inside a repaint. The two are one join,
+       so reading them at different moments is how a row comes to show a run
+       whose conversation this screen has not looked for yet. */
+    readConversations()
     if (first) settle()
     else apply()
+  }
+
+  /* THE PER-TURN RECORD, WHICH IS WHERE "WHAT IT DID" COMES FROM.
+   *
+   * Deliberately NOT part of the first-paint gate. This screen's job is to say
+   * one true thing quickly, and a row without its turn line is a row that is
+   * merely shorter -- holding the whole screen back for it would trade a real
+   * defect for a slower launch. It lands, the rows repaint, and a copy whose
+   * shell is older than this record simply never gets the line.
+   *
+   * Grouped by session here rather than in the reader, because the reader is
+   * shared with the metrics page and that page groups the same rows four other
+   * ways. */
+  async function loadUsage() {
+    const read = await readLocalUsage({ agent: globalThis.mcAgent })
+    if (destroyed) return
+    usageBySession.clear()
+    if (read.readable === true) {
+      for (const turn of read.turns) {
+        if (!turn.sessionId) continue
+        const rows = usageBySession.get(turn.sessionId)
+        if (rows) rows.push(turn)
+        else usageBySession.set(turn.sessionId, [turn])
+      }
+    }
+    apply()
   }
 
   async function loadEngine() {
@@ -951,8 +1132,7 @@ export function homeView() {
     approvalsTimer = setTimeout(() => { void loadApprovals() }, readable ? APPROVALS_POLL_MS : APPROVALS_RETRY_MS)
   }
 
-  /* THERE IS DELIBERATELY NO REFRESH ON WINDOW FOCUS, and it was removed rather
-     than never written.
+  /* THERE IS STILL DELIBERATELY NO REFRESH ON WINDOW FOCUS, AND STILL NO POLL.
    *
      Reading the record means checking a signed chain, on the Electron main
      process, which is also what forwards output for every live agent session.
@@ -962,10 +1142,103 @@ export function homeView() {
      shell/spawn-record.cjs takes most of that cost away, but the honest fix is
      not to ask the question when there is no reason to.
 
-     And there is no reason to: a run can only start from this application, from
-     the agent page, which is a different route -- so this view is not mounted
-     while one is being started, and its next mount reads the record fresh.
-     Nothing can be missed by not asking on focus. */
+     WHAT CHANGED, AND WHY IT DOES NOT BRING THAT COST BACK. The owner asked for
+     a flow rather than a photograph, and the second half of the reasoning above
+     turned out to be the part that was wrong: a run started on the computers
+     page keeps running when a person walks back to this screen, so this view IS
+     mounted while agents work, and the list simply never moved again.
+
+     The repair is a SUBSCRIPTION, not a cadence. The window is already told
+     every packet of every live session, and that stream carries the two things
+     that change a record: a session nobody here has seen (a run was written
+     down) and a turn that ended (a usage line was written down). So the records
+     are read when one of those has just happened, at most once every four
+     seconds, and at no other time. Alt-tabbing still costs nothing, an idle
+     computer still costs nothing, and the words an agent is saying do not wait
+     for a record at all -- they are painted off the stream. */
+
+  /* The coalescing gate. Both reads are asked for by name so a burst of turn
+     endings cannot turn into a burst of chain verifications, and so a new
+     session does not drag the usage record along with it for no reason. */
+  let ledgerTimer = 0
+  let ledgerReadAt = 0
+  let wantRuns = false
+  let wantUsage = false
+  function askForLedger({ runs = false, usage = false }) {
+    wantRuns = wantRuns || runs
+    wantUsage = wantUsage || usage
+    if (ledgerTimer || (!wantRuns && !wantUsage)) return
+    const wait = Math.max(0, LEDGER_REREAD_FLOOR_MS - (Date.now() - ledgerReadAt))
+    ledgerTimer = setTimeout(() => {
+      ledgerTimer = 0
+      if (destroyed) return
+      ledgerReadAt = Date.now()
+      const runsWanted = wantRuns
+      const usageWanted = wantUsage
+      wantRuns = false
+      wantUsage = false
+      /* THE SAVED CONVERSATIONS MOVE WITH EITHER READ, and they did not, which
+         cost a real run its brief on the glass. A run started from the tree
+         writes its node a beat after the signed record has it, so the read that
+         picks the RUN up is usually too early for the node -- and the only later
+         read was the one that follows a turn ending, which used to fetch the
+         turn record alone. The row therefore kept its answer and never gained
+         the question. This is a walk of a handful of small keys on this
+         computer, not a chain verification, so it costs nothing to do on both. */
+      readConversations()
+      if (runsWanted) void loadSessions()
+      if (usageWanted) void loadUsage()
+      if (!runsWanted && !usageWanted) apply()
+    }, wait)
+  }
+
+  /* THE EAR ON THE SESSION STREAM. Read only through the shared readers, which
+     is what stops this screen from having its own opinion about a packet shape
+     it does not own. Every session is watched, not only ones this screen
+     started, because this screen started none of them. */
+  const onAgentPacket = (packet) => {
+    if (destroyed) return
+    const sessionId = packet && typeof packet.sessionId === 'string' ? packet.sessionId : ''
+    if (!sessionId) return
+
+    /* A session this list has never heard of means a run was written to the
+       record after this screen last read it. That is the one thing that adds a
+       row, so it is the one thing that asks for the run record again. */
+    if (!state.sessions.runs.some(run => run.sessionId === sessionId)) askForLedger({ runs: true })
+
+    const text = sessionEventText(packet, sessionId)
+    const status = sessionTurnStatus(packet, sessionId)
+    if (text === null && status === null) return
+
+    const turnId = sessionEventTurnId(packet, sessionId)
+    let live = liveSessions.get(sessionId)
+    /* WHERE ONE TURN ENDS AND THE NEXT BEGINS, taken from the engine's own
+       naming of the turn. Without it the previous turn's words survive into the
+       next one and the row shows two answers run together -- the defect the
+       tree page measured and fixed in its own transcript. */
+    if (!live || (turnId && live.turnId && live.turnId !== turnId)) {
+      live = { turnId: turnId || null, text: '', working: false }
+      liveSessions.set(sessionId, live)
+    }
+    if (turnId && !live.turnId) live.turnId = turnId
+    if (text !== null) {
+      live.text += text
+      live.working = true
+    }
+    if (status !== null) {
+      /* The turn is over. The words STAY on the row -- they are what it said --
+         and only the claim that it is still working is withdrawn. The figures
+         for that turn have just been written down, so this is also the moment
+         the usage record has something new in it. */
+      live.working = false
+      askForLedger({ usage: true })
+    }
+    paintLiveSoon(sessionId)
+  }
+  const detachAgentEvents = typeof window !== 'undefined'
+    && window.mcAgent && typeof window.mcAgent.onEvent === 'function'
+    ? window.mcAgent.onEvent(onAgentPacket)
+    : null
 
   /* The two settings are changed on another screen, and this one is left
      mounted behind it, so the box has to re-read them when they move rather
@@ -994,6 +1267,7 @@ export function homeView() {
 
   void loadEngine()
   void loadSessions(true)
+  void loadUsage()
   void loadApprovals()
   let healthTimer = 0
   if (fleetConfigured) {
@@ -1008,7 +1282,13 @@ export function homeView() {
       stopClock()
       clearInterval(healthTimer)
       clearTimeout(approvalsTimer)
+      clearTimeout(ledgerTimer)
+      clearTimeout(liveRepaintTimer)
       timers.forEach(clearTimeout)
+      /* The stream outlives this view: the sessions it carries belong to the
+         shell, not to the page. A listener left attached here would keep the
+         whole view alive for as long as any agent kept talking. */
+      detachAgentEvents?.()
       anchorRo.disconnect()
       anchorMo.disconnect()
       cancelAnimationFrame(firstPinFrame)

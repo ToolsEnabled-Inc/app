@@ -614,7 +614,10 @@ a.home-fact:focus-visible {
 .home-run .run-what { color: var(--ink-2); }
 .home-run .run-agent,
 .home-run .run-asked,
-.home-run .run-why {
+.home-run .run-did,
+.home-run .run-said,
+.home-run .run-why,
+.home-run .run-gap {
   grid-column: 1 / -1;
   min-width: 0;
   color: var(--ink-3);
@@ -626,6 +629,38 @@ a.home-fact:focus-visible {
    rather than the dim of the lines under it. */
 .home-run .run-agent { color: var(--ink-2); }
 .home-run .run-why { color: var(--c-failed, #c24b4b); }
+/* WHAT IT DID and WHAT IT SAID, which are the two lines the owner's report was
+   about. The answer carries the ink a person reads first, because it is the
+   output; the turn line sits at the dim of the other supporting lines because
+   it is a measurement about the answer rather than the answer. */
+.home-run .run-said {
+  color: var(--ink-2);
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
+/* A run whose brief or answer was never written down says so, quietly. It is
+   not a fault, so it does not carry the failure colour, and it is not a fact
+   about the agent, so it does not carry the ink of one. */
+.home-run .run-gap { font-style: italic; opacity: 0.85; }
+/* Live, and only while this window is actually watching the turn arrive. */
+.home-run .run-live {
+  flex: none;
+  color: var(--s-good, #3fa66a);
+  font-size: 12px;
+}
+.home-run .run-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: home-run-live 1.6s ease-in-out infinite;
+}
+@keyframes home-run-live { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+@media (prefers-reduced-motion: reduce) {
+  .home-run .run-live::before { animation: none; }
+}
 /* The time sits at the right rail so a column of them scans as one list rather
    than as ragged prose. */
 .home-run .run-when {

@@ -49,6 +49,17 @@ import { CODEX_SETUP_COMMANDS } from './agent-availability-copy.js'
    neither is a reason to leave a person holding a statement with nowhere to take
    it. */
 import { GUIDE_ACTION, GUIDE_HREF } from './first-run-needs.js'
+/* THE MODEL ROW'S OWN NAME. `launchTier` is the table the start controls
+   already use, so the runs list says "Sonnet" where the record kept the id it
+   was started with, and no fourth copy of that mapping can drift from it. The
+   module is pure data with no imports of its own. */
+import { launchTier } from './orchestration-controls.js'
+/* DID THAT TURN SUCCEED, asked once, in the module that measured the answer.
+   The two engines do not use the same word for a turn that went well (codex
+   says "completed", the Claude CLI says "success"), and a second allowlist here
+   is exactly how this screen would come to report a good Claude turn as a
+   failure. */
+import { sessionTurnSucceeded } from './agent-session-events.js'
 
 /* EVERY REMAINING SENTENCE THE SCREEN CAN PRINT.
  *
@@ -125,6 +136,60 @@ export const COPY = Object.freeze({
      own brief, never this module's, and they are clipped rather than wrapped
      because the runs list is a column beside a conversation. */
   runAsked: (brief) => `Asked: ${brief}`,
+  /* WHAT IT SAID BACK, labelled the way the brief is so the pair reads as a
+     pair. The words after the label are the agent's own, never this module's,
+     and they are clipped for the same reason the brief is.
+
+     THE FIELD WAS THERE THE WHOLE TIME. `reply` is kept on the tree node
+     precisely so a screen can show what an agent answered, and the two readers
+     of that record both took `role` and `message` and dropped it. The owner's
+     report on this list was that it shows no outputs, and this is the line that
+     was missing rather than a new thing to record. */
+  runSaid: (said) => `Said back: ${said}`,
+  /* WHAT IT DID, COMPACTLY, and every figure in it was already on disk.
+   *
+   * The per-turn record (shell/usage-record.cjs) writes one signed line each
+   * time a turn ends, carrying the turn, the model row, how the engine said
+   * that turn ended, and the token figures. So a run can say how much work it
+   * was without this screen timing anything or guessing anything.
+   *
+   * WHAT IT DELIBERATELY DOES NOT SAY. No duration, and no "it finished". The
+   * run record holds the intent and the start and has no line for an ending, so
+   * a length here could only be this window subtracting one clock from another
+   * and calling it a measurement. Turns are counted, an ending nobody recorded
+   * is not.
+   *
+   * Each part appears only if the record carries it, so a turn with no token
+   * figure shortens the sentence instead of printing a zero. */
+  runDid: ({ turns = 0, model = null, tokens = null, unfinished = 0 } = {}) => {
+    if (!Number.isSafeInteger(turns) || turns < 1) return ''
+    const counted = countOf(turns, 'turn', 'turns')
+    const opening = model ? `${counted} on ${model}` : counted
+    const spent = Number.isSafeInteger(tokens) && tokens > 0 ? `${opening} and ${groupDigits(tokens)} tokens` : opening
+    if (Number.isSafeInteger(unfinished) && unfinished > 0) {
+      return `${spent}, and ${countOf(unfinished, 'turn', 'turns')} did not finish.`
+    }
+    return `${spent}.`
+  },
+  /* THE ABSENCES, IN WORDS. The owner asked for a flow of what the agents did
+     and said, and the honest answer for some runs is that nobody wrote it down.
+     A blank row reads as a screen that is broken; these say which of the three
+     absences it really is, and none of them invents an ask that was not
+     recorded. */
+  runNothingSaved: 'No brief and no answer were saved here for this one, so the record is all there is.',
+  runNoAnswerYet: 'It has not answered yet.',
+  runNoAnswerSaved: 'Nothing it said was saved here.',
+  runNoTurns: 'No turns were recorded for it.',
+  /* Observed on the live stream by this window, right now, and it is the one
+     state on the row that is not read back off a record. It says what is
+     happening and never how long it has been happening. */
+  runWorkingNow: 'Working now',
+  /* SAID ONCE, UNDER THE LIST, because it is true of every row and belongs to
+     the record rather than to any run. ToolsEnabled writes two lines per run:
+     what it was about to start, and whether the start took. There is no third
+     line for the ending, so a duration or a finished state on these rows could
+     only be this window guessing. */
+  runEndingsNotKept: 'Each start is written down and no ending is, so this list never says how long a run took.',
   /* The aggregate, in the panel footer, under the record's own integrity line.
      Returns null when the ledger says nothing either way, which is exactly the
      state every record written before outcomes existed is in -- an older
@@ -430,24 +495,132 @@ export const ENGINE_REASON = Object.freeze({
  */
 export const RUN_BRIEF_CHARS = 96
 
-export function describeRun(run, conversations = null, nowMs = Date.now()) {
+export const RUN_SAID_CHARS = 200
+
+/* HOW MUCH WORK ONE RUN WAS, out of the per-turn record and nothing else.
+ *
+ * `turns` is the rows src/local-metrics.js readLocalUsage() already parsed,
+ * narrowed to one session by the caller. Pure, so the whole table of shapes can
+ * be walked without a browser.
+ *
+ * THE TWO RULES THAT KEEP THE FIGURE HONEST.
+ *
+ *   A `session-total` row is the engine's RUNNING total for the session, so the
+ *   largest one is the session's spend and adding them would multiply it by the
+ *   number of times the engine happened to report. Turn rows are added. A
+ *   session with both is counted from its turn rows, exactly as the metrics
+ *   page does it, because those are the finer reading.
+ *
+ *   A turn only counts as unfinished when the engine actually said how it
+ *   ended and the word was not one of the success words. A turn with NO status
+ *   is a turn nobody wrote an ending for, and calling that a failure is the
+ *   same invention this whole screen is being repaired for.
+ */
+export function summariseRunWork(turns) {
+  const rows = Array.isArray(turns) ? turns.filter(row => row && typeof row === 'object') : []
+  if (rows.length === 0) return null
+  const counted = rows.filter(row => row.basis !== 'session-total')
+  const model = launchTier(rows.find(row => typeof row.tier === 'string' && row.tier)?.tier || '')?.label || null
+
+  let tokens = null
+  if (counted.length > 0) {
+    for (const row of counted) {
+      if (Number.isSafeInteger(row.totalTokens)) tokens = (tokens ?? 0) + row.totalTokens
+    }
+  } else {
+    for (const row of rows) {
+      if (Number.isSafeInteger(row.totalTokens) && (tokens === null || row.totalTokens > tokens)) tokens = row.totalTokens
+    }
+  }
+
+  const unfinished = rows.filter(row => typeof row.status === 'string' && row.status
+    && !sessionTurnSucceeded(row.status)).length
+
+  return Object.freeze({
+    turns: counted.length > 0 ? counted.length : rows.length,
+    model,
+    tokens,
+    unfinished,
+  })
+}
+
+export function describeRun(run, conversations = null, nowMs = Date.now(), { work = null, live = null } = {}) {
   const said = run && run.sessionId && conversations && typeof conversations.get === 'function'
     ? conversations.get(run.sessionId)
     : null
-  const clip = (value) => {
+  const clip = (value, limit = RUN_BRIEF_CHARS) => {
     const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
     if (text.length === 0) return ''
-    return text.length <= RUN_BRIEF_CHARS ? text : `${text.slice(0, RUN_BRIEF_CHARS - 1).trimEnd()}…`
+    return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`
   }
+
+  /* WHAT IT SAID BACK, from the three places it can honestly come from, newest
+     first. The live stream is this window watching the turn happen; `reply` is
+     the answer the tree kept on the node; `said` is the last agent line in the
+     saved conversation, which outlives a node whose reply was cleared. Nothing
+     is assembled and nothing is summarised. These are the agent's own words or
+     there are none. */
+  const working = Boolean(live && live.working)
+  const streaming = clip(live && typeof live.text === 'string' ? live.text : '', RUN_SAID_CHARS)
+  const kept = clip(said && typeof said.reply === 'string' ? said.reply : '', RUN_SAID_CHARS)
+  const spoken = clip(said && typeof said.said === 'string' ? said.said : '', RUN_SAID_CHARS)
+  const answer = streaming || kept || spoken
+
+  /* WHICH ABSENCE THIS ROW IS IN, and there are four of them. They are ordered
+     so the row names the outermost missing thing: a run with no saved
+     conversation at all cannot also be missing an answer, and a run that was
+     refused is not waiting for one. Exactly one sentence, or none. */
+  let gap = ''
+  /* AN ANSWER OUTRANKS EVERY ABSENCE, and this order is the repair for a
+     contradiction measured on the packaged build. A run started from the tree
+     is written to the signed record the instant it starts, and its NODE reaches
+     saved storage a beat later, so for that beat the list holds a run with a
+     live answer streaming into it and no saved conversation to join to. The
+     absences were asked first, so the row printed the agent's actual words above
+     a sentence saying no answer had been saved for it. Both were true of
+     different sources and together they were nonsense, which is precisely the
+     failure this screen was rewritten to make unreachable. */
+  if (answer) gap = ''
+  else if (!said) gap = COPY.runNothingSaved
+  else if (working || said.status === 'starting' || said.status === 'running') gap = COPY.runNoAnswerYet
+  else if (run.result !== 'refused') gap = COPY.runNoAnswerSaved
+
+  /* AND THE SECOND ABSENCE, WHICH IS ABOUT THE WORK RATHER THAN THE WORDS. Only
+     said of a run that really started: a run that was refused has no turns by
+     definition, and printing that under a refusal reason would be the screen
+     explaining itself twice.
+
+     GATED ON THE SENTENCE AND NOT ON THE READING, deliberately. runDid() is
+     silent for a reading it cannot describe, and testing `work` here instead
+     would let a row that produced no sentence render a blank line -- which is
+     the exact thing this row is being repaired for. Whatever makes the sentence
+     empty, the row says the turns were not recorded. */
+  const did = work ? COPY.runDid(work) : ''
+  /* AND NOT WHILE THE TURN IS STILL HAPPENING. Read off the packaged build with
+     a real agent: a row said "Working now" in green and, one line below, "No
+     turns were recorded for it." Both were true -- the turn record is written
+     when a turn ENDS, and that one had not -- and together they read as the
+     screen arguing with itself about an agent the person can watch typing. A
+     turn in progress is not a turn nobody recorded. */
+  const noWork = !did && !working && run.result === 'started' ? COPY.runNoTurns : ''
+
   return Object.freeze({
     sequence: run.sequence,
     result: run.result,
-    /* Three separately-absent facts, and each absence is rendered by leaving
-       the line out rather than by printing a stand-in. */
+    /* Separately-absent facts, and each absence is rendered by leaving the line
+       out rather than by printing a stand-in. */
     resultWord: COPY.runResult(run.result),
     why: run.result === 'refused' ? COPY.runReason(run.reason) : '',
     agent: clip(said && typeof said.role === 'string' ? said.role : ''),
     asked: clip(said && typeof said.asked === 'string' ? said.asked : ''),
+    said: answer,
+    /* True only while this window is watching the stream carry that session.
+       It is an observation, not a reading of a record, and it is the only
+       liveness claim this row makes. */
+    working,
+    did,
+    noWork,
+    gap,
     when: whenWords(nowMs - run.atMs) || COPY.runWhenUnknown,
     /* The exact instant, for the row's own tooltip. A list that only ever says
        "3 days ago" cannot be lined up against anything else that happened. */
@@ -473,6 +646,20 @@ export function whenWords(ms) {
 }
 
 const countOf = (n, one, many) => `${n} ${n === 1 ? one : many}`
+
+/* Thousands separated, and written here rather than taken from
+   Number.toLocaleString(): that function answers differently depending on the
+   machine's language settings, so the same record would read one way on this
+   computer and another way on the next, and no test could pin either. */
+function groupDigits(value) {
+  const digits = String(Math.trunc(value))
+  let out = ''
+  for (let index = 0; index < digits.length; index += 1) {
+    if (index > 0 && (digits.length - index) % 3 === 0) out += ','
+    out += digits[index]
+  }
+  return out
+}
 
 /* ---------------------------------------------------------------
    The decision.
@@ -842,7 +1029,17 @@ function recordFooter(sessions) {
   const outcomes = Number.isSafeInteger(sessions.started) && Number.isSafeInteger(sessions.refused)
     ? COPY.runOutcomes(sessions.started, sessions.refused, sessions.total)
     : null
-  return outcomes ? `${integrity} ${outcomes}` : integrity
+  /* AND THE THIRD SENTENCE, WHICH IS ABOUT WHAT THIS RECORD DOES NOT HOLD.
+   *
+   * The owner asked for a flow, and the first thing a person wants from a flow
+   * is how long each thing took. It cannot be answered. The recorder writes
+   * exactly two lines per run -- the intent before the process exists, and
+   * started or refused the instant the start resolved -- and there is no line
+   * for an ending anywhere in the chain. A duration here could therefore only
+   * be this window subtracting one clock from another and presenting it as a
+   * measurement, which is the class of thing this whole screen was rewritten to
+   * stop doing. So the list says what it has and says, once, what it has not. */
+  return [integrity, outcomes, COPY.runEndingsNotKept].filter(Boolean).join(' ')
 }
 
 function panelStatements(panel) {
