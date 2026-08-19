@@ -294,3 +294,61 @@ test('8. a non-PASS verdict of any kind fails the suite, so INCONCLUSIVE cannot 
 /* require() for the CommonJS product module, from an ESM suite. */
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
+
+/* The blind spot this suite still had on 2026-08-18: a driver that declares,
+   in its own output, exactly which checks it COULD NOT EXERCISE.
+   agent-start-flow-qa does this by design (born that way in 0c049ac,
+   "including what it cannot prove"): two of its checks require substituting
+   window.mcAgent's start reply from the page, and that object is a
+   non-configurable contextBridge property -- a deliberate security guarantee of
+   the shell. The driver refuses to fake them, prints NOT EXERCISED with the
+   reason, and exits 3.
+
+   The suite read that as FAIL. That is the same error its own UNMEASURABLE
+   comment forbids -- blaming the product for something that was never measured
+   -- and it would have blocked a release on a security guarantee working as
+   designed. Weakening the bridge to make the driver green would be the worst
+   available answer: removing a guard to satisfy an instrument. */
+test('9. a driver that names the checks it could not exercise is not a product failure', () => {
+  const honest = [
+    '  ok    the page offers a way to start',
+    '  ....  the node becomes THAT session  -- NOT EXERCISED: window.mcAgent is a non-configurable contextBridge property',
+    '  ....  a node that started looks like it is running  -- NOT EXERCISED: window.mcAgent is a non-configurable contextBridge property',
+    '',
+    '32/34 checks passed in 42.2s',
+    '  NOT EXERCISED: the node becomes THAT session  -- window.mcAgent is a non-configurable contextBridge property',
+    '  NOT EXERCISED: a node that started looks like it is running  -- window.mcAgent is a non-configurable contextBridge property',
+    '',
+  ].join('\n')
+  assert.equal(verdictFor({ timedOut: false, code: 3, output: honest }), 'INCONCLUSIVE',
+    'checks the driver honestly declared it could not exercise must not read as a product failure')
+
+  /* THE RULE MUST NOT BECOME A LAUNDRY. A real failure alongside a
+     not-exercised check is still a failure, and the arithmetic has to close:
+     passed + not-exercised must account for the whole roster, or something
+     unexplained is missing and the honest answer is not "fine". */
+  const withRealFailure = [
+    '  ok    one',
+    '  FAIL  two  -- it really broke',
+    '  ....  three  -- NOT EXERCISED: cannot be substituted from the page',
+    '',
+    '1/3 checks passed in 1.0s',
+    '  NOT EXERCISED: three  -- cannot be substituted from the page',
+  ].join('\n')
+  assert.equal(verdictFor({ timedOut: false, code: 3, output: withRealFailure }), 'FAIL',
+    'a genuine failure beside a not-exercised check must still fail')
+
+  const arithmeticDoesNotClose = [
+    '  ok    one',
+    '  ....  two  -- NOT EXERCISED: cannot be substituted from the page',
+    '',
+    '1/4 checks passed in 1.0s',
+    '  NOT EXERCISED: two  -- cannot be substituted from the page',
+  ].join('\n')
+  assert.equal(verdictFor({ timedOut: false, code: 3, output: arithmeticDoesNotClose }), 'FAIL',
+    'two checks are unaccounted for, so the not-exercised story does not explain the gap')
+
+  /* And a nonzero exit with no such declaration is untouched. */
+  assert.equal(verdictFor({ timedOut: false, code: 3, output: '  ok  one\n1/1 checks passed\n' }), 'FAIL',
+    'exit 3 without a declared not-exercised check is still a failure')
+})

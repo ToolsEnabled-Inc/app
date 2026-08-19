@@ -342,6 +342,11 @@ const OBSERVATIONS = /^[^\n]*?(\d+) observation\(s\), (\d+) failing/gim
    word FAIL from being read as a failing check. */
 const CHECK_LINE = /^ {2}(?:ok {2}|FAIL )/m
 
+/* The closing roll-call a driver prints for what it could not exercise, one
+   line per check. Anchored to the two leading spaces and the colon so the
+   phrase appearing inside a reason or a comment cannot inflate the count. */
+const NOT_EXERCISED_LINE = /^ {2}NOT EXERCISED: /gm
+
 /* The last match, not the first: a driver may summarise a sub-phase before it
    summarises itself, and the closing count is the one that speaks. */
 function lastMatch(text, pattern) {
@@ -361,6 +366,30 @@ export function verdictFor({ timedOut, code, output = '' }) {
      weather, and reporting it as PASS hides that nothing was measured. Neither
      is true, so it is neither. See tools/machine-steadiness.mjs. */
   if (text.includes(UNMEASURABLE_MARK)) return 'INCONCLUSIVE'
+
+  /* THE SECOND WAY A DRIVER CAN HONESTLY FAIL TO MEASURE, and it is the
+     driver's own declaration rather than the machine's. agent-start-flow-qa
+     was born naming the checks it cannot exercise (0c049ac, "including what it
+     cannot prove"): two of them need window.mcAgent's start reply substituted
+     from the page, and that object is a non-configurable contextBridge
+     property -- a deliberate guarantee of the shell. It refuses to fake them,
+     prints NOT EXERCISED with the reason, and exits 3.
+
+     Read as FAIL, that is this file's own UNMEASURABLE comment violated one
+     paragraph below where it is written: the product is blamed for a security
+     guarantee working. The only ways to make it green would be to weaken the
+     bridge or to let the driver lie, and both are worse than the report.
+
+     THE RULE IS NARROW ON PURPOSE, because a verdict that launders failures is
+     worse than one that over-blames. All three must hold: the driver named at
+     least one check it could not exercise; no check FAILED; and the arithmetic
+     closes -- passed plus not-exercised accounts for the whole roster, so a
+     check that vanished for some other reason is still a failure. */
+  const notExercised = [...text.matchAll(NOT_EXERCISED_LINE)].length
+  if (notExercised > 0 && !/^ {2}FAIL /m.test(text)) {
+    const ratio = lastMatch(text, RATIO_SUMMARY)
+    if (ratio && Number(ratio[1]) + notExercised === Number(ratio[2])) return 'INCONCLUSIVE'
+  }
 
   if (code !== 0) return 'FAIL'
 
