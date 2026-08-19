@@ -80,6 +80,51 @@ import {
    fields: eight rows a person can move. */
 export const SETUP_PROFILE_SETTING_COUNT = 8
 
+/* WHY THE FOLDER WAS REFUSED, WHICHEVER WAY THE SHELL SAID IT.
+ *
+ * `mcSetup.chooseWorkspace()` answers a refusal in two different shapes, and
+ * both screens that ask the folder question used to read only the first:
+ *
+ *   a folder the check refused   { ok: false, code, reason, resolved }
+ *   anything that THREW inside   { ok: false, error: { code, message } }
+ *
+ * The second is what `withFleetProfileSender` in shell/main.cjs returns for
+ * every exception in that handler, so it is not an exotic path. MEASURED while
+ * driving the shipped 1.0.20 build on a fresh profile: pressing "Choose a
+ * different folder..." answered
+ *     { ok: false, error: { code: 'MC_FLEET_PROFILE_ACTION_FAILED',
+ *                           message: "Failed to get 'documents' path" } }
+ * and the screen read "That folder cannot be used -- The application did not say
+ * why." It had been told why, in a sentence, and dropped it.
+ *
+ * capability/src/lib/setup/workspace.js states the rule this broke, in its own
+ * words: every refusal here has to be explainable to the person who chose the
+ * folder, because "that folder cannot be used" with no reason is the shape that
+ * makes someone pick a worse one.
+ *
+ * A BARE IDENTIFIER IS NOT A SENTENCE. src/refusal-copy.js refuses those for a
+ * reason a person meets rather than a rule: MC_FLEET_PROFILE_ACTION_FAILED on
+ * the glass is a code with no reader, and printing it would technically satisfy
+ * "say why" while telling nobody anything. Same test here, same outcome: fall
+ * through to the sentence that at least admits the silence.
+ *
+ * It lives in this module, and the walkthrough imports it, so the two screens
+ * cannot drift into explaining the same refusal two different ways -- which is
+ * exactly how one of them came to miss a shape the other would have shown. */
+const BARE_IDENTIFIER = /^[A-Z][A-Z0-9_]*$/
+
+export function setupRefusalDetail(result, fallback = 'The application did not say why.') {
+  const candidates = [result?.reason, result?.error?.message, result?.message]
+  for (const candidate of candidates) {
+    const text = typeof candidate === 'string' ? candidate.trim() : ''
+    if (text.length === 0) continue
+    if (BARE_IDENTIFIER.test(text)) continue
+    if (!/[a-z]/.test(text)) continue
+    return text
+  }
+  return fallback
+}
+
 const WRITE_FLAG_IDS = WRITE_ACTION_FLAGS.map(flag => flag.id)
 const LIVE_FLAG_IDS = LIVE_VIEW_FLAGS.map(flag => flag.id)
 
@@ -179,7 +224,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     if (workspace.available === false) {
       return rowMarkup(
         'Working folders',
-        `${workspace.reason || 'The application did not say why.'}`,
+        `${setupRefusalDetail(workspace)}`,
         '<span class="settings-desc">unavailable</span>',
         'workspace',
       )
@@ -346,7 +391,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
       result = { ok: false, reason: error?.message || String(error) }
     }
     workspace = result?.ok === false
-      ? { available: false, reason: result.reason || 'The application did not say why.' }
+      ? { available: false, reason: setupRefusalDetail(result) }
       : result
     refresh()
   }
@@ -365,7 +410,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     if (picked?.canceled) { busy = null; refresh(); return }
     if (!picked?.ok) {
       busy = null
-      feedback = { tone: 'serious', title: 'That folder cannot be used', detail: picked?.reason || 'The application did not say why.' }
+      feedback = { tone: 'serious', title: 'That folder cannot be used', detail: setupRefusalDetail(picked) }
       refresh()
       return
     }
@@ -377,7 +422,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     }
     busy = null
     if (!saved?.ok) {
-      feedback = { tone: 'serious', title: 'That folder was not saved', detail: `${saved?.reason || 'The application did not say why.'} Nothing on this computer was changed.` }
+      feedback = { tone: 'serious', title: 'That folder was not saved', detail: `${setupRefusalDetail(saved)} Nothing on this computer was changed.` }
       refresh()
       return
     }
@@ -463,7 +508,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
         result = { ok: false, reason: error?.message || String(error) }
       }
       if (!result?.ok) {
-        feedback = { tone: 'serious', title: 'The permission level was not changed', detail: `${result?.reason || 'The application did not say why.'} Nothing on this computer was changed.` }
+        feedback = { tone: 'serious', title: 'The permission level was not changed', detail: `${setupRefusalDetail(result)} Nothing on this computer was changed.` }
         return
       }
       /* WHAT THE LEDGER SAYS ABOUT THIS CHANGE, read off the shell's answer and

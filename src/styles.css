@@ -2339,6 +2339,18 @@ body[data-route="computers"] { --page-max: 1680px; }
   display: flex; align-items: center; justify-content: center; gap: var(--s2);
   transition: all var(--dur-2) var(--ease);
 }
+/* THE LINE ABOVE IS WHY THIS ONE EXISTS. `display: flex` is an AUTHOR rule and
+   `[hidden] { display: none }` is a USER-AGENT rule, so every ctl-btn that a
+   module marks hidden is painted anyway — and a ctl-btn with nothing in it is a
+   blank, pressable, full-width box. MEASURED in the shipped 1.0.20 window, on
+   the panel that opens from the "+" node in the fleet tree: the compose panel's
+   `agent-compose-enable` carried `hidden`, computed `display: flex`, an empty
+   textContent, a 349x40 rect, and answered elementFromPoint at its own centre —
+   in the middle of the form a person fills in to start their first agent.
+   src/cloud.css and home.css each met this trap and each guarded their own
+   corner; guarding it here, beside the rule that causes it, is what stops the
+   next corner from having to. */
+.ctl-btn[hidden] { display: none; }
 .ctl-btn svg { width: 15px; height: 15px; }
 .ctl-btn:hover { background: rgba(255,255,255,calc(0.9 * var(--wa))); color: var(--ink); transform: translateY(-1px);
   box-shadow: inset 0 1px 0 rgba(255,255,255,var(--wa)), var(--elev-2); }

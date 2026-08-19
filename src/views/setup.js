@@ -64,6 +64,9 @@ import {
   noteTierRecorded,
 } from '../setup-state.js'
 import { setupAccountStepMarkup } from '../account-markup.js'
+/* One reader for "why was that folder refused", shared with the settings screen
+   that asks the same question, so the two cannot explain one refusal two ways. */
+import { setupRefusalDetail } from '../setup-profile-settings.js'
 import {
   ACCOUNT_QUESTION,
   ACCOUNT_QUESTION_SUB,
@@ -234,7 +237,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     if (refusal) {
       return `<div class="fleet-profile-status is-serious" data-setup-status role="alert">
         <strong>${esc(refusal.title || 'This copy cannot record a permission level')}</strong>
-        <span>${esc(refusal.reason || 'The application did not say why.')}</span>
+        <span>${esc(setupRefusalDetail(refusal))}</span>
       </div>`
     }
     return `<div class="fleet-profile-status is-warn" data-setup-status role="status">
@@ -357,7 +360,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     refusal = {
       title: 'That level was not saved',
       code: result?.code || 'MC_SETUP_SAVE_FAILED',
-      reason: result?.reason || 'The application did not say why. Nothing on this computer was changed.',
+      reason: setupRefusalDetail(result, 'The application did not say why. Nothing on this computer was changed.'),
     }
     paint()
   }
@@ -600,7 +603,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       return `<h1 class="setup-title">Which folder should your assistant work in?</h1>
         <div class="fleet-profile-status is-serious" role="alert">
           <strong>This copy cannot record a folder</strong>
-          <span>${esc(workspace.reason || 'The application did not say why.')} Nothing on this computer has been changed, and the rest of setup still works.</span>
+          <span>${esc(setupRefusalDetail(workspace))} Nothing on this computer has been changed, and the rest of setup still works.</span>
         </div>
         ${actionsMarkup({ back: stepBefore(STEPS, 'workspace'), next: stepAfter(STEPS, 'workspace') })}`
     }
@@ -893,7 +896,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
 
       ${refusal ? `<div class="fleet-profile-status is-serious" data-setup-status role="alert">
         <strong>${esc(refusal.title || 'That was not saved')}</strong>
-        <span>${esc(refusal.reason || 'The application did not say why.')}</span>
+        <span>${esc(setupRefusalDetail(refusal))}</span>
       </div>` : ''}
 
       ${actionsMarkup({ back: stepBefore(STEPS, 'review'), next: 'finish', nextLabel: busy ? 'Saving…' : 'Finish setup' })}`
@@ -932,7 +935,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     }
     if (destroyed) return
     workspace = result?.ok === false
-      ? { available: false, reason: result.reason || 'The application did not say why.' }
+      ? { available: false, reason: setupRefusalDetail(result) }
       : result
     paint()
   }
@@ -1007,7 +1010,10 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
     workspaceBusy = false
     if (result?.canceled) { paint(); return }
     if (!result?.ok) {
-      workspaceRefusal = result?.reason || 'The application did not say why.'
+      /* Both shapes, one reader -- see setupRefusalDetail. This line used to
+         read `result?.reason` alone and printed "The application did not say
+         why." over a shell reply that carried the sentence in `error.message`. */
+      workspaceRefusal = setupRefusalDetail(result)
       paint()
       return
     }
@@ -1085,7 +1091,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         refusal = {
           title: 'That folder was not saved',
           code: result?.code || 'MC_SETUP_WORKSPACE_FAILED',
-          reason: `${result?.reason || 'The application did not say why.'} Nothing else was changed either.`,
+          reason: `${setupRefusalDetail(result)} Nothing else was changed either.`,
         }
         /* A refusal a torn-down section cannot show is still a refusal, so the
            run stops here rather than completing a setup whose folder failed. */
