@@ -231,7 +231,21 @@ async function run() {
     const level = typeof event.level === 'number' ? event.level : 0
     const message = event.message || 'unknown renderer error'
     const expectedDiscoveryMiss = /blocked by CORS policy|ERR_FAILED.*461[0-9]/.test(message)
-    if (!expectedDiscoveryMiss && (level >= 3 || event.level === 'error')) {
+    /* NOT A RENDERER ERROR: Chromium's own note that ResizeObserver delivery
+       was deferred one frame because observed layout changed inside the
+       callback. It is emitted at error level, but the spec defines it as the
+       loop-breaker working as designed, and on this page it appears under
+       machine load alone: on 2026-08-19, with the packaged suite churning the
+       machine, the PREVIOUS confirming tree a3e9f85 -- green on its own
+       confirming run -- went red on exactly this message 7 runs out of 7
+       (3 sequential + 4 concurrent), same driver bytes, same dist recipe.
+       A check that reds on an unchanged, previously-green product is
+       measuring the weather, not the renderer. Whether the graph's
+       resize->layout->placeChips chain ever fails to TERMINATE is what the
+       settle checks below measure, and they still demand exactly zero
+       residual motion. Every other error-level message still fails here. */
+    const expectedLoadDeferral = message.includes('ResizeObserver loop completed with undelivered notifications')
+    if (!expectedDiscoveryMiss && !expectedLoadDeferral && (level >= 3 || event.level === 'error')) {
       rendererErrors.push(message)
       results.push({ name: 'renderer console', pass: false, detail: message })
     }
@@ -288,6 +302,52 @@ async function run() {
      fixed 900ms window could not see at all. Closing the remaining gap needs
      the counter installed at document-start, which needs a preload, which needs
      contextIsolation off -- i.e. it would change the environment under test. */
+  /* WAIT OUT THE PAGE'S OWN ENTRY MOTION BEFORE OPENING THE SETTLE WINDOW.
+     The router mounts every view as `.view.enter` and lifts the class in a
+     double requestAnimationFrame (src/main.js swapView). That rAF is the
+     NATIVE one -- it was scheduled at mount, before the shim above existed --
+     and this window is hidden, so the frame that runs it arrives whenever the
+     compositor deigns to produce one. When it arrives LATE, the lift starts
+     the wrapper's one-shot opacity/transform transition (.view's stylesheet
+     transition), and if that lands inside the confirm window below, the
+     transform moves every sampled rect and the idle check reads
+       layoutMovedWhileIdle=true
+       anywhereOnThePage=["div.view CSSTransition opacity","div.view CSSTransition transform"]
+     -- which is exactly the red the 2026-08-19 confirming run produced at
+     0485034, and exactly what this harness reproduced ON THE PREVIOUS GREEN
+     TREE a3e9f85 by making the lift-frame arrive at mount+2150ms in a
+     worktree build (layoutMovedWhileIdle=true, same two transitions named).
+     The entry motion is a ONE-SHOT: the page still reaches idle and stays
+     there, which is the invariant the check states. So the instrument waits
+     for the entry to have actually run -- class lifted, wrapper transitions
+     finished -- before it starts judging idleness, the same way it already
+     waits for document.fonts.ready. A perpetual animation or a self-renewing
+     frame loop fails the checks below exactly as before; and if this window
+     truly gets no frame at all, that is named here as harness state rather
+     than left to surface as a settle red blamed on the page. */
+  const entry = await webContents.executeJavaScript(`new Promise(resolve => {
+    const startedAt = Date.now();
+    const deadline = startedAt + 10000;
+    const entryStillPending = () => {
+      const wrappers = [...document.querySelectorAll('.view')];
+      const classed = wrappers.some(v => v.classList.contains('enter') || v.classList.contains('exit'));
+      const moving = document.getAnimations().some(animation => {
+        const target = animation.effect && animation.effect.target;
+        return target instanceof Element
+          && target.classList.contains('view')
+          && (animation.playState === 'running' || animation.pending === true);
+      });
+      return classed || moving;
+    };
+    const poll = () => {
+      if (!entryStillPending()) return resolve({ done: true, waitedMs: Date.now() - startedAt });
+      if (Date.now() > deadline) return resolve({ done: false, waitedMs: Date.now() - startedAt });
+      setTimeout(poll, 60);
+    };
+    poll();
+  })`)
+  check('HARNESS STATE: the entry motion ran before the settle window opened', entry.done,
+    `waited ${entry.waitedMs}ms and .view never finished entering -- this hidden window got no frame; nothing about the page was measured`)
   const settle = await settlePage2(webContents)
 
   const initial = await webContents.executeJavaScript(`(() => {
