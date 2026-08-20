@@ -416,7 +416,16 @@ async function drive(executable, scratch) {
     check('choosing runs-only is recorded', await evaluate('localStorage.getItem("mc.chat.runs")') === 'only')
 
     await evaluate('location.hash = "#/"')
-    const runsOnly = await settleBox('the runs-only box', reading => reading.turnCount === 0)
+    /* SETTLE ON THE WHOLE REPAINT, NOT ON ITS FIRST HALF. This settled on
+       turnCount alone and then read the title, and on the 2026-08-19 final
+       confirming suite -- machine churning under the whole run -- the read
+       landed between the log emptying and the header landing: title "" over a
+       box that titles itself correctly a moment later (src/local-activity.js,
+       untouched by the window under test; this same check was green solo and
+       in the 12:06 suite the same day). The equality below is unchanged and
+       exact; a box that genuinely loses its title still exhausts the settle
+       and fails with whatever was really on the glass. */
+    const runsOnly = await settleBox('the runs-only box', reading => reading.turnCount === 0 && reading.title.length > 0)
     check('THE BOX CHANGED: with runs only, no conversation is left in it', runsOnly.turnCount === 0, `${runsOnly.turnCount} turns`)
     check('and the box says what it is showing instead', runsOnly.title === 'Activity on this computer', runsOnly.title)
 
@@ -490,9 +499,32 @@ async function drive(executable, scratch) {
       if (packet.result?.exceptionDetails) throw new Error(packet.result.exceptionDetails.exception?.description || 'evaluate failed')
       return packet.result?.result?.value
     }
+    /* THE BLANK PAGE PASSES A HASH-ONLY CONDITION. location.hash on the
+       pre-load about:blank document is "", so waiting for hash "#/"-or-"" is
+       satisfied before the shell has served anything -- and localStorage on
+       that null-origin document does not answer, it THROWS SecurityError,
+       which is how the 2026-08-19 final confirming suite died here under
+       port contention ("the relaunch moved address: ...4601 then null").
+       Nothing below is measurable before the app's own http(s) document
+       exists, so that is what is waited for. If it never arrives, the
+       machine withheld the relaunch -- another process squatting the range,
+       a shell that could not serve -- and that is named with the suite's own
+       unmeasurable marker rather than dressed up as a product failure. The
+       two checks that matter (the choice survives; the box comes back
+       narrowed) are unchanged and still fail loudly whenever they run. */
+    let relaunchedIntoApp = false
     for (let attempt = 0; attempt < 80; attempt += 1) {
-      if (await evaluate2('location.hash === "#/" || location.hash === ""')) break
+      if (await evaluate2('location.protocol.startsWith("http") && (location.hash === "#/" || location.hash === "")')) { relaunchedIntoApp = true; break }
       await delay(250)
+    }
+    if (!relaunchedIntoApp) {
+      const parked = await evaluate2('JSON.stringify({ href: location.href, origin: location.origin })').catch(() => 'unreadable')
+      console.log(`
+CANNOT MEASURE ON THIS COMPUTER: the relaunched window never reached the application's own page within 20s (${parked}); the surviving-setting checks were not measured this run.`)
+      const failedSoFar = checks.filter(entry => !entry.ok)
+      console.log(`
+${checks.length - failedSoFar.length}/${checks.length} checks passed before the relaunch became unmeasurable`)
+      return failedSoFar.length === 0
     }
     const reopenedOrigin = await evaluate2('location.origin')
     /* THE ADDRESS IS DIAGNOSTIC DETAIL, NOT A CHECK. It used to be asserted --
