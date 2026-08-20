@@ -89,6 +89,15 @@ const WRITABLE_IDS = Object.freeze([
   'research.runner_agent',
   'research.runner_process',
   'research.runner_http',
+  /* The standard tool note handed to every new agent session. Its enforcement
+     is driven end to end: the payload's src/lib/agent-tool-summary.js is the
+     row's named enforcer (engine suite tests/agent-tool-summary.test.js proves
+     the row off means no note), and tools/test/tool-summary-injection.test.mjs
+     proves the host injects on-and-only-on. Until this build's payload is
+     repacked with that module, readProductSettings honestly reports the row as
+     not present in this copy's registry -- which is the designed mismatch
+     surface, not a dead switch. */
+  'agent.tool_summary',
 ])
 
 function failure(code, reason) {

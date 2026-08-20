@@ -258,6 +258,74 @@ function loadClaudeEngine(engineRoot) {
   }
 }
 
+/* THE STANDARD TOOL NOTE A NEW SESSION IS HANDED, resolved from the same tree
+ * every other payload module comes out of.
+ *
+ * THE OWNER'S REQUIREMENT, verbatim: "i have to tell agents what tools are
+ * called and what to do and to use this or that tool etc. so thats really hard
+ * on a user. We should have a really short standard file that just shares
+ * exactly what exists - we dont wat to eat tokens but they need to knoiw. We
+ * can give a specific setting to disable this but it should be standard." And
+ * the first outside user hit the other half of the same silence: their agents
+ * "weren't able to use credential manager or vault" on a level that withholds
+ * it BY DESIGN, and nothing had told the agent, so the agent could not tell
+ * them.
+ *
+ * The note itself -- what it says, what it costs in tokens, and the
+ * agent.tool_summary settings row that turns it off -- is the payload module's
+ * business (src/lib/agent-tool-summary.js) and is proved by the engine suite.
+ * What THIS file owns is delivery: the note rides at the end of the FIRST turn
+ * a new session is sent, after the person's own words, the same channel the
+ * tree brief already crosses and for the same reason -- it is the one channel
+ * that reaches both engines (developerInstructions reaches neither; see
+ * src/tree-node-brief.js).
+ *
+ * OPTIONAL, LIKE EVERY PAYLOAD MODULE THIS HOST LOADS. A payload cut before
+ * the module existed injects nothing and starts sessions exactly as it always
+ * has; a module that throws is a session with no note, never a session that
+ * does not run. A missing introduction must not become a dead product. */
+const PAYLOAD_TOOL_SUMMARY_MODULE = 'src/lib/agent-tool-summary.js'
+
+function loadToolSummary(engineRoot) {
+  if (!engineRoot) return null
+  const modulePath = path.join(engineRoot, PAYLOAD_TOOL_SUMMARY_MODULE)
+  try {
+    if (!fs.existsSync(modulePath)) return null
+    const loaded = require(modulePath)
+    if (!loaded || typeof loaded.briefToolSummary !== 'function') return null
+    return loaded
+  } catch {
+    return null
+  }
+}
+
+/* The note for one session, or null. Null on every failure path, because the
+ * note is an introduction and an introduction is never worth refusing a start
+ * over -- the fail-closed direction for an ADDITIVE feature is absence. The
+ * tier comes from the plan that is actually binding the session, never re-read,
+ * so the note cannot describe a level other than the one enforced. */
+function composeToolSummaryNote(toolSummary, plan) {
+  if (!toolSummary || !plan || typeof plan.tier !== 'string') return null
+  /* ONLY A SESSION WHOSE PLAN ACTUALLY WIRED THE SERVERS GETS THE NOTE.
+   * Measured from inside the product, 2026-08-19: a Claude session's plan
+   * carries `servers: []` -- confinementPlanFor() builds no home and no MCP
+   * document for that engine, and the CLI is spawned with no --mcp-config --
+   * so a note describing the level's 111 tools would be teaching an agent
+   * about a toolkit IT CANNOT CALL. That is the exact lie this note exists to
+   * end, pointed the other way. When the Claude MCP wiring lands, its plan
+   * will carry servers and the note follows with no change here. */
+  if (!Array.isArray(plan.servers) || plan.servers.length === 0) return null
+  try {
+    const reading = toolSummary.briefToolSummary({ tier: plan.tier })
+    if (reading && reading.enabled === true && typeof reading.text === 'string' && reading.text.length > 0) {
+      return reading.text
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot() } = {}) {
   // An explicit path is useful to embedders and focused tests.
   //
@@ -1087,6 +1155,9 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
      starting Codex and keeps refusing Claude by name, rather than failing to
      start anything. */
   const claudeEngine = loadClaudeEngine(engineRoot)
+  /* The tool-note module, loaded once beside the engines and allowed to be
+     absent. See the note at loadToolSummary(). */
+  const toolSummary = loadToolSummary(engineRoot)
   const fallbackCwd = normalizeCwd(defaultCwd, process.cwd())
   /* Resolved PER SESSION rather than once here, so that changing the permission
    * level takes effect on the next agent the user starts instead of on the next
@@ -1625,6 +1696,14 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
          could drift from what actually bound the thread. Re-pointed below if an
          account is chosen, which happens strictly before any turn can be sent. */
       planThreadOptions: basePlan.threadOptions || null,
+      /* The standard tool note this session's FIRST turn will carry, or null.
+         Computed at start from the plan that is binding the session, so
+         flipping agent.tool_summary takes effect on the next start — the same
+         per-session rule the plan itself follows. A resumed conversation
+         already had its introduction and gets none. The account re-plan below
+         does not recompute it: an account changes whose home the credential
+         links from, never the recorded level the note describes. */
+      pendingToolSummary: resumeId ? null : composeToolSummaryNote(toolSummary, basePlan),
     }
     // Reserve before the asynchronous engine start so duplicate starts cannot
     // race and leak a second child process.
@@ -1916,6 +1995,16 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
        session -- passes through untouched. */
     registerTreeSession(session, turnText)
 
+    /* THE INTRODUCTION RIDES THE FIRST TURN, AND ONLY THE FIRST. After the
+       person's own words, so the job is read before the plumbing — the same
+       order the tree brief keeps and for the same reason. Cleared BEFORE the
+       send, so no failure path can replay it onto a later turn: a lost note is
+       an agent that asks what it can do, a replayed one is a transcript that
+       repeats itself forever. */
+    const introduction = session.pendingToolSummary || null
+    if (introduction) session.pendingToolSummary = null
+    const outgoingText = introduction ? `${turnText}\n\n${introduction}` : turnText
+
     /* THIS RESOLVES WHEN THE TURN IS UNDER WAY, NEVER WHEN IT IS OVER. See
        announceTurn() above for the measurement that made the difference matter.
        Whichever of the two the engine offers first wins:
@@ -1932,7 +2021,7 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     /* Asked ONCE, before the race, so no branch below can send a second turn. */
     const acknowledged = session.adapter.sendTurn({
       threadId: session.threadId,
-      text: turnText,
+      text: outgoingText,
       images: turnImages,
       ...(turnOptions ? { options: turnOptions } : {}),
     })
