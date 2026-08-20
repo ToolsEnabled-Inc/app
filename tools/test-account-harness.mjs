@@ -214,6 +214,65 @@ export const accountsFileFor = profile => path.join(userDataFor(profile), 'produ
 export const sessionFileFor = profile => path.join(userDataFor(profile), 'product-session.enc')
 export const prefsFileFor = profile => path.join(userDataFor(profile), 'renderer-prefs.json')
 
+/* IS THIS THE NAME OF SOMETHING THAT COULD PAY FOR A MODEL TURN?
+ *
+ * Exported so the fence that proves the scrub works asks the SAME question the
+ * scrub asks. A second copy of this rule in the test is a second copy that
+ * drifts, and it would drift in the direction of passing.
+ *
+ * IT MATCHES ON THE NAME AND NEVER LOOKS AT A VALUE. A rule that inspected
+ * values to decide what is secret would have to read every secret to run.
+ *
+ * IT IS DELIBERATELY WIDER THAN IT NEEDS TO BE, and the asymmetry is the whole
+ * argument: this builds the environment for a TEST child. Over-scrubbing costs a
+ * drive that fails loudly and gets fixed in a minute. Under-scrubbing costs the
+ * operator's money, silently, and leaves evidence that looks green. So anything
+ * name-shaped like a credential goes, and a variable a driver genuinely needs is
+ * added back by name here rather than by loosening this.
+ *
+ * WHAT IT MUST NOT CATCH, checked against a real session's environment: paths
+ * and ids that merely live under a vendor prefix -- CLAUDE_CODE_EXECPATH,
+ * CLAUDE_CODE_SESSION_ID, CLAUDE_PID, CODEX_HOME, CLAUDE_CONFIG_DIR. Those are
+ * how a run is wired, not how it pays. */
+export function isProviderCredentialName(name) {
+  const upper = String(name || '').toUpperCase()
+  if (/^(CODEX_HOME|CLAUDE_CONFIG_DIR)$/.test(upper)) return false
+  return /(API_KEY|ACCESS_KEY|PRIVATE_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)/.test(upper)
+    || /_KEY$/.test(upper)
+}
+
+/**
+ * The environment a drive's child gets.
+ *
+ * THE PROMISE THIS FUNCTION MAKES is the module header's: a run never touches
+ * the real installation. LOCALAPPDATA, APPDATA, USERPROFILE and CODEX_HOME are
+ * redirected into scratch for exactly that reason -- so a drive cannot read the
+ * machine's own Codex sign-in and report a finding about the wrong computer.
+ *
+ * IT WAS BREAKING THAT PROMISE FOR ONE PROVIDER, AND THE GAP WAS A VARIABLE
+ * RATHER THAN A DIRECTORY. This function began `{ ...process.env }` and deleted
+ * two Electron flags, so a drive launched from a session that holds
+ * ANTHROPIC_API_KEY handed that key to the packaged app and every child it
+ * spawned. Measured 2026-08-20, end to end, names and lengths only:
+ *
+ *   environmentFor() put into a drive child   ANTHROPIC_API_KEY (108 chars)
+ *   a real child spawned with it reported     ANTHROPIC_API_KEY (108 chars)
+ *   while CODEX_HOME and USERPROFILE were correctly in scratch
+ *
+ * TWO COSTS, and the second is the one that outlives the fix. A drive that
+ * presses a Claude tier authenticates as the operator and bills them. And any
+ * drive that reported a Claude session STARTING may have measured the inherited
+ * key rather than the sign-in path a customer's machine would use -- a green
+ * about something other than the product, the same shape as measuring a working
+ * tree and calling it a commit.
+ *
+ * CLAUDE_CONFIG_DIR IS REDIRECTED, NOT DELETED, for the same reason CODEX_HOME
+ * is set rather than unset: presence checks read a directory, and an operator
+ * who has that variable pointing at their real ~/.claude would otherwise hand a
+ * drive their Claude sign-in through the door Codex's was already closed at. On
+ * a machine that does not set it, this lands on exactly the path the homedir
+ * fallback already resolved to, so no drive changes behaviour.
+ */
 export function environmentFor(profile) {
   const environment = { ...process.env }
   /* Both deleted deliberately. ELECTRON_RUN_AS_NODE turns the packaged
@@ -221,12 +280,19 @@ export function environmentFor(profile) {
      child steal a console window on a machine somebody is working on. */
   delete environment.ELECTRON_RUN_AS_NODE
   delete environment.ELECTRON_NO_ATTACH_CONSOLE
+  /* And every provider credential, the same way and for a harder reason. See
+     isProviderCredentialName() above; tools/test/harness-credential-fence.test.mjs
+     spawns a real child and fails if one of these arrives. */
+  for (const name of Object.keys(environment)) {
+    if (isProviderCredentialName(name)) delete environment[name]
+  }
   if (VISIBLE) delete environment.MC_SMOKE_HEADLESS
   else environment.MC_SMOKE_HEADLESS = '1'
   environment.LOCALAPPDATA = path.join(profile, 'local')
   environment.APPDATA = path.join(profile, 'roaming')
   environment.USERPROFILE = path.join(profile, 'home')
   environment.CODEX_HOME = path.join(profile, 'home', '.codex')
+  environment.CLAUDE_CONFIG_DIR = path.join(profile, 'home', '.claude')
   mkdirSync(environment.APPDATA, { recursive: true })
   mkdirSync(environment.CODEX_HOME, { recursive: true })
   return environment
