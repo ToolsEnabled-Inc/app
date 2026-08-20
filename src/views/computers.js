@@ -120,7 +120,7 @@ import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, NODE_REMOVE
    rides in the message text rather than in an engine option. */
 import { composeNodeBrief, nodeManagerContext } from '../tree-node-brief.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
-import { isWriteEnabled, setWriteEnabled } from '../write-flags.js'
+import { WRITE_FLAGS_EVENT, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
 /* The one rule for "is there still an agent behind this circle", shared by every
    surface on this page that used to answer it for itself. */
@@ -161,6 +161,7 @@ import {
   ORG_ABSENT_REASON, REVISION_CONFLICT_ADVICE,
   buildRoleAssignBox, buildRoleLibraryBox, failureSentence, isRevisionConflict,
   orgBridge, orgNoticeMarkup, readOrg,
+  restoreRoleLibrary, snapshotRoleLibrary,
 } from '../org-controls.js'
 import '../board.css'
 import '../tree-graph.css'
@@ -810,11 +811,28 @@ const RUN_SESSION_NODES = new Map()
  * node on a later visit that nobody asked for. */
 let composeToRestore = null
 
-/* The Role library's unsaved wording, carried across the write-flag remount.
- * Declared here beside composeToRestore because the two survive the same
- * teardown. Restored by the coordinator 2026-08-20: a partial hunk set landed
- * its USES at ed7a10a without this line, and HEAD's fleet board died with
- * "roleLibraryToRestore is not defined". */
+/* THE ROLE LIBRARY RIDES THAT SAME REMOUNT.
+ *
+ * Same teardown, different casualty: wording a person had typed into a role's
+ * rule fields but not yet saved was rebuilt away with the view. Measured on
+ * the packaged build 2026-08-20 (order-variation drive): the typed marker
+ * survived opening and cancelling the start panel, and was destroyed the
+ * moment "Turn on running agents" was pressed -- and the drawer's own live
+ * toggle reaches the identical remount without the panel being involved at
+ * all. Captured when a flags event announces the teardown (the announcement
+ * is synchronous; the re-render is a microtask behind it), re-applied to
+ * every Role library build until the person touches the restored library --
+ * see mountOrgLibrary for why read-once was wrong here. It may outlive a
+ * remount legitimately: a flip to the example board builds no library, and
+ * the snapshot waits for the flip back instead of the wording dying with the
+ * first flip.
+ *
+ * THIS LINE HAS ALREADY BEEN LOST ONCE. ed7a10a committed the USES of this
+ * variable without the declaration, and the fleet board died at load with
+ * "roleLibraryToRestore is not defined" -- zero nodes, no way to start an
+ * agent; the coordinator restored it at 0bf3281. It is declared beside
+ * composeToRestore because the two survive the same teardown, and a lane
+ * staging one of them must take this line with them. */
 let roleLibraryToRestore = null
 
 /* WHERE A COMPUTER'S RECORD CAME FROM, in words rather than in the word the
@@ -890,6 +908,24 @@ export function computersView({ initialComputer = null, navigate }) {
   let destroyed = false
   let fetchVersion = 0
   const unsubs = []
+  /* CAPTURE BEFORE THE TEARDOWN, REGISTERED BEFORE ANYTHING THAT REBUILDS.
+     A flags event is dispatched synchronously and src/main.js queues the
+     route re-render a microtask behind it, so a listener here reads the Role
+     library's open items and typed wording while they are still on the page.
+     Registered FIRST in this view on purpose: onLiveFlag below rebuilds the
+     rail synchronously on the same event, and a capture that ran after it
+     would read the fresh empty library and preserve nothing. */
+  const captureRoleLibrary = () => {
+    if (destroyed) return
+    const snapshot = snapshotRoleLibrary(statsPage?.querySelector?.('.board-roles-box'))
+    if (snapshot) roleLibraryToRestore = snapshot
+  }
+  window.addEventListener(WRITE_FLAGS_EVENT, captureRoleLibrary)
+  window.addEventListener(LIVE_FLAGS_EVENT, captureRoleLibrary)
+  unsubs.push(() => {
+    window.removeEventListener(WRITE_FLAGS_EVENT, captureRoleLibrary)
+    window.removeEventListener(LIVE_FLAGS_EVENT, captureRoleLibrary)
+  })
   let sourceUnsubs = []
   /* The runs half of the chatbox. Read once per view from the same spawn
      record the home screen reads, never per node click, and left as an empty

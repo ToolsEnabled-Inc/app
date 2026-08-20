@@ -54,8 +54,10 @@ import {
   seedMachineRecord,
   stage,
   argument,
+  closeDrawer,
   gotoHome,
   gotoSettings,
+  openDrawer,
   route,
 } from './test-account-harness.mjs'
 
@@ -653,6 +655,189 @@ async function fleet3Phase(window) {
   await delay(600)
 }
 
+/* ------------------------------------------- fleet board, round 4 (D) ----- *
+ *
+ * The SECOND reachable path to the same data loss, driven end to end: the
+ * settings drawer's per-page live toggle fires the same route remount as the
+ * compose panel's turn-on press, with no compose panel involved. A person
+ * with a role editor open and wording typed flips the page to the example
+ * board and back -- their wording must come back with the live board.
+ */
+
+async function fleet4Phase(window) {
+  console.log('\n-- FLEET BOARD round 4: the drawer path to the same remount --')
+  const reached = await gotoComputers(window)
+  check('D0 the fleet board is reachable by clicking', reached === 'there', reached)
+  if (reached !== 'there') return
+  await delay(1200)
+
+  const summaryPress = await window.clickVisible('.board-roles-box .role-item summary')
+  await delay(700)
+  const marker = ' ORDER-DRIVE-MARKER'
+  const typed = await window.typeInto(OWNS, marker)
+  const carried = await window.evaluate(`String(document.querySelector(${JSON.stringify(OWNS)})?.value ?? '').includes('ORDER-DRIVE-MARKER')`)
+  check('D1 a role editor is open with typed wording', summaryPress === 'clicked' && typed === 'typed' && carried === true,
+    `press=${summaryPress} typed=${typed} carried=${carried}`)
+  await shot(window, 'D1-typed')
+
+  const drawer = await openDrawer(window)
+  const toggleSelector = '#drawer label.set-row:has(input[data-quick-live="computers"])'
+  const flip1 = await window.clickVisible(toggleSelector)
+  await delay(1600)
+  const modeAfterFlip = await window.evaluate(`({
+    liveMode: document.querySelector('.computers')?.dataset?.liveMode ?? 'unknown',
+    libraryPresent: document.querySelector('.board-roles-box') !== null,
+    capture: window.__mcOrderDriveCapture ?? null,
+    restore: window.__mcOrderDriveRestore ?? null,
+  })`)
+  note(`after flip to example: ${JSON.stringify(modeAfterFlip)}`)
+  await shot(window, 'D2-flipped-to-example')
+
+  const flip2 = await window.clickVisible(toggleSelector)
+  await delay(1600)
+  const closed = await closeDrawer(window)
+  /* The live board rebuilds its library after the org read answers. */
+  let libraryBack = { state: 'absent' }
+  const until = Date.now() + 12000
+  while (Date.now() < until) {
+    libraryBack = await window.visibility('.board-roles-box .role-item')
+    if (libraryBack?.state === 'visible') break
+    await delay(400)
+  }
+  const outcome = await window.evaluate(`({
+    itemOpen: document.querySelector(${JSON.stringify(OPEN_ITEM)}) !== null,
+    anyValueCarriesMarker: [...document.querySelectorAll('.board-roles-box textarea')].some(t => t.value.includes('ORDER-DRIVE-MARKER')),
+    capture: window.__mcOrderDriveCapture ?? null,
+    restore: window.__mcOrderDriveRestore ?? null,
+  })`)
+  /* THE PROOF HAS TO BE ON GLASS, NOT ONLY IN THE READ. The rail comes back
+     scrolled to its top and the Role library is a thousand pixels down it, so
+     the obvious screenshot shows an empty overview and proves nothing either
+     way. visibility() scrolls the restored editor into the viewport the way a
+     person would scroll to it, and reports whether it really got there. */
+  const onGlass = await window.visibility(OPEN_ITEM)
+  note(`restored editor on glass: ${JSON.stringify(onGlass)}`)
+  await shot(window, 'D3-back-on-live')
+  check('D2 the drawer live-toggle presses landed and the drawer closed', drawer !== 'covered' && flip1 === 'clicked' && flip2 === 'clicked' && closed === 'closed',
+    `drawer=${drawer} flips=${flip1}/${flip2} close=${closed}`)
+  check('D3 flipping to the example board and back keeps the open editor', outcome?.itemOpen === true,
+    `library=${libraryBack?.state} ${JSON.stringify(outcome)}`)
+  check('D3 ...and keeps the typed wording', outcome?.anyValueCarriesMarker === true, JSON.stringify(outcome))
+}
+
+/* ------------------------------------------- fleet board, round 5 (E) ----- *
+ *
+ * THE THIRD DOORWAY, AS A POSITIVE CONTROL. tree-start's rail inventory found
+ * exactly one other control in the whole rail that flips a write flag:
+ * src/cloud-tasks.js offSwitch() -- "Turn on Codex Cloud launching", appended
+ * into the Codex Cloud box header when that flag is off, mounted on a
+ * selected node's Details tab. Same setWriteEnabled -> WRITE_FLAGS_EVENT ->
+ * route remount as the compose panel's turn-on. If the restore-level fix
+ * preserves typed Role wording across THIS doorway too, with no code naming
+ * it, the fix is at the right level.
+ */
+
+async function fleet5Phase(window) {
+  console.log('\n-- FLEET BOARD round 5: the cloud-box doorway --')
+  const reached = await gotoComputers(window)
+  check('E0 the fleet board is reachable by clicking', reached === 'there', reached)
+  if (reached !== 'there') return
+  await delay(1200)
+
+  /* RUNNING AGENTS FIRST, AND IT IS NOT A SHORTCUT -- it is the precondition
+     for the thing being measured. MEASURED 2026-08-20 with a standalone probe:
+     on a sterile profile the start panel's role <select> carries all six
+     options and is `disabled: true` until this flag is on. A press on a
+     disabled select takes no focus (activeElement stayed on the panel root),
+     so the Escape that tools/lib/fleet-node.mjs sends to dismiss the native
+     popup bubbled to the panel root instead and cancelled the whole panel --
+     which the walk then reported as "the selector still has no value". No node
+     can be started at all in that state, and this phase needs a node.
+
+     IT DOES NOT WEAKEN THE POSITIVE CONTROL. This flip happens BEFORE the
+     marker is typed, so the wording never has to survive it; the only remount
+     the marker is asked to ride is the cloud one, several steps later. */
+  const slotForTurnOn = await window.clickVisible('.computers .tree-empty-node')
+  await delay(900)
+  const turnOnOffered = await window.visibility('[data-compose-unavailable-action]')
+  let turnOn = 'not-offered'
+  if (turnOnOffered?.state === 'visible') {
+    turnOn = await window.clickVisible('[data-compose-unavailable-action]')
+    await delay(1400)
+  }
+  await window.clickVisible('[data-compose-action="cancel"]')
+  await delay(900)
+  const roleUsable = await window.evaluate(`(() => {
+    const select = document.querySelector('[data-compose-field="role"]')
+    return select ? select.disabled === false : 'panel-closed'
+  })()`)
+  note(`running agents turned on before typing: slot=${slotForTurnOn} offered=${turnOnOffered?.state} press=${turnOn} role-usable=${roleUsable}`)
+
+  const summaryPress = await window.clickVisible('.board-roles-box .role-item summary')
+  await delay(700)
+  const typed = await window.typeInto(OWNS, ' ORDER-DRIVE-MARKER')
+  const carried = await window.evaluate(`String(document.querySelector(${JSON.stringify(OWNS)})?.value ?? '').includes('ORDER-DRIVE-MARKER')`)
+  check('E1 a role editor is open with typed wording', summaryPress === 'clicked' && typed === 'typed' && carried === true,
+    `press=${summaryPress} typed=${typed} carried=${carried}`)
+  await shot(window, 'E1-typed-before-cloud')
+
+  const { startFleetNode } = await import('./lib/fleet-node.mjs')
+  const started = await startFleetNode({ session: window.session, evaluate: window.evaluate, delay })
+  check('E2 a node reaches the board so the rail has a Details tab', started.ok === true,
+    started.ok ? '' : `stopped at ${started.at}: ${started.detail}`)
+  if (!started.ok) return
+  await delay(1200)
+  const heldThroughStart = await window.evaluate(`[...document.querySelectorAll('.board-roles-box textarea')].some(t => t.value.includes('ORDER-DRIVE-MARKER'))`)
+  note(`typed wording still in the (parked) stats rail after the node start: ${heldThroughStart}`)
+
+  const detailsTab = await window.clickVisible('[data-rail-tab="details"]')
+  await delay(900)
+  /* THE CONTROL LIVES BEHIND A DISCLOSURE NOW, so the drive opens it the way a
+     person does rather than reaching past it. The rail's "Start work" group
+     (Launch, Team, Loop, Codex Cloud) ships collapsed and remembers the
+     posture, so this presses only when the body is actually hidden -- a second
+     press on an open group would close it and the phase would report the
+     control missing when it is simply folded away. */
+  const foldedAway = await window.evaluate(`document.querySelector('[data-start-work-body]')?.hidden === true`)
+  let openedGroup = 'not-needed'
+  if (foldedAway === true) {
+    openedGroup = await window.clickVisible('[data-start-work-toggle]')
+    await delay(600)
+  }
+  note(`start-work group: hidden=${foldedAway} open-press=${openedGroup}`)
+  const cloudSpot = await window.waitForVisible('[data-cloud-enable]', 10000)
+  await shot(window, 'E3-details-tab')
+  if (cloudSpot?.state !== 'visible') {
+    const boxes = await window.evaluate(`[...document.querySelectorAll('.board-box-h .bh-t')].map(n => n.textContent.trim()).join(' | ')`)
+    note(`UNMEASURABLE: E3 -- the cloud turn-on control never presented (${cloudSpot?.state}${cloudSpot?.by ? ':' + cloudSpot.by : ''}); rail boxes: ${boxes}`)
+    return
+  }
+  const pressEnable = await window.clickVisible('[data-cloud-enable]')
+  await delay(1800)
+  let libraryBack = { state: 'absent' }
+  const until = Date.now() + 12000
+  while (Date.now() < until) {
+    libraryBack = await window.visibility('.board-roles-box .role-item')
+    if (libraryBack?.state === 'visible') break
+    await delay(400)
+  }
+  const outcome = await window.evaluate(`({
+    itemOpen: document.querySelector(${JSON.stringify(OPEN_ITEM)}) !== null,
+    anyValueCarriesMarker: [...document.querySelectorAll('.board-roles-box textarea')].some(t => t.value.includes('ORDER-DRIVE-MARKER')),
+    capture: window.__mcOrderDriveCapture ?? null,
+    restore: window.__mcOrderDriveRestore ?? null,
+  })`)
+  /* Same reason as D3: scroll to the restored editor so the screenshot shows
+     the wording rather than the top of a rail. */
+  const onGlass = await window.visibility(OPEN_ITEM)
+  note(`restored editor on glass: ${JSON.stringify(onGlass)}`)
+  await shot(window, 'E4-after-cloud-turn-on')
+  check('E3 the cloud turn-on press lands and the view returns', pressEnable === 'clicked' && libraryBack?.state === 'visible',
+    `press=${pressEnable} library=${libraryBack?.state}`)
+  check('E4 typed Role wording rides the cloud-doorway remount too', outcome?.itemOpen === true && outcome?.anyValueCarriesMarker === true,
+    JSON.stringify(outcome))
+}
+
 /* --------------------------------------------------------- settings (S) --- */
 
 async function settingsPhase(window) {
@@ -899,7 +1084,7 @@ async function main() {
   const { executable, appRoot } = await stage(scratch)
   note(`staged executable: ${executable}`)
 
-  if (PHASE === 'all' || PHASE === 'fleet' || PHASE === 'fleet2' || PHASE === 'fleet3' || PHASE === 'settings') {
+  if (PHASE === 'all' || PHASE.startsWith('fleet') || PHASE === 'settings') {
     const profile = path.join(scratch, 'profile-main')
     mkdirSync(profile, { recursive: true })
     seedMachineRecord(profile, appRoot, 'standard')
@@ -911,6 +1096,13 @@ async function main() {
       if (PHASE === 'fleet') await fleetPhase(window)
       if (PHASE === 'fleet2') await fleet2Phase(window)
       if (PHASE === 'all' || PHASE === 'fleet3') await fleet3Phase(window)
+      if (PHASE === 'all' || PHASE === 'fleet4') await fleet4Phase(window)
+      /* fleet5 is asked for by name, like fleet and fleet2, and deliberately
+         not folded into 'all': it starts a node and turns a write flag ON,
+         and the settings phase that follows reads write flags. A positive
+         control that quietly re-arms the next phase's preconditions is how a
+         suite starts explaining its own results. */
+      if (PHASE === 'fleet5') await fleet5Phase(window)
       if (PHASE === 'all' || PHASE === 'settings') await settingsPhase(window)
     } finally {
       if (window) { await closeWindow(window); reap(window.child?.pid) }

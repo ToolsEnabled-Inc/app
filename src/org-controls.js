@@ -417,3 +417,66 @@ export function buildRoleLibraryBox({ availability, onCreate, onEdit, onReset })
   box.setRoles = setRoles
   return box
 }
+
+/* WHAT A PERSON HAD OPEN AND TYPED IN A ROLE LIBRARY BOX, AS DATA.
+ *
+ * src/write-flags.js and src/live-flags.js announce every change, and
+ * src/main.js re-renders the whole route when it hears one. That remount
+ * rebuilt this box from the stored roles -- so wording a person had typed but
+ * not yet saved was silently destroyed by pressing an UNRELATED switch:
+ * measured on the packaged build 2026-08-20 (order-variation drive), typed
+ * wording survived opening and cancelling the start panel, and died the
+ * moment "Turn on running agents" was pressed. The compose panel already
+ * rides that remount (composeToRestore in src/views/computers.js); these two
+ * functions are the same treatment for this box, and they live here because
+ * this file owns the markup they read and rewrite.
+ *
+ * The snapshot keeps an entry for every role item that is open OR carries an
+ * edit (a value that differs from what the render painted), so wording typed
+ * into a closed item rides too. It is plain data, safe to hold across the
+ * teardown. */
+export function snapshotRoleLibrary(box) {
+  const list = box?.querySelector?.('[data-roles="list"]')
+  if (!list) return null
+  const items = []
+  for (const item of list.querySelectorAll('details.role-item')) {
+    const id = item.dataset.roleId || 'new'
+    const open = item.open === true
+    const fields = {}
+    let edited = false
+    for (const control of item.querySelectorAll('input[data-field], textarea[data-field], select[data-field]')) {
+      const key = control.dataset.field
+      if (!key) continue
+      const value = String(control.value ?? '')
+      fields[key] = value
+      if ('defaultValue' in control && value !== String(control.defaultValue ?? '')) edited = true
+    }
+    if (open || edited) items.push({ id, open, fields })
+  }
+  return items.length ? items : null
+}
+
+/** Reapply a snapshot to a freshly built box: reopen what was open, put back
+ * what was typed. Only fields the new render still has are written -- a role
+ * deleted in between simply has nowhere to restore to, and nothing invents
+ * one. Returns how many items it touched, because the caller's contract is
+ * apply-until-the-person-interacts and a restore that found nothing must not
+ * count as having happened. */
+export function restoreRoleLibrary(box, snapshot) {
+  const list = box?.querySelector?.('[data-roles="list"]')
+  if (!list || !Array.isArray(snapshot)) return 0
+  const itemFor = (id) => [...list.querySelectorAll('details.role-item')]
+    .find(node => (node.dataset.roleId || 'new') === id)
+  let applied = 0
+  for (const saved of snapshot) {
+    const item = itemFor(saved.id)
+    if (!item) continue
+    if (saved.open) item.open = true
+    for (const [key, value] of Object.entries(saved.fields || {})) {
+      const control = item.querySelector(`input[data-field="${key}"], textarea[data-field="${key}"], select[data-field="${key}"]`)
+      if (control && !control.disabled) control.value = value
+    }
+    applied += 1
+  }
+  return applied
+}
