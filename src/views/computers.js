@@ -137,6 +137,11 @@ import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '..
 /* The one rule for "is there still an agent behind this circle", shared by every
    surface on this page that used to answer it for itself. */
 import { nodeIsBusy, sessionEndedWithApp, sessionIsLive, treeNodeClock } from '../tree-session-liveness.js'
+/* What a resumed session opens on — the kept excerpt when there is one, the
+   engine's turns only for a thread this computer has no record of. Shared for
+   the reason the rule above is: it was six lines here that nothing could drive,
+   and they deleted a person's conversation. */
+import { resumedTranscriptLines } from '../tree-resume-transcript.js'
 import { cloudControlsBox } from '../cloud-tasks.js'
 import { bridgeReachable, bridgeStatus, postBridgeAction } from '../mission-bridge.js'
 import { readResearchSnapshot } from '../research-projects.js'
@@ -5338,31 +5343,22 @@ export function computersView({ initialComputer = null, navigate }) {
     const carriedForward = oldSessionId ? outboxMoveSession(oldSessionId, result.sessionId) : 0
     if (chosenEffort) sessionEfforts.set(result.sessionId, chosenEffort)
     if (result.threadId) sessionThreadIds.set(result.sessionId, result.threadId)
-    /* THE CONVERSATION ON SCREEN COMES FROM THE ENGINE WHEN THE ENGINE HAS
-       IT. A real resume hands back the thread's own turns — that is the
-       authoritative record, and it can be longer and truer than the excerpt
-       we kept. The excerpt is used only when the engine could not restore
-       the thread, where it is followed by the marker line saying a fresh
-       agent read it. */
-    const engineLines = engineResumed
-      ? engineResumed.turns.flatMap(turn => (turn.said || []).map(line => ({ who: line.who, text: line.text, at: null })))
-      : []
-    if (engineLines.length > 0) {
-      sessionTranscripts.set(result.sessionId, engineLines)
-    } else if (savedLines.length > 0) {
-      sessionTranscripts.set(result.sessionId, engineResumed
-        ? savedLines
-        : [...savedLines, { who: 'you', text: RESUME_PANEL.marker, at: Date.now() }])
-    } else {
-      /* THE THIRD BRANCH -- a plain start, with no engine thread to restore and
-         nothing saved to seed from -- set NOTHING, and every later reader had
-         to guess what that absence meant. It means this conversation begins
-         empty, which is a decision, so it is recorded as one: transcriptAppend
-         seeds an unheld session from the durable record, and a session left
-         absent here would have been re-seeded from a record this start already
-         chose not to use. */
-      sessionTranscripts.set(result.sessionId, [])
-    }
+    /* THE CONVERSATION ON SCREEN IS THE ONE THE PERSON WAS ALREADY READING.
+       A real resume changed nothing about the past -- that is what makes it
+       free -- so nothing about the past changes here either. This used to
+       rebuild the whole conversation from the engine's turns, believing them
+       "longer and truer than the excerpt we kept"; measured, they are a
+       speech-only projection that carries no tool actions and returns the
+       product's two opening `you` lines as the one user message that went out.
+       Rebuilding from them DELETED the person's opening request and every row
+       showing what the agent did, and persistTranscript below then wrote that
+       over the only durable copy. See src/tree-resume-transcript.js, which the
+       suite drives; this file cannot be imported by a test process. */
+    sessionTranscripts.set(result.sessionId, resumedTranscriptLines({
+      engineResumed,
+      savedLines,
+      marker: RESUME_PANEL.marker,
+    }))
     nodeActivity.delete(node.id)
     if (treeStore) {
       treeStore.attachSession(node.id, result.sessionId)

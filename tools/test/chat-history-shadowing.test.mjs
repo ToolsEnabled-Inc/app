@@ -95,16 +95,25 @@ test('persisting a transcript keeps the engine thread handle it was not told abo
 })
 
 test('a plain start still records the session, so nothing later has to guess', () => {
-  const resume = view.slice(view.indexOf('async function resumeNodeSession'))
-  const tail = resume.slice(resume.indexOf('const engineLines = engineResumed'), resume.indexOf('nodeActivity.delete(node.id)'))
+  /* THE RULE MOVED, THE PROPERTY DID NOT. What a resumed session opens on now
+     lives in src/tree-resume-transcript.js, because six lines inside a view no
+     test process can import are six lines nothing drives -- and they deleted a
+     person's conversation (see tools/test/resume-keeps-the-conversation.test.mjs,
+     which DRIVES the empty-history decision and the excerpt-wins decision this
+     used to match as text).
+     What stays pinned here is the half that is still this view's: the session is
+     recorded UNCONDITIONALLY. There is no branch left that can return without
+     setting it, so nothing downstream has to guess what an absent key meant. */
+  const resume = view.slice(view.indexOf('async function resumeNodeSession'), view.indexOf('async function runPaletteAction'))
+  const tail = resume.slice(resume.indexOf('sessionTranscripts.set(result.sessionId'), resume.indexOf('nodeActivity.delete(node.id)'))
   assert.match(
     tail,
-    /sessionTranscripts\.set\(result\.sessionId, \[\]\)/,
+    /sessionTranscripts\.set\(result\.sessionId, resumedTranscriptLines\(\{/,
     'a resume that plain-starts leaves the session absent from window memory entirely',
   )
-  assert.ok(
-    tail.indexOf('sessionTranscripts.set(result.sessionId, [])') > tail.indexOf('savedLines.length > 0'),
-    'the empty history is set before the saved one, so a real record is thrown away',
+  assert.equal(
+    (tail.match(/sessionTranscripts\.set\(/g) || []).length, 1,
+    'the resume branches on what to record again; one of those branches is how a session went unrecorded',
   )
 })
 
