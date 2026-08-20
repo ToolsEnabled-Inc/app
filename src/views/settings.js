@@ -84,6 +84,19 @@ import {
  * -- otherwise the search ends in them flipping live sources off and concluding
  * the product is fake data. */
 import { GUIDE_HREF } from '../first-run-needs.js'
+/* HOW THIS PAGE IS ARRANGED, NOT WHAT IT STORES. The first outside user found
+   seventeen flat categories hard to read, so they nest under six groups a
+   person scans in one glance. The groups, the remembered open-state, the
+   truth-first sentence beside a switch and the System refusal translation are
+   all data and pure functions in one DOM-free module, where a node test can
+   hold them still. Every row id, storage key and default is untouched. */
+import {
+  SETTINGS_GROUPS,
+  groupOfSection,
+  readOpenGroups,
+  writeOpenGroups,
+  toggleStateSentence,
+} from '../settings-presentation.js'
 import '../settings.css'
 import '../chatbox-settings.css'
 import '../fleet-profile-settings.css'
@@ -262,11 +275,16 @@ export const SETTINGS = [
   { id: 'sample_bucket', section: 'Data & Sim', name: 'Sample bucket width', desc: 'How many seconds of raw demonstration ticks are grouped into one chart point.', depth: 3, type: 'stepper', min: 1, max: 60, step: 1, unit: 's', def: 5 },
   { id: 'sim_worker_tick_bias', section: 'Data & Sim', name: 'Sim worker tick bias', desc: 'Whether the demonstration favors the freshest data or does more work per batch.', depth: 4, type: 'range', min: -100, max: 100, step: 5, unit: '%', def: 0 },
 
+  /* The shipped-default sentence moved off the description and into the row's
+     STATE line (toggleStateSentence), because here it contradicted the switch:
+     driven tonight, a row reading ON carried "This ships switched off" as its
+     first claim, and the reader believed the sentence over the switch. The
+     state line says the current truth first and the shipped default after. */
   ...WRITE_ACTION_FLAGS.map(flag => ({
     id: `write_${flag.id}`,
     section: 'Write',
     name: flag.label,
-    desc: `${flag.description} This ships switched off; nothing acts until you turn it on.`,
+    desc: flag.description,
     depth: ['dispatch', 'report-read'].includes(flag.id) ? 1 : 2,
     type: 'toggle',
     def: false,
@@ -422,15 +440,57 @@ function searchHaystack(setting) {
   ].join(' ').toLowerCase()
 }
 
+/* WHERE A ROW'S GUIDANCE CAN SEND YOU: the thing the switch actually gates.
+ * One press instead of "read the name, work out which page, walk the ring".
+ * Only rows whose gated surface has a stable address get a link; the agent
+ * drill-ins have no fixed page to name, so their rows carry none rather than
+ * a link that lands somewhere the control is not. */
+const JUMP_TARGETS = new Map([
+  ...LIVE_VIEW_FLAGS.filter(flag => flag.id !== 'agent').map(flag => [
+    `live_${flag.id}`,
+    { href: flag.id === 'home' ? '#/' : `#/${flag.id}`, label: `Open the ${flag.label.toLowerCase()}` },
+  ]),
+  ['write_dispatch', { href: '#/computers', label: 'Open the page that shows this control' }],
+  ['write_decision', { href: '#/ledger', label: 'Open the ledger this controls' }],
+  ['write_queue', { href: '#/ledger', label: 'Open the ledger this controls' }],
+  ['write_thread-reply', { href: '#/', label: 'Open the first page, where replies go' }],
+])
+
+function jumpMarkup(setting) {
+  const target = JUMP_TARGETS.get(setting.id)
+  if (!target) return ''
+  return `<a class="settings-jump" href="${escapeHtml(target.href)}">${escapeHtml(target.label)}</a>`
+}
+
+/* The truth-first sentence beside a switch. Toggles only: every other control
+   shows its current value in its own body (the lit option, the number). */
+function stateMarkup(setting) {
+  if (setting.type !== 'toggle') return ''
+  const sentence = toggleStateSentence({
+    value: Boolean(readValue(setting)),
+    def: setting.def,
+    acts: writeSettingActions.has(setting.id),
+  })
+  return `<div class="settings-state" data-setting-state>${escapeHtml(sentence)}</div>`
+}
+
+/* ONE ROW ANATOMY, IN ONE ORDER: name — state sentence — description — control
+ * — disclosure. The disclosure is a grid row of its OWN, under both columns,
+ * because it used to live beside the control with the row centre-aligned:
+ * opening it grew the copy column and slid the control 14 to 81px under the
+ * pointer mid-press (measured tonight on the driven build). Below the control,
+ * opening it moves nothing a pointer is over. */
 function rowMarkup(setting, searchResult = false) {
   return `<article class="settings-row ${setting.depth === 4 ? 'is-engineer' : ''}" data-setting-id="${setting.id}">
     <div class="settings-copy">
       ${searchResult ? `<div class="settings-prefix">${escapeHtml(setting.section)} · depth ${setting.depth}</div>` : ''}
       <div class="settings-name" id="setting-label-${setting.id}">${escapeHtml(setting.name)}</div>
+      ${stateMarkup(setting)}
       <div class="settings-desc" data-setting-message>${escapeHtml(setting.desc)}</div>
-      ${guidanceMarkup(setting.id, { section: setting.section, probe })}
+      ${jumpMarkup(setting)}
     </div>
     <div class="settings-control">${controlMarkup(setting)}</div>
+    <div class="settings-disclosure">${guidanceMarkup(setting.id, { section: setting.section, probe })}</div>
   </article>`
 }
 
@@ -476,6 +536,41 @@ function sectionNoteMarkup(section) {
     <a class="host-absent-action" href="${escapeHtml(note.link.href)}">${escapeHtml(note.link.label)}</a></p>`
 }
 
+/* THE TWO SECTION-LEVEL ONE-PRESS CONTROLS, AND THE ASYMMETRY BETWEEN THEM.
+ *
+ * Data & Sim's switches are genuinely independent screen-source toggles: both
+ * directions are equally honest (the example is labelled as an example), so
+ * both directions get one press. Write's switches each let the program ACT,
+ * and the product deliberately asks for each grant one row at a time -- the
+ * walkthrough's one-answer bulk grant is the sanctioned path, with its
+ * consequences stated. So Write gets ONE press for the safe direction only:
+ * off. There is deliberately no "turn everything on" press here. */
+const BULK_ROWS = Object.freeze({
+  'Data & Sim': `<article class="settings-row settings-bulk-row">
+    <div class="settings-copy">
+      <div class="settings-name" id="settings-bulk-live-label">Every screen at once</div>
+      <div class="settings-desc">One press sets every switch in this section together. Each switch below stays its own afterwards.</div>
+    </div>
+    <div class="settings-control">
+      <div class="fleet-profile-actions" role="group" aria-labelledby="settings-bulk-live-label">
+        <button type="button" class="ctl-btn" data-bulk-live="on">All live</button>
+        <button type="button" class="ctl-btn" data-bulk-live="off">All examples</button>
+      </div>
+    </div>
+  </article>`,
+  Write: `<article class="settings-row settings-bulk-row">
+    <div class="settings-copy">
+      <div class="settings-name" id="settings-bulk-write-label">Everything off, in one press</div>
+      <div class="settings-desc">Turns every switch in this section off, including the ones under the reveals below. Turning things ON stays one row at a time, so nothing acts without its own choice.</div>
+    </div>
+    <div class="settings-control">
+      <div class="fleet-profile-actions" role="group" aria-labelledby="settings-bulk-write-label">
+        <button type="button" class="ctl-btn" data-bulk-write-off>Turn everything off</button>
+      </div>
+    </div>
+  </article>`,
+})
+
 function sectionMarkup(section, level) {
   const items = SETTINGS.filter(setting => setting.section === section)
   const at = depth => items.filter(setting => setting.depth === depth)
@@ -497,6 +592,7 @@ function sectionMarkup(section, level) {
   return `<section class="settings-section" data-settings-section="${escapeHtml(section)}">
     <h2 class="settings-section-title">${escapeHtml(section)}</h2>
     ${sectionNoteMarkup(section)}
+    ${BULK_ROWS[section] || ''}
     <div class="settings-section-rows">${at(1).map(setting => rowMarkup(setting)).join('')}</div>
     ${revealMarkup(section, 2, hidden, '', level >= 2)}
     ${depth2}
@@ -548,10 +644,30 @@ function requestedSetting(query) {
    the module would not even parse. */
 export function settingsView({ query: routeQuery = null } = {}) {
   const landing = requestedSetting(routeQuery)
+  /* WHICH GROUPS ARE OPEN, remembered across visits and restarts. Collapsed by
+     default: a first visit is six lines a person can scan. A link that names a
+     row opens that row's group for this render without writing it down --
+     following a link is not a filing decision. */
+  const openGroups = readOpenGroups(globalThis.localStorage)
+  if (landing) {
+    const landingGroup = groupOfSection(landing.section)
+    if (landingGroup) openGroups.add(landingGroup.id)
+  }
   const profileController = createFleetProfileSettings()
   const setupController = createSetupProfileSettings()
   const chatboxController = createChatboxSettings()
   const researchController = createResearchSettings()
+  /* The rail is the same two levels the page is: six group lines, and the
+     familiar seventeen category buttons nested under whichever are open. */
+  const railMarkup = () => SETTINGS_GROUPS.map(group => {
+    const open = openGroups.has(group.id)
+    return `<div class="settings-rail-group ${open ? 'is-open' : ''}" data-rail-group-wrap="${escapeHtml(group.id)}">
+      <button type="button" class="settings-rail-head" data-rail-group="${escapeHtml(group.id)}" aria-expanded="${open ? 'true' : 'false'}">${escapeHtml(group.label)}</button>
+      <div class="settings-rail-sections" ${open ? '' : 'hidden'}>
+        ${group.sections.map(section => `<button type="button" data-category="${escapeHtml(section)}">${escapeHtml(section)}</button>`).join('')}
+      </div>
+    </div>`
+  }).join('')
   const root = el(`<main class="view-pad settings-page">
     <div class="settings-shell">
       <header class="settings-header m-head">
@@ -560,9 +676,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
         <label class="settings-search"><span class="settings-sr-only">Search all settings</span><input type="search" placeholder="search all settings" autocomplete="off" spellcheck="false"/></label>
       </header>
       <div class="settings-layout">
-        <nav class="settings-rail" aria-label="Settings categories">
-          ${SECTIONS.map((section, index) => `<button type="button" data-category="${escapeHtml(section)}" class="${index === 0 ? 'is-active' : ''}" ${index === 0 ? 'aria-current="location"' : ''}>${escapeHtml(section)}</button>`).join('')}
-        </nav>
+        <nav class="settings-rail" aria-label="Settings categories">${railMarkup()}</nav>
         <div class="settings-main">
           <div class="settings-sections" aria-live="polite"></div>
           <p class="settings-footer"></p>
@@ -624,6 +738,10 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 
   function syncRail() {
+    const activeGroup = groupOfSection(activeSection)
+    for (const head of rail.querySelectorAll('button[data-rail-group]')) {
+      head.classList.toggle('is-active', activeGroup?.id === head.dataset.railGroup)
+    }
     for (const button of rail.querySelectorAll('button[data-category]')) {
       const on = button.dataset.category === activeSection
       button.classList.toggle('is-active', on)
@@ -640,10 +758,81 @@ export function settingsView({ query: routeQuery = null } = {}) {
     return sectionMarkup(section, levels.get(section))
   }
 
+  /* How many rows a person can currently see: rows in open groups, at each
+     section's revealed depth. A closed group's rows are counted by the total
+     and found by search, exactly as the footer sentence says. */
+  function sectionShownCount(section) {
+    if (section === CHATBOX_SECTION) return CHATBOX_SETTING_COUNT
+    if (section === RESEARCH_SECTION) return RESEARCH_SETTING_COUNT
+    if (section === 'System') return FLEET_PROFILE_SETTING_COUNT
+    if (section === 'Setup') return SETUP_PROFILE_SETTING_COUNT
+    return SETTINGS.filter(setting => setting.section === section && setting.depth <= levels.get(section)).length
+  }
+
+  function countShown() {
+    return SECTIONS.reduce((total, section) => {
+      const group = groupOfSection(section)
+      return group && !openGroups.has(group.id) ? total : total + sectionShownCount(section)
+    }, 0)
+  }
+
+  /* One nest level above the sections. `hidden` on the body is the guard: a
+     closed group's controls are out of the layout, the tab order and the
+     accessibility tree at once, which is what the tier machinery needs three
+     attributes to do -- there is nothing animated here to compensate for. */
+  function groupMarkup(group) {
+    const open = openGroups.has(group.id)
+    return `<section class="settings-group ${open ? 'is-open' : ''}" data-settings-group="${escapeHtml(group.id)}">
+      <button type="button" class="settings-group-head" data-group-toggle="${escapeHtml(group.id)}" aria-expanded="${open ? 'true' : 'false'}" aria-controls="settings-group-${escapeHtml(group.id)}">
+        <span class="settings-group-name">${escapeHtml(group.label)}<span class="settings-reveal-glyph" aria-hidden="true">${open ? '⌃' : '⌄'}</span></span>
+        <span class="settings-group-detail">${escapeHtml(group.detail)}</span>
+        <span class="settings-group-list">${group.sections.map(section => escapeHtml(section)).join(' · ')}</span>
+      </button>
+      <div class="settings-group-body" id="settings-group-${escapeHtml(group.id)}" ${open ? '' : 'hidden'}>
+        ${group.sections.map(sectionNodeMarkup).join('')}
+      </div>
+    </section>`
+  }
+
+  function syncGroups() {
+    for (const groupNode of sectionsNode.querySelectorAll('.settings-group')) {
+      const id = groupNode.dataset.settingsGroup
+      const open = openGroups.has(id)
+      groupNode.classList.toggle('is-open', open)
+      const head = groupNode.querySelector('[data-group-toggle]')
+      if (head) {
+        head.setAttribute('aria-expanded', open ? 'true' : 'false')
+        const glyph = head.querySelector('.settings-reveal-glyph')
+        if (glyph) glyph.textContent = open ? '⌃' : '⌄'
+      }
+      const body = groupNode.querySelector('.settings-group-body')
+      if (body) body.hidden = !open
+    }
+    for (const wrap of rail.querySelectorAll('[data-rail-group-wrap]')) {
+      const open = openGroups.has(wrap.dataset.railGroupWrap)
+      wrap.classList.toggle('is-open', open)
+      wrap.querySelector('[data-rail-group]')?.setAttribute('aria-expanded', open ? 'true' : 'false')
+      const list = wrap.querySelector('.settings-rail-sections')
+      if (list) list.hidden = !open
+    }
+    shown = countShown()
+    updateFooter()
+  }
+
+  function setGroupOpen(id, open, { remember = true } = {}) {
+    if (open) openGroups.add(id)
+    else openGroups.delete(id)
+    if (remember) writeOpenGroups(openGroups, globalThis.localStorage)
+    syncGroups()
+  }
+
   function renderSectioned() {
-    sectionsNode.innerHTML = SECTIONS.map(sectionNodeMarkup).join('')
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT
-      + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    const grouped = new Set(SETTINGS_GROUPS.flatMap(group => group.sections))
+    /* A section the group model does not know renders ungrouped at the end
+       rather than vanishing; the presentation suite keeps this branch empty. */
+    sectionsNode.innerHTML = SETTINGS_GROUPS.map(groupMarkup).join('')
+      + SECTIONS.filter(section => !grouped.has(section)).map(sectionNodeMarkup).join('')
+    shown = countShown()
     // `inert` is the primary guard; the explicit tabindex pass keeps closed
     // tiers unreachable in older engines while preserving the CSS reveal.
     for (const section of SECTIONS) syncSectionDepth(section)
@@ -698,6 +887,16 @@ export function settingsView({ query: routeQuery = null } = {}) {
       }
       const checkbox = row.querySelector('.settings-toggle input')
       if (checkbox) checkbox.checked = Boolean(value)
+      /* The state sentence moves with the switch, in the same frame, so the
+         two can never be read disagreeing. */
+      const stateNode = row.querySelector('[data-setting-state]')
+      if (stateNode && setting.type === 'toggle') {
+        stateNode.textContent = toggleStateSentence({
+          value: Boolean(value),
+          def: setting.def,
+          acts: writeSettingActions.has(setting.id),
+        })
+      }
       const range = row.querySelector('input[type="range"]')
       if (range) {
         range.value = value
@@ -782,8 +981,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
       button.setAttribute('aria-expanded', open ? 'true' : 'false')
       button.innerHTML = revealInner(prefix, count, open)
     }
-    shown = FLEET_PROFILE_SETTING_COUNT + SETUP_PROFILE_SETTING_COUNT + CHATBOX_SETTING_COUNT + RESEARCH_SETTING_COUNT
-      + SETTINGS.filter(setting => setting.depth <= levels.get(setting.section)).length
+    shown = countShown()
     updateFooter()
   }
 
@@ -798,6 +996,27 @@ export function settingsView({ query: routeQuery = null } = {}) {
   }
 
   sectionsNode.addEventListener('click', event => {
+    const groupHead = event.target.closest('button[data-group-toggle]')
+    if (groupHead) {
+      const id = groupHead.dataset.groupToggle
+      setGroupOpen(id, !openGroups.has(id))
+      return
+    }
+
+    /* The two one-press section controls. Each goes through applyValue, the
+       same door every individual switch uses, so the write, the store and the
+       row repaint are exactly what a row-by-row walk would have done. */
+    const bulkLive = event.target.closest('button[data-bulk-live]')
+    if (bulkLive) {
+      const live = bulkLive.dataset.bulkLive === 'on'
+      for (const flag of LIVE_VIEW_FLAGS) applyValue(byId.get(`live_${flag.id}`), live)
+      return
+    }
+    if (event.target.closest('button[data-bulk-write-off]')) {
+      for (const flag of WRITE_ACTION_FLAGS) applyValue(byId.get(`write_${flag.id}`), false)
+      return
+    }
+
     const archiveButton = event.target.closest('button[data-setting-action="ledger-archive"]')
     if (archiveButton) {
       archiveController.click()
@@ -849,9 +1068,35 @@ export function settingsView({ query: routeQuery = null } = {}) {
   })
 
   rail.addEventListener('click', event => {
+    const scrollBehavior = () => document.body.classList.contains('reduce-motion') ? 'auto' : 'smooth'
+    const head = event.target.closest('button[data-rail-group]')
+    if (head) {
+      const id = head.dataset.railGroup
+      const opening = !openGroups.has(id)
+      if (query.trim()) {
+        query = ''
+        searchInput.value = ''
+        renderSectioned()
+      }
+      setGroupOpen(id, opening)
+      if (opening) {
+        const group = SETTINGS_GROUPS.find(candidate => candidate.id === id)
+        if (group) activeSection = group.sections[0]
+        syncRail()
+        requestAnimationFrame(() => {
+          sectionsNode.querySelector(`.settings-group[data-settings-group="${id}"]`)
+            ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+        })
+      }
+      return
+    }
     const button = event.target.closest('button[data-category]')
     if (!button) return
     activeSection = button.dataset.category
+    /* A category press is a statement of destination: its group opens if it
+       was closed, so the press always lands somewhere rather than nowhere. */
+    const group = groupOfSection(activeSection)
+    if (group && !openGroups.has(group.id)) setGroupOpen(group.id, true)
     syncRail()
     if (query.trim()) {
       query = ''
@@ -861,7 +1106,7 @@ export function settingsView({ query: routeQuery = null } = {}) {
     requestAnimationFrame(() => {
       const section = [...sectionsNode.querySelectorAll('.settings-section')]
         .find(node => node.dataset.settingsSection === activeSection)
-      section?.scrollIntoView({ behavior: document.body.classList.contains('reduce-motion') ? 'auto' : 'smooth', block: 'start' })
+      section?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
     })
   })
 
@@ -899,8 +1144,10 @@ export function settingsView({ query: routeQuery = null } = {}) {
     scrollFrame = 0
     if (query.trim()) return
     const top = root.getBoundingClientRect().top + 48
-    let next = SECTIONS[0]
+    let next = activeSection
     for (const section of sectionsNode.querySelectorAll('.settings-section')) {
+      /* A section inside a closed group has no box; it must not win. */
+      if (section.closest('.settings-group-body[hidden]')) continue
       if (section.getBoundingClientRect().top <= top) next = section.dataset.settingsSection
       else break
     }

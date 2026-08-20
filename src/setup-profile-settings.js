@@ -60,6 +60,7 @@ import {
 import {
   AUTONOMY_CHOICES,
   PROFILE_INTENT,
+  RECOMMENDED_ANSWERS,
   SAFE_ANSWERS,
   SCREENS_CHOICES,
   answersForAutonomy,
@@ -341,6 +342,12 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
           segMarkup('screens', SCREENS_CHOICES.map(choice => ({ value: choice.value, label: choice.label })), answers.screens, 'What the screens show'),
           'screens',
         )}
+        ${rowMarkup(
+          'The recommended answers, in one press',
+          'Sets the two rows above and the four below to what the walkthrough recommends. The permission level is not touched, and full access is never part of this.',
+          `<button type="button" class="ctl-btn" data-setup-profile-action="recommended" ${busy ? 'disabled' : ''}>Use recommended answers</button>`,
+          'recommended',
+        )}
         ${PROFILE_INTENT.map(field => rowMarkup(
           field.name,
           /* PER ROW, because they are no longer all the same. One of these is
@@ -565,6 +572,25 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     }
   }
 
+  /* ONE PRESS, NO CONSENT SURFACE, and that is the safety argument in full.
+     The recommended set covers only the derived answers: autonomy, the
+     screens, and the four recorded choices. The permission level -- the one
+     row here behind a consent gate -- is not part of RECOMMENDED_ANSWERS and
+     is not touched, so this press can never widen what this computer may do:
+     deriveProfile re-clamps every switch against the ceiling it already
+     holds, exactly as a hand-moved row would be. */
+  function applyRecommended() {
+    if (busy) return
+    const next = answersForAutonomy(RECOMMENDED_ANSWERS.autonomy, { ...answers, screens: RECOMMENDED_ANSWERS.screens })
+    feedback = {
+      tone: 'good',
+      title: 'Recommended answers applied',
+      detail: 'The six answer rows now hold what the walkthrough recommends. The permission level was not touched.',
+    }
+    persist(next)
+    refresh()
+  }
+
   function setAnswer(target, value) {
     if (busy) return
     if (target === 'tier') { requestTier(value); return }
@@ -597,6 +623,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     const action = event.target.closest('[data-setup-profile-action]')
     if (!action || !hostRoot?.contains(action)) return
     if (action.dataset.setupProfileAction === 'walkthrough') { navigate('#/setup'); return }
+    if (action.dataset.setupProfileAction === 'recommended') { applyRecommended(); return }
     if (action.dataset.setupProfileAction === 'choose-folder') chooseFolder()
   }
 
@@ -604,7 +631,7 @@ export function createSetupProfileSettings({ navigate = hash => { location.hash 
     const normalized = String(query || '').trim().toLowerCase()
     if (!normalized) return true
     const haystack = [
-      'setup permission level tier guided standard unrestricted workspace working folder folders autonomy acting on its own approvals attach adopt fork mirror editor import account failover sign in walkthrough first run screens demonstration live',
+      'setup permission level tier guided standard unrestricted workspace working folder folders autonomy acting on its own approvals attach adopt fork mirror editor import account failover sign in walkthrough first run screens demonstration live recommended answers one press',
       ...TIER_CHOICES.map(choice => `${choice.label} ${choice.detail}`),
       ...AUTONOMY_CHOICES.map(choice => `${choice.label} ${choice.detail}`),
       ...SCREENS_CHOICES.map(choice => `${choice.label} ${choice.detail}`),

@@ -6,6 +6,10 @@ import {
   serializeFleetProfile,
   validateFleetProfile,
 } from './fleet-profile.js'
+/* The validator speaks in field paths -- "machines[0].ip address is required"
+   -- and this section used to print them raw. The translation leads with the
+   sentence a person can act on and keeps the exact field named at the end. */
+import { humanizeProfileErrors } from './settings-presentation.js'
 
 export const FLEET_PROFILE_SETTING_COUNT = 6
 
@@ -49,7 +53,7 @@ function initialFeedback() {
     return {
       tone: 'serious',
       title: 'Fleet profile could not be loaded',
-      detail: `${error?.source || 'profile'} · ${error?.path || '$'} ${error?.message || 'is invalid'}. The saved value was not changed; the labelled sample demonstration is active.`,
+      detail: `${humanizeProfileErrors([error])} The saved value was not changed; the labelled sample demonstration is active.`,
     }
   }
   if (!state.configured) {
@@ -95,7 +99,7 @@ function initialFeedback() {
 }
 
 function profileErrors(errors) {
-  return (errors || []).slice(0, 5).map(error => `${error.path || '$'} ${error.message}`).join(' · ')
+  return humanizeProfileErrors(errors, { limit: 5 })
 }
 
 function explicitPort(endpoint) {

@@ -168,16 +168,21 @@ export function createResearchSettings({ shell = typeof window === 'undefined' ?
     </details>`
   }
 
+  /* The same row anatomy as every other row on the page: name — state
+     sentence — description — control — disclosure, with the disclosure on a
+     grid row of its own under both columns. Opening it therefore never moves
+     the switch under the pointer, which is the measured hazard the settings
+     page's own rows were rebuilt around. */
   function rowMarkup(row) {
     const status = statusFor(row)
     return `<article class="settings-row" data-setting-id="${esc(row.id)}" data-research-setting-row="${esc(row.id)}">
       <div class="settings-copy">
         <div class="settings-name" id="research-setting-label-${esc(row.id)}">${esc(titleOf(row))}</div>
+        ${status ? `<div class="settings-state" data-research-setting-status="${esc(row.id)}">${esc(status)}</div>` : ''}
         <div class="settings-desc">${esc(row.consequence || row.reason || '')}</div>
-        ${disclosureMarkup(row)}
-        ${status ? `<div class="settings-desc" data-research-setting-status="${esc(row.id)}">${esc(status)}</div>` : ''}
       </div>
       <div class="settings-control">${toggleMarkup(row)}</div>
+      <div class="settings-disclosure">${disclosureMarkup(row)}</div>
     </article>`
   }
 
