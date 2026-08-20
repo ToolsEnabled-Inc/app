@@ -690,6 +690,31 @@ const PINNED_ABSOLUTE_CLAIMS = Object.freeze([
     kind: 'pinned',
     pinnedBy: 'the recommended answer requests report-read, agent-session, dispatch and cloud-launch, and every one of those is a control a person presses; asserted by the recommended-answer test, which fails if decision, queue or thread-reply are ever switched on by it',
   },
+  /* The standing-requests brief (owner, 2026-08-19). These two sentences
+     describe the owner's request commands, not a state of this product, and
+     each was verified verbatim against the request skills' own SKILL.md
+     before it was written -- the source of truth the owner names for these
+     scopes. tools/test/settings-one-click.test.mjs pins the card's wording;
+     if the skills' scope semantics ever change, that suite and this registry
+     are the two places the change must land. */
+  {
+    match: /The rule stands for that working session and every agent it starts\. Other sessions never see it/,
+    kind: 'pinned',
+    pinnedBy: 'the session ledger is keyed by one session id and handed only to that session\'s own spawns at their boot; the request-session skill states "Other sessions never see it" in those words, and the card was checked against it rather than remembered',
+  },
+  {
+    match: /It never reaches its neighbours or its manager/,
+    kind: 'pinned',
+    pinnedBy: 'the tree ledger anchors at the agent the command was typed to and descends transitively; the request-tree skill states the rule "never flows upward or sideways", and the card was checked against it rather than remembered',
+  },
+  {
+    /* "Always" here is inside the words a person would TYPE -- the example
+       request itself -- not a promise this product makes. The clause after it
+       is the promise, and it is the global scope's own definition. */
+    match: /Type: \/Request Always ask before spending money\. From then on, every agent starts its work knowing that rule/,
+    kind: 'pinned',
+    pinnedBy: 'the global request ledger is carried in every agent\'s onboarding packet at boot until the owner edits or deletes it -- the request skill\'s definition of the global scope, which the card was checked against rather than remembered',
+  },
 ])
 
 test('every absolute claim on screen is registered with the reason it is true', () => {

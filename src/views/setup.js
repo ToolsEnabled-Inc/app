@@ -241,8 +241,13 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
   let segCleanups = []
   let destroyed = false
 
+  /* The whole card selects, not only the small seg button above: the card is
+     what a person is reading when they decide, so it is also pressable. It
+     carries the SAME attribute the seg buttons do and lands in the SAME
+     handler -- pressing the widest level's card meets the same consent words
+     the seg press does, never a way around them. */
   function choiceMarkup(choice, lit = chosen) {
-    return `<article class="settings-row setup-choice" data-setup-choice="${esc(choice.tier)}" aria-current="${choice.tier === lit ? 'true' : 'false'}">
+    return `<article class="settings-row setup-choice is-pressable" data-setup-choice="${esc(choice.tier)}" data-setup-tier="${esc(choice.tier)}" aria-current="${choice.tier === lit ? 'true' : 'false'}">
       <div class="settings-copy">
         <div class="settings-name">${esc(choice.label)}${choice.note ? ` — ${esc(choice.note)}` : ''}</div>
         <div class="settings-desc">${esc(choice.detail)}</div>
@@ -293,6 +298,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       </div>
       ${disclosureMarkup()}
       <div class="setup-actions">
+        ${riskGate.pending || refusal ? '' : `<button type="button" class="setup-skip" data-setup-skip-first ${busy ? 'disabled' : ''}>Skip the rest for now</button>`}
+        <span class="setup-actions-spacer"></span>
         <button type="button" class="ctl-btn" data-setup-continue ${refusal || busy || riskGate.pending ? 'disabled' : ''}>${busy ? 'Saving…' : 'Continue'}</button>
       </div>`
   }
@@ -384,6 +391,44 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       reason: setupRefusalDetail(result, 'The application did not say why. Nothing on this computer was changed.'),
     }
     paint()
+  }
+
+  /* SKIP, FROM THE VERY FIRST SCREEN, IN ONE PRESS. Skip used to appear only
+   * after the level question was answered, so leaving early was two decisions
+   * and a wait. It cannot simply leave: with no level recorded the first-run
+   * gate bounces straight back to this screen (src/main.js, shouldOpenSetup),
+   * which is a trap wearing a skip button. So the press records the level that
+   * is LIT -- for a person who decided nothing, the preselected narrowest one
+   * -- and then applies the safe answers, which switch nothing on.
+   *
+   * NO CONSENT SURFACE IS PASSED. Only the widest level carries one, and the
+   * lit level can only BE the widest after its words were answered on this
+   * screen (`consent` is non-null exactly then); while the question is OPEN
+   * the button is not rendered at all. The shell refuses the widest level
+   * without consent besides. */
+  async function skipFromFirstQuestion() {
+    if (busy || refusal || riskGate.pending) return
+    if (state.configured) { skip(); return }
+    busy = true
+    paint()
+    let result
+    try {
+      result = await globalThis.mcSetup.chooseTier(chosen, consent)
+    } catch (error) {
+      result = { ok: false, reason: error?.message || String(error) }
+    }
+    busy = false
+    if (!result?.ok) {
+      refusal = {
+        title: 'That level was not saved',
+        code: result?.code || 'MC_SETUP_SAVE_FAILED',
+        reason: setupRefusalDetail(result, 'The application did not say why. Nothing on this computer was changed.'),
+      }
+      paint()
+      return
+    }
+    noteTierRecorded(result.tier || chosen)
+    skip()
   }
 
   /* ---------- the derived profile, recomputed rather than cached ---------- */
@@ -709,7 +754,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
             </div>
           </div>
         </article>
-        ${AUTONOMY_CHOICES.map(choice => `<article class="settings-row setup-choice" aria-current="${choice.value === answers.autonomy ? 'true' : 'false'}">
+        ${AUTONOMY_CHOICES.map(choice => `<article class="settings-row setup-choice is-pressable" data-setup-set="autonomy" data-setup-value="${esc(choice.value)}" aria-current="${choice.value === answers.autonomy ? 'true' : 'false'}">
           <div class="settings-copy">
             <div class="settings-name">${esc(choice.label)}${choice.note ? ` — ${esc(choice.note)}` : ''}</div>
             <div class="settings-desc">${esc(choice.detail)}</div>
@@ -844,6 +889,57 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       })).join('')}`
   }
 
+  /* THE QUICK BRIEF ON STANDING REQUESTS (owner, 2026-08-19: "they should be
+   * shown a quick brief about /Request functions and such in setup").
+   *
+   * A CARD ON THE REVIEW, NOT A STEP: the walkthrough stays three questions,
+   * and this asks nothing. Presentation only -- it writes nothing, gates
+   * nothing, and sits clear of the consent machinery.
+   *
+   * EVERY SCOPE SENTENCE WAS CHECKED AGAINST THE SKILL DEFINITIONS
+   * (the request skills' SKILL.md files in the canonical checkout), never
+   * remembered: global is read by every agent at boot until the owner edits
+   * or deletes it; session covers the working session and everything it
+   * spawns and no other session; tree covers the anchor agent and every
+   * agent below it, never parents or siblings; thread covers one
+   * conversation and is re-read after the conversation is condensed. */
+  function requestBriefMarkup() {
+    return `<h2 class="setup-subtitle">Standing requests, in one minute</h2>
+      <p class="setup-lede">Start a message to an agent with /Request and the words after it become a standing rule. Every agent reads it when it starts, until you edit or delete it.</p>
+      <div class="settings-section-rows" data-setup-request-brief>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/Request — for everyone</div>
+            <div class="settings-desc">The rule stands for every agent, everywhere, until you edit or delete it.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/RequestSession — for one working session</div>
+            <div class="settings-desc">The rule stands for that working session and every agent it starts. Other sessions never see it.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/RequestTree — for one agent and its helpers</div>
+            <div class="settings-desc">The rule stands for that agent and every agent working under it. It never reaches its neighbours or its manager.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">/RequestThread — for one conversation</div>
+            <div class="settings-desc">The rule stands in that one conversation only. The agent re-reads it, so even a very long conversation cannot forget it.</div>
+          </div>
+        </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">One example</div>
+            <div class="settings-desc">Type: /Request Always ask before spending money. From then on, every agent starts its work knowing that rule.</div>
+          </div>
+        </article>
+      </div>`
+  }
+
   function reviewMarkup() {
     const profile = derived()
     const tierChoice = TIER_CHOICES.find(choice => choice.tier === profile.tier)
@@ -908,6 +1004,8 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
           segControl(`intent:${field.id}`, field.order.map(value => ({ value, label: field.labels[value] })), profile.intent[field.id], field.name),
         )).join('')}
       </div>
+
+      ${requestBriefMarkup()}
 
       <div class="fleet-profile-status is-warn" role="status">
         <strong>${INTENT_BANNER_TITLE}</strong>
@@ -1194,6 +1292,7 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
       return
     }
 
+    if (event.target.closest('[data-setup-skip-first]')) { skipFromFirstQuestion(); return }
     if (event.target.closest('[data-setup-skip]')) { skip(); return }
     if (event.target.closest('[data-setup-choose-root]')) { pickWorkspace('replace'); return }
     if (event.target.closest('[data-setup-add-root]')) { pickWorkspace('add'); return }
