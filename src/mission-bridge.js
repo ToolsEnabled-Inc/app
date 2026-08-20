@@ -245,7 +245,51 @@ async function session() {
   return result
 }
 
+/* THE ONE SEAM THE BROWSER BUILD NEEDS.
+ *
+ * Every exported call in this module funnels through request(). On a desktop
+ * machine that means a loopback fetch to this machine's own action bridge, and
+ * normalizedBaseUrl() above refuses anything that is not bare loopback -- which
+ * stays exactly as strict as it has always been.
+ *
+ * In a browser, the bridge is not reachable at all: it is on the person's
+ * MACHINE, behind their router, and it must stay that way. So the browser does
+ * not get a remote bridge address -- there is no such thing and this module
+ * will not accept one. It supplies a TRANSPORT instead, which carries the same
+ * request to that machine over the sealed relay tunnel, where the machine
+ * performs it against its own loopback bridge exactly as it would locally.
+ *
+ * That distinction is the whole point. Widening the origin rule would have
+ * made the bridge reachable from somewhere that is not this machine. Swapping
+ * the transport does not: the bridge is still only ever spoken to over
+ * loopback, by a process on its own machine.
+ *
+ * A transport is: (pathname, { method, body, timeoutMs }) -> the same
+ * { ok: true, ... } / { ok: false, reason, code } shape request() returns.
+ */
+let transport = null
+
+export function setBridgeTransport(next) {
+  if (next !== null && typeof next !== 'function') throw new TypeError('a bridge transport must be a function or null')
+  transport = next
+  bootstrapPromise = null
+  return transport
+}
+
+export function bridgeTransportInstalled() {
+  return transport !== null
+}
+
 async function request(pathname, { method = 'GET', body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  if (transport) {
+    try {
+      const value = await transport(pathname, { method, body, timeoutMs })
+      if (!value || typeof value !== 'object') return { ok: false, reason: 'the remote machine returned nothing usable', code: 'BRIDGE_REQUEST_REFUSED' }
+      return value
+    } catch (error) {
+      return unavailable(error)
+    }
+  }
   const active = await session()
   if (!active.ok) return active
   try {
@@ -311,6 +355,12 @@ export function decideOwnerPrompt(body) {
  * receipts. Returns the same {ok,reason,code} shape as every other call here.
  */
 export async function bridgeReachable() {
+  // With a transport installed there is no local bridge to probe: reachability
+  // is the tunnel's, and asking the machine is the only honest way to know.
+  if (transport) {
+    const probed = await request('/v1/runtime', { method: 'GET', timeoutMs: REQUEST_TIMEOUT_MS })
+    return probed?.ok === true ? { ok: true } : { ok: false, reason: probed?.reason || 'that machine is not reachable', code: probed?.code || 'BRIDGE_UNREACHABLE' }
+  }
   const active = await session()
   if (!active.ok) return active
   return { ok: true, baseUrl: active.baseUrl }
@@ -813,5 +863,9 @@ export function createTerminateController({
 }
 
 export function resetBridgeSession() {
+  // The transport is deliberately NOT cleared here: a session reset means "get
+  // a fresh bearer for the local bridge", and in a browser there is no bearer
+  // to refresh. Clearing it would silently drop the tunnel and send every
+  // subsequent call at a loopback address that does not exist in a browser.
   bootstrapPromise = null
 }
