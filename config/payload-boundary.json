@@ -311,6 +311,7 @@
       "src/lib/agent-recent-work.js",
       "src/lib/agent-roles.js",
       "src/lib/agent-session-confinement.js",
+      "src/lib/agent-tool-summary.js",
       "src/lib/agent-wake.js",
       "src/lib/agent-wake/liveness-receiver.js",
       "src/lib/approvals.js",
