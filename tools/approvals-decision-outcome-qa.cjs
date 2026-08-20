@@ -301,7 +301,34 @@ async function run() {
     rendererErrors.push(`${String(event.message || 'unknown renderer error')}${where}`)
   })
 
-  const observed = { mode, appDir, decisionDelayMs }
+  const observed = { mode, appDir, decisionDelayMs, notes: [] }
+
+  /* CAPTURE, WITH THE COMPOSITOR GIVEN A CHANCE. capturePage() on a window
+     that has not composited a frame yet rejects with UnknownVizError -- the
+     class tools/ring-capture-main.cjs documents as "too early", not a fault.
+     On the 2026-08-19 final confirming suite that single rejection, thrown at
+     the HOME screenshot, aborted this run: toldOnApprovals, the queue count
+     line, the bridge counters and the whole assertion block were destroyed
+     for a picture no assertion reads. The screenshots are documentation; the
+     DOM reads are the measurement. So a shot retries with an invalidate
+     between attempts, and one that still cannot be taken is written down as a
+     note and skipped -- it is never allowed to cost the verdict. Every
+     product assertion below this helper is byte-identical to before it. */
+  const shoot = async (webContents, file) => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        fs.writeFileSync(file, (await webContents.capturePage()).toPNG())
+        return
+      } catch (error) {
+        if (attempt === 3) {
+          observed.notes.push(`screenshot skipped (${path.basename(file)}): ${error?.message || error}`)
+          return
+        }
+        try { webContents.invalidate() } catch { /* retry regardless */ }
+        await new Promise(resolve => setTimeout(resolve, 400))
+      }
+    }
+  }
   try {
     await browser.loadURL(`${appOrigin}/?bridge=${encodeURIComponent(bridgeOrigin)}`)
     await browser.webContents.executeJavaScript(`localStorage.setItem('mc.theme', ${JSON.stringify(selectedTheme)})`)
@@ -360,8 +387,7 @@ async function run() {
     observed.homeFacts = await browser.webContents.executeJavaScript(
       `[...document.querySelectorAll('.home-fact span')].map(node => node.textContent)`)
     observed.toldOnHome = observed.homeFacts.some(text => NOT_RECORDED.test(text))
-    fs.writeFileSync(path.join(outputDir, `home-${mode}-${selectedTheme}.png`),
-      (await browser.webContents.capturePage()).toPNG())
+    await shoot(browser.webContents, path.join(outputDir, `home-${mode}-${selectedTheme}.png`))
 
     /* 2. BACK ON THE APPROVALS SCREEN -- where the decision lives. */
     const backToApprovals = await pressUntil(browser.webContents, 'nav-back', '#/approvals')
@@ -386,8 +412,7 @@ async function run() {
     })()`)
     observed.toldOnApprovals = NOT_RECORDED.test(observed.approvals.status || '')
     observed.pageText = await browser.webContents.executeJavaScript(`document.body.innerText`)
-    fs.writeFileSync(path.join(outputDir, `approvals-${mode}-${selectedTheme}.png`),
-      (await browser.webContents.capturePage()).toPNG())
+    await shoot(browser.webContents, path.join(outputDir, `approvals-${mode}-${selectedTheme}.png`))
 
     observed.bridge = {
       decisionRequests: fixture.state.decisionRequests.length,
