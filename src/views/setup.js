@@ -681,9 +681,28 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
         <article class="settings-row fleet-profile-block setup-question">
           <div class="settings-copy">
             <div class="settings-name">Working folder</div>
+            ${/* THE SINGULAR BRANCH IS THE GUIDED ONE -- `multiple` is
+                  recordedTier() !== 'guided' -- and it PROMISED WRITING at the
+                  one level that has none. Guided maps to sandbox 'read-only'
+                  (agent-session-confinement.js:114), and this product's own
+                  vetted sentence for that sandbox says the opposite of this one:
+                  agent-confinement-copy.js:70, "It can read files, and this
+                  computer refuses any attempt it makes to change one."
+
+                  Two shipped surfaces disagreed and the false one was the
+                  first a new person reads, at the recommended default. So the
+                  very first thing a first-timer asks for -- change something in
+                  the folder I just chose -- is refused, having just been told in
+                  writing that it would work. Nothing tells them why.
+
+                  Only the guided sentence changes. Above guided the level does
+                  ask for write access, and whether the engine HONOURS that is a
+                  separate, real defect being fixed at the session seam where the
+                  engine answers -- not something to pre-announce here, where no
+                  engine has been chosen yet. */''}
             <div class="settings-desc">${esc(multiple
               ? 'Your assistant may read and change things inside these folders. Everything outside them is off limits at the permission level you chose.'
-              : 'Your assistant may read and change things inside this one folder. Everything else on this computer is off limits at the permission level you chose.')}</div>
+              : 'Your assistant may read what is inside this one folder. At the permission level you chose it cannot change anything — not here, and not anywhere else on this computer.')}</div>
           </div>
           <div class="fleet-profile-fields">
             ${roots.length
