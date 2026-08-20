@@ -122,7 +122,7 @@ const {
 } = require('./port-scan.cjs')
 const { createRendererPrefs } = require('./renderer-prefs.cjs')
 const { adoptLegacyUserData } = require('./userdata-adoption.cjs')
-const { RETENTION_PREF_KEY, syncRecordedChoice } = require('./uninstall-retention.cjs')
+const { isRetentionPrefKey, mirrorRetentionChoice } = require('./uninstall-retention.cjs')
 const { planReset, eraseLocalData } = require('./local-data-reset.cjs')
 const { readProductSettings, setProductSetting } = require('./product-settings.cjs')
 const { createSubscribeEndpoint } = require('./subscribe-endpoint.cjs')
@@ -2955,20 +2955,68 @@ ipcMain.on('mc-prefs:drain', (event, request) => {
  * already withdrawn. The destructive direction is the one that must not be
  * reachable by forgetting a branch.
  *
+ * A BRANCH WAS FORGOTTEN, and the sentence above is why this comment now names
+ * it rather than being quietly edited. This setting is `mc.set.*`, which
+ * public/durable-storage.js scopes TO THE SIGNED-IN ACCOUNT: while somebody is
+ * signed in the key on the wire is `acct:<id>:mc.set.uninstall_data` and the
+ * bare name is never written. The old match was the bare literal, so for every
+ * customer with an account the mirror never ran -- "Remove everything" reached
+ * no policy file, and a "Remove everything" chosen before signing in and
+ * withdrawn afterwards stayed on disk and stayed armed.
+ *
+ * THREE THINGS CHANGE THE ANSWER, AND ONLY ONE OF THEM IS A SETTINGS WRITE.
+ * Signing in and signing out change which stored copy the settings page is
+ * showing without any key being written at all, so they mirror too, and so does
+ * launch -- a session can expire between runs, which silently moves the person
+ * from their account's answer back to the device's. Where the value comes from
+ * is shell/uninstall-retention.cjs's decision, not this file's; here there is
+ * only the list of moments it can have changed.
+ *
  * Failures are deliberately NOT surfaced as a refusal of the settings write.
  * The preference itself saved correctly; what failed is a derived file. Turning
  * that into "your setting could not be saved" would be a lie about the thing
  * the person actually did, and would make an unrelated disk problem look like a
- * broken settings page. */
+ * broken settings page. That is also why this cannot throw: it is called from
+ * account handlers whose own result must not be lost to a disk error in a file
+ * they are not about. */
 function mirrorUninstallRetention() {
-  const snapshot = rendererPrefs.snapshot()
-  const value = snapshot && snapshot.values ? snapshot.values[RETENTION_PREF_KEY] : undefined
-  return syncRecordedChoice({ userDataDir: app.getPath('userData'), value })
+  /* THE SAME FENCE THE THREE PREFS WRITERS CARRY. After `mc-reset:erase` the
+     person has removed this computer's data, and a policy file written back
+     into the folder they just emptied would recreate it -- with a token about
+     data that is no longer there. */
+  if (localDataErased) return { ok: true, skipped: 'the data on this computer was removed' }
+  let account = null
+  /* An account store that cannot be built is not "signed out". It is not
+     knowable, and uninstall-retention.cjs renders the unknown as `ask` -- never
+     as the device value, which here would be a deletion on a guess. */
+  try { account = getAccountStore() } catch { account = null }
+  try {
+    return mirrorRetentionChoice({
+      userDataDir: app.getPath('userData'),
+      prefs: rendererPrefs,
+      account,
+    })
+  } catch (error) {
+    return { ok: false, reason: error?.message || String(error) }
+  }
 }
 
 function mirrorUninstallRetentionIfRelevant(key) {
-  if (key !== RETENTION_PREF_KEY) return
+  if (!isRetentionPrefKey(key)) return
   mirrorUninstallRetention()
+}
+
+/* An account channel that MUTATES runs the mirror after it, whatever it
+   answered. Deliberately after failures too: the mirror recomputes the current
+   truth rather than applying a delta, so running it on a refused sign-in costs
+   one small write and running it only on success is one more branch that can be
+   got wrong in the direction that leaves a live `remove-everything` behind. */
+async function withAccountMutation(event, action) {
+  try {
+    return await withFleetProfileSender(event, action)
+  } finally {
+    mirrorUninstallRetention()
+  }
 }
 
 /* WRITING A SETTING BACK INTO A DIRECTORY SOMEBODY JUST EMPTIED.
@@ -3301,8 +3349,15 @@ ipcMain.handle('mc-account:availability', event =>
 ipcMain.handle('mc-account:current', event =>
   withFleetProfileSender(event, () => getAccountStore().currentForRenderer()))
 
+/* EVERY MUTATING ACCOUNT CHANNEL BELOW GOES THROUGH `withAccountMutation`, and
+   the ones that plainly cannot move the uninstall choice -- a display name, a
+   payment attachment -- go through it too. The rule "an account mutation
+   mirrors" is one a later edit can keep; "these four of the nine mutations
+   mirror" is a rule that needs the list re-derived every time a channel is
+   added, and the cost of getting that wrong is a live deletion token. The reads
+   are left alone. */
 ipcMain.handle('mc-account:create', (event, value) =>
-  withFleetProfileSender(event, () => auditedAccountAction({
+  withAccountMutation(event, () => auditedAccountAction({
     action: 'account.create',
     username: typeof value?.username === 'string' ? value.username : '',
     run: () => getAccountStore().createAccount({
@@ -3319,7 +3374,7 @@ ipcMain.handle('mc-account:create', (event, value) =>
    same code either way. It can therefore show that somebody tried repeatedly
    without telling a reader which names exist. */
 ipcMain.handle('mc-account:sign-in', (event, value) =>
-  withFleetProfileSender(event, () => auditedAccountAction({
+  withAccountMutation(event, () => auditedAccountAction({
     action: 'account.sign_in',
     username: typeof value?.username === 'string' ? value.username : '',
     run: () => getAccountStore().signIn({
@@ -3331,7 +3386,7 @@ ipcMain.handle('mc-account:sign-in', (event, value) =>
 /* Signing out names the session that ENDS, which is known before it ends and
    unknowable after, so the principal is read first. */
 ipcMain.handle('mc-account:sign-out', event =>
-  withFleetProfileSender(event, () => {
+  withAccountMutation(event, () => {
     const principal = accountPrincipal()
     return auditedAccountAction({
       action: 'account.sign_out',
@@ -3341,10 +3396,10 @@ ipcMain.handle('mc-account:sign-out', event =>
   }))
 
 ipcMain.handle('mc-account:sign-out-everywhere', event =>
-  withFleetProfileSender(event, () => getAccountStore().signOutEverywhere()))
+  withAccountMutation(event, () => getAccountStore().signOutEverywhere()))
 
 ipcMain.handle('mc-account:change-password', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().changePassword({
+  withAccountMutation(event, () => getAccountStore().changePassword({
     currentPassword: typeof value?.currentPassword === 'string' ? value.currentPassword : '',
     newPassword: typeof value?.newPassword === 'string' ? value.newPassword : '',
   })))
@@ -3362,7 +3417,7 @@ ipcMain.handle('mc-account:change-password', (event, value) =>
  *
  * The slice is the boundary doing its own job. The store bounds it again. */
 ipcMain.handle('mc-account:change-display-name', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().changeDisplayName({
+  withAccountMutation(event, () => getAccountStore().changeDisplayName({
     displayName: typeof value?.displayName === 'string' ? value.displayName.slice(0, 1024) : null,
   })))
 
@@ -3384,8 +3439,13 @@ ipcMain.handle('mc-account:data', event =>
 ipcMain.handle('mc-account:setting-get', (event, value) =>
   withFleetProfileSender(event, () => getAccountStore().getSetting(typeof value?.key === 'string' ? value.key : '')))
 
+/* THE ACCOUNT-SCOPED SETTINGS WRITE, AND THE ONE THAT WAS NOT MIRRORED.
+   `mc-prefs:write` carries the namespaced key and this carries the bare one --
+   public/durable-storage.js sends both for a single settings click, the
+   namespaced one synchronously and this one after it. Both mirror, because
+   either can be the write that lands. */
 ipcMain.handle('mc-account:setting-put', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().putSetting({
+  withAccountMutation(event, () => getAccountStore().putSetting({
     key: typeof value?.key === 'string' ? value.key : '',
     /* `null` removes. Anything that is not a string and not null is refused by
        the store rather than coerced -- a setting stored as "[object Object]" is
@@ -3401,14 +3461,14 @@ ipcMain.handle('mc-account:setting-put', (event, value) =>
  * allowlist and writes it down. Nothing here moves money and there is no code
  * path from this channel to anything that does. */
 ipcMain.handle('mc-account:payment-attach', (event, value) =>
-  withFleetProfileSender(event, () => getAccountStore().attachPaymentMethod({
+  withAccountMutation(event, () => getAccountStore().attachPaymentMethod({
     vaultKey: typeof value?.vaultKey === 'string' ? value.vaultKey : '',
     vaultStore: path.join(CAPABILITY_STATE_ROOT, 'vault', 'secrets.json'),
     note: typeof value?.note === 'string' ? value.note : null,
   })))
 
 ipcMain.handle('mc-account:payment-detach', event =>
-  withFleetProfileSender(event, () => getAccountStore().detachPaymentMethod()))
+  withAccountMutation(event, () => getAccountStore().detachPaymentMethod()))
 
 /* IS THE ATTACHED RECORD ACTUALLY IN THIS INSTALLATION'S VAULT.
  *
@@ -3491,7 +3551,7 @@ ipcMain.handle('mc-account:google-availability', event =>
   }))
 
 ipcMain.handle('mc-account:google-sign-in', event =>
-  withFleetProfileSender(event, async () => {
+  withAccountMutation(event, async () => {
     const config = googleSignInConfig()
     if (config.ok !== true) return { ok: false, code: config.code, reason: config.reason }
 
@@ -3941,6 +4001,17 @@ async function capabilityLayerSettled() {
 }
 
 async function createWindow() {
+  /* RECONCILED AT LAUNCH, BECAUSE A SESSION CAN END WITHOUT ANYBODY CLICKING.
+     The uninstall choice is account-scoped, so who is signed in decides which
+     stored answer the settings page shows -- and a session that expired, or was
+     revoked from another window, moves that from the account's answer back to
+     the device's with no settings write and no sign-out on this run to notice
+     it. Left to the next click, the policy file would sit stale for however
+     long the person does not open Settings, and the stale direction that
+     matters is an armed `remove-everything`. Cheap: one snapshot, one session
+     read, and at most one small file written. */
+  mirrorUninstallRetention()
+
   /* THE BOOT THEME COMES FROM THE SETTINGS FILE, NOT FROM shell-state.json.
      Both files carry a theme, and before the settings file existed they could
      disagree in a way a person actually saw: shell-state.json remembered black

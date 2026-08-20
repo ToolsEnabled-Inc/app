@@ -94,6 +94,47 @@ const POLICY_FILE = 'uninstall-data-policy.txt'
    the settings page really does declare this id with `ask` as its default. */
 const RETENTION_PREF_KEY = 'mc.set.uninstall_data'
 
+/* THE SAME SETTING, UNDER THE NAME IT IS ACTUALLY STORED BY WHILE SIGNED IN.
+ *
+ * public/durable-storage.js treats every `mc.set.*` key as belonging to WHOEVER
+ * IS SIGNED IN, and when somebody is, it writes that key ONLY as
+ * `acct:<32 hex>:mc.set.uninstall_data` -- the bare name is never written, and
+ * `getItem` will not read it. So a mirror that matched the bare literal fired on
+ * exactly the writes nobody signed in made, and on none of the writes a
+ * customer with an account made.
+ *
+ * MEASURED, 2026-08-20, against the real renderer-prefs and product-account
+ * stores, and then driven in a packaged window. Both directions were live:
+ *   - "Remove everything" chosen while signed in wrote no policy file at all, so
+ *     a silent uninstall KEPT the vault the person asked to have destroyed;
+ *   - "Remove everything" chosen signed OUT and then withdrawn (sign in, switch
+ *     to "Keep my data") left the stale `remove-everything` token on disk, and
+ *     build/installer.nsh RMDir /r's %APPDATA%\ToolsEnabled on it.
+ *
+ * The second is the one this file's header calls the direction that "must not be
+ * reachable by forgetting a branch". It was.
+ *
+ * The account id is matched by SHAPE rather than against the account that is
+ * signed in now. Recognising a key is only the decision to RECOMPUTE, and the
+ * recomputation below reads the current account for itself; making the match
+ * depend on the session as well would add a second place for the two to
+ * disagree, and the failure mode of that disagreement is a mirror that does not
+ * run. The shape is durable-storage.js's own: 32 lowercase hex. */
+const ACCOUNT_KEY_PATTERN = /^acct:[0-9a-f]{32}:/
+const ACCOUNT_ID_PATTERN = /^[0-9a-f]{32}$/
+
+function accountScopedRetentionKey(accountId) {
+  return `acct:${accountId}:${RETENTION_PREF_KEY}`
+}
+
+/* Does this settings key carry the uninstall decision, under either name. */
+function isRetentionPrefKey(key) {
+  if (typeof key !== 'string') return false
+  if (key === RETENTION_PREF_KEY) return true
+  const prefix = ACCOUNT_KEY_PATTERN.exec(key)
+  return prefix !== null && key.slice(prefix[0].length) === RETENTION_PREF_KEY
+}
+
 /* Written when data is kept and the person could not be asked -- a silent
    uninstall (/S), which has no UI to put a question in. Keeping the data is
    correct there (deleting a vault because a script ran quietly would be far
@@ -254,6 +295,110 @@ function syncRecordedChoice({ userDataDir, value, fs = fsDefault } = {}) {
   }
 }
 
+/* ---------------- WHICH VALUE THE PERSON ACTUALLY BELIEVES ----------------
+ *
+ * There are up to three stored copies of this decision and they can disagree:
+ * the device record (`mc.set.uninstall_data`), the device record's per-account
+ * slot (`acct:<id>:mc.set.uninstall_data`), and shell/product-account.cjs's
+ * per-account partition. The uninstaller acts on ONE token, so this decides
+ * which of them it is -- and the rule is not "the newest" or "the most
+ * specific". It is: THE VALUE THE SETTINGS PAGE IS SHOWING.
+ *
+ * That is the only defensible answer, because the token authorises an
+ * irreversible deletion and the person's authority for it is the sentence they
+ * read on the glass. A mirror that rendered a value the page does not show would
+ * delete a vault on a decision nobody ever saw. So the precedence below is not
+ * invented here; it is public/durable-storage.js's precedence, copied:
+ *
+ *   SIGNED IN  -> the account overlay ONLY. getItem does not consult the device
+ *                 key at all, so a pre-sign-in `remove-everything` is NOT what
+ *                 the page shows and must NOT be what the uninstaller reads.
+ *                 The overlay is built from the partition and then overridden by
+ *                 the per-account device slot (its `refreshAccount`), so the
+ *                 slot wins here for the same reason it wins there: it is
+ *                 the synchronous write, and it is the one that cannot have been
+ *                 lost to a rejected asynchronous putSetting.
+ *   SIGNED OUT -> the device key, unchanged, byte for byte what shipped.
+ *
+ * IGNORANCE IS `ask`, INCLUDING IGNORANCE ABOUT WHO IS SIGNED IN. If the stores
+ * cannot answer -- a throw, a shape nobody expected, a `signedIn` that is
+ * neither true nor false -- this returns no value, which resolveChoice() turns
+ * into `ask` and syncRecordedChoice() renders as NO FILE. That is deliberately
+ * not durable-storage.js's fallback, which fails closed to the device record.
+ * The page falling back to the device record shows somebody the wrong setting;
+ * this falling back to the device record DELETES THEIR DATA on it. Keeping data
+ * on an uncertainty is recoverable and is declared in writing at uninstall;
+ * deleting it is not recoverable at all, so the two failures are not traded off
+ * against each other. Ignorance never writes `remove-everything`.
+ */
+function readDeviceValues(prefs) {
+  try {
+    const snapshot = prefs && typeof prefs.snapshot === 'function' ? prefs.snapshot() : null
+    const values = snapshot ? snapshot.values : null
+    return values && typeof values === 'object' ? values : null
+  } catch {
+    return null
+  }
+}
+
+/* `{ known: false }` is not a synonym for signed out and is never treated as
+   one. `signedIn` is required to be exactly true or exactly false, so a store
+   answering something new lands in ignorance rather than in whichever branch
+   its value happens to be falsy for. */
+function readAccountIdentity(account) {
+  if (!account || typeof account.current !== 'function') return { known: false }
+  let state
+  try {
+    state = account.current()
+  } catch {
+    return { known: false }
+  }
+  if (!state || typeof state !== 'object') return { known: false }
+  if (state.signedIn === false) return { known: true, signedIn: false, accountId: null }
+  if (state.signedIn !== true) return { known: false }
+  const id = state.account && typeof state.account.id === 'string' ? state.account.id : null
+  if (id === null || !ACCOUNT_ID_PATTERN.test(id)) return { known: false }
+  return { known: true, signedIn: true, accountId: id }
+}
+
+function readPartitionChoice(account) {
+  if (!account || typeof account.getSetting !== 'function') return undefined
+  try {
+    const got = account.getSetting(RETENTION_PREF_KEY)
+    if (got && got.ok === true && typeof got.value === 'string') return got.value
+  } catch { /* an unreadable partition is an absence, and absence is `ask` */ }
+  return undefined
+}
+
+function effectiveRetentionValue({ prefs, account } = {}) {
+  const values = readDeviceValues(prefs)
+  if (values === null) return { value: undefined, source: 'unknown', accountId: null }
+
+  const who = readAccountIdentity(account)
+  if (!who.known) return { value: undefined, source: 'unknown', accountId: null }
+  if (!who.signedIn) return { value: values[RETENTION_PREF_KEY], source: 'device', accountId: null }
+
+  const slot = accountScopedRetentionKey(who.accountId)
+  if (Object.prototype.hasOwnProperty.call(values, slot)) {
+    return { value: values[slot], source: 'account-device-slot', accountId: who.accountId }
+  }
+  const stored = readPartitionChoice(account)
+  if (typeof stored === 'string') return { value: stored, source: 'account-partition', accountId: who.accountId }
+  return { value: undefined, source: 'account-absent', accountId: who.accountId }
+}
+
+/* THE WHOLE MIRROR, IN ONE CALL THAT CANNOT THROW.
+ *
+ * shell/main.cjs holds the two stores and the userData path and nothing else:
+ * every rule about which value wins lives here, beside the file it is written
+ * to, so the two cannot be edited apart. `source` is returned for the callers
+ * that want to say which copy answered; nothing branches on it. */
+function mirrorRetentionChoice({ userDataDir, prefs, account, fs = fsDefault } = {}) {
+  const effective = effectiveRetentionValue({ prefs, account })
+  const result = syncRecordedChoice({ userDataDir, value: effective.value, fs })
+  return { ...result, source: effective.source }
+}
+
 function statSafe(fs, target) {
   try {
     return fs.statSync(target)
@@ -388,6 +533,10 @@ module.exports = {
   DECLARATION_FILE,
   NAMED_SENSITIVE_ENTRIES,
   RETENTION_PREF_KEY,
+  accountScopedRetentionKey,
+  isRetentionPrefKey,
+  effectiveRetentionValue,
+  mirrorRetentionChoice,
   resolveChoice,
   readRecordedChoice,
   recordChoice,
