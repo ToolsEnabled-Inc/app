@@ -56,6 +56,7 @@
  */
 
 import { CODEX_SETUP_COMMANDS, UNAVAILABLE_TEXT, unavailableReason } from './agent-availability-copy.js'
+import { NODE_REMOVE_REFUSALS } from './fleet-trees.js'
 import { GENERIC_REMEDY, isBareIdentifier, refusalCodeOf, refusalRemedy, refusalSentence } from './refusal-copy.js'
 import { LAUNCH_TIERS } from './orchestration-controls.js'
 import { ROLES } from './vocab.js'
@@ -505,6 +506,27 @@ export const MOVE_PANEL = Object.freeze({
   alreadyUnder: (name, parent) => `${name} already reports to ${parent} — dropping it there changes nothing.`,
   wouldCycle: (name, target) => `${target} works under ${name}, so ${name} cannot also report to ${target}.`,
   notDraggable: (name) => `${name} is this tree's coordinator and stays at the top. Move its agents instead.`,
+})
+
+/* REMOVING AN AGENT, in words. The owner's finding, verbatim: "there was also
+   no way to remove an old node you wanted to delete." The two refusal
+   sentences are the STORE's own (src/fleet-trees.js NODE_REMOVE_REFUSALS,
+   re-exported here by identity, not copied), so the row's reason and the
+   store's refusal are one string. The confirm stage says what goes BEFORE it
+   goes — the agent, by name, and its saved conversation on this computer —
+   and says what stays: the signed run records are the permanent record of
+   what ran, and a removal never touches them. */
+export const REMOVE_PANEL = Object.freeze({
+  action: 'Remove this agent',
+  hint: 'Takes this agent off your tree. Nothing goes until you confirm.',
+  whyRunning: NODE_REMOVE_REFUSALS.running,
+  whyChildren: NODE_REMOVE_REFUSALS.children,
+  /* The name is data the person typed around; whoever renders this puts it on
+     the page as TEXT, the same rule START_PANEL.underNamed states. */
+  confirm: name => `This removes ${name} and its saved conversation here. The signed run records are kept.`,
+  go: 'Remove',
+  done: name => `Removed ${name} and its saved conversation here. The signed run records are kept.`,
+  notRemoved: 'That agent was not removed. Open the menu and try again.',
 })
 
 /* SESSION PROFILES, in words. A profile is a name and a folder; agents in a

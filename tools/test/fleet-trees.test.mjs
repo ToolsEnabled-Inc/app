@@ -22,6 +22,7 @@ import {
   EMPTY_FLEET_TREES,
   FLEET_TREES_RECORD_VERSION,
   FLEET_TREE_LIMITS,
+  NODE_REMOVE_REFUSALS,
   NODE_STATUSES,
   TREE_BOUNDS,
   createFleetTreeStore,
@@ -435,23 +436,81 @@ function recordFrom(store) {
   }
 }
 
-test('removing takes the branch with it, and a tree takes its agents', () => {
+/* THE CONTRACT THIS REPLACES took the whole branch with the removed node. The
+   owner's page has two sanctioned ways to move agents out from under one — the
+   reports-to picker and the drag — so a removal now refuses a parent rather
+   than silently deleting agents the person never named, and refuses a live
+   agent rather than orphaning the run behind it. */
+test('removing is one agent: a parent is refused until its agents are moved out', () => {
   const store = storeOf()
   const top = store.addNode({ role: 'top' }).node
   const middle = store.addNode({ parentId: top.id }).node
   const leaf = store.addNode({ parentId: middle.id }).node
 
-  const removed = store.removeNode(middle.id)
-  assert.equal(removed.ok, true)
-  assert.deepEqual([...removed.removedNodeIds].sort(), [leaf.id, middle.id].sort())
-  assert.equal(store.getNode(leaf.id), null)
-  assert.equal(store.getNode(top.id).id, top.id)
-  assert.equal(store.removeNode(middle.id).ok, false)
+  const refusedParent = store.removeNode(middle.id)
+  assert.equal(refusedParent.ok, false)
+  assert.equal(refusedParent.problems[0], NODE_REMOVE_REFUSALS.children(1))
+  assert.equal(store.getNode(middle.id).id, middle.id, 'a refused removal removes nothing')
+  assert.equal(store.getNode(leaf.id).id, leaf.id, 'the branch is never a surprise deletion')
 
+  const second = store.addNode({ parentId: middle.id }).node
+  assert.equal(store.removeNode(middle.id).problems[0], NODE_REMOVE_REFUSALS.children(2),
+    'the reason counts the agents that have to be moved or removed first')
+
+  assert.equal(store.removeNode(second.id).ok, true)
+  assert.equal(store.removeNode(leaf.id).ok, true)
+  assert.equal(store.removeNode(middle.id).ok, true, 'a leaf again once its agents are gone')
+  assert.equal(store.removeNode(middle.id).ok, false, 'already gone')
+  assert.equal(store.getNode(top.id).id, top.id)
+})
+
+test('removing a live agent is refused with the words the palette shows', () => {
+  const store = storeOf()
+  const top = store.addNode({ role: 'top' }).node
+  const leaf = store.addNode({ parentId: top.id }).node
+
+  store.attachSession(leaf.id, 'run-live')
+  assert.equal(store.getNode(leaf.id).status, 'starting')
+  const starting = store.removeNode(leaf.id)
+  assert.equal(starting.ok, false)
+  assert.equal(starting.problems[0], NODE_REMOVE_REFUSALS.running)
+
+  store.setNodeStatus(leaf.id, 'running')
+  const running = store.removeNode(leaf.id)
+  assert.equal(running.ok, false)
+  assert.equal(running.problems[0], NODE_REMOVE_REFUSALS.running)
+
+  store.setNodeStatus(leaf.id, 'finished', { note: 'It answered.' })
+  const removed = store.removeNode(leaf.id)
+  assert.equal(removed.ok, true)
+  assert.equal(removed.removedNode.sessionId, 'run-live',
+    'the record comes back, so a caller can still let the session go')
+  assert.equal(store.getNode(leaf.id), null)
+})
+
+test('the last agent takes its emptied tree with it, and the removal survives a reload', () => {
+  const storage = memoryStorage()
+  const store = createFleetTreeStore({ computerId: COMPUTER, storage, now: stamps(), makeId: counterIds() })
+  const top = store.addNode({ role: 'top', message: 'run the release' }).node
+  const child = store.addNode({ parentId: top.id }).node
   const treeId = top.treeId
-  const gone = store.removeTree(treeId)
-  assert.deepEqual([...gone.removedNodeIds], [top.id])
-  assert.equal(store.listNodes(treeId).length, 0)
+
+  const kept = store.removeNode(child.id)
+  assert.equal(kept.ok, true)
+  assert.equal(kept.removedTreeId, null, 'a tree with agents left keeps its tab')
+  assert.equal(store.listTrees().length, 1)
+
+  const emptied = store.removeNode(top.id)
+  assert.equal(emptied.ok, true)
+  assert.equal(emptied.removedTreeId, treeId, 'the empty tree goes rather than staying as an invisible husk')
+  assert.equal(store.listTrees().length, 0)
+  assert.equal(store.getTree(treeId), null)
+
+  const reopened = createFleetTreeStore({ computerId: COMPUTER, storage, now: stamps(), makeId: counterIds() })
+  assert.equal(reopened.listTrees().length, 0, 'the removal was saved on the same beat')
+  assert.equal(reopened.snapshot().nodes.length, 0, 'no ghost comes back on the next launch')
+
+  assert.equal(store.removeNode('node-nope').ok, false)
 })
 
 test('running means there is a session, and draft means there is not', () => {
@@ -592,10 +651,12 @@ test('removing hands back the agents, not only their names', () => {
 
   const second = storeOf()
   const top = second.addNode({ role: 'top' }).node
-  const child = second.addNode({ parentId: top.id }).node
-  second.attachSession(child.id, 'run-2')
+  second.attachSession(top.id, 'run-2')
+  second.setNodeStatus(top.id, 'running')
+  second.setNodeStatus(top.id, 'finished')
   const cut = second.removeNode(top.id)
-  assert.ok(cut.removedNodes.some(entry => entry.sessionId === 'run-2'))
+  assert.equal(cut.ok, true)
+  assert.equal(cut.removedNode.sessionId, 'run-2')
 })
 
 test('no placeholder is offered where the engine would refuse the agent', () => {

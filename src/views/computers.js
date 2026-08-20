@@ -56,6 +56,7 @@ import {
   MOVE_PANEL,
   PROFILE_PANEL,
   PALETTE_PANEL,
+  REMOVE_PANEL,
   QUEUE_PANEL,
   SAID_PANEL,
   NODE_STATUS_WORDS,
@@ -110,7 +111,7 @@ import { createTranscriptAppender } from '../agent-session-transcript.js'
    src/agent-compose-panel.js holds the form and its refusals. This view is the
    join between them and the agent bridge — a press goes in one end and a running
    session comes out the other. */
-import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, safeTreeStorage } from '../fleet-trees.js'
+import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, NODE_REMOVE_REFUSALS, safeTreeStorage } from '../fleet-trees.js'
 /* WHAT A NODE IS TOLD ABOUT ITS PLACE IN THE TREE. The tree holds the
    relationship; before this the session was never told it, and a child asked
    the person for "the manager's identifier" while its manager was drawn one
@@ -4690,6 +4691,21 @@ export function computersView({ initialComputer = null, navigate }) {
         }], { title: `“${entry.yourText.slice(0, 60)}”` })
       },
     }))
+    /* THE REMOVE CONFIRM — the same sub-stage device as rewind's picker: one
+       Remove row plus the popup's own Back, with the sentence naming what
+       goes (and that the signed run records stay) carried on the row where a
+       hint is read and spoken. The popup is closed BEFORE the removal runs,
+       because the removal disposes the chat under it. */
+    const removeRows = () => [{
+      id: 'remove-go',
+      label: REMOVE_PANEL.go,
+      hint: REMOVE_PANEL.confirm(treeNodeName(fresh())),
+      enabled: true,
+      run: goCtx => {
+        goCtx.close()
+        void performNodeRemoval(fresh())
+      },
+    }]
     /* THE TABLE, GROUPED, EVERY ROW SAYING WHY WHEN IT CANNOT BE PRESSED.
      *
      * The owner's report on this menu: "more like vscode, much more intuitive
@@ -4729,6 +4745,17 @@ export function computersView({ initialComputer = null, navigate }) {
     const savedConversation = transcriptStore ? transcriptStore.get(node.id) : null
     const sentEarlier = Boolean(savedConversation && Array.isArray(savedConversation.lines)
       && savedConversation.lines.some(line => line && line.who === 'you'))
+    /* THE REMOVE ROW'S TWO GATES, judged here so the row and the store agree.
+       Direct reports first-class: each one is an agent the person moves out
+       through the reports-to picker or the drag, and the reason counts them.
+       "A run could be behind it" is the node's own live status — busy, or a
+       start still in flight with no session id yet. The one exception is a
+       record orphaned by shutdown (live status over a session this run cannot
+       reach): there is nothing left to stop, so the row stays pressable and
+       the run handler lets that dead session go through the store's own
+       detach. */
+    const childCount = treeStore ? treeStore.childrenOf(current.id).length : 0
+    const removeBlockedByRun = (current.status === 'starting' || current.status === 'running') && !nodeSessionEnded(current)
     const conversation = PALETTE_PANEL.groupConversation
     const agent = PALETTE_PANEL.groupAgent
     const danger = PALETTE_PANEL.groupDanger
@@ -4750,6 +4777,10 @@ export function computersView({ initialComputer = null, navigate }) {
       { id: 'interrupt', group: danger, label: PALETTE_PANEL.interrupt, hint: PALETTE_PANEL.interruptHint, enabled: running, disabledHint: PALETTE_PANEL.whyNotRunning, run: ctx => runPaletteAction('interrupt', fresh(), sinkFor(ctx)) },
       { id: 'stop', group: danger, label: PALETTE_PANEL.stop, hint: PALETTE_PANEL.stopHint, enabled: running, disabledHint: PALETTE_PANEL.whyNotRunning, run: ctx => runPaletteAction('stop', fresh(), sinkFor(ctx)) },
       { id: 'clear', group: danger, label: PALETTE_PANEL.clear, hint: PALETTE_PANEL.clearHint, enabled: started, disabledHint: PALETTE_PANEL.whyNotStarted, run: ctx => { ctx.close(); void runPaletteAction('clear', fresh(), statusSink()) } },
+      /* LAST ON PURPOSE: the one row that ends an agent for good closes the
+         destructive group. Its two reasons are the store's own refusals, in
+         the design's order — a live run first, then the agents underneath. */
+      { id: 'remove', group: danger, label: REMOVE_PANEL.action, hint: REMOVE_PANEL.hint, enabled: !removeBlockedByRun && childCount === 0, disabledHint: removeBlockedByRun ? REMOVE_PANEL.whyRunning : (childCount > 0 ? REMOVE_PANEL.whyChildren(childCount) : ''), run: ctx => ctx.show(removeRows(), { title: REMOVE_PANEL.action }) },
     ]
   }
 
@@ -5111,6 +5142,91 @@ export function computersView({ initialComputer = null, navigate }) {
         ? `${PALETTE_PANEL.stopped} ${dropped} queued message${dropped === 1 ? ' was' : 's were'} dropped.`
         : PALETTE_PANEL.stopped
     }
+  }
+
+  /* THE REMOVAL — the missing leg of the tree verbs (owner finding, verbatim:
+   * "there was also no way to remove an old node you wanted to delete").
+   *
+   * WHAT GOES AND WHAT STAYS IS A FIXED CONTRACT, the one the confirm stage
+   * just read out. Goes: the node's record in the tree store (its tree too,
+   * when it was the last agent in it), the durable conversation for the node
+   * — through session-transcript-store's OWN remove(), never a hand on its
+   * key — and this window's node- and session-keyed caches, so no ghost
+   * reply can resurface on a later node. Stays: the signed run records. They
+   * are the permanent record of what ran on this machine and nothing on this
+   * path reaches them.
+   *
+   * THE STORE IS THE GATE, NOT THIS FUNCTION. removeNode() refuses a live
+   * agent and a parent with agents under it, in the same exported sentences
+   * the palette row shows — so the re-check here on a race (a queued message
+   * put the agent back to work while the confirm stage sat open) speaks the
+   * store's words, and any store refusal is reported as it came. The only
+   * session this function closes is the removed node's own reachable one; a
+   * record orphaned by shutdown is let go through detachSession, the store's
+   * documented verb for exactly that state. */
+  async function performNodeRemoval(node) {
+    if (!treeStore) return false
+    const live = treeStore.getNode(node.id) || node
+    if (nodeBusy(live)) {
+      setOrgStatus(NODE_REMOVE_REFUSALS.running, 'refuse', { sticky: true })
+      return false
+    }
+    const name = treeNodeName(live)
+    const sessionId = live.sessionId || null
+    if (sessionId) {
+      if (nodeSessionLive(live)) {
+        const bridge = typeof window === 'undefined' ? null : window.mcAgent
+        if (bridge && typeof bridge.close === 'function') {
+          try { await bridge.close({ sessionId }) }
+          catch { /* an already-closed session is the goal state */ }
+        }
+      }
+      if (live.status === 'starting' || live.status === 'running') treeStore.detachSession(live.id)
+    }
+    const result = treeStore.removeNode(live.id)
+    if (!result.ok) {
+      setOrgStatus(result.problems[0] || REMOVE_PANEL.notRemoved, 'refuse', { sticky: true })
+      return false
+    }
+    /* The durable conversation leaves through the store's own door. */
+    transcriptStore?.remove(live.id)
+    /* This window's caches — node-keyed, then everything keyed by the session
+       the node held, so nothing can deliver into a record that is gone. */
+    nodeReplies.delete(live.id)
+    nodeActivity.delete(live.id)
+    if (sessionId) {
+      outboxClearSession(sessionId)
+      sessionTranscripts.delete(sessionId)
+      sessionTurnLog.delete(sessionId)
+      sessionTurnText.delete(sessionId)
+      sessionUsage.delete(sessionId)
+      sessionModelOverride.delete(sessionId)
+      sessionPendingImages.delete(sessionId)
+      sessionPendingApprovals.delete(sessionId)
+      sessionsInterrupted.delete(sessionId)
+      sessionNodeIds.delete(sessionId)
+      sessionEfforts.delete(sessionId)
+      sessionThreadIds.delete(sessionId)
+      sessionActions.delete(sessionId)
+      chatSurfaces.delete(sessionId)
+      turnReplies.delete(sessionId)
+    }
+    /* The canvas repaints without the node. A drill rooted AT it re-roots on
+       its parent — the removed node is always a leaf here — or zooms out when
+       it stood alone. */
+    if (graph && graph.rootId === live.id) {
+      if (live.parentId) graph.setRoot?.(live.parentId)
+      else graph.clearRoot?.()
+    }
+    refreshTree()
+    /* The rail: railFollowsCanvas's conservative answer, for the same reason —
+       the node it was showing cannot be on any canvas now, so back to the
+       overview. */
+    if (currentRailTreeNode && currentRailTreeNode.id === live.id && controlsPage.classList.contains('is-active')) {
+      showStats()
+    }
+    setOrgStatus(REMOVE_PANEL.done(name), 'ok')
+    return true
   }
 
   function showControls(agent) {

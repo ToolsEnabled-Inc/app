@@ -20,7 +20,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { EFFORT_SWITCH, MODEL_PANEL, PALETTE_PANEL, RESUME_PANEL, REWIND_PANEL } from '../../src/fleet-tree-copy.js'
+import { EFFORT_SWITCH, MODEL_PANEL, PALETTE_PANEL, REMOVE_PANEL, RESUME_PANEL, REWIND_PANEL } from '../../src/fleet-tree-copy.js'
 
 const VIEW = readFileSync(new URL('../../src/views/computers.js', import.meta.url), 'utf8')
 
@@ -35,10 +35,11 @@ function tableSource() {
 }
 
 const CLOSURE = [
-  'PALETTE_PANEL', 'EFFORT_SWITCH', 'RESUME_PANEL', 'REWIND_PANEL', 'MODEL_PANEL',
+  'PALETTE_PANEL', 'EFFORT_SWITCH', 'RESUME_PANEL', 'REWIND_PANEL', 'MODEL_PANEL', 'REMOVE_PANEL',
   'running', 'started', 'canPick', 'pickerWhy', 'turnsSoFar', 'sentEarlier', 'reply', 'current', 'node',
+  'childCount', 'removeBlockedByRun',
   'transcriptStore', 'conversation', 'agent', 'danger',
-  'fresh', 'sinkFor', 'statusSink', 'runPaletteAction', 'effortRows', 'modelRows', 'rewindRows',
+  'fresh', 'sinkFor', 'statusSink', 'runPaletteAction', 'effortRows', 'modelRows', 'rewindRows', 'removeRows',
   'openComposeFor', 'focusDetailsControl', 'resumeNodeSession',
 ]
 
@@ -53,17 +54,19 @@ function rowsFor({
   reply = '',
   message = '',
   saved = false,
+  childCount = 0,
 } = {}) {
   const pickerWhy = !started ? PALETTE_PANEL.whyNotStarted : (!canPick ? PALETTE_PANEL.whyNoPicker : '')
   const table = new Function(...CLOSURE, `return ${tableSource()}`)
   const stub = () => {}
   return table(
-    PALETTE_PANEL, EFFORT_SWITCH, RESUME_PANEL, REWIND_PANEL, MODEL_PANEL,
+    PALETTE_PANEL, EFFORT_SWITCH, RESUME_PANEL, REWIND_PANEL, MODEL_PANEL, REMOVE_PANEL,
     running, started, canPick, pickerWhy, turnsSoFar, sentEarlier, reply,
     { sessionId: started ? 'chat-a' : null, message }, { id: 'node-a' },
+    childCount, running,
     { has: () => saved, get: () => (saved ? { lines: [] } : null) },
     PALETTE_PANEL.groupConversation, PALETTE_PANEL.groupAgent, PALETTE_PANEL.groupDanger,
-    stub, stub, stub, stub, stub, stub, stub, stub, stub, stub,
+    stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub,
   )
 }
 
@@ -90,7 +93,10 @@ test('every row belongs to a group, and the group that ends or forgets something
   assert.equal(groups.length, 3, `expected three groups, found ${JSON.stringify(groups)}`)
   assert.equal(groups[groups.length - 1], PALETTE_PANEL.groupDanger, 'the destructive group is not last')
   const danger = rows.filter(row => row.group === PALETTE_PANEL.groupDanger).map(row => row.id).sort()
-  assert.deepEqual(danger, ['clear', 'interrupt', 'stop'], 'the destructive group does not hold exactly the three rows that stop or forget')
+  assert.deepEqual(danger, ['clear', 'interrupt', 'remove', 'stop'], 'the destructive group does not hold exactly the four rows that stop, forget or remove')
+  /* Remove ends something for good, so it closes the destructive group: the
+     last row of the whole table, never a neighbour of Copy. */
+  assert.equal(rows[rows.length - 1].id, 'remove', 'the remove row is not the last row of the table')
   /* Consecutive: a group is a heading, so its rows sit together. */
   const seen = new Set()
   let last = null
@@ -143,6 +149,17 @@ test('a row that is switched off says why, in every state that switches it off',
   assert.equal(busy.interrupt.enabled, true)
   assert.equal(busy.stop.enabled, true)
 
+  /* Remove's two reasons, in the design's order: a live run first, then the
+     agents underneath. Both sentences are the STORE's own refusals
+     (NODE_REMOVE_REFUSALS), so the row and the store cannot drift. */
+  assert.equal(busy.remove.enabled, false, 'a running agent can be removed out from under its session')
+  assert.equal(busy.remove.disabledHint, REMOVE_PANEL.whyRunning)
+  const parent = byId(rowsFor({ childCount: 2 }))
+  assert.equal(parent.remove.enabled, false, 'a parent can be removed over the heads of its agents')
+  assert.equal(parent.remove.disabledHint, REMOVE_PANEL.whyChildren(2))
+  assert.equal(idle.remove.enabled, true, 'an idle leaf cannot be removed at all -- the missing leg again')
+  assert.equal(idle.remove.hint, REMOVE_PANEL.hint)
+
   /* A page with no picker: attach and mention say the real reason. */
   const preview = byId(rowsFor({ started: true, canPick: false }))
   assert.equal(preview.attach.enabled, false)
@@ -150,7 +167,7 @@ test('a row that is switched off says why, in every state that switches it off',
   assert.equal(preview.mention.disabledHint, PALETTE_PANEL.whyNoPicker)
 
   /* And every disabled row, in every state above, carries SOME reason. */
-  for (const rows of [idle, quiet, busy, preview]) {
+  for (const rows of [idle, quiet, busy, preview, parent]) {
     for (const row of Object.values(rows)) {
       if (row.enabled === false) {
         assert.equal(typeof row.disabledHint, 'string', `${row.id} is switched off with no reason`)
