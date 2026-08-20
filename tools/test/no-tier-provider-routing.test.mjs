@@ -24,11 +24,16 @@ const require_ = createRequire(import.meta.url)
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 const { createAgentHost } = require_(path.join(ROOT, 'shell/agent-host.cjs'))
-const CONFINED_ENGINE = path.join(ROOT, 'tools/test/fixtures/confined-engine/src/lib/agent-engine/codex-process.js')
+/* The DUAL-engine fixture root, deliberately not confined-engine: that root is
+   COMPLETE_ENGINE for the availability suite, whose fifth-precondition case
+   needs a payload with NO claude module -- a claude module there opens the
+   claudeCouldStart bypass on any machine where the claude program resolves.
+   See tools/test/fixtures/dual-engine/src/lib/agent-engine/codex-process.js. */
+const CONFINED_ENGINE = path.join(ROOT, 'tools/test/fixtures/dual-engine/src/lib/agent-engine/codex-process.js')
 
 function codexCalls() { return require_(CONFINED_ENGINE).calls }
 function claudeCalls() {
-  return require_(path.join(ROOT, 'tools/test/fixtures/confined-engine/src/lib/agent-engine/claude-cli-process.js')).calls
+  return require_(path.join(ROOT, 'tools/test/fixtures/dual-engine/src/lib/agent-engine/claude-cli-process.js')).calls
 }
 
 function withPlan(plan, run) {
