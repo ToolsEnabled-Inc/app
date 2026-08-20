@@ -186,15 +186,27 @@ test('scope isolation: another session\'s and another thread\'s rules stay out',
 
 test('an absurd ledger cannot brick or bloat a start: capped, announced, still running', async () => {
   await inWorld(async ({ host, stateRoot }) => {
-    /* Hundreds of entries plus an oversized one, planted the way the owner
-       would produce them: through the module itself. */
-    for (let index = 0; index < 300; index += 1) {
-      FIXTURE_LEDGER.fileRequest({ scope: 'global', words: `Global rule number ${index} with some padding words to carry real weight.` })
+    /* Hundreds of entries plus an oversized one, written straight in the
+       module's own format — the shape a long-lived hand-edited ledger has.
+       They were first planted through 400 fileRequest() calls, which is
+       truer to the write path but hammers Windows with 400 rename cycles in
+       tight succession; the full suite hit a transient EPERM on one of them
+       (a scanner briefly holding the file) and the flake was the harness's,
+       not the product's. The parse of these bytes IS the module's, which is
+       what this test is about. */
+    const plantLedger = (file, prefix, count, extra = '') => {
+      mkdirSync(path.dirname(file), { recursive: true })
+      let text = `# Owner requests\n\n`
+      for (let index = 0; index < count; index += 1) {
+        text += `## ${prefix}${prefix === 'R' ? 2000 + index : index + 1} — 2026-08-19T00:00:00.000Z\n\nRule number ${index} with some padding words to carry real weight in bytes.\n\n`
+      }
+      text += extra
+      writeFileSync(file, text, 'utf8')
     }
-    FIXTURE_LEDGER.fileRequest({ scope: 'global', words: `NEWEST-GLOBAL-RULE ${'x'.repeat(12_000)}` })
-    for (let index = 0; index < 100; index += 1) {
-      FIXTURE_LEDGER.fileRequest({ scope: 'thread', key: 'node-7', words: `Thread rule ${index} ${'y'.repeat(200)}` })
-    }
+    plantLedger(path.join(stateRoot, 'reports', 'R-LEDGER.md'), 'R', 300,
+      `## R2300 — 2026-08-19T00:00:01.000Z\n\nNEWEST-GLOBAL-RULE ${'x'.repeat(12_000)}\n\n<!-- next-id: 2301 -->\n`)
+    plantLedger(path.join(stateRoot, 'state', 'r-ledger', 'thread-node-7.md'), 'RTH', 100,
+      '<!-- next-id: 101 -->\n')
     await host.startSession({
       sessionId: 'ceiling-1',
       requestKeys: { treeAnchors: ['node-7'], threadId: 'node-7' },
