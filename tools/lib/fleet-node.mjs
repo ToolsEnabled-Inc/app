@@ -172,6 +172,25 @@ export async function startFleetNode({ session, evaluate, delay, brief = 'Say ok
      moves, so nothing below is re-rendered by it. */
   const details = await press('[data-rail-tab="details"]')
   if (details !== 'clicked') return stop('the Details tab on the node rail', details)
+  /* AND THEN THE DISCLOSURE, because Launch, Team, Loop and Codex Cloud now sit
+     inside one collapsed group ("Start more work"). They measured 2821px of the
+     Details tab's 3825px scroll at 1440x900 -- 74% of it -- which is why they
+     are behind a press; nothing was removed, and every one of these drivers
+     still reaches the same four boxes.
+     A PRESS, NOT A FLAG. The group remembers whether it was left open, so on a
+     profile that has opened it before the button is already expanded and this
+     press would CLOSE it. The state is read first and the press is made only
+     when it is needed -- the same rule the drawer helpers in
+     tools/test-account-harness.mjs settled on for exactly this reason. */
+  const groupClosed = await evaluate(`(() => {
+    const toggle = document.querySelector('[data-start-work-toggle]')
+    if (!toggle) return 'absent'
+    return toggle.getAttribute('aria-expanded') === 'true' ? 'open' : 'closed'
+  })()`)
+  if (groupClosed === 'closed') {
+    const expanded = await press('[data-start-work-toggle]')
+    if (expanded !== 'clicked') return stop('the "Start more work" disclosure on the node rail', expanded)
+  }
   const rail = await visible('.board-team-box', 12_000)
   if (rail?.state !== 'visible') {
     const boxes = await evaluate(`JSON.stringify([...document.querySelectorAll('.board-box')].map(n => n.className))`)

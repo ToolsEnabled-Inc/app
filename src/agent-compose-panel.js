@@ -167,7 +167,7 @@ export function composeDraftProblems({ role = '', message = '', roles = ROLE_CHO
    comes from src/fleet-tree-copy.js. `underLine` is the one place a name the
    caller supplied reaches the page, already wrapped in the copy module's own
    sentence before it gets here. */
-function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) {
+function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, folders = [], folderSelectedId = null }) {
   const id = `agent-compose-${panelSequence += 1}`
 
   const root = doc.createElement('section')
@@ -418,6 +418,59 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) 
   effortField.appendChild(effortHint)
   effortField.appendChild(effortSelect)
 
+  /* THE FOLDER THIS TREE'S AGENTS WORK IN, ASKED AT THE MOMENT THE TREE STARTS.
+   *
+   * See START_PANEL.folderLabel in src/fleet-tree-copy.js for the owner's words
+   * and why this is drawn for a NEW TREE ONLY. `newTree` is the same flag the
+   * "This agent will work under ..." line already keys off, so there is one
+   * answer in this panel to "is a tree being created", not two.
+   *
+   * NULL IS A REAL ANSWER AND IT IS THE FIRST ROW. Before profiles existed
+   * every tree ran in the product's own workspace, and that is still what an
+   * unanswered menu means -- the same null `submitCompose` has always sent. */
+  let folderSelect = null
+  let folderField = null
+  if (newTree) {
+    folderField = doc.createElement('div')
+    folderField.className = 'agent-compose-field'
+    const folderLabelNode = doc.createElement('label')
+    folderLabelNode.className = 'cl'
+    folderLabelNode.setAttribute('for', `${id}-folder`)
+    folderLabelNode.textContent = START_PANEL.folderLabel
+    const folderHint = doc.createElement('p')
+    folderHint.className = 'agent-compose-hint'
+    folderHint.setAttribute('id', `${id}-folder-hint`)
+    folderHint.textContent = folders.length > 0 ? START_PANEL.folderHelp : START_PANEL.folderNone
+    folderSelect = doc.createElement('select')
+    folderSelect.className = 'agent-compose-select'
+    folderSelect.setAttribute('id', `${id}-folder`)
+    folderSelect.setAttribute('data-compose-field', 'profile')
+    folderSelect.setAttribute('aria-describedby', `${id}-folder-hint`)
+    const workspaceOption = doc.createElement('option')
+    workspaceOption.value = ''
+    workspaceOption.textContent = START_PANEL.folderWorkspace
+    folderSelect.appendChild(workspaceOption)
+    for (const folder of folders) {
+      const option = doc.createElement('option')
+      option.value = folder.id
+      /* The NAME a person gave the profile, never the path. The renderer does
+         not print a path it did not have the person pick; the fleet rail's own
+         profile list is where the folder itself is shown. */
+      option.textContent = folder.name
+      folderSelect.appendChild(option)
+    }
+    /* Remembered posture, so the menu opens on the folder this person used
+       last. It is pre-fill, not permission: they override it in the same
+       gesture, and an id that no longer exists simply does not match a row and
+       leaves the product's own workspace selected. */
+    if (folderSelectedId && folders.some(folder => folder.id === folderSelectedId)) {
+      folderSelect.value = folderSelectedId
+    }
+    folderField.appendChild(folderLabelNode)
+    folderField.appendChild(folderHint)
+    folderField.appendChild(folderSelect)
+  }
+
   const messageField = doc.createElement('div')
   messageField.className = 'agent-compose-field'
   const messageLabel = doc.createElement('label')
@@ -455,6 +508,10 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) 
      Nothing is removed by this order; the later choices keep their defaults and
      their words, and now sit under the question they qualify. */
   body.appendChild(messageField)
+  /* THE FOLDER SITS UNDER THE BRIEF AND ABOVE THE ENGINE. The brief keeps the
+     first position it was given for a measured reason (see the note above);
+     among the qualifiers, WHERE the work happens outranks what it runs on. */
+  if (folderField) body.appendChild(folderField)
   body.appendChild(tierField)
   body.appendChild(effortField)
 
@@ -498,7 +555,9 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) 
   status.setAttribute('hidden', 'hidden')
   root.appendChild(status)
 
-  return { root, roleSelect, tierSelect, effortSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, unavailableAction, status, submit, cancel }
+  /* folderSelect is null for a start under an existing agent -- every reader of
+     it is written for that, so a missing folder menu is a state, not a fault. */
+  return { root, roleSelect, tierSelect, effortSelect, folderSelect, messageInput, roleSummary, roleProblem, messageProblem, notice, unavailableAction, status, submit, cancel }
 }
 
 /**
@@ -557,6 +616,14 @@ export function mountAgentComposePanel({
      module's own pessimistic default, which is what every surface got before
      this parameter existed. */
   tiers = TIER_CHOICES,
+  /* THE NAMED FOLDERS THIS COMPUTER HAS, `[{ id, name }]`, read by the caller
+     from the same main-process store the fleet rail reads. This panel does not
+     ask for them and cannot make one: creating a named folder lives in exactly
+     one place, and a second door onto it is a second thing to keep in step. */
+  folders = [],
+  /* Which row the menu opens on -- the folder this person used last. Pre-fill,
+     not permission. */
+  folderSelectedId = null,
 } = {}) {
   if (!doc || typeof doc.createElement !== 'function' || !container) return null
 
@@ -564,6 +631,8 @@ export function mountAgentComposePanel({
     parent,
     roles,
     tiers: Array.isArray(tiers) && tiers.length > 0 ? tiers : TIER_CHOICES,
+    folders: Array.isArray(folders) ? folders : [],
+    folderSelectedId: asTrimmed(folderSelectedId) || null,
     unavailableReason: asTrimmed(unavailableReason),
     unavailableAction: isRecord(unavailableAction) ? unavailableAction : null,
   }
@@ -636,6 +705,10 @@ export function mountAgentComposePanel({
     nodes.submit.disabled = stopped
     nodes.roleSelect.disabled = stopped
     nodes.tierSelect.disabled = stopped
+    /* Null for a start under an existing agent -- there is no folder menu on
+       that panel, and switching off a control that is not there is not an
+       error worth throwing over. */
+    if (nodes.folderSelect) nodes.folderSelect.disabled = stopped
     nodes.messageInput.disabled = stopped
     /* Cancel goes dead ONLY while a handover is in flight. The caller is part
        way through starting something; a cancel here would discard the draft
@@ -659,6 +732,11 @@ export function mountAgentComposePanel({
     effort: asTrimmed(nodes?.effortSelect?.value) || null,
     message: asText(nodes?.messageInput?.value).trim(),
     parentId: isRecord(current.parent) ? asTrimmed(current.parent.id) || null : null,
+    /* THE FOLDER THE NEW TREE WORKS IN. Null when a tree is not being started
+       (there is no menu), and null when the person left the first row alone --
+       the same null that has always meant the product's own workspace, so a
+       caller that ignores this key behaves exactly as it did before. */
+    profileId: asTrimmed(nodes?.folderSelect?.value) || null,
   })
 
   const showNotice = (sentence, liveRole) => {
@@ -817,6 +895,8 @@ export function mountAgentComposePanel({
       newTree: !isRecord(current.parent),
       underLine,
       tiers: current.tiers,
+      folders: current.folders,
+      folderSelectedId: current.folderSelectedId,
     })
 
     nodes.submit.addEventListener('click', () => attemptSubmit())
@@ -867,6 +947,12 @@ export function mountAgentComposePanel({
         parent: 'parent' in next ? next.parent : current.parent,
         roles: 'roles' in next ? next.roles : current.roles,
         tiers: 'tiers' in next && Array.isArray(next.tiers) && next.tiers.length > 0 ? next.tiers : current.tiers,
+        /* CARRIED FORWARD WHEN NOT RESTATED. readStartableTiers() re-opens an
+           already-open panel with `{ tiers }` alone the moment the shell
+           answers; a merge that reset these would empty the folder menu out
+           from under someone reading it. */
+        folders: 'folders' in next && Array.isArray(next.folders) ? next.folders : current.folders,
+        folderSelectedId: 'folderSelectedId' in next ? asTrimmed(next.folderSelectedId) || null : current.folderSelectedId,
         unavailableReason: 'unavailableReason' in next ? asTrimmed(next.unavailableReason) : current.unavailableReason,
         unavailableAction: 'unavailableAction' in next
           ? (isRecord(next.unavailableAction) ? next.unavailableAction : null)

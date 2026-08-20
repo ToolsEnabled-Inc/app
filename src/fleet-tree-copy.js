@@ -169,6 +169,29 @@ export const START_PANEL = Object.freeze({
   underUnnamed: 'This agent joins your tree under the spot you pressed.',
   roleLabel: 'What kind of agent is this?',
   roleHelp: 'Pick where it sits in your tree. You can change this later.',
+  /* THE FOLDER, ASKED WHERE THE OWNER SAID IT SHOULD BE ASKED.
+   *
+   * Owner, 2026-08-16: "when a user starts a tree they should select a folder,
+   * they can have a default folder, where the agents spawn". It was only ever
+   * askable AFTER the fact, on an existing tree's rail, which is why he came
+   * back on 2026-08-19 asking what had happened to it.
+   *
+   * ONLY WHEN A TREE IS BEING STARTED. A start under an existing agent joins a
+   * tree that already has a folder, and offering the menu there would let one
+   * nested start silently re-point every agent in the tree. So this field is
+   * drawn for a new tree and for nothing else -- the same `newTree` the panel
+   * already computes.
+   *
+   * THE MENU IS THE PROFILES THAT EXIST, NEVER A PATH THIS PANEL INVENTED.
+   * Making a named folder stays in ONE place, the fleet rail, so there is no
+   * second folder-creation mechanism to keep in step with the first. */
+  folderLabel: 'Which folder do its agents work in?',
+  folderHelp: 'Every agent in this tree starts in this folder and reads the instructions there.',
+  folderWorkspace: 'The product’s own workspace',
+  /* Not a refusal: starting works fine without a profile, in the product's own
+     workspace. It is a pointer to where folders are made, named exactly as the
+     rail names that section so a person can go find it. */
+  folderNone: 'No folders set up yet — these agents will work in the product’s own workspace. Add one under “Folders your agents work in” on this page.',
   /* THE FIRST ROW OF THE ROLE MENU. A menu must have something selected, and
      pre-selecting a real role would answer the panel's own question for the
      person and let a role nobody chose through on a single press. So the first
@@ -536,6 +559,17 @@ export const REMOVE_PANEL = Object.freeze({
    folder in a row is the one the person picked in the system dialog. */
 export const PROFILE_PANEL = Object.freeze({
   title: 'Works in',
+  /* TWO HEADINGS THAT SAY "FOLDER", BECAUSE "WORKS IN" AND "SESSION PROFILES"
+     BOTH FAILED TO.
+     Owner, 2026-08-19: "what happened to sessions and choosing a folder for
+     each tree and such? ther right panel on page 2 is still so complicated i
+     think its in there maybe somewhere". It WAS in there: on the overview rail
+     under "Session profiles", 1152px down a 1524px scroll, and on a tree node
+     under "Setup" > "Works in". Neither heading contains the word he was
+     hunting for. These two do. `title` is kept as it was for the select's own
+     aria-label, which names the field rather than the panel. */
+  overviewTitle: 'Folders your agents work in',
+  nodeTitle: 'Folder these agents work in',
   help: 'A profile is a name and a folder. Agents in a tree that uses a profile start in that folder and read its instructions, so different kinds of work stay apart.',
   treeHelp: 'Where agents in THIS TREE start. Applies to agents started after you change it.',
   productWorkspace: 'The product’s own workspace',
@@ -555,6 +589,34 @@ export const PROFILE_PANEL = Object.freeze({
      screen is a separate, warned press. */
   switchOffer: 'This agent keeps its current folder until it restarts. Restarting re-sends its saved conversation, which costs tokens.',
   switchGo: 'Restart it in the new folder',
+})
+
+/* THE FOUR WAYS WORK GETS STARTED, BEHIND ONE NAMED PRESS.
+ *
+ * WHAT WAS MEASURED (tools/rail-inventory-drive.mjs, packaged, 2026-08-20): the
+ * tree node's Details tab is nine stacked panels, and Launch, Team, Loop and
+ * Codex Cloud are the last four of them. They are already ONE idea -- the
+ * builder's own comment calls them "the four answers to how work gets started
+ * from this computer" -- so they read better as one group than as four peers of
+ * the conversation and the folder.
+ *
+ * COLLAPSED, NEVER HIDDEN. The owner's rule for this page is that no control
+ * hides harder than it has to, so the group is a real <button> with
+ * aria-expanded and a chevron, it NAMES all four of its panels on its own line,
+ * and the state it was left in is remembered. Nothing is removed and nothing
+ * inside the four boxes changes.
+ *
+ * AND IT PUTS A REMOUNT TRIGGER BEHIND A DELIBERATE PRESS. When cloud launching
+ * is switched off, src/cloud-tasks.js appends "Turn on Codex Cloud launching"
+ * into the Codex Cloud box's header, and that press calls setWriteEnabled --
+ * which tears down and rebuilds this whole view, discarding unsaved edits
+ * elsewhere on the page. Collapsed, it is no longer sitting in a person's
+ * scroll path. That is a mitigation, not the fix; the fix is another lane's. */
+export const START_WORK_GROUP = Object.freeze({
+  title: 'Start more work',
+  contents: 'Launch, Team, Loop and Codex Cloud',
+  expandLabel: 'Show the ways to start more work: Launch, Team, Loop and Codex Cloud',
+  collapseLabel: 'Hide the ways to start more work',
 })
 
 /* RESUMING A DEAD SESSION (iteration 5 W7). A session cannot be reopened —

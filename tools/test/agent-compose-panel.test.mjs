@@ -290,8 +290,13 @@ test('every choice on screen is a label, and no role key is anywhere in the pane
   const { handle } = open()
   const options = handle.element().findAll(node => node.tagName === 'OPTION')
 
-  assert.equal(options.length, ROLE_CHOICES.length + 1 + TIER_CHOICES.length + EFFORT_CHOICES.length,
-    'every role plus the prompt row, every tier, and every effort level')
+  /* THE FOLDER MENU IS THE +1 AT THE END. open() passes no parent, so this is a
+     panel that would START A TREE, and a tree being started is asked where its
+     agents work (owner, 2026-08-16). No folders are handed to this panel, so
+     the menu holds exactly its first row -- "the product's own workspace",
+     which is what every tree ran in before folders existed. */
+  assert.equal(options.length, ROLE_CHOICES.length + 1 + TIER_CHOICES.length + EFFORT_CHOICES.length + 1,
+    'every role plus the prompt row, every tier, every effort level, and the folder menu')
   const roleOptions = fieldNamed(handle, 'role').children
   assert.equal(roleOptions[0].textContent, START_PANEL.rolePrompt)
   assert.equal(roleOptions[0].value, '', 'the panel opens with nothing chosen, so a press cannot pass a role nobody picked')
@@ -362,7 +367,7 @@ test('the pressed node’s id travels in the draft and is never rendered', () =>
 
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: 'node-17' }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: 'node-17', profileId: null }])
 })
 
 test('a node’s name is put on the page as text, never as markup', () => {
@@ -388,7 +393,7 @@ test('no parent at all means this begins a new tree, and the draft carries no pa
   fill(handle, { role: 'manager', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: null }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: null, profileId: null }])
 })
 
 /* ---------- handing the draft back ---------- */
@@ -408,6 +413,10 @@ test('a complete draft is handed to the caller as role, message and parent', () 
     // Trimmed at the ends and nowhere else: the line break is the person's.
     message: 'Watch the release branch.\nReport twice a day.',
     parentId: 'node-17',
+    /* A start UNDER an existing agent draws no folder menu -- that tree already
+       has a folder, and one nested start must not re-point it. Null here is
+       that absence, and it is the same null the caller has always sent. */
+    profileId: null,
   }])
 })
 
@@ -419,7 +428,7 @@ test('a picked model rides in the draft, Claude rows included', () => {
   fill(handle, { role: 'manager', tier: 'claude-fable', message: 'Take the packaging work.' })
   actionNamed(handle, 'submit').dispatch('click')
 
-  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: 'claude-fable', effort: 'medium', message: 'Take the packaging work.', parentId: 'node-17' }])
+  assert.deepEqual(calls.submitted, [{ role: 'manager', tier: 'claude-fable', effort: 'medium', message: 'Take the packaging work.', parentId: 'node-17', profileId: null }])
 })
 
 test('the model menu preselects the default and offers the six tiers by label', () => {
@@ -447,11 +456,11 @@ test('re-opening over another node starts from an empty draft', () => {
   handle.open({ parent: { id: 'node-18' } })
   /* Empty means unanswered questions are unanswered again; the model question
      arrives answered by the product default, so the default IS its empty. */
-  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-18' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-18', profileId: null })
 
   fill(handle, { role: 'helper', message: 'Second brief.' })
   actionNamed(handle, 'submit').dispatch('click')
-  assert.deepEqual(calls.submitted, [{ role: 'helper', tier: DEFAULT_TIER, effort: 'medium', message: 'Second brief.', parentId: 'node-18' }])
+  assert.deepEqual(calls.submitted, [{ role: 'helper', tier: DEFAULT_TIER, effort: 'medium', message: 'Second brief.', parentId: 'node-18', profileId: null }])
 })
 
 /* ---------- refusing an incomplete draft ---------- */
@@ -537,7 +546,7 @@ test('cancel discards the draft, takes the panel off the page and tells the call
   assert.equal(container.children.length, 0)
 
   handle.open({ parent: { id: 'node-17' } })
-  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-17' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-17', profileId: null })
 })
 
 test('Escape from inside the panel discards the draft the same way', () => {
@@ -634,7 +643,7 @@ test('a caller that refuses puts its own refusal sentence on the panel and keeps
   assert.equal(noticeLine(handle).textContent, START_REFUSAL.everyAgentBusy)
   assert.equal(noticeLine(handle).getAttribute('role'), 'alert')
   assert.equal(actionNamed(handle, 'submit').disabled, false)
-  assert.deepEqual(handle.draft(), { role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: null })
+  assert.deepEqual(handle.draft(), { role: 'manager', tier: DEFAULT_TIER, effort: 'medium', message: 'Take the packaging work.', parentId: null, profileId: null })
 })
 
 test('a refusal that arrives with no words still gets the flow’s sentence', async () => {
@@ -739,7 +748,7 @@ test('a late answer about a node the person has moved on from is dropped', async
   // A refusal about the previous node, painted onto a panel the person has
   // since opened over a different one, is a sentence about the wrong tree.
   assert.equal(noticeLine(handle).textContent, '')
-  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-18' })
+  assert.deepEqual(handle.draft(), { role: '', tier: DEFAULT_TIER, effort: 'medium', message: '', parentId: 'node-18', profileId: null })
 })
 
 /* ---------- stated absences ---------- */
@@ -965,4 +974,87 @@ test('the compose panel renders the engine rows it is handed, not a list of its 
   const labels = fieldNamed(handle, 'tier').children.map(option => option.textContent)
   assert.deepEqual(labels, handed.map(choice => choice.label),
     'the panel drew its own tier list instead of the one it was given')
+})
+
+/* ---------------------------------------------------------------------------
+ * THE FOLDER A TREE'S AGENTS WORK IN, ASKED WHERE THE TREE IS STARTED.
+ *
+ * Owner, 2026-08-16: "when a user starts a tree they should select a folder,
+ * they can have a default folder, where the agents spawn". Owner again,
+ * 2026-08-19, having gone looking for it: "what happened to sessions and
+ * choosing a folder for each tree and such?" It existed only AFTER the fact, on
+ * an existing tree's rail, 614px down a 3825px scroll (driven, packaged,
+ * tools/rail-inventory-drive.mjs).
+ * ------------------------------------------------------------------------- */
+
+const FOLDERS = [{ id: 'p-1', name: 'Client work' }, { id: 'p-2', name: 'The website' }]
+
+test('starting a TREE asks which folder its agents work in', () => {
+  const { handle } = open({ folders: FOLDERS })
+  const folder = fieldNamed(handle, 'profile')
+  assert.ok(folder, 'a panel that would start a tree must ask for its folder')
+  /* The first row is a real answer, not a prompt: before folders existed every
+     tree ran in the product's own workspace, and that is still what it means. */
+  assert.equal(folder.children[0].value, '', 'the first row must be the product’s own workspace, and must carry no id')
+  assert.equal(folder.children[0].textContent, START_PANEL.folderWorkspace)
+  assert.deepEqual(folder.children.slice(1).map(option => option.textContent), ['Client work', 'The website'],
+    'the menu shows the NAMES a person gave their folders')
+  assert.deepEqual(folder.children.slice(1).map(option => option.value), ['p-1', 'p-2'],
+    'the id travels on the value, where only the program reads it')
+})
+
+test('a start UNDER an existing agent asks nothing, because that tree already has a folder', () => {
+  /* The hazard this closes: a tree's folder is a property of the TREE. Offering
+     the menu on a nested start would let one press silently re-point every
+     agent in the tree, including ones already running. */
+  const { handle } = open({ parent: { id: 'node-17', name: 'Manager' }, folders: FOLDERS })
+  assert.equal(fieldNamed(handle, 'profile'), null, 'a nested start must not offer to change the tree’s folder')
+})
+
+test('the chosen folder rides in the draft, and an untouched menu means the product’s own workspace', () => {
+  const { handle, calls } = open({ folders: FOLDERS })
+  fill(handle, { role: 'manager', message: 'Take the packaging work.' })
+  actionNamed(handle, 'submit').dispatch('click')
+  assert.equal(calls.submitted[0].profileId, null, 'an unanswered menu is the product’s own workspace, sent as null')
+
+  const second = open({ folders: FOLDERS })
+  fill(second.handle, { role: 'manager', message: 'Take the packaging work.' })
+  fieldNamed(second.handle, 'profile').value = 'p-2'
+  actionNamed(second.handle, 'submit').dispatch('click')
+  assert.equal(second.calls.submitted[0].profileId, 'p-2', 'the folder the person chose must reach the caller')
+})
+
+test('the menu opens on the folder this person used last', () => {
+  const { handle } = open({ folders: FOLDERS, folderSelectedId: 'p-2' })
+  assert.equal(fieldNamed(handle, 'profile').value, 'p-2', 'a remembered folder pre-fills the menu')
+})
+
+test('a remembered folder that no longer exists falls back, it does not point at nothing', () => {
+  /* A person removes a profile between two starts. The id is remembered posture,
+     not a promise, so it simply stops matching a row. */
+  const { handle } = open({ folders: FOLDERS, folderSelectedId: 'p-gone' })
+  assert.equal(fieldNamed(handle, 'profile').value, '', 'a folder that is gone leaves the product’s own workspace selected')
+})
+
+test('with no folders set up, the panel says where to make one and still starts', () => {
+  const { handle, calls } = open({ folders: [] })
+  const folder = fieldNamed(handle, 'profile')
+  assert.equal(folder.children.length, 1, 'only the product’s own workspace is offered')
+  const words = wordsOnScreen(handle)
+  assert.ok(words.includes(START_PANEL.folderNone), 'the panel must say where folders are made')
+  /* NOT A REFUSAL. Starting works fine without a profile. */
+  fill(handle, { role: 'manager', message: 'Take the packaging work.' })
+  actionNamed(handle, 'submit').dispatch('click')
+  assert.equal(calls.submitted.length, 1, 'no folders is not a reason to refuse a start')
+})
+
+test('re-opening with only tiers keeps the folder menu that was already read', () => {
+  /* readStartableTiers() re-opens an open panel with `{ tiers }` alone the
+     moment the shell answers. A merge that reset the folders would empty the
+     menu out from under somebody reading it. */
+  const { handle } = open({ folders: FOLDERS, folderSelectedId: 'p-1' })
+  handle.open({ tiers: tierChoicesFor(['luna']) })
+  const folder = fieldNamed(handle, 'profile')
+  assert.equal(folder.children.length, 3, 'the folders survived a re-open that did not mention them')
+  assert.equal(folder.value, 'p-1', 'and so did the remembered choice')
 })

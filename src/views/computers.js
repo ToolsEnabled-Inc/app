@@ -55,6 +55,7 @@ import {
   tierProviderWord,
   MOVE_PANEL,
   PROFILE_PANEL,
+  START_WORK_GROUP,
   PALETTE_PANEL,
   REMOVE_PANEL,
   QUEUE_PANEL,
@@ -2677,6 +2678,54 @@ export function computersView({ initialComputer = null, navigate }) {
    * leaves the pessimistic default in place, because none of them learned
    * anything about what this copy can start.
    */
+  /* THE FOLDER A TREE STARTS IN, ASKED WHERE THE PERSON STARTS THE TREE.
+   *
+   * Owner, 2026-08-16: "when a user starts a tree they should select a folder,
+   * they can have a default folder, where the agents spawn"; and again on
+   * 2026-08-19, having gone looking for it: "what happened to sessions and
+   * choosing a folder for each tree and such?"
+   *
+   * NOTHING NEW IS BUILT HERE. The named folders already exist in the main
+   * process (mcAgent.profiles(), created through the OS dialog by the fleet
+   * rail's own panel), a tree already carries one (`setTreeProfile`), and every
+   * start already sends it (`profileId`, below). The only thing missing was the
+   * QUESTION at the moment a tree is created. This reads the same list once per
+   * mount, for the same reason readStartableTiers() does: it is a property of
+   * this computer, not of the press.
+   *
+   * A REFUSAL IS AN EMPTY LIST, NEVER A THROWN ERROR. With no bridge, or a
+   * bridge that will not answer, the panel draws its "no folders set up yet"
+   * sentence and a start still works -- in the product's own workspace, exactly
+   * as it did before folders existed. */
+  let composeFolders = []
+  async function readComposeFolders() {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.profiles !== 'function') return
+    let answer = null
+    try { answer = await bridge.profiles() } catch { answer = null }
+    if (destroyed) return
+    composeFolders = answer && answer.ok && Array.isArray(answer.profiles)
+      ? answer.profiles.map(profile => ({ id: profile.id, name: profile.name }))
+      : []
+    if (composePanel?.isOpen?.()) composePanel.open({ folders: composeFolders })
+  }
+
+  /* Remembered posture, not a setting -- the same rule src/settings-presentation.js
+     states for its own open-groups memory: it "grants nothing, gates nothing, and
+     the settings footer does not count it". This decides which row a menu OPENS
+     on; the person overrides it in the same gesture, and a folder they have since
+     removed simply stops matching a row. */
+  const LAST_FOLDER_KEY = 'mc.compose.last-folder'
+  const lastComposeFolder = () => {
+    try { return localStorage.getItem(LAST_FOLDER_KEY) || null } catch { return null }
+  }
+  const rememberComposeFolder = profileId => {
+    try {
+      if (profileId) localStorage.setItem(LAST_FOLDER_KEY, profileId)
+      else localStorage.removeItem(LAST_FOLDER_KEY)
+    } catch { /* session-only is still a real change */ }
+  }
+
   async function readStartableTiers() {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.startableTiers !== 'function') return
@@ -2719,6 +2768,12 @@ export function computersView({ initialComputer = null, navigate }) {
       /* WHICH ENGINES THIS COPY CAN REALLY START, asked of the shell rather
          than assumed by the renderer. See startableTiersNow() below. */
       tiers: startableTierChoices,
+      /* THE FOLDERS, FROM THE ONE STORE THAT HOLDS THEM. Same list the fleet
+         rail's profile panel reads and the tree rail's "Works in" menu is
+         built from -- read once at mount by readComposeFolders(), never a
+         second register of folders kept beside the first. */
+      folders: composeFolders,
+      folderSelectedId: lastComposeFolder(),
       onSubmit: draft => submitCompose(draft, detail),
       onCancel: () => closeComposePanel(),
     })
@@ -2782,6 +2837,19 @@ export function computersView({ initialComputer = null, navigate }) {
     if (!added.ok) return { ok: false, message: added.problems[0] || START_REFUSAL.noReasonGiven }
 
     const node = added.node
+    /* THE FOLDER THE PERSON CHOSE BECOMES THE TREE'S FOLDER, and it has to
+       happen HERE -- between the node existing (so there is a treeId) and the
+       start reading `treeProfile(node.treeId)` a few lines below.
+       ONLY WHEN A TREE WAS JUST CREATED. `parent` null is what made addNode
+       mint a tree; a start UNDER an existing agent joins a tree that already
+       has a folder, and writing this there would let one nested start re-point
+       every agent in that tree. The compose panel draws no folder menu in that
+       case, so draft.profileId is null anyway -- this condition is the second
+       lock on the same door, on the side that owns the store. */
+    if (!parent && draft.profileId) {
+      store.setTreeProfile(node.treeId, draft.profileId)
+    }
+    if (!parent) rememberComposeFolder(draft.profileId || null)
     /* The draft is on the canvas BEFORE the bridge is called. A start takes
        seconds, and a person who pressed a circle and sees nothing appear will
        press it again — which is how two agents get started for one job. */
@@ -3045,6 +3113,7 @@ export function computersView({ initialComputer = null, navigate }) {
     /* Asked as the board comes up, so the answer is usually in hand before the
        first empty node is pressed. */
     void readStartableTiers()
+    void readComposeFolders()
     /* THE PANEL THE PERSON WAS IN, REOPENED AFTER THE SWITCH THEY PRESSED IN IT
        tore this view down. Read once and cleared, so an ordinary visit never
        inherits it. See composeToRestore for the measurement. */
@@ -3186,6 +3255,26 @@ export function computersView({ initialComputer = null, navigate }) {
           <span class="rail-note-b">${escapeMarkup(declaredOnlyReason)} So these are the agents this computer has on file, not agents anyone has seen running.</span>
           <a class="rail-note-a host-absent-action" href="${escapeMarkup(GUIDE_ACTION.href)}">${escapeMarkup(GUIDE_ACTION.label)}</a>
         </div>` : ''}
+        <!-- THE FOLDER COMES FIRST NOW. It used to be the SEVENTH section, under
+             the heading "Session profiles", and tools/rail-inventory-drive.mjs
+             measured what that cost on the packaged build: 1152px down a 1524px
+             scroll at 1440x900, and 1042px down a 1339px scroll at 1024x768 --
+             below the fold at every width this product supports, behind the
+             484px, 51-control Role library. The owner went looking for it and
+             could not find it ("i think its in there maybe somewhere",
+             2026-08-19). Nothing was removed to fix that; the section moved up
+             and took a heading with the word "folder" in it.
+
+             IT SITS ABOVE "This computer", NOT BELOW IT, and the difference was
+             measured too. Below it the heading landed at 415px, which cleared
+             the fold at 1440 and 1920 but left its CONTROLS under the floating
+             notice at 1024 -- a heading a person can read over a box they
+             cannot reach. Above it the whole section clears at every width.
+             It stays BELOW the hero and its "this is the record" caveat,
+             because that caveat qualifies the number directly above it and
+             separating the two would be trading one defect for another. -->
+        <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.overviewTitle)}</div>
+        <div class="board-profile-slot" data-profile-slot></div>
         <div class="rail-sec">This computer</div>
         <dl class="rail-facts">
           <div class="rail-fact"><dt>Agents described</dt><dd>${computer.spawnedTotal}</dd></div>
@@ -3209,8 +3298,6 @@ export function computersView({ initialComputer = null, navigate }) {
         ${orgSourceMarkup()}
         <div class="rail-sec">Roles</div>
         <div class="board-org-slot"></div>
-        <div class="rail-sec">Session profiles</div>
-        <div class="board-profile-slot" data-profile-slot></div>
         <div class="rail-sec">Research filing</div>
         <p class="rail-prose is-dim">Pick a project and every session in the tree you are looking at gets filed under it. Every tree files the whole computer.</p>
         <div class="rail-research-slot" data-research-scope-slot><p class="rail-prose is-dim">Reading your research projects.</p></div>
@@ -3374,12 +3461,28 @@ export function computersView({ initialComputer = null, navigate }) {
       slot.remove()
       return
     }
-    slot.replaceWith(buildRoleLibraryBox({
+    const box = buildRoleLibraryBox({
       availability: orgAvailability,
       onCreate: (definition) => callRoleBridge('createRole', definition, 'The role was not created.'),
       onEdit: (edit) => callRoleBridge('editRole', edit, 'The role wording was not saved.'),
       onReset: (target) => callRoleBridge('resetRole', target, 'The shipped wording was not restored.'),
-    }))
+    })
+    slot.replaceWith(box)
+    /* THE PERSON'S OPEN EDITORS AND UNSAVED WORDING, BACK WHERE THEY WERE.
+       NOT read-once, deliberately, and this is where it differs from
+       composeToRestore above: the live mount can build this box more than once
+       while it settles (measured 2026-08-20, two builds 8ms apart on the
+       drawer's live-flip -- a read-once restore was consumed by the first
+       build and wiped by the second). So the snapshot is re-applied to every
+       build until the person touches the restored library; their first input
+       or press makes the page the truth, and a later rebuild must not drag it
+       back to the snapshot. Each flags capture above overwrites the snapshot
+       wholesale, so it can never be older than the last remount. */
+    if (roleLibraryToRestore && restoreRoleLibrary(box, roleLibraryToRestore) > 0) {
+      const settle = () => { roleLibraryToRestore = null }
+      box.addEventListener('input', settle, { once: true, capture: true })
+      box.addEventListener('click', settle, { once: true, capture: true })
+    }
   }
 
   /* One door to the three role-vocabulary calls. Each returns {ok, roles} and
@@ -4139,6 +4242,29 @@ export function computersView({ initialComputer = null, navigate }) {
              again in its own box) which is most of what "unreadable mess"
              meant. -->
         <div class="agent-head board-head"><span class="role-dot"></span><div><div class="an">${escapeMarkup(treeNodeName(node))}</div><div class="ar">${escapeMarkup(roleLabel(node.role))}</div></div></div>
+        <!-- THE FOLDER IS THE FIRST THING UNDER THE NAME, and it used to be a
+             four-step scavenger hunt: press Details, scroll past three boxes,
+             read "Setup" as the place folders live, then read "Works in" as
+             meaning a folder. It was the fifth of nine panels
+             (tools/rail-inventory-drive.mjs). Owner, 2026-08-19: "what happened
+             to sessions and choosing a folder for each tree and such?"
+
+             EVERY DATA HOOK KEEPS ITS EXACT NAME -- data-tree-profile,
+             data-tree-profile-out, data-tree-profile-restart-row,
+             data-tree-profile-restart. The handlers below query controlsPage,
+             not this box, so they moved without a single rewrite. That is what
+             makes this placement change safe rather than a rebuild. -->
+        <div class="board-box board-ctl-box" data-tree-folder>
+          <div class="board-box-h"><span class="bh-t">${escapeMarkup(PROFILE_PANEL.nodeTitle)}</span></div>
+          <div class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
+          <div class="ctl-row">
+            <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
+          </div>
+          <output class="rail-prose" role="status" data-tree-profile-out></output>
+          <div class="ctl-row" data-tree-profile-restart-row hidden>
+            <button class="ctl-btn" type="button" data-tree-profile-restart>${escapeMarkup(PROFILE_PANEL.switchGo)}</button>
+          </div>
+        </div>
         <!-- TWO BOXES, NOT FOUR (iteration 7). Each of the old four carried an
              uppercase header over one word — "finished", "DELTA" — so the tab
              was mostly chrome shouting at its own contents. What it is doing
@@ -4170,23 +4296,14 @@ export function computersView({ initialComputer = null, navigate }) {
           <div class="rail-prose is-dim" data-research-filed-line>Reading where this session is filed.</div>
           <div data-research-file-mount></div>
         </div>` : ''}
-        <!-- SETUP: the two controls that describe the node rather than the
-             conversation — its folder and its place in the tree — moved here
-             when the Actions tab retired (iteration 6). Every data hook keeps
-             its exact name, so the handlers below moved without rewrites. -->
+        <!-- SETUP: what describes the node rather than the conversation. The
+             FOLDER used to live here too and now stands on its own above -- see
+             the comment on [data-tree-folder]. What is left is the engine this
+             agent runs on and where it sits in the tree. -->
         <div class="board-box board-ctl-box" data-tree-move>
           <div class="board-box-h"><span class="bh-t">Setup</span></div>
           <div class="ctl-row"><span class="cl">Engine</span><span class="cv">${escapeMarkup(engineFace.label)}</span></div>
           ${engineFace.note ? `<p class="board-absent-copy">${escapeMarkup(engineFace.note)}</p>` : ''}
-          <div class="rail-sec">${escapeMarkup(PROFILE_PANEL.title)}</div>
-          <div class="rail-prose is-dim">${escapeMarkup(PROFILE_PANEL.treeHelp)}</div>
-          <div class="ctl-row">
-            <select class="ctl-select" data-tree-profile aria-label="${escapeMarkup(PROFILE_PANEL.title)}"></select>
-          </div>
-          <output class="rail-prose" role="status" data-tree-profile-out></output>
-          <div class="ctl-row" data-tree-profile-restart-row hidden>
-            <button class="ctl-btn" type="button" data-tree-profile-restart>${escapeMarkup(PROFILE_PANEL.switchGo)}</button>
-          </div>
           <div class="rail-sec">${escapeMarkup(MOVE_PANEL.title)}</div>
           <div class="rail-prose is-dim">${escapeMarkup(MOVE_PANEL.help)}</div>
           <div class="ctl-row" data-tree-move-row hidden>
@@ -5384,19 +5501,67 @@ export function computersView({ initialComputer = null, navigate }) {
    * entitlement rule has one place to be right and the two rails cannot drift
    * into offering different controls for the same computer.
    */
+  /* Remembered posture, not a setting. src/settings-presentation.js already
+     ruled on this shape for its own open-groups memory: it "grants nothing,
+     gates nothing, and the settings footer does not count it". Whether a person
+     left a disclosure open is a scroll position, not a permission. */
+  const START_WORK_OPEN_KEY = 'mc.rail.start-work-open'
+  const startWorkWasOpen = () => {
+    try { return localStorage.getItem(START_WORK_OPEN_KEY) === 'open' } catch { return false }
+  }
+  const rememberStartWork = open => {
+    try { localStorage.setItem(START_WORK_OPEN_KEY, open ? 'open' : 'closed') } catch { /* session-only is still a real change */ }
+  }
+
   function mountStartWorkControls(agent, slot) {
     if (!slot) return
+    /* ONE GROUP, FOUR PANELS, NOTHING REMOVED. See START_WORK_GROUP in
+       src/fleet-tree-copy.js for what was measured and why these four belong
+       together. The button is a real button with aria-expanded and a chevron,
+       and it names all four panels on its own line -- a disclosure a person
+       cannot identify is worse than the scroll it saved. */
+    const open = startWorkWasOpen()
+    const bodyId = `start-work-${Math.random().toString(36).slice(2, 9)}`
+    const group = el(`
+      <div class="board-box board-ctl-box rail-group" data-start-work-group>
+        <button class="rail-group-toggle" type="button" data-start-work-toggle aria-expanded="${open ? 'true' : 'false'}" aria-controls="${bodyId}">
+          <span class="rail-group-chev" aria-hidden="true">⌄</span>
+          <span class="rail-group-name">
+            <span class="bh-t">${escapeMarkup(START_WORK_GROUP.title)}</span>
+            <span class="board-cap">${escapeMarkup(START_WORK_GROUP.contents)}</span>
+          </span>
+        </button>
+        <div class="rail-group-body" id="${bodyId}" data-start-work-body${open ? '' : ' hidden'}></div>
+      </div>`)
+    slot.replaceWith(group)
+    const body = group.querySelector('[data-start-work-body]')
+    const toggle = group.querySelector('[data-start-work-toggle]')
+    toggle.setAttribute('aria-label', open ? START_WORK_GROUP.collapseLabel : START_WORK_GROUP.expandLabel)
+
+    /* THE FOUR ARE BUILT AND MOUNTED EITHER WAY, open or closed. Building them
+       lazily on first press would mean the live updaters that query these boxes
+       find nothing until somebody presses, and a control that exists only after
+       a gesture is the defect this rail already has a comment about. `hidden`
+       is a paint decision; the boxes are real from the moment the rail is. */
     const launchBox = launchControlsBox(agent, { live: true })
-    slot.replaceWith(launchBox)
+    body.appendChild(launchBox)
     const teamBox = teamControlsBox(agent, { live: true })
-    launchBox.after(teamBox)
+    body.appendChild(teamBox)
     const loopBox = loopControlsBox(agent, { live: true })
-    teamBox.after(loopBox)
+    body.appendChild(loopBox)
     /* Codex Cloud sits with Launch, Team and Loop because it is the fourth
        answer to the same question -- how does work get started from this
        computer -- and the first one whose answer is "somewhere else". */
     boardCloudBox = cloudControlsBox()
-    loopBox.after(boardCloudBox)
+    body.appendChild(boardCloudBox)
+
+    toggle.addEventListener('click', () => {
+      const nowOpen = toggle.getAttribute('aria-expanded') !== 'true'
+      toggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false')
+      toggle.setAttribute('aria-label', nowOpen ? START_WORK_GROUP.collapseLabel : START_WORK_GROUP.expandLabel)
+      body.hidden = !nowOpen
+      rememberStartWork(nowOpen)
+    })
   }
 
   function showProjectionControls(agent) {

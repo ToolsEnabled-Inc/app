@@ -175,6 +175,52 @@
   font-size: 12.5px; color: var(--ink-2);
 }
 
+/* A DISCLOSURE A PERSON CAN IDENTIFY BEFORE THEY OPEN IT.
+ *
+ * The owner's bar for this page is that no control hides harder than it has to,
+ * and a sibling lane proved this week that a group which collapses without a
+ * clear affordance reads as a missing feature, not a tidy one. So the toggle is
+ * a real <button> carrying aria-expanded, a chevron that turns, and TWO lines:
+ * the group's name at header rank and, under it, the names of every panel
+ * inside. A person who has never opened it still knows Launch, Team, Loop and
+ * Codex Cloud are in there.
+ *
+ * The group is itself a .board-box, so it inherits the rail's own panel
+ * chrome and adds no new visual vocabulary. Its children keep theirs: nested
+ * boxes lose their frame, because a box inside a box is a border a person has
+ * to look past to read the contents. */
+.board-page .board-box.rail-group { padding: 0; }
+.board-page .rail-group-toggle {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%;
+  padding: 13px 13px 13px 11px;
+  background: none; border: 0; border-radius: inherit;
+  text-align: left; cursor: pointer; color: inherit; font: inherit;
+}
+.board-page .rail-group-toggle:hover { background: var(--sheet-2, rgba(127, 127, 127, 0.06)); }
+.board-page .rail-group-toggle:focus-visible { outline: 2px solid var(--role); outline-offset: -2px; }
+.board-page .rail-group-chev {
+  flex: none; margin-top: 1px;
+  font-size: 15px; line-height: 1; color: var(--ink-2);
+  transition: transform 120ms ease;
+}
+.board-page .rail-group-toggle[aria-expanded='true'] .rail-group-chev { transform: rotate(180deg); }
+.board-page .rail-group-name { display: block; min-width: 0; }
+/* The header and caption rules above are written for a .board-box-h / a
+   .board-cap in flow; inside the button they are inline children, so the
+   margins that spaced them from a body they no longer have are dropped. */
+.board-page .rail-group-name .bh-t {
+  display: block;
+  font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink); font-weight: 650;
+}
+.board-page .rail-group-name .board-cap { display: block; margin: 4px 0 0; }
+.board-page .rail-group-body { padding: 0 11px 11px; }
+.board-page .rail-group-body > .board-box {
+  padding-left: 0; padding-right: 0;
+  background: none; border: 0; box-shadow: none;
+}
+.board-page .rail-group-body > .board-box + .board-box { border-top: 1px solid var(--line); }
+
 /* section rules inside a box */
 /* A SUB-LABEL, NOT A SECOND HEADER. `.rail-sec` rendered at the same size,
    case, tracking and weight as `.board-box-h`, so "SETUP" and "WORKS IN"
