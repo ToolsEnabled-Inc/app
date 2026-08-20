@@ -1,0 +1,4995 @@
+{
+  "overview": {
+    "container": ".computers .rail .stats-page",
+    "controls": [
+      {
+        "kind": "heading",
+        "label": "Folders your agents work in",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 450,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "input",
+        "label": "Name the profile…",
+        "state": "visible",
+        "box": {
+          "x": 1024,
+          "y": 462,
+          "w": 212,
+          "h": 28
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Pick a folder…",
+        "state": "visible",
+        "box": {
+          "x": 1244,
+          "y": 456,
+          "w": 87,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "heading",
+        "label": "This computer",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 462,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Services",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 463,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Organisation",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 463,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Roles",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 462,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Role library",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 468,
+          "w": 311,
+          "h": 17
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — controller",
+        "state": "covered",
+        "coveredBy": "SPAN.role-claim",
+        "box": {
+          "x": 1022,
+          "y": 721,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — controller",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 800,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — controller",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 878,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 936,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 936,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — shadow-manager",
+        "state": "covered",
+        "coveredBy": "SPAN.role-claim",
+        "box": {
+          "x": 1022,
+          "y": 726,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — shadow-manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 804,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — shadow-manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 883,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 940,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 940,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — planner",
+        "state": "covered",
+        "coveredBy": "A.fleet-profile-notice",
+        "box": {
+          "x": 1022,
+          "y": 746,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 825,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 961,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 961,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 805,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 883,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 962,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1019,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1019,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 844,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 923,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1001,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1059,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1059,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 865,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 943,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1022,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1079,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1079,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 904,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 983,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1061,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1119,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1119,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 944,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1022,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1101,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1158,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1158,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 983,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1062,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1140,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1198,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1198,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "input",
+        "label": "New role id",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 946,
+          "w": 311,
+          "h": 32
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Base default role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1106,
+          "y": 1135,
+          "w": 228,
+          "h": 30
+        },
+        "options": [
+          "No base · watch only",
+          "controller · can be given jobs",
+          "shadow-manager · watch only",
+          "planner · watch only",
+          "manager · can be given jobs",
+          "coordinator-assistant · watch only",
+          "builder · can be given jobs",
+          "reviewer · watch only",
+          "worker · can be given jobs",
+          "observer · watch only"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1266,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1345,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1423,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Create role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1535,
+          "w": 311,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Research filing",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 624,
+          "w": 339,
+          "h": 29
+        }
+      }
+    ],
+    "scrollHeight": 642,
+    "clientHeight": 642,
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    }
+  },
+  "compose-first-open": {
+    "container": ".computers .rail .compose-page",
+    "controls": [
+      {
+        "kind": "button",
+        "label": "Not now",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 198,
+          "w": 68,
+          "h": 23
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Turn on running agents",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 396,
+          "w": 341,
+          "h": 40
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Choose a roleCoordinatorCoordinator's HelperShadow ManagerManagerDefault",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 429,
+          "w": 341,
+          "h": 32
+        },
+        "disabled": true,
+        "options": [
+          "Choose a role",
+          "Coordinator",
+          "Coordinator's Helper",
+          "Shadow Manager",
+          "Manager",
+          "Default"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Read the notes in my documents folder and list what is unfinished.",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 400,
+          "w": 341,
+          "h": 89
+        },
+        "disabled": true
+      },
+      {
+        "kind": "select",
+        "label": "The product’s own workspace",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 459,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "The product’s own workspace"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "Luna · CodexTerra · CodexSol · CodexFable · Claude — cannot start from a tree yetSonnet · ",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 561,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "Luna · Codex",
+          "Terra · Codex",
+          "Sol · Codex",
+          "Fable · Claude — cannot start from a tree yet",
+          "Sonnet · Claude — cannot start from a tree yet",
+          "Opus · Claude — cannot start from a tree yet",
+          "Local · your computer — cannot start from a tree yet"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "low — Fast responses with lighter reasoningmedium — Balances speed and reasoning depth for",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 663,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "low — Fast responses with lighter reasoning",
+          "medium — Balances speed and reasoning depth for everyday tasks",
+          "high — Greater reasoning depth for complex problems",
+          "xhigh — Extra high reasoning depth for complex problems",
+          "max — Maximum reasoning depth for the hardest problems",
+          "ultra — Maximum reasoning with automatic task delegation"
+        ]
+      },
+      {
+        "kind": "button",
+        "label": "Start this agent",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 711,
+          "w": 351,
+          "h": 40
+        },
+        "disabled": true
+      }
+    ],
+    "scrollHeight": 642,
+    "clientHeight": 642,
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    }
+  },
+  "compose-ready": {
+    "container": ".computers .rail .compose-page",
+    "controls": [
+      {
+        "kind": "button",
+        "label": "Not now",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 198,
+          "w": 68,
+          "h": 23
+        }
+      },
+      {
+        "kind": "button",
+        "label": "",
+        "state": "hidden-attr"
+      },
+      {
+        "kind": "select",
+        "label": "Choose a roleCoordinatorCoordinator's HelperShadow ManagerManagerDefault",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 385,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "Choose a role",
+          "Coordinator",
+          "Coordinator's Helper",
+          "Shadow Manager",
+          "Manager",
+          "Default"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Read the notes in my documents folder and list what is unfinished.",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 400,
+          "w": 341,
+          "h": 89
+        }
+      },
+      {
+        "kind": "select",
+        "label": "The product’s own workspace",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 458,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "The product’s own workspace"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "Luna · CodexTerra · CodexSol · CodexFable · Claude — cannot start from a tree yetSonnet · ",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 560,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "Luna · Codex",
+          "Terra · Codex",
+          "Sol · Codex",
+          "Fable · Claude — cannot start from a tree yet",
+          "Sonnet · Claude — cannot start from a tree yet",
+          "Opus · Claude — cannot start from a tree yet",
+          "Local · your computer — cannot start from a tree yet"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "low — Fast responses with lighter reasoningmedium — Balances speed and reasoning depth for",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 662,
+          "w": 341,
+          "h": 32
+        },
+        "options": [
+          "low — Fast responses with lighter reasoning",
+          "medium — Balances speed and reasoning depth for everyday tasks",
+          "high — Greater reasoning depth for complex problems",
+          "xhigh — Extra high reasoning depth for complex problems",
+          "max — Maximum reasoning depth for the hardest problems",
+          "ultra — Maximum reasoning with automatic task delegation"
+        ]
+      },
+      {
+        "kind": "button",
+        "label": "Start this agent",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 711,
+          "w": 351,
+          "h": 40
+        }
+      }
+    ],
+    "scrollHeight": 642,
+    "clientHeight": 642,
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    }
+  },
+  "node-chat": {
+    "container": ".computers .rail .ctl-page",
+    "controls": [
+      {
+        "kind": "button",
+        "label": "Back to the fleet overview",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 198,
+          "w": 56,
+          "h": 23
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Chat",
+        "state": "visible",
+        "box": {
+          "x": 1012,
+          "y": 245,
+          "w": 51,
+          "h": 26
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Details",
+        "state": "visible",
+        "box": {
+          "x": 1065,
+          "y": 245,
+          "w": 65,
+          "h": 26
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Attach an image",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 713,
+          "w": 38,
+          "h": 38
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Mention a file",
+        "state": "visible",
+        "box": {
+          "x": 1055,
+          "y": 713,
+          "w": 38,
+          "h": 38
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Actions",
+        "state": "visible",
+        "box": {
+          "x": 1101,
+          "y": 713,
+          "w": 38,
+          "h": 38
+        }
+      },
+      {
+        "kind": "input",
+        "label": "Message Coordinator",
+        "state": "visible",
+        "box": {
+          "x": 1147,
+          "y": 713,
+          "w": 167,
+          "h": 38
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Send",
+        "state": "visible",
+        "box": {
+          "x": 1321,
+          "y": 713,
+          "w": 38,
+          "h": 38
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Folder these agents work in",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Works in",
+        "state": "zero-size",
+        "options": [
+          "The product’s own workspace"
+        ]
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "button",
+        "label": "Restart it in the new folder",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "What it is doing",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "The conversation",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "What you asked for",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Its latest answer",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Research project",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Setup",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Reports to",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Reports to",
+        "state": "zero-size",
+        "options": []
+      },
+      {
+        "kind": "button",
+        "label": "Save",
+        "state": "zero-size"
+      },
+      {
+        "kind": "output",
+        "label": "Every agent this one could work under is already full or sits below it, so there is nowher",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Instructions these agents follow",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Show the ways to start more work: Launch, Team, Loop and Codex Cloud",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Launch controls",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Launch tier",
+        "state": "zero-size",
+        "options": [
+          "Luna · codex · medium",
+          "Terra · codex · high",
+          "Sol · codex · xhigh",
+          "Fable · claude",
+          "Sonnet · claude",
+          "Opus · claude",
+          "Local · local"
+        ]
+      },
+      {
+        "kind": "input",
+        "label": "Run time cap in minutes",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Hand work to Coordinator",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "switched off in Settings",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Team",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Team lead tier",
+        "state": "zero-size",
+        "options": [
+          "Luna · codex",
+          "Terra · codex",
+          "Sol · codex",
+          "Fable · claude",
+          "Sonnet · claude",
+          "Opus · claude",
+          "Local · local"
+        ]
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Start the team",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "switched off in Settings",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Loop",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Looped agent tier",
+        "state": "zero-size",
+        "options": [
+          "Luna · codex",
+          "Terra · codex",
+          "Sol · codex",
+          "Fable · claude",
+          "Sonnet · claude",
+          "Opus · claude",
+          "Local · local"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "How many runs",
+        "state": "zero-size",
+        "options": [
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "Minutes between runs",
+        "state": "zero-size",
+        "options": [
+          "1 min",
+          "5 min",
+          "10 min",
+          "20 min",
+          "30 min",
+          "60 min"
+        ]
+      },
+      {
+        "kind": "button",
+        "label": "Start loop",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "button",
+        "label": "Stop loop",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "dispatch is off in Settings",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Codex CloudTurn on Codex Cloud launching",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Turn on Codex Cloud launching",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Codex Cloud environment",
+        "state": "zero-size",
+        "disabled": true,
+        "options": [
+          "Not read yet"
+        ]
+      },
+      {
+        "kind": "input",
+        "label": "Branch the cloud task runs against",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "select",
+        "label": "Codex account",
+        "state": "zero-size",
+        "disabled": true,
+        "options": [
+          "Automatic"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Cloud task prompt",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "button",
+        "label": "Launch on Codex Cloud",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "button",
+        "label": "Not now",
+        "state": "hidden-attr",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden-attr"
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden-attr"
+      },
+      {
+        "kind": "button",
+        "label": "Refresh tasks",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "No tasks to show while launching is switched off.",
+        "state": "zero-size"
+      },
+      {
+        "kind": "output",
+        "label": "Not read while launching is switched off.",
+        "state": "zero-size"
+      }
+    ],
+    "scrollHeight": 642,
+    "clientHeight": 642,
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    }
+  },
+  "actions-popup": {
+    "rows": [
+      {
+        "label": "Queue a message",
+        "disabled": false
+      },
+      {
+        "label": "Attach an image",
+        "disabled": false
+      },
+      {
+        "label": "Mention a file",
+        "disabled": false
+      },
+      {
+        "label": "How hard it thinks",
+        "disabled": false
+      },
+      {
+        "label": "Switch model",
+        "disabled": false
+      },
+      {
+        "label": "Rewind to one of your messages",
+        "disabled": true
+      },
+      {
+        "label": "Copy what you asked for",
+        "disabled": false
+      },
+      {
+        "label": "Copy what it said",
+        "disabled": false
+      },
+      {
+        "label": "Start an agent under this one",
+        "disabled": false
+      },
+      {
+        "label": "Change who it reports to",
+        "disabled": false
+      },
+      {
+        "label": "Resume with a fresh agent",
+        "disabled": false
+      },
+      {
+        "label": "Interrupt the running turn",
+        "disabled": true
+      },
+      {
+        "label": "Stop this agent",
+        "disabled": true
+      },
+      {
+        "label": "Start this conversation over",
+        "disabled": false
+      },
+      {
+        "label": "Remove this agent",
+        "disabled": false
+      }
+    ]
+  },
+  "node-details": {
+    "container": ".computers .rail .ctl-page",
+    "controls": [
+      {
+        "kind": "button",
+        "label": "Back to the fleet overview",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 198,
+          "w": 56,
+          "h": 23
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Chat",
+        "state": "visible",
+        "box": {
+          "x": 1012,
+          "y": 245,
+          "w": 51,
+          "h": 26
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Details",
+        "state": "visible",
+        "box": {
+          "x": 1065,
+          "y": 245,
+          "w": 65,
+          "h": 26
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Attach an image",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Mention a file",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Actions",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "Message Coordinator",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Send",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Folder these agents work in",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 366,
+          "w": 309,
+          "h": 17
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Works in",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 415,
+          "w": 309,
+          "h": 30
+        },
+        "options": [
+          "The product’s own workspace"
+        ]
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "button",
+        "label": "Restart it in the new folder",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "What it is doing",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 490,
+          "w": 309,
+          "h": 17
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "The conversation",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 490,
+          "w": 309,
+          "h": 17
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "What you asked for",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 484,
+          "w": 309,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Its latest answer",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 485,
+          "w": 309,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Research project",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 490,
+          "w": 309,
+          "h": 17
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Setup",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 490,
+          "w": 309,
+          "h": 17
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Reports to",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 484,
+          "w": 309,
+          "h": 29
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Reports to",
+        "state": "zero-size",
+        "options": []
+      },
+      {
+        "kind": "button",
+        "label": "Save",
+        "state": "zero-size"
+      },
+      {
+        "kind": "output",
+        "label": "Every agent this one could work under is already full or sits below it, so there is nowher",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 478,
+          "w": 309,
+          "h": 40
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Instructions these agents follow",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 490,
+          "w": 309,
+          "h": 17
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Show the ways to start more work: Launch, Team, Loop and Codex Cloud",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 661,
+          "w": 335,
+          "h": 63
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Launch controls",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Launch tier",
+        "state": "zero-size",
+        "options": [
+          "Luna · codex · medium",
+          "Terra · codex · high",
+          "Sol · codex · xhigh",
+          "Fable · claude",
+          "Sonnet · claude",
+          "Opus · claude",
+          "Local · local"
+        ]
+      },
+      {
+        "kind": "input",
+        "label": "Run time cap in minutes",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Hand work to Coordinator",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "switched off in Settings",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Team",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Team lead tier",
+        "state": "zero-size",
+        "options": [
+          "Luna · codex",
+          "Terra · codex",
+          "Sol · codex",
+          "Fable · claude",
+          "Sonnet · claude",
+          "Opus · claude",
+          "Local · local"
+        ]
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "input",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Start the team",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "switched off in Settings",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Loop",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Looped agent tier",
+        "state": "zero-size",
+        "options": [
+          "Luna · codex",
+          "Terra · codex",
+          "Sol · codex",
+          "Fable · claude",
+          "Sonnet · claude",
+          "Opus · claude",
+          "Local · local"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "How many runs",
+        "state": "zero-size",
+        "options": [
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8"
+        ]
+      },
+      {
+        "kind": "select",
+        "label": "Minutes between runs",
+        "state": "zero-size",
+        "options": [
+          "1 min",
+          "5 min",
+          "10 min",
+          "20 min",
+          "30 min",
+          "60 min"
+        ]
+      },
+      {
+        "kind": "button",
+        "label": "Start loop",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "button",
+        "label": "Stop loop",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "dispatch is off in Settings",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Codex CloudTurn on Codex Cloud launching",
+        "state": "zero-size"
+      },
+      {
+        "kind": "button",
+        "label": "Turn on Codex Cloud launching",
+        "state": "zero-size"
+      },
+      {
+        "kind": "select",
+        "label": "Codex Cloud environment",
+        "state": "zero-size",
+        "disabled": true,
+        "options": [
+          "Not read yet"
+        ]
+      },
+      {
+        "kind": "input",
+        "label": "Branch the cloud task runs against",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "select",
+        "label": "Codex account",
+        "state": "zero-size",
+        "disabled": true,
+        "options": [
+          "Automatic"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Cloud task prompt",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "button",
+        "label": "Launch on Codex Cloud",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "button",
+        "label": "Not now",
+        "state": "hidden-attr",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden-attr"
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden-attr"
+      },
+      {
+        "kind": "button",
+        "label": "Refresh tasks",
+        "state": "zero-size",
+        "disabled": true
+      },
+      {
+        "kind": "output",
+        "label": "No tasks to show while launching is switched off.",
+        "state": "zero-size"
+      },
+      {
+        "kind": "output",
+        "label": "Not read while launching is switched off.",
+        "state": "zero-size"
+      }
+    ],
+    "scrollHeight": 642,
+    "clientHeight": 642,
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    }
+  },
+  "works-in": {
+    "options": [
+      "The product’s own workspace"
+    ],
+    "value": "The product’s own workspace"
+  },
+  "request-filed": [
+    "CoordinatorChecking the tests first. The suite is green and one script is missing.",
+    "you/RequestTree Never write outside this folder.",
+    "Filed RT1 — a standing rule for this agent and every agent working under it."
+  ],
+  "standing-requests-panel": {
+    "painted": true,
+    "reachable": true,
+    "words": [
+      "Never write outside this folder."
+    ],
+    "ids": [
+      "Filed as RT1"
+    ],
+    "text": "Instructions these agents follow This tree Never write outside this folder. Filed as RT1 Every agent here is told all of these when it starts, widest first. A rule written for this circle is read last, so it refines the ones above it. Add one by typing /RequestTree followed by the rule in the message box. These are plain text files you own. To change or remove a rule, edit the ledger file by hand "
+  },
+  "role-editor": {
+    "container": ".computers .rail .stats-page",
+    "controls": [
+      {
+        "kind": "heading",
+        "label": "Folders your agents work in",
+        "state": "scroll-to-reach",
+        "box": {
+          "x": 1009,
+          "y": 450,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "input",
+        "label": "Name the profile…",
+        "state": "visible",
+        "box": {
+          "x": 1024,
+          "y": 462,
+          "w": 212,
+          "h": 28
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Pick a folder…",
+        "state": "visible",
+        "box": {
+          "x": 1244,
+          "y": 456,
+          "w": 87,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "heading",
+        "label": "This computer",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 462,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Services",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 463,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Organisation",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 463,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Roles",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 462,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Role library",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 468,
+          "w": 311,
+          "h": 17
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — controller",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 452,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — controller",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 452,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — controller",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 452,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "visible",
+        "box": {
+          "x": 1022,
+          "y": 456,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "visible",
+        "box": {
+          "x": 1147,
+          "y": 456,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — shadow-manager",
+        "state": "covered",
+        "coveredBy": "SPAN.role-claim",
+        "box": {
+          "x": 1022,
+          "y": 662,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — shadow-manager",
+        "state": "covered",
+        "coveredBy": "DIV.rail-page",
+        "box": {
+          "x": 1022,
+          "y": 740,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — shadow-manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 819,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 877,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 877,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — planner",
+        "state": "covered",
+        "coveredBy": "DETAILS.role-item",
+        "box": {
+          "x": 1022,
+          "y": 683,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — planner",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 1022,
+          "y": 761,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 840,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 897,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 897,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — manager",
+        "state": "covered",
+        "coveredBy": "DIV.rail-page",
+        "box": {
+          "x": 1022,
+          "y": 741,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 819,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 898,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 956,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 956,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 780,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 859,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 937,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 995,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 995,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 801,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 879,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 958,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1016,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1016,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 840,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 919,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 997,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1055,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1055,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 880,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 958,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1037,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1094,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1094,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 919,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 998,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1076,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1134,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1147,
+          "y": 1134,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "input",
+        "label": "New role id",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 882,
+          "w": 311,
+          "h": 32
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Base default role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1106,
+          "y": 1072,
+          "w": 228,
+          "h": 30
+        },
+        "options": [
+          "No base · watch only",
+          "controller · can be given jobs",
+          "shadow-manager · watch only",
+          "planner · watch only",
+          "manager · can be given jobs",
+          "coordinator-assistant · watch only",
+          "builder · can be given jobs",
+          "reviewer · watch only",
+          "worker · can be given jobs",
+          "observer · watch only"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1203,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1281,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1359,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Create role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1022,
+          "y": 1471,
+          "w": 311,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Research filing",
+        "state": "visible",
+        "box": {
+          "x": 1009,
+          "y": 623,
+          "w": 339,
+          "h": 29
+        }
+      }
+    ],
+    "scrollHeight": 642,
+    "clientHeight": 642,
+    "viewport": {
+      "w": 1400,
+      "h": 832
+    }
+  },
+  "overview-1024": {
+    "container": ".computers .rail .stats-page",
+    "controls": [
+      {
+        "kind": "heading",
+        "label": "Folders your agents work in",
+        "state": "scroll-to-reach",
+        "box": {
+          "x": 633,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "input",
+        "label": "Name the profile…",
+        "state": "visible",
+        "box": {
+          "x": 648,
+          "y": 446,
+          "w": 212,
+          "h": 28
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Pick a folder…",
+        "state": "visible",
+        "box": {
+          "x": 868,
+          "y": 440,
+          "w": 87,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "heading",
+        "label": "This computer",
+        "state": "visible",
+        "box": {
+          "x": 633,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Services",
+        "state": "visible",
+        "box": {
+          "x": 633,
+          "y": 447,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Organisation",
+        "state": "visible",
+        "box": {
+          "x": 633,
+          "y": 447,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Roles",
+        "state": "visible",
+        "box": {
+          "x": 633,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Role library",
+        "state": "visible",
+        "box": {
+          "x": 646,
+          "y": 452,
+          "w": 311,
+          "h": 17
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — controller",
+        "state": "visible",
+        "box": {
+          "x": 646,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — controller",
+        "state": "visible",
+        "box": {
+          "x": 646,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — controller",
+        "state": "visible",
+        "box": {
+          "x": 646,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "visible",
+        "box": {
+          "x": 646,
+          "y": 440,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "visible",
+        "box": {
+          "x": 771,
+          "y": 440,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — shadow-manager",
+        "state": "covered",
+        "coveredBy": "SPAN.role-claim",
+        "box": {
+          "x": 646,
+          "y": 646,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — shadow-manager",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 646,
+          "y": 724,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — shadow-manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 803,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 861,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 861,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — planner",
+        "state": "covered",
+        "coveredBy": "DETAILS.role-item",
+        "box": {
+          "x": 646,
+          "y": 667,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 745,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 824,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 881,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 881,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — manager",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 646,
+          "y": 725,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 803,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 882,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 940,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 940,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 764,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 843,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 921,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 979,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 979,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 785,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 863,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 942,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1000,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 1000,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 824,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 981,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1039,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 1039,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 864,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 942,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1021,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1078,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 1078,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 982,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1060,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1118,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 771,
+          "y": 1118,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "input",
+        "label": "New role id",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 866,
+          "w": 311,
+          "h": 32
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Base default role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 730,
+          "y": 1056,
+          "w": 228,
+          "h": 30
+        },
+        "options": [
+          "No base · watch only",
+          "controller · can be given jobs",
+          "shadow-manager · watch only",
+          "planner · watch only",
+          "manager · can be given jobs",
+          "coordinator-assistant · watch only",
+          "builder · can be given jobs",
+          "reviewer · watch only",
+          "worker · can be given jobs",
+          "observer · watch only"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1187,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1265,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1343,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Create role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 646,
+          "y": 1455,
+          "w": 311,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Research filing",
+        "state": "visible",
+        "box": {
+          "x": 633,
+          "y": 591,
+          "w": 339,
+          "h": 29
+        }
+      }
+    ],
+    "scrollHeight": 610,
+    "clientHeight": 610,
+    "viewport": {
+      "w": 1024,
+      "h": 800
+    }
+  },
+  "layout-1024": {
+    "rail": {
+      "x": 608,
+      "y": 132,
+      "w": 400,
+      "h": 612
+    },
+    "canvas": {
+      "x": 16,
+      "y": 132,
+      "w": 580,
+      "h": 612
+    },
+    "railOnScreen": true,
+    "sideBySide": true,
+    "sidewaysScroll": false
+  },
+  "setup-honesty-1024": {
+    "restartRow": false,
+    "moveRowPainted": false,
+    "moveRowHiddenAttr": true
+  },
+  "overview-1440": {
+    "container": ".computers .rail .stats-page",
+    "controls": [
+      {
+        "kind": "heading",
+        "label": "Folders your agents work in",
+        "state": "scroll-to-reach",
+        "box": {
+          "x": 1049,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "input",
+        "label": "Name the profile…",
+        "state": "visible",
+        "box": {
+          "x": 1064,
+          "y": 446,
+          "w": 212,
+          "h": 28
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Pick a folder…",
+        "state": "visible",
+        "box": {
+          "x": 1284,
+          "y": 440,
+          "w": 87,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "heading",
+        "label": "This computer",
+        "state": "visible",
+        "box": {
+          "x": 1049,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Services",
+        "state": "visible",
+        "box": {
+          "x": 1049,
+          "y": 447,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Organisation",
+        "state": "visible",
+        "box": {
+          "x": 1049,
+          "y": 447,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Roles",
+        "state": "visible",
+        "box": {
+          "x": 1049,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Role library",
+        "state": "visible",
+        "box": {
+          "x": 1062,
+          "y": 452,
+          "w": 311,
+          "h": 17
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — controller",
+        "state": "visible",
+        "box": {
+          "x": 1062,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — controller",
+        "state": "visible",
+        "box": {
+          "x": 1062,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — controller",
+        "state": "visible",
+        "box": {
+          "x": 1062,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "visible",
+        "box": {
+          "x": 1062,
+          "y": 440,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "visible",
+        "box": {
+          "x": 1187,
+          "y": 440,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — shadow-manager",
+        "state": "covered",
+        "coveredBy": "SPAN.role-claim",
+        "box": {
+          "x": 1062,
+          "y": 646,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — shadow-manager",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 1062,
+          "y": 724,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — shadow-manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 803,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 861,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 861,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — planner",
+        "state": "covered",
+        "coveredBy": "DETAILS.role-item",
+        "box": {
+          "x": 1062,
+          "y": 667,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 745,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 824,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 881,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 881,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — manager",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 1062,
+          "y": 725,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 803,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 882,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 940,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 940,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 764,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 843,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 921,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 979,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 979,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 785,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 863,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 942,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1000,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 1000,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 824,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 981,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1039,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 1039,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 864,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 942,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1021,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1078,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 1078,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 982,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1060,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1118,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1187,
+          "y": 1118,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "input",
+        "label": "New role id",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 866,
+          "w": 311,
+          "h": 32
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Base default role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1146,
+          "y": 1056,
+          "w": 228,
+          "h": 30
+        },
+        "options": [
+          "No base · watch only",
+          "controller · can be given jobs",
+          "shadow-manager · watch only",
+          "planner · watch only",
+          "manager · can be given jobs",
+          "coordinator-assistant · watch only",
+          "builder · can be given jobs",
+          "reviewer · watch only",
+          "worker · can be given jobs",
+          "observer · watch only"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1187,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1265,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1343,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Create role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1062,
+          "y": 1455,
+          "w": 311,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Research filing",
+        "state": "visible",
+        "box": {
+          "x": 1049,
+          "y": 591,
+          "w": 339,
+          "h": 29
+        }
+      }
+    ],
+    "scrollHeight": 610,
+    "clientHeight": 610,
+    "viewport": {
+      "w": 1440,
+      "h": 800
+    }
+  },
+  "layout-1440": {
+    "rail": {
+      "x": 1024,
+      "y": 132,
+      "w": 400,
+      "h": 612
+    },
+    "canvas": {
+      "x": 16,
+      "y": 132,
+      "w": 996,
+      "h": 612
+    },
+    "railOnScreen": true,
+    "sideBySide": true,
+    "sidewaysScroll": false
+  },
+  "setup-honesty-1440": {
+    "restartRow": false,
+    "moveRowPainted": false,
+    "moveRowHiddenAttr": true
+  },
+  "overview-1920": {
+    "container": ".computers .rail .stats-page",
+    "controls": [
+      {
+        "kind": "heading",
+        "label": "Folders your agents work in",
+        "state": "scroll-to-reach",
+        "box": {
+          "x": 1425,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "input",
+        "label": "Name the profile…",
+        "state": "visible",
+        "box": {
+          "x": 1440,
+          "y": 446,
+          "w": 212,
+          "h": 28
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Pick a folder…",
+        "state": "visible",
+        "box": {
+          "x": 1660,
+          "y": 440,
+          "w": 87,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "hidden"
+      },
+      {
+        "kind": "heading",
+        "label": "This computer",
+        "state": "visible",
+        "box": {
+          "x": 1425,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Services",
+        "state": "visible",
+        "box": {
+          "x": 1425,
+          "y": 447,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Organisation",
+        "state": "visible",
+        "box": {
+          "x": 1425,
+          "y": 447,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Roles",
+        "state": "visible",
+        "box": {
+          "x": 1425,
+          "y": 446,
+          "w": 339,
+          "h": 29
+        }
+      },
+      {
+        "kind": "heading",
+        "label": "Role library",
+        "state": "visible",
+        "box": {
+          "x": 1438,
+          "y": 452,
+          "w": 311,
+          "h": 17
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — controller",
+        "state": "visible",
+        "box": {
+          "x": 1438,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — controller",
+        "state": "visible",
+        "box": {
+          "x": 1438,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — controller",
+        "state": "visible",
+        "box": {
+          "x": 1438,
+          "y": 436,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "visible",
+        "box": {
+          "x": 1438,
+          "y": 440,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "visible",
+        "box": {
+          "x": 1563,
+          "y": 440,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — shadow-manager",
+        "state": "covered",
+        "coveredBy": "SPAN.role-claim",
+        "box": {
+          "x": 1438,
+          "y": 646,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — shadow-manager",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 1438,
+          "y": 724,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — shadow-manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 803,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 861,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 861,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — planner",
+        "state": "covered",
+        "coveredBy": "DETAILS.role-item",
+        "box": {
+          "x": 1438,
+          "y": 667,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 745,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — planner",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 824,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 881,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 881,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — manager",
+        "state": "covered",
+        "coveredBy": "DIV.computers",
+        "box": {
+          "x": 1438,
+          "y": 725,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 803,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — manager",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 882,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 940,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 940,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 764,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 843,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — coordinator-assistant",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 921,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 979,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 979,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 785,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 863,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — builder",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 942,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1000,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 1000,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 824,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — reviewer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 981,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1039,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 1039,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 864,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 942,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — worker",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1021,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1078,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 1078,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 903,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 982,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — observer",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1060,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Save wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1118,
+          "w": 117,
+          "h": 40
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Restore shipped wording",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1563,
+          "y": 1118,
+          "w": 187,
+          "h": 40
+        }
+      },
+      {
+        "kind": "input",
+        "label": "New role id",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 866,
+          "w": 311,
+          "h": 32
+        }
+      },
+      {
+        "kind": "select",
+        "label": "Base default role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1522,
+          "y": 1056,
+          "w": 228,
+          "h": 30
+        },
+        "options": [
+          "No base · watch only",
+          "controller · can be given jobs",
+          "shadow-manager · watch only",
+          "planner · watch only",
+          "manager · can be given jobs",
+          "coordinator-assistant · watch only",
+          "builder · can be given jobs",
+          "reviewer · watch only",
+          "worker · can be given jobs",
+          "observer · watch only"
+        ]
+      },
+      {
+        "kind": "textarea",
+        "label": "Owns — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1187,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Must not — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1265,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "textarea",
+        "label": "Hands off to — new role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1343,
+          "w": 311,
+          "h": 50
+        }
+      },
+      {
+        "kind": "button",
+        "label": "Create role",
+        "state": "covered",
+        "coveredBy": "BODY.in-shell",
+        "box": {
+          "x": 1438,
+          "y": 1455,
+          "w": 311,
+          "h": 40
+        }
+      },
+      {
+        "kind": "output",
+        "label": "",
+        "state": "zero-size"
+      },
+      {
+        "kind": "heading",
+        "label": "Research filing",
+        "state": "visible",
+        "box": {
+          "x": 1425,
+          "y": 591,
+          "w": 339,
+          "h": 29
+        }
+      }
+    ],
+    "scrollHeight": 610,
+    "clientHeight": 610,
+    "viewport": {
+      "w": 1920,
+      "h": 800
+    }
+  },
+  "layout-1920": {
+    "rail": {
+      "x": 1400,
+      "y": 132,
+      "w": 400,
+      "h": 612
+    },
+    "canvas": {
+      "x": 120,
+      "y": 132,
+      "w": 1268,
+      "h": 612
+    },
+    "railOnScreen": true,
+    "sideBySide": true,
+    "sidewaysScroll": false
+  },
+  "setup-honesty-1920": {
+    "restartRow": false,
+    "moveRowPainted": false,
+    "moveRowHiddenAttr": true
+  }
+}

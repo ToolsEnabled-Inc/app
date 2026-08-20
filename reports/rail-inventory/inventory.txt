@@ -1,0 +1,137 @@
+route: computers (clicked)
+
+================ 1024x768 ================
+
+  OVERVIEW RAIL (nothing selected) @ 1024
+    rail 351px wide · scroll 1524px in a 484px box · 3.15 screens
+    #      top   high  ctl  panel
+    1        0     46    0   (loose) 0Agents on record
+    2       50     37    0   (loose) From this computer’s own signed record of every agent 
+    3      103    128    0   (loose) This is the record, not a live reading No local agent 
+    4      247     29    0   Folders your agents work in
+    5      290    185    2   (loose) A profile is a name and a folder. Agents in a tree tha
+    6      491     29    0 ↓ This computer
+    7      528     62    0 ↓ (loose) Agents described0 Recorded relationships0 Graph revisi
+    8      606     37    0 ↓ (loose) Written down in this computer’s declared organisation.
+    9      659     29    0 ↓ Services
+    10     696     19    0 ↓ (loose) No services are on record for this computer.
+    11     731     29    0 ↓ Organisation
+    12     767     37    0 ↓ (loose) This is the organisation the app ships with. Nothing h
+    13     821     17    0 ↓ (loose) Revision1
+    14     853     29    0 ↓ Roles
+    15     896    484   51 ↓ Role library
+        └ "every role that can be assigned on this computer, and what each one is enforced to mean"
+    16    1396     29    0 ↓ Research filing
+    17    1433     37    0 ↓ (loose) Pick a project and every session in the tree you are l
+    18    1486     38    0 ↓ (loose) No research projects exist yet. Create one on the rese
+    shot: C:\lanes\research-app\reports\rail-inventory\overview-1024.png
+
+================ 1440x900 ================
+
+  OVERVIEW RAIL (nothing selected) @ 1440
+    rail 351px wide · scroll 1524px in a 617px box · 2.47 screens
+    #      top   high  ctl  panel
+    1        0     46    0   (loose) 0Agents on record
+    2       50     37    0   (loose) From this computer’s own signed record of every agent 
+    3      103    128    0   (loose) This is the record, not a live reading No local agent 
+    4      247     29    0   Folders your agents work in
+    5      290    185    2   (loose) A profile is a name and a folder. Agents in a tree tha
+    6      491     29    0   This computer
+    7      528     62    0   (loose) Agents described0 Recorded relationships0 Graph revisi
+    8      606     37    0   (loose) Written down in this computer’s declared organisation.
+    9      659     29    0 ↓ Services
+    10     696     19    0 ↓ (loose) No services are on record for this computer.
+    11     731     29    0 ↓ Organisation
+    12     767     37    0 ↓ (loose) This is the organisation the app ships with. Nothing h
+    13     821     17    0 ↓ (loose) Revision1
+    14     853     29    0 ↓ Roles
+    15     896    484   51 ↓ Role library
+        └ "every role that can be assigned on this computer, and what each one is enforced to mean"
+    16    1396     29    0 ↓ Research filing
+    17    1433     37    0 ↓ (loose) Pick a project and every session in the tree you are l
+    18    1486     38    0 ↓ (loose) No research projects exist yet. Create one on the rese
+    shot: C:\lanes\research-app\reports\rail-inventory\overview-1440.png
+
+================ 1920x1080 ================
+
+  OVERVIEW RAIL (nothing selected) @ 1920
+    rail 351px wide · scroll 1524px in a 796px box · 1.91 screens
+    #      top   high  ctl  panel
+    1        0     46    0   (loose) 0Agents on record
+    2       50     37    0   (loose) From this computer’s own signed record of every agent 
+    3      103    128    0   (loose) This is the record, not a live reading No local agent 
+    4      247     29    0   Folders your agents work in
+    5      290    185    2   (loose) A profile is a name and a folder. Agents in a tree tha
+    6      491     29    0   This computer
+    7      528     62    0   (loose) Agents described0 Recorded relationships0 Graph revisi
+    8      606     37    0   (loose) Written down in this computer’s declared organisation.
+    9      659     29    0   Services
+    10     696     19    0   (loose) No services are on record for this computer.
+    11     731     29    0   Organisation
+    12     767     37    0   (loose) This is the organisation the app ships with. Nothing h
+    13     821     17    0 ↓ (loose) Revision1
+    14     853     29    0 ↓ Roles
+    15     896    484   51 ↓ Role library
+        └ "every role that can be assigned on this computer, and what each one is enforced to mean"
+    16    1396     29    0 ↓ Research filing
+    17    1433     37    0 ↓ (loose) Pick a project and every session in the tree you are l
+    18    1486     38    0 ↓ (loose) No research projects exist yet. Create one on the rese
+    shot: C:\lanes\research-app\reports\rail-inventory\overview-1920.png
+
+    THE FOLDER AT TREE START ([data-compose-field="profile"])
+      {"present":true,"label":"Which folder do its agents work in?","options":["The product’s own workspace"],"value":"","inViewportNow":true,"hitsItself":true}
+
+start from the dashed circle: node node-2-1f14d670-a80c-4e1b-9ed6-fc8d549dfac7
+
+================ TREE NODE RAIL @ 1024x768 ================
+
+  TREE NODE RAIL · Details tab @ 1024
+    rail 351px wide · scroll 922px in a 440px box · 2.1 screens
+    #      top   high  ctl  panel
+    1        0     57    0   (loose) CoordinatorCoordinator
+    2       71    148    2   Folder these agents work in
+    3      233    157    0   What it is doing
+    4      404    112    0   The conversation
+    5      530    287    2 ↓ Setup
+    6      831     65   26 ↓ Start more work
+        └ "Launch, Team, Loop and Codex Cloud"
+
+    THE FOLDER CONTROL ("Works in", [data-tree-profile]) @ 1024
+      {"present":true,"width":313,"height":30,"scrollTopToReach":167,"scrollHeight":922,"clientHeight":440,"inViewportNow":true,"hitsItself":true,"hitTag":"select.ctl-select","label":"Works in","options":["The product’s own workspace"]}
+    shot: C:\lanes\research-app\reports\rail-inventory\treenode-details-1024.png
+
+================ TREE NODE RAIL @ 1440x900 ================
+
+  TREE NODE RAIL · Details tab @ 1440
+    rail 351px wide · scroll 930px in a 573px box · 1.62 screens
+    #      top   high  ctl  panel
+    1        0     57    0   (loose) CoordinatorCoordinator
+    2       71    150    2   Folder these agents work in
+    3      235    159    0   What it is doing
+    4      408    114    0   The conversation
+    5      536    289    2   Setup
+    6      839     65   26 ↓ Start more work
+        └ "Launch, Team, Loop and Codex Cloud"
+
+    THE FOLDER CONTROL ("Works in", [data-tree-profile]) @ 1440
+      {"present":true,"width":309,"height":30,"scrollTopToReach":168,"scrollHeight":930,"clientHeight":573,"inViewportNow":true,"hitsItself":true,"hitTag":"select.ctl-select","label":"Works in","options":["The product’s own workspace"]}
+    shot: C:\lanes\research-app\reports\rail-inventory\treenode-details-1440.png
+
+================ TREE NODE RAIL @ 1920x1080 ================
+
+  TREE NODE RAIL · Details tab @ 1920
+    rail 351px wide · scroll 930px in a 752px box · 1.24 screens
+    #      top   high  ctl  panel
+    1        0     57    0   (loose) CoordinatorCoordinator
+    2       71    150    2   Folder these agents work in
+    3      235    159    0   What it is doing
+    4      408    114    0   The conversation
+    5      536    289    2   Setup
+    6      839     65   26 ↓ Start more work
+        └ "Launch, Team, Loop and Codex Cloud"
+
+    THE FOLDER CONTROL ("Works in", [data-tree-profile]) @ 1920
+      {"present":true,"width":309,"height":30,"scrollTopToReach":168,"scrollHeight":930,"clientHeight":752,"inViewportNow":true,"hitsItself":true,"hitTag":"select.ctl-select","label":"Works in","options":["The product’s own workspace"]}
+    shot: C:\lanes\research-app\reports\rail-inventory\treenode-details-1920.png
+
+written: C:\lanes\research-app\reports\rail-inventory\inventory.txt
