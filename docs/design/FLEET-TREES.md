@@ -301,6 +301,15 @@ The old text's own closing line said the owner decides; he did.**
 call in `src/` passes a raw `cwd`; the computers view's start request carries
 `profileId`; and the boundary refuses a raw `cwd` by name.
 
+- (Re-measured 2026-08-19.) A start may also carry `requestKeys` — the standing-
+  request scope keys for the session's boot brief: the tree node ids above the
+  node (top-down, its own id last) and the id of its own conversation. These are
+  IDS the view already holds, bounded at the boundary like every other
+  identifier; they key ledger FILENAMES through the engine's own key rule and
+  can never name a path. They ride the START rather than the brief text because
+  a resume sends no brief, and a restarted conversation is exactly when a
+  thread-scoped rule must ride again.
+
 ### What the product still does not claim
 
 A profile keeps trees' folders apart only when the person assigns different folders.

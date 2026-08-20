@@ -962,6 +962,18 @@ test('every refusal code in the agent host is classified as reachable from the p
        MC_AGENT_INVALID_PAYLOAD family as AGENT_TIER_UNKNOWN above. */
     'AGENT_TURN_OPTION_FORBIDDEN',
     'AGENT_TURN_IMAGES_INVALID',
+    /* Standing requests (the /Request family). KEYS_INVALID is the
+       MC_AGENT_INVALID_PAYLOAD family: the view sends node ids it already
+       holds, so only renderer/host drift or a hand-built payload can produce
+       it -- never a click. UNAVAILABLE answers the person's own typed
+       command through the chat, which writes its own sentence for it
+       (src/views/computers.js fileStandingRequestFor); a readiness probe has
+       nothing to resolve because the absence is the payload's age. The
+       R_LEDGER-mapped refusals (AGENT_REQUEST_WORDS_*, _KEY, _SCOPE, ...)
+       are raised through a computed fail(code) the literal scan cannot see,
+       and the same chat sentences answer them. */
+    'AGENT_REQUEST_KEYS_INVALID',
+    'AGENT_REQUEST_UNAVAILABLE',
   ])
   const source = read('shell/agent-host.cjs')
   const found = new Set()

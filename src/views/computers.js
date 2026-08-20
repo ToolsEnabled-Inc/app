@@ -101,7 +101,7 @@ import { WRITE_OUTCOME_KEYS, recordUndeliveredWrite } from '../write-outcomes.js
    Same set the agent page uses; a second reading of the same stream is how one
    surface comes to be wrong without anybody noticing. */
 import { createActionBuffer, completionSettlesOpenTurn, sessionActivityEvent, sessionEventText, sessionEventTurnId, sessionTurnFailureText, sessionTurnStatus, sessionTurnSucceeded, sessionUsageEvent } from '../agent-session-events.js'
-import { parseSlashCommand } from '../slash-commands.js'
+import { parseSlashCommand, requestUsageSentence, requestConfirmationSentence } from '../slash-commands.js'
 /* The frame-batched appender the Controls panel already streams through --
    measured there, reused here so the rail's "What it said" moves while the
    turn runs instead of sitting silent until the end. */
@@ -654,7 +654,7 @@ function sendRefusalSentence(result) {
  * by then, and losing it here would leave an agent running with nothing on
  * screen naming it -- the failure the four outcome shapes above exist to
  * prevent. */
-export async function startAgentForNode({ text, surface, tier, effort, profileId, onSessionOpen }) {
+export async function startAgentForNode({ text, surface, tier, effort, profileId, requestKeys = null, onSessionOpen }) {
   const bridge = typeof window === 'undefined' ? null : window.mcAgent
   if (!bridge || typeof bridge.start !== 'function' || typeof bridge.send !== 'function') {
     return {
@@ -683,6 +683,10 @@ export async function startAgentForNode({ text, surface, tier, effort, profileId
       ...(tier ? { tier } : {}),
       ...(effort ? { effort } : {}),
       ...(profileId ? { profileId } : {}),
+      /* The standing-request scope keys — tree node ids and the conversation's
+         own id, never paths — so the session's first turn can carry the
+         person's filed rules. See nodeRequestKeys() and shell/agent-host.cjs. */
+      ...(requestKeys ? { requestKeys } : {}),
     }
     started = await bridge.start(startRequest)
   } catch (error) {
@@ -2043,6 +2047,17 @@ export function computersView({ initialComputer = null, navigate }) {
           const slash = parseSlashCommand(text)
           if (slash) {
             if (slash.kind === 'help' || slash.kind === 'unknown') return { ok: false, sentence: slash.sentence }
+            if (slash.kind === 'request') {
+              /* A rule typed while the agent is BUSY is exactly when it
+                 matters, and it must never queue as a message to the model.
+                 This contract is synchronous, so the filing runs async and
+                 the one-sentence answer lands on the page status line — the
+                 same surface the other busy-path commands report through. */
+              if (!slash.rest) return { ok: false, sentence: requestUsageSentence(slash.scope) }
+              void fileStandingRequestFor(treeStore ? treeStore.getNode(node.id) || node : node, slash)
+                .then(result => setOrgStatus(result.sentence, result.ok ? 'ok' : 'refuse'))
+              return { ok: true }
+            }
             if (slash.action === 'queue') {
               if (!slash.rest) return { ok: false, sentence: QUEUE_PANEL.emptyQueueCommand }
               return outboxEnqueue(node.sessionId, slash.rest)
@@ -2800,6 +2815,7 @@ export function computersView({ initialComputer = null, navigate }) {
          per-tree onboarding, which is the whole point of profiles. Null means
          the product's own workspace, exactly as before profiles existed. */
       profileId: treeStore && node.treeId ? treeStore.treeProfile(node.treeId) : null,
+      requestKeys: nodeRequestKeys(node),
       onSessionOpen: ({ sessionId, threadId }) => {
         sessionNodeIds.set(sessionId, node.id)
         sessionEfforts.set(sessionId, draft.effort || tierEffortOf(draft.tier))
@@ -4863,6 +4879,10 @@ export function computersView({ initialComputer = null, navigate }) {
           ...(node.tier ? { tier: node.tier } : {}),
           ...(chosenEffort ? { effort: chosenEffort } : {}),
           ...(profileId ? { profileId } : {}),
+          /* A RESUME CARRIES THE KEYS TOO — the standing-request block rides
+             the resumed session's first turn, because a restart is exactly
+             when a thread rule must be re-asserted. */
+          requestKeys: nodeRequestKeys(node),
         })
       } catch { started = null }
       if (started && typeof started.sessionId === 'string' && started.sessionId) {
@@ -4880,6 +4900,7 @@ export function computersView({ initialComputer = null, navigate }) {
         tier: node.tier,
         effort: chosenEffort,
         profileId,
+        requestKeys: nodeRequestKeys(node),
         /* Bound before the seed is sent, for the reason startAgentForNode's
            note gives: a turn that starts answering before the send is answered
            would otherwise arrive for a session this page has never heard of.
@@ -4894,6 +4915,7 @@ export function computersView({ initialComputer = null, navigate }) {
           ...(node.tier ? { tier: node.tier } : {}),
           ...(chosenEffort ? { effort: chosenEffort } : {}),
           ...(profileId ? { profileId } : {}),
+          requestKeys: nodeRequestKeys(node),
         })
       } catch { started = null }
       result = started && typeof started.sessionId === 'string' && started.sessionId
@@ -5757,12 +5779,92 @@ export function computersView({ initialComputer = null, navigate }) {
     })
   }
 
+  /* ---- STANDING REQUESTS FROM THE CHAT BOX (the /Request family) ----
+   *
+   * THE PRODUCT FILES THE PERSON'S WORDS; the agent needs no tool for it and
+   * is never sent the command — both dispatch seams route kind:'request'
+   * before anything queues or sends, so "/RequestThread ..." can never reach
+   * a model as a message. The engine's r-ledger module holds the owner's
+   * design (four hand-editable markdown ledgers); the host appends and
+   * answers the minted id for the one-sentence confirmation.
+   *
+   * SCOPE KEYS ARE IDS THIS VIEW ALREADY HOLDS, never invented: a session
+   * rule files under the RUNNING session's id, a tree or thread rule under
+   * this node's id (the anchor). The same ids ride every start as
+   * requestKeys, so filing and boot carriage cannot disagree about what a
+   * scope is called — and because a node's id survives an app restart while
+   * a session's does not, a thread rule outlives the restart (the proof this
+   * feature is judged by) while a session rule honestly dies with its
+   * session. */
+  function treeAnchorsFor(node) {
+    const chain = []
+    const seen = new Set()
+    let current = node
+    while (current && current.id && !seen.has(current.id)) {
+      seen.add(current.id)
+      chain.unshift(current.id)
+      current = current.parentId && treeStore ? treeStore.getNode(current.parentId) : null
+    }
+    /* Bounded like the host's parse. An absurd depth keeps the NEAREST
+       anchors: a rule anchored close binds tighter than one anchored far. */
+    return chain.slice(-16)
+  }
+
+  function nodeRequestKeys(node) {
+    return { treeAnchors: treeAnchorsFor(node), threadId: node.id }
+  }
+
+  const REQUEST_FILE_FAILED = 'That rule was not filed. Try it once more; if it keeps happening, the ledger file could not be written.'
+
+  async function fileStandingRequestFor(node, slash) {
+    const bridge = typeof window === 'undefined' ? null : window.mcAgent
+    if (!bridge || typeof bridge.request !== 'function') {
+      return { ok: false, sentence: START_NEEDS_APP_TEXT }
+    }
+    if (slash.scope === 'session' && !node.sessionId) {
+      return { ok: false, sentence: 'This circle has no running session yet, so a session rule has nowhere to apply. Start the agent first, or use /RequestTree to cover this circle and everything under it.' }
+    }
+    const key = slash.scope === 'global' ? null
+      : slash.scope === 'session' ? node.sessionId
+        : node.id
+    let filed = null
+    try {
+      filed = await bridge.request({ scope: slash.scope, ...(key ? { key } : {}), words: slash.rest })
+    } catch (error) {
+      const code = refusalCode(error)
+      if (code === 'AGENT_REQUEST_UNAVAILABLE') {
+        return { ok: false, sentence: 'This build cannot file standing requests yet — update ToolsEnabled and try again.' }
+      }
+      if (code === 'AGENT_REQUEST_WORDS_TOO_LONG') {
+        return { ok: false, sentence: 'That rule is too long to file — shorten it and try again.' }
+      }
+      if (code === 'AGENT_REQUEST_WORDS_HEADING') {
+        return { ok: false, sentence: 'A line starting with "## " would read as a new ledger entry — reword the rule and try again.' }
+      }
+      return { ok: false, sentence: REQUEST_FILE_FAILED }
+    }
+    if (!filed || filed.ok !== true || typeof filed.id !== 'string' || filed.id.length === 0) {
+      return { ok: false, sentence: REQUEST_FILE_FAILED }
+    }
+    return { ok: true, sentence: requestConfirmationSentence(slash.scope, filed.id) }
+  }
+
   function treeCardSend(node, text, { reply, fail }) {
     /* Slash commands are the console's own vocabulary, parsed BEFORE anything
        is sent or queued — /interrupt while busy is exactly when it matters. */
     const slash = parseSlashCommand(text)
     if (slash) {
       if (slash.kind === 'help' || slash.kind === 'unknown') { reply(slash.sentence); return }
+      if (slash.kind === 'request') {
+        /* Both outcomes paint through `fail`, and that is a choice about
+           HONESTY, not an error path: `fail` renders the product's own note
+           kind, and a filing confirmation is not the agent speaking any more
+           than a refusal is — the same reasoning src/components.js gives for
+           keeping refusals out of the agent's bubble. */
+        if (!slash.rest) { fail(requestUsageSentence(slash.scope)); return }
+        void fileStandingRequestFor(node, slash).then(result => fail(result.sentence))
+        return
+      }
       if (slash.action === 'queue') {
         if (!slash.rest) { fail(QUEUE_PANEL.emptyQueueCommand); return }
         const queued = outboxEnqueue(node.sessionId, slash.rest)

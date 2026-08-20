@@ -483,6 +483,22 @@ export function guideView() {
           <ul class="guide-works-list">${WORKS_HERE.map(line => `<li>${esc(line)}</li>`).join('')}</ul>
         </section>
 
+        <section class="guide-need guide-requests" data-need="standing-requests">
+          <header class="guide-need-head">
+            <h2>Standing requests</h2>
+            <p class="guide-need-tag">No setup</p>
+          </header>
+          <p class="guide-need-body">A standing request is a rule in your own words that agents read every time one starts. Type it right in the chat box, where you already talk to an agent, and ToolsEnabled files it for you. The chat answers with one sentence saying what was filed and who it reaches. Four commands, four reaches:</p>
+          <ul class="guide-works-list">
+            <li>/Request — for every agent on this computer, until you edit or delete it.</li>
+            <li>/RequestSession — for one working session and every agent it starts.</li>
+            <li>/RequestTree — for one agent and every agent working under it, never sideways or upward.</li>
+            <li>/RequestThread — for one conversation only; even a restart or a very long conversation cannot lose it.</li>
+          </ul>
+          <p class="guide-need-body">The rules live in plain files you can open, edit, or delete lines from by hand. No tool rewrites your words, and a deleted rule stays deleted. New rules reach an agent the next time its session starts.</p>
+          <p class="guide-need-body">One more convention worth knowing: to point any agent at this computer's tools, just say “Ok, use ToolsEnabled and …”. Every agent started here is told what that phrase means and reaches for the matching tool.</p>
+        </section>
+
         <footer class="guide-foot">
           <a class="guide-foot-link" href="${esc(SETTINGS_HREF)}">All settings</a>
           <a class="guide-foot-link" href="#/">Back to the first page</a>

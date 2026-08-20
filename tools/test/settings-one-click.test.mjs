@@ -183,6 +183,31 @@ test('the review carries the quick standing-requests brief, scoped as the skills
     'the one concrete example is gone')
 })
 
+test('the review card teaches the two spoken conventions and links the guide', () => {
+  /* Owner, 2026-08-19, verbatim: "with the /request info we should also hand
+     them a line like 'ask the agent to use toolsenabled!'" and "i think both
+     user and agent probably need to know about /request always." The card
+     stays QUICK — these pins hold the two lines and the door to the longer
+     story, not a sixth paragraph. */
+  const source = readFileSync(path.join(ROOT, 'src', 'views', 'setup.js'), 'utf8')
+  const card = source.slice(source.indexOf('function requestBriefMarkup'), source.indexOf('function reviewMarkup'))
+  assert.ok(card.includes('use ToolsEnabled and'),
+    'the owner\'s tip is gone: the card must teach saying "Ok, use ToolsEnabled and …" to point an agent at this computer\'s tools')
+  assert.ok(card.includes('right in the chat box'),
+    'the card stopped saying /Request works right in the chat box, where the person already talks to the agent')
+  assert.ok(card.includes('#/guide'),
+    'the card no longer links to the guide\'s Standing requests section')
+
+  const guide = readFileSync(path.join(ROOT, 'src', 'views', 'guide.js'), 'utf8')
+  assert.ok(guide.includes('Standing requests'),
+    'the guide has no Standing requests section for the card to link to')
+  for (const command of ['/Request', '/RequestSession', '/RequestTree', '/RequestThread']) {
+    assert.ok(guide.includes(command), `the guide section never names ${command}`)
+  }
+  assert.ok(guide.includes('use ToolsEnabled and'),
+    'the guide never teaches the spoken "use ToolsEnabled" convention')
+})
+
 test('the settings page bulk control for the acting switches is off-only', () => {
   const source = readFileSync(path.join(ROOT, 'src', 'views', 'settings.js'), 'utf8')
   assert.ok(source.includes('data-bulk-write-off'), 'the one-press off control is gone')

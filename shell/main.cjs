@@ -464,7 +464,7 @@ function parseAgentStart(value) {
   // startSession(), which resolves it, and the compose panel, which must offer
   // it. Shipping any one of them alone leaves a control that looks real and is
   // not, which is the defect f1ce3ec removed three sliders for.
-  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId'])
+  const payload = agentPayload(value, ['sessionId', 'cwd', 'surface', 'tier', 'effort', 'profileId', 'resumeThreadId', 'requestKeys'])
   const sessionId = Object.prototype.hasOwnProperty.call(payload, 'sessionId')
     ? payload.sessionId
     : `chat-${randomUUID()}`
@@ -532,6 +532,30 @@ function parseAgentStart(value) {
     // parse (see mc-agent:start), so a hand-built payload can name a profile
     // or be refused -- it cannot smuggle a working directory.
     result.profileId = boundedAgentString(payload.profileId, 'profileId', 128)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'requestKeys')) {
+    // The standing-request scope keys for this session's boot brief: the tree
+    // node ids above this node (top-down) and the id of its own conversation.
+    // IDS, never paths -- they key ledger FILENAMES through the engine's own
+    // SAFE_KEY rule, and the host re-validates the shape. Riding the START
+    // rather than the brief text because a RESUME sends no brief, and a
+    // restarted conversation is exactly when a thread rule must ride again.
+    const keys = payload.requestKeys
+    if (keys !== null && (typeof keys !== 'object' || Array.isArray(keys))) {
+      agentIpcError('MC_AGENT_INVALID_PAYLOAD', 'requestKeys must be an object of scope keys')
+    }
+    if (keys) {
+      const anchors = keys.treeAnchors === undefined ? [] : keys.treeAnchors
+      if (!Array.isArray(anchors) || anchors.length > 16) {
+        agentIpcError('MC_AGENT_INVALID_PAYLOAD', 'requestKeys.treeAnchors must be an array of at most 16 ids')
+      }
+      result.requestKeys = {
+        treeAnchors: anchors.map(anchor => boundedAgentString(anchor, 'requestKeys.treeAnchors entry', 128)),
+        threadId: keys.threadId === undefined || keys.threadId === null
+          ? null
+          : boundedAgentString(keys.threadId, 'requestKeys.threadId', 128),
+      }
+    }
   }
   return result
 }
@@ -1824,6 +1848,30 @@ ipcMain.handle('mc-agent:send', async (event, value) => {
       ...(request.images ? { images: request.images } : {}),
       ...(request.model ? { options: { model: request.model } } : {}),
     })
+  } catch (error) {
+    throw rendererSafeAgentError(error)
+  }
+})
+
+/* FILE ONE STANDING REQUEST -- the /Request family typed into the chat box.
+   The PRODUCT does the filing (owner design, engine src/lib/r-ledger.js): the
+   renderer sends the scope, the id it already holds for that scope, and the
+   person's words; the host appends them verbatim through the payload's own
+   ledger module and answers the minted id for the one-sentence confirmation.
+   No session is required -- a rule can be filed before any agent runs -- so
+   this goes through getAgentHost() like a start does. Bounds: the words cap
+   matches the module's own MAX_WORDS_BYTES (16KB); scope and key are bounded
+   identifiers, never paths, and the reply carries no path either. */
+ipcMain.handle('mc-agent:request', async (event, value) => {
+  assertTrustedAgentSender(event)
+  try {
+    const payload = agentPayload(value, ['scope', 'key', 'words'])
+    const scope = boundedAgentString(payload.scope, 'scope', 16)
+    const words = boundedAgentString(payload.words, 'words', 16 * 1024)
+    const key = payload.key === undefined || payload.key === null
+      ? null
+      : boundedAgentString(payload.key, 'key', 128)
+    return await getAgentHost().fileStandingRequest({ scope, key, words })
   } catch (error) {
     throw rendererSafeAgentError(error)
   }

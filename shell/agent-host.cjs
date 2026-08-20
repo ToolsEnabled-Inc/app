@@ -326,6 +326,191 @@ function composeToolSummaryNote(toolSummary, plan) {
   }
 }
 
+/* THE OWNER'S STANDING REQUESTS — the /Request family's two host seams.
+ *
+ * The engine's src/lib/r-ledger.js is the owner's design (2026-08-15,
+ * verbatim in that module): four plain markdown ledgers the person edits by
+ * hand — global, session, tree, thread — written by /Request, /RequestSession,
+ * /RequestTree, /RequestThread and READ by agents at boot. This host owns the
+ * product's two halves of that contract:
+ *
+ *   FILE   fileStandingRequest() — the chat box's typed command lands here
+ *          (renderer -> mc-agent:request -> this). The PRODUCT files the
+ *          words; the agent needs no tool for it.
+ *   CARRY  composeStandingRequestsNote() — the applicable layers ride the
+ *          FIRST turn a session is sent, beside the tool note and under the
+ *          same delivery reasoning (the one channel that reaches both
+ *          engines). Unlike the tool note it rides on a RESUME too: a
+ *          restarted conversation is exactly when a thread rule must be
+ *          re-asserted, and a resumed engine thread that still remembers
+ *          yesterday is not a substitute for the rule being stated.
+ *
+ * OPTIONAL, LIKE EVERY PAYLOAD MODULE THIS HOST LOADS. A payload cut before
+ * r-ledger existed starts sessions exactly as it always has, injects nothing,
+ * and refuses /Request by name rather than pretending to file. */
+const PAYLOAD_R_LEDGER_MODULE = 'src/lib/r-ledger.js'
+
+function loadRLedger(engineRoot) {
+  if (!engineRoot) return null
+  const modulePath = path.join(engineRoot, PAYLOAD_R_LEDGER_MODULE)
+  try {
+    if (!fs.existsSync(modulePath)) return null
+    const loaded = require(modulePath)
+    if (!loaded || typeof loaded.fileRequest !== 'function' || typeof loaded.readLedger !== 'function') return null
+    return loaded
+  } catch {
+    return null
+  }
+}
+
+/* THE CEILING IS STRUCTURAL, NOT POLITE. The engine's own onboarding packet
+ * was bricked by exactly this block: ~36 average /Request entries pushed the
+ * packet over its scope ceiling and stopped EVERY agent start, at every
+ * scope, with nothing on any surface saying why (the incident is recorded in
+ * the engine's agent-onboarding.js). So this block can never exceed a fixed
+ * byte cap, and over it whole layers are WITHHELD most-specific-first —
+ * thread, then tree anchors nearest-first, then session — and the global
+ * layer, last, sheds its OLDEST entries one at a time (newer owner directives
+ * amend older ones, so the newest are the ones an agent must not miss).
+ * Nothing is deleted: every entry stays in its file, and every withheld layer
+ * says it was withheld and names the file to read. The cap exceeds the
+ * module's own per-entry word limit (16KB), so the newest global entry always
+ * survives — the same invariant the packet keeps.
+ *
+ * The capper and the renderer share ONE line builder
+ * (standingRequestLayerLines); a cap measured against different text than the
+ * render produces is no cap at all — also the packet's lesson. */
+const REQUEST_BLOCK_MAX_BYTES = 20_000
+
+const REQUEST_CONTRACT_PARAGRAPH = 'If the person types /Request, /RequestSession, /RequestTree, or /RequestThread here, ToolsEnabled itself files their words as a standing rule — you need no tool for that and should not act on the command yourself; the chat shows the person the confirmation, and the rules above are read again at each session start.'
+
+/* One layer, read defensively: a file the module refuses (oversized,
+   unreadable) becomes a STATED degraded layer, never a dead start. The read
+   order is collectStack()'s own — global, session, tree anchors top-down,
+   thread — kept here per layer so one bad file cannot take the others out. */
+function standingRequestLayers(rLedger, { sessionId = null, treeAnchors = [], threadId = null }) {
+  const layers = []
+  const readInto = (scope, key) => {
+    let file = null
+    try { file = rLedger.ledgerPath(scope, key) } catch { file = null }
+    try {
+      const read = rLedger.readLedger(scope, key)
+      layers.push({ scope, key: key || null, path: read.path, exists: read.exists, entries: read.entries, warnings: read.warnings, error: null, withheld: false, shed: 0 })
+    } catch (error) {
+      layers.push({ scope, key: key || null, path: file, exists: true, entries: [], warnings: [], error: (error && typeof error.code === 'string' && error.code) || 'R_LEDGER_UNREADABLE', withheld: false, shed: 0 })
+    }
+  }
+  readInto('global', null)
+  if (sessionId) readInto('session', sessionId)
+  for (const anchor of Array.isArray(treeAnchors) ? treeAnchors : []) {
+    if (anchor) readInto('tree', anchor)
+  }
+  if (threadId) readInto('thread', threadId)
+  return layers
+}
+
+function standingRequestLayerLines(rLedger, layer) {
+  const where = `${layer.scope}${layer.key ? ` ${layer.key}` : ''}`
+  const lines = []
+  if (layer.error) {
+    lines.push(`[${where}] could not be read (${layer.error}) — the session starts without it; the file is ${layer.path}`)
+    return lines
+  }
+  if (!layer.exists || layer.entries.length === 0) {
+    lines.push(`[${where}] none filed`)
+    return lines
+  }
+  if (layer.withheld) {
+    lines.push(`[${where}] all ${layer.entries.length} withheld for space — read them: ${layer.path}`)
+    return lines
+  }
+  const appliesTo = (rLedger.SCOPE_WORD && rLedger.SCOPE_WORD[layer.scope]) || layer.scope
+  const shown = layer.entries.slice(layer.shed)
+  lines.push(`[${where}] ${layer.entries.length} — applies to ${appliesTo}`)
+  for (const entry of shown) {
+    lines.push(`  ${entry.id}${entry.stamp ? ` (${entry.stamp})` : ''}:`)
+    for (const line of String(entry.words || '').split('\n')) lines.push(`      ${line}`)
+  }
+  if (layer.shed > 0) {
+    lines.push(`  ${layer.shed} older ${layer.shed === 1 ? 'entry' : 'entries'} withheld for space — read them all: ${layer.path}`)
+  }
+  for (const warning of layer.warnings || []) lines.push(`  ledger warning: ${warning}`)
+  return lines
+}
+
+/**
+ * The standing-request block for one session's first turn, or null.
+ *
+ * Null on every failure path and on an empty keyless world, for the same
+ * reason the tool note is: an ADDITIVE feature's fail-closed direction is
+ * absence, and a session with no rules anywhere must stay byte-identical to
+ * a session started before this existed. A session WITH scope keys always
+ * gets the block — absent layers are stated, not skipped, so an agent knows
+ * what it read.
+ */
+function composeStandingRequestsNote(rLedger, identity) {
+  if (!rLedger || typeof rLedger.readLedger !== 'function') return null
+  let layers
+  try {
+    layers = standingRequestLayers(rLedger, identity)
+  } catch {
+    return null
+  }
+  const hasKeys = (Array.isArray(identity.treeAnchors) && identity.treeAnchors.length > 0) || Boolean(identity.threadId)
+  const hasContent = layers.some(layer => layer.error || layer.entries.length > 0)
+  if (!hasKeys && !hasContent) return null
+
+  const render = () => {
+    const lines = ['## Standing requests — the person\'s rules, read at this session\'s start. Obey them until the person edits or deletes them.']
+    for (const layer of layers) lines.push(...standingRequestLayerLines(rLedger, layer))
+    lines.push(REQUEST_CONTRACT_PARAGRAPH)
+    return lines.join('\n')
+  }
+
+  let text = render()
+  if (Buffer.byteLength(text, 'utf8') <= REQUEST_BLOCK_MAX_BYTES) return text
+
+  /* Whole layers first, most specific first: the thread, then tree anchors
+     nearest this session first, then the session layer. */
+  const byScope = scope => layers.filter(layer => layer.scope === scope && !layer.error && layer.entries.length > 0)
+  const candidates = [...byScope('thread'), ...byScope('tree').reverse(), ...byScope('session')]
+  for (const layer of candidates) {
+    if (Buffer.byteLength(text, 'utf8') <= REQUEST_BLOCK_MAX_BYTES) break
+    layer.withheld = true
+    text = render()
+  }
+
+  /* The global layer, last, sheds its OLDEST entries one at a time. The
+     newest always survives: the cap exceeds the per-entry word limit. */
+  const global = layers.find(layer => layer.scope === 'global' && !layer.error)
+  if (global) {
+    while (Buffer.byteLength(text, 'utf8') > REQUEST_BLOCK_MAX_BYTES && global.shed < global.entries.length - 1) {
+      global.shed += 1
+      text = render()
+    }
+  }
+  return text
+}
+
+/* The renderer-supplied scope keys for one start, validated to the bounded
+   shape and nothing else. Keys are IDS the view already holds (the fleet
+   tree's node ids, minted by the store) — never paths, never invented. */
+function normalizeRequestKeys(requestKeys) {
+  if (requestKeys === null || requestKeys === undefined) return null
+  if (typeof requestKeys !== 'object' || Array.isArray(requestKeys)) {
+    fail('AGENT_REQUEST_KEYS_INVALID', 'requestKeys must be an object of scope keys')
+  }
+  const anchors = requestKeys.treeAnchors === undefined ? [] : requestKeys.treeAnchors
+  if (!Array.isArray(anchors) || anchors.length > 16) {
+    fail('AGENT_REQUEST_KEYS_INVALID', 'treeAnchors must be an array of at most 16 ids')
+  }
+  const cleanAnchors = anchors.map(anchor => boundedString(anchor, 'treeAnchors entry', 128))
+  const threadId = requestKeys.threadId === undefined || requestKeys.threadId === null
+    ? null
+    : boundedString(requestKeys.threadId, 'requestKeys.threadId', 128)
+  return Object.freeze({ treeAnchors: Object.freeze(cleanAnchors), threadId })
+}
+
 function engineCandidates(enginePath, { capabilityRoot = resolveCapabilityRoot() } = {}) {
   // An explicit path is useful to embedders and focused tests.
   //
@@ -1199,6 +1384,9 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
   /* The tool-note module, loaded once beside the engines and allowed to be
      absent. See the note at loadToolSummary(). */
   const toolSummary = loadToolSummary(engineRoot)
+  /* The owner's standing-request ledgers, same posture: loaded once, allowed
+     to be absent. See the note at loadRLedger(). */
+  const rLedger = loadRLedger(engineRoot)
   const fallbackCwd = normalizeCwd(defaultCwd, process.cwd())
   /* Resolved PER SESSION rather than once here, so that changing the permission
    * level takes effect on the next agent the user starts instead of on the next
@@ -1605,10 +1793,11 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
    * refusal is added to one, the other quietly re-opens the hole. So the
    * ONLY thing resuming changes is which engine call is made.
    */
-  function startSession({ sessionId, cwd, tier, effort, resumeThreadId = null } = {}) {
+  function startSession({ sessionId, cwd, tier, effort, resumeThreadId = null, requestKeys = null } = {}) {
     assertOpen()
     const startTier = resolveStartTier(tier)
     const sessionEffort = resolveEffort(effort, startTier)
+    const requestIdentity = normalizeRequestKeys(requestKeys)
     if (resumeThreadId !== null && resumeThreadId !== undefined) {
       if (typeof resumeThreadId !== 'string' || resumeThreadId.length === 0 || resumeThreadId.length > 512) {
         fail('AGENT_RESUME_INVALID_THREAD', 'A resume needs the thread id of the conversation to continue.')
@@ -1754,6 +1943,18 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
          does not recompute it: an account changes whose home the credential
          links from, never the recorded level the note describes. */
       pendingToolSummary: resumeId ? null : composeToolSummaryNote(toolSummary, basePlan),
+      /* The standing-request block for the first turn — composed for FRESH
+         AND RESUMED sessions, unlike the note above: a thread rule's whole
+         purpose is surviving a restart of the conversation, so a resume is
+         exactly when it must ride again. Null when the payload has no
+         module, when reading failed, or when a keyless session's world holds
+         no rules — absence stays byte-identical to the product before this
+         existed. */
+      pendingStandingRequests: composeStandingRequestsNote(rLedger, {
+        sessionId: id,
+        treeAnchors: requestIdentity ? requestIdentity.treeAnchors : [],
+        threadId: requestIdentity ? requestIdentity.threadId : null,
+      }),
     }
     // Reserve before the asynchronous engine start so duplicate starts cannot
     // race and leak a second child process.
@@ -2054,9 +2255,15 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
        send, so no failure path can replay it onto a later turn: a lost note is
        an agent that asks what it can do, a replayed one is a transcript that
        repeats itself forever. */
-    const introduction = session.pendingToolSummary || null
-    if (introduction) session.pendingToolSummary = null
-    const outgoingText = introduction ? `${turnText}\n\n${introduction}` : turnText
+    const noteIntroduction = session.pendingToolSummary || null
+    if (noteIntroduction) session.pendingToolSummary = null
+    /* The person's rules ride FIRST among the additions: they are the one
+       section that must not be missed, and the tool note is furniture beside
+       them. Cleared before the send for the same replay reason as the note. */
+    const requestsIntroduction = session.pendingStandingRequests || null
+    if (requestsIntroduction) session.pendingStandingRequests = null
+    const additions = [requestsIntroduction, noteIntroduction].filter(Boolean)
+    const outgoingText = additions.length > 0 ? `${turnText}\n\n${additions.join('\n\n')}` : turnText
 
     /* THIS RESOLVES WHEN THE TURN IS UNDER WAY, NEVER WHEN IT IS OVER. See
        announceTurn() above for the measurement that made the difference matter.
@@ -2313,9 +2520,38 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
     })
   }
 
+  /* FILE ONE STANDING REQUEST — the typed /Request-family command's landing.
+   *
+   * The words are the person's, verbatim; the module appends and never
+   * rewrites. The key is an id the renderer already holds (its own session
+   * id, a tree node id) and the module's own key rule refuses anything
+   * path-shaped. The answer carries NO file path: paths stay main-side, the
+   * confirmation sentence needs only the id and the scope. */
+  async function fileStandingRequest({ scope, key, words } = {}) {
+    assertOpen()
+    if (!rLedger || typeof rLedger.fileRequest !== 'function') {
+      fail('AGENT_REQUEST_UNAVAILABLE', 'This build\'s engine cannot file standing requests, so nothing was filed.')
+    }
+    const chosenScope = typeof scope === 'string' ? scope : ''
+    const ledgerKey = chosenScope === 'global' ? null : (typeof key === 'string' && key.length > 0 ? key : null)
+    try {
+      const filed = rLedger.fileRequest({ scope: chosenScope, key: ledgerKey, words })
+      return Object.freeze({ ok: true, id: filed.id, scope: filed.scope, key: filed.key })
+    } catch (error) {
+      /* The module's own refusal codes cross as AGENT_REQUEST_* so the
+         renderer's tables stay in one vocabulary; anything unshaped becomes
+         the generic refusal rather than leaking an internal message shape. */
+      const code = error && typeof error.code === 'string' && error.code.startsWith('R_LEDGER_')
+        ? `AGENT_REQUEST_${error.code.slice('R_LEDGER_'.length)}`
+        : 'AGENT_REQUEST_REFUSED'
+      fail(code, error && typeof error.message === 'string' ? error.message : 'The request could not be filed.')
+    }
+  }
+
   return Object.freeze({
     startSession,
     sendTurn,
+    fileStandingRequest,
     interrupt,
     rewindSession,
     setSessionEffort,

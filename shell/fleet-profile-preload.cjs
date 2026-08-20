@@ -69,6 +69,10 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
   usage: request => ipcRenderer.invoke('mc-agent:usage', request || {}),
   start: request => ipcRenderer.invoke('mc-agent:start', request),
   send: request => ipcRenderer.invoke('mc-agent:send', request),
+  /* File one standing request (the /Request family). Ids and words only, in
+     both directions: the reply is {ok, id, scope, key} for the confirmation
+     sentence, and no path crosses this bridge. */
+  request: request => ipcRenderer.invoke('mc-agent:request', request),
   /* Native dialogs, driven by the person. pickAttachment issues the chosen
      path to that session's image allowlist in main; pickMention returns a
      path the renderer inserts as TEXT. Both answer {ok, path|null}. */

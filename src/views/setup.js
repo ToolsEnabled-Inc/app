@@ -937,6 +937,12 @@ export function setupView({ navigate = hash => { location.hash = hash } } = {}) 
             <div class="settings-desc">Type: /Request Always ask before spending money. From then on, every agent starts its work knowing that rule.</div>
           </div>
         </article>
+        <article class="settings-row setup-choice">
+          <div class="settings-copy">
+            <div class="settings-name">Two things worth saying out loud</div>
+            <div class="settings-desc">These commands work right in the chat box, where you already talk to an agent. And to point any agent at this computer's tools, just say: “Ok, use ToolsEnabled and …” — agents here are told what that means. <a href="#/guide">The guide has the longer story.</a></div>
+          </div>
+        </article>
       </div>`
   }
 
