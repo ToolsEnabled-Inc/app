@@ -216,9 +216,18 @@ async function pressSettingsTier(window, tier) {
   return window.clickVisible(`[data-setup-profile-set="tier"][data-setup-profile-value="${tier}"]`)
 }
 
+/* The settings groups ship collapsed (settings-ia): the category buttons in
+   the rail are nested under group heads. Open every closed group the way a
+   person does; the open state is remembered on the profile afterwards. */
+async function expandSettingsGroups(window) {
+  await window.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+  await delay(400)
+}
+
 async function openSetupSection(window) {
   const reached = await gotoSettings(window)
   if (reached !== 'clicked' && reached !== 'already-there') return `settings:${reached}`
+  await expandSettingsGroups(window)
   const category = await window.clickVisible('button[data-category="Setup"]')
   if (category !== 'clicked') return `category:${category}`
   await delay(900)
@@ -396,6 +405,7 @@ async function scenarioSettingsFirst(executable, appRoot, scratch) {
     assertIsolated(profile)
     const reached = await gotoSettings(window)
     ledger.check('C1 Settings can be reached', reached === 'clicked' || reached === 'already-there', reached)
+    await expandSettingsGroups(window)
     const category = await window.clickVisible('button[data-category="Research"]')
     ledger.check('C2 the Research section can be opened', category === 'clicked', category)
     await delay(1200)

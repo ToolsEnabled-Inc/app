@@ -380,7 +380,14 @@ async function drive(executable, scratch) {
     await until('the settings page', 'document.querySelector(".settings-page") !== null')
     await until('the first section', 'document.querySelector("[data-chatbox-settings]") !== null')
 
-    const railFirst = await evaluate('document.querySelector(".settings-rail button")?.textContent.trim()')
+    /* The page's groups ship collapsed (settings-ia); open them the way a
+       person does. The open state is remembered on this profile, so every
+       later visit in this run lands open. */
+    await evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+
+    const railFirstGroup = await evaluate('document.querySelector(".settings-rail [data-rail-group]")?.textContent.trim()')
+    check('the first group on the settings page starts with this box', railFirstGroup === 'Start here', String(railFirstGroup))
+    const railFirst = await evaluate('document.querySelector(".settings-rail button[data-category]")?.textContent.trim()')
     check('the first category on the settings page is the one that governs this box', railFirst === 'Home screen', String(railFirst))
     const sectionFirst = await evaluate('document.querySelector(".settings-sections .settings-section")?.dataset.settingsSection')
     check('and it is the first section rendered', sectionFirst === 'Home screen', String(sectionFirst))

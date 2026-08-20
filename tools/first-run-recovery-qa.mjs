@@ -637,6 +637,9 @@ async function main() {
     /* The section a person hunting for the missing switch actually opens, reached
        by pressing its own rail button. Shot separately because the note lives
        under that title and the page opens on a different section entirely. */
+    /* The groups ship collapsed (settings-ia); open them the way a person does. */
+    await evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+    await delay(400)
     const toDataSim = await clickVisible('.settings-rail button[data-category="Data & Sim"]')
     check('the settings rail reaches Data and Sim', toDataSim === 'clicked', String(toDataSim))
     await delay(700)

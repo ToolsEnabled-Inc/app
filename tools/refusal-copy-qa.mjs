@@ -486,7 +486,13 @@ async function main() {
       === 'clicked' && await app.until('the settings screen', `location.hash === '#/settings'`)
     check('Settings is reachable by pressing a control', settingsReached,
       `hash=${await app.evaluate('location.hash')}`)
-    if (settingsReached) await record('settings')
+    if (settingsReached) {
+      /* The groups ship collapsed (settings-ia); open them the way a person
+         does, so the record and the presses below see the whole page. */
+      await app.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+      await delay(500)
+      await record('settings')
+    }
     const doorOffences = seen.filter(entry => entry.found.length > 0)
     check('no screen reached through a door shows a bare identifier either', doorOffences.length === 0,
       doorOffences.map(entry => `${entry.label}: ${entry.found.join(', ')}`).join(' | ') || `${seen.length} screens read in total`)

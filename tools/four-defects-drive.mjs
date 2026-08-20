@@ -120,6 +120,9 @@ async function scenarioA(executable, scratch, appRoot) {
 
     const reached = await gotoSettings(window)
     ledger.check('A1 Settings is reachable by clicking', reached === 'clicked' || reached === 'already-there', String(reached))
+    /* The groups ship collapsed (settings-ia); open them the way a person does. */
+    await window.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+    await delay(400)
     const category = await window.clickVisible('[data-category="Setup"]')
     ledger.check('A2 the Setup category opens', category === 'clicked', String(category))
     await delay(700)

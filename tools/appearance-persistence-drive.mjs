@@ -205,6 +205,10 @@ async function main() {
     } else {
       check('the settings page can be reached by pressing the arrow', true)
       await delay(1500)
+      /* The groups ship collapsed (settings-ia); open them the way a person
+         does, so the presses below land on visible controls. */
+      await window.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+      await delay(600)
       const shown = await window.evaluate(`document.querySelector('[data-setting-id="glow"] input[type="range"]')?.value ?? null`)
       check('the settings page shows what the drawer set', String(shown) === String(back.storedGlow), `row ${shown} vs stored ${back.storedGlow}`)
       await delay(1200)

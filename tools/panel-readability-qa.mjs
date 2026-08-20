@@ -352,6 +352,9 @@ async function enableWriteActions(window, led) {
   led.check('the Settings screen is reachable by clicking, from home, through the drawer',
     opened === 'clicked' || opened === 'already-there', opened)
   await delay(1200)
+  /* The groups ship collapsed (settings-ia); open them the way a person does. */
+  await window.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+  await delay(400)
   await window.clickVisible('.settings-rail button[data-category="Write"]')
   await delay(1000)
   for (let attempt = 0; attempt < 8; attempt += 1) {

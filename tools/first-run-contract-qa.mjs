@@ -781,6 +781,10 @@ async function driveWiring(executable, scratch, attempt) {
       check('and pressing it lands on the settings page', arrived,
         `route=${await evaluate(`document.body.dataset.route || ''`)}`)
       await settle(700, 15000)
+      /* The groups ship collapsed (settings-ia); open them the way a person
+         does, so the probe below sees the controls a person can see. */
+      await evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+      await settle(400, 6000)
     }
 
     const controls = await evaluate(SETTINGS_PROBE)

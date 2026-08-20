@@ -281,6 +281,9 @@ async function main() {
     await closeDrawer(window)
     ledger.check('the first person picks a theme', ownerTheme === 'black', `theme=${ownerTheme}`)
     const toSettings = await gotoSettings(window)
+    /* The groups ship collapsed (settings-ia); open them the way a person does. */
+    await window.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+    await delay(500)
     const ownerSet = await window.clickVisible(
       `[data-setting-id="${OWNER_SETTING.id}"] button[data-setting-value="${OWNER_SETTING.value}"]`)
     await delay(800)
@@ -380,6 +383,10 @@ async function main() {
     const testerTheme2 = await window.evaluate('document.documentElement.dataset.theme')
     await closeDrawer(window)
     await gotoSettings(window)
+    /* A different person may have a different remembered open-state, so the
+       groups are opened again the way this person would. */
+    await window.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+    await delay(500)
     const testerSet = await window.clickVisible(
       `[data-setting-id="${TESTER_SETTING.id}"] button[data-setting-value="${TESTER_SETTING.value}"]`)
     await delay(800)

@@ -1338,6 +1338,9 @@ function copyClaudeSignIn(profile) {
 async function enableWriteAction(open, settingId, label) {
   const reached = await walkTo(open, 'settings')
   if (!reached) return { ok: false, why: 'the settings page was never reached by pressing the arrow' }
+  /* The groups ship collapsed (settings-ia); open them the way a person does. */
+  await open.page.evaluate(`(() => { for (const head of document.querySelectorAll('.settings-group-head[aria-expanded="false"]')) head.click(); return true })()`)
+  await delay(500)
   /* The rail category, pressed. `dispatch` is a depth-1 row, so the section
      alone puts it on screen -- no reveal to open. */
   const category = await press(open, 'button[data-category="Write"]', { settleMs: 1200 })

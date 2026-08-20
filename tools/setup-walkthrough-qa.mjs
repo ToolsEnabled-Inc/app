@@ -301,9 +301,15 @@ async function drive(mode, executable, scratch) {
     for (const row of ['When it needs permission', 'Sessions found in your editor', 'If an account runs out']) {
       check(`"${row}" is reachable after first run`, settings.includes(row))
     }
-    const rail = await evaluate('document.querySelectorAll(".settings-rail button").length')
+    /* The rail is two-level since settings-ia: six group heads over the
+       category buttons. The category buttons are the ones that must each
+       render a section; the heads are counted separately as groups. */
+    const rail = await evaluate('document.querySelectorAll(".settings-rail button[data-category]").length')
     const sections = await evaluate('document.querySelectorAll(".settings-sections .settings-section").length')
     check('every rail category renders a section', rail === sections, `${rail} categories, ${sections} sections`)
+    const groupHeads = await evaluate('document.querySelectorAll(".settings-rail [data-rail-group]").length')
+    const groups = await evaluate('document.querySelectorAll(".settings-sections .settings-group").length')
+    check('every rail group renders a group', groupHeads > 0 && groupHeads === groups, `${groupHeads} heads, ${groups} groups`)
 
     /* ---------- read it back with the engine's own reader ---------- */
     const machineRecord = require_(path.join(REPO_ROOT, 'capability', 'src', 'lib', 'setup', 'machine-record.js'))
