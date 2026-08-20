@@ -578,7 +578,27 @@ test('the payload, when one is staged, still links the credential the probe expe
   const payload = readFileSync(payloadPath, 'utf8')
   assert.match(payload, /process\.env\.CODEX_HOME \|\| path\.join\(require\('node:os'\)\.homedir\(\), '\.codex'\)/,
     'the payload still resolves the user Codex home as CODEX_HOME or ~/.codex; the probe copies that construction')
-  assert.match(payload, /path\.join\(userHome, 'auth\.json'\)/, 'the payload still names auth.json as the credential')
+  /* THE CREDENTIAL NAME MOVED, AND THE INVARIANT DID NOT. This used to match
+     `path.join(userHome, 'auth.json')` in the payload, because that is the
+     construction shell/agent-host.cjs copies at line 726 to decide whether a
+     person is signed out. The payload stopped hardcoding it: linkCredential()
+     now takes `signInFile` as a REQUIRED parameter so one function serves both
+     providers, from the single table multi-account/registry.js keeps.
+
+     So this drift check fired correctly and pointed at a change that is not a
+     defect -- for a Codex home the resolved name is still auth.json, which is
+     what the host probe assumes. Matching the old literal again would just be
+     re-pinning a construction that legitimately moved. Pin the thing the probe
+     actually depends on instead: the registry's name for codex. That is
+     strictly stronger, because the old regex would have stayed green if the
+     registry had started naming something else while a stale literal survived
+     somewhere in the file. */
+  assert.match(payload, /function linkCredential\(userHome, confinedHome, signInFile\)/,
+    'the payload still resolves the credential by a passed name; the host probe copies whatever that resolves to')
+  const registry = readFileSync(resolve(ROOT, 'capability/src/lib/multi-account/registry.js'), 'utf8')
+  assert.match(registry, /codex: Object\.freeze\(\{[^}]*signInFile: 'auth\.json'[^}]*\}\)/,
+    "the registry still names auth.json for a Codex home; shell/agent-host.cjs hardcodes that name to answer"
+    + ' AGENT_CONFINEMENT_SIGNED_OUT, so if this moves the probe reports the wrong sign-in state')
   assert.match(payload, /'AGENT_CONFINEMENT_SIGNED_OUT'/, 'the payload still raises the code the probe reports')
   assert.match(payload, /confinement\.isolated !== true/, 'the payload still builds a confined home only for an isolated level')
 })
