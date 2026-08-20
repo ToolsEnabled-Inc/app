@@ -155,12 +155,45 @@ export const ACTION_LIMITS = Object.freeze({
  * `file_path` for a Read, `command` for a Bash, `pattern` for a search. Each
  * spelling is looked up by name, and a payload with none of them says nothing
  * rather than having its shape guessed at. */
-const DETAIL_KEYS = Object.freeze(['command', 'file_path', 'path', 'pattern', 'url', 'notebook_path', 'server', 'tool'])
+const DETAIL_KEYS = Object.freeze(['command', 'file_path', 'path', 'pattern', 'url', 'notebook_path', 'tool', 'server'])
+
+/* AND THE THIRD SPELLING: an MCP call, whose subject is the TOOL plus what it
+ * was asked for. Measured live on 2026-08-19 by tapping the renderer's own
+ * event stream during a real turn: the engine sends
+ * `{ server: 'toolsenabled', tool: 'task.submit', arguments: {...} }`, and this
+ * function used to answer 'toolsenabled' — because 'server' sat ahead of 'tool'
+ * in the list above — so every product tool call in the chat read as the same
+ * anonymous line. 'tool' now leads 'server' (a server name is the last resort,
+ * not the answer), and the arguments join it here, because a tool name without
+ * them cannot tell two calls apart. Still named keys only: a payload with none
+ * of them says nothing rather than having its shape guessed at. */
+function argumentSummary(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const parts = []
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry === null || entry === undefined) continue
+    const rendered = typeof entry === 'string' ? entry
+      : typeof entry === 'number' || typeof entry === 'boolean' ? String(entry)
+        : Array.isArray(entry) ? `[${entry.length}]`
+          : typeof entry === 'object' ? '{…}' : ''
+    if (rendered === '') continue
+    parts.push(`${key}: ${rendered}`)
+    if (parts.join(' · ').length >= ACTION_LIMITS.maxDetailChars) break
+  }
+  return parts.join(' · ')
+}
 
 function detailFrom(payload) {
   for (const key of DETAIL_KEYS) {
     const value = payload[key]
-    if (typeof value === 'string' && value.length > 0) return value.slice(0, ACTION_LIMITS.maxDetailChars)
+    if (typeof value !== 'string' || value.length === 0) continue
+    /* The tool's own name is worth little alone; what it was asked for is the
+       half a person acts on. Only the tool key earns the arguments — a bare
+       server name stays bare. */
+    const withArguments = key === 'tool'
+      ? [value, argumentSummary(payload.arguments)].filter(Boolean).join(' · ')
+      : value
+    return withArguments.slice(0, ACTION_LIMITS.maxDetailChars)
   }
   return ''
 }
