@@ -420,7 +420,10 @@ export const ENGINE_REASON = Object.freeze({
      remedy and withholds it is choosing to be tidy over being useful. The
      commands themselves live in agent-availability-copy.js so the three screens
      that give them cannot drift apart. */
-  AGENT_CODEX_CLI_NOT_INSTALLED: `Codex is not installed on this computer, and it is the program that runs an agent. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}"`,
+  /* The sign-in goes in a NEW window: the one the install ran in cannot see
+     the new program and calls it not recognized -- the first external user's
+     exact dead end; src/first-run-needs.js carries the full account. */
+  AGENT_CODEX_CLI_NOT_INSTALLED: `Codex is not installed on this computer, and it is the program that runs an agent. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}" in a new terminal window`,
   AGENT_CONFINEMENT_SIGNED_OUT: `Codex is installed but nobody is signed in to it. Run "${CODEX_SETUP_COMMANDS.signIn}" in Windows Terminal, then come back to this screen`,
   CODEX_CLI_NOT_FOUND: `Codex could not be found when a session tried to start it. Run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}"`,
   CODEX_VERSION_DETECTION_FAILED: 'Codex is installed here but did not answer when asked its version, so ToolsEnabled will not build a session on it',

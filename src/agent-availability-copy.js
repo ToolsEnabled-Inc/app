@@ -86,7 +86,12 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      press with a bare identifier. Like the sign-out below this is not a fault
      in the install, so the sentence spends its length on the command rather
      than on an apology. */
-  AGENT_CODEX_CLI_NOT_INSTALLED: 'Codex is not installed on this computer, and Codex is the program that actually runs an agent. Open Windows Terminal and run "winget install OpenAI.Codex". If you already have Node, "npm install -g @openai/codex" does the same job. Then run "codex login"',
+  /* "Then run codex login" used to end here with no window named, and the
+     window a person naturally uses is the one the install just ran in -- which
+     cannot see the new program, and answers that codex is not recognized. That
+     is the exact dead end the first external user hit from the guide's copy of
+     this instruction; src/first-run-needs.js carries the full account. */
+  AGENT_CODEX_CLI_NOT_INSTALLED: 'Codex is not installed on this computer, and Codex is the program that actually runs an agent. Open Windows Terminal and run "winget install OpenAI.Codex". If you already have Node, "npm install -g @openai/codex" does the same job. Then open a new terminal window and run "codex login"',
   /* THE MODULE NAME CAME OUT OF THE SENTENCE. It read "(agent-session-confinement)"
      -- an internal file name, in brackets, in the middle of a sentence to a
      customer. It is a support detail, and the person holding the repository has
@@ -100,7 +105,16 @@ export const UNAVAILABLE_TEXT = Object.freeze({
      probe returns it, and a start that gets past the probe raises the same code
      through plan.code -- which is why the press used to show the bare
      identifier here too. */
-  AGENT_CONFINEMENT_SIGNED_OUT: 'Codex is installed on this computer, but nobody is signed in to it. The permission level recorded here builds each session from that sign-in. Open Windows Terminal, run "codex login", then come back to this screen',
+  /* IT NO LONGER SAYS "CODEX IS INSTALLED", because nothing that raises this
+     code has checked. DRIVEN on a sealed foreign build 2026-08-19 (cross-machine
+     lane): a Claude-only machine with no Codex anywhere pressed Start, the
+     no-tier plan raised this code, and the screen asserted an installation that
+     did not exist -- then told the person to run a command their shell calls
+     not recognized, which is the first external user's exact dead end. What IS
+     measured at raise time is the missing sign-in file, so that is the one fact
+     the sentence states; both ways out are said conditionally because either
+     may be the reader's machine. */
+  AGENT_CONFINEMENT_SIGNED_OUT: 'This session needs a Codex sign-in, and this computer does not hold one. The permission level recorded here builds each session from that sign-in. If Codex is installed, open a new terminal window and run "codex login". If it is not, run "winget install OpenAI.Codex" first. Then come back to this screen',
   /* Same repair as the entry above: "(subscription-launch-env)" was a module
      name printed to a customer. The fact that matters to them is the money. */
   AGENT_LAUNCH_ENVIRONMENT_UNAVAILABLE: 'this copy of ToolsEnabled was built without the part that keeps a session off your billed account. It will not start one and risk charging you. Reinstall ToolsEnabled from a complete build',

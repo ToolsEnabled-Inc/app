@@ -64,7 +64,7 @@ export function codexReadiness({ engine = null, codex = null } = {}) {
   if (codex.known !== true || codex.installed === 'unknown') {
     return block('is-warn', [
       'This copy could not check whether Codex is installed here, so it will not tell you either way.',
-      `Codex is the program that runs an agent. If it is not installed, run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}".`,
+      `Codex is the program that runs an agent. If it is not installed, run "${CODEX_SETUP_COMMANDS.install}" in Windows Terminal, then "${CODEX_SETUP_COMMANDS.signIn}" in a new terminal window.`,
     ])
   }
   if (codex.installed !== 'yes') {
@@ -72,7 +72,10 @@ export function codexReadiness({ engine = null, codex = null } = {}) {
       'Codex is not installed on this computer. It is a separate free program from OpenAI, and it is the thing that actually runs an agent; ToolsEnabled drives it.',
       `Open Windows Terminal and run: ${CODEX_SETUP_COMMANDS.install}`,
       `If you already have Node, this works too: ${CODEX_SETUP_COMMANDS.installWithNode}`,
-      `Then sign in to it: ${CODEX_SETUP_COMMANDS.signIn}`,
+      /* A NEW window, or the sign-in lands in the one the install ran in,
+         which cannot see the new program yet -- the first external user's
+         exact dead end; src/first-run-needs.js carries the full account. */
+      `Then sign in to it, in a new terminal window: ${CODEX_SETUP_COMMANDS.signIn}`,
       FINISH_LATER,
     ])
   }

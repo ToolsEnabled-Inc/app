@@ -558,3 +558,29 @@ test('a sign-in command is never sent to the window its install ran in', () => {
       `"${step.text}" does not say where the command can actually run: "${step.note}"`)
   }
 })
+
+test('the refusal sentences hold the same rule, wherever the instruction appears', async () => {
+  /* The same defect lived in four modules; the guide's two were fixed first and
+     these are the other two. Driven on a sealed foreign build (cross-machine
+     lane, 2026-08-19): the signed-out refusal also ASSERTED "Codex is
+     installed" on a machine where nothing had probed it and nothing was there. */
+  const { UNAVAILABLE_TEXT } = await import('../../src/agent-availability-copy.js')
+  for (const code of ['AGENT_CODEX_CLI_NOT_INSTALLED', 'AGENT_CONFINEMENT_SIGNED_OUT']) {
+    const sentence = UNAVAILABLE_TEXT[code]
+    assert.ok(!/same window/i.test(sentence), `${code} sends a person back to the stale window`)
+    assert.match(sentence, /new terminal window/i, `${code} does not say where "codex login" can actually run`)
+  }
+  /* The ASSERTIVE phrase is what is banned. "If Codex is installed" is the
+     honest conditional and stays; "Codex is installed on this computer" was
+     the claim measured false on a driven Claude-only machine, because the
+     press route raises this code with no probe behind it. */
+  assert.ok(!/Codex is installed on this computer/i.test(UNAVAILABLE_TEXT.AGENT_CONFINEMENT_SIGNED_OUT),
+    'the signed-out refusal claims an installation that nothing at raise time has checked')
+
+  /* The home screen's variant, held by source because that module needs a DOM. */
+  const { readFileSync } = await import('node:fs')
+  const localActivity = readFileSync(new URL('../../src/local-activity.js', import.meta.url), 'utf8')
+  const homeSentence = /AGENT_CODEX_CLI_NOT_INSTALLED: `([^`]+)`/.exec(localActivity)?.[1] || ''
+  assert.ok(homeSentence.length > 0, 'the home screen no longer carries its not-installed sentence')
+  assert.match(homeSentence, /new terminal window/i, 'the home screen variant lost the new-window truth')
+})

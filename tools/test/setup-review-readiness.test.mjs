@@ -73,6 +73,11 @@ test('signed out is said in the words that fix it', () => {
     engine: { known: true, ok: false, code: 'AGENT_CONFINEMENT_SIGNED_OUT' },
     codex: { known: true, installed: 'yes', signedIn: 'no' },
   })
+  /* "Codex is installed" is a fair claim HERE and only here: this module is
+     handed a real presence read and this branch requires installed === 'yes'.
+     The press-refusal route's copy of this sentence had no probe behind it and
+     was measured false on a driven Claude-only machine, so THAT one
+     (UNAVAILABLE_TEXT.AGENT_CONFINEMENT_SIGNED_OUT) no longer asserts it. */
   assert.match(said(block), /nobody is signed in to it/)
   assert.match(said(block), new RegExp(CODEX_SETUP_COMMANDS.signIn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 })
