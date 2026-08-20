@@ -646,20 +646,29 @@ function codexCommandIsMissing() {
  * could have served it. The provider-login lane fixed the refusal's words
  * (6a3ab66); this resolves the routing.
  *
- * CODEX KEEPS THE DEFAULT WHENEVER IT CAN SERVE. A machine with a codex
- * sign-in behaves byte-for-byte as before -- the probe only reroutes when
- * codex demonstrably cannot serve (its program missing, or no sign-in file to
- * link) AND Claude demonstrably can. Every uncertain answer falls back to
- * codex, whose refusal already names the fix; a probe that reroutes on a
- * guess would turn one person's flaky PATH into a silent provider switch.
+ * CODEX KEEPS THE DEFAULT WHENEVER ITS PROGRAM IS ON THE MACHINE, and the
+ * probe reads NOTHING ELSE -- not the sign-in file, and not CODEX_HOME.
+ * Deliberately, twice over:
+ *   - A signed-out-but-installed codex stays codex, because its refusal
+ *     already names the door ("codex login" / the install guide), and a
+ *     silent switch to another provider would answer a sign-in question the
+ *     person never asked.
+ *   - A SET CODEX_HOME is the user's own configuration, and consulting it
+ *     here broke a load-bearing contract the launch-environment suite pins:
+ *     an unrestricted no-tier start with the user's own CODEX_HOME (auth
+ *     file or not) must reach the codex engine carrying that exact value.
+ *     A first draft of this probe read auth.json under CODEX_HOME, decided
+ *     "signed out", and rerouted the start to Claude -- diverting precisely
+ *     the session whose home the scrub goes out of its way to preserve.
+ * So the reroute fires on exactly one machine shape: no codex PROGRAM at all
+ * (the cross-machine lane's Claude-only foreign machine), with Claude
+ * installed. Every uncertain answer falls back to codex, the path this host
+ * has always taken.
  *
- * FILESYSTEM FACTS ONLY, the same rule providerCliPresence() states: the
- * sign-in answer is "a file is where that program keeps its sign-in", never a
- * byte of what is in it, and no child process is spawned at a press. */
+ * FILESYSTEM FACTS ONLY, the same rule providerCliPresence() states, and no
+ * child process is spawned at a press. */
 function defaultStartProviderProbe() {
-  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
-  const codexSignedIn = fs.existsSync(path.join(codexHome, 'auth.json'))
-  if (codexSignedIn && !codexCommandIsMissing()) return 'codex'
+  if (!codexCommandIsMissing()) return 'codex'
   const presence = providerCliPresence()
   const claude = presence && Array.isArray(presence.providers)
     ? presence.providers.find(row => row.id === 'claude')
