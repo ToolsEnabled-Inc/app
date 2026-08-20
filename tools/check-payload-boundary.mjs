@@ -170,6 +170,131 @@ function readList(container, key, where) {
   return value;
 }
 
+// ---------------------------------------------------------------------------
+// ONE PARSER, RUN ONCE PER NAMESPACE.
+//
+// The payload question and the source question classify paths in DIFFERENT
+// COORDINATE SYSTEMS -- payload-relative (inside the staged capability/ tree)
+// versus repo-relative (what `git ls-files` prints) -- and one array cannot
+// answer both. Before this existed, --source asked the payload arrays about
+// repo paths and got "591 of 592 unclassified", which reads as an unclassified
+// repository and is really a manifest without the vocabulary for the question.
+//
+// WORSE THAN THE COUNT: THE ONE FILE IT DID MATCH, IT MATCHED BY ACCIDENT.
+// `package.json` exists in both namespaces and means different files in each --
+// the Electron application at the repo root, the neutral default staged into the
+// payload. The guard reported it `open` under a rule written about the other one.
+// A collision does not announce itself: it classifies the wrong file, silently,
+// under a rule that reads perfectly sensible beside it. config/, tools/, src/ and
+// tests/ all exist in both trees under similar names, so this was the first of a
+// family, not a one-off.
+//
+// WHY A SECTION AND NOT A SECOND FILE. main() already argues it: "a source gate
+// with its own copy of the boundary is a second boundary, and two boundaries
+// disagree the first time only one of them is edited." That reasoning is about
+// the FILE, and it still holds. What it did not anticipate is that one file can
+// still need two namespaces. So: one file, one edit surface, one parser, two
+// vocabularies -- and the validation below is literally the same code for both,
+// rather than a copy that drifts.
+function parseNamespace(parsed, label) {
+    const rules = { excluded: { paths: [], prefixes: [] }, paid: { paths: [], prefixes: [] }, open: { paths: [] } };
+
+    for (const name of CLASSES) {
+      const section = parsed[name];
+      if (section === undefined) continue;
+      if (!section || typeof section !== "object" || Array.isArray(section)) {
+        throw new GuardError(`${MANIFEST_RELATIVE}${label}: "${name}" must be an object.`);
+      }
+      for (const entry of readList(section, "paths", name)) {
+        assertUsablePath(entry, `${name}.paths`);
+        rules[name].paths.push(entry);
+      }
+      // PREFIXES ARE ALLOWED ONLY IN THE DIRECTION THAT FAILS THE BUILD.
+      //
+      // A too-broad `paid` or `excluded` prefix over-matches, which stops a build
+      // and gets noticed and corrected in minutes. A too-broad `open` prefix
+      // under-matches nothing and over-permits everything beneath it -- so the
+      // next paid file dropped into that directory would be classified open by a
+      // rule written before it existed, and would ship. `open` is therefore exact
+      // paths only: every openly-published file is named by a human, once.
+      if (name === "open") {
+        if (section.prefixes !== undefined) {
+          throw new GuardError(
+            `${MANIFEST_RELATIVE}${label}: "open" may not use prefixes. An open prefix would classify files ` +
+              "that do not exist yet, so a paid module added under it later would ship by silence. " +
+              "List open files by exact path.",
+          );
+        }
+        continue;
+      }
+      for (const entry of readList(section, "prefixes", name)) {
+        assertUsablePath(entry, `${name}.prefixes`, { directory: true });
+        rules[name].prefixes.push(entry);
+      }
+    }
+
+    // `pending` is the honest state for "this lane proposes moving it out, the
+    // owner has not ruled, and it is still in the payload today". It reports
+    // loudly on every build and does not fail. Without it, a proposal could only
+    // be expressed by failing the build over a decision nobody has made yet --
+    // and a gate that is red before anyone has done anything wrong is a gate that
+    // gets commented out in week one.
+    const pending = new Map();
+    if (parsed.pending !== undefined) {
+      if (!parsed.pending || typeof parsed.pending !== "object" || Array.isArray(parsed.pending)) {
+        throw new GuardError(`${MANIFEST_RELATIVE}${label}: "pending" must be an object of path -> reason.`);
+      }
+      for (const [entry, reason] of Object.entries(parsed.pending)) {
+        assertUsablePath(entry, "pending");
+        if (typeof reason !== "string" || !reason.trim()) {
+          throw new GuardError(
+            `${MANIFEST_RELATIVE}${label}: pending entry ${JSON.stringify(entry)} has no reason. ` +
+              "A pending item without a stated reason is an unexplained exception, which is how a " +
+              "temporary list becomes permanent.",
+          );
+        }
+        pending.set(entry, reason.trim());
+      }
+    }
+
+    // RATIFICATION MUST FORCE A DECISION ON EVERY PENDING ITEM.
+    //
+    // "The owner has decided" and "these items are undecided" cannot both be
+    // true. Making that contradiction a hard error is the mechanism that turns
+    // his decision into enforcement: flipping status to owner-ratified is
+    // impossible until every pending path has been moved into open, paid or
+    // excluded. Nothing can be ratified by being overlooked.
+    if (parsed.status === STATUS_RATIFIED && pending.size > 0) {
+      throw new GuardError(
+        `${MANIFEST_RELATIVE}${label}: status is ${JSON.stringify(STATUS_RATIFIED)} but ${pending.size} path(s) ` +
+          `are still "pending": ${[...pending.keys()].join(", ")}. A ratified boundary cannot contain ` +
+          "undecided items. Move each into open, paid or excluded.",
+      );
+    }
+
+    // A path in two classes is an ambiguous decision in the one file whose whole
+    // job is to be unambiguous. Precedence would resolve it safely, but silently,
+    // and a boundary that is silently resolved is a boundary nobody can read.
+    const owner = new Map();
+    const claim = (entry, label) => {
+      const previous = owner.get(entry);
+      if (previous && previous !== label) {
+        throw new GuardError(
+          `${MANIFEST_RELATIVE}${label}: ${JSON.stringify(entry)} is declared in both "${previous}" and "${label}". ` +
+            "One path, one class.",
+        );
+      }
+      if (previous === label) {
+        throw new GuardError(`${MANIFEST_RELATIVE}${label}: ${JSON.stringify(entry)} is listed twice in "${label}".`);
+      }
+      owner.set(entry, label);
+    };
+    for (const name of CLASSES) for (const entry of rules[name].paths) claim(entry, name);
+    for (const entry of pending.keys()) claim(entry, "pending");
+
+  return { rules, pending };
+}
+
 function loadManifest(file) {
   if (!existsSync(file)) {
     throw new GuardError(
@@ -198,102 +323,23 @@ function loadManifest(file) {
     );
   }
 
-  const rules = { excluded: { paths: [], prefixes: [] }, paid: { paths: [], prefixes: [] }, open: { paths: [] } };
+  const { rules, pending } = parseNamespace(parsed, "");
 
-  for (const name of CLASSES) {
-    const section = parsed[name];
-    if (section === undefined) continue;
-    if (!section || typeof section !== "object" || Array.isArray(section)) {
-      throw new GuardError(`${MANIFEST_RELATIVE}: "${name}" must be an object.`);
-    }
-    for (const entry of readList(section, "paths", name)) {
-      assertUsablePath(entry, `${name}.paths`);
-      rules[name].paths.push(entry);
-    }
-    // PREFIXES ARE ALLOWED ONLY IN THE DIRECTION THAT FAILS THE BUILD.
-    //
-    // A too-broad `paid` or `excluded` prefix over-matches, which stops a build
-    // and gets noticed and corrected in minutes. A too-broad `open` prefix
-    // under-matches nothing and over-permits everything beneath it -- so the
-    // next paid file dropped into that directory would be classified open by a
-    // rule written before it existed, and would ship. `open` is therefore exact
-    // paths only: every openly-published file is named by a human, once.
-    if (name === "open") {
-      if (section.prefixes !== undefined) {
-        throw new GuardError(
-          `${MANIFEST_RELATIVE}: "open" may not use prefixes. An open prefix would classify files ` +
-            "that do not exist yet, so a paid module added under it later would ship by silence. " +
-            "List open files by exact path.",
-        );
-      }
-      continue;
-    }
-    for (const entry of readList(section, "prefixes", name)) {
-      assertUsablePath(entry, `${name}.prefixes`, { directory: true });
-      rules[name].prefixes.push(entry);
-    }
-  }
-
-  // `pending` is the honest state for "this lane proposes moving it out, the
-  // owner has not ruled, and it is still in the payload today". It reports
-  // loudly on every build and does not fail. Without it, a proposal could only
-  // be expressed by failing the build over a decision nobody has made yet --
-  // and a gate that is red before anyone has done anything wrong is a gate that
-  // gets commented out in week one.
-  const pending = new Map();
-  if (parsed.pending !== undefined) {
-    if (!parsed.pending || typeof parsed.pending !== "object" || Array.isArray(parsed.pending)) {
-      throw new GuardError(`${MANIFEST_RELATIVE}: "pending" must be an object of path -> reason.`);
-    }
-    for (const [entry, reason] of Object.entries(parsed.pending)) {
-      assertUsablePath(entry, "pending");
-      if (typeof reason !== "string" || !reason.trim()) {
-        throw new GuardError(
-          `${MANIFEST_RELATIVE}: pending entry ${JSON.stringify(entry)} has no reason. ` +
-            "A pending item without a stated reason is an unexplained exception, which is how a " +
-            "temporary list becomes permanent.",
-        );
-      }
-      pending.set(entry, reason.trim());
-    }
-  }
-
-  // RATIFICATION MUST FORCE A DECISION ON EVERY PENDING ITEM.
+  // THE SOURCE NAMESPACE. Optional in the file, REQUIRED by --source.
   //
-  // "The owner has decided" and "these items are undecided" cannot both be
-  // true. Making that contradiction a hard error is the mechanism that turns
-  // his decision into enforcement: flipping status to owner-ratified is
-  // impossible until every pending path has been moved into open, paid or
-  // excluded. Nothing can be ratified by being overlooked.
-  if (parsed.status === STATUS_RATIFIED && pending.size > 0) {
-    throw new GuardError(
-      `${MANIFEST_RELATIVE}: status is ${JSON.stringify(STATUS_RATIFIED)} but ${pending.size} path(s) ` +
-        `are still "pending": ${[...pending.keys()].join(", ")}. A ratified boundary cannot contain ` +
-        "undecided items. Move each into open, paid or excluded.",
-    );
+  // Absent is not empty and must never resolve to "nothing is classified".
+  // runSourceMode() refuses outright when this is missing, because the
+  // alternative -- classifying every tracked file against payload rules -- is
+  // exactly the misleading answer this section exists to remove.
+  let source = null;
+  if (parsed.source !== undefined) {
+    if (!parsed.source || typeof parsed.source !== "object" || Array.isArray(parsed.source)) {
+      throw new GuardError(`${MANIFEST_RELATIVE}: "source" must be an object.`);
+    }
+    source = parseNamespace(parsed.source, ' "source"');
   }
 
-  // A path in two classes is an ambiguous decision in the one file whose whole
-  // job is to be unambiguous. Precedence would resolve it safely, but silently,
-  // and a boundary that is silently resolved is a boundary nobody can read.
-  const owner = new Map();
-  const claim = (entry, label) => {
-    const previous = owner.get(entry);
-    if (previous && previous !== label) {
-      throw new GuardError(
-        `${MANIFEST_RELATIVE}: ${JSON.stringify(entry)} is declared in both "${previous}" and "${label}". ` +
-          "One path, one class.",
-      );
-    }
-    if (previous === label) {
-      throw new GuardError(`${MANIFEST_RELATIVE}: ${JSON.stringify(entry)} is listed twice in "${label}".`);
-    }
-    owner.set(entry, label);
-  };
-  for (const name of CLASSES) for (const entry of rules[name].paths) claim(entry, name);
-  for (const entry of pending.keys()) claim(entry, "pending");
-
-  return { status: parsed.status, rules, pending };
+  return { status: parsed.status, rules, pending, source };
 }
 
 // ---------------------------------------------------------------------------
@@ -525,8 +571,27 @@ function runSourceMode(boundary, options) {
     throw new GuardError(`nothing to check: git tracks 0 files in ${repository}`);
   }
 
+  // REFUSE RATHER THAN ANSWER IN THE WRONG VOCABULARY.
+  //
+  // Without a "source" section this guard used to classify repo paths against
+  // the PAYLOAD arrays and report a number. The number was meaningless and did
+  // not look meaningless, which is the worst combination a gate can produce:
+  // it was quoted as a backlog for weeks. Exit 2 is a guard error, not a
+  // verdict, and that is the honest shape here -- the guard cannot answer.
+  if (!boundary.source) {
+    throw new GuardError(
+      `${MANIFEST_RELATIVE} has no "source" section, so the publish question cannot be answered ` +
+        "for this repository. The classes at the top level classify PAYLOAD-relative paths " +
+        "(inside the staged capability tree); --source asks about REPO-relative paths from " +
+        "`git ls-files`. Those are different vocabularies and one cannot stand in for the " +
+        "other: a payload rule that happens to match a repo path classifies the wrong file. " +
+        "Add a \"source\" section with its own open/paid/excluded/pending, then re-run.",
+    );
+  }
+  const namespace = boundary.source;
+
   const found = { excluded: [], paid: [], unclassified: [], pending: [], open: [] };
-  for (const file of tracked) found[classify(file, boundary).klass].push(file);
+  for (const file of tracked) found[classify(file, namespace).klass].push(file);
 
   // History is asked only about the RESTRICTIVE classes. Requiring every path
   // that ever existed to be classified would be unmeetable -- history holds
@@ -536,7 +601,7 @@ function runSourceMode(boundary, options) {
   const history = historicalPaths(repository);
   const historyHits = [];
   for (const file of [...history.keys()].sort()) {
-    const verdict = classify(file, boundary);
+    const verdict = classify(file, namespace);
     if (verdict.klass !== "paid" && verdict.klass !== "excluded") continue;
     historyHits.push({ path: file, klass: verdict.klass, rule: verdict.rule, versions: history.get(file) });
   }

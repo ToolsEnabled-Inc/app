@@ -77,14 +77,49 @@ function commit(dir, message) {
 // next time either changed, with nothing about the gate having moved. The live
 // manifest is still exercised by the last test in this file, which is where a
 // real drift should surface.
+// THE CLASSES GO UNDER `source`, AND THAT IS THE POINT OF THE FIXTURE.
+//
+// These are REPO-relative paths -- 'src/lib/entitlement.js', 'README.md' -- and
+// repo-relative paths are the source namespace's vocabulary. They were written at
+// the top level, where the PAYLOAD classes live, and --source read them from there
+// because it had nowhere else to look. That worked in the fixture and did not work
+// on the live repository: the payload classes name paths inside the staged
+// capability tree, so against a real checkout every tracked file came back
+// unclassified except one that collided by name.
+//
+// A fixture that puts repo paths at the top level is asserting a contract the live
+// manifest cannot satisfy, which is why these tests stayed green for weeks over a
+// gate that could not answer. Writing them where they belong makes the fixture and
+// the live file the same shape.
 function fixtureManifest(dir, { pending = {}, open = [], paid = [], excluded = [] } = {}) {
   const file = path.join(path.dirname(dir), `${path.basename(dir)}-manifest.json`)
   writeFileSync(file, `${JSON.stringify({
     schemaVersion: 1,
     status: 'proposed',
-    excluded: { paths: excluded, prefixes: [] },
+    // The payload namespace, deliberately left empty: nothing here should reach a
+    // --source verdict, and a fixture that populated both would not prove that.
+    excluded: { paths: [], prefixes: [] },
+    paid: { paths: [], prefixes: [] },
+    open: { paths: [] },
+    source: {
+      excluded: { paths: excluded, prefixes: [] },
+      paid: { paths: paid, prefixes: [] },
+      pending,
+      open: { paths: ['README.md', ...open] },
+    },
+  }, null, 2)}\n`)
+  return file
+}
+
+// A manifest with NO source namespace -- the state every repository is in before
+// anyone classifies it, and the state the live app manifest was in.
+function manifestWithoutSourceNamespace(dir, { open = [], paid = [] } = {}) {
+  const file = path.join(path.dirname(dir), `${path.basename(dir)}-nosource.json`)
+  writeFileSync(file, `${JSON.stringify({
+    schemaVersion: 1,
+    status: 'proposed',
+    excluded: { paths: [], prefixes: [] },
     paid: { paths: paid, prefixes: [] },
-    pending,
     open: { paths: ['README.md', ...open] },
   }, null, 2)}\n`)
   return file
@@ -278,5 +313,74 @@ test('the LIVE manifest classifies the vendor licence-issuance modules as paid',
   for (const paid of ['src/lib/tool-packs/vendor-license-issuance.js', 'tools/entitlement.js']) {
     assert.ok(manifest.paid.paths.includes(paid), `${paid} must be classified paid: it needs the private licence signing key or a paid module`)
     assert.ok(!manifest.open.paths.includes(paid), `${paid} must never be open`)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// The refusal that replaced a misleading number.
+// ---------------------------------------------------------------------------
+
+test('--source REFUSES a manifest with no source namespace, rather than answering in payload vocabulary', async () => {
+  const dir = repository()
+  try {
+    // Every path here is repo-relative and every class is at the top level, so the
+    // old guard would have classified against payload rules and printed a verdict.
+    // A verdict is the wrong output: the manifest has no vocabulary for this
+    // question, and a number that looks like an answer is worse than no answer --
+    // this exact shape was quoted as "591 of 592 files unclassified" for weeks and
+    // read as a classification backlog rather than as a guard that could not speak.
+    write(dir, 'README.md', '# fixture\n')
+    write(dir, 'src/lib/entitlement.js', 'module.exports = {}\n')
+    commit(dir, 'seed')
+
+    const manifest = manifestWithoutSourceNamespace(dir)
+    const result = await gate(['--source', dir, '--manifest', manifest])
+
+    // Exit 2 is a GUARD ERROR, not a verdict, and that distinction is the fix.
+    assert.equal(result.code, 2, `missing source namespace must be a guard error, got ${result.code}`)
+    assert.match(result.out, /no "source" section/)
+    assert.match(result.out, /REPO-relative/)
+    // It must not print a classification line, because it classified nothing.
+    assert.doesNotMatch(result.out, /unclassified=\d/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a payload rule cannot classify a repo file: the two namespaces do not leak', async () => {
+  const dir = repository()
+  try {
+    // package.json is the real collision found on 2026-08-20: it exists in both
+    // namespaces and means a different file in each -- the Electron application at
+    // the repo root, the neutral default staged into the payload. The guard once
+    // reported the repo-root one as open under a rule written about the other.
+    writeFileSync(path.join(dir, 'package.json'), '{"name":"fixture"}\n')
+    commit(dir, 'add package.json')
+
+    const file = path.join(path.dirname(dir), `${path.basename(dir)}-collision.json`)
+    writeFileSync(file, `${JSON.stringify({
+      schemaVersion: 1,
+      status: 'proposed',
+      excluded: { paths: [], prefixes: [] },
+      paid: { paths: [], prefixes: [] },
+      // The PAYLOAD namespace calls package.json open. It is talking about a
+      // different file, and it must not be heard by the source question.
+      open: { paths: ['package.json'] },
+      source: {
+        excluded: { paths: [], prefixes: [] },
+        paid: { paths: [], prefixes: [] },
+        pending: {},
+        open: { paths: ['README.md'] },
+      },
+    }, null, 2)}\n`)
+
+    const result = await gate(['--source', dir, '--manifest', file])
+    assert.equal(result.code, 1, 'an unclassified repo file must refuse the publish')
+    // The proof: package.json is named as UNCLASSIFIED despite the payload rule
+    // calling it open. If the namespaces leaked, it would be silently open.
+    assert.match(result.out, /package\.json/)
+    assert.match(result.out, /UNCLASSIFIED/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
