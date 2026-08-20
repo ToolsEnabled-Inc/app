@@ -1334,6 +1334,36 @@ function confinementPlanFor(planner, { provider = 'codex', account = null } = {}
        every other option here has. */
     return planner.confinedSessionPlan(account ? { account } : {})
   }
+  /* THE CLAUDE PLAN IS THE PAYLOAD'S OWN, when the payload can build one.
+   * claudeToolsSessionPlan() writes the generated `.mcp.json` for the recorded
+   * level and the `settings.json` grant beside it, and its plan carries what
+   * the Claude engine takes as ARGUMENTS -- `mcpConfig` (--mcp-config, with
+   * --strict-mcp-config), `settings` (--settings, without which every
+   * configured tool answers permission-not-granted in a --print session) and
+   * `claudePermissionMode` (--permission-mode) -- plus `servers`, which is what
+   * lets composeToolSummaryNote() stop refusing the note to Claude sessions.
+   *
+   * WHAT THIS ENDS, measured from inside the product on 2026-08-19: a Claude
+   * session spawned with no --mcp-config -- "no ToolsEnabled MCP server is
+   * connected", the session's own words. That is the defect the first external
+   * user hit, and this fixes it WITHOUT touching a credential: `configDir` is
+   * null, no CLAUDE_CONFIG_DIR is set, and no sign-in is linked anywhere.
+   *
+   * WHAT IT DELIBERATELY DOES NOT END. With no CLAUDE_CONFIG_DIR the CLI still
+   * resolves the owner's own ~/.claude and reads his global CLAUDE.md. The
+   * payload CAN close that -- confinedClaudeSessionPlan() builds a confined
+   * home and links the sign-in into it -- and it is deliberately NOT called
+   * here: that link forks on the confined session's own token refresh and can
+   * leave the person's own home holding a superseded refresh token, which with
+   * provider-side rotation ends their terminal sign-in. A known privacy defect
+   * is accepted over an account-loss one until that question is settled.
+   *
+   * A payload that predates the export falls through to the shape below --
+   * today's session, no tools -- rather than refusing to start anything, the
+   * same rule every payload module here follows. */
+  if (typeof planner.claudeToolsSessionPlan === 'function') {
+    return planner.claudeToolsSessionPlan(account ? { account } : {})
+  }
   const resolved = planner.resolveAgentConfinement({})
   if (!resolved || typeof resolved !== 'object') {
     return { ok: false, code: 'AGENT_CONFINEMENT_UNAVAILABLE' }
@@ -2113,11 +2143,27 @@ function createAgentHost({ enginePath, defaultCwd = process.cwd(), confinementPl
           // it still means: sandbox danger-full-access, the widest reach the
           // engine offers; isolation is about whose home, not about reach.
           env: sessionEnv,
-          /* WHICH SIGN-IN, for the engine that takes it as an argument rather
-             than as an environment variable. Omitted entirely when no account
-             was chosen, so the child signs itself in exactly as it does in the
-             person's own terminal -- the path that is proven to work. */
-          ...(useClaude && plan.configDir ? { configDir: plan.configDir } : {}),
+          /* THE PLAN TRAVELS WHOLE, AND THAT IS THE JOIN. A payload that can
+             build a tool surface (its plan carries an `mcpConfig` field) hands
+             the engine ONE object -- mcpConfig (the generated tool file, passed
+             as --mcp-config with --strict-mcp-config), settings (the grant,
+             passed as --settings, without which those servers connect and then
+             refuse every call) and claudePermissionMode (the recorded level's
+             own CLI word). Measured 2026-08-19: the tool file WITHOUT the grant
+             is a session whose tools are advertised and can never run, which
+             looks like success. The engine reads the fields from the one
+             object, so they cannot be recombined from different plans.
+
+             The shipped plan's configDir is null and the engine sets no
+             CLAUDE_CONFIG_DIR, so this hands over nothing that can reach the
+             person's own sign-in.
+
+             An OLDER payload's plan has no mcpConfig field and its engine has
+             no plan seam; it keeps taking configDir alone -- the account's
+             own home when one was chosen -- exactly as it always did. */
+          ...(useClaude && 'mcpConfig' in plan
+            ? { plan }
+            : useClaude && plan.configDir ? { configDir: plan.configDir } : {}),
           onEvent: (event) => emit(session, event),
         })
         // Retain a usable close handle before validating the rest of the

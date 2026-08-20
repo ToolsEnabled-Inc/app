@@ -53,6 +53,7 @@ import {
   reap,
   seedMachineRecord,
   stage,
+  userDataFor,
 } from './test-account-harness.mjs'
 
 const ENGINE_SOURCE = 'C:/lanes/free-cut-engine-src/src/lib'
@@ -219,9 +220,22 @@ async function drivePhase(label, staged, prompt, watchFor) {
         const asked = ${JSON.stringify(prompt.slice(0, 60))}
         const leaves = [...document.querySelectorAll('*')].filter(n => n.children.length === 0 && !inForm(n)
           && !String(n.textContent || '').includes(asked))
+        /* THE WINDOW FOLLOWS THE NEEDLE, and that is a harness fix, not a
+           preference. A leaf matched on its FULL text and was then recorded as
+           its first 160 characters, so an answer that reached the watched token
+           later than that -- any answer with a sentence in front of it -- was
+           counted as a hit here and then failed the value check downstream,
+           which reads hit.text. A real memory round trip was reported as none. */
         const spokenWith = needle => leaves
           .filter(n => String(n.textContent || '').includes(needle))
-          .map(n => ({ cls: String(n.className || '').slice(0, 40), text: String(n.textContent || '').trim().slice(0, 160) }))
+          .map(n => {
+            const full = String(n.textContent || '').trim()
+            const at = full.indexOf(needle)
+            return {
+              cls: String(n.className || '').slice(0, 40),
+              text: full.slice(Math.max(0, at - 40), at + 200)
+            }
+          })
         const panelText = (document.querySelector('.computers') || document.body).innerText || ''
         return {
           watched: Object.fromEntries(${JSON.stringify(watchFor)}.map(w => [w, spokenWith(w)])),
@@ -356,10 +370,17 @@ async function main() {
         ? `[b] the transcript's own action rows: ${JSON.stringify(transcriptRows.slice(0, 4))}`
         : '[b] the confined transcript records no memory tool calls; whatever was on the glass, no product tool ran')
 
-    /* Where the memory PERSISTED: the profile's product state, with the
-       confined home excluded -- the transcript inside it naturally repeats the
-       prompt, and an earlier draft of this file counted exactly that echo as
-       proof. Only a hit OUTSIDE the agent homes is the product's own record. */
+    /* Where the memory PERSISTED: the product's OWN state root, which is
+       userData/capability -- shell/main.cjs sets TOOLSENABLED_STATE_ROOT to
+       exactly that before the first capability require, and the driver runs the
+       app with --user-data-dir=<profile>/userdata. This used to walk
+       <profile>/local (LOCALAPPDATA), which holds the machine record and the
+       agent homes but NOT the state the product writes memory into -- so the
+       check could only ever report "did not persist", whatever the tool did.
+       The agent-home exclusion below is kept as a guard rather than a
+       necessity: those homes live under local/, outside the tree now walked,
+       and the confined transcript inside one of them repeats the prompt --
+       an earlier draft of this file counted exactly that echo as proof. */
     const stateHits = []
     const agentHomes = path.join(fixed.profile, 'local', 'ToolsEnabled', 'agent-home')
     const walk = dir => {
@@ -373,7 +394,7 @@ async function main() {
         } catch { /* unreadable is not evidence */ }
       }
     }
-    try { walk(path.join(fixed.profile, 'local')) } catch { /* no state tree */ }
+    try { walk(path.join(userDataFor(fixed.profile), 'capability', 'state')) } catch { /* no state tree */ }
     note(stateHits.length > 0 ? 'ok' : 'FAIL',
       stateHits.length > 0
         ? `[b] the memory write persisted in the profile's own product state: ${stateHits.map(h => path.relative(fixed.profile, h)).join(', ')}`

@@ -43,21 +43,36 @@ const planner = require_(path.join(PAYLOAD, 'src', 'lib', 'agent-session-confine
 const machineRecord = require_(path.join(PAYLOAD, 'src', 'lib', 'setup', 'machine-record.js'))
 const { confinementPlanFor } = require_(path.join(REPO, 'shell', 'agent-host.cjs'))
 
+/* WHETHER THE PAYLOAD UNDER TEST CAN BUILD A CONFINED CLAUDE HOME. The pinned
+   payload is repacked by the coordinator, never hand-edited here, so this file
+   must be true of BOTH the payload that predates confinedClaudeSessionPlan()
+   and the one that carries it. Every Claude assertion below branches on this
+   single fact rather than on a guess about the pin. */
+const payloadBuildsToolSurface = typeof planner.claudeToolsSessionPlan === 'function'
+
 /* A whole machine, in a temporary directory: a recorded permission level, a
-   workspace, and a Codex home that either holds a sign-in or does not. */
-function withMachine({ tier = 'standard', codexSignedIn = false }, run) {
+   workspace, and provider homes that either hold a sign-in or do not.
+   CLAUDE_CONFIG_DIR is pinned to scratch for the same reason CODEX_HOME is:
+   a payload that builds confined Claude homes links the sign-in FROM the
+   ambient claude home, and a test must never reach a real one. */
+function withMachine({ tier = 'standard', codexSignedIn = false, claudeSignedIn = false }, run) {
   const scratch = mkdtempSync(path.join(tmpdir(), 'mc-provider-plan-'))
   const localAppData = path.join(scratch, 'local')
   const servicesRoot = path.join(localAppData, 'ToolsEnabled')
   const workspace = path.join(scratch, 'workspace')
   const codexHome = path.join(scratch, 'codex-home')
+  const claudeHome = path.join(scratch, 'claude-home')
   mkdirSync(servicesRoot, { recursive: true })
   mkdirSync(workspace, { recursive: true })
   mkdirSync(codexHome, { recursive: true })
+  mkdirSync(claudeHome, { recursive: true })
   if (codexSignedIn) {
     /* Inert bytes. linkCredential() links the FILE and never reads it, so this
        proves the gate is about presence -- which is all the product ever knew. */
     writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({ note: 'not a credential' }))
+  }
+  if (claudeSignedIn) {
+    writeFileSync(path.join(claudeHome, '.credentials.json'), JSON.stringify({ note: 'not a credential' }))
   }
   const record = machineRecord.buildMachineRecord({
     tier,
@@ -68,11 +83,16 @@ function withMachine({ tier = 'standard', codexSignedIn = false }, run) {
   })
   machineRecord.writeMachineRecord(record, { servicesRoot })
 
-  const previous = { LOCALAPPDATA: process.env.LOCALAPPDATA, CODEX_HOME: process.env.CODEX_HOME }
+  const previous = {
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+    CODEX_HOME: process.env.CODEX_HOME,
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  }
   process.env.LOCALAPPDATA = localAppData
   process.env.CODEX_HOME = codexHome
+  process.env.CLAUDE_CONFIG_DIR = claudeHome
   try {
-    return run({ scratch, servicesRoot, codexHome })
+    return run({ scratch, servicesRoot, codexHome, claudeHome })
   } finally {
     for (const [name, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[name]
@@ -94,7 +114,11 @@ test('a machine with no Codex sign-in still refuses a Codex start, by name', () 
 })
 
 test('the same machine plans a Claude session, at the level the person recorded', () => {
-  withMachine({ codexSignedIn: false, tier: 'standard' }, () => {
+  /* claudeSignedIn matters only to a payload that builds confined Claude
+     homes: that payload links the person's sign-in into a home this
+     installation owns, and refuses honestly when there is nothing to link.
+     The older payload never looks. */
+  withMachine({ codexSignedIn: false, claudeSignedIn: true, tier: 'standard' }, ({ servicesRoot }) => {
     const plan = confinementPlanFor(planner, { provider: 'claude' })
     assert.equal(plan.ok, true, 'a Claude start is still gated on a Codex credential it never reads')
     assert.equal(plan.tier, 'standard')
@@ -108,8 +132,56 @@ test('the same machine plans a Claude session, at the level the person recorded'
     assert.equal(plan.threadOptions.approvalPolicy, 'never')
     /* No Codex home is prepared and none is pinned: the Claude child ignores
        CODEX_HOME, and building one would mean opening a credential to link. */
-    assert.equal(plan.codexHome, null)
+    assert.equal(plan.codexHome ?? null, null)
     assert.equal(plan.env, null)
+    if (payloadBuildsToolSurface) {
+      /* THE LEAK THIS PLAN ENDS, measured from inside the product on
+         2026-08-19: a session spawned with no --mcp-config -- "no ToolsEnabled
+         MCP server is connected", its own words. The plan must name the
+         generated tool file for the recorded level AND the grant beside it,
+         without which those servers connect and then refuse every call.
+
+         AND WHAT IT MUST NOT DO: name a home. configDir stays null, so the
+         engine sets no CLAUDE_CONFIG_DIR and no sign-in is carried anywhere.
+         The owner's global CLAUDE.md still reaches the session -- an accepted
+         privacy defect, taken over the credential fork that closing it opens. */
+      const surface = path.join(servicesRoot, 'agent-tools', 'claude', 'standard')
+      assert.equal(plan.configDir, null, 'the shipped plan named a home; nothing may relocate the session')
+      assert.equal(plan.mcpConfig, path.join(surface, '.mcp.json'))
+      assert.equal(plan.settings, path.join(surface, 'settings.json'))
+      assert.ok(Array.isArray(plan.servers) && plan.servers.length > 0,
+        'the plan carries no servers, so the tool note stays refused and the session has no product tools')
+      /* The recorded level's CLI mode rides the same plan object, so the one
+         level has one reader -- the engine passes it as --permission-mode. */
+      assert.equal(plan.claudePermissionMode, 'acceptEdits')
+    } else {
+      /* The older payload plans from the recorded level alone: no home, no
+         tool file, and the session reads the ambient claude home. That is the
+         measured defect this lane fixed engine-side; the pinned payload keeps
+         its own behaviour until the coordinator repacks. */
+      assert.equal(plan.configDir ?? null, null)
+      assert.equal(plan.mcpConfig ?? null, null)
+    }
+  })
+})
+
+test('a machine with no Claude sign-in still gets its tools, because none of this reads a credential', () => {
+  /* THE SHIPPED PATH TOUCHES NO SIGN-IN AT ALL, and this is where that becomes
+     visible: with no Claude credential anywhere, the plan still succeeds and
+     still carries the level's tools. The session signs itself in exactly as it
+     does in the person's own terminal, which is the proven path. A payload that
+     predates the tool surface plans nothing, as it always did. */
+  withMachine({ codexSignedIn: false, claudeSignedIn: false, tier: 'standard' }, () => {
+    const plan = confinementPlanFor(planner, { provider: 'claude' })
+    if (payloadBuildsToolSurface) {
+      assert.equal(plan.ok, true, 'a missing Claude sign-in blocked a plan that never reads one')
+      assert.equal(plan.configDir, null)
+      assert.ok(typeof plan.mcpConfig === 'string' && plan.mcpConfig.length > 0)
+      assert.ok(typeof plan.settings === 'string' && plan.settings.length > 0)
+    } else {
+      assert.equal(plan.ok, true)
+      assert.equal(plan.configDir ?? null, null)
+    }
   })
 })
 
@@ -119,7 +191,7 @@ test('every recorded level reaches the Claude plan with its own ceiling', () => 
      the person's own answer. */
   const seen = {}
   for (const tier of ['guided', 'standard', 'unrestricted']) {
-    withMachine({ codexSignedIn: false, tier }, () => {
+    withMachine({ codexSignedIn: false, claudeSignedIn: true, tier }, () => {
       const plan = confinementPlanFor(planner, { provider: 'claude' })
       assert.equal(plan.ok, true, `${tier} could not plan a Claude session`)
       seen[tier] = plan.threadOptions.sandbox
