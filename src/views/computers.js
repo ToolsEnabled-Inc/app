@@ -2800,6 +2800,40 @@ export function computersView({ initialComputer = null, navigate }) {
     if (composePanel?.isOpen?.()) composePanel.open({ folders: composeFolders })
   }
 
+  /* WHERE A START THAT NAMES NO FOLDER REALLY RUNS, ASKED OF THE PROCESS THAT
+   * DECIDES IT.
+   *
+   * shell/main.cjs resolves a start with no profileId through
+   * chosenWorkspaceCwd(): the folder the person answered the setup question
+   * with, and <userData>\workspace only on a machine where nobody was ever
+   * asked. The panel above was still telling everyone the second answer.
+   * Measured on the packaged build, two runs, same panel sentence:
+   *
+   *   finished setup, took the suggested folder   signed record cwd = that folder
+   *   skipped setup, nobody was ever asked        signed record cwd = null
+   *
+   * `chosen` IS THE GATE, and it is the same gate the shell uses -- setup picks
+   * a default folder silently before the question is shown, so the mere presence
+   * of a root proves nothing about whether anyone answered. Anything less than a
+   * clean, available, chosen reading leaves this empty, which is exactly the
+   * sentence this panel drew before the setup folder was honoured.
+   *
+   * Read ONCE per mount, like readComposeFolders() and readStartableTiers():
+   * it is a property of this computer, not of the press. */
+  let composeDefaultFolder = ''
+  async function readComposeDefaultFolder() {
+    const bridge = typeof window === 'undefined' ? null : window.mcSetup
+    if (!bridge || typeof bridge.workspaceState !== 'function') return
+    let answer = null
+    try { answer = await bridge.workspaceState() } catch { answer = null }
+    if (destroyed) return
+    const roots = answer && answer.ok === true && answer.available === true && answer.chosen === true
+      && Array.isArray(answer.roots) ? answer.roots : []
+    const first = roots.find(entry => typeof entry === 'string' && entry.trim() !== '')
+    composeDefaultFolder = first ? first.trim() : ''
+    if (composePanel?.isOpen?.()) composePanel.open({ defaultFolder: composeDefaultFolder })
+  }
+
   /* Remembered posture, not a setting -- the same rule src/settings-presentation.js
      states for its own open-groups memory: it "grants nothing, gates nothing, and
      the settings footer does not count it". This decides which row a menu OPENS
@@ -2896,6 +2930,11 @@ export function computersView({ initialComputer = null, navigate }) {
          second register of folders kept beside the first. */
       folders: composeFolders,
       folderSelectedId: lastComposeFolder(),
+      /* AND WHERE "NAME NO FOLDER" ACTUALLY LANDS ON THIS COMPUTER — see
+         readComposeDefaultFolder(). Asked of the shell for the same reason the
+         engine rows and the confinement line are: only the main process knows,
+         and the renderer must not guess. */
+      defaultFolder: composeDefaultFolder,
       /* WHAT THE SESSION THIS BUTTON STARTS MAY DO -- see
          readComposeConfinement(). Empty until that read answers, and empty
          renders nothing rather than something comfortable. */
@@ -3240,6 +3279,7 @@ export function computersView({ initialComputer = null, navigate }) {
        first empty node is pressed. */
     void readStartableTiers()
     void readComposeFolders()
+    void readComposeDefaultFolder()
     void readComposeConfinement()
     /* THE PANEL THE PERSON WAS IN, REOPENED AFTER THE SWITCH THEY PRESSED IN IT
        tore this view down. Read once and cleared, so an ordinary visit never

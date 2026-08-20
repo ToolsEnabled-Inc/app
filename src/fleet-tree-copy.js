@@ -187,11 +187,37 @@ export const START_PANEL = Object.freeze({
    * second folder-creation mechanism to keep in step with the first. */
   folderLabel: 'Which folder do its agents work in?',
   folderHelp: 'Every agent in this tree starts in this folder and reads the instructions there.',
+  /* THE FIRST ROW MEANS "NAME NO FOLDER", AND WHAT THAT RESOLVES TO IS NOT ALWAYS
+   * THE SAME PLACE. THESE TWO PAIRS SAY WHICH, AND THE DIFFERENCE WAS MEASURED.
+   *
+   * shell/main.cjs, at the one seam where a start with no profileId is resolved:
+   * "A START THAT NAMES NO FOLDER RUNS IN THE ONE THE PERSON CHOSE IN SETUP"
+   * (chosenWorkspaceCwd(), landed 2026-08-18). <userData>\workspace survives only
+   * as the fallback for a machine where nobody was ever asked.
+   *
+   * This module was still saying the pre-2026-08-18 thing, and on the happy path
+   * it was simply false. Two runs of the packaged build, same panel, same
+   * sentence, two different signed spawn records:
+   *
+   *   finished setup, took the suggested folder   cwd = <home>\Documents\AI Workspace
+   *   skipped setup, nobody was ever asked        cwd = null -> the product's workspace
+   *
+   * So the person who had just answered the folder question two screens earlier
+   * was told their agent would work somewhere else, and pointed at a control to
+   * "add one" for work they had already done -- four lines above a footer, on the
+   * same panel, that said "It may change files only inside the folder you chose."
+   * One panel, two answers.
+   *
+   * THE PATH ARRIVES AS DATA AND IS NEVER ASSEMBLED HERE, the same rule
+   * underNamed() follows: the caller reads it from mcSetup.workspaceState(), and
+   * whoever renders it puts it on the page as TEXT. */
   folderWorkspace: 'The product’s own workspace',
-  /* Not a refusal: starting works fine without a profile, in the product's own
-     workspace. It is a pointer to where folders are made, named exactly as the
-     rail names that section so a person can go find it. */
+  folderWorkspaceChosen: 'The folder you chose in setup',
+  /* Not a refusal: starting works fine without a named folder. It is a pointer to
+     where named folders are made, named exactly as the rail names that section so
+     a person can go find it. */
   folderNone: 'No folders set up yet — these agents will work in the product’s own workspace. Add one under “Folders your agents work in” on this page.',
+  folderNoneChosen: (folder) => `No named folders yet — these agents work in the folder you chose in setup, ${folder}. Name one under “Folders your agents work in” on this page to keep different kinds of work apart.`,
   /* THE FIRST ROW OF THE ROLE MENU. A menu must have something selected, and
      pre-selecting a real role would answer the panel's own question for the
      person and let a role nobody chose through on a single press. So the first

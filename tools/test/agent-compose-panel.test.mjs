@@ -1060,6 +1060,72 @@ test('with no folders set up, the panel says where to make one and still starts'
   assert.equal(calls.submitted.length, 1, 'no folders is not a reason to refuse a start')
 })
 
+/* ---- WHERE "NAME NO FOLDER" ACTUALLY LANDS, WHICH IS NOT ALWAYS THE SAME PLACE
+ *
+ * shell/main.cjs resolves a start with no profileId through chosenWorkspaceCwd()
+ * -- the folder the person answered the setup question with -- and falls back to
+ * <userData>\workspace only on a machine where nobody was ever asked. The panel
+ * said the fallback unconditionally, and on the happy path that was false.
+ *
+ * MEASURED ON THE PACKAGED BUILD, two runs, same panel, same sentence, two
+ * different signed spawn records:
+ *   finished setup, took the suggested folder   details.cwd = that folder
+ *   skipped setup, nobody was ever asked        details.cwd = null
+ * So the person who had answered the folder question two screens earlier was
+ * told their agent would work somewhere else, and pointed at a control to "add
+ * one" for work they had already done -- four lines above this same panel's
+ * footer saying "It may change files only inside the folder you chose."
+ * ------------------------------------------------------------------------- */
+
+const CHOSEN = 'C:\\Users\\someone\\Documents\\AI Workspace'
+
+test('when setup recorded a folder, the first row names IT and not the product’s workspace', () => {
+  const { handle } = open({ folders: [], defaultFolder: CHOSEN })
+  const folder = fieldNamed(handle, 'profile')
+  assert.equal(folder.children[0].value, '', 'it is still the same null answer on the wire')
+  assert.equal(folder.children[0].textContent, START_PANEL.folderWorkspaceChosen,
+    'the row a start with no named folder uses must not claim the product’s own workspace')
+  const words = wordsOnScreen(handle)
+  /* wordsOnScreen is a list of WHOLE strings, one per leaf, so the path is
+     looked for inside them rather than as an element of its own -- the first
+     version of this assertion compared the two directly and failed against a
+     panel that was rendering the path correctly. */
+  assert.ok(words.some(line => line.includes(CHOSEN)),
+    'and the folder itself must be on the page, not merely alluded to')
+  assert.ok(words.includes(START_PANEL.folderNoneChosen(CHOSEN)),
+    'the hint must be the copy module’s sentence for this case, whole')
+  assert.ok(!words.includes(START_PANEL.folderNone),
+    'the pre-2026-08-18 sentence must not be shown on a computer where somebody answered the question')
+})
+
+test('with no setup folder recorded, the panel says the product’s own workspace, as it always did', () => {
+  /* THE POSITIVE CONTROL for the test above. Without it that assertion would
+     also pass on a panel that had simply stopped saying anything. */
+  const { handle } = open({ folders: [], defaultFolder: '' })
+  const folder = fieldNamed(handle, 'profile')
+  assert.equal(folder.children[0].textContent, START_PANEL.folderWorkspace)
+  assert.ok(wordsOnScreen(handle).includes(START_PANEL.folderNone))
+})
+
+test('the setup folder survives a re-open that does not mention it', () => {
+  /* Same hazard as the folders and the confinement line: the ordinary re-open is
+     `{ parent }` alone, and readStartableTiers() re-opens with `{ tiers }`. */
+  const { handle } = open({ folders: [], defaultFolder: CHOSEN })
+  handle.open({ tiers: tierChoicesFor(['luna']) })
+  assert.equal(fieldNamed(handle, 'profile').children[0].textContent, START_PANEL.folderWorkspaceChosen)
+  assert.ok(wordsOnScreen(handle).some(line => line.includes(CHOSEN)),
+    'the reading of this computer must not be lost on a re-open')
+})
+
+test('a recorded setup folder is still not a reason to refuse a start, and still sends null', () => {
+  const { handle, calls } = open({ folders: [], defaultFolder: CHOSEN })
+  fill(handle, { role: 'manager', message: 'Take the packaging work.' })
+  actionNamed(handle, 'submit').dispatch('click')
+  assert.equal(calls.submitted.length, 1)
+  assert.equal(calls.submitted[0].profileId, null,
+    'the wire is unchanged: the shell resolves the folder, this panel only says which')
+})
+
 test('re-opening with only tiers keeps the folder menu that was already read', () => {
   /* readStartableTiers() re-opens an open panel with `{ tiers }` alone the
      moment the shell answers. A merge that reset the folders would empty the

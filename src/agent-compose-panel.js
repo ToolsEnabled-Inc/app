@@ -167,7 +167,7 @@ export function composeDraftProblems({ role = '', message = '', roles = ROLE_CHO
    comes from src/fleet-tree-copy.js. `underLine` is the one place a name the
    caller supplied reaches the page, already wrapped in the copy module's own
    sentence before it gets here. */
-function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, folders = [], folderSelectedId = null }) {
+function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, folders = [], folderSelectedId = null, defaultFolder = '' }) {
   const id = `agent-compose-${panelSequence += 1}`
 
   const root = doc.createElement('section')
@@ -425,9 +425,14 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
    * "This agent will work under ..." line already keys off, so there is one
    * answer in this panel to "is a tree being created", not two.
    *
-   * NULL IS A REAL ANSWER AND IT IS THE FIRST ROW. Before profiles existed
-   * every tree ran in the product's own workspace, and that is still what an
-   * unanswered menu means -- the same null `submitCompose` has always sent. */
+   * NULL IS A REAL ANSWER AND IT IS THE FIRST ROW -- the same null
+   * `submitCompose` has always sent. WHERE THAT NULL LANDS IS NOT THIS PANEL'S
+   * TO GUESS: shell/main.cjs resolves it to the folder the person chose in
+   * setup, and only falls back to the product's own workspace on a machine
+   * where nobody was ever asked. So the caller hands in `defaultFolder` -- the
+   * path that null resolves to on THIS computer, or empty when it resolves to
+   * the product's workspace -- and the first row and the hint say which.
+   * See START_PANEL.folderWorkspaceChosen for the two measurements. */
   let folderSelect = null
   let folderField = null
   if (newTree) {
@@ -440,7 +445,9 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
     const folderHint = doc.createElement('p')
     folderHint.className = 'agent-compose-hint'
     folderHint.setAttribute('id', `${id}-folder-hint`)
-    folderHint.textContent = folders.length > 0 ? START_PANEL.folderHelp : START_PANEL.folderNone
+    folderHint.textContent = folders.length > 0
+      ? START_PANEL.folderHelp
+      : (defaultFolder ? START_PANEL.folderNoneChosen(defaultFolder) : START_PANEL.folderNone)
     folderSelect = doc.createElement('select')
     folderSelect.className = 'agent-compose-select'
     folderSelect.setAttribute('id', `${id}-folder`)
@@ -448,7 +455,7 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES, fo
     folderSelect.setAttribute('aria-describedby', `${id}-folder-hint`)
     const workspaceOption = doc.createElement('option')
     workspaceOption.value = ''
-    workspaceOption.textContent = START_PANEL.folderWorkspace
+    workspaceOption.textContent = defaultFolder ? START_PANEL.folderWorkspaceChosen : START_PANEL.folderWorkspace
     folderSelect.appendChild(workspaceOption)
     for (const folder of folders) {
       const option = doc.createElement('option')
@@ -642,6 +649,13 @@ export function mountAgentComposePanel({
   /* Which row the menu opens on -- the folder this person used last. Pre-fill,
      not permission. */
   folderSelectedId = null,
+  /* WHERE A START THAT NAMES NO FOLDER ACTUALLY RUNS ON THIS COMPUTER: the path
+     the person chose in setup, or empty when this copy would fall back to the
+     product's own workspace. Read by the caller from mcSetup.workspaceState(),
+     for the same reason the engine rows and the confinement line are: only the
+     shell knows, and this panel must not guess. Empty is the honest default --
+     it is exactly what every machine did before the setup folder was honoured. */
+  defaultFolder = '',
   /* WHAT A SESSION STARTED HERE WOULD BE ALLOWED TO DO, as one line the caller
      has already composed -- startControlLine() in src/agent-confinement-copy.js,
      from the reading mcAgent.confinement() gives it.
@@ -659,6 +673,7 @@ export function mountAgentComposePanel({
     tiers: Array.isArray(tiers) && tiers.length > 0 ? tiers : TIER_CHOICES,
     folders: Array.isArray(folders) ? folders : [],
     folderSelectedId: asTrimmed(folderSelectedId) || null,
+    defaultFolder: asTrimmed(defaultFolder),
     unavailableReason: asTrimmed(unavailableReason),
     unavailableAction: isRecord(unavailableAction) ? unavailableAction : null,
     confinementLine: asTrimmed(confinementLine),
@@ -924,6 +939,7 @@ export function mountAgentComposePanel({
       tiers: current.tiers,
       folders: current.folders,
       folderSelectedId: current.folderSelectedId,
+      defaultFolder: current.defaultFolder,
     })
 
     nodes.submit.addEventListener('click', () => attemptSubmit())
@@ -986,6 +1002,11 @@ export function mountAgentComposePanel({
            from under someone reading it. */
         folders: 'folders' in next && Array.isArray(next.folders) ? next.folders : current.folders,
         folderSelectedId: 'folderSelectedId' in next ? asTrimmed(next.folderSelectedId) || null : current.folderSelectedId,
+        /* CARRIED FORWARD WHEN NOT RESTATED, for the same reason the folders and
+           the confinement line are: the ordinary re-open is `{ parent }` alone,
+           and losing this reading would put the panel back to describing a
+           folder the start will not use. */
+        defaultFolder: 'defaultFolder' in next ? asTrimmed(next.defaultFolder) : current.defaultFolder,
         unavailableReason: 'unavailableReason' in next ? asTrimmed(next.unavailableReason) : current.unavailableReason,
         unavailableAction: 'unavailableAction' in next
           ? (isRecord(next.unavailableAction) ? next.unavailableAction : null)
