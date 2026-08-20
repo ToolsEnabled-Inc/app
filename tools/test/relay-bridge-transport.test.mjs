@@ -103,3 +103,43 @@ test('removing the transport restores the local path', () => {
   assert.equal(bridgeTransportInstalled(), false)
   assert.throws(() => setBridgeTransport('not a function'), TypeError)
 })
+
+test('a host may supply the transport, asked once and only when first needed', async () => {
+  const remote = machine()
+  let asks = 0
+  globalThis.window = { mcShell: { getBridgeTransport: async () => { asks += 1; return createRelayBridgeTransport(remote) } } }
+  try {
+    assert.equal(asks, 0, 'not asked at import, because on the website the answer is not knowable yet')
+    const result = await bridgeStatus()
+    assert.deepEqual(result, { ok: true, servedBy: 'the machine' })
+    assert.equal(asks, 1, 'asked on the first request')
+    await bridgeStatus()
+    assert.equal(asks, 1, 'and not asked again')
+  } finally { delete globalThis.window }
+})
+
+test('a host that offers nothing, or throws, gets the local path unchanged', async () => {
+  for (const mcShell of [{}, { getBridgeTransport: async () => null }, { getBridgeTransport: async () => { throw new Error('no') } }]) {
+    setBridgeTransport(null)
+    globalThis.window = { mcShell }
+    try {
+      await bridgeStatus().catch(() => null)
+      assert.equal(bridgeTransportInstalled(), false, 'no transport was installed')
+    } finally { delete globalThis.window }
+  }
+})
+
+test('signing out and back in can install a transport again', async () => {
+  const remote = machine()
+  let available = true
+  globalThis.window = { mcShell: { getBridgeTransport: async () => (available ? createRelayBridgeTransport(remote) : null) } }
+  try {
+    assert.equal((await bridgeStatus()).ok, true, 'signed in: the tunnel is used')
+    // Signing out removes it. In a browser the local path is no path at all,
+    // so a person who signs back in must be able to get one again.
+    setBridgeTransport(null)
+    assert.equal(bridgeTransportInstalled(), false)
+    assert.equal((await bridgeStatus()).ok, true, 'signed back in: asked again, and connected again')
+    assert.equal(bridgeTransportInstalled(), true)
+  } finally { delete globalThis.window }
+})

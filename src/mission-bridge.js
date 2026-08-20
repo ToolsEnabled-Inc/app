@@ -272,6 +272,13 @@ let transport = null
 export function setBridgeTransport(next) {
   if (next !== null && typeof next !== 'function') throw new TypeError('a bridge transport must be a function or null')
   transport = next
+  /* An explicit INSTALL is the final word -- a later lazy host lookup must not
+   * replace a transport somebody chose. An explicit REMOVAL is not: it means
+   * "go back to asking", so that signing out and signing in again can install
+   * one through the host seam. Marking a removal as answered would leave a
+   * person who signed back in permanently on the local path, which in a
+   * browser is no path at all. */
+  hostTransportAsked = next !== null
   bootstrapPromise = null
   return transport
 }
@@ -280,7 +287,31 @@ export function bridgeTransportInstalled() {
   return transport !== null
 }
 
+/* A HOST MAY SUPPLY THE TRANSPORT, the same way it already supplies the
+ * bridge endpoint. `window.mcShell.getBridgeTransport()` is asked once, on the
+ * first request, and its answer is installed. The website uses this to hand
+ * over a relay tunnel to the person's own machine when they are signed in and
+ * have one connected; the desktop shell does not implement it and gets the
+ * local path, unchanged.
+ *
+ * Asked LAZILY rather than at import: on the website the transport cannot
+ * exist until a session and a machine pair do, and a check at import would
+ * settle the answer as "none" before either was true. */
+let hostTransportAsked = false
+
+async function hostTransport() {
+  if (hostTransportAsked || transport) return
+  hostTransportAsked = true
+  const ask = globalThis.window?.mcShell?.getBridgeTransport
+  if (typeof ask !== 'function') return
+  try {
+    const offered = await ask()
+    if (typeof offered === 'function') transport = offered
+  } catch { /* a host that cannot answer gets the local path, as before */ }
+}
+
 async function request(pathname, { method = 'GET', body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  await hostTransport()
   if (transport) {
     try {
       const value = await transport(pathname, { method, body, timeoutMs })
