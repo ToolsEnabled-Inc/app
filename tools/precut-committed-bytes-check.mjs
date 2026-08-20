@@ -32,6 +32,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
+import { scanRendererSource } from './check-unbound-identifiers.mjs'
 
 const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1'), '..')
 const run = (cmd, args, opts = {}) =>
@@ -115,6 +116,33 @@ try {
     assert.ok(!/is not defined/.test(out), `the page threw a ReferenceError -- a symbol is used but not declared IN THE COMMIT:\n${out.slice(0, 1200)}`)
     assert.equal(driven.status, 0, `page2-qa exited ${driven.status}:\n${out.slice(-1500)}`)
     return 'exit 0, board drawn'
+  })
+
+  /* 3b. THE HALF OF THAT DEFECT A DRIVE CANNOT REACH.
+   *     Loading the page finds a symbol missing at module scope. It says
+   *     nothing about one missing inside a click handler, which throws only
+   *     when a person presses the control -- and `ed7a10a` carried BOTH:
+   *
+   *       ed7a10a: unbound = restoreRoleLibrary, roleLibraryToRestore
+   *       e3833d7: unbound = (none)
+   *
+   *     Only `roleLibraryToRestore` killed the load and got found. Every lane
+   *     that looked at that commit reported one name. `restoreRoleLibrary`
+   *     waits in a handler, and check 3 above would have passed over it.
+   *
+   *     The guard for it was written on 2026-08-17, for this exact class, and
+   *     was wired into nothing -- not `npm test`, not the dist chain, not here
+   *     -- through the whole night the defect it describes was live at HEAD.
+   *     It runs against the COMMITTED sources in the scratch worktree; the
+   *     parser is imported from this checkout so the result never depends on
+   *     the junction. */
+  check('no identifier used and never bound, in the committed sources', () => {
+    const { scanned, findings } = scanRendererSource(scratch)
+    assert.ok(scanned > 0, 'scanned 0 renderer modules, so this proved nothing')
+    assert.deepEqual(findings.map(f => `${f.file}: ${f.name}`), [],
+      'these throw the moment their line runs -- at load if at module scope, on a press if in a handler.'
+      + ' Import it, declare it, or add it to KNOWN_GLOBALS in tools/check-unbound-identifiers.mjs')
+    return `${scanned} renderer modules, none unbound`
   })
 } finally {
   try { unlinkNodeModulesJunction() } catch (error) { failures.push('junction unlink'); console.error(`  FAIL  junction unlink\n        ${error.message}`) }

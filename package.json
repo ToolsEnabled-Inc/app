@@ -8,7 +8,7 @@
   "scripts": {
     "doctor": "node tools/check-environment.mjs",
     "data:generate": "node tools/gen-fleet.mjs && node tools/gen-agents.mjs && node tools/gen-metrics.mjs && node tools/gen-ops.mjs && node tools/gen-ledger.mjs && node tools/gen-coordinator.mjs",
-    "test": "node tools/check-test-inputs.mjs && node tools/check-suites-discovered.mjs && node tools/check-composed-output.mjs && npm run test:data",
+    "test": "node tools/check-test-inputs.mjs && node tools/check-suites-discovered.mjs && node tools/check-unbound-identifiers.mjs && node tools/check-composed-output.mjs && npm run test:data",
     "check:composed-output": "node tools/check-composed-output.mjs",
     "test:data": "node --test --test-concurrency=1 tools/test/*.test.mjs",
     "test:chatbox": "node --test tools/test/chatbox-feed.test.mjs",
