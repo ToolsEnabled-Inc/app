@@ -193,7 +193,14 @@ export const FIRST_RUN_NEEDS = Object.freeze([
     body: 'ToolsEnabled does not contain the program that runs an agent. Codex does, and it is a separate install. Once it is on this computer and signed in, the agent page can start a session. Every run is written down here before it begins.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.install, note: 'in Windows Terminal. If you already have Node, "' + CODEX_SETUP_COMMANDS.installWithNode + '" does the same thing.' }),
-      Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in the same window, once the install finishes.' }),
+      /* NOT "in the same window". That wording shipped in 1.0.20 and stuck the
+         first external user exactly where the owner predicted: winget records
+         the new program's location in the registry, a window that is already
+         open never re-reads it, and the same window answers "'codex' is not
+         recognized". Reproduced 2026-08-19 against a PATH snapshotted before
+         the install; tools/test/first-run-needs.test.mjs now fails on any note
+         that sends a person back to the stale window. */
+      Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in a new terminal window once the install finishes. The window the install ran in cannot see the new program yet.' }),
       Object.freeze({ kind: 'switch', text: 'Turn on "Run an agent session"', note: 'in Settings, under Write. Every action that writes anything ships switched off.', href: SETTINGS_HREF }),
     ]),
   }),
@@ -281,7 +288,9 @@ export const PROVIDER_SETUP = Object.freeze([
     doesHere: 'Starts an agent from a tree on the research page and runs the work here, on your own Codex sign-in.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.install, note: 'in Windows Terminal. If you already have Node, "' + CODEX_SETUP_COMMANDS.installWithNode + '" does the same thing.' }),
-      Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in the same window, once the install finishes.' }),
+      /* "In the same window" is the wording that stuck the first external
+         user; the note above the guide's other copy of this step says why. */
+      Object.freeze({ kind: 'command', text: CODEX_SETUP_COMMANDS.signIn, note: 'in a new terminal window once the install finishes. The window the install ran in cannot see the new program yet.' }),
       Object.freeze({ kind: 'command', text: 'codex login status', note: 'tells you whether you are signed in. Nothing here reads your sign-in.' }),
     ]),
   }),
@@ -313,7 +322,7 @@ export const PROVIDER_SETUP = Object.freeze([
     doesHere: 'Starts an agent from a tree on the research page, on your own Claude sign-in. Nothing here asks for a key or reads your sign-in.',
     steps: Object.freeze([
       Object.freeze({ kind: 'command', text: 'npm install -g @anthropic-ai/claude-code', note: 'in Windows Terminal. This one needs Node on the computer first.' }),
-      Object.freeze({ kind: 'command', text: 'claude auth login', note: 'in the same window. It opens your browser and signs in to your own account.' }),
+      Object.freeze({ kind: 'command', text: 'claude auth login', note: 'in a new terminal window. It opens your browser and signs in to your own account.' }),
       Object.freeze({ kind: 'command', text: 'claude auth status', note: 'tells you whether you are signed in, and on which plan.' }),
     ]),
   }),

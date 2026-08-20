@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { ACCOUNT_PANEL, CLAUDE_ACCOUNT_RISK } from '../../src/account-panel-copy.js'
+import { ACCOUNT_PANEL, CLAUDE_ACCOUNT_RISK, PROVIDER_SIGN_IN } from '../../src/account-panel-copy.js'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const GUIDE_VIEW = path.join(REPO, 'src', 'views', 'guide.js')
@@ -171,7 +171,7 @@ test('an absent bridge leaves the page as it was, with no dead controls', () => 
    4. The channel, and the check every agent channel opens with.
    ------------------------------------------------------------------ */
 
-test('the three account calls are on the bridge, and nothing else is added to it', () => {
+test('the account calls are on the bridge, and the login arrows are the recorded exception', () => {
   const source = readFileSync(PRELOAD, 'utf8')
   const bridge = source.slice(source.indexOf("exposeInMainWorld('mcProviders'"))
   const end = bridge.indexOf('}))')
@@ -179,9 +179,16 @@ test('the three account calls are on the bridge, and nothing else is added to it
   assert.match(body, /accounts: \(\) => ipcRenderer\.invoke\('mc-accounts:list'\)/)
   assert.match(body, /accountAdd: request => ipcRenderer\.invoke\('mc-accounts:add', request\)/)
   assert.match(body, /accountRemove: request => ipcRenderer\.invoke\('mc-accounts:remove', request\)/)
-  /* There is still no signIn() beside them, and its absence is the design: this
-     product never handles a provider sign-in. */
-  assert.ok(!/signIn|credential|token/i.test(body), 'a credential-shaped call appeared on the bridge')
+  /* The login arrows joined the bridge on 2026-08-19, and they are NOT the
+     signIn() whose absence used to be asserted here: they ask the shell to run
+     the provider's OWN login program, whose stdin is closed and whose files
+     are never read, so no credential can cross this bridge in either
+     direction. What stays banned is any call shaped like the product handling
+     one itself. */
+  assert.match(body, /loginStart: request => ipcRenderer\.invoke\('mc-provider-login:start', request\)/)
+  assert.match(body, /loginStop: request => ipcRenderer\.invoke\('mc-provider-login:stop', request\)/)
+  assert.match(body, /loginOpenUrl: request => ipcRenderer\.invoke\('mc-provider-login:open-url', request\)/)
+  assert.ok(!/credential|token|password|apiKey|secret/i.test(body), 'a credential-shaped call appeared on the bridge')
 })
 
 test('every account channel opens with the sender check', () => {
@@ -196,4 +203,75 @@ test('every account channel opens with the sender check', () => {
     const opening = source.slice(at, at + 220)
     assert.match(opening, /assertTrustedAgentSender\(event\)/, `${channel} does not check its sender first`)
   }
+})
+
+/* ------------------------------------------------------------------
+   5. The sign-in button's words and wiring, added for the first
+      external user, who was stuck exactly where the owner predicted:
+      the guide's commands, followed by hand, in a window whose PATH
+      predated the install. The button starts the provider's own login
+      program instead, so these words carry the same obligations the
+      account panel's do -- honest when disabled, and never a sentence
+      that reads as this product handling a sign-in itself.
+   ------------------------------------------------------------------ */
+
+test('every sign-in sentence is real prose and none asks for a credential', () => {
+  const sentences = Object.values(PROVIDER_SIGN_IN)
+    .map(value => (typeof value === 'function' ? value('Codex') : value))
+    .filter(value => typeof value === 'string')
+  assert.ok(sentences.length >= 10, 'the sign-in copy lost sentences')
+  for (const sentence of sentences) {
+    assert.ok(sentence.trim().length > 0, 'an empty sign-in sentence would draw as a blank control')
+    assert.ok(!/enter your|paste your|type your/i.test(sentence),
+      `a sign-in sentence asks the person to hand something over: "${sentence}"`)
+  }
+})
+
+test('the disabled states are honest: absence offers the install, uncertainty says so', () => {
+  const absent = PROVIDER_SIGN_IN.absent('Codex')
+  assert.match(absent, /not on this computer/i)
+  const unsure = PROVIDER_SIGN_IN.unsure('Codex')
+  assert.match(unsure, /could not tell/i, 'uncertainty is being rounded to an answer')
+})
+
+test('the install words say whose bytes they are, because they are not ours', () => {
+  /* The legal record REQ-engine-bundle-provider-clis.md: Claude Code cannot be
+     bundled (no redistribution grant) and Codex is not bundled by decision, so
+     the button's one-click is a FETCH by the person's own machine from the
+     provider's own channel. The sentence must carry that, or the button reads
+     as this product shipping a program it has no licence to ship. */
+  const lead = PROVIDER_SIGN_IN.installLead('Codex')
+  assert.match(lead, /maker's own channel/i, 'the install lead does not say where the program comes from')
+  assert.match(lead, /does not ship/i, 'the install lead does not say ToolsEnabled ships nothing')
+  assert.match(PROVIDER_SIGN_IN.installButton('Codex'), /Install Codex/)
+  assert.match(PROVIDER_SIGN_IN.installDoneFail, /press the button/i, 'a failed install leaves no way on')
+})
+
+test('the guide draws the button from this module, gated and hidden until proven', () => {
+  const source = readFileSync(GUIDE_VIEW, 'utf8')
+  assert.match(source, /PROVIDER_SIGN_IN/, 'the guide view does not read the sign-in copy')
+  /* The slot ships hidden and only a real presence answer fills it, the same
+     rule the account panel holds to. */
+  assert.match(source, /data-signin-program="\$\{esc\(provider\.name\)\}" hidden/, 'the sign-in slot no longer starts hidden')
+  /* Gemini has no login subcommand, so a button for it would spawn nothing. */
+  assert.match(source, /SIGN_IN_PROVIDERS = Object\.freeze\(new Set\(\['codex', 'claude'\]\)\)/,
+    'the set of programs with a startable sign-in drifted')
+  /* Leaving the page must detach the stream listener. */
+  assert.match(source, /releaseLoginEvents\(\)/, 'destroy() no longer releases the login stream')
+})
+
+test('every login channel opens with the sender check', () => {
+  const source = readFileSync(MAIN, 'utf8')
+  for (const channel of ['mc-provider-login:start', 'mc-provider-login:stop', 'mc-provider-login:open-url', 'mc-provider-login:install']) {
+    const at = source.indexOf(`ipcMain.handle('${channel}'`)
+    assert.ok(at > 0, `${channel} is not registered`)
+    const opening = source.slice(at, at + 220)
+    assert.match(opening, /assertTrustedAgentSender\(event\)/, `${channel} does not check its sender first`)
+  }
+  /* The browser opens only what the shell itself captured: the open-url
+     handler must never pass a renderer-sent string to openExternal. */
+  const openAt = source.indexOf("ipcMain.handle('mc-provider-login:open-url'")
+  const openBody = source.slice(openAt, openAt + 900)
+  assert.match(openBody, /lastUrl/, 'open-url no longer reads the shell-captured line')
+  assert.ok(!/openExternal\((payload|value|request)/.test(openBody), 'open-url opens a renderer-sent value')
 })

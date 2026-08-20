@@ -22,7 +22,7 @@
  */
 
 import { el } from '../components.js'
-import { ACCOUNT_PANEL, CLAUDE_ACCOUNT_RISK } from '../account-panel-copy.js'
+import { ACCOUNT_PANEL, CLAUDE_ACCOUNT_RISK, PROVIDER_SIGN_IN } from '../account-panel-copy.js'
 import {
   FIRST_RUN_NEEDS,
   PROVIDER_SETUP,
@@ -113,10 +113,17 @@ function providerMarkup(provider) {
     <p class="guide-presence" data-presence="pending" hidden></p>
     <p class="guide-need-body">${esc(provider.doesHere)}</p>
     <ol class="guide-steps">${provider.steps.map(stepMarkup).join('')}</ol>
+    ${signInSlotMarkup(provider)}
     ${claudeRiskMarkup(provider)}
     ${accountsSlotMarkup(provider)}
   </section>`
 }
+
+/* THE PROGRAMS WHOSE SIGN-IN THIS COPY CAN START, and it is not all three.
+   Codex and Claude each have a real login command, read off their own help
+   (codex-cli 0.146.0 `login`; claude 2.1.186 `auth login`). Gemini 0.53.0 has
+   none, so a button for it would spawn a thing that does not exist. */
+const SIGN_IN_PROVIDERS = Object.freeze(new Set(['codex', 'claude']))
 
 /* THE PROGRAMS THAT CAN HOLD MORE THAN ONE ACCOUNT HERE, and it is not all
    three. The engine's account list understands Codex and Claude only, so a
@@ -159,6 +166,149 @@ function accountsSlotMarkup(provider) {
   return `<div class="guide-accounts-panel"
     data-accounts-provider="${esc(provider.id)}"
     data-accounts-program="${esc(provider.name)}" hidden></div>`
+}
+
+/* AN EMPTY, HIDDEN slot for the sign-in button, under the accounts panel's
+ * rule exactly: the controls arrive only with the answer that proves they can
+ * work. It is filled by fillPresence() below -- the same read that gates it --
+ * or stays hidden forever, which is what `npm run dev` in a plain browser and
+ * a build without the channel both honestly are.
+ *
+ * WHY A BUTTON AT ALL, when the commands are printed right above it. The
+ * first external user of 1.0.20 typed those commands and got stuck: the
+ * window their install ran in could not see the new program, and told them
+ * "codex login" was not a command. The button asks the shell to start the
+ * provider's own login program directly -- resolved fresh at the press, no
+ * terminal window to be stale, stdin closed so nothing a login prints or
+ * wants can pass through this product. */
+function signInSlotMarkup(provider) {
+  if (!SIGN_IN_PROVIDERS.has(provider.id)) return ''
+  return `<div class="guide-signin"
+    data-signin-provider="${esc(provider.id)}"
+    data-signin-program="${esc(provider.name)}" hidden></div>`
+}
+
+/* ONE PROGRAM'S SIGN-IN CONTROLS, PAINTED AND WIRED, given the presence answer
+ * that just arrived. Repainted whole on every presence read, the same shape
+ * paintAccounts uses and for the same reason: after anything changes, the one
+ * honest state is whatever the machine says next. */
+function paintSignIn(root, presence) {
+  const panel = root.querySelector(`.guide-signin[data-signin-provider="${presence.id}"]`)
+  if (!panel) return
+  const bridge = window.mcProviders
+  if (!bridge || typeof bridge.loginStart !== 'function') return
+  const program = panel.dataset.signinProgram || presence.id
+  const installed = presence.installed === 'yes'
+  /* THE STATE DECIDES THE ONE BUTTON A PERSON SEES. Absent gets Install --
+     the press runs the official `npm install -g`, so this machine fetches the
+     program from its maker's own channel; nothing is bundled here. Present
+     gets Sign in. "Could not tell" gets neither enabled, because a button
+     whose press might be the wrong one of the two is a coin toss wearing a
+     label. The commands above the button remain the by-hand path in every
+     state. */
+  const absent = presence.installed === 'no'
+
+  const note = installed
+    ? (presence.signedIn === 'yes' ? PROVIDER_SIGN_IN.alreadyIn : PROVIDER_SIGN_IN.lead(program))
+    : (absent ? `${PROVIDER_SIGN_IN.absent(program)} ${PROVIDER_SIGN_IN.installLead(program)}` : PROVIDER_SIGN_IN.unsure(program))
+
+  panel.dataset.signinState = installed ? 'sign-in' : (absent ? 'install' : 'unsure')
+  panel.innerHTML = `
+    <div class="guide-signin-row">
+      <button class="guide-account-btn guide-signin-btn" type="button"
+        data-signin-start ${installed ? '' : 'hidden'}>${esc(PROVIDER_SIGN_IN.button(program))}</button>
+      <button class="guide-account-btn guide-signin-btn" type="button"
+        data-signin-install ${absent ? '' : 'hidden'} ${installed ? 'disabled' : ''}>${esc(PROVIDER_SIGN_IN.installButton(program))}</button>
+      <button class="guide-account-btn guide-signin-btn" type="button"
+        data-signin-stop hidden>${esc(PROVIDER_SIGN_IN.stopButton)}</button>
+      <button class="guide-account-btn guide-signin-btn" type="button"
+        data-signin-open hidden>${esc(PROVIDER_SIGN_IN.openPage)}</button>
+    </div>
+    <p class="guide-step-note" data-signin-note>${esc(note)}</p>
+    <output class="guide-accounts-note" role="status" data-signin-status></output>
+    <pre class="guide-command guide-signin-log" data-signin-log hidden></pre>`
+  panel.hidden = false
+
+  const status = panel.querySelector('[data-signin-status]')
+  const log = panel.querySelector('[data-signin-log]')
+  const stop = panel.querySelector('[data-signin-stop]')
+  const open = panel.querySelector('[data-signin-open]')
+
+  const begin = (runningSentence) => {
+    if (log) { log.textContent = ''; log.hidden = false }
+    if (status) status.textContent = runningSentence
+    if (stop) stop.hidden = false
+    if (open) open.hidden = true
+  }
+  /* A refusal that carries its own sentence is shown as itself -- prefixing
+     "the sign-in program could not be started" onto "the installer needs npm"
+     was measured on the first drive of this panel, and it blames the wrong
+     program. The generic line is only for a refusal that arrives empty. */
+  const refuse = (answer) => {
+    const why = answer && typeof answer.reason === 'string' && answer.reason.trim() ? answer.reason.trim() : ''
+    if (status) status.textContent = why || PROVIDER_SIGN_IN.refused
+  }
+
+  panel.querySelector('[data-signin-start]')?.addEventListener('click', async () => {
+    const answer = await bridge.loginStart({ provider: presence.id }).catch(() => null)
+    if (!answer || answer.ok !== true) { refuse(answer); return }
+    begin(PROVIDER_SIGN_IN.running)
+  })
+
+  panel.querySelector('[data-signin-install]')?.addEventListener('click', async () => {
+    const answer = await bridge.installStart?.({ provider: presence.id }).catch(() => null)
+    if (!answer || answer.ok !== true) { refuse(answer); return }
+    begin(PROVIDER_SIGN_IN.installRunning)
+  })
+
+  stop?.addEventListener('click', async () => {
+    await bridge.loginStop?.({ provider: presence.id }).catch(() => null)
+    if (status) status.textContent = PROVIDER_SIGN_IN.stopped
+    if (stop) stop.hidden = true
+  })
+
+  open?.addEventListener('click', async () => {
+    await bridge.loginOpenUrl?.({ provider: presence.id }).catch(() => null)
+  })
+}
+
+/* What the stream of one running sign-in does to the glass. The log holds the
+ * program's own words -- colour-stripped and bounded by the shell -- because a
+ * person mid-flow needs exactly what the program said, not a summary of it. On
+ * exit the presence read runs again: the sentence at the top of the section is
+ * the truth about whether the sign-in took, so it is re-asked rather than
+ * inferred from an exit code. */
+function applyLoginEvent(root, packet) {
+  if (!packet || typeof packet !== 'object') return
+  const panel = root.querySelector(`.guide-signin[data-signin-provider="${packet.provider}"]`)
+  if (!panel) return
+  const status = panel.querySelector('[data-signin-status]')
+  const log = panel.querySelector('[data-signin-log]')
+  const stop = panel.querySelector('[data-signin-stop]')
+  const open = panel.querySelector('[data-signin-open]')
+  if (packet.kind === 'line' && log) {
+    log.hidden = false
+    log.textContent += `${packet.text}\n`
+  } else if (packet.kind === 'url') {
+    if (open) open.hidden = false
+    if (status) status.textContent = PROVIDER_SIGN_IN.openPageLead
+  } else if (packet.kind === 'exit') {
+    if (stop) stop.hidden = true
+    if (packet.op === 'install' && packet.code === 0) {
+      /* A finished install changes which button this panel should be showing,
+         so the whole panel is re-asked from a fresh presence read -- the same
+         one-honest-state rule paintAccounts follows. The npm log goes with
+         it; what replaces it is the Sign in button, which is the story. */
+      void fillPresence(root)
+      return
+    }
+    if (status) {
+      status.textContent = packet.op === 'install'
+        ? PROVIDER_SIGN_IN.installDoneFail
+        : (packet.code === 0 ? PROVIDER_SIGN_IN.doneOk : PROVIDER_SIGN_IN.doneFail)
+    }
+    void fillPresence(root, { repaintSignIn: false })
+  }
 }
 
 function accountRowMarkup(account, activeName) {
@@ -273,7 +423,7 @@ async function fillAccounts(root) {
  * the one place in this file that talks to anything outside it, and it is
  * written so that nothing it touches can prevent the page from being useful.
  */
-async function fillPresence(root) {
+async function fillPresence(root, { repaintSignIn = true } = {}) {
   let answer = null
   try {
     answer = await window.mcProviders?.presence()
@@ -296,6 +446,11 @@ async function fillPresence(root) {
     slot.dataset.installed = presence.installed
     slot.dataset.signedIn = presence.signedIn
     slot.hidden = false
+    /* The sign-in button is gated by THIS answer, so it is painted from this
+       answer -- a second read could disagree with the sentence beside it. Not
+       repainted after a finished flow: that path re-reads presence for the
+       SENTENCE while the panel keeps the program's own last words on screen. */
+    if (repaintSignIn && SIGN_IN_PROVIDERS.has(presence.id)) paintSignIn(root, presence)
   }
 }
 
@@ -358,8 +513,19 @@ export function guideView() {
      an account list must not be able to blank the presence line. */
   fillAccounts(root)
 
+  /* The one subscription on this page, and the reason destroy() now has a job:
+     a running sign-in streams what the provider's program prints, and a page
+     that mounts per navigation must detach exactly its own listener or every
+     visit leaves another one writing into a detached tree. The guard on
+     isConnected covers the packet already in flight when the person leaves. */
+  const releaseLoginEvents = typeof window.mcProviders?.onLoginEvent === 'function'
+    ? window.mcProviders.onLoginEvent(packet => { if (root.isConnected) applyLoginEvent(root, packet) })
+    : null
+
   return {
     el: root,
-    destroy() {},
+    destroy() {
+      if (releaseLoginEvents) releaseLoginEvents()
+    },
   }
 }

@@ -57,6 +57,58 @@ export const ACCOUNT_PANEL = Object.freeze({
   removeRefused: 'That account is still listed. Press Remove again.',
 })
 
+/* THE WORDS AROUND THE ONE BUTTON THAT STARTS A SIGN-IN.
+ *
+ * WHY THE BUTTON EXISTS. The first external user of 1.0.20 followed the
+ * guide's commands by hand and got stuck exactly where the owner predicted:
+ * the window their install ran in could not see the new program and called
+ * "codex login" not a command. The button removes the terminal from the path:
+ * the product starts the provider's own login program directly, so there is
+ * no window to be stale.
+ *
+ * WHAT THE WORDS MUST HOLD. The button starts the OFFICIAL program's own
+ * flow and nothing else; the sentences must never suggest this product
+ * collects, sees, or keeps a sign-in, because it structurally cannot -- the
+ * spawned program's input is closed and its files are never read. The
+ * disabled states are the honest half: a missing program disables the button
+ * and says the fix, because a button that spawns nothing is the defect the
+ * guide exists to prevent. */
+export const PROVIDER_SIGN_IN = Object.freeze({
+  button: (program) => `Sign in to ${program}`,
+  stopButton: 'Stop',
+  lead: (program) => `One press starts ${program}'s own sign-in and your browser finishes it. Nothing here sees your password or your key.`,
+  /* The disabled reasons. Absence names the fix that is already on screen --
+     the install line sits directly above this button. */
+  absent: (program) => `${program} is not on this computer yet, so there is no sign-in to start.`,
+  unsure: (program) => `This copy could not tell whether ${program} is on this computer. The commands above still work in a terminal.`,
+  /* Presence already says "Installed here, and signed in." right above; this
+     is the button's own answer to "then what does pressing it do?" */
+  alreadyIn: 'You are signed in already. Pressing this runs the program\'s own sign-in again, which is how accounts are switched.',
+  running: 'The sign-in program is running. Your browser should open; what the program prints appears below.',
+  openPage: 'Open the sign-in page',
+  openPageLead: 'If your browser did not open on its own, this button opens the same page.',
+  /* After the program exits, the truthful source is the presence line, so the
+     done sentence points at it rather than declaring success itself. */
+  doneOk: 'The sign-in program finished. The line above now says how this computer stands.',
+  doneFail: 'The sign-in program stopped without finishing. Its own words are above; press the button to start it fresh.',
+  /* NOT "nothing was changed": a stop can land after the browser already
+     finished, and the program may have written its own store in between. The
+     truthful sentence reports the stop and offers the way on. */
+  stopped: 'The sign-in was stopped. Press the button to start it again.',
+  refused: 'The sign-in program could not be started.',
+
+  /* THE INSTALL HALF, added with the owner's one-click ruling. The programs
+     are not bundled -- Claude Code's licence grants no redistribution, and the
+     legal record REQ-engine-bundle-provider-clis.md settles Codex the same way
+     for now -- so the button runs the official package install and this
+     computer fetches the program from its maker's own channel. The sentences
+     must say that plainly: the download is the provider's, not ours. */
+  installButton: (program) => `Install ${program}`,
+  installLead: (program) => `One press downloads ${program} from its maker's own channel and installs it for you. ToolsEnabled does not ship it or change it.`,
+  installRunning: 'The installer is running. What it prints appears below, and it can take a few minutes.',
+  installDoneFail: 'The install stopped without finishing. Its own words are above; press the button to try again.',
+})
+
 /* THE FOUR THINGS A PERSON IS OWED BEFORE THEY RUN CLAUDE FROM HERE.
  *
  * These four, in this order, are the whole instrument. The legal position

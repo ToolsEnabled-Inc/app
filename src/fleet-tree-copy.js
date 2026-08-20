@@ -969,7 +969,11 @@ export const START_REFUSAL = Object.freeze({
      program that runs an agent, and Codex is a separate install. It walks the
      person to the two lines they have to type; it does not offer to type them,
      because it cannot. The commands are imported, not retyped. */
-  assistantProgramMissing: `Nothing was started. Codex is the program that actually runs an agent, and this computer does not have it yet. Open Windows Terminal and run "${CODEX_SETUP_COMMANDS.install}". Then run "${CODEX_SETUP_COMMANDS.signIn}" in the same window. Come back here and press Start again.`,
+  /* NOT "in the same window" for the sign-in. That wording stuck the first
+     external user: the window the install ran in never re-reads the PATH the
+     installer wrote, and answers "'codex' is not recognized". Reproduced
+     2026-08-19; src/first-run-needs.js carries the full account. */
+  assistantProgramMissing: `Nothing was started. Codex is the program that actually runs an agent, and this computer does not have it yet. Open Windows Terminal and run "${CODEX_SETUP_COMMANDS.install}". Then open a new terminal window and run "${CODEX_SETUP_COMMANDS.signIn}". Come back here and press Start again.`,
   /* The second line of the same answer, kept apart so the panel can show it
      quietly. A machine that already has Node usually has the second route. */
   assistantProgramNote: `If you already have Node, "${CODEX_SETUP_COMMANDS.installWithNode}" does the same job.`,

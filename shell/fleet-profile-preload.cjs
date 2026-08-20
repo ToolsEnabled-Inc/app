@@ -120,11 +120,33 @@ contextBridge.exposeInMainWorld('mcAgent', Object.freeze({
    nothing else -- there is still no signIn(), and its absence is still the
    design. accountAdd() records a name and a folder; the SIGNING IN happens in
    the provider's own program, from a command the person runs themselves. */
+/* The sign-in arrows are the deliberate exception to "no signIn() here", and
+   the exception is narrower than the name suggests: loginStart() asks the main
+   process to run the PROVIDER'S OWN login program, hidden, with stdin closed.
+   No credential, code or key can cross this bridge in either direction -- what
+   comes back is bounded prose, an https link, and an exit number, and nothing
+   the renderer sends can reach the child's input, because the child has none.
+   The defect this closes: 1.0.20 told its first external user to run
+   "codex login" in the window the install had just finished in, and that
+   window answered "'codex' is not recognized". */
 contextBridge.exposeInMainWorld('mcProviders', Object.freeze({
   presence: () => ipcRenderer.invoke('mc-providers:presence'),
   accounts: () => ipcRenderer.invoke('mc-accounts:list'),
   accountAdd: request => ipcRenderer.invoke('mc-accounts:add', request),
   accountRemove: request => ipcRenderer.invoke('mc-accounts:remove', request),
+  loginStart: request => ipcRenderer.invoke('mc-provider-login:start', request),
+  loginStop: request => ipcRenderer.invoke('mc-provider-login:stop', request),
+  loginOpenUrl: request => ipcRenderer.invoke('mc-provider-login:open-url', request),
+  installStart: request => ipcRenderer.invoke('mc-provider-login:install', request),
+  /* Returns its own unsubscribe, the same shape mcAgent.onEvent gives and for
+     the same reason: the guide mounts per navigation, and each visit must be
+     able to detach exactly its own listener. */
+  onLoginEvent: listener => {
+    if (typeof listener !== 'function') throw new TypeError('onLoginEvent requires a listener function')
+    const forward = (_event, packet) => { listener(packet) }
+    ipcRenderer.on('mc-provider-login:event', forward)
+    return () => { ipcRenderer.removeListener('mc-provider-login:event', forward) }
+  },
 }))
 
 /* Fleet data is resolved while the renderer's module graph is evaluating. An

@@ -1583,6 +1583,103 @@ ipcMain.handle('mc-accounts:remove', (event, value) => {
   }
 })
 
+/* ================= PROVIDER LOGIN SPAWN REGION (lane: provider-login) =====
+ *
+ * THE ONE CHANNEL THAT STARTS A PROVIDER'S OWN SIGN-IN, and the reason it may:
+ * the first external user of 1.0.20 was told to run "codex login" in the
+ * window their install had just finished in, and that window answered
+ * "'codex' is not recognized" -- a shell never re-reads the PATH an installer
+ * wrote. shell/provider-login.cjs resolves the program fresh at every press
+ * and starts the program's OWN login command, hidden, with stdin closed, so
+ * no terminal exists to be stale and no pasted code can pass through us.
+ *
+ * WHAT CROSSES EACH WAY. In: a provider id from the closed set, nothing else.
+ * Out: bounded colour-stripped lines, https links, and an exit number --
+ * never a path, never an environment, never a byte of what the program
+ * writes. The person's browser is opened by the PROGRAM itself, or from
+ * here by the open-url channel below, which only ever opens the https line
+ * the shell itself captured -- a renderer cannot send a URL in.
+ *
+ * SAME SENDER CHECK AS EVERY OTHER AGENT CHANNEL, and here it guards a spawn:
+ * a frame that could reach this could start the sign-in flow of a program on
+ * this computer, which is exactly the class of thing the check exists for. */
+const { createProviderLoginService } = require('./provider-login.cjs')
+const providerLoginService = (() => {
+  const root = resolveCapabilityRoot()
+  if (!root) return null
+  try {
+    const seam = require(path.join(root, 'src', 'lib', 'proc', 'hidden-spawn.js'))
+    return createProviderLoginService({
+      spawnHidden: seam.spawnHidden,
+      resolveHiddenInvocation: seam.resolveHiddenInvocation,
+    })
+  } catch {
+    return null
+  }
+})()
+
+const PROVIDER_LOGIN_UNAVAILABLE = Object.freeze({
+  ok: false,
+  code: 'PROVIDER_LOGIN_UNAVAILABLE',
+  reason: 'This copy cannot start sign-ins. Running the command above in a new terminal window still works.',
+})
+
+ipcMain.handle('mc-provider-login:start', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  const provider = boundedAgentString(payload.provider, 'provider', 32)
+  const sender = event.sender
+  return providerLoginService.start(provider, packet => {
+    if (sender.isDestroyed()) return
+    sender.send('mc-provider-login:event', { provider, ...packet })
+  })
+})
+
+ipcMain.handle('mc-provider-login:stop', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  return providerLoginService.stop(boundedAgentString(payload.provider, 'provider', 32))
+})
+
+/* The install, same shape as the sign-in start and over the same event
+   channel. What it runs is the OFFICIAL `npm install -g` for the named
+   provider -- the packages are never bundled (Claude Code's licence grants no
+   redistribution; REQ-engine-bundle-provider-clis.md records the ruling), so
+   the person's machine fetches from the provider's own channel. */
+ipcMain.handle('mc-provider-login:install', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  const provider = boundedAgentString(payload.provider, 'provider', 32)
+  const sender = event.sender
+  return providerLoginService.installStart(provider, packet => {
+    if (sender.isDestroyed()) return
+    sender.send('mc-provider-login:event', { provider, ...packet })
+  })
+})
+
+/* The browser the program said to use, opened without the URL ever crossing
+   the bridge inbound: the renderer names the provider, the shell opens the
+   https line IT captured from that program's own output, or refuses. */
+ipcMain.handle('mc-provider-login:open-url', (event, value) => {
+  assertTrustedAgentSender(event)
+  if (!providerLoginService) return PROVIDER_LOGIN_UNAVAILABLE
+  const payload = agentPayload(value, ['provider'])
+  const url = providerLoginService.lastUrl(boundedAgentString(payload.provider, 'provider', 32))
+  if (!url || !url.startsWith('https://')) {
+    return { ok: false, code: 'PROVIDER_LOGIN_NO_URL', reason: 'The sign-in program has not printed a page to open yet.' }
+  }
+  electronShell.openExternal(url)
+  return { ok: true }
+})
+
+app.on('will-quit', () => {
+  if (providerLoginService) providerLoginService.stopAll()
+})
+/* =============== END PROVIDER LOGIN SPAWN REGION ========================= */
+
 /* The second agent channel that starts nothing, and the only one that reads
    backwards. Same sender check as every other agent channel: this returns a
    record of what ran on this machine, which is not something any frame that

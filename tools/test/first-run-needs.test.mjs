@@ -531,3 +531,30 @@ test('the tree names the provider of the tier that was actually refused', async 
   assert.match(fallback, /carries no launcher/i)
   assert.ok(!/\bclaude\b/i.test(fallback))
 })
+
+/* ------------------------------------------------------------------
+   The friend's defect, held shut. 1.0.20 told a person to run the
+   sign-in "in the same window, once the install finishes", and the
+   window the install ran in answered "'codex' is not recognized":
+   winget writes the new program's PATH entry to the registry, and a
+   shell that is already open never re-reads it. Reproduced on
+   2026-08-19 against a PATH snapshotted before the install. The first
+   external user hit exactly this. No note may ever send a person back
+   to the stale window again.
+   ------------------------------------------------------------------ */
+
+test('a sign-in command is never sent to the window its install ran in', () => {
+  const everyStep = [
+    ...FIRST_RUN_NEEDS.flatMap(need => need.steps),
+    ...PROVIDER_SETUP.flatMap(provider => provider.steps),
+  ]
+  const signIns = everyStep.filter(step => step.kind === 'command'
+    && /^(codex login|claude auth login)$/.test(step.text))
+  assert.ok(signIns.length >= 2, 'the sign-in steps are missing entirely')
+  for (const step of signIns) {
+    assert.ok(!/same window/i.test(step.note),
+      `"${step.text}" is sent to the stale window again: "${step.note}"`)
+    assert.match(step.note, /new (terminal )?window/i,
+      `"${step.text}" does not say where the command can actually run: "${step.note}"`)
+  }
+})

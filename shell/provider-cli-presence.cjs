@@ -122,11 +122,26 @@ const PRESENCE_STATES = Object.freeze(['yes', 'no', 'unknown'])
  * already ran it.
  */
 function commandPresence(command, { env, platform, statSync }) {
-  const rawPath = env.PATH || env.Path
-  if (!rawPath) return 'unknown'
   const extensions = platform === 'win32'
     ? (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(value => value.trim()).filter(Boolean)
     : ['']
+  /* npm's global directory is checked DIRECTLY, before PATH, because a program
+     installed a minute ago is real before any shell can see it: the installer
+     writes %APPDATA%\npm and the PATH entry pointing there may predate this
+     process -- or, on a machine where Node itself just arrived, not be in this
+     process's PATH at all. That second case is the friend's machine, and
+     answering 'no' there tells a person to redo an install that worked. */
+  if (platform === 'win32' && typeof env.APPDATA === 'string' && env.APPDATA) {
+    for (const extension of extensions) {
+      try {
+        if (statSync(path.join(env.APPDATA, 'npm', `${command}${extension}`)).isFile()) return 'yes'
+      } catch {
+        /* Not installed by npm is not an answer about PATH. */
+      }
+    }
+  }
+  const rawPath = env.PATH || env.Path
+  if (!rawPath) return 'unknown'
   for (const directory of rawPath.split(path.delimiter)) {
     if (!directory) continue
     for (const extension of extensions) {
