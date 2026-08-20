@@ -523,6 +523,7 @@
       "tools/grepsaver-reindex.js",
       "tools/lane-run.js",
       "tools/ledger-archive.js",
+      "tools/local-node-lane-runner.js",
       "tools/lib/vault-acl.ps1",
       "tools/mission-bridge.js",
       "tools/owner-capture-audit.js",

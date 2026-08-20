@@ -63,3 +63,10 @@ error.log
 # offline-routes-qa rewrites its route transcript here on every run;
 # a harness-owned artifact must not hold require-clean-tree hostage.
 /reports/lanes/team2-b7-transcript.json
+
+# Same class again, 2026-08-19: the 272-tool agent sweep streams its per-batch
+# events and summaries here while it runs, and the node-removal drive writes its
+# screenshots here. Both are evidence a harness produces, not source anyone
+# reproduces from git -- and both blocked a cut by being untracked.
+/reports/agent-tools/
+/reports/node-remove-drive/
