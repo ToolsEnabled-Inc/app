@@ -1011,7 +1011,25 @@ const ACTION_STATE_WORDS = Object.freeze({
      there to catch. The command and its output are one press away, which is
      where a person can actually see what happened. */
   undone: 'did not finish',
+  /* NOT "did not finish", BECAUSE IT NEVER STARTED. The engine declined the
+     command before running it -- on a fresh profile every shell command a real
+     agent tries comes back this way (measured 2026-08-20). Four identical red
+     "did not finish" rows against `node --version` sent a reader looking for a
+     fault in their own commands; the truth is that this computer would not let
+     the agent run one. A person has to be able to tell a refusal from a crash
+     at a glance, so the word differs and so does the edge colour: the amber it
+     shares with "waiting for you", because both are about permission, while
+     red stays for things that genuinely broke. */
+  refused: 'refused',
   waiting: 'waiting for you',
+  /* THE OUTCOME NOBODY MEASURED. The turn ended and this call's result never
+     arrived, so the only two words that would fit the slot are both untrue:
+     "finished" invents a success and "did not finish" invents a failure. The
+     row says the thing that is actually known. Kept in the neutral edge colour
+     for the same reason -- green would claim it went well, red would send a
+     person hunting a fault that may not exist. See settleUnfinished() in
+     src/agent-session-events.js for when a row lands here. */
+  unknown: 'no result came back',
 })
 
 /* THE COMMAND, NOT ITS DELIVERY VAN. On Windows the codex engine runs every

@@ -365,6 +365,73 @@ const VISIBLE_FN = `(selector) => {
   return { state: 'visible', x, y }
 }`
 
+/* ---- TAKING A PICTURE OF THIS BUILD, AND WHY THE OBVIOUS WAY LIES --------
+ *
+ * Three lanes lost time to Page.captureScreenshot in one night (2026-08-20), so
+ * the readings live here, beside the function every driver in this family goes
+ * through, rather than in three separate reports. Every driver rolls its own
+ * shoot(); this is the part none of them should have to re-derive.
+ *
+ * 1 · WAKING THE WINDOW IS MANDATORY. setWebLifecycleState active, then a REAL
+ *     input event (a 1px mouseMoved), then two frames. A window opened with
+ *     show:false is not compositing, captureScreenshot waits for a frame that
+ *     will never come, and requestAnimationFrame alone does not wake it.
+ *
+ * 2 · fromSurface: false NEVER RETURNS under MC_SMOKE_HEADLESS=1. Measured:
+ *     12s deadline, three attempts, on five separate captures in one run --
+ *     every single one timed out. A dead path, not a slow one. A driver that
+ *     reaches for it (a committed one does) silently loses all its evidence.
+ *     Use the default.
+ *
+ * 3 · THE TELL IS NOT THE IMAGE SIZE, and this is the correction that matters
+ *     most, because "check the file came out the right size" is the defence a
+ *     reader invents and it does not work. Under an Emulation override the PNG
+ *     comes out at EXACTLY the requested width -- 1024x900, 1440x900, 1920x900,
+ *     measured -- while the painted CONTENT is the layout the window still has.
+ *     Nothing about the file betrays it. One lane's "1920" image showed the
+ *     segmented controls clipped mid-word ("Every agent" cut to "Every") beside
+ *     a DOM read taken in the same breath reporting horizontalOverflow: false:
+ *     two accounts of one window that cannot both be true.
+ *
+ *     THE RULE: a picture taken under Emulation.setDeviceMetricsOverride cannot
+ *     be trusted to agree with a DOM read taken in the same breath. The only
+ *     cure is to resize the REAL window. This is also why a before/after pair
+ *     taken at the window's own size, with no override at all, is trustworthy
+ *     -- not as a detail of one run, but as the general rule.
+ *
+ * 4 · Browser.setWindowBounds RESIZES THE REAL WINDOW, AND IS NOT AVAILABLE
+ *     HERE. It needs a windowId from Browser.getWindowForTarget, and headless
+ *     Electron does not give one -- measured by two lanes independently, across
+ *     three widths and repeated attempts. So on this build, in a headless run,
+ *     there is currently NO working way to take a trustworthy width-labelled
+ *     picture through the debugger.
+ *
+ * 5 · THE WAY THAT DOES WORK, and the better question underneath it.
+ *
+ *     THE PICTURE: shell/main.cjs restores its window from
+ *     <userData>/shell-state.json (shell/window-state.cjs; minimum 980x640), so
+ *     seeding that file BEFORE launch opens a real native window at that size.
+ *     Surface, layout and photograph are then one thing. One window per width.
+ *     Worked example: tools/context-window-drive.mjs, driveAtWidth().
+ *
+ *     THE BETTER QUESTION: "are the controls cut off at 1920" does not need a
+ *     photograph at all. It needs element rectangles measured against the
+ *     viewport -- and geometry is exactly what an emulated viewport genuinely
+ *     does change. So the measurement is trustworthy precisely where the image
+ *     is not, it names the offending element and pixel instead of inviting
+ *     somebody to squint at a PNG, and the surface/override disagreement cannot
+ *     reach it. Reach for the picture when a person has to SEE it; reach for
+ *     the rectangles when the question is whether something fits.
+ *
+ * 6 · WHICHEVER ROUTE, THE INSTRUMENT STATES ITS OWN MODE. Read innerWidth and
+ *     innerHeight back off the page, print them beside what was asked for and
+ *     beside which route was used (real window or emulation), and refuse to
+ *     label a picture with a width the page never reported. A resize that
+ *     silently does not take is the same failure family as everything else
+ *     here: an instrument reporting a state it never reached. A self-checking
+ *     log beats a correct result somebody has to trust.
+ * ------------------------------------------------------------------------- */
+
 /**
  * Start the packaged application on a sterile profile and attach to its window.
  *

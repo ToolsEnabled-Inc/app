@@ -361,6 +361,36 @@ export function createActionBuffer({
   const stateOf = (activity) => {
     if (activity.kind === 'approval') return 'waiting'
     if (activity.kind === 'call') return 'working'
+    /* A COMMAND THAT WAS NEVER ALLOWED TO RUN IS NOT A COMMAND THAT FAILED, and
+     * this line has to come BEFORE the exit code or it can never fire.
+     *
+     * MEASURED on the wire, 2026-08-20, real Codex/luna in a staged packaged
+     * build, through a read-only tap on the preload channel the view already
+     * subscribes to. The two shapes are structurally different:
+     *
+     *   refused   status "declined", exitCode -1
+     *   failed    status "failed",   exitCode 1
+     *
+     * -1 is a finite number, so the rule below read every refusal as a failed
+     * command: four rows saying "did not finish" about `node --version`, which
+     * succeeds anywhere this product runs. A person reading that goes hunting a
+     * fault in their own commands when what actually happened is that this
+     * computer would not let the agent run anything.
+     *
+     * ON THE STATUS, NEVER ON THE SENTENCE. The output does say "rejected:
+     * blocked by policy", and matching that would be guessing at prose -- the
+     * engine's own wording, rephrasable without notice, and it would misread a
+     * genuinely broken command that happened to print those words. `status` is
+     * the contract; the sentence is not.
+     *
+     * ONLY THE SPELLING THAT WAS MEASURED. Codex's approval vocabulary also
+     * holds "cancel", and a cancelled command presumably lands somewhere near
+     * here, but nobody has watched one arrive. It falls through to the rules
+     * below until somebody does. The Claude CLI has no refusal status at all
+     * today (its adapter emits only 'ok' or 'error'), so this cannot fire for
+     * it -- which is correct, not a gap: inventing one would be the same guess
+     * in a different place. */
+    if (activity.status === 'declined') return 'refused'
     if (Number.isFinite(activity.exitCode)) return activity.exitCode === 0 ? 'done' : 'undone'
     if (activity.status === 'error' || activity.status === 'failed') return 'undone'
     return 'done'
@@ -413,6 +443,39 @@ export function createActionBuffer({
         }
       }
       return { row, change: 'added' }
+    },
+    /**
+     * Close the books on every row still in flight, and answer which moved.
+     *
+     * THE DEFECT THIS ENDS. A call is filed `working` and only a RESULT moves
+     * it. Nothing guaranteed a result: the engine can drop one, the process can
+     * die mid-command, a sandbox can refuse after the fact. So a turn could end
+     * with rows frozen mid-sentence, and because the caller files `row.state`
+     * into the durable record verbatim, the saved conversation kept the word
+     * "running" for ever -- a transcript telling a person something untrue
+     * about a machine that stopped minutes ago. Seen in a driven after-picture
+     * on 2026-08-20: `Get-Content -Raw -Litera… running`, green edge, on a turn
+     * long over.
+     *
+     * `unknown` IS ITS OWN OUTCOME AND MUST STAY ONE. The cheap fix is to call
+     * these rows finished, and that would be the worse lie of the two: nothing
+     * measured the command succeeding. Nor did anything measure it failing, so
+     * `undone` is equally unearned -- a red row sends a person hunting a fault
+     * that may not exist. The row says what is actually known, which is that no
+     * result came back.
+     *
+     * IT IS NOT A TOMBSTONE. The join key is untouched, so a result that merely
+     * arrived late still finds its row through the ordinary update path above
+     * and corrects it.
+     */
+    settleUnfinished() {
+      const moved = []
+      for (const row of rows) {
+        if (row.state !== 'working') continue
+        row.state = 'unknown'
+        moved.push(row)
+      }
+      return moved
     },
     list() { return rows.slice() },
     folded(turnId) { return foldedPerTurn.get(turnId) || 0 },

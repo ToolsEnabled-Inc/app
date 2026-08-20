@@ -316,6 +316,200 @@ test('an action row cannot be shrunk to a hairline by a scrolling log', () => {
   assert.match(rule, /overflow: hidden/, 'the clip is part of the mechanism this pin documents; if it moved, re-measure')
 })
 
+/* ---------------------------------------------------------------
+   D1. A REFUSAL IS NOT A FAILURE, AND THE ROW HAS TO SAY WHICH.
+   --------------------------------------------------------------- */
+
+/* THE TWO SHAPES, COPIED OFF THE WIRE RATHER THAN IMAGINED.
+ *
+ * Measured 2026-08-20 on a real Codex/luna session in a staged packaged build,
+ * through a read-only tap on the same preload channel the view subscribes to
+ * (tools/context-window-drive.mjs). Both are commandExecution results and they
+ * are structurally different, which is the whole reason this can be done
+ * honestly rather than by matching the output prose:
+ *
+ *   refused   status "declined", exitCode -1
+ *   failed    status "failed",   exitCode 1
+ *
+ * The refusal was `node --version` — a command that succeeds anywhere this
+ * product runs — so the prompt carried its own positive control and there is no
+ * reading of it in which the command merely went wrong.
+ */
+const declinedResult = {
+  sessionId: 's1',
+  event: {
+    type: 'tool_result',
+    turnId: 'turn-a',
+    itemId: 'item-9',
+    toolCallId: 'item-9',
+    tool: 'commandExecution',
+    payload: {
+      status: 'declined',
+      exitCode: -1,
+      aggregatedOutput: '`"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command \'node --version\'` rejected: blocked by policy',
+    },
+  },
+}
+const failedResult = {
+  sessionId: 's1',
+  event: {
+    type: 'tool_result',
+    turnId: 'turn-a',
+    itemId: 'item-10',
+    toolCallId: 'item-10',
+    tool: 'commandExecution',
+    payload: {
+      status: 'failed',
+      exitCode: 1,
+      aggregatedOutput: 'fatal: not a git repository (or any of the parent directories): .git\n',
+    },
+  },
+}
+
+test('a command that was never allowed to run does not read as one that failed', () => {
+  /* "did not finish" says the command started and stopped short. These never
+     started: the engine declined them before execution. A person looking at
+     four identical red "did not finish" rows would go hunting a fault in their
+     own commands, when what actually happened is that this computer would not
+     let the agent run anything. */
+  const buffer = createActionBuffer()
+  buffer.add(sessionActivityEvent(declinedResult, 's1'), { turnId: 'turn-a' })
+  const [row] = buffer.list()
+  assert.notEqual(row.state, 'undone', 'a refusal is still filed as a failure')
+  const words = actionRowWords(row)
+  assert.notEqual(words.state, 'did not finish', 'the row still says the command failed to finish; it was never started')
+  assert.notEqual(words.state, 'finished', 'a refusal was promoted to a success')
+})
+
+test('a command that really did fail still says so', () => {
+  /* THE CONTROL, and it is the half that stops the fix over-reaching. If
+     "declined" widened into "any non-zero exit", a genuinely broken command
+     would start reading as a permission problem and send a person to the wrong
+     place. git rev-parse in a folder that is not a repository is a real
+     failure and must stay one. */
+  const buffer = createActionBuffer()
+  buffer.add(sessionActivityEvent(failedResult, 's1'), { turnId: 'turn-a' })
+  const [row] = buffer.list()
+  assert.equal(row.state, 'undone', 'a real command failure stopped reading as a failure')
+  assert.equal(actionRowWords(row).state, 'did not finish')
+})
+
+test('the refusal is recognised by the field the engine sets, not by its prose', () => {
+  /* The output text is the engine's own wording and will be rephrased without
+     warning; `status` is the contract. A rule that read the sentence would be
+     guessing at prose, which is the thing this codebase refuses to do. So the
+     same status with no recognisable sentence in it must still be a refusal,
+     and the same sentence with an ordinary status must not. */
+  const buffer = createActionBuffer()
+  buffer.add(sessionActivityEvent({
+    ...declinedResult,
+    event: { ...declinedResult.event, payload: { status: 'declined', exitCode: -1, aggregatedOutput: '' } },
+  }, 's1'), { turnId: 'turn-a' })
+  const [quiet] = buffer.list()
+  assert.equal(actionRowWords(quiet).state, actionRowWords({ ...quiet }).state)
+  assert.notEqual(quiet.state, 'undone', 'a refusal with no sentence in it was not recognised, so the rule is reading the prose')
+
+  const other = createActionBuffer()
+  other.add(sessionActivityEvent({
+    ...failedResult,
+    event: { ...failedResult.event, payload: { status: 'failed', exitCode: 1, aggregatedOutput: 'rejected: blocked by policy' } },
+  }, 's1'), { turnId: 'turn-a' })
+  assert.equal(other.list()[0].state, 'undone', 'a real failure whose output happens to contain the refusal sentence was misread as a refusal')
+})
+
+/* ---------------------------------------------------------------
+   D2. A ROW STOPS SAYING "running" WHEN NOTHING IS RUNNING.
+   --------------------------------------------------------------- */
+
+test('a call whose result never arrived does not keep the word "running"', () => {
+  /* SEEN BY THE COORDINATOR IN THE AFTER PICTURE, 2026-08-20, and it is a
+     defect the row-height fix MADE VISIBLE rather than caused: third row down,
+     `COMMAND Get-Content -Raw -Litera…  running`, green edge, on a turn that
+     had ended long before. Before the rows were legible nobody could read the
+     lie; that is not a reason to leave it.
+
+     A call is filed `working` and only a RESULT moves it. When the turn ends
+     without one -- the engine dropped it, the process died, the sandbox
+     refused after the fact -- the row is frozen mid-sentence and the record
+     keeps that word for ever, because recordTurnActions files row.state
+     verbatim. */
+  const buffer = createActionBuffer()
+  const call = sessionActivityEvent({
+    sessionId: 's1',
+    event: {
+      type: 'tool_call',
+      turnId: 'turn-a',
+      itemId: 'item-9',
+      toolCallId: 'item-9',
+      tool: 'commandExecution',
+      payload: { command: 'Get-Content -Raw -LiteralPath C:/work/notes.md' },
+    },
+  }, 's1')
+  const added = buffer.add(call, { turnId: 'turn-a' })
+  assert.equal(added.row.state, 'working', 'a call that has not answered is not in flight; this test is measuring the wrong thing')
+
+  const settled = buffer.settleUnfinished()
+  assert.equal(settled.length, 1, 'the turn ended and nothing settled the row that was still in flight')
+  assert.notEqual(added.row.state, 'working', 'the row still says it is running after the turn that owned it ended')
+})
+
+test('a result that never came is not promoted to a success', () => {
+  /* THE TRAP THIS TEST EXISTS FOR. "finished" is the cheapest way to stop a row
+     saying "running" and it is a lie of exactly the kind this whole night has
+     been about: it turns an unknown into a success, silently, on a row a person
+     is meant to be able to trust. It is not a failure either -- nobody measured
+     the command failing. The only honest thing a row can say is that no result
+     came back. */
+  const buffer = createActionBuffer()
+  buffer.add(sessionActivityEvent({
+    sessionId: 's1',
+    event: { type: 'tool_call', turnId: 'turn-a', itemId: 'item-9', toolCallId: 'item-9', tool: 'commandExecution', payload: { command: 'node --version' } },
+  }, 's1'), { turnId: 'turn-a' })
+  const [row] = buffer.settleUnfinished()
+
+  const words = actionRowWords(row)
+  assert.notEqual(words.state, 'finished', 'an unknown outcome was promoted to a success')
+  assert.notEqual(words.state, 'running', 'the row still claims to be running')
+  assert.match(words.state, /result/i, 'the settled word does not say the thing that is actually true: no result came back')
+  /* And it must not borrow the failure word either -- nothing was measured
+     failing, and a red row would send a person hunting a fault that may not
+     exist. */
+  assert.notEqual(row.state, 'undone', 'an unknown outcome was reported as a failure')
+})
+
+test('a result that arrives late still corrects its own row', () => {
+  /* Settling is not a tombstone. If the engine is merely slow and the result
+     turns up after the boundary, the row it belongs to must take it -- the
+     join key is unchanged, so the ordinary update path has to keep working. */
+  const buffer = createActionBuffer()
+  buffer.add(sessionActivityEvent({
+    sessionId: 's1',
+    event: { type: 'tool_call', turnId: 'turn-a', itemId: 'item-9', toolCallId: 'item-9', tool: 'commandExecution', payload: { command: 'node --version' } },
+  }, 's1'), { turnId: 'turn-a' })
+  buffer.settleUnfinished()
+  const late = buffer.add(sessionActivityEvent({
+    sessionId: 's1',
+    event: { type: 'tool_result', turnId: 'turn-a', itemId: 'item-9', toolCallId: 'item-9', tool: 'commandExecution', payload: { status: 'completed', exitCode: 0, aggregatedOutput: 'v22.19.0' } },
+  }, 's1'), { turnId: 'turn-a' })
+  assert.equal(late.change, 'updated', 'the late result opened a second row instead of answering the first')
+  assert.equal(late.row.state, 'done', 'a settled row refuses the result it was waiting for')
+})
+
+test('the turn boundary settles the rows BEFORE it files them', () => {
+  /* Order is the whole point: recordTurnActions writes `state: row.state` into
+     the durable record, so a row settled after filing would be correct on
+     screen and wrong for ever in the saved conversation. And the surfaces
+     already on screen have to be told, or the row a person is looking at keeps
+     the old word until something else repaints it. */
+  const record = view.slice(view.indexOf('function recordTurnActions'), view.indexOf('function savedActionRow'))
+  const settleAt = record.indexOf('settleUnfinished(')
+  const fileAt = record.indexOf('row.recorded = true')
+  assert.ok(settleAt !== -1, 'nothing settles the in-flight rows when the turn is filed')
+  assert.ok(fileAt !== -1, 'the filing marker moved; re-read this test before trusting it')
+  assert.ok(settleAt < fileAt, 'the rows are filed before they are settled, so the record keeps the word "running" for ever')
+  assert.match(record, /broadcastAction\(/, 'the chat already on screen is never told, so it keeps showing "running"')
+})
+
 test('a command row shows the command, never fifty characters of shell wrapper', () => {
   /* MEASURED 2026-08-20: codex on Windows delivers every shell line as
      "C:\...\powershell.exe" -Command '...', so two different commands drew two

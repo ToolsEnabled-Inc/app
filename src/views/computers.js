@@ -1721,6 +1721,15 @@ export function computersView({ initialComputer = null, navigate }) {
   function recordTurnActions(sessionId) {
     const buffer = sessionActions.get(sessionId)
     if (!buffer) return
+    /* THE BOOKS ARE CLOSED BEFORE THEY ARE FILED, and the order is the whole
+       point: the record below takes `row.state` verbatim, so a row settled
+       after filing would read correctly on screen and wrongly for ever in the
+       saved conversation. Every surface already showing the row is told too --
+       otherwise the chat a person is looking at keeps the word "running" until
+       something unrelated happens to repaint it. See settleUnfinished() in
+       src/agent-session-events.js for why the settled outcome is `unknown`
+       rather than the convenient "finished". */
+    for (const settled of buffer.settleUnfinished()) broadcastAction(sessionId, actionChatRow(settled))
     const fresh = buffer.list().filter(row => !row.recorded)
     if (fresh.length === 0) return
     for (const row of fresh) row.recorded = true

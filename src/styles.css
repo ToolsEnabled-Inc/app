@@ -1452,6 +1452,15 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 }
 .chat-action-state { flex: none; font-size: 11px; color: var(--ink-25); }
 .chat-action[data-action-state="undone"] { border-left-color: var(--bad, #d2544b); }
+/* A REFUSAL SHARES THE PERMISSION COLOUR, NOT THE FAILURE ONE. The command was
+   declined before it ran, so nothing broke and red would send a person hunting
+   a fault that does not exist; what it needs is the same attention "waiting for
+   you" needs, because both are about what this computer will allow. See
+   ACTION_STATE_WORDS in src/fleet-tree-copy.js. */
+.chat-action[data-action-state="refused"] { border-left-color: var(--warn, #d69a2c); }
+/* And an outcome nobody measured keeps the neutral edge: green would claim it
+   went well, red would claim it broke, and neither was observed. */
+.chat-action[data-action-state="unknown"] { border-left-color: var(--ink-25); }
 .chat-action[data-action-state="waiting"] { border-left-color: var(--warn, #d69a2c); }
 .chat-action[data-action-state="working"] { border-left-color: var(--ok, #35eab7); }
 .chat-action-body {
