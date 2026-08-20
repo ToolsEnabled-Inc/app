@@ -66,9 +66,44 @@ const TIER_DETAIL = Object.freeze(Object.fromEntries(
    read as a promise about their disk. Each is the behaviour
    agent-session-confinement.js records as measured against a user config that
    says danger-full-access, where the thread option won. */
+/* THE workspace-write LINE USED TO PROMISE WRITING, AND IT WAS MEASURABLY
+   FALSE ON THIS PLATFORM. It said: "It can change files in the folder you
+   chose, and this computer refuses any attempt it makes to change one outside
+   it." Both halves were wrong in different ways.
+
+   MEASURED 2026-08-20, three independent ways, including from a throwaway
+   CODEX_HOME with no credential in it -- every run 401'd on the model, which is
+   the proof nothing of ours was involved, and the startup banner still printed
+   the resolved policy. Codex 0.146.0 accepts `workspace-write` and resolves it
+   to READ-ONLY, silently:
+
+     asked read-only          -> read-only
+     asked workspace-write    -> READ-ONLY
+     asked danger-full-access -> danger-full-access
+
+   Confirmed on the wire too -- `thread/start` answers
+   {"type":"readOnly","networkAccess":false} to a workspace-write request -- and
+   on disk: at that resolved level a Codex agent cannot write, and cannot even
+   run `node --version`, which was declined in 0ms against a positive control
+   that ran it in 185ms at danger-full-access.
+
+   SO THE FIRST CLAUSE WAS FALSE FOR CODEX. And the second overclaimed for
+   Claude: Claude at this level DOES write inside its workspace and IS refused
+   outside it -- verified with a file that exists inside and one that does not
+   exist outside -- but the thing refusing is the Claude CLI's own permission
+   layer, not "this computer". No OS sandbox is involved on that path, so the
+   word promised an enforcement that was not the one doing the work.
+
+   The sentence below is true for both engines and needs no plumbing to stay
+   true: it states what the LEVEL allows, which is a fact about the level, and
+   admits that whether an engine can act inside it is a fact about the engine.
+   confinementNote() renders this before any session exists, so it cannot speak
+   from a resolved sandbox -- there is nothing resolved yet. A running session
+   saying which sandbox it actually got is separate work and is deliberately not
+   pre-announced here. */
 export const SANDBOX_EFFECT = Object.freeze({
   'read-only': 'It can read files, and this computer refuses any attempt it makes to change one.',
-  'workspace-write': 'It can change files in the folder you chose, and this computer refuses any attempt it makes to change one outside it.',
+  'workspace-write': 'It may change files only inside the folder you chose. Anything outside it is refused. Some engines are refused inside it too, and say so when it happens.',
   'danger-full-access': 'Nothing narrows it: it can read, change and delete any file on this computer and run any program, without asking.',
 })
 
