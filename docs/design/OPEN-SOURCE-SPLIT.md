@@ -2,9 +2,9 @@
 
 **Status: inventory is measured fact. The classification is a PROPOSAL. The owner decides where the line goes.**
 
-Lane: `opensource-split-prep`. Measured 2026-08-10 against
-`C:\Users\joshp\Desktop\wt-capability` (app) and
-`C:\Users\joshp\Desktop\toolsenabled-current` (capability-layer source).
+Lane: `opensource-split-prep`. Measured 2026-08-10 against the builder's
+`wt-capability` (app) and `toolsenabled-current` (capability-layer source)
+checkouts.
 
 ---
 
@@ -126,12 +126,25 @@ it was checked by hash rather than assumed:
 
 | File | Source tree contains | Payload contains | Verified |
 | --- | --- | --- | --- |
-| `config/agent-org.json` | 29,624 B — live seat roster, verbatim owner directives R1131–R1187, funding account aliases `jpinckard21` / `jpinckard95` / `jpinc005` | 1,288 B — the neutral default | payload sha256 == `capability-defaults/` sha256, != source |
-| `config/service-registry.json` | real LAN addresses `192.168.214.1` / `.2`, three absolute `C:\Users\joshp\...` roots | the neutral default | payload sha256 == `capability-defaults/` sha256, != source |
+| `config/agent-org.json` | 29,624 B — live seat roster, verbatim owner directives R1131–R1187, three of the builder's personal funding-account aliases | 1,288 B — the neutral default | payload sha256 == `capability-defaults/` sha256, != source |
+| `config/service-registry.json` | the builder's real direct-link LAN addresses, both ends, plus three absolute `C:\Users\<builder>\...` roots | the neutral default | payload sha256 == `capability-defaults/` sha256, != source |
 
-A direct scan of the whole payload for `192.168.214`, `joshp`, `jpinckard`, `jpinc005`,
-`@gmail.com`, `@ucr.edu` returns **zero matches**. `check-no-owner-data.mjs` reports clean,
+A direct scan of the whole payload for every string in the identity profile
+(`private/owner-data-patterns.owner.json`: the builder's LAN prefix, OS username,
+name, and personal and institutional account aliases), plus the mail domains those
+accounts belong to, returns **zero matches**. `check-no-owner-data.mjs` reports clean,
 and that verdict now has an independent second measurement behind it.
+
+> **Why this section names classes and not values.** An earlier revision listed the
+> actual subnet, username and aliases, on the reasonable-sounding grounds that a
+> record of what was removed should say what was removed. But this file is itself a
+> candidate for publication, so that record republished every value the split exists
+> to withhold — the same defect `check-no-owner-data.mjs` corrected in its own
+> comments when it swapped a real personal address for a reserved documentation one.
+> The evidence survives the change intact: what makes the table load-bearing is the
+> sha256 comparison in the last column, not the literals in the second. The literals
+> live in the identity profile, which is local and untracked, and that is the only
+> place they should exist.
 
 `src/lib/fleet-supervisor/lane-runner.js`, which hardcodes a real personal Gmail address at
 line 72, is **not** in the payload — only `fleet-supervisor/queue.js` and `state.js` are.

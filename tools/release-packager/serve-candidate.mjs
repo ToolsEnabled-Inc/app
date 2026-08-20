@@ -25,10 +25,12 @@
  *     touches vault, disk, or the agent-coord relay. Losing the process
  *     means minting a new token and re-running this script -- an acceptable
  *     cost for a token whose only job is to gate one file, once.
- *   - Binds ONLY to the literal direct-link address (192.168.214.2), matching
- *     the existing security posture of the tunnel and bridge, which do the
- *     same for the same reason: this interface exists for the A<->B link and
- *     nothing else.
+ *   - Binds ONLY to a configured direct-link address, matching the existing
+ *     security posture of the tunnel and bridge, which do the same for the
+ *     same reason: that interface exists for the A<->B link and nothing else.
+ *     The addresses themselves are configuration, not constants -- see
+ *     DIRECT_LINK_ENV_VAR below -- and with nothing configured this script
+ *     refuses to bind rather than guessing.
  *   - Serves EXACTLY the one path given at startup -- there is no directory
  *     listing, no path parameter accepted from the client, so there is no
  *     traversal surface to reason about.
@@ -64,12 +66,43 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const DIRECT_LINK_ADDRESSES = new Set(['192.168.214.2', '192.168.214.1'])
+/* THE DIRECT-LINK ADDRESSES ARE CONFIGURATION, NOT CONSTANTS.
+ *
+ * They used to be two literals in this line. That was one builder's private
+ * LAN baked into a tool that is published: it identifies whoever wrote it, and
+ * it is simply wrong for everyone whose cable uses different numbers -- they
+ * would hit the refusal below on their own correct address.
+ *
+ *   TOOLSENABLED_DIRECT_LINK_ADDRESSES=<local>[,<peer>[,...]]
+ *
+ * Comma-separated. The FIRST entry is this machine's own direct-link address
+ * and is what --bind defaults to; any entry in the list may be bound
+ * explicitly. Everything else is refused, exactly as before.
+ *
+ * THERE IS DELIBERATELY NO BUILT-IN DEFAULT, and that is a real choice, not an
+ * omission. Any default here is some specific machine's real address, so a
+ * default would either re-bake the previous builder's subnet or invent a
+ * plausible one -- and a release server that silently starts listening on a
+ * guessed interface is strictly worse than one that refuses and names the
+ * variable to set. Unset therefore means "refuse, by name", never "guess".
+ * The refusal-unless-direct-link property this file was built around is
+ * preserved and, with nothing configured, is now total.
+ */
+const DIRECT_LINK_ENV_VAR = 'TOOLSENABLED_DIRECT_LINK_ADDRESSES'
 const TOKEN_ENV_VAR = 'SERVE_CANDIDATE_TOKEN'
 const THIS_SCRIPT = fileURLToPath(import.meta.url)
 
+function configuredDirectLinkAddresses() {
+  return (process.env[DIRECT_LINK_ENV_VAR] ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
 function parseArgs(argv) {
-  const args = { port: 4787, bind: '192.168.214.2', once: false, detach: false }
+  // bind starts unset: the default comes from the configured direct-link
+  // addresses, and if there are none there is no default to fall back to.
+  const args = { port: 4787, bind: null, once: false, detach: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--port') args.port = Number(argv[++i])
@@ -204,8 +237,13 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (!args.filePath) {
     console.error(
-      'usage: node tools/release-packager/serve-candidate.mjs <path-to-exe> [--port 4787] [--bind 192.168.214.2] ' +
-        '[--once] [--detach] [--log-file <path>]',
+      'usage: node tools/release-packager/serve-candidate.mjs <path-to-exe> [--port 4787] ' +
+        '[--bind <direct-link address>] [--once] [--detach] [--log-file <path>]',
+    )
+    console.error(
+      `  set ${DIRECT_LINK_ENV_VAR} to your direct-link addresses (comma-separated, this ` +
+        "machine's own address first). --bind defaults to the first of them; there is no " +
+        'built-in default address.',
     )
     process.exitCode = 2
     return
@@ -215,10 +253,24 @@ async function main() {
   const stats = statSync(filePath)
   const filename = path.basename(filePath)
 
-  if (!DIRECT_LINK_ADDRESSES.has(args.bind) && !args.forceBindAny) {
+  const directLinkAddresses = configuredDirectLinkAddresses()
+  if (args.bind === null) args.bind = directLinkAddresses[0] ?? null
+
+  if (args.bind === null) {
     throw new Error(
-      `refusing to bind to ${args.bind}: not one of the known direct-link addresses (${[...DIRECT_LINK_ADDRESSES].join(', ')}). ` +
-        'Pass --force-bind-any to override, but that widens this beyond the A<->B cable on purpose -- think first.',
+      `no address to bind: ${DIRECT_LINK_ENV_VAR} is unset and no --bind was given. Set it to your ` +
+        "direct-link addresses (comma-separated, this machine's own address first), e.g. " +
+        `${DIRECT_LINK_ENV_VAR}="<local>,<peer>". There is no built-in default on purpose: a guessed ` +
+        "address is somebody else's interface, and this server must never listen on one.",
+    )
+  }
+
+  if (!directLinkAddresses.includes(args.bind) && !args.forceBindAny) {
+    throw new Error(
+      `refusing to bind to ${args.bind}: not one of the direct-link addresses declared in ` +
+        `${DIRECT_LINK_ENV_VAR} (${directLinkAddresses.length ? directLinkAddresses.join(', ') : 'unset'}). ` +
+        'Declare it there, or pass --force-bind-any to override -- but that widens this beyond the ' +
+        'A<->B cable on purpose, so think first.',
     )
   }
 

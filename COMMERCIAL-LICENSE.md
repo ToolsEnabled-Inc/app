@@ -47,11 +47,15 @@ open-source projects are routinely suspected of the opposite:
 - **It is a service, not a feature unlock.** Nothing in this repository is disabled,
   crippled or time-limited in order to sell it.
 - **The free product is complete for anyone who can reach their own machines.**
-  Local operation, your own LAN, and self-hosting are fully supported and require
-  no account with us. **Connect your own server and you pay nothing, forever.**
-- **The server-side implementation is not in this repository.** It is separate work
-  under separate terms, and running your own server instead is a supported,
-  first-class way to use this software rather than a workaround.
+  Local operation and your own LAN are fully supported and require no account with
+  us. **Connect your own server and you pay nothing, forever** — that is the
+  standing commitment, and self-hosting is not available yet (below).
+- **The server-side implementation is not in this repository yet.** Running your
+  own server instead of ours is planned, and when the relay source publishes it
+  will be under the same MIT license — a supported, first-class way to use this
+  software rather than a workaround. Until then it is a commitment, not a
+  capability, and this document would rather say so than let the distinction
+  blur.
 
 The service is provided to subscribers under its own service terms, which accompany
 the service and are not reproduced in this file. Those terms govern the service.

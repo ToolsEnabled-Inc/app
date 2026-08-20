@@ -17,14 +17,14 @@ Everything below was measured on Machine A on 2026-08-10, not inferred.
 ## 1. The one command
 
 ```
-cd C:\Users\joshp\Desktop\wt-installer
+cd C:\Users\<you>\Desktop\wt-installer
 node tools/release-packager/cut-release-candidate.mjs --test          # rehearsal
 node tools/release-packager/cut-release-candidate.mjs                 # real candidate
 ```
 
 | flag | effect |
 | --- | --- |
-| *(none)* | patch-bumps the version, stages to `C:\Users\joshp\Desktop\MACHINE-A-INSTALLER-CANDIDATE\<version>\` |
+| *(none)* | patch-bumps the version, stages to `C:\Users\<you>\Desktop\MACHINE-A-INSTALLER-CANDIDATE\<version>\` |
 | `--test` | stages to a scratch dir under `%TEMP%`, forces branch-advance off, marks the declaration TEST / NOT FOR TRANSFER |
 | `--source-ref <sha>` | build a specific commit instead of the branch tip |
 | `--version X.Y.Z` | explicit version instead of `--bump patch` |
@@ -76,7 +76,7 @@ leaves those two as their committed content.
 
 Measured on Machine A, 2026-08-10:
 
-- `C:\Users\joshp\Desktop\mission-control\node_modules` — the shared junction
+- `C:\Users\<you>\Desktop\mission-control\node_modules` — the shared junction
   target that `wt-installer/node_modules` symlinks to — has **no `.bin`
   directory at all** (`test -e` exit 1), and is missing packages its own
   lockfile declares, including `@electron/asar`, `@electron/get`,
@@ -108,7 +108,7 @@ worktree sharing it, possibly mid-build. Announce a window in `agent-coord`
 and check the presence roster first, then:
 
 ```
-cd C:\Users\joshp\Desktop\mission-control
+cd C:\Users\<you>\Desktop\mission-control
 npm install                                   # NOT from wt-installer: that writes through the symlink
 node node_modules\electron\install.js         # electron's postinstall does not always fire
 ```
@@ -130,8 +130,8 @@ supersede that.
 
 ## 4. Which tree built `Mission Control Setup 1.0.2.exe`
 
-**`C:\Users\joshp\Desktop\wt-installer`, branch `installer/nsis`.** Not
-`C:\Users\joshp\Desktop\mission-control`. Confirmed four independent ways, not
+**`C:\Users\<you>\Desktop\wt-installer`, branch `installer/nsis`.** Not
+`C:\Users\<you>\Desktop\mission-control`. Confirmed four independent ways, not
 by reading the declaration:
 
 1. **The binary's own VersionInfo.** The shipped exe reports
@@ -139,7 +139,7 @@ by reading the declaration:
    `LegalCopyright = "Copyright © 2026 Mission Control"`. Those come from
    `author` and `build.copyright` in `package.json`.
    `Desktop\mission-control`'s `package.json` has **neither field** (and
-   `appId com.joshp.missioncontrol`, version `1.0.0`); this branch has both,
+   a personal-namespace `appId com.<builder>.missioncontrol`, version `1.0.0`); this branch has both,
    plus `appId com.toolsenabled.missioncontrol`.
 2. **Reachability.** The 1.0.2 source ref `678187d` and build ref `d9ba79b`
    are contained in `installer/nsis` and `packaging/capability-layer` only.
@@ -155,7 +155,7 @@ by reading the declaration:
    to the shipped 1.0.2 build ref's tree.
 
 The build itself did not happen *in* `wt-installer` either: it ran in a
-throwaway detached worktree, `C:\Users\joshp\Desktop\wt-release-build-1.0.2`,
+throwaway detached worktree, `C:\Users\<you>\Desktop\wt-release-build-1.0.2`,
 since removed. `wt-installer` is the source of record; the build directory is
 disposable by design.
 

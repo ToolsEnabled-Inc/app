@@ -105,12 +105,67 @@ test('the agent engine resolver carries no hardcoded sibling-repo default', () =
 // after electron-builder has already packed. These same classes checked at the
 // source, so a reintroduction goes red in seconds at `npm test`.
 //
-// Two of these are not in the built-bundle guard at all and belong here:
-// `jpinckard` (the owner's real Google account aliases, which sat in
-// src/sim.js's simulation data as pool ids) and `jpinc005` (his real university
-// account, which sat in src/vocab.js's POOLS and was caught by nothing). The
-// fictional stand-ins are `northwind21` / `northwind95` / `north005`.
-test('no source under src/ or shell/ names the internal repo or the dead chat placeholder', () => {
+// TWO HALVES, AND THE SPLIT IS THE ONE THE AUTHORITY ALREADY MAKES.
+// check-no-owner-data.mjs states it in one line -- "The mechanism is code. The
+// identity is a setting" -- and this file now agrees with it, which is why no
+// real person's username, name, account aliases or LAN range appear below.
+//
+//   - PRODUCT patterns are true for ANY builder: the private tree name, the dead
+//     chat placeholder, a drive-rooted checkout path. Facts about this
+//     repository, so they stay literals here.
+//   - IDENTITY patterns are WHO THE BUILDER IS. Written out, they protected
+//     exactly one person, published that person's aliases inside the very file
+//     that exists to stop them publishing, and left the next builder nowhere to
+//     put their own. They are read from the same
+//     private/owner-data-patterns.owner.json the ship gate reads.
+//
+// The identity half is what covers the two classes the built-bundle guard's
+// BUILT-IN rules never saw: the builder's personal account aliases (which sat in
+// src/sim.js's simulation data as pool ids) and their institutional account
+// (which sat in src/vocab.js's POOLS and was caught by nothing). The fictional
+// stand-ins that replaced both are `northwind21` / `northwind95` / `north005`.
+//
+// A MISSING PROFILE IS ANNOUNCED, NOT IGNORED. This runs at `npm test`, where a
+// fresh clone legitimately has no profile yet, so absence cannot be a hard error
+// here the way it is in the ship gate. It must not be invisible either -- that is
+// the absence-as-emptiness defect the guard's own comments catalogue. So the
+// product half still runs unconditionally, the identity half says out loud that
+// it did not run, and check-no-owner-data.mjs (which DOES hard-fail on a missing
+// profile) still stands between anyone and a build.
+//
+// KNOWN DIVERGENCE, left open on purpose: the authority guard excuses the
+// product's published attribution -- the creator's full name, which the binary,
+// README and NOTICE are required to carry -- from identity matches. This file
+// has no such excusal, so if that attribution ever lands under src/ or shell/,
+// this goes red where the ship gate goes green. The fix at that point is to teach
+// this file the same narrow excusal, NOT to drop the surname pattern: that
+// pattern is also the only thing catching a personal address of the form
+// <surname><digits>@<provider>.
+const IDENTITY_PROFILE = 'private/owner-data-patterns.owner.json'
+
+function loadIdentityPatterns() {
+  let parsed
+  try {
+    parsed = JSON.parse(readFileSync(resolve(ROOT, IDENTITY_PROFILE), 'utf8'))
+  } catch {
+    return null
+  }
+  if (!parsed || !Array.isArray(parsed.patterns) || parsed.patterns.length === 0) return null
+  return parsed.patterns
+    .map((entry, index) => ({ entry: typeof entry === 'string' ? { value: entry } : entry, index }))
+    .filter(({ entry }) => entry && typeof entry.value === 'string' && entry.value.trim() !== '')
+    .map(({ entry, index }) => ({
+      // Labelled BY POSITION, never by value. An offender line that printed the
+      // pattern would put the builder's identity into every CI log that ever
+      // sees this test fail -- the same leak, one indirection out. The file path
+      // is what a fix actually needs; whoever owns the profile can read it.
+      label: `${IDENTITY_PROFILE} pattern #${index}`,
+      value: entry.value,
+      caseSensitive: entry.caseSensitive === true,
+    }))
+}
+
+test('no source under src/ or shell/ names the internal repo or the dead chat placeholder', t => {
   const forbidden = [
     { label: 'toolsenabled-current', pattern: /toolsenabled-current/ },
     { label: 'Ask Codex or Claude', pattern: /Ask Codex or Claude/ },
@@ -134,15 +189,13 @@ test('no source under src/ or shell/ names the internal repo or the dead chat pl
     // matched, and this file now agrees with the guard it exists to front-run.
     //
     // Still caught by this clause, and by nothing else here:
-    //   C:\Users\joshp\Desktop\ToolsEnabled\src   D:/dev/toolsenabled/lib
+    //   C:\Users\<builder>\Desktop\ToolsEnabled\src   D:/dev/toolsenabled/lib
     // Still caught by the exact clause above it, unchanged:  toolsenabled-current
     // Now permitted, deliberately:  "ToolsEnabled", 'toolsenabled', TOOLSENABLED
     { label: 'builder checkout path (<drive>:\\...\\ToolsEnabled)', pattern: /[A-Za-z]:[\\/][^\r\n]{0,160}?[\\/]toolsenabled/i },
     { label: 'agent-coord', pattern: /agent-coord/i },
-    { label: "the owner's account aliases", pattern: /jpinckard/i },
-    { label: "the owner's university account", pattern: /jpinc005/i },
-    { label: "the owner's name", pattern: /pinckard/i },
   ]
+  const identity = loadIdentityPatterns()
   const offenders = []
   for (const name of ['src', 'shell']) {
     for (const file of listFiles(resolve(ROOT, name))) {
@@ -150,7 +203,21 @@ test('no source under src/ or shell/ names the internal repo or the dead chat pl
       for (const { label, pattern } of forbidden) {
         if (pattern.test(text)) offenders.push(`${file}: ${label}`)
       }
+      if (!identity) continue
+      const lowered = text.toLowerCase()
+      for (const { label, value, caseSensitive } of identity) {
+        const haystack = caseSensitive ? text : lowered
+        const needle = caseSensitive ? value : value.toLowerCase()
+        if (haystack.includes(needle)) offenders.push(`${file}: ${label}`)
+      }
     }
+  }
+  if (!identity) {
+    t.diagnostic(
+      `${IDENTITY_PROFILE} is absent or empty: the product patterns were checked, the identity ` +
+        'patterns were NOT. Copy config/owner-data-patterns.example.json there to check them at ' +
+        '`npm test` too; tools/check-no-owner-data.mjs hard-fails on its absence before any build.',
+    )
   }
   assert.deepEqual(offenders, [])
 })

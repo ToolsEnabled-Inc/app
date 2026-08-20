@@ -176,7 +176,7 @@ test exercises, so it is known to work end to end.
 
 **B. Every copy you ship — goes in the installer.** Create the same file at
 `config/google-signin.json` in the app tree
-(`C:\Users\joshp\Desktop\wt-capability`) and rebuild. `config/` is a shared file
+(`C:\Users\<you>\Desktop\wt-capability`) and rebuild. `config/` is a shared file
 in this repo's lane rules, so hand the change to the coordinator rather than
 committing it from a lane.
 

@@ -67,7 +67,7 @@ Google's authorization server, Google's token endpoint, Google's JWKS. The only
 substitution is the hand that clicks, and the run asserts the test-provider
 banner is **absent**, so it cannot be confused with a local-provider run.
 
-**21/21 checks passed, twice**, signing in as `jpinckard95@gmail.com`:
+**21/21 checks passed, twice**, signing in as *the primary personal Gmail*:
 
 - the shipped **Sign in with Google** button, pressed in the packaged window
 - the browser sent to `https://accounts.google.com`, ephemeral loopback redirect,
@@ -78,7 +78,7 @@ banner is **absent**, so it cannot be confused with a local-provider run.
 - token exchange accepted; `id_token` verified against Google's **real** JWKS by
   the product's own verifier
 - screen reads `Signed in as Josh Pinckard` with the Google-verified address
-- account record: `signInMethod: "google"`, `email: "jpinckard95@gmail.com"`
+- account record: `signInMethod: "google"`, `email: "the primary personal Gmail"`
 - **no Google token and no client secret written to the profile**
 - **the session survives a restart** of the packaged product
 
@@ -100,7 +100,7 @@ So a dedicated one was registered (authorized under `inScope`
 - Google Cloud project **`ToolsEnabled`** (`toolsenabled`), no organization, no
   billing — Google charges nothing for a project, a consent screen or a client
 - Google Auth Platform configured: app name **ToolsEnabled**, support and contact
-  `jpinckard95@gmail.com`, audience **External**, User Data Policy accepted
+  *the primary personal Gmail*, audience **External**, User Data Policy accepted
   (ordinary clickwrap for a free service)
 - OAuth client **`ToolsEnabled desktop sign-in`**, type **Desktop app**
 - client id `840383906222-t0jlnp7lmr4377l0ego13oct9murtl5s.apps.googleusercontent.com`
@@ -168,11 +168,15 @@ packaged build, with the client the product will ship.
   alone users need not be on the test-user list and authorizations do not expire
   after 7 days — that is read, not measured, and could not be measured without a
   second person's Google account and password.
-- **The other two registered accounts.** Only `jpinckard95@gmail.com` is signed
-  into the ToolsEnabled-owned browser; `jpinckard21@gmail.com` and
-  `jpinc005@ucr.edu` would need his password and MFA.
+- **The other two registered accounts.** Only *the primary personal Gmail* is signed
+  into the ToolsEnabled-owned browser; *the second personal Gmail* and
+  *the university Workspace account* would need his password and MFA.
 - **Which Google account should own the shipping client long-term.** It was
-  created under `jpinckard95@gmail.com`, the account this machine's browser is
+  created under *the primary personal Gmail*, the account this machine's browser is
   signed into and a personal Gmail (an earlier lane noted a `.edu` account is
   wrong here because a Workspace admin could revoke it). Moving it later is a
   ten-minute redo, but the client id would change.
+
+---
+
+*Account addresses in this report were replaced with role labels before publication. Which account is which is the engineering content; the addresses themselves were only ever incidental, and this file is tracked.*
