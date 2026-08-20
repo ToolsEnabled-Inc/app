@@ -112,6 +112,38 @@ export async function startFleetNode({ session, evaluate, delay, brief = 'Say ok
 
     /* The panel refuses without a role and SAYS so ("Pick a role first, then
        press Start"), which is how this walk learned it was skipping a step. */
+    /* THE DISABLED-SELECT TRAP, MEASURED 2026-08-20, and it made this helper
+       accuse the product of a defect it did not have.
+​
+       On a profile where "running agents" has never been switched on, the role
+       <select> carries all six options and is DISABLED. A press on a disabled
+       control takes no focus -- so the Escape below, meant for the native popup,
+       had nothing focused to land on, bubbled to the panel root, and (since
+       3457cfa taught Escape to cancel the start panel however it was opened)
+       CLOSED THE WHOLE PANEL. The walk then fell through to "the selector still
+       has no value", which reads as a product defect and is not one: measured
+       with a standalone probe, the panel goes true -> false across that Escape,
+       and ArrowDown never takes a value because the control is disabled.
+​
+       At least four drivers reach the board through this helper, so the failure
+       was reproducible, misleading, and about to be reported as a finding by a
+       continuous walker. Refusing here with the real reason is the fix: the
+       helper does NOT switch the flag on by itself, because turning on a
+       product capability is a decision a driver must make deliberately and say
+       it made, not something a shared helper does silently to get past a step. */
+    const roleReady = JSON.parse(await evaluate(`(() => {
+      const select = document.querySelector('[data-compose-field="role"]')
+      if (!select) return JSON.stringify({ present: false })
+      return JSON.stringify({ present: true, disabled: Boolean(select.disabled), options: select.options.length })
+    })()`))
+    if (!roleReady.present) return stop('the role selector in the start panel', 'no [data-compose-field="role"] on the page')
+    if (roleReady.disabled) {
+      return stop('choosing a role in the start panel',
+        `the role selector is DISABLED on this profile (${roleReady.options} options present), which is the product`
+        + ' behaving correctly: running agents is switched off. Turn it on first -- the panel offers'
+        + ' "Turn on running agents" -- and say in the report that the driver did so. This is NOT a product defect.')
+    }
+
     const roleSelect = await press('[data-compose-field="role"]')
     if (roleSelect !== 'clicked') return stop('the role selector in the start panel', roleSelect)
     /* PRESS -> ESCAPE -> ARROWS, and the arrows are RETRIED rather than sent
