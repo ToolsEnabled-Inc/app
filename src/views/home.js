@@ -61,6 +61,9 @@ import {
   readLocalSessions,
   summariseRunWork,
 } from '../local-activity.js'
+/* One reading of "is anybody signed in", beside the rest of the availability
+   vocabulary, so this screen and the setup review cannot drift apart on it. */
+import { providerSignInReading } from '../agent-availability-copy.js'
 /* THE CONVERSATIONS THIS COMPUTER ALREADY SAVED, read so a run can say which
    agent it was, what it was asked and what it said back. Nothing new is written
    and nothing new is recorded: the trees a person builds on the computers page
@@ -392,6 +395,10 @@ export function homeView() {
        answers leaves it in place. */
     sessions: readLocalSessions(undefined),
     engine: readAgentEngine(undefined),
+    /* Null until loadProviders() answers, and null means "not asked" rather than
+       "nobody is signed in" -- so the first paint says exactly what it said
+       before this screen learned to ask, instead of a verdict nothing measured. */
+    providers: null,
     approvals: null,
     /* What the person chose on the settings page, plus who is actually talking
        in whatever conversation this screen has. The decision needs both: the
@@ -1107,6 +1114,45 @@ export function homeView() {
     settle()
   }
 
+  /* IS ANYBODY ACTUALLY SIGNED IN TO THE PROGRAM THAT RUNS AN AGENT.
+   *
+   * availability() above answers whether this INSTALLATION can start anything,
+   * and shell/agent-host.cjs opens that on a Claude start being possible --
+   * proved as the payload carrying the engine plus the `claude` program
+   * resolving, never on a sign-in. Home was rendering that as a fact about the
+   * computer, so a machine with nothing signed in to either provider showed a
+   * green tick while the setup review one screen earlier said an agent could not
+   * yet run and the press then refused for exactly that reason.
+   *
+   * NOTHING NEW IS PROBED. mcProviders.presence() is already on this preload and
+   * src/setup-review-readiness.js already asks it one screen earlier; home is
+   * the surface that never asked. The judgement lives in providerSignInReading()
+   * beside the rest of the availability vocabulary, so there is one reading of
+   * "signed in" rather than one per screen.
+   *
+   * A REFUSAL IS SILENCE, NOT A VERDICT. No bridge, a rejected call, a reply of
+   * the wrong shape: all leave `known:false`, and describeHome then says exactly
+   * what it said before anyone asked. Never a warning built out of a failed
+   * request. */
+  async function loadProviders() {
+    const bridge = globalThis.mcProviders
+    let raw = null
+    if (bridge && typeof bridge.presence === 'function') {
+      try { raw = await bridge.presence() } catch { raw = null }
+    }
+    if (destroyed) return
+    state.providers = providerSignInReading(raw)
+    /* apply(), NOT settle(), and the difference is a race rather than a taste.
+       `awaitingFirstAnswers` is a countdown of the TWO sources the first paint
+       waits for; a third caller decrementing it would let whichever two answered
+       first release the paint, so a slow loadSessions would be painted around
+       instead of waited for. apply() early-returns while the count is still
+       above zero, leaving this reading in `state` for the paint that does
+       happen, and repaints if the answer lands later. It also declines to become
+       a third way for a hung IPC to leave this screen blank forever. */
+    apply()
+  }
+
   /* Self-pacing rather than a fixed interval, so a machine with no queue is not
      charged twenty seconds of request forever, and a machine whose capability
      layer is still starting still picks the queue up once it answers. */
@@ -1266,6 +1312,7 @@ export function homeView() {
   window.addEventListener(APPROVAL_OUTCOME_EVENT, onApprovalOutcome)
 
   void loadEngine()
+  void loadProviders()
   void loadSessions(true)
   void loadUsage()
   void loadApprovals()

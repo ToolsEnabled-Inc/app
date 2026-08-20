@@ -33,6 +33,7 @@ import {
   summariseRunWork,
   whenWords,
 } from '../../src/local-activity.js'
+import { providerSignInReading } from '../../src/agent-availability-copy.js'
 
 const NOW = Date.parse('2026-08-11T12:00:00.000Z')
 const minutes = (n) => n * 60_000
@@ -1246,4 +1247,94 @@ test('the sentence about other computers is a link, in every state where it is a
   /* A loop that matched nothing would pass silently, which is the same as not
      having written it. */
   assert.ok(checked > 0, 'the matrix never reached the state this test is about')
+})
+
+/* ---- "AGENTS CAN RUN ON THIS COMPUTER" IS A CLAIM ABOUT THE COMPUTER --------
+ *
+ * It was rendered from mcAgent.availability(), which answers a question about
+ * the INSTALLATION: shell/agent-host.cjs opens it when a Claude start is
+ * genuinely possible -- the payload carrying the engine plus the `claude`
+ * program resolving -- and never on any sign-in, because Claude's sign-in file
+ * is presence-only and can never be a proof. That decision is right and is not
+ * being changed: it stops the product calling itself broken on a machine that is
+ * correctly set up for Claude.
+ *
+ * DRIVEN ON THE PACKAGED BUILD, cold install, three arms:
+ *   codex signed out, claude installed       availability ok  -> "Agents can run on this computer"
+ *   codex signed out, claude SIGNED IN       availability ok  -> identical, and TRUE: one can
+ *   codex signed out, claude NOT INSTALLED   availability no  -> "Not ready yet", correct
+ *
+ * The middle arm is why this is a third state and not an inversion. The first is
+ * the defect: nothing signed in to either provider and a green tick, while the
+ * setup review one screen earlier says an agent cannot yet run and the press
+ * then refuses for that exact reason.
+ *
+ * The rule this broke is already written down in this codebase -- 'unknown' IS A
+ * REAL ANSWER AND IS NEVER ROUNDED UP. engineAvailability() honours it in the
+ * refusal direction; home took the resulting non-refusal and rounded it up.
+ * ------------------------------------------------------------------------- */
+
+const engineFact = input => describeHome({ fleetConfigured: false, nowMs: NOW, ...input })
+  .facts.find(fact => fact.id === 'engine')
+
+const presence = rows => providerSignInReading({ ok: true, providers: rows })
+const CODEX_OUT = { id: 'codex', installed: 'yes', signedIn: 'no' }
+const CLAUDE_THERE = { id: 'claude', installed: 'yes', signedIn: 'unknown' }
+const CLAUDE_IN = { id: 'claude', installed: 'yes', signedIn: 'yes' }
+
+test('nothing signed in anywhere is not "agents can run on this computer"', () => {
+  const fact = engineFact({ engine: readAgentEngine({ ok: true }), providers: presence([CODEX_OUT, CLAUDE_THERE]) })
+  assert.notEqual(fact.text, 'Agents can run on this computer',
+    'a green tick on a computer where nothing is signed in to either provider')
+  assert.equal(fact.tone, 'warn')
+  /* It must still say what IS true -- the installation can start one -- or this
+     trades a false green for a false red. */
+  assert.match(fact.text, /can start an agent/i)
+  assert.match(fact.text, /nobody is signed in to Codex/i)
+  assert.match(fact.text, /codex login/i, 'a state with something to do must say what to do')
+})
+
+test('a signed-in Claude keeps the green, because that computer really can run one', () => {
+  /* THE ARM THAT MUST NOT MOVE. Without it, the test above also passes on a
+     screen that simply stopped saying anything good -- which would tell the
+     Claude user their working machine is broken, the same defect wearing the
+     other sign. */
+  const fact = engineFact({ engine: readAgentEngine({ ok: true }), providers: presence([CODEX_OUT, CLAUDE_IN]) })
+  assert.equal(fact.text, 'Agents can run on this computer')
+  assert.equal(fact.tone, 'good')
+})
+
+test('an engine that refuses still says so, in its own words', () => {
+  /* The third arm, and the proof this instrument can see the fact change at all:
+     it already worked, and it must keep working. */
+  const fact = engineFact({ engine: readAgentEngine({ ok: false, code: 'AGENT_CONFINEMENT_SIGNED_OUT' }), providers: presence([CODEX_OUT]) })
+  assert.equal(fact.tone, 'warn')
+  assert.equal(fact.text, ENGINE_REASON.AGENT_CONFINEMENT_SIGNED_OUT)
+})
+
+test('a caller that never asked, or asked and learned nothing, says what it always said', () => {
+  /* Every existing caller of describeHome passes no providers at all. None of
+     them may acquire a warning built out of a question nobody asked. */
+  for (const providers of [undefined, null, providerSignInReading(null), providerSignInReading({ ok: false }),
+    providerSignInReading({ ok: true }), providerSignInReading({ ok: true, providers: [] }),
+    providerSignInReading({ ok: true, providers: 'codex' })]) {
+    const fact = engineFact({ engine: readAgentEngine({ ok: true }), providers })
+    assert.equal(fact.text, 'Agents can run on this computer',
+      `an unusable presence reply changed the screen: ${JSON.stringify(providers)}`)
+    assert.equal(fact.tone, 'good')
+  }
+})
+
+test('ready, with nothing proven either way, picks neither end', () => {
+  /* Codex answering 'unknown' is not proof that nobody is signed in. Rounding it
+     up prints the green tick this repair is for; rounding it down calls a
+     working machine broken. */
+  const fact = engineFact({
+    engine: readAgentEngine({ ok: true }),
+    providers: presence([{ id: 'codex', installed: 'yes', signedIn: 'unknown' }, CLAUDE_THERE]),
+  })
+  assert.equal(fact.tone, 'neutral')
+  assert.match(fact.text, /can start an agent/i)
+  assert.match(fact.text, /could not check/i)
+  assert.doesNotMatch(fact.text, /codex login/i, 'no terminal command for somebody who may already be signed in')
 })

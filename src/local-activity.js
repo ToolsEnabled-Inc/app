@@ -676,6 +676,8 @@ function groupDigits(value) {
  * @param {object|null} input.peer         {reachable, name, atMs}
  * @param {object} input.sessions          from readLocalSessions
  * @param {object} input.engine            from readAgentEngine
+ * @param {object|null} input.providers    from providerSignInReading, or null
+ *                                         when this caller has not asked
  * @param {object|null} input.approvals    {readable, count, undelivered}
  * @param {object} input.chatbox           {runsMode, selection, agentsInSource}
  * @param {number} input.nowMs
@@ -693,6 +695,10 @@ export function describeHome(input) {
     peer = null,
     sessions = readLocalSessions(null),
     engine = readAgentEngine(null),
+    /* NULL MEANS THIS CALLER HAS NOT ASKED, and that must render exactly what it
+       rendered before this input existed. A default that assumed either answer
+       would put a verdict on screen that nobody measured. */
+    providers = null,
     approvals = null,
     chatbox = null,
     nowMs = Date.now(),
@@ -749,10 +755,59 @@ export function describeHome(input) {
   } else {
     /* Whether agents can run here. Stated once, positively when it is true --
        a person needs to know this either way, and it is the single most
-       load-bearing fact about the product on a machine with nothing connected. */
-    facts.push(engine.ready
-      ? { id: 'engine', tone: 'good', text: 'Agents can run on this computer' }
-      : { id: 'engine', tone: 'warn', text: engine.why })
+       load-bearing fact about the product on a machine with nothing connected.
+     *
+     * IT HAD TWO STATES AND THE MACHINE HAS THREE, which is the whole of this
+     * repair. `engine.ready` is mcAgent.availability(), and that answers "can
+     * this INSTALLATION start anything" -- shell/agent-host.cjs opens it when a
+     * Claude start is genuinely possible, proved as the payload carrying the
+     * engine plus the `claude` program resolving, and NEVER on any sign-in,
+     * because Claude's sign-in file is presence-only and can never be a proof.
+     * That decision is right: it stops the product calling itself broken on a
+     * machine correctly set up for Claude.
+     *
+     * Home then rendered that installation-shaped answer as a fact about the
+     * COMPUTER. Driven on the packaged build, cold install, three arms:
+     *
+     *   codex signed out, claude installed        availability ok -> "Agents can run on this computer"
+     *   codex signed out, claude SIGNED IN        availability ok -> identical, and correct: one can
+     *   codex signed out, claude NOT INSTALLED    availability refuses -> "Not ready yet", correct
+     *
+     * The middle arm is why this is not simply inverted: a green there is TRUE.
+     * The first arm is the defect -- nothing signed in to either provider, and a
+     * green tick, while the setup review one screen earlier says an agent cannot
+     * yet run and the press then refuses for exactly that reason.
+     *
+     * This codebase already states the rule it broke: 'unknown' IS A REAL ANSWER
+     * AND IS NEVER ROUNDED UP (src/setup-review-readiness.js).
+     * engineAvailability() honours it in the REFUSAL direction; home took the
+     * resulting non-refusal and rounded it up into a claim. Same rule, opposite
+     * direction, and the positive direction is the one a person acts on.
+     *
+     * So the green now rests on a proven sign-in, and the middle ground says
+     * what is true and what was not checked instead of picking an end. */
+    if (!engine.ready) {
+      facts.push({ id: 'engine', tone: 'warn', text: engine.why })
+    } else if (!providers || providers.known !== true || providers.anySignedIn === true) {
+      /* A caller that never asked keeps exactly the sentence it had; a reply
+         that taught nothing is not evidence against the machine. */
+      facts.push({ id: 'engine', tone: 'good', text: 'Agents can run on this computer' })
+    } else if (providers.codexSignedOut === true) {
+      facts.push({
+        id: 'engine',
+        tone: 'warn',
+        text: `This copy can start an agent, but nobody is signed in to Codex yet. Run "${CODEX_SETUP_COMMANDS.signIn}" in Windows Terminal, then come back to this screen`,
+      })
+    } else {
+      /* Ready, nothing proven signed in, and nothing proven signed out either.
+         Saying "agents can run" would round an unknown up and saying they cannot
+         would round it down; both have cost somebody a wrong screen already. */
+      facts.push({
+        id: 'engine',
+        tone: 'neutral',
+        text: 'This copy can start an agent. It could not check whether anybody is signed in to the program that runs one',
+      })
+    }
 
     /* The other computers. Exactly one sentence, and only one of these three
        branches can ever be taken, which is the whole point of the mode. */

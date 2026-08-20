@@ -381,6 +381,52 @@ export function unavailableReason(code) {
   return `this copy could not work out why, which is itself a fault worth reporting. ${refusalRemedy(code)}`
 }
 
+/**
+ * What a `mcProviders.presence()` reply proves about anybody being SIGNED IN.
+ *
+ * WHY THIS IS A SECOND READING AND NOT A REUSE OF codexReadiness().
+ * src/setup-review-readiness.js answers a Codex-shaped question, correctly and
+ * on purpose -- its tone goes to warn whenever Codex is not confirmed, which is
+ * the right advice on the recommended path. It is the WRONG verdict for a
+ * surface asking "can an agent start here at all", because a computer with
+ * Claude installed and signed in and no Codex can genuinely start one. Driven,
+ * packaged, three arms: codex signed out with Claude installed answered
+ * `ok:true` from engineAvailability(), and it is right to.
+ *
+ * THE QUESTION THIS ANSWERS IS THE POSITIVE ONE, which is why it could not be
+ * borrowed from the negative reading either: is ANY provider both installed and
+ * PROVABLY signed in.
+ *
+ * NOTHING IS ROUNDED IN EITHER DIRECTION, and both directions have a cost worth
+ * naming. Rounding an 'unknown' UP prints a green tick over a computer that
+ * cannot start anything -- the defect this was written for. Rounding it DOWN
+ * tells the Claude user their working machine is broken, which is the same
+ * failure wearing the other sign and is exactly what engineAvailability()'s
+ * `claudeCouldStart` branch exists to prevent. So an unknown stays unknown and
+ * the caller is given enough to say so.
+ *
+ * @returns `{known, anySignedIn, codexSignedOut}` -- `known:false` when the
+ *          reply taught nothing, in which case a caller must say only what it
+ *          already said before it asked.
+ */
+export function providerSignInReading(reply) {
+  const unknown = Object.freeze({ known: false, anySignedIn: false, codexSignedOut: false })
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return unknown
+  const rows = reply.providers.filter(row => row && typeof row.id === 'string')
+  if (rows.length === 0) return unknown
+  const codex = rows.find(row => row.id === 'codex')
+  return Object.freeze({
+    known: true,
+    /* Installed AND signed in. A sign-in without the program is not a machine
+       that can run anything, and this is the reading a green tick rests on. */
+    anySignedIn: rows.some(row => row.installed === 'yes' && row.signedIn === 'yes'),
+    /* The one proven negative this product has. shell/provider-cli-presence.cjs:
+       only Codex treats a missing sign-in file as proof, "because this shell
+       already refuses a start on exactly that basis". */
+    codexSignedOut: Boolean(codex && codex.installed === 'yes' && codex.signedIn === 'no'),
+  })
+}
+
 /* Recover the code from a rejected IPC call, because the property does not
  * survive the trip.
  *
