@@ -140,24 +140,42 @@ function loadSettingsModules({ root = resolveCapabilityRoot(), load = require } 
 
 /* THE PLAIN NAME OF EACH ROW, TAKEN FROM THE REGISTRY RATHER THAN WRITTEN AGAIN.
  *
- * config/settings-registry.json carries a `labels` map -- "Running research jobs
+ * config/settings-registry.json carries a `titles` map -- "Running research jobs
  * on this computer" and its three siblings -- and loadRegistry() drops it: it
- * validates and indexes `entries` and returns nothing else. Those labels are the
+ * validates and indexes `entries` and returns nothing else. Those titles are the
  * product's own words for these switches, already reviewed, and a settings page
  * that re-typed them would be a second wording to keep in step with the first.
  * So the same file is read once more, for that map alone.
  *
+ * IT ASKED FOR THE WRONG KEY, AND THE MISS WAS SILENT BY DESIGN. This read
+ * `parsed.labels` until 2026-08-20. The registry's top-level keys are exactly
+ * ["schemaVersion","titles","entries"] and have been in every copy of it in this
+ * tree, so the map was never found, and the "unreadable or nameless registry"
+ * branch below -- meant for a broken copy -- was the ONLY branch on every
+ * machine. src/research-settings.js then fell to its last resort and drew the
+ * identifier, so a person opening Settings read "research.pipeline" where a
+ * reviewed English sentence belongs, four rows running. The failure mode is the
+ * instructive part: an absent key is indistinguishable here from a damaged
+ * registry, which is correct behaviour for a damaged registry and no help at all
+ * against a typo. tools/test/research-setting-titles.test.mjs is what makes the
+ * key name checkable, by asserting the registry's shape directly.
+ *
  * The path is the one settings-registry.js itself resolves (its
  * DEFAULT_REGISTRY_PATH is <payload>/config/settings-registry.json), so this
  * cannot address a different registry than the one the entries came from. An
- * unreadable or label-less registry yields no label, and the surface says the id
- * instead of inventing a name. */
+ * unreadable or title-less registry yields no name, and the surface says the id
+ * instead of inventing one. */
 const REGISTRY_FILE = path.join('config', 'settings-registry.json')
 
-function registryLabels(registryFile) {
+/* Named for the key it reads, not for the field it fills. The whole defect above
+   was a shell that called this map "labels" while the file called it "titles";
+   keeping the shell's own word for it would leave the mismatch one rename away
+   from coming back. The row's field stays `label` because that is what the page
+   consumes. */
+function registryTitles(registryFile) {
   try {
     const parsed = JSON.parse(fs.readFileSync(registryFile, 'utf8'))
-    return parsed && typeof parsed.labels === 'object' && !Array.isArray(parsed.labels) ? parsed.labels : {}
+    return parsed && typeof parsed.titles === 'object' && !Array.isArray(parsed.titles) ? parsed.titles : {}
   } catch { return {} }
 }
 
@@ -198,7 +216,7 @@ function readProductSettings(options = {}) {
     return { ok: true, available: false, code: 'SETTINGS_UNREADABLE', reason: `This installation's settings could not be read: ${error.message}`, rows: [], valuesPath: null }
   }
 
-  const labels = registryLabels(modules.registryFile)
+  const titles = registryTitles(modules.registryFile)
   const rows = []
   for (const id of WRITABLE_IDS) {
     const entry = registry.byId.get(id)
@@ -213,7 +231,7 @@ function readProductSettings(options = {}) {
     rows.push({
       id,
       present: true,
-      label: typeof labels[id] === 'string' && labels[id].trim() ? labels[id].trim() : null,
+      label: typeof titles[id] === 'string' && titles[id].trim() ? titles[id].trim() : null,
       control: entry.control,
       depth: entry.depth,
       default: entry.default,
