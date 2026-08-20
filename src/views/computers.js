@@ -2724,10 +2724,16 @@ export function computersView({ initialComputer = null, navigate }) {
     })
     if (!composePanel) return
     activateRail(composePage)
-    /* A press made with the keyboard puts the caret where the person is going
-       next; a pointer press leaves focus alone, because moving it out from under
-       a mouse is how a page steals a click. */
+    /* Focus lands INSIDE the panel either way, or the panel's root-level
+       Escape handler is deaf: measured on the packaged build 2026-08-20
+       (order-drive), a mouse-opened panel kept focus on the page behind it and
+       Escape -- the panel's own documented cancel -- did nothing until a field
+       was clicked. A key press still puts the caret in the first field, where
+       that person is going next; a pointer press focuses the panel's ROOT
+       instead, so no caret jumps into a field out from under the mouse (the
+       harm the old keyboard-only condition guarded against). */
     if (detail?.via === 'keyboard') composePanel.focus()
+    else composePanel.focusRoot()
   }
 
   /* ONE SUBMIT, FOUR OUTCOMES, AND THE MODEL TELLS THE TRUTH IN ALL OF THEM.

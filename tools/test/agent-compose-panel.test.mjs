@@ -148,7 +148,11 @@ class FakeElement {
     }
   }
 
-  focus() { this.ownerDocument.activeElement = this }
+  /* A real browser refuses focus on a disabled control -- the call simply does
+     nothing and focus stays where it was. Without modelling that, a focus()
+     aimed at a switched-off field reads as landing, and the suite would bless
+     a panel whose Escape is dead exactly when the form ships disabled. */
+  focus() { if (this.disabled) return; this.ownerDocument.activeElement = this }
 
   find(predicate) {
     if (predicate(this)) return this
@@ -554,6 +558,36 @@ test('an ordinary key press is not a cancel', () => {
 
   assert.equal(calls.cancelled, 0)
   assert.notEqual(handle.element(), null)
+})
+
+/* THE MOUSE-OPEN ORDERING, measured dead on the packaged build 2026-08-20
+ * (order-drive lane): press the empty tree slot with the MOUSE, press Escape --
+ * the panel stayed standing, because the view moved focus into the panel only
+ * for keyboard opens, so the key landed on the page body and never bubbled
+ * through this root. The panel's own contract says Escape cancels; that has to
+ * hold however the panel was opened. The fix is focus placement, and these two
+ * tests pin the pieces this module owns: a root a browser will accept focus on,
+ * a way to focus it without moving the caret into a field, and a focus() that
+ * still lands INSIDE the panel when the form ships switched off (a disabled
+ * select refuses focus, and focus left outside is Escape left dead). */
+
+test('a pointer-opened panel can hear Escape: the root takes focus and cancels', () => {
+  const { doc, handle, calls } = open()
+  assert.equal(handle.element().getAttribute('tabindex'), '-1',
+    'the root is not programmatically focusable; a real browser would bounce focus off it')
+  handle.focusRoot()
+  assert.equal(doc.activeElement, handle.element(), 'focusRoot() did not move focus to the panel root')
+  doc.activeElement.dispatch('keydown', { key: 'Escape', preventDefault() {} })
+  assert.equal(calls.cancelled, 1)
+  assert.equal(handle.element(), null)
+})
+
+test('focus() with the form switched off still lands inside the panel', () => {
+  const { doc, handle } = open({ unavailableReason: 'Starting an assistant is switched off for this computer.' })
+  assert.equal(fieldNamed(handle, 'role').disabled, true, 'this test is about the switched-off form')
+  handle.focus()
+  const inside = handle.element().find(node => node === doc.activeElement)
+  assert.ok(inside, 'focus landed outside the panel; Escape would be dead there')
 })
 
 test('closing is not cancelling, so the caller is not told twice', () => {

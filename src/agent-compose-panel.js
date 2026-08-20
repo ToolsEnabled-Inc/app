@@ -174,6 +174,15 @@ function buildPanel(doc, { choices, newTree, underLine, tiers = TIER_CHOICES }) 
   root.className = 'agent-compose'
   root.setAttribute('data-agent-compose', 'open')
   root.setAttribute('aria-labelledby', `${id}-title`)
+  /* Programmatically focusable, never in the tab order. The Escape handler
+     below sits on this root and hears only keys that bubble up from INSIDE the
+     panel -- so whoever mounts this panel must put focus inside it, and for a
+     pointer open the right landing place is the root itself (no caret jumps
+     into a field out from under the mouse). Measured on the packaged build
+     2026-08-20: a mouse-opened panel left focus on the page behind it and
+     Escape -- the panel's own documented cancel -- did nothing until a field
+     was clicked. Without tabindex="-1" a browser bounces that focus call. */
+  root.setAttribute('tabindex', '-1')
 
   /* The nav row first, so Cancel sits in the SAME back slot every rail page
      puts its back button in (owner defect 6: no mouse travel between pages).
@@ -869,8 +878,19 @@ export function mountAgentComposePanel({
     close,
     /** The draft as it stands, in the shape the callback receives. */
     draft: () => (nodes ? currentDraft() : null),
-    /** Move focus to the first field, for a caller that opens this from a key press. */
-    focus: () => { nodes?.roleSelect?.focus?.() },
+    /** Move focus to the first field, for a caller that opens this from a key
+     * press. When the form ships switched off the role select is disabled and
+     * a real browser refuses to focus it -- focus would stay OUTSIDE the panel
+     * and Escape would be dead exactly there, so the root takes it instead. */
+    focus: () => {
+      if (!nodes) return
+      const target = nodes.roleSelect && !nodes.roleSelect.disabled ? nodes.roleSelect : nodes.root
+      target?.focus?.()
+    },
+    /** Make the panel the keyboard context without putting the caret in a
+     * field -- for a pointer open. Escape must cancel however the panel was
+     * opened, and it can only be heard from inside. */
+    focusRoot: () => { nodes?.root?.focus?.() },
     /**
      * Show the caller's own refusal sentence on the panel.
      *
