@@ -96,18 +96,89 @@ const SURFACE_FN = `() => {
   }
 }`
 
+/* Evidence, never a measurement, AND BOUNDED. Page.captureScreenshot does not
+   return under MC_SMOKE_HEADLESS=1 unless the page is driven back to `active`
+   first -- and sometimes not even then. session.send has no deadline of its
+   own, so an unanswerable capture hangs the whole run on a picture after every
+   reading it was illustrating has already been taken. Measured here on the
+   first run of this probe: it stopped dead at the first shot with 4 checks
+   already passed and no verdict line. Same fix, same reason, as
+   tools/node-remove-drive.mjs. */
+const SHOT_DEADLINE_MS = 12_000
+const withDeadline = (promise, ms, what) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} did not answer in ${ms}ms`)), ms)),
+])
+
+/* CAN A PERSON TELL A COLLAPSED HEADING OPENS?
+ *
+ * Opening one group fixes one symptom; a first-time person still meets five
+ * shut ones, and if those read as inert grey text the controls behind them are
+ * still hiding harder than they have to. Affordance is not a matter of opinion
+ * here -- every signal it could carry is measurable, so all of them are
+ * measured and the weak ones are named. */
+const AFFORDANCE_FN = `() => {
+  const boxOf = el => { const b = el.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height) } }
+  return [...document.querySelectorAll('.settings-group')].map(group => {
+    const head = group.querySelector('.settings-group-head')
+    if (!head) return { id: group.dataset.settingsGroup, head: 'MISSING' }
+    const headStyle = getComputedStyle(head)
+    const glyph = head.querySelector('.settings-reveal-glyph')
+    const list = head.querySelector('.settings-group-list')
+    const name = head.querySelector('.settings-group-name')
+    return {
+      id: group.dataset.settingsGroup,
+      open: group.classList.contains('is-open'),
+      /* a real <button> is keyboard-reachable and announced as pressable */
+      tag: head.tagName,
+      cursor: headStyle.cursor,
+      ariaExpanded: head.getAttribute('aria-expanded'),
+      ariaControls: head.getAttribute('aria-controls'),
+      headBox: boxOf(head),
+      nameColor: name ? getComputedStyle(name).color : null,
+      glyph: glyph ? {
+        text: glyph.textContent.trim(),
+        fontSize: getComputedStyle(glyph).fontSize,
+        color: getComputedStyle(glyph).color,
+        box: boxOf(glyph),
+        ariaHidden: glyph.getAttribute('aria-hidden'),
+      } : 'NO GLYPH',
+      /* the contents preview: a closed group naming what is inside it is a
+         stronger "there is more here" signal than any chevron */
+      contentsList: list ? { text: list.textContent.trim().slice(0, 90), box: boxOf(list) } : 'NO LIST',
+    }
+  })
+}`
+
 async function shoot(window, scratch, name) {
-  /* Page.captureScreenshot never returns under MC_SMOKE_HEADLESS=1 unless the
-     page is driven back to `active` first. Learned the expensive way. */
-  try { await window.session.send('Page.setWebLifecycleState', { state: 'active' }) } catch { /* older build */ }
-  await delay(300)
-  const shot = await window.session.send('Page.captureScreenshot', { format: 'png' })
-  const data = shot?.result?.data
-  if (!data) return null
   const file = path.join(scratch, 'shots', `${name}.png`)
-  mkdirSync(path.dirname(file), { recursive: true })
-  writeFileSync(file, Buffer.from(data, 'base64'))
-  return file
+  try {
+    mkdirSync(path.dirname(file), { recursive: true })
+    await withDeadline(window.session.send('Page.setWebLifecycleState', { state: 'active' }), SHOT_DEADLINE_MS, 'the lifecycle change')
+    const shot = await withDeadline(window.session.send('Page.captureScreenshot', { format: 'png' }), SHOT_DEADLINE_MS, 'the capture')
+    const data = shot?.result?.data
+    if (!data) return `${name}: the capture answered with no image`
+    writeFileSync(file, Buffer.from(data, 'base64'))
+    return file
+  } catch (error) {
+    return `${name} could not be photographed (${error?.message || error}); the readings stand on their own`
+  }
+}
+
+/* A real press: move, down, up, at a point already proven to belong to the
+   target under elementFromPoint. The shared clickVisible omits the move. */
+async function press(window, selector, timeoutMs = 9000) {
+  const spot = await window.waitForVisible(selector, timeoutMs)
+  if (spot?.state !== 'visible') return spot?.state === 'covered' ? `covered-by-${spot.by}` : (spot?.state || 'unknown')
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+    await window.session.send('Input.dispatchMouseEvent', {
+      type, x: spot.x, y: spot.y,
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      clickCount: type === 'mouseMoved' ? 0 : 1,
+    })
+  }
+  await delay(450)
+  return 'clicked'
 }
 
 async function resize(window, width, height = 900) {
@@ -169,40 +240,65 @@ async function main() {
     for (const group of surface?.groups || []) {
       ledger.note(`  group ${group.id}: open=${group.open} bodyHidden=${group.bodyHidden} — ${group.headText}`)
     }
-    ledger.check('a first-time person can see at least one control on the settings page',
-      (surface?.controlsWithABox || 0) > 0,
-      `${surface?.controlsWithABox} with a box`)
+    /* THE HEADLINE NUMBER, and it is the product's own sentence rather than
+       mine: the footer counts what a person can actually see. "0 shown" was
+       what a brand-new person was told before this lane touched anything. */
+    ledger.note(`the footer, in the product's own words: "${surface?.footer}"`)
+    ledger.check('a first-time person is shown more than nothing on the settings page',
+      (surface?.controlsWithABox || 0) > 6 && !/\b0 shown\b/.test(surface?.footer || ''),
+      `${surface?.controlsWithABox}/${surface?.controlsInDom} controls have a box; footer says "${surface?.footer}"`)
+
+    /* THE POINT OF THE WHOLE LANE: reachable on arrival, with no press at all. */
+    ledger.check('the sign-in control is on the screen when a person ARRIVES, pressing nothing',
+      asHarnessSeesIt?.state === 'visible',
+      JSON.stringify(asHarnessSeesIt))
 
     const first = await shoot(window, scratch, 'settings-first-visit-default-width')
     ledger.note(`screenshot: ${first}`)
 
-    // ---- 4. the reach test: how many presses to sign-in, by hand ----
-    /* Expand the group that holds System with a REAL press, then re-measure.
-       If the anchor becomes visible, the cause is proven to be the collapse
-       and not occlusion or a broken anchor. */
-    const openedGroup = await window.clickVisible('[data-group-toggle="start"]')
-    await delay(900)
-    const afterExpand = await window.visibility(SIGN_IN)
-    evidence.measurements.afterExpand = afterExpand
-    ledger.check('pressing the group header makes the sign-in control measurable',
-      openedGroup === 'clicked' && afterExpand?.state === 'visible',
-      `press=${openedGroup}; then ${JSON.stringify(afterExpand)}`)
+    // ---- 4. the nesting is kept: one group open, five still shut ----
+    const openCount = (surface?.groups || []).filter(group => group.open).length
+    ledger.check('exactly one group is open on arrival, so the nesting still buys what it costs',
+      openCount === 1, `${openCount} of ${surface?.groups?.length} groups open`)
 
-    const expanded = await shoot(window, scratch, 'settings-after-expanding-start-group')
-    ledger.note(`screenshot: ${expanded}`)
+    // ---- 5. can a person TELL the other five open? ----
+    /* Opening one group fixes one symptom. If the five that stay shut read as
+       inert grey text, the controls behind them are still hiding harder than
+       they have to, and this fix only moved the problem. */
+    const affordance = await window.evaluate(`(${AFFORDANCE_FN})()`)
+    evidence.measurements.affordance = affordance
+    const shut = (affordance || []).filter(group => group.open === false)
+    for (const group of shut) {
+      ledger.note(`  shut group ${group.id}: <${group.tag}> cursor=${group.cursor} aria-expanded=${group.ariaExpanded} aria-controls=${group.ariaControls ? 'yes' : 'NO'}`)
+      ledger.note(`    chevron ${JSON.stringify(group.glyph)}`)
+      ledger.note(`    contents preview ${JSON.stringify(group.contentsList)}`)
+    }
+    ledger.check('every shut group is a real button a keyboard can reach and a reader is told about',
+      shut.length > 0 && shut.every(group => group.tag === 'BUTTON' && group.ariaExpanded === 'false' && group.ariaControls),
+      `${shut.length} shut groups checked`)
+    ledger.check('every shut group shows a pointer cursor, so the pointer says it is pressable',
+      shut.every(group => group.cursor === 'pointer'),
+      shut.map(group => `${group.id}:${group.cursor}`).join(' '))
+    ledger.check('every shut group carries a visible chevron with a real box',
+      shut.every(group => group.glyph !== 'NO GLYPH' && group.glyph.box.w >= 1 && group.glyph.box.h >= 1),
+      shut.map(group => `${group.id}:${group.glyph === 'NO GLYPH' ? 'none' : group.glyph.text + ' ' + group.glyph.box.w + 'x' + group.glyph.box.h}`).join(' '))
+    ledger.check('every shut group names what is inside it, which beats any chevron',
+      shut.every(group => group.contentsList !== 'NO LIST' && group.contentsList.box.h >= 1 && group.contentsList.text.length > 0),
+      shut.map(group => `${group.id}:"${group.contentsList === 'NO LIST' ? 'none' : group.contentsList.text.slice(0, 40)}"`).join(' | '))
 
-    // ---- 5. the same question at the widths the owner named ----
+    // ---- 6. the same question at the widths the owner named ----
     for (const width of [1024, 1440, 1920]) {
       await resize(window, width)
       const at = await window.visibility(SIGN_IN)
       evidence.measurements[`at${width}`] = at
-      ledger.note(`at ${width}px the sign-in control is ${at?.state}${at?.state === 'covered' ? ' by ' + at.by : ''}`)
-      const file = await shoot(window, scratch, `expanded-${width}`)
+      ledger.check(`the sign-in control is reachable at ${width}px`, at?.state === 'visible',
+        `${at?.state}${at?.state === 'covered' ? ' by ' + at.by : ''}`)
+      const file = await shoot(window, scratch, `arrival-${width}`)
       ledger.note(`  screenshot: ${file}`)
     }
     await window.session.send('Emulation.clearDeviceMetricsOverride')
 
-    // ---- 6. is search a second route to it? ----
+    // ---- 7. is search a second route to it? ----
     const typed = await window.typeInto('.settings-search input[type="search"]', 'sign in')
     await delay(900)
     const viaSearch = await window.visibility(SIGN_IN)

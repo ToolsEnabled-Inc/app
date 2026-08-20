@@ -103,6 +103,66 @@ export function writeOpenGroups(openIds, storage) {
   } catch { /* a full or refused store loses only the remembered posture */ }
 }
 
+/* ---------- arriving, as opposed to returning ----------
+ *
+ * COLLAPSED-BY-DEFAULT IS RIGHT FOR SOMEBODY COMING BACK AND WRONG FOR SOMEBODY
+ * ARRIVING, and until this existed the page could not tell the two apart.
+ *
+ * MEASURED on the 1.0.20 cut, driving the packaged build on a sterile profile
+ * (tools/signin-reach-probe.mjs). A person who has just installed this product
+ * opens Settings and gets SIX GREY HEADINGS AND NOTHING ELSE. Six of the page's
+ * 246 controls had a box, and the footer said it in the product's own voice:
+ *
+ *     "116 settings · 0 shown · search finds the hidden ones too"
+ *
+ * The sharpest instance, and the one that started the hunt: `#/account` has
+ * exactly ONE persistent door in this product -- the "Open sign-in" row in
+ * System (src/fleet-profile-settings.js) -- and it was inside
+ * `div.settings-group-body[hidden]`, computing display:flex and measuring 0x0.
+ * So the single most important action available to somebody with no account was
+ * not on the screen at all. A packaged driver had been reporting this for a
+ * night as `sign-in-link:zero-size`.
+ *
+ * WHAT THIS FUNCTION MAY NOT DO, which is most of its design:
+ *
+ *   - it may not touch remembered posture. readOpenGroups still opens nothing
+ *     from an empty store; "what this person last left open" and "what should
+ *     be open for somebody who has never been here" are different questions and
+ *     answering them in one place is how the first one gets corrupted.
+ *   - it may not write. Arriving is not a filing decision -- the same rule the
+ *     landing clause has always kept. If it wrote, a person who never touched a
+ *     group would have one filed as their posture, and this function would
+ *     permanently lose the ability to tell an arrival from a return.
+ *   - it may not open more than it has to. Opening all six would undo the
+ *     nesting the outside user asked for and hand back the flat wall of
+ *     controls that was the original complaint. One group open, five
+ *     discoverable.
+ *
+ * The opened group is DERIVED from the section holding the outstanding action
+ * rather than being a hardcoded index, so regrouping System moves the rule with
+ * it instead of quietly opening the wrong group.
+ */
+
+/* The section whose absence a brand-new person feels first: it holds the
+   sign-in row, and that row is the only persistent way to reach #/account. */
+export const FIRST_VISIT_SECTION = 'System'
+
+/**
+ * Which groups are open for THIS render.
+ *
+ * @param storage        the posture store, read but never written
+ * @param landingSection the section a link named, when a link named one
+ */
+export function groupsOpenOnArrival(storage, landingSection = null) {
+  const open = readOpenGroups(storage)
+  const landingGroup = landingSection ? groupOfSection(landingSection) : null
+  if (landingGroup) open.add(landingGroup.id)
+  if (open.size > 0) return open
+  const arrival = groupOfSection(FIRST_VISIT_SECTION)
+  if (arrival) open.add(arrival.id)
+  return open
+}
+
 /* ---------- the sentence beside a switch ----------
  *
  * MEASURED tonight on the driven build: a Write row whose switch read ON

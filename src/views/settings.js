@@ -93,7 +93,7 @@ import { GUIDE_HREF } from '../first-run-needs.js'
 import {
   SETTINGS_GROUPS,
   groupOfSection,
-  readOpenGroups,
+  groupsOpenOnArrival,
   writeOpenGroups,
   toggleStateSentence,
 } from '../settings-presentation.js'
@@ -644,15 +644,14 @@ function requestedSetting(query) {
    the module would not even parse. */
 export function settingsView({ query: routeQuery = null } = {}) {
   const landing = requestedSetting(routeQuery)
-  /* WHICH GROUPS ARE OPEN, remembered across visits and restarts. Collapsed by
-     default: a first visit is six lines a person can scan. A link that names a
-     row opens that row's group for this render without writing it down --
-     following a link is not a filing decision. */
-  const openGroups = readOpenGroups(globalThis.localStorage)
-  if (landing) {
-    const landingGroup = groupOfSection(landing.section)
-    if (landingGroup) openGroups.add(landingGroup.id)
-  }
+  /* WHICH GROUPS ARE OPEN, remembered across visits and restarts, and decided
+     in src/settings-presentation.js so a node test can hold the rule still.
+     Returning: exactly what this person last left open. Following a link: that
+     row's group as well. ARRIVING with no posture at all: the group holding
+     sign-in, because a first visit used to render six headings and zero
+     controls -- measured, with the only door to #/account 0x0 inside it. None
+     of the three writes anything; arriving is not a filing decision. */
+  const openGroups = groupsOpenOnArrival(globalThis.localStorage, landing ? landing.section : null)
   const profileController = createFleetProfileSettings()
   const setupController = createSetupProfileSettings()
   const chatboxController = createChatboxSettings()

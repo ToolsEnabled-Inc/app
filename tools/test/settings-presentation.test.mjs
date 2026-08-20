@@ -28,8 +28,10 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import {
+  FIRST_VISIT_SECTION,
   SETTINGS_GROUPS,
   groupOfSection,
+  groupsOpenOnArrival,
   readOpenGroups,
   writeOpenGroups,
   toggleStateSentence,
@@ -115,6 +117,79 @@ test('a corrupt store reads as the default, never as a throw', () => {
   assert.equal(readOpenGroups(null).size, 0)
 })
 
+/* ---------- arriving, as opposed to returning ----------
+ *
+ * WHAT WAS MEASURED, on the 1.0.20 cut, driving the packaged build on a sterile
+ * profile (tools/signin-reach-probe.mjs). A person who has just installed this
+ * opens Settings and gets SIX GREY HEADINGS AND NOTHING ELSE. Six of the page's
+ * 246 controls had a box; the product's own footer said it out loud --
+ *
+ *     "116 settings · 0 shown · search finds the hidden ones too"
+ *
+ * -- and the ancestor walk named the mechanism exactly:
+ * DIV.settings-group-body#settings-group-start, hidden=true, display=none,
+ * box 0x0, with `a.ctl-btn[href="#/account"]` inside it computing display:flex
+ * and measuring 0x0. `#/account` has exactly ONE persistent door in this
+ * product (src/fleet-profile-settings.js), and it was behind that collapse. So
+ * the single most important thing a person with no account can do was not on
+ * the screen, and pressing the group header put it there -- proving the
+ * collapse was the whole cause rather than occlusion or a broken anchor.
+ *
+ * THE RULE, AND WHY IT IS NARROW. Remembered posture is not touched:
+ * readOpenGroups still opens nothing from an empty store, because "what this
+ * person last left open" is a different question from "what should be open for
+ * somebody who has never been here". The arrival rule adds one clause to the
+ * one that already existed for links, and it applies ONLY when there is no
+ * posture to honour -- the first press this person makes on any group is the
+ * last time this rule ever runs for them. It opens the group holding the
+ * outstanding action rather than a hardcoded index, so if System is ever
+ * regrouped the rule follows it instead of quietly opening the wrong thing.
+ */
+
+test('a first arrival opens the group holding sign-in, not an empty page', () => {
+  const open = groupsOpenOnArrival(memoryStorage())
+  const systemGroup = groupOfSection(FIRST_VISIT_SECTION)
+  assert.ok(systemGroup, `${FIRST_VISIT_SECTION} is in no group`)
+  assert.ok(open.has(systemGroup.id),
+    `a first visit left every group shut, so the only door to #/account is 0x0`)
+})
+
+test('the arrival rule opens ONE group, so nesting still buys what it costs', () => {
+  const open = groupsOpenOnArrival(memoryStorage())
+  assert.equal(open.size, 1, `${open.size} groups open on arrival is not a page a person scans`)
+})
+
+test('a remembered posture wins over the arrival rule, in both directions', () => {
+  /* Somebody who opened Appearance and shut everything else gets exactly that
+     back. The arrival rule must not re-open Start here over their decision. */
+  const storage = memoryStorage()
+  const appearance = SETTINGS_GROUPS.find(group => group.id === 'appearance')
+  writeOpenGroups([appearance.id], storage)
+  const open = groupsOpenOnArrival(storage)
+  assert.deepEqual([...open], [appearance.id],
+    'a remembered posture was overwritten by the first-arrival default')
+})
+
+test('a link that names a row still opens that row group, arrival rule or not', () => {
+  const open = groupsOpenOnArrival(memoryStorage(), 'Developer')
+  const developer = groupOfSection('Developer')
+  assert.ok(open.has(developer.id), 'following a link no longer opens the row it named')
+})
+
+test('the remembered-posture store is not written by merely arriving', () => {
+  /* Arriving is not a filing decision -- the same rule the landing clause has
+     always kept. If this ever writes, a person who never touched a group would
+     have "start" filed as their posture and the rule would stop being able to
+     tell a first visit from a returning one. */
+  const map = new Map()
+  const storage = {
+    getItem: key => (map.has(key) ? map.get(key) : null),
+    setItem: () => { throw new Error('groupsOpenOnArrival wrote to the posture store') },
+    removeItem: () => { throw new Error('groupsOpenOnArrival cleared the posture store') },
+  }
+  assert.doesNotThrow(() => groupsOpenOnArrival(storage))
+})
+
 /* ---------- state sentences: the truth first, never a contradiction ---------- */
 
 test('a toggle that is on never carries a sentence that reads as off', () => {
@@ -190,9 +265,27 @@ test('the settings page renders from the group model, not from a flat list', () 
   assert.ok(source.includes("from '../settings-presentation.js'"),
     'settings.js imports the shared group model')
   assert.ok(source.includes('SETTINGS_GROUPS'), 'settings.js renders the groups')
-  assert.ok(source.includes('readOpenGroups') && source.includes('writeOpenGroups'),
+  /* The view reads the remembered posture through groupsOpenOnArrival, which is
+     the only reader that also knows what to do when there is no posture yet.
+     Pinned by INTENT rather than by the old symbol name: what must never
+     regress is that the page reads a remembered state and writes it back, not
+     which function it spells that with. */
+  assert.ok(source.includes('groupsOpenOnArrival') && source.includes('writeOpenGroups'),
     'the open state is remembered, not reset every visit')
   assert.ok(source.includes('toggleStateSentence'), 'rows carry the truth-first state sentence')
+})
+
+test('the arrival rule is built ON the remembered posture, never instead of it', () => {
+  /* The other half of the pin above. If groupsOpenOnArrival ever stopped
+     consulting readOpenGroups it would open its default over somebody's saved
+     posture every single visit -- which is the failure the pin above is
+     watching for, one module further down. */
+  const source = readFileSync(path.join(ROOT, 'src', 'settings-presentation.js'), 'utf8')
+  const body = source.slice(source.indexOf('export function groupsOpenOnArrival'))
+  assert.ok(body.includes('readOpenGroups('),
+    'groupsOpenOnArrival stopped reading the remembered posture')
+  assert.ok(!body.includes('writeOpenGroups(') && !body.includes('setItem'),
+    'arriving is not a filing decision; groupsOpenOnArrival must not write')
 })
 
 test('the System section translates refusals before they reach the glass', () => {
