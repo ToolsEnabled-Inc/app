@@ -23,6 +23,10 @@ const here = fileURLToPath(import.meta.url)
 const SRC = join(dirname(dirname(dirname(here))), 'src')
 const view = readFileSync(join(SRC, 'views', 'computers.js'), 'utf8')
 const components = readFileSync(join(SRC, 'components.js'), 'utf8')
+/* The words this view hands the chat live in the copy module, where the
+   plain-language gate can hold them; the assertions about the closed line read
+   them from there rather than from the view. */
+const copy = readFileSync(join(SRC, 'fleet-tree-copy.js'), 'utf8')
 
 /* ---------------------------------------------------------------
    A. The first thing said is recorded like every other thing said.
@@ -66,8 +70,32 @@ test('the tree context is drawn as the tree words, not as a second dark YOU bubb
      untouched. */
   assert.match(view, /function markTreeContext/, 'nothing renames the tree context at draw time')
   assert.match(view, /readTreeAddress\(entry\.text\)/, 'the context is recognised by something other than the address contract')
-  assert.match(view, /mergeActionsIntoHistory\(markTreeContext\(history\)/, 'the chat config draws the raw history, so the context wears YOU again')
+  assert.match(view, /mergeActionsIntoHistory\(markTreeContext\(history/, 'the chat config draws the raw history, so the context wears YOU again')
   assert.match(components, /entry\.who === 'context'/, 'buildChat does not know the context entry; it would fall through as a them-bubble')
+})
+
+test('the tree context is folded shut, and the closed line earns the press', () => {
+  /* Quiet was only half of it. MEASURED on a staged packaged build: the aside
+     still drew 298px in a 371px log, so a first-timer's first screen of their
+     first conversation was internal plumbing. Folding it is not truncating it
+     -- the entry stays whole inside -- but a fold whose label says nothing is
+     one nobody opens, so the closed line has to say WHAT is behind it and HOW
+     MUCH, in the person's own words. */
+  assert.match(components, /const addContext = /, 'the context is drawn as a plain bubble again, so it is a wall of text on open')
+  const draw = components.slice(components.indexOf('const addContext = '), components.indexOf('/* ---- THE SECOND DOOR'))
+  assert.match(draw, /createElement\('details'\)/, 'the aside is not a disclosure; there is nothing to press')
+  assert.ok(!/wrap\.open = true/.test(draw), 'the aside is forced open, which is the defect this closes')
+  assert.match(draw, /entry\.summary/, 'the closed line carries no sentence, so the fold is a mystery box')
+  /* THE SIZE IS THE HALF THAT EARNS THE PRESS, and it is the caller's word. */
+  assert.match(view, /treeContextSummary\(entry\.text\)/, 'nothing composes the closed line from the entry it is folding')
+  assert.match(copy, /export function treeContextSummary/, 'the closed line has no copy of its own')
+  assert.match(copy, /\$\{words\} words/, 'the closed line does not say how much is behind it')
+
+  /* PER CONVERSATION, NEVER GLOBALLY. Somebody who opens this wants it open for
+     the thread they are reading. A shared default is the thing being avoided. */
+  assert.match(view, /openKey: typeof sessionId === 'string'/, 'the open state is not keyed to a conversation')
+  assert.match(draw, /entry\.openKey/, 'the component ignores the key, so the memory is global')
+  assert.match(draw, /rememberContext\(key, wrap\.open\)/, 'opening it is forgotten the moment the panel rebuilds')
 })
 
 test('the manager named in the brief is the name on the circle', () => {

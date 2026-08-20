@@ -82,8 +82,18 @@ test('every kind the log can produce has a rule', () => {
      because that is where it came from, and it wears the aside family's quiet
      dress because the person's own words must be the only dark bubbles they
      own. See .msg.context in styles.css and markTreeContext in
-     src/views/computers.js. */
-  const kinds = [...new Set([...chat.matchAll(/(?:addMsg|makeMsg)\('(\w+)'/g)].map(match => match[1]))].sort()
+     src/views/computers.js.
+
+     COUNTED FROM EVERY DOOR, not just addMsg. `context` stopped coming through
+     addMsg when it became a disclosure with its own builder, and this test
+     caught that immediately -- correctly, because a kind that leaves the shared
+     door is exactly when a rule goes missing unnoticed. So the enumeration
+     reads the classes any builder assigns, and a fifth door would have to be
+     added here too. */
+  const kinds = [...new Set([
+    ...[...chat.matchAll(/(?:addMsg|makeMsg)\('(\w+)'/g)].map(match => match[1]),
+    ...[...chat.matchAll(/className = 'msg (\w+)/g)].map(match => match[1]),
+  ])].sort()
   assert.deepEqual(kinds, ['context', 'me', 'note', 'them'], `the log gained a message kind: ${kinds.join(', ')}`)
   for (const kind of kinds) {
     assert.ok(new RegExp(`\\.msg\\.${kind}\\b`).test(styles), `.msg.${kind} has no rule; that kind paints as bare text`)

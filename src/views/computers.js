@@ -81,7 +81,7 @@ import {
   activityLine,
   foldedActionsLine,
   TRANSCRIPT_TRIMMED_NOTE,
-  TREE_CONTEXT_LABEL,
+  TREE_CONTEXT_LABEL, treeContextSummary,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
@@ -1793,10 +1793,21 @@ export function computersView({ initialComputer = null, navigate }) {
      contract line shell/agent-host.cjs reads the address back out of —
      readTreeAddress, exported for exactly this kind of caller — never by
      guessing at prose. The record is untouched; only the drawing changes. */
-  function markTreeContext(history) {
+  /* `openKey` is the SESSION, so a person who opens this aside has it open for
+     the conversation they are reading and not for every conversation they ever
+     open. `summary` is the closed line, in words rather than in characters,
+     because a fold whose label is plumbing is one nobody presses. Both ride on
+     the entry: src/components.js draws this and stays copy-free. */
+  function markTreeContext(history, sessionId) {
     return (Array.isArray(history) ? history : []).map(entry => (
       entry && entry.who === 'you' && typeof entry.text === 'string' && readTreeAddress(entry.text)
-        ? { ...entry, who: 'context', label: TREE_CONTEXT_LABEL }
+        ? {
+          ...entry,
+          who: 'context',
+          label: TREE_CONTEXT_LABEL,
+          summary: treeContextSummary(entry.text),
+          openKey: typeof sessionId === 'string' ? sessionId : '',
+        }
         : entry
     ))
   }
@@ -2079,7 +2090,7 @@ export function computersView({ initialComputer = null, navigate }) {
          has to show the commands already run, or a person watching a five-
          minute turn sees an empty log and concludes the product is hung -- the
          exact reading the owner reported. */
-      history: mergeActionsIntoHistory(markTreeContext(history), node.sessionId),
+      history: mergeActionsIntoHistory(markTreeContext(history, node.sessionId), node.sessionId),
       /* BOTH SURFACES REGISTER THEMSELVES THROUGH THE SHARED CONFIG. The rail's
          Chat tab and the compact card each spread this object, so neither can
          be the one that forgot to. */

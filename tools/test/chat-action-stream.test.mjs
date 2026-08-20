@@ -531,6 +531,31 @@ test('a command row shows the command, never fifty characters of shell wrapper',
   assert.equal(commandSummary('https://example.org/a b'), 'https://example.org/a b')
 })
 
+test('the transcript column grows with the window, and stops growing', () => {
+  /* THE DEFECT: `1fr minmax(320px, 400px)` gave every pixel past 1024 to the
+     canvas and none to the words. Driven and measured 2026-08-20, the chat log
+     came out 343px wide at 1024, at 1440 AND at 1920 -- a person who widened
+     the window to read got more empty canvas and the same cut-off commands.
+     The owner has now said twice that these windows are not coming out nicely
+     enough, and a column that ignores 900px of screen is part of why.
+
+     BOTH BOUNDS ARE THE TEST. Growing without a ceiling is the opposite
+     mistake: past about 75 characters a line the eye loses the start of the
+     next one, so a 1200px column on a 2560px screen reads worse than this bug
+     did. And the floor has to stay where it is or 1024 -- the owner's stated
+     minimum -- loses canvas to pay for it. */
+  const rule = styles.slice(styles.indexOf('.comp-body {'), styles.indexOf('.comp-body {') + 400)
+  const columns = /grid-template-columns:([^;]+);/.exec(rule)
+  assert.ok(columns, 'the two-column rule moved; re-read this test before trusting it')
+  assert.match(columns[1], /minmax\(\s*320px\s*,/, 'the rail floor moved; the stacked breakpoint and the 1024 layout are both sized from it')
+  assert.match(columns[1], /clamp\(/, 'the rail is a fixed maximum again, so the transcript cannot grow with the window')
+  const ceiling = /clamp\(\s*400px\s*,[^,]+,\s*(\d+)px\s*\)/.exec(columns[1])
+  assert.ok(ceiling, 'the growth rule is not clamp(floor, fraction, ceiling); it must keep a floor AND a ceiling')
+  const max = Number(ceiling[1])
+  assert.ok(max > 400, `the ceiling ${max}px is no wider than the old fixed width, so nothing grows`)
+  assert.ok(max <= 700, `the ceiling ${max}px is past the readable line length; a wider column reads worse, not better`)
+})
+
 test('the action rows use the mono token that exists', () => {
   /* var(--mono, …) referenced a token that never existed — the third
      silent-invalid instance of it found in this stylesheet — so the rows

@@ -777,6 +777,14 @@ async function driveAtWidth(executable, profile, width, record, { pressBare = fa
       `log ${read.log?.overflowsSideways ? 'SCROLLS SIDEWAYS' : 'no sideways scroll'}; ` +
       `page ${read.pageScrollsSideways ? 'SCROLLS SIDEWAYS' : 'no sideways scroll'}; ` +
       `${read.contextBubbles} context asides`)
+    /* THE NUMBER THE OWNER'S SENTENCE ACTUALLY TURNS ON. "0 rows wider than the
+       log" does not answer him, because the LOG was the thing that was too
+       narrow: a command can sit obediently inside a 343px column and still be
+       unreadable. How many rows have their text cut off, at each width, is the
+       measurement -- and before this the answer was the same at 1024 and 1920,
+       which is the whole complaint. */
+    const cut = rows.filter(row => row.detailEllipsised).length
+    note('info', `${width}px: log ${read.log?.clientWidth}px wide; ${cut} of ${rows.length} command rows have their text cut off`)
 
     if (!pressBare) return
     const bare = rows.filter(row => row.bare)

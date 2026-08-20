@@ -580,6 +580,82 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     log.scrollTop = log.scrollHeight
     return m
   }
+  /* THE TREE'S OWN WORDS, FOLDED AWAY BUT NEVER CUT.
+   *
+   * THE DEFECT. The address block rides with every tree start as its own
+   * transcript entry, and giving it a quiet dress was only half the fix:
+   * MEASURED on a staged packaged build, it still drew 298px in a 371px log,
+   * so the first thing a first-timer saw of their first conversation was a
+   * screen and a half of internal plumbing. Quiet plumbing is still plumbing.
+   *
+   * A DISCLOSURE, NOT A TRUNCATION, and the distinction is the whole design.
+   * Nothing is removed, shortened or summarised away: the entry stays whole
+   * inside, one press away, and the press is the one a person has already
+   * learned from the action rows two inches down the same panel.
+   *
+   * THE CLOSED LINE HAS TO EARN THE PRESS. A fold labelled with plumbing is
+   * how you get somebody who never opens it, so the caller supplies a sentence
+   * in the person's own words AND the size -- this component stays copy-free,
+   * so both ride on the entry.
+   *
+   * REMEMBERED PER CONVERSATION. Somebody who opens this wants it open for the
+   * thread they are reading, not for every thread they ever open, so the key
+   * is the caller's (`openKey`, the session). No key means no memory rather
+   * than a shared one -- a global default is the thing being avoided. */
+  const CONTEXT_OPEN_PREFIX = 'mc.chat.context-open:'
+  const contextWasOpen = (key) => {
+    if (!key) return false
+    try { return localStorage.getItem(CONTEXT_OPEN_PREFIX + key) === 'open' } catch { return false }
+  }
+  const rememberContext = (key, open) => {
+    if (!key) return
+    try { localStorage.setItem(CONTEXT_OPEN_PREFIX + key, open ? 'open' : 'closed') } catch { /* session-only is still a real change */ }
+  }
+
+  const addContext = (entry) => {
+    if (emptyNote.parentNode) emptyNote.remove()
+    const at = Number.isFinite(entry.at) ? entry.at : Date.now()
+    const key = typeof entry.openKey === 'string' ? entry.openKey : ''
+    const wrap = document.createElement('details')
+    wrap.className = 'msg context chat-context'
+    wrap.title = chatTime(at)
+    wrap.open = contextWasOpen(key)
+    const head = document.createElement('summary')
+    head.className = 'chat-context-head'
+    const mark = document.createElement('span')
+    mark.className = 'chat-action-mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.innerHTML = '<svg viewBox="0 0 8 8"><path d="M2.6 1.4 5.4 4 2.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    const words = document.createElement('span')
+    words.className = 'chat-context-line'
+    /* The heading names WHO, the sentence says WHAT and HOW MUCH. Both are the
+       caller's words. */
+    const who = document.createElement('span')
+    who.className = 'who'
+    who.textContent = typeof entry.label === 'string' ? entry.label : ''
+    const say = document.createElement('span')
+    say.className = 'chat-context-say'
+    say.textContent = typeof entry.summary === 'string' ? entry.summary : ''
+    words.append(who, say)
+    head.append(mark, words)
+    const body = document.createElement('div')
+    body.className = 'chat-context-body'
+    body.innerHTML = formatInlineText(entry.text, { agents: [{ name: title, role: roleKey }], roleKey })
+    wrap.append(head, body)
+    /* The gesture is owned here for the reason makeAction documents at length:
+       elementFromPoint over a collapsed row answers the DETAILS, so a press
+       beside the disclosure triangle is not a press on it and nothing opens. */
+    wrap.addEventListener('click', (event) => {
+      event.preventDefault()
+      wrap.open = !wrap.open
+      rememberContext(key, wrap.open)
+    })
+    lastTurnAt = at
+    log.appendChild(wrap)
+    log.scrollTop = log.scrollHeight
+    return wrap
+  }
+
   /* ---- THE SECOND DOOR: WHAT THE AGENT DID, BESIDE WHAT IT SAID. ----
    *
    * THE DEFECT THIS CLOSES (owner, item 1, and his biggest ask). The engine
@@ -744,7 +820,7 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
          aside family's quiet dress, so the person's own words stay the only
          thing wearing their colour. */
       if (entry.who === 'context') {
-        addMsg('context', entry.text, typeof entry.label === 'string' ? entry.label : null, Number.isFinite(entry.at) ? entry.at : Date.now())
+        addContext(entry)
         continue
       }
       /* The label is left to addMsg -- the SAME rule the live path takes, so a

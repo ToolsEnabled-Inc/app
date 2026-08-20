@@ -1106,6 +1106,19 @@ export const TRANSCRIPT_TRIMMED_NOTE = 'Some older messages were left out so the
    words they are; the entry itself stays whole. */
 export const TREE_CONTEXT_LABEL = 'added by the tree'
 
+/* THE CLOSED LINE, WHICH HAS TO EARN THE PRESS.
+ *
+ * The aside is folded shut by default because it measured 298px in a 371px log
+ * -- a first-timer's first screen of their first conversation was internal
+ * plumbing. A fold nobody opens is no better, so the line says what is inside
+ * in the person's own words and how much of it there is. The size is in WORDS
+ * because that is the unit a person reads in; characters would be the
+ * program's unit, not theirs. */
+export function treeContextSummary(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length
+  return `what the tree told this agent when it started · ${words} words`
+}
+
 /* WHAT THE CAP TOOK, SAID OUT LOUD. A per-turn cap a person cannot see is a
    cap that lies about how much the agent did. */
 export function foldedActionsLine(count) {

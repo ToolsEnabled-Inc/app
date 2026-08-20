@@ -1376,6 +1376,31 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   box-shadow: none;
 }
 .msg.context .who { color: var(--ink-25); }
+/* FOLDED SHUT, NOT SHORTENED. Quiet was only half the fix: this block still
+   drew 298px in a 371px log, so a first-timer's first screen of their first
+   conversation was internal plumbing. It is now a disclosure -- the same
+   gesture the action rows use two inches down the same panel -- and the entry
+   inside it is untouched and whole. See addContext in src/components.js. */
+.chat-context { padding: 0; overflow: hidden; }
+.chat-context-head {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+.chat-context-head::-webkit-details-marker { display: none; }
+/* The closed line names WHO on its own row and says WHAT and HOW MUCH beneath,
+   because at this column width the two together do not fit on one and the size
+   is the half that earns the press. */
+.chat-context-line { min-width: 0; }
+.chat-context-say { display: block; color: var(--ink-25); }
+.chat-context-body {
+  padding: 0 var(--s3) var(--s2);
+  /* A tall block inside a scrolling log is fine -- it is the person's own
+     choice to open it -- but it must not push the log sideways. */
+  overflow-wrap: anywhere;
+}
 /* ---- WHAT THE AGENT DID, IN THE SAME LOG AS WHAT IT SAID ----
    One collapsed line per action, opened by a press. It is deliberately NOT a
    bubble: a bubble means somebody spoke, and nobody spoke here. It reads as a
@@ -1797,7 +1822,31 @@ body[data-route="computers"] { --page-max: 1680px; }
 .tab .ip { font-size: 12.5px; color: var(--ink-3); font-family: var(--font-mono); font-weight: 400; }
 .tab.add { padding: var(--s2) var(--s3); font-size: 16px; color: var(--ink-25); }
 
-.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, 400px); gap: var(--s3); }
+/* THE PANEL GROWS WITH THE WINDOW, BECAUSE THE WORDS ARE WHY IT WAS WIDENED.
+ *
+ * `1fr minmax(320px, 400px)` gave every pixel past 1024 to the canvas and none
+ * to the transcript, so the chat measured the SAME on a 1920 screen as on a
+ * 1024 one -- driven and measured 2026-08-20: log clientWidth 343px at all
+ * three widths. A person who drags the window wider in order to read gets more
+ * empty canvas and the same cramped column, and a command still ellipsises with
+ * 900px of screen going spare. That is the product declining to use the space
+ * it was given.
+ *
+ * WHERE 600 COMES FROM, and it is a reading rather than a preference. The
+ * bubbles are 13px at 88% of the log, and the same driven run measured what
+ * that yields: a 706-character context aside wrapped to 15 lines in a 343px
+ * log -- about 43 characters a line, BELOW the 45-75 band that typography has
+ * agreed on for a century, which is why it reads as cramped rather than merely
+ * narrow. Scaling that measurement, a 543px log lands at ~68 characters, the
+ * middle of the band. The rail carries ~57px of its own padding around the log,
+ * so the rail wants ~600px.
+ *
+ * AND IT IS A CEILING, NOT A FRACTION. An unbounded fraction would put a
+ * 1200px column on a 2560px screen, which reads WORSE: past ~75 characters the
+ * eye loses the start of the next line. The floor is untouched at 400px, so
+ * nothing about 1024 changes -- clamp's lower bound wins there (34vw is 348 at
+ * 1024) and the canvas keeps every pixel it has today. */
+.comp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(320px, clamp(400px, 34vw, 600px)); gap: var(--s3); }
 
 /* A WINDOW CAN BE DRAGGED SHORTER THAN THE TREE NEEDS AT ANY WIDTH, not only
    at the stacked breakpoint below. Measured on one window driven through a
