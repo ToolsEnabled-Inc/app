@@ -197,7 +197,7 @@ test('fails closed when the seal belongs to another artifact', () => {
 // every --record wrote the builder's home directory into
 // release/.artifact-seal-win-unpacked.json:
 //
-//   "artifact": "C:\\Users\\joshp\\Desktop\\wt-capability\\release\\win-unpacked"
+//   "artifact": "C:\\Users\\<builder>\\Desktop\\wt-capability\\release\\win-unpacked"
 //
 // `node tools/check-no-owner-data.mjs` failed on it under the built-in `C:\Users`
 // rule, which is never excusable. The ordering is what made it survivable for so

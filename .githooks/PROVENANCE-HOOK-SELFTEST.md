@@ -1,7 +1,7 @@
 # commit-msg provenance hook — installation record and self-test
 
 Installed 2026-08-11 into `wt-capability` (branch `packaging/capability-layer`).
-Source of truth: `C:\Users\joshp\Desktop\toolsenabled-current\.githooks\commit-msg`,
+Source of truth: the engine repository's own `.githooks/commit-msg`,
 copied byte-for-byte — the staged blob hash is `f9912c4ddf9b75873be3ec2b63b942bc3116d766`,
 identical to the engine's, so the rules and the refusal text are not a paraphrase.
 

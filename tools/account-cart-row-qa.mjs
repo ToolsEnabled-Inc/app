@@ -372,8 +372,25 @@ function seedMachineRecord(profile, payloadRoot, tier = 'guided') {
 function engineQueueCount() {
   /* The other side of the split, read from disk rather than described. The
      engine checkout is named here as data, and only its COUNT is reported --
-     no title, no amount, no line of somebody's shopping list. */
-  const store = path.join('C:', 'Users', 'joshp', 'Desktop', 'toolsenabled-current', 'state', 'owner-public-prompts.json')
+     no title, no amount, no line of somebody's shopping list.
+
+     THE PATH IS CONFIGURED, NOT HARDCODED, AND ABSENCE IS SAID OUT LOUD.
+     This read an absolute path into the builder's own machine, which put
+     their home directory AND the location of a private sibling checkout into a
+     file classified open. Two disclosures for a number.
+
+     A relative default was the obvious alternative and is worse: it would
+     assume a sibling layout, silently read nothing on a machine arranged
+     differently, and report zero -- which is indistinguishable from a genuinely
+     empty queue. That is the absence-as-emptiness defect this codebase keeps
+     finding, so it is refused here too: no path configured means UNAVAILABLE,
+     with the reason stated, never a confident zero. */
+  const configured = typeof process.env.TOOLSENABLED_ENGINE_ROOT === 'string'
+    ? process.env.TOOLSENABLED_ENGINE_ROOT.trim() : ''
+  if (!configured) {
+    return { readable: false, reason: 'TOOLSENABLED_ENGINE_ROOT is not set, so the engine queue was not read. This is not a count of zero.' }
+  }
+  const store = path.join(configured, 'state', 'owner-public-prompts.json')
   try {
     const parsed = JSON.parse(readFileSync(store, 'utf8'))
     const prompts = Array.isArray(parsed.prompts) ? parsed.prompts : []

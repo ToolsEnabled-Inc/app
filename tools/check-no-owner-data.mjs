@@ -75,8 +75,8 @@ const BUILT_IN_PATTERNS = [
   // unanchored, the bare word matched every one of those, which means it did
   // not just block one manifest field -- it forbade the
   // product's own identity namespace in every future build, forever. The
-  // actual owner-data leak in the old rejected build was
-  // com.joshp.missioncontrol, which carries the owner's username; that is
+  // actual owner-data leak in the old rejected build was an identifier of the
+  // form com.<owner-username>.missioncontrol, which carries the username; that is
   // caught below, by the identity profile, not by this rule, and remains
   // caught.
   //
