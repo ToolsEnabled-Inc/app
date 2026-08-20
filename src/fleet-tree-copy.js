@@ -853,11 +853,17 @@ export function approvalDecisionWord(decision) {
   return String(decision || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
 }
 
-/* THE MODEL MENU on a running conversation. The engine accepts a model per
-   turn, so switching is real and the conversation continues — this is not the
-   respawn semantics of starting a new agent. Claude rows are shown so a
-   person can see they exist, and refused honestly when picked, exactly like
-   the start menu. */
+/* THE MODEL MENU on a running conversation. Codex accepts a model per turn, so
+   switching is real there and the conversation continues — this is not the
+   respawn semantics of starting a new agent. Every tier is shown so a person
+   can see what exists, and the ones this conversation cannot move to say why.
+
+   WHAT THIS COMMENT USED TO CLAIM, and it is worth keeping the correction
+   visible. It said Claude rows are "refused honestly when picked, exactly like
+   the start menu". Neither half survived measurement (2026-08-20): the rows
+   were not pickable at all — they were drawn disabled and labelled "Claude —
+   cannot start here yet" — and the start menu no longer refuses Claude, because
+   the payload now carries the engine. See sessionModelChoices() below. */
 export const MODEL_PANEL = Object.freeze({
   title: 'What it runs on',
   currentDefault: 'Runs on the model its tier chose when it started.',
@@ -869,6 +875,96 @@ export const MODEL_PANEL = Object.freeze({
   next: model => `Messages run on ${model} until you change it back. The conversation continues.`,
   keep: 'Keep the tier’s model',
 })
+
+/* WHICH PROVIDERS CAN CHANGE MODEL WITHOUT RESTARTING, as a property of the
+ * ENGINE rather than a preference.
+ *
+ * Codex reads a per-turn model: the host forwards `options.model` and the
+ * adapter passes it to the running thread.
+ *
+ * Claude does not, and this is not an oversight to be worked around. The CLI is
+ * spawned once with `--model <alias>` (claudeArgs() in the payload's
+ * claude-cli-adapter.js) and its sendTurn() destructures `{ threadId, text,
+ * images }` — `options` is validated by the engine contract and then never
+ * read. So an "enabled" Claude row would not switch anything; it would tell the
+ * person their messages now run on another model while the child process went
+ * on running the one it was launched with. A row that silently does nothing is
+ * the worst of the three possible answers, worse than refusing, because it
+ * cannot be noticed.
+ *
+ * `local` has no interactive runner in this copy at all — the shell refuses it
+ * at start (resolveStartTier) — so no conversation can be on it or move to it. */
+const PROVIDERS_THAT_SWITCH_MID_THREAD = Object.freeze(['codex'])
+
+const MODEL_SWITCH_REFUSAL = Object.freeze({
+  /* NAMED FOR THE THING THAT IS ACTUALLY IMPOSSIBLE. A thread belongs to the
+     program that is running it; there is no wire that hands a half-finished
+     Codex conversation to Claude. The sentence therefore points at the door
+     that does work rather than apologising for a missing feature. */
+  crossProvider: (fromWord, toWord) =>
+    `This conversation is running on ${fromWord}, and a conversation cannot move to ${toWord} once it has started. Start a new agent on this tier to use it.`,
+  /* THE SAME-PROVIDER CASE, which is a different fact and must not borrow the
+     sentence above: nothing is being crossed, the model is simply bound for the
+     life of the session. */
+  boundAtStart: word =>
+    `A ${word} conversation keeps the model it was started with — that is fixed when the agent starts. Start a new agent on this tier to use it.`,
+  local: 'A model on your computer has no interactive runner in this copy yet, so no conversation can move to one.',
+  /* PESSIMISTIC BY CONSTRUCTION. An older node record carries no tier, so this
+     menu cannot know which program is on the other end. Guessing would mean
+     offering a switch that may be a silent no-op, which is the exact defect
+     this function exists to end. */
+  unknownTier: 'This conversation did not record which model it started on, so it cannot be switched. Start a new agent to choose one.',
+})
+
+/**
+ * The "What it runs on" rows for a conversation that is ALREADY RUNNING, and
+ * the honest reason under every row it may not use.
+ *
+ * THE DEFECT THIS CLOSES, measured 2026-08-20 on the shipped build. These rows
+ * were built inline in src/views/computers.js from two hardcodes: a label
+ * reading `Claude — cannot start here yet` and `enabled: tier.provider ===
+ * 'codex'`. The label states something false about the product — the shell's
+ * own startableTiers(), constructed over release/win-unpacked's payload,
+ * answers ["luna","terra","sol","claude-fable","claude-sonnet","claude-opus"] —
+ * and it answers a question these rows are not asking, since they set a
+ * per-turn override rather than starting anything.
+ *
+ * IT GATES ON THE SESSION'S PROVIDER, NEVER ON A PROVIDER NAME. The old test
+ * was `tier.provider === 'codex'` with no reference to the conversation at all,
+ * which is upside down the moment Claude sessions exist: it would refuse
+ * sonnet→opus on a Claude conversation while permitting `gpt-5.6-luna` on that
+ * same conversation, because that row's provider happens to be the one string
+ * the check allowed. The only combination it let through was the impossible
+ * one.
+ *
+ * Every tier still gets a row. Hiding the models a person cannot pick would
+ * leave them wondering whether the product has them; showing them with the
+ * reason underneath is how the rest of this menu already behaves.
+ */
+export function sessionModelChoices(sessionTierId) {
+  const session = LAUNCH_TIERS.find(tier => tier.id === sessionTierId) || null
+  const sessionWord = session ? (TIER_PROVIDER_WORDS[session.provider] || session.provider) : null
+  const canSwitch = Boolean(session) && PROVIDERS_THAT_SWITCH_MID_THREAD.includes(session.provider)
+
+  return Object.freeze(LAUNCH_TIERS.map(tier => {
+    const word = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    const enabled = canSwitch && tier.provider === session.provider
+    let disabledHint = ''
+    if (!enabled) {
+      if (!session) disabledHint = MODEL_SWITCH_REFUSAL.unknownTier
+      else if (tier.provider === 'local') disabledHint = MODEL_SWITCH_REFUSAL.local
+      else if (tier.provider !== session.provider) disabledHint = MODEL_SWITCH_REFUSAL.crossProvider(sessionWord, word)
+      else disabledHint = MODEL_SWITCH_REFUSAL.boundAtStart(word)
+    }
+    return Object.freeze({
+      id: tier.id,
+      model: tier.model,
+      label: `${tier.label} · ${word}`,
+      enabled,
+      disabledHint,
+    })
+  }))
+}
 
 /* THE RUNNING NARRATION, one line at a time. The engine says what it is doing
    -- a command starts, a command finishes, a file changes, an approval is

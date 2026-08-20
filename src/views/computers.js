@@ -66,6 +66,7 @@ import {
   START_REFUSAL,
   APPROVAL_PANEL, approvalDecisionWord,
   MODEL_PANEL,
+  sessionModelChoices,
   REWIND_PANEL,
   RESUME_PANEL,
   RECOVERED_SESSION,
@@ -4861,15 +4862,25 @@ export function computersView({ initialComputer = null, navigate }) {
           ctx.say(MODEL_PANEL.currentDefault)
         },
       }
-      return [keepRow, ...LAUNCH_TIERS.map(tier => ({
-        id: `model-${tier.model}`,
-        label: `${tier.label} · ${tier.provider === 'codex' ? 'Codex' : tier.provider === 'claude' ? 'Claude — cannot start here yet' : 'your computer — cannot start here yet'}`,
+      /* THE ROWS ARE ASKED FOR, NOT BUILT HERE. What stood here was a label
+         hardcoding `Claude — cannot start here yet` and `enabled:
+         tier.provider === 'codex'`. The label was false about this product
+         (the shell's startableTiers() names all three Claude tiers on a
+         payload carrying the engine) and it answered a question these rows do
+         not ask — they set a per-turn override, they start nothing. The rule
+         and its words now live in src/fleet-tree-copy.js sessionModelChoices(),
+         where the suite drives them, and it gates on THIS conversation's
+         provider rather than on a provider's name. */
+      return [keepRow, ...sessionModelChoices(fresh().tier).map(choice => ({
+        id: `model-${choice.model}`,
+        label: choice.label,
         hint: null,
-        current: override === tier.model,
-        enabled: tier.provider === 'codex',
+        current: override === choice.model,
+        enabled: choice.enabled,
+        disabledHint: choice.disabledHint,
         run: ctx => {
-          sessionModelOverride.set(fresh().sessionId, tier.model)
-          ctx.say(MODEL_PANEL.next(tier.model))
+          sessionModelOverride.set(fresh().sessionId, choice.model)
+          ctx.say(MODEL_PANEL.next(choice.model))
         },
       }))]
     }
