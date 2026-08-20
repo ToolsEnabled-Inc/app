@@ -56,6 +56,35 @@ function failure(code, reason) {
   return { ok: false, code, reason }
 }
 
+/* WHERE THE PERSON'S DOCUMENTS FOLDER ACTUALLY IS.
+ *
+ * The engine's defaultWorkspacePath() guesses `%USERPROFILE%\Documents`, and on
+ * a OneDrive-redirected machine ("Back up your folders", the consumer Windows 11
+ * default) the real known folder is `%USERPROFILE%\OneDrive\Documents` -- so the
+ * suggested card named one folder while the Browse dialog (shell/main.cjs, which
+ * already asks `app.getPath('documents')`) opened another, and the folder the
+ * product created never appeared under Explorer's own "Documents". One answer,
+ * asked of the known-folder API, passed into the engine at every call site here.
+ *
+ * `options.documentsDir` wins when a caller states it (tests; anything without
+ * Electron), including an explicit null meaning "no known-folder answer". The
+ * require is guarded because this module is loaded by plain-Node tests where
+ * Electron is absent -- they keep the engine's own fallback. */
+function resolveDocumentsDir(options = {}) {
+  if ('documentsDir' in options) return options.documentsDir
+  try {
+    const { app } = require('electron')
+    const documents = app.getPath('documents')
+    return typeof documents === 'string' && documents.length > 0 ? documents : null
+  } catch {
+    return null
+  }
+}
+
+function suggestedWorkspace(workspace, options = {}) {
+  return workspace.defaultWorkspacePath({ documentsDir: resolveDocumentsDir(options) })
+}
+
 function loadSetupModules({ root = resolveCapabilityRoot(), load = require } = {}) {
   if (!root) {
     return failure(
@@ -174,7 +203,7 @@ function recordTier(tier, options = {}) {
       installRoot: existing ? existing.installRoot : resolveInstallRoot(options),
       servicesRoot,
       nodePath: existing ? existing.nodePath : machineRecord.resolveNodePath({ execPath: resolveRuntimePath(options) }),
-      workspaceRoots: existing ? existing.workspaceRoots : [workspace.defaultWorkspacePath({})],
+      workspaceRoots: existing ? existing.workspaceRoots : [suggestedWorkspace(workspace, options)],
       machineId: existing ? existing.machine.id : machineRecord.defaultMachineId(),
       machineLabel: existing ? existing.machine.label : machineRecord.defaultMachineLabel(),
       createdAtMs: existing ? existing.createdAtMs : Date.now(),
@@ -481,7 +510,7 @@ function failClosedRecord(modules, options = {}) {
        record is never written, so naming the default here provisions nothing --
        the folder question is still unanswered and the folder still does not
        exist. The generated document does not depend on this value. */
-    workspaceRoots: [workspace.defaultWorkspacePath({})],
+    workspaceRoots: [suggestedWorkspace(workspace, options)],
     machineId: machineRecord.defaultMachineId(),
     machineLabel: machineRecord.defaultMachineLabel(),
     createdAtMs: Date.now(),
@@ -507,7 +536,7 @@ function readWorkspaceState(options = {}) {
   }
   const { machineRecord, workspace } = modules
   let suggested = null
-  try { suggested = workspace.defaultWorkspacePath({}) } catch { suggested = null }
+  try { suggested = suggestedWorkspace(workspace, options) } catch { suggested = null }
 
   let record
   try {
@@ -688,6 +717,7 @@ function recordWorkspaces(roots, options = {}) {
     previous: existing,
     chosen: checked,
     modules,
+    options,
   })
   return { ok: true, roots: checked, provisioned, assistantConfig, releasedRoots }
 }
@@ -701,25 +731,32 @@ function recordWorkspaces(roots, options = {}) {
  *      question (`workspaceChosen` falsy) -- a folder someone chose is theirs,
  *      and changing to a second folder is not consent to strip the first;
  *   2. the folder is no longer among the recorded roots;
- *   3. the folder is EXACTLY the path `defaultWorkspacePath()` produces, so only
- *      the one setup invented is ever touched;
+ *   3. the folder is EXACTLY a path the suggested-default derivation produces --
+ *      the known-folder answer, or the engine's `%USERPROFILE%\Documents` guess
+ *      an earlier build recorded -- so only one setup itself invented is ever
+ *      touched;
  *   4. only `.mcp.json` is removed. The folder stays, and anything the person
  *      put in it stays, because setup created an empty folder and cannot know
  *      what has happened in it since.
  */
-function releaseUnchosenAssistantConfig({ previous, chosen, modules }) {
+function releaseUnchosenAssistantConfig({ previous, chosen, modules, options = {} }) {
   const released = []
   if (!previous || previous.workspaceChosen) return released
-  let fallback = null
-  try {
-    fallback = path.resolve(modules.workspace.defaultWorkspacePath({}))
-  } catch {
-    return released
-  }
+  /* BOTH shapes the default has ever taken on this machine: the known-folder
+     answer this build computes, and the engine's own `%USERPROFILE%\Documents`
+     guess that an earlier build recorded. On most machines they are one path;
+     on a OneDrive-redirected machine they differ, and a record written before
+     the known-folder fix names the guessed one. Recognising both keeps rule 3
+     narrow -- only a path setup itself invented is ever touched -- without
+     leaving the older invented path holding a configuration forever. */
+  const fallbacks = new Set()
+  try { fallbacks.add(path.resolve(suggestedWorkspace(modules.workspace, options))) } catch { /* the other form may still resolve */ }
+  try { fallbacks.add(path.resolve(modules.workspace.defaultWorkspacePath({}))) } catch { /* the other form may still resolve */ }
+  if (fallbacks.size === 0) return released
   const keep = new Set(chosen.map(entry => path.resolve(entry)))
   for (const root of Array.isArray(previous.workspaceRoots) ? previous.workspaceRoots : []) {
     const resolved = path.resolve(root)
-    if (keep.has(resolved) || resolved !== fallback) continue
+    if (keep.has(resolved) || !fallbacks.has(resolved)) continue
     try {
       fs.rmSync(path.join(resolved, '.mcp.json'), { force: true })
       released.push('SETUP_ASSISTANT_CONFIG_RELEASED')

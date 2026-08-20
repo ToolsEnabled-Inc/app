@@ -1099,6 +1099,46 @@ test('keeping the same folder does not release it', () => {
   assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), true, 'confirming the suggested folder removed its own configuration')
 })
 
+/* ---------- the Documents folder is the known-folder answer, not a guess ---------- */
+
+/* OneDrive's "Back up your folders" moves the real Documents known folder to
+   `%USERPROFILE%\OneDrive\Documents`; the engine module can only guess
+   `%USERPROFILE%\Documents`. The shell asks Electron and passes the answer in
+   at EVERY defaultWorkspacePath call site, so the suggested card, the recorded
+   default and the Browse dialog (main.cjs, app.getPath('documents')) name the
+   same folder. `options.documentsDir` is the test seam for the same value. */
+test('the suggested folder derivation is handed the real Documents location', () => {
+  const oneDrive = inSandbox('home', 'OneDrive', 'Documentos')
+  const seen = []
+  const { modules } = fakeModules()
+  modules.workspace.defaultWorkspacePath = (options = {}) => {
+    seen.push(options.documentsDir)
+    return options.documentsDir ? path.join(options.documentsDir, 'AI Workspace') : DEFAULT_WORKSPACE
+  }
+  const state = SETUP_RECORD.readWorkspaceState({ modules, documentsDir: oneDrive })
+  assert.equal(state.suggested, path.join(oneDrive, 'AI Workspace'),
+    'the suggestion follows the known folder, not the %USERPROFILE% guess')
+  assert.deepEqual(seen, [oneDrive], 'the known-folder answer reached the engine derivation')
+})
+
+/* A record written by an earlier build carries the GUESSED default. When the
+   person answers the folder question on a redirected machine, that older
+   invented folder must still give up its configuration -- and only invented
+   folders may: rule 3 stays narrow across both shapes of the default. */
+test('the previously guessed default still releases its configuration on a redirected machine', () => {
+  const oneDrive = inSandbox('home', 'OneDrive', 'Documentos')
+  mkdirSync(DEFAULT_WORKSPACE, { recursive: true })
+  writeFileSync(path.join(DEFAULT_WORKSPACE, '.mcp.json'), '{"mcpServers":{}}\n')
+  const { modules } = fakeModules({ record: baseRecord({ workspaceRoots: [DEFAULT_WORKSPACE] }) })
+  modules.workspace.defaultWorkspacePath = (options = {}) =>
+    (options.documentsDir ? path.join(options.documentsDir, 'AI Workspace') : DEFAULT_WORKSPACE)
+  const result = SETUP_RECORD.recordWorkspaces([WORK], { modules, documentsDir: oneDrive })
+  assert.deepEqual(result.releasedRoots, ['SETUP_ASSISTANT_CONFIG_RELEASED'],
+    'the guessed default an earlier build recorded kept its configuration')
+  assert.equal(existsSync(path.join(DEFAULT_WORKSPACE, '.mcp.json')), false)
+  assert.equal(existsSync(DEFAULT_WORKSPACE), true, 'only the configuration file is taken back, never the folder')
+})
+
 /* shell/setup-record.cjs states that the workspace is the ONE path allowed to
    cross to the renderer. This checks the other half of that sentence. */
 test('no reply carries an internal path to the renderer', () => {
