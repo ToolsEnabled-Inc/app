@@ -42,6 +42,11 @@ import {
 } from './test-account-harness.mjs'
 
 const KEEP = process.argv.includes('--keep')
+/* Resume phases 5-6 on a kept scratch (--keep from an earlier run), so a
+   harness fix in the later phases does not re-spend the earlier phases' real
+   model turns: node A, its ledgers and its rollouts are already there. */
+const FROM_5_AT = process.argv.indexOf('--from-5')
+const RESUME_SCRATCH = FROM_5_AT >= 0 ? process.argv[FROM_5_AT + 1] : null
 const findings = []
 const note = (level, text) => { findings.push({ level, text }); console.log(`  ${level.padEnd(5)} ${text}`) }
 
@@ -208,39 +213,59 @@ const stateRootOf = profile => path.join(profile, 'userdata', 'capability')
 /* ---------------------------------------------------------------- the run -- */
 
 async function main() {
-  const scratch = scratchDirectory('request-contract-')
+  const scratch = RESUME_SCRATCH || scratchDirectory('request-contract-')
   let window = null
   let pid = null
   try {
-    const staged = await stage(scratch)
-    note('info', `staged a packaged build carrying this tree at ${staged.appRoot}`)
+    let staged
+    if (RESUME_SCRATCH) {
+      const appRoot = path.join(scratch, 'app')
+      const launcher = readdirSync(appRoot).filter(entry => entry.toLowerCase().endsWith('.exe'))
+        .find(entry => !/^(elevate|squirrel|crashpad)/i.test(entry))
+      if (!launcher) { note('FAIL', `no launcher in ${appRoot}; --from-5 needs a scratch a full run kept`); return }
+      staged = { executable: path.join(appRoot, launcher), appRoot }
+      note('info', `resuming phases 5-6 on the kept scratch at ${scratch}`)
+    } else {
+      staged = await stage(scratch)
+      note('info', `staged a packaged build carrying this tree at ${staged.appRoot}`)
 
-    const realCodex = path.join(process.env.USERPROFILE || '', '.codex')
-    if (!existsSync(path.join(realCodex, 'auth.json'))) {
-      note('FAIL', 'HARNESS STATE: this computer has no Codex sign-in to point the scratch profile at; nothing below would measure a real agent.')
-      return
-    }
-    mkdirSync(path.join(scratch, 'home'), { recursive: true })
-    try { symlinkSync(realCodex, path.join(scratch, 'home', '.codex'), 'junction') } catch { /* pointed */ }
-    const realNpm = path.join(process.env.APPDATA || '', 'npm')
-    if (existsSync(realNpm)) {
-      mkdirSync(path.join(scratch, 'roaming'), { recursive: true })
-      try { symlinkSync(realNpm, path.join(scratch, 'roaming', 'npm'), 'junction') } catch { /* pointed */ }
-    }
-    note('info', 'the scratch profile POINTS at this computer\'s Codex sign-in; no credential is read or copied by this file.')
+      const realCodex = path.join(process.env.USERPROFILE || '', '.codex')
+      if (!existsSync(path.join(realCodex, 'auth.json'))) {
+        note('FAIL', 'HARNESS STATE: this computer has no Codex sign-in to point the scratch profile at; nothing below would measure a real agent.')
+        return
+      }
+      mkdirSync(path.join(scratch, 'home'), { recursive: true })
+      try { symlinkSync(realCodex, path.join(scratch, 'home', '.codex'), 'junction') } catch { /* pointed */ }
+      const realNpm = path.join(process.env.APPDATA || '', 'npm')
+      if (existsSync(realNpm)) {
+        mkdirSync(path.join(scratch, 'roaming'), { recursive: true })
+        try { symlinkSync(realNpm, path.join(scratch, 'roaming', 'npm'), 'junction') } catch { /* pointed */ }
+      }
+      note('info', 'the scratch profile POINTS at this computer\'s Codex sign-in; no credential is read or copied by this file.')
 
-    seedMachineRecord(scratch, staged.appRoot, 'standard')
+      seedMachineRecord(scratch, staged.appRoot, 'standard')
+    }
     window = await openWindow(staged.executable, scratch)
     pid = window.timeline.pid
     const computerId = await computersPage(window)
     if (!computerId) { note('FAIL', 'the computers page never named a computer'); return }
+
+    let nodeA = null
+    if (RESUME_SCRATCH) {
+      const record = await treeRecordOf(window, computerId)
+      const first = (record?.nodes || []).slice()
+        .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))[0]
+      if (!first) { note('FAIL', 'the kept scratch holds no node A to resume from'); return }
+      nodeA = { id: first.id, sessionId: first.sessionId || null }
+      note('info', `node A recovered as ${nodeA.id}`)
+    } else {
 
     console.log('\n[1] a real agent, started by hand')
     const started = await startNode(window, { doorway: '.computers .tree-empty-node', role: 'default', message: BRIEF_A })
     note(started.ok ? 'ok' : 'FAIL', started.ok ? 'node A started' : `node A could not start: ${started.why}`)
     if (!started.ok) return
 
-    const nodeA = await until(async () => {
+    nodeA = await until(async () => {
       const record = await treeRecordOf(window, computerId)
       const node = record?.nodes?.find(entry => entry.sessionId)
       return node && node.id ? { id: node.id, sessionId: node.sessionId } : null
@@ -317,6 +342,13 @@ async function main() {
       : `the reply did not read 742 back: ${JSON.stringify((memoryReply || '').slice(0, 120))}`)
 
     console.log('\n[4] RESTART the app; the resumed conversation must carry the rule')
+    /* Every sentence the agent said in THIS boot, by TEXT. A resume restores
+       the saved conversation into the transcript, so counting lines mistakes a
+       restored boot-1 reply for the answer to the question typed after the
+       restart — the first run of this driver did exactly that and read
+       "I read back 742" as the obedience answer. Only a text this boot never
+       produced can be the new reply. */
+    const bootOneLines = new Set(agentLinesOf(await transcriptsOf(window, computerId), nodeA.id))
     await closeWindow(window)
     reap(pid)
     window = null
@@ -328,22 +360,40 @@ async function main() {
     if (computerId2 !== computerId) note('warn', `the computer id changed across the restart (${computerId} -> ${computerId2})`)
     const reopened = await press(window, `.node[data-agent-id="${nodeA.id}"]`)
     if (!reopened.pressed) { note('FAIL', `after restart, node A's chat could not be opened: ${reopened.why}`); return }
-    const linesBefore = agentLinesOf(await transcriptsOf(window, computerId), nodeA.id).length
     const typedAfter = await typeReal(window, '.chat-input input', 'Tell me about this computer.')
     if (!typedAfter.ok) { note('FAIL', `after restart, the chat box could not be typed into: ${typedAfter.why}`); return }
     await key(window, 'Enter', 13)
 
+    /* THE ANSWER IS READ FROM THE ENGINE'S OWN ROLLOUT, not the transcript.
+       Measured on this driver's first two runs: the resume restores boot-1
+       lines the snapshot missed (a final reply that landed after the snapshot
+       was taken), so a transcript diff labels a RESTORED line as the new
+       answer — both runs read "I read back 742" as the reply to a question
+       about the computer. The rollout has no such ambiguity: the file that
+       carries the typed question carries, after it, the turn's own
+       task_complete with the final words. */
     const obeyReply = await until(async () => {
-      const lines = agentLinesOf(await transcriptsOf(window, computerId), nodeA.id)
-      return lines.length > linesBefore ? lines[lines.length - 1] : null
-    }, { timeoutMs: 240_000 })
-    if (!obeyReply) { note('FAIL', 'the restarted session never answered'); return }
+      const files = filesCarrying(scratch, 'Tell me about this computer.').filter(file => /\.jsonl$/i.test(file))
+      for (const file of files) {
+        const text = readFileSync(file, 'utf8')
+        const asked = text.indexOf('Tell me about this computer.')
+        const completions = [...text.slice(asked).matchAll(/"type":"task_complete"[^\n]*?"last_agent_message":"((?:[^"\\]|\\.)*)"/g)]
+        if (completions.length > 0) return JSON.parse(`"${completions[completions.length - 1][1]}"`)
+      }
+      return null
+    }, { timeoutMs: 300_000, everyMs: 5000 })
+    if (!obeyReply) { note('FAIL', 'the restarted session never answered the post-restart question'); return }
+    void bootOneLines
 
     /* FACT 1 — THE PRODUCT'S: the rule rode the restarted session's first
        turn. Proven in the engine's own rollout bytes, never inferred from
-       behaviour. The ledger file itself is excluded from the count. */
-    const carriers = filesCarrying(scratch, THREAD_RULE)
-      .filter(file => !file.includes(path.join('state', 'r-ledger')))
+       behaviour, and WAITED FOR: the rollout is the engine's own write and
+       lands on its own schedule. The ledger file itself is excluded. */
+    const carriers = await until(async () => {
+      const found = filesCarrying(scratch, THREAD_RULE)
+        .filter(file => !file.includes(path.join('state', 'r-ledger')))
+      return found.length > 0 ? found : null
+    }, { timeoutMs: 90_000, everyMs: 5000 }) || []
     note(carriers.length > 0 ? 'ok' : 'FAIL', carriers.length > 0
       ? `BRIEF CARRIAGE: the restarted session's engine rollout carries the rule (${carriers.length} file(s), e.g. ${path.relative(scratch, carriers[0])})`
       : 'the rule reached no engine rollout after the restart — the brief did not carry it')
@@ -355,14 +405,27 @@ async function main() {
       ? `OBEDIENCE: the model answered in one sentence: ${JSON.stringify(obeyReply.slice(0, 120))}`
       : `DISOBEDIENCE (the model's, not the product's): ${sentences} sentence-enders in ${JSON.stringify(obeyReply.slice(0, 160))}`)
 
+    }
+
     console.log('\n[5] scope isolation: a NEW TREE must not inherit A\'s session or thread rules')
+    /* The new-tree offer is WITHHELD while the view is drilled into a branch
+       or holding a chat open — the canvas's own documented rule, and the first
+       run of this driver hit it: the slot query ran with node A's chat still
+       open and reported "no new-tree slot" about a canvas behaving correctly.
+       A reload puts the page back at the top of the tree. */
+    await window.evaluate('location.reload()')
+    await delay(3800)
     const newTreeDoorway = await window.evaluate(`(() => {
-      const slot = document.querySelector('.computers .tree-empty-node[data-empty-kind="tree"]')
+      const slot = document.querySelector('.computers .tree-empty-node[data-empty-kind="new-tree"]')
       if (!slot) return null
       if (!slot.id) slot.id = 'drive-new-tree-doorway'
       return '#' + slot.id
     })()`)
-    if (!newTreeDoorway) { note('FAIL', 'the canvas offers no new-tree slot'); return }
+    if (!newTreeDoorway) {
+      const kinds = await window.evaluate(`[...document.querySelectorAll('.tree-empty-node')].map(n => n.dataset.emptyKind || 'unset')`)
+      note('FAIL', `the canvas offers no new-tree slot (slots present: ${JSON.stringify(kinds)})`)
+      return
+    }
     const startedB = await startNode(window, { doorway: newTreeDoorway, role: 'default', message: BRIEF_B })
     note(startedB.ok ? 'ok' : 'FAIL', startedB.ok ? 'node B started on its own tree' : `node B could not start: ${startedB.why}`)
     if (!startedB.ok) return
@@ -396,6 +459,8 @@ async function main() {
     writeFileSync(globalLedger, absurd, 'utf8')
     note('info', `planted ${Math.round(absurd.length / 1024)}KB of global ledger (301 entries)`)
 
+    await window.evaluate('location.reload()')
+    await delay(3800)
     const childDoorway = await window.evaluate(`(() => {
       const spots = [...document.querySelectorAll('.computers .tree-empty-node[data-empty-kind="child"]')]
       if (!spots.length) return null
