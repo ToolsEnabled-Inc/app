@@ -75,6 +75,7 @@ import {
   EFFORT_SWITCH,
   EFFORT_CHOICES,
   TIER_CHOICES,
+  signedOutProviderIds,
   startableTierIds,
   tierChoicesFor,
   actionRowWords,
@@ -882,6 +883,14 @@ export function computersView({ initialComputer = null, navigate }) {
      returns every tier, marking the ones that cannot start -- so the answer is
      held in the shape the shell gave it. */
   let startableTierIdList = TREE_DEFAULT_STARTABLE_TIERS
+  /* AND WHICH PROVIDERS THIS COMPUTER IS PROVABLY NOT SIGNED IN TO -- the second
+     half of "can this row start", and the half startableTiers() structurally
+     cannot see. Declared HERE, beside the other two, rather than beside the
+     function that fills it: both writers of startableTierChoices are above it in
+     this file, and a `let` sitting between them and their use is a temporal dead
+     zone waiting for the next person who moves a call. See readProviderSignIn().
+     Empty means nothing was learned, which draws exactly today's rows. */
+  let signedOutProviders = []
   /* ASK THE SHELL WHICH TIERS THIS COPY CAN REALLY START.
    *
    * THE DEFECT THIS CLOSES. This renderer used to decide startability from a
@@ -913,7 +922,12 @@ export function computersView({ initialComputer = null, navigate }) {
     }
     if (destroyed) return
     startableTierIdList = startableTierIds(reply)
-    startableTierChoices = tierChoicesFor(startableTierIdList)
+    /* THROUGH THE SHARED RECOMPUTE, never `tierChoicesFor(ids)` directly. This
+       function and readStartableTiers() both write startableTierChoices, and
+       this one is fired last (at the end of the view factory); computing the
+       rows without the sign-in reading here would silently erase the warning
+       the other had already put on them. */
+    repaintTierRows()
   }
   let destroyed = false
   let fetchVersion = 0
@@ -2850,6 +2864,40 @@ export function computersView({ initialComputer = null, navigate }) {
     } catch { /* session-only is still a real change */ }
   }
 
+  /* THE SECOND REASON A ROW CANNOT START, WHICH THE MENU WAS PROMISING TO SAY.
+   *
+   * The panel's own help reads "Luna is a good default. Each row says so if this
+   * copy cannot start it." That is a GUARANTEE, and a person who reads it stops
+   * looking -- which is why it is worse than no warning at all.
+   *
+   * startableTiers() answers only "does this payload carry a launcher": the
+   * shell's resolveStartTier() returns the row for any codex tier
+   * unconditionally, so it structurally cannot see a missing sign-in. Measured
+   * on the packaged build from a cold install, one machine, one moment: presence
+   * said codex signedIn "no", startableTiers listed luna/terra/sol, the rows said
+   * nothing, and the press refused with "This session needs a Codex sign-in".
+   * Re-reading the probe after the press -- a completed round trip -- changed
+   * nothing, and flipping presence to "yes" drew byte-identical rows.
+   *
+   * NOTHING NEW IS PROBED HERE. mcProviders.presence() already ships, is already
+   * on this preload, and src/setup-review-readiness.js already asks it this exact
+   * question one screen earlier. The only thing missing was this panel asking.
+   * Only a PROVEN negative is used, and signedOutProviderIds() owns that
+   * judgement -- see shell/provider-cli-presence.cjs, where only Codex treats a
+   * missing sign-in file as proof, "because this shell already refuses a start on
+   * exactly that basis".
+   *
+   * Read once per mount like its two neighbours: a person who signs in and comes
+   * back gets a fresh answer because the view is rebuilt, and presence caches
+   * nothing. `signedOutProviders` is declared with startableTierIdList, above. */
+  function repaintTierRows() {
+    startableTierChoices = tierChoicesFor(startableTierIdList, signedOutProviders)
+    /* A panel already on screen is re-opened over the same node so its menu
+       carries the answer, rather than leaving the person reading rows that were
+       drawn before the shell replied. */
+    if (composePanel?.isOpen?.()) composePanel.open({ tiers: startableTierChoices })
+  }
+
   async function readStartableTiers() {
     const bridge = typeof window === 'undefined' ? null : window.mcAgent
     if (!bridge || typeof bridge.startableTiers !== 'function') return
@@ -2857,11 +2905,17 @@ export function computersView({ initialComputer = null, navigate }) {
     try { reply = await bridge.startableTiers() } catch { reply = null }
     if (destroyed) return
     startableTierIdList = startableTierIds(reply)
-    startableTierChoices = tierChoicesFor(startableTierIdList)
-    /* A panel already on screen is re-opened over the same node so its menu
-       carries the answer, rather than leaving the person reading rows that were
-       drawn before the shell replied. */
-    if (composePanel?.isOpen?.()) composePanel.open({ tiers: startableTierChoices })
+    repaintTierRows()
+  }
+
+  async function readProviderSignIn() {
+    const bridge = typeof window === 'undefined' ? null : window.mcProviders
+    if (!bridge || typeof bridge.presence !== 'function') return
+    let reply
+    try { reply = await bridge.presence() } catch { reply = null }
+    if (destroyed) return
+    signedOutProviders = signedOutProviderIds(reply)
+    repaintTierRows()
   }
 
   /* WHAT A SESSION STARTED FROM THIS PANEL WOULD BE ALLOWED TO DO.
@@ -3278,6 +3332,7 @@ export function computersView({ initialComputer = null, navigate }) {
     /* Asked as the board comes up, so the answer is usually in hand before the
        first empty node is pressed. */
     void readStartableTiers()
+    void readProviderSignIn()
     void readComposeFolders()
     void readComposeDefaultFolder()
     void readComposeConfinement()

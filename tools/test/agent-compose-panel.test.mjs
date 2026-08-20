@@ -48,6 +48,7 @@ import {
   TIER_CHOICES,
   startableTierIds,
   tierChoicesFor,
+  signedOutProviderIds,
   EFFORT_CHOICES,
   effortOptionLabel,
   roleLabel,
@@ -978,6 +979,90 @@ test('an empty answer is an answer, and is not read as "everything starts"', () 
   const rows = tierChoicesFor(startableTierIds({ ok: true, tiers: [] }))
   assert.ok(rows.every(row => /cannot start/i.test(row.label)),
     `an empty answer left some row claiming it can start: ${JSON.stringify(rows.map(row => row.label))}`)
+})
+
+/* ---- "EACH ROW SAYS SO IF THIS COPY CANNOT START IT" IS A GUARANTEE ---------
+ *
+ * START_PANEL.tierHelp promises it, and a person who reads it stops looking --
+ * which is why a promise that is not kept is worse than no warning at all.
+ *
+ * startableTiers() answers only "does this payload carry a launcher":
+ * shell/agent-host.cjs resolveStartTier() returns the row for any codex tier
+ * unconditionally, so it structurally cannot see a missing sign-in -- and a
+ * missing sign-in is exactly what refuses the press, as
+ * AGENT_CONFINEMENT_SIGNED_OUT.
+ *
+ * MEASURED ON THE PACKAGED BUILD, cold install, one machine, one moment:
+ *   presence: codex installed yes, signedIn "no" | startableTiers: luna,terra,sol
+ *   rows drawn: "Luna · Codex"                   | press: "needs a Codex sign-in"
+ * Re-read after the press (a completed round trip) -- identical. Same build with
+ * presence flipped to "yes" -- byte-identical rows. So the rows were not a
+ * function of it at all.
+ * ------------------------------------------------------------------------- */
+
+const ALL_START = ['luna', 'terra', 'sol', 'claude-fable', 'claude-sonnet', 'claude-opus']
+
+test('a provider nobody is signed in to says so on its own rows', () => {
+  const rows = tierChoicesFor(ALL_START, signedOutProviderIds({
+    ok: true,
+    providers: [{ id: 'codex', installed: 'yes', signedIn: 'no' },
+      { id: 'claude', installed: 'yes', signedIn: 'unknown' }],
+  }))
+  for (const id of ['luna', 'terra', 'sol']) {
+    assert.match(rows.find(row => row.id === id).label, /nobody is signed in to Codex/,
+      `a Codex row stayed silent on a computer with no Codex sign-in: ${rows.find(row => row.id === id).label}`)
+  }
+  /* 'unknown' IS NEVER ROUNDED UP -- the same rule setup-review-readiness.js
+     states. A Claude row must not acquire a warning from an "I could not tell". */
+  for (const id of ['claude-fable', 'claude-sonnet', 'claude-opus']) {
+    assert.ok(!/nobody is signed in/.test(rows.find(row => row.id === id).label),
+      `an "unknown" sign-in reading was rounded up into a warning: ${rows.find(row => row.id === id).label}`)
+  }
+})
+
+test('a signed-in computer draws exactly the rows it always drew', () => {
+  /* THE DISCRIMINATING ARM, as a test. Without it the one above also passes on a
+     build that simply warns on every row, which would be the same defect wearing
+     the other sign. */
+  const signedIn = tierChoicesFor(ALL_START, signedOutProviderIds({
+    ok: true, providers: [{ id: 'codex', installed: 'yes', signedIn: 'yes' }],
+  }))
+  assert.deepEqual(signedIn.map(row => row.label), tierChoicesFor(ALL_START).map(row => row.label),
+    'a working sign-in changed the menu, which means the warning is not about the sign-in')
+  assert.ok(signedIn.every(row => !/nobody is signed in/.test(row.label)))
+})
+
+test('nothing learned about sign-in leaves the rows exactly where they were', () => {
+  /* No bridge, a rejected call, a malformed reply, a provider row without the
+     word: none of them may put a terminal command in front of somebody who is
+     already signed in. The same discipline startableTierIds() applies. */
+  const plain = tierChoicesFor(ALL_START).map(row => row.label)
+  for (const reply of [null, undefined, {}, { ok: false }, { ok: true },
+    { ok: true, providers: 'codex' }, { ok: true, providers: [{ id: 'codex', signedIn: 'unknown' }] },
+    { ok: true, providers: [{ signedIn: 'no' }] }]) {
+    assert.deepEqual([...signedOutProviderIds(reply)].length === 0 ? plain
+      : tierChoicesFor(ALL_START, signedOutProviderIds(reply)).map(row => row.label), plain,
+      `an unusable presence reply changed the menu: ${JSON.stringify(reply)}`)
+  }
+})
+
+test('no launcher outranks no sign-in, because signing in would not fix it', () => {
+  const rows = tierChoicesFor(['luna'], ['codex'])
+  assert.match(rows.find(row => row.id === 'luna').label, /nobody is signed in to Codex/)
+  assert.match(rows.find(row => row.id === 'terra').label, /cannot start from a tree yet/,
+    'a row this copy carries no launcher for must not be told to sign in')
+  assert.ok(!/nobody is signed in/.test(rows.find(row => row.id === 'terra').label))
+})
+
+test('the panel puts the sign-in warning on the glass, where the person reads it', () => {
+  /* The rows are computed in the copy module and RENDERED here; a test of the
+     first alone cannot see a panel that draws a list of its own. */
+  const handed = tierChoicesFor(ALL_START, ['codex'])
+  const { handle } = open({ tiers: handed })
+  const labels = fieldNamed(handle, 'tier').children.map(option => option.textContent)
+  assert.deepEqual(labels, handed.map(choice => choice.label))
+  assert.ok(labels.some(label => /nobody is signed in to Codex/.test(label)),
+    'the warning was computed and never reached the screen')
 })
 
 test('the compose panel renders the engine rows it is handed, not a list of its own', () => {

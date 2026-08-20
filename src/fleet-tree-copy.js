@@ -298,6 +298,36 @@ export const TREE_DEFAULT_STARTABLE_TIERS = Object.freeze(['luna', 'terra', 'sol
    true, and the same product hands work to a Claude assistant on the agent page,
    where it is not. The old wording made those two screens contradict each other. */
 const TIER_CANNOT_START_HERE = 'cannot start from a tree yet'
+/* THE OTHER REASON A ROW CANNOT START, AND THE ONE tierHelp WAS PROMISING AND
+ * NOT DELIVERING.
+ *
+ * `startable` above answers ONE question: does this payload carry a launcher for
+ * that tier. shell/agent-host.cjs resolveStartTier() returns the row for any
+ * provider === 'codex' unconditionally, so it structurally cannot see a missing
+ * sign-in -- and a missing sign-in is exactly what refuses the press, by name,
+ * as AGENT_CONFINEMENT_SIGNED_OUT.
+ *
+ * MEASURED ON THE PACKAGED BUILD, one machine, one moment, cold install:
+ *   mcProviders.presence()      codex installed yes, signedIn "no"
+ *   mcAgent.startableTiers()    luna, terra, sol  (and the three Claude tiers)
+ *   the rows drawn              "Luna · Codex", saying nothing
+ *   the press                   "Nothing was started. This session needs a
+ *                                Codex sign-in, and this computer does not
+ *                                hold one."
+ * Re-read after the press, with a completed round trip behind it: identical. And
+ * the discriminating arm -- the same build with presence flipped to signedIn
+ * "yes" -- drew rows that were byte-identical, so the rows were not a function of
+ * it at all. Meanwhile "Local · your computer — cannot start from a tree yet"
+ * printed correctly throughout, which is what proves the rows CAN say so.
+ *
+ * ONLY THE PROVEN NEGATIVE REACHES THIS, and shell/provider-cli-presence.cjs is
+ * where that discipline is already written: only Codex treats a missing sign-in
+ * file as proof ('no'), "because this shell already refuses a start on exactly
+ * that basis". Everything else -- 'yes', 'unknown', no answer yet, no bridge --
+ * says nothing, because a file that exists is not a working sign-in and rounding
+ * an "I could not tell" up to a warning would put a terminal command in front of
+ * somebody who is already signed in. */
+const TIER_NOBODY_SIGNED_IN = provider => `nobody is signed in to ${provider} on this computer`
 /**
  * Which tiers this copy can really start, out of what the shell answered.
  *
@@ -327,18 +357,50 @@ export function startableTierIds(reply) {
   return Object.freeze(known)
 }
 
-/** The menu rows, labelled by what this copy can actually start. */
-export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS) {
+/**
+ * The menu rows, labelled by what this copy can actually start.
+ *
+ * @param startable      tier ids the shell resolved, from startableTierIds().
+ * @param signedOutOf    provider ids this computer is PROVABLY not signed in to
+ *                       -- `presence()` answering 'no', never 'unknown'. Empty
+ *                       by default, so a caller that has not asked, or cannot,
+ *                       gets exactly the rows it got before this parameter
+ *                       existed.
+ *
+ * NO LAUNCHER OUTRANKS NO SIGN-IN when a row somehow has both: a copy that
+ * carries nothing to start cannot be fixed by signing in, so telling someone to
+ * sign in would be sending them to do work that changes nothing.
+ */
+export function tierChoicesFor(startable = TREE_DEFAULT_STARTABLE_TIERS, signedOutOf = []) {
   const canStart = new Set(Array.isArray(startable) ? startable : TREE_DEFAULT_STARTABLE_TIERS)
+  const signedOut = new Set(Array.isArray(signedOutOf) ? signedOutOf.filter(id => typeof id === 'string') : [])
   return Object.freeze(LAUNCH_TIERS.map(tier => {
     const provider = TIER_PROVIDER_WORDS[tier.provider] || tier.provider
+    let why = ''
+    if (!canStart.has(tier.id)) why = TIER_CANNOT_START_HERE
+    else if (signedOut.has(tier.provider)) why = TIER_NOBODY_SIGNED_IN(provider)
     return Object.freeze({
       id: tier.id,
-      label: canStart.has(tier.id)
-        ? `${tier.label} · ${provider}`
-        : `${tier.label} · ${provider} — ${TIER_CANNOT_START_HERE}`,
+      label: why ? `${tier.label} · ${provider} — ${why}` : `${tier.label} · ${provider}`,
     })
   }))
+}
+
+/**
+ * Which providers this computer is PROVABLY not signed in to, out of a
+ * `mcProviders.presence()` reply.
+ *
+ * The whole judgement lives here rather than at the call site for the same
+ * reason startableTierIds() does: it is the place that refuses to believe
+ * anything but a proven negative, and a second copy of that rule at a caller is
+ * a second copy that softens. Anything that is not `ok:true` with a providers
+ * array teaches nothing and yields nothing.
+ */
+export function signedOutProviderIds(reply) {
+  if (!reply || typeof reply !== 'object' || reply.ok !== true || !Array.isArray(reply.providers)) return Object.freeze([])
+  return Object.freeze(reply.providers
+    .filter(row => row && typeof row.id === 'string' && row.signedIn === 'no')
+    .map(row => row.id))
 }
 
 /* WHAT A NODE'S ENGINE ROW SAYS, DERIVED RATHER THAN DECLARED.
