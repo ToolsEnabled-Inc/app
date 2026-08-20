@@ -51,6 +51,37 @@ Running your own server for these capabilities is free; the reason to pay is
 that you would rather we ran one for you.
 
 -------------------------------------------------------------------------------
+CRYPTOGRAPHY
+-------------------------------------------------------------------------------
+
+This software uses cryptography solely through standard platform primitives:
+Node.js `node:crypto`, WebCrypto at the browser edge, and the Windows Data
+Protection API (DPAPI) for local credential storage. It implements no
+cryptographic algorithm of its own and contains no homegrown or proprietary
+cryptographic construction. No third-party cryptographic library is used.
+
+The primitives it calls are:
+
+  - Ed25519 signatures, for device identity and for verifying signed
+    material it is given.
+  - SHA-256, for content addressing and integrity checks, including the
+    payload and release digests this application publishes about itself.
+  - HMAC-SHA-256, for keyed integrity.
+  - scrypt, for deriving a key from a password held locally.
+  - Random generation, for identifiers and nonces.
+
+One non-cryptographic use of a hash function appears in the source and is
+named here so an inventory does not read as though it were a security
+mechanism:
+
+  - SHA-1 in `tools/installer-identity.mjs`, as the hash mandated by
+    RFC 4122 for a version-5 UUID. It derives a stable installer identifier
+    from a namespace and a name, and it must match the identifier the
+    packaging toolchain produces or an upgrade would install alongside the
+    previous version rather than over it. It protects nothing, and the
+    algorithm is fixed by the UUID specification rather than chosen here.
+
+-------------------------------------------------------------------------------
 LEGAL STATUS
 -------------------------------------------------------------------------------
 
