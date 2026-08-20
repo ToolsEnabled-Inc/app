@@ -56,6 +56,20 @@ test('what the product added about the tree is recorded too, and separately', ()
   )
 })
 
+test('the tree context is drawn as the tree words, not as a second dark YOU bubble', () => {
+  /* The address block is recorded who:'you' — the side it was sent from — and
+     both surfaces therefore painted it as three hundred pixels of plumbing in
+     the person's own colour, the loudest thing in the conversation (measured
+     on a staged packaged build, 2026-08-20). It is recognised at draw time by
+     the SAME contract shell/agent-host.cjs reads the address back out of
+     (readTreeAddress), never by guessing at prose, and the record itself is
+     untouched. */
+  assert.match(view, /function markTreeContext/, 'nothing renames the tree context at draw time')
+  assert.match(view, /readTreeAddress\(entry\.text\)/, 'the context is recognised by something other than the address contract')
+  assert.match(view, /mergeActionsIntoHistory\(markTreeContext\(history\)/, 'the chat config draws the raw history, so the context wears YOU again')
+  assert.match(components, /entry\.who === 'context'/, 'buildChat does not know the context entry; it would fall through as a them-bubble')
+})
+
 test('the manager named in the brief is the name on the circle', () => {
   /* MEASURED, not guessed: on a staged build with a real Codex session, a child
      under a circle drawn "Manager" was told its manager was "Agent", and it

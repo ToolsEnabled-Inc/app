@@ -629,7 +629,19 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
     detail.className = 'chat-action-detail'
     const state = document.createElement('span')
     state.className = 'chat-action-state'
-    head.append(tool, detail, state)
+    /* THE ROW SAYS WHETHER IT OPENS. Expandable rows and bare rows (a
+       conversation restored from the excerpt keeps the command, not its
+       output) drew identically, so a person pressing a bare row got nothing
+       and learned the rows were broken. The disclosure mark is the
+       difference: drawn on a row with something to open, blank on one
+       without — the mark's SPACE is kept either way so the columns align.
+       Decorative only (the details element already announces its state), so
+       it is hidden from the accessibility tree. */
+    const mark = document.createElement('span')
+    mark.className = 'chat-action-mark'
+    mark.setAttribute('aria-hidden', 'true')
+    mark.innerHTML = '<svg viewBox="0 0 8 8"><path d="M2.6 1.4 5.4 4 2.6 6.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    head.append(mark, tool, detail, state)
     /* A command and its output are machine text: textContent, never markup. */
     const body = document.createElement('pre')
     body.className = 'chat-action-body'
@@ -726,6 +738,15 @@ export function buildChat({ title, subtitle = '', roleKey = 'coordinator', seed 
          to be shorter than the conversation really was. Same kind, same rule,
          same look as one spoken live. */
       if (entry.who === 'note') { addMsg('note', entry.text, undefined, Number.isFinite(entry.at) ? entry.at : Date.now()); continue }
+      /* WORDS THE PRODUCT SENT FROM THE PERSON'S SIDE -- the tree's context
+         block. The caller marks it (this component stays copy-free, so the
+         label rides on the entry) and it renders on the sent side in the
+         aside family's quiet dress, so the person's own words stay the only
+         thing wearing their colour. */
+      if (entry.who === 'context') {
+        addMsg('context', entry.text, typeof entry.label === 'string' ? entry.label : null, Number.isFinite(entry.at) ? entry.at : Date.now())
+        continue
+      }
       /* The label is left to addMsg -- the SAME rule the live path takes, so a
          restored conversation and the turn that continues it cannot disagree
          about whose words are whose. */

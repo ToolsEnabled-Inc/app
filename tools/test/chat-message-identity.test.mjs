@@ -19,8 +19,9 @@
  * no sender label while their restored history did.
  *
  * The rule pinned here: a message paints by WHO SAID IT, never by which code
- * path delivered it, and the log has exactly three kinds -- the agent, the
- * person, and the product's own notes -- every one of them styled.
+ * path delivered it, and every kind the log can produce is styled. There are
+ * four: the agent, the person, the product's own notes, and the words the
+ * product sent on the person's behalf.
  */
 
 import assert from 'node:assert/strict'
@@ -58,11 +59,32 @@ test('the product own notes are a kind of their own, and it is styled', () => {
   assert.match(styles, /\.msg\.note\b/, 'the note row has no rule in styles.css; it will paint as bare full-width text')
 })
 
+test('the product speaking from your side is not dressed as you', () => {
+  /* The rule for `context` has to differ from `me` or the enumeration above is
+     satisfied by a rule that simply re-states the person's own bubble -- which
+     is the exact defect this kind was created to end. `me` is the only dark
+     gradient bubble in the log; the context aside must not carry it. */
+  const own = styles.slice(styles.indexOf('.msg.me {'), styles.indexOf('.msg.note {'))
+  const context = styles.slice(styles.indexOf('.msg.context {'), styles.indexOf('.msg.context .who'))
+  assert.match(own, /linear-gradient\(/, 'the person bubble stopped being the gradient this test compares against; re-measure')
+  assert.ok(!/linear-gradient\(/.test(context), 'the tree context wears the person own bubble again')
+  assert.match(context, /border: 1px dashed/, 'the context row left the aside family, so it no longer reads as the product speaking')
+})
+
 test('every kind the log can produce has a rule', () => {
-  /* The three kinds, enumerated in one place so this test can be exhaustive
-     rather than a spot check. */
+  /* The kinds, enumerated in one place so this test can be exhaustive rather
+     than a spot check. A new kind must be added HERE, deliberately, with a
+     sentence saying who it speaks for -- that is the whole point of the list.
+     `context` is the fourth, added 2026-08-20: words the PRODUCT put into the
+     conversation from the person's side (the tree's address block, which every
+     tree start sends). It is not the person -- they did not write it -- and it
+     is not the agent -- the agent received it. It stays on the sent side
+     because that is where it came from, and it wears the aside family's quiet
+     dress because the person's own words must be the only dark bubbles they
+     own. See .msg.context in styles.css and markTreeContext in
+     src/views/computers.js. */
   const kinds = [...new Set([...chat.matchAll(/(?:addMsg|makeMsg)\('(\w+)'/g)].map(match => match[1]))].sort()
-  assert.deepEqual(kinds, ['me', 'note', 'them'], `the log gained a message kind: ${kinds.join(', ')}`)
+  assert.deepEqual(kinds, ['context', 'me', 'note', 'them'], `the log gained a message kind: ${kinds.join(', ')}`)
   for (const kind of kinds) {
     assert.ok(new RegExp(`\\.msg\\.${kind}\\b`).test(styles), `.msg.${kind} has no rule; that kind paints as bare text`)
   }

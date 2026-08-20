@@ -80,6 +80,7 @@ import {
   activityLine,
   foldedActionsLine,
   TRANSCRIPT_TRIMMED_NOTE,
+  TREE_CONTEXT_LABEL,
   refusalNeedsAssistantProgram, roleLabel, runningLine, startRefusalSentence, startingLine,
   usageSentence,
 } from '../fleet-tree-copy.js'
@@ -118,7 +119,7 @@ import { createFleetTreeStore, FLEET_TREE_LIMITS, markTreeStoreLive, NODE_REMOVE
    the person for "the manager's identifier" while its manager was drawn one
    circle above it (owner, 2026-08-18). See that file's header for why this
    rides in the message text rather than in an engine option. */
-import { composeNodeBrief, nodeManagerContext } from '../tree-node-brief.js'
+import { composeNodeBrief, nodeManagerContext, readTreeAddress } from '../tree-node-brief.js'
 import { mountAgentComposePanel } from '../agent-compose-panel.js'
 import { WRITE_FLAGS_EVENT, isWriteEnabled, setWriteEnabled } from '../write-flags.js'
 import { START_CONTROL_FLAG, START_CONTROL_ON, startControlOffBecause } from '../setup-profile.js'
@@ -1769,6 +1770,23 @@ export function computersView({ initialComputer = null, navigate }) {
    * newest, so it goes on the end. The two halves cannot double up either:
    * a buffered row is marked the moment it is filed, and only unfiled rows
    * are added here. */
+  /* THE TREE'S OWN WORDS, NAMED AS SUCH BEFORE THEY ARE DRAWN. The address
+     block is recorded `who: 'you'` because that is the side it was sent from
+     (see onSessionOpen), and both chat surfaces therefore painted it as a
+     second dark YOU bubble — three hundred pixels of plumbing wearing the
+     person's colour, the loudest thing in the conversation (measured on a
+     staged packaged build, 2026-08-20). It is recognised here by the same
+     contract line shell/agent-host.cjs reads the address back out of —
+     readTreeAddress, exported for exactly this kind of caller — never by
+     guessing at prose. The record is untouched; only the drawing changes. */
+  function markTreeContext(history) {
+    return (Array.isArray(history) ? history : []).map(entry => (
+      entry && entry.who === 'you' && typeof entry.text === 'string' && readTreeAddress(entry.text)
+        ? { ...entry, who: 'context', label: TREE_CONTEXT_LABEL }
+        : entry
+    ))
+  }
+
   function mergeActionsIntoHistory(history, sessionId) {
     const buffer = sessionActions.get(sessionId)
     const held = buffer ? buffer.list() : []
@@ -2047,7 +2065,7 @@ export function computersView({ initialComputer = null, navigate }) {
          has to show the commands already run, or a person watching a five-
          minute turn sees an empty log and concludes the product is hung -- the
          exact reading the owner reported. */
-      history: mergeActionsIntoHistory(history, node.sessionId),
+      history: mergeActionsIntoHistory(markTreeContext(history), node.sessionId),
       /* BOTH SURFACES REGISTER THEMSELVES THROUGH THE SHARED CONFIG. The rail's
          Chat tab and the compact card each spread this object, so neither can
          be the one that forgot to. */

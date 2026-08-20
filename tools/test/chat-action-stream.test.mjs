@@ -34,7 +34,7 @@ import {
   createActionBuffer,
   sessionActivityEvent,
 } from '../../src/agent-session-events.js'
-import { actionRowWords, foldedActionsLine } from '../../src/fleet-tree-copy.js'
+import { actionRowWords, commandSummary, foldedActionsLine } from '../../src/fleet-tree-copy.js'
 
 const SRC = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'src')
 const components = readFileSync(join(SRC, 'components.js'), 'utf8')
@@ -299,6 +299,60 @@ test('a conversation still open keeps the output its rows printed', () => {
 test('an action row has a rule, and its opened body has one too', () => {
   assert.match(styles, /\.chat-action\b/, 'the action row has no rule; it paints as bare text like the reply bubbles did')
   assert.match(styles, /\.chat-action-detail\b/, 'the command has no rule of its own, so it cannot be truncated on one line')
+})
+
+test('an action row cannot be shrunk to a hairline by a scrolling log', () => {
+  /* MEASURED on a staged packaged build, 2026-08-20 (and independently by a
+     second lane on the sealed cut the same night): the log is a column flex
+     container, .chat-action clips with overflow: hidden, and per flexbox an
+     item whose overflow is not visible has an automatic minimum size of ZERO.
+     So the moment a conversation scrolled — every real one — the negative
+     free space was taken out of the only shrinkable items and every action
+     row painted at ONE PIXEL: the whole context-window feature invisible,
+     while the short-demo screenshots looked fine. flex: none is the row's
+     existence; the overflow clip stays because the radius needs it. */
+  const rule = styles.slice(styles.indexOf('.chat-action {'), styles.indexOf('.chat-action-head {'))
+  assert.match(rule, /flex: none/, 'the row is shrinkable again; in any scrolled conversation it will paint at 1px')
+  assert.match(rule, /overflow: hidden/, 'the clip is part of the mechanism this pin documents; if it moved, re-measure')
+})
+
+test('a command row shows the command, never fifty characters of shell wrapper', () => {
+  /* MEASURED 2026-08-20: codex on Windows delivers every shell line as
+     "C:\...\powershell.exe" -Command '...', so two different commands drew two
+     visually identical rows. The summary strips a RECOGNISED wrapper only;
+     the full line survives in the opened body and the hover title. */
+  const wrapped = '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command \'node --version\''
+  assert.equal(commandSummary(wrapped), 'node --version')
+  assert.equal(
+    actionRowWords({ kind: 'call', tool: 'commandExecution', detail: wrapped, state: 'working', output: '' }).detail,
+    'node --version',
+  )
+  assert.equal(commandSummary('bash -lc "ls -la"'), 'ls -la')
+  assert.equal(commandSummary('cmd.exe /c dir'), 'dir')
+  /* Anything not recognised comes back untouched: a path, a URL, a program
+     whose name merely ends like a shell, a shell line with no command flag. */
+  assert.equal(commandSummary('npm test'), 'npm test')
+  assert.equal(commandSummary('C:/tools/publish.exe -c fast'), 'C:/tools/publish.exe -c fast')
+  assert.equal(commandSummary('powershell.exe -File script.ps1'), 'powershell.exe -File script.ps1')
+  assert.equal(commandSummary('https://example.org/a b'), 'https://example.org/a b')
+})
+
+test('the action rows use the mono token that exists', () => {
+  /* var(--mono, …) referenced a token that never existed — the third
+     silent-invalid instance of it found in this stylesheet — so the rows
+     rendered in the var() fallback face, visibly different from every other
+     mono surface. */
+  assert.ok(!/var\(--mono[,)]/.test(styles), 'something still reads --mono, a token no rule defines')
+})
+
+test('a row that opens says so, and a bare row does not pretend to', () => {
+  /* A restored conversation keeps the command and not its output, and those
+     bare rows refused a press in silence — a control that lies about being a
+     control. The disclosure mark is the difference, and its space is held on
+     bare rows so the columns stay aligned. */
+  assert.match(door, /chat-action-mark/, 'no disclosure mark; expandable and bare rows draw identically')
+  assert.match(styles, /\.chat-action\[open\] \.chat-action-mark svg[^}]*rotate/, 'the mark does not turn, so an open row looks closed')
+  assert.match(styles, /\.chat-action\.is-bare \.chat-action-mark[^}]*visibility: hidden/, 'a bare row still presents itself as pressable')
 })
 
 /* ---------------------------------------------------------------

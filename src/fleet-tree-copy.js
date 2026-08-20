@@ -918,6 +918,43 @@ const ACTION_STATE_WORDS = Object.freeze({
   waiting: 'waiting for you',
 })
 
+/* THE COMMAND, NOT ITS DELIVERY VAN. On Windows the codex engine runs every
+   shell line as
+     "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '...'
+   so every command row in a chat opened with the same fifty-six characters of
+   wrapper and the part a person asked about was past the ellipsis — measured
+   on a staged packaged build 2026-08-20, where two different commands drew
+   two visually identical rows. The row is a summary, so it shows what the
+   agent ran; the full line, wrapper and all, stays in the opened body and the
+   hover title, because the summary must never be the only record.
+
+   RECOGNISED, NEVER GUESSED: the first token must BE a known shell (by its
+   basename), the flags between it and the command text must be from the short
+   known list, and the command-carrying flag must be present. Anything else
+   comes back untouched — a path, a URL, or a shell line in a spelling this
+   has not measured is shown exactly as it arrived. */
+const SHELL_NAMES = Object.freeze(['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe', 'cmd', 'cmd.exe', 'bash', 'bash.exe', 'sh', 'sh.exe', 'zsh'])
+
+export function commandSummary(command) {
+  if (typeof command !== 'string' || command.length === 0) return command
+  const first = /^\s*(?:"([^"]+)"|(\S+))\s+([\s\S]+)$/.exec(command)
+  if (!first) return command
+  const executable = (first[1] || first[2] || '').split(/[\\/]/).pop().toLowerCase()
+  if (!SHELL_NAMES.includes(executable)) return command
+  let rest = first[3]
+  for (;;) {
+    const flag = /^(?:-NoProfile|-NonInteractive|-NoLogo|-ExecutionPolicy\s+\S+|\/d|\/s|-l)\s+/i.exec(rest)
+    if (!flag) break
+    rest = rest.slice(flag[0].length)
+  }
+  const intro = /^(?:-Command|-lc|-c|\/c)\s+/i.exec(rest)
+  if (!intro) return command
+  rest = rest.slice(intro[0].length).trim()
+  const quoted = /^'([\s\S]*)'$/.exec(rest) || /^"([\s\S]*)"$/.exec(rest)
+  const bare = (quoted ? quoted[1] : rest).trim()
+  return bare.length > 0 ? bare : command
+}
+
 /* AN MCP TOOL CARRIES ITS OWN NAME, in its own spelling: mcp__<server>__<tool>.
    MEASURED on the shipped build (2026-08-19): a child's two calls to
    mcp__toolsenabled__agent_comms_send_local each drew "Step Step finished" --
@@ -932,7 +969,9 @@ export function actionRowWords(row) {
   const raw = typeof row.tool === 'string' ? row.tool : ''
   const mcp = MCP_TOOL_NAME.exec(raw)
   const tool = ACTION_TOOL_WORDS[raw] || (mcp ? 'Tool' : (row.kind === 'approval' ? 'Approval' : 'Step'))
-  let detail = typeof row.detail === 'string' ? row.detail : ''
+  /* The summary drops a recognised shell wrapper (see commandSummary above);
+     details that are not wrapped shell lines pass through untouched. */
+  let detail = commandSummary(typeof row.detail === 'string' ? row.detail : '')
   if (detail.length === 0 && mcp) detail = `${mcp[2]} · ${mcp[1]}`
   return {
     tool,
@@ -946,6 +985,13 @@ export function actionRowWords(row) {
    must not be shown as if it were the whole thing. */
 export const TRANSCRIPT_TRIMMED_NOTE = 'Some older messages were left out so the newest ones would fit.'
 
+/* THE HEADING OVER THE TREE'S OWN WORDS IN A CONVERSATION. The address block
+   rides with every tree start as its own entry (the person can see everything
+   a session was given), and without a name of its own it wore the person's
+   "YOU" — a wall of plumbing attributed to them. Three plain words say whose
+   words they are; the entry itself stays whole. */
+export const TREE_CONTEXT_LABEL = 'added by the tree'
+
 /* WHAT THE CAP TOOK, SAID OUT LOUD. A per-turn cap a person cannot see is a
    cap that lies about how much the agent did. */
 export function foldedActionsLine(count) {
@@ -958,9 +1004,12 @@ export function activityLine(activity) {
   if (!activity || typeof activity !== 'object') return ''
   if (activity.kind === 'call') {
     if (activity.command) {
-      const command = activity.command.length > ACTIVITY_COMMAND_MAX
-        ? `${activity.command.slice(0, ACTIVITY_COMMAND_MAX)}…`
-        : activity.command
+      /* Same summary rule as the chat rows: the command, not the shell
+         wrapper the engine delivered it in. */
+      const spoken = commandSummary(activity.command)
+      const command = spoken.length > ACTIVITY_COMMAND_MAX
+        ? `${spoken.slice(0, ACTIVITY_COMMAND_MAX)}…`
+        : spoken
       return `Running a command: ${command}`
     }
     if (activity.tool === 'fileChange') return 'Editing files.'

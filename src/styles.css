@@ -1266,9 +1266,12 @@ body.frameless *, body.frameless *::before, body.frameless *::after {
 }
 .chat-close:hover { background: rgba(14,23,38,0.06); color: var(--ink); }
 .chat-close svg { width: 14px; height: 14px; }
-/* the 2px side padding is a hairline nudge that keeps the scrollbar off the
-   bubbles — below the scale's floor, so it stays literal */
-.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) 2px; }
+/* the 2px left padding is a hairline nudge that keeps content off the edge;
+   the RIGHT side clears the scrollbar. 2px on both sides was written for an
+   overlay scrollbar this window does not use: measured on the packaged build,
+   the thumb rides over the right edge of every own-message bubble, which is
+   exactly the touch the padding claimed to prevent. */
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s1) var(--s2) var(--s1) 2px; }
 .chat-time-divider {
   align-self: center;
   padding: 2px 0;
@@ -1355,6 +1358,24 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
   box-shadow: none;
 }
+.msg.context {
+  /* WORDS THE PRODUCT SENT FROM YOUR SIDE, dressed as neither of you. The
+     tree's address block rides with a start as its own transcript entry
+     (src/views/computers.js), and it painted as a second dark YOU bubble —
+     three hundred pixels of plumbing wearing the person's own colour, the
+     loudest thing in the whole conversation. Measured on a staged packaged
+     build, 2026-08-20. It stays on the sent side and stays whole — nothing a
+     session was given is hidden — but in the aside family's quiet dress, so
+     the person's actual words are the only dark bubbles on their side. */
+  align-self: flex-end;
+  max-width: 88%;
+  font-size: 12px;
+  color: var(--ink-25);
+  background: rgba(255,255,255,calc(0.34 * var(--wa)));
+  border: 1px dashed rgba(255,255,255,calc(0.7 * var(--wa)));
+  box-shadow: none;
+}
+.msg.context .who { color: var(--ink-25); }
 /* ---- WHAT THE AGENT DID, IN THE SAME LOG AS WHAT IT SAID ----
    One collapsed line per action, opened by a press. It is deliberately NOT a
    bubble: a bubble means somebody spoke, and nobody spoke here. It reads as a
@@ -1363,6 +1384,16 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 .chat-action {
   align-self: stretch;
   max-width: 100%;
+  /* flex: none IS THE ROW'S EXISTENCE, not tidiness. The log is a column flex
+     container, and `overflow: hidden` below turns this item's automatic
+     minimum size to zero — so the moment a conversation is tall enough to
+     scroll (every real one), the negative free space is taken out of these
+     rows and they paint at ONE PIXEL. Measured on a staged packaged build,
+     2026-08-20: a four-turn session held three action rows and every one drew
+     h=1 — the agent's work invisible, and pressing the sliver opened nothing
+     a person could see. The .msg rows never shrank only because their
+     overflow is visible, which is why nobody saw this in a short demo. */
+  flex: none;
   border-radius: 3px;
   border: 1px solid rgba(255,255,255,calc(0.7 * var(--wa)));
   border-left: 2px solid var(--ink-25);
@@ -1370,6 +1401,15 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   font-size: 12px;
   overflow: hidden;
 }
+/* A RUN OF STEPS READS AS ONE PIECE OF WORK. Consecutive action rows close up
+   (8px log gap minus 4) so five commands look like one block of doing, the way
+   an editor draws them, while a row that follows words keeps the full gap. */
+.chat-action + .chat-action { margin-top: calc(-1 * var(--s1)); }
+/* A NEW ASK IS A NEW PARAGRAPH. Everything in the log sat at the same 8px
+   apart, so a person could not see where one exchange ended and the next
+   began. Your next message stands off from the reply or the work above it;
+   inside a turn nothing moves. */
+.msg.them + .msg.me, .chat-action + .msg.me { margin-top: var(--s2); }
 .chat-action-head {
   display: flex; align-items: baseline; gap: var(--s2);
   padding: 5px var(--s2);
@@ -1381,6 +1421,16 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
 }
 .chat-action-head::-webkit-details-marker { display: none; }
 .chat-action.is-bare .chat-action-head { cursor: default; }
+/* The disclosure mark: drawn when the row has something to open, blank when
+   it does not (visibility, not display, so the columns stay aligned). It is
+   the one visual difference between a row that is a control and a row that is
+   a label — see makeAction in src/components.js. */
+/* align-self: center, because the head aligns its children on the text
+   baseline and a lone SVG has none — left to baseline the mark rides low. */
+.chat-action-mark { flex: none; width: 9px; color: var(--ink-4); display: inline-flex; align-items: center; align-self: center; }
+.chat-action-mark svg { width: 8px; height: 8px; transition: transform var(--dur-2) var(--ease); }
+.chat-action[open] .chat-action-mark svg { transform: rotate(90deg); }
+.chat-action.is-bare .chat-action-mark { visibility: hidden; }
 .chat-action-tool {
   flex: none;
   font-size: 10.5px; letter-spacing: var(--track-caps); text-transform: uppercase;
@@ -1392,7 +1442,12 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
      one press away, in the body below. */
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--mono, ui-monospace, monospace);
+  /* --font-mono, not --mono: the shorthand token never existed (the same
+     silent-invalid defect documented twice above on the projection rules).
+     Here the var() FALLBACK caught it, so the command rendered in
+     ui-monospace — a different mono face from every other mono surface in
+     the app — instead of inheriting. Measured live 2026-08-20. */
+  font-family: var(--font-mono);
   color: var(--ink-2);
 }
 .chat-action-state { flex: none; font-size: 11px; color: var(--ink-25); }
@@ -1405,7 +1460,8 @@ body.reduce-motion .chat-typing-dots i { animation: none !important; opacity: 0.
   max-height: 220px;
   overflow: auto;
   white-space: pre-wrap; word-break: break-word;
-  font-family: var(--mono, ui-monospace, monospace);
+  /* --font-mono, not --mono: see .chat-action-detail directly above. */
+  font-family: var(--font-mono);
   font-size: 11.5px; line-height: 1.4;
   color: var(--ink-25);
 }
